@@ -23,6 +23,8 @@
   to a smoke / cljs test; this corpus pins the pure projection only."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
+            [#?(:clj clojure.edn :cljs cljs.reader) :as edn]
+            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.ui.view-state :as rf.story.ui.view-state]))
 
 ;; ---------------------------------------------------------------------------
@@ -128,23 +130,92 @@
   (testing "a bare variant has nothing to upgrade FROM"
     (is (empty? (rf.story.ui.view-state/upgrade-targets bare-plan)))))
 
-(deftest upgrade-snippet-keeps-the-artifact-a-variant
-  (testing "the upgrade scaffold is a reg-variant :extends-ing the source
-            — same artifact kind, drops :sub-overrides, adds the rung slot"
-    (let [snip (rf.story.ui.view-state/upgrade-snippet :story.login/error :real-setup)]
-      (is (str/includes? snip "story/reg-variant")
-          "stays a reg-variant — artifact kind unchanged")
-      (is (str/includes? snip ":extends :story.login/error")
-          "extends the source so component/decorators/args carry forward")
-      (is (str/includes? snip ":setup")
-          "adds the :real-setup authoring slot")
-      (is (str/includes? snip "drop :sub-overrides"))))
+(def ^:private upgrade-lookup
+  "Raw variant bodies in the side-table shape — `:extends` intact, parents
+  unmerged, the registrar's `:source` coords stamp included — for the
+  `upgrade-snippet` tests. `:story.login/error` pins a sub on top of a
+  pin-free parent; `:story.login/locked` inherits that pin one layer down;
+  `:story.login/seeded` pins nothing."
+  {:story.login/base   {:args {:heading "Sign in"}}
+   :story.login/error  {:extends       :story.login/base
+                        :doc           "wrong password"
+                        :args          {:message "Invalid password"}
+                        :sub-overrides {[:login/state] :error}
+                        :source        {:ns 'story.login :file "stories.cljs" :line 12 :column 1}}
+   :story.login/locked {:extends :story.login/error
+                        :args    {:message "Locked out"}}
+   :story.login/seeded {:db-seed {:login {:state :idle}}}})
+
+(defn- read-upgrade
+  "Read the snippet `upgrade-snippet` emits back as EDN → `(op id body)`."
+  [source-id rung]
+  (edn/read-string
+    (rf.story.ui.view-state/upgrade-snippet source-id rung {:lookup upgrade-lookup})))
+
+(deftest upgrade-snippet-reads-back-as-one-reg-variant-form
+  (testing "every shape the generator emits parses — the rung note sits on its
+            own line, never after the body's last value, where `;` would
+            swallow the envelope's closing `})` (rf2-mw9th half 1)"
+    (doseq [[source-id rung] [[:story.login/error :real-setup]
+                              [:story.login/error :db-seed]
+                              [:story.login/locked :real-setup]
+                              [:story.login/seeded :real-setup]
+                              [:story.nope/unregistered :real-setup]]]
+      (let [[op id body] (read-upgrade source-id rung)]
+        (is (= 'story/reg-variant op) (str source-id " → " rung))
+        (is (= (rf.story.ui.view-state/upgraded-variant-id source-id) id))
+        (is (map? body))))))
+
+(deftest upgrade-snippet-drops-the-pin-instead-of-extending-the-pinned-source
+  (testing "the upgrade scaffold stays a reg-variant and adds the rung slot,
+            but does NOT :extends the pinned source — :extends inherits
+            :sub-overrides, so extending it would keep the pin (rf2-mw9th
+            half 2; this test used to pin `:extends <source>`)"
+    (let [[op id body] (read-upgrade :story.login/error :real-setup)]
+      (is (= 'story/reg-variant op) "stays a reg-variant — artifact kind unchanged")
+      (is (= :story.login/error-upgraded id))
+      (is (= :story.login/base (:extends body))
+          "extends the nearest pin-free ancestor, never the pinned source")
+      (is (not (contains? body :sub-overrides)) "the pin is dropped")
+      (is (= {:message "Invalid password"} (:args body))
+          "the source's own slots carry forward")
+      (is (= "wrong password" (:doc body)))
+      (is (not (contains? body :source)) "the registrar's coords stamp is not re-emitted")
+      (is (= [[:dispatch [:your/setup-event {}]]] (:setup body))
+          "adds the :real-setup authoring slot")))
   (testing "the db-seed upgrade scaffolds the :db-seed slot"
-    (is (str/includes? (rf.story.ui.view-state/upgrade-snippet :story.login/error :db-seed)
-                       ":db-seed")))
+    (is (= {} (:db-seed (nth (read-upgrade :story.login/error :db-seed) 2)))))
+  (testing "a pin inherited from higher up the chain — extend above it, name
+            the pinned layer that is not carried"
+    (let [snip (rf.story.ui.view-state/upgrade-snippet :story.login/locked :real-setup
+                                                       {:lookup upgrade-lookup})
+          body (nth (edn/read-string snip) 2)]
+      (is (= :story.login/base (:extends body)))
+      (is (= {:message "Locked out"} (:args body)))
+      (is (not (contains? body :sub-overrides)))
+      (is (str/includes? snip ";; not carried: :story.login/error"))))
+  (testing "a source that pins nothing is still extended, so its context flows down"
+    (is (= :story.login/seeded
+           (:extends (nth (read-upgrade :story.login/seeded :real-setup) 2)))))
   (testing "the derived upgraded id sits in the source's namespace"
     (is (= :story.login/error-upgraded
            (rf.story.ui.view-state/upgraded-variant-id :story.login/error)))))
+
+(deftest completed-upgrade-compiles-without-the-sub-overrides-rung
+  (testing "the COMPLETED scaffold compiles to a plan resting on real setup
+            alone — graded on the compiled artifact, not the snippet text"
+    (let [[_ id body] (read-upgrade :story.login/error :real-setup)
+          completed   (assoc body :setup [[:dispatch [:login/submit {:password "x"}]]])
+          lookup      (assoc upgrade-lookup id completed)]
+      (testing "control — the source is a pinned picture"
+        (is (contains? (get-in (rf.story.plan/variant-plan :story.login/error
+                                                           {:lookup upgrade-lookup})
+                               [:world :fidelity])
+                       :sub-overrides)))
+      (let [plan (rf.story.plan/variant-plan id {:lookup lookup})]
+        (is (= #{:real-setup} (get-in plan [:world :fidelity])))
+        (is (= {:heading "Sign in" :message "Invalid password"} (get-in plan [:world :args]))
+            "context from the extended ancestor and the source both reach the plan")))))
 
 ;; ---------------------------------------------------------------------------
 ;; provenance summaries — source shown

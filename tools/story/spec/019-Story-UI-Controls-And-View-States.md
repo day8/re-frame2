@@ -300,11 +300,15 @@ acceptance contract:
 
 - **The upgrade path, no artifact-kind change.** `upgrade-targets` lists
   the rungs stronger than the variant's floor; each offers an
-  `upgrade-snippet` — a copy-paste `(story/reg-variant … {:extends … })`
+  `upgrade-snippet` — a copy-paste `(story/reg-variant … { … })`
   scaffold that KEEPS the artifact a variant, adds the higher rung's
   authoring slot (`:setup` / `:db-seed`), and drops the `:sub-overrides`.
-  Source is never written directly (the save-variant / author-expectations
-  idiom).
+  Because `:extends` inherits `:sub-overrides`, the scaffold `:extends` the
+  source only when nothing on the source's chain pins a subscription;
+  otherwise it re-emits the source's own slots over its nearest pin-free
+  ancestor, so the completed upgrade compiles without the
+  `:sub-overrides` rung. Source is never written directly (the
+  save-variant / author-expectations idiom).
 
 ### 5.2 Schema-generated value entry for sub-overrides (CURRENT, rf2-xon7j)
 
