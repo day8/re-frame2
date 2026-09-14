@@ -59,7 +59,8 @@ The framework's `emit!` retains every frame-bound trace event in its
 per-frame ring at source. The listener fan-out also delivers a copy
 to Xray's `collect-trace!` body so Xray can:
 
-1. Drop self-noise (events emitted under `:rf/xray`).
+1. Drop self-noise (events emitted under `:rf/xray`, plus any trace
+   whose `:rf.sub/id` is one of Xray's own subs).
 2. Apply the privacy gate (drop `:sensitive?` events when the flag is
    off; bump the suppressed counter).
 3. Capture frameless events the framework's per-frame rings skipped
@@ -111,6 +112,21 @@ cover residual classes the frame gate misses:
    the frame gate + `xray-internal-event?`. The data-layer filter at
    the `:rf.xray/event-bundles` sub closes that hole structurally without
    forcing every call site to thread `:frame`.
+3. **`xray-internal-event-id?` on `[:tags :rf.sub/id]`** — Xray's own
+   sub reads that arrive FRAMELESS. A render-time cold read (the
+   shell's first mount) runs outside any event run, so its
+   `:rf.sub/run` stays frameless per [Spec 009 §Frame identity on the
+   raw event](../../../spec/009-Instrumentation.md#frame-identity-on-the-raw-event-tags-frame-read-via-the-canonical-accessor)
+   and slips past the frame gate + `xray-internal-event?`; core also
+   fails a frameless sub trace closed to `:sensitive? true`. So
+   `collect-trace!`'s self-noise drop also takes any trace whose
+   `:rf.sub/id` is in the `rf.xray` namespace or a sub-namespace —
+   otherwise each read would reach the privacy gate, count as a
+   redacted host event and cost a `:rf.xray/note-sensitive-suppressed`
+   dispatch into `:rf/xray` (rf2-izhgo). Pinned by
+   `xray-own-frameless-sub-reads-cost-no-queue-slot`, with the host-sub
+   control `control-a-host-frameless-sub-read-is-still-redacted`, in
+   `sensitive_trace_loop_cljs_test.cljs`.
 
 Both predicates are pure-data + JVM-runnable. The privacy gate sits
 *below* the self-noise drop in `collect-trace!`, so an internal
