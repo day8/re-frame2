@@ -65,6 +65,7 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.mount :as mount]
@@ -203,6 +204,34 @@
           "the dispatch landed — nothing recovered-but-emitted"))
     (is (= :app/main (core/target-frame))
         "and the host's intent is readable through the public facade")))
+
+;; ---- rf2-atecy — a boot that outlives a registrar wipe seats nothing ------
+;;
+;; The preload arms `boot-on-runtime-ready!` when it LOADS, so in a node-test
+;; bundle its tick lands in whichever test is running — including one whose
+;; fixture has just run `rf.registrar/clear-all!`. Seating there builds Xray's
+;; image over a pool with no Xray registration in it and core's zero-match
+;; guard throws from the timer, which crashed a `--test=` selection of the
+;; tools/story namespaces before it could print a verdict. The first tick runs
+;; synchronously when an adapter is already installed, so this pins the same
+;; branch without a timer.
+
+(deftest boot-after-a-registrar-wipe-seats-nothing-and-does-not-throw
+  (testing "rf2-atecy — with Xray's instruction set cleared from the
+            registrar, the runtime-ready boot ends without seating rather
+            than throwing `:rf.error/image-zero-match`"
+    (registry/register-xray-handlers!)
+    (is (some? (rf/handler-meta {:source :store :kind :event
+                                 :id :rf.xray/set-target-frame}))
+        "control: the probe sees the instruction set while it is registered")
+    (rf.registrar/clear-all!)
+    (is (nil? (rf/handler-meta {:source :store :kind :event
+                                :id :rf.xray/set-target-frame}))
+        "precondition: the wipe removed Xray's instruction set")
+    (is (nil? (mount/boot-on-runtime-ready!))
+        "the boot returns instead of throwing")
+    (is (nil? (rf.frame/frame :rf/xray))
+        "and seats nothing — there is no instruction set to seat")))
 
 ;; ---- (3) refutation pin — the epoch read is not the emitter --------------
 
