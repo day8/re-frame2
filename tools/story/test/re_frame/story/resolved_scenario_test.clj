@@ -228,6 +228,7 @@
 
 ;; ===========================================================================
 ;; 3 · rf2-gwye.7 — effective args agree across run, facade, save, snippet
+;;     (and, rf2-noxox, the `story/explain` a registered variant reports)
 ;; ===========================================================================
 
 (def ^:private inherited {:count 42 :nested {:v 7 :keep 1}})
@@ -250,12 +251,14 @@
     (rf.story/destroy-variant! vid)
     {:run      (:effective-args run)
      :facade   (rf.story/resolve-args vid opts)
-     :snapshot (rf.story.save-variant/snapshot-args vid opts)}))
+     :snapshot (rf.story.save-variant/snapshot-args vid opts)
+     :explain  (:effective-args (rf.story/explain vid opts))}))
 
 (deftest inherited-and-composed-args-agree-on-every-surface
   (reg-args-scenario!)
   (doseq [vid [:story.rsargs/child :story.rsargs/composed]]
-    (is (= {:run inherited :facade inherited :snapshot inherited} (surfaces vid nil))
+    (is (= {:run inherited :facade inherited :snapshot inherited :explain inherited}
+           (surfaces vid nil))
         (str vid " — the resolved variant layer beats the story default"))))
 
 (deftest saved-variant-round-trip-keeps-the-inherited-args
@@ -276,22 +279,38 @@
   (reg-args-scenario!)
   (is (= {:run      {:count 42 :nested {:v 9 :keep 1}}
           :facade   {:count 42 :nested {:v 9 :keep 1}}
-          :snapshot {:count 42 :nested {:v 9 :keep 1}}}
+          :snapshot {:count 42 :nested {:v 9 :keep 1}}
+          :explain  {:count 42 :nested {:v 9 :keep 1}}}
          (surfaces :story.rsargs/deep nil))))
 
 (deftest run-layers-fold-around-the-resolved-variant-layer
   (reg-args-scenario!)
   (testing "an active mode sits BELOW the inherited variant args"
     (let [expected (assoc inherited :theme :loud)]
-      (is (= {:run expected :facade expected :snapshot expected}
+      (is (= {:run expected :facade expected :snapshot expected :explain expected}
              (surfaces :story.rsargs/child {:active-modes [:Mode.rsargs/loud]})))))
   (testing "a cell override sits above everything"
     (let [expected (assoc inherited :count 99)]
-      (is (= {:run expected :facade expected :snapshot expected}
+      (is (= {:run expected :facade expected :snapshot expected :explain expected}
              (surfaces :story.rsargs/child {:cell-overrides {:count 99}}))))))
 
 (deftest direct-variant-args-control
   (reg-args-scenario!)
   (let [expected {:count 3 :nested {:v 0 :keep 1}}]
-    (is (= {:run expected :facade expected :snapshot expected}
+    (is (= {:run expected :facade expected :snapshot expected :explain expected}
            (surfaces :story.rsargs/direct nil)))))
+
+(deftest explain-folds-ambient-layers-for-a-registered-variant-only
+  (rf.story/reg-story :story.rsexplain {:args {:heading "Sign in"}})
+  (rf.story/reg-variant :story.rsexplain/bare {})
+  (rf.story.config/set-global-args! {:theme :dark})
+  (testing "a variant with no args of its own explains its story's and the global args"
+    (is (= {:theme :dark :heading "Sign in"}
+           (:effective-args (rf.story/explain :story.rsexplain/bare)))))
+  (testing "the bare compile stays explicit — the variant-chain layer alone"
+    (is (= {} (get-in (rf.story/variant-plan :story.rsexplain/bare)
+                      [:explain :effective-args]))))
+  (testing "an inline plan runs with no ambient layers, so explains none"
+    (is (= {:only :inline}
+           (:effective-args (rf.story/explain {:variant/id :inline/rsexplain
+                                               :args       {:only :inline}}))))))
