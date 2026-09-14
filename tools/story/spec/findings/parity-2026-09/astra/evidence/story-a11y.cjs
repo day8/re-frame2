@@ -1,8 +1,9 @@
+/* global cljs, re_frame */
 const fs=require('fs'),path=require('path');
 const {chromium}=require(path.resolve('implementation/node_modules/playwright'));
 (async()=>{
  const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(String(e)));
- await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Got it',exact:true}).click();
+ await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle', timeout: 30000 });await page.getByRole('button',{name:'Got it',exact:true}).click();
  const colors=await page.locator('[data-test="login-card"], [data-test="login-heading"]').evaluateAll(xs=>xs.map(x=>({element:x.getAttribute('data-test'),color:getComputedStyle(x).color,background:getComputedStyle(x).backgroundColor,text:x.textContent})));
  await page.getByRole('button',{name:'run',exact:true}).first().click();
  const consent=page.getByRole('button',{name:'enable axe-core + scan',exact:true});

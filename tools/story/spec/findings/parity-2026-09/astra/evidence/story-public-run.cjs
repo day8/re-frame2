@@ -1,8 +1,9 @@
+/* global cljs, re_frame */
 const fs=require('fs'),path=require('path');
 const {chromium}=require(path.resolve('implementation/node_modules/playwright'));
 (async()=>{
  const browser=await chromium.launch({headless:true});const page=await browser.newPage();
- await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle'});
+ await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle', timeout: 30000 });
  const observations=await page.evaluate(async()=>{
    const read=cljs.reader.read_string, pr=cljs.core.pr_str;
    const results=[];

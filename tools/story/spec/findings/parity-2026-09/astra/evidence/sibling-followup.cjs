@@ -1,3 +1,4 @@
+/* global cljs, re_frame */
 const fs=require('fs'),path=require('path');
 const {chromium}=require(path.resolve('implementation/node_modules/playwright'));
 const {expect}=require(path.resolve('implementation/node_modules/playwright/test'));
@@ -5,7 +6,7 @@ const {expect}=require(path.resolve('implementation/node_modules/playwright/test
  const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});
  const result={at:new Date().toISOString(),errors:[],routes:[]};page.on('pageerror',e=>result.errors.push(String(e)));
  for(const suffix of ['/','/index.html']){const r=await fetch('http://localhost:8043'+suffix);result.routes.push({url:r.url,status:r.status});await r.arrayBuffer();}
- await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle'});
+ await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle', timeout: 30000 });
  await page.getByRole('button',{name:'Got it',exact:true}).click();
  result.args=await page.evaluate(async()=>{
   const read=cljs.reader.read_string,pr=cljs.core.pr_str,id=read(':story.login-form/error');

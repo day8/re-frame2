@@ -1,3 +1,4 @@
+/* global cljs, re_frame */
 const fs=require('fs'),path=require('path');
 const {chromium}=require(path.resolve('implementation/node_modules/playwright'));
 const {expect}=require(path.resolve('implementation/node_modules/playwright/test'));
@@ -7,7 +8,7 @@ const {expect}=require(path.resolve('implementation/node_modules/playwright/test
  const result={at:new Date().toISOString(),browser:browser.version(),checks:[],pageErrors:[]};
  page.on('pageerror',e=>result.pageErrors.push(String(e)));
  async function check(name,fn){const start=Date.now();try{const value=await fn();result.checks.push({name,status:'passed',ms:Date.now()-start,result:value});}catch(e){result.checks.push({name,status:'failed',error:String(e)});} }
- await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle'});
+ await page.goto('http://localhost:8043/index.html?variant=story.login-form%2Ferror#/stories',{waitUntil:'networkidle', timeout: 30000 });
  await page.getByRole('button',{name:'Got it',exact:true}).click();
  await check('controls update the real view',async()=>{
    await page.getByRole('textbox',{name:':heading',exact:true}).fill('Research sign in');
