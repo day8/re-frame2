@@ -1,0 +1,77 @@
+
+ RUN  v4.1.11 <scratch>/storyjourneys-a-worker-storybook
+
+ ❯ |storybook (chromium)| src/Login.stories.tsx (4 tests | 1 failed | 3 skipped) 1404ms
+   × Welcome Back 1401ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |storybook (chromium)| src/Login.stories.tsx > Welcome Back
+TestingLibraryElementError: 
+[34mClick to debug the error directly in Storybook: http://localhost:6006/?path=/story/research-login--welcome-back&addonPanel=storybook/interactions/panel[39m
+
+Unable to find an element with the text: Welcome, ada@example.com. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<div>
+  <main
+    style="font-family: system-ui; max-width: 380px; padding: 24px;"
+  >
+    <h1>
+      Welcome back
+    </h1>
+    <p
+      role="status"
+    >
+      State: 
+      authenticated
+    </p>
+    <p>
+      Welcome, 
+    </p>
+    <button>
+      Sign out
+    </button>
+  </main>
+</div>
+
+Ignored nodes: comments, script, style
+<div>
+  <main
+    style="font-family: system-ui; max-width: 380px; padding: 24px;"
+  >
+    <h1>
+      Welcome back
+    </h1>
+    <p
+      role="status"
+    >
+      State: 
+      authenticated
+    </p>
+    <p>
+      Welcome, 
+    </p>
+    <button>
+      Sign out
+    </button>
+  </main>
+</div>
+ ❯ waitForWrapper node_modules/@testing-library/dom/dist/@testing-library/dom.esm.js:1127:26
+ ❯ node_modules/@testing-library/dom/dist/@testing-library/dom.esm.js:1207:11
+ ❯ findByText src/Login.stories.tsx:34:13
+     32| };
+     33| export const DeliberateFailure:Story={
+     34|   play:async({canvas,userEvent,step})=>{
+       |             ^
+     35|     await step('Detect the wrong expected welcome user',async()=>{
+     36|       await userEvent.type(canvas.getByLabelText('Email'),'ada@example…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  20:35:48
+   Duration  4.38s (transform 0ms, setup 1.23s, import 62ms, tests 1.40s, environment 0ms)
+

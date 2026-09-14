@@ -1,0 +1,35 @@
+
+ RUN  v4.1.11 <scratch>/storyjourneys-a-worker-storybook
+
+8:15:25 pm [vite] [90m[2m(client)[22m[39m [optimizer] scanning dependencies...
+ ❯ |storybook (chromium)| src/Login.stories.tsx (3 tests | 1 failed) 1110ms
+   × Deliberate Failure 220ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |storybook (chromium)| src/Login.stories.tsx > Deliberate Failure
+Error: 
+[34mClick to debug the error directly in Storybook: http://localhost:6006/?path=/story/research-login--deliberate-failure&addonPanel=storybook/interactions/panel[39m
+
+expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  Welcome, grace@example.com
+Received:
+  Welcome, ada@example.com
+ ❯ toHaveTextContent src/Login.stories.tsx:26:61
+     24|     await step('Retry with corrected credentials succeeds',async()=>{
+     25|       await userEvent.clear(canvas.getByLabelText('Password'));
+     26|       await userEvent.type(canvas.getByLabelText('Password'),'correct-…
+       |                                                             ^
+     27|       await userEvent.click(canvas.getByRole('button',{name:'Retry'}));
+     28|       await expect(await canvas.findByText('Welcome, ada@example.com')…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  20:15:21
+   Duration  7.40s (transform 0ms, setup 1.00s, import 42ms, tests 1.11s, environment 0ms)
+
