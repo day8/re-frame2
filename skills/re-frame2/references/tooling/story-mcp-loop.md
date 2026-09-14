@@ -83,15 +83,20 @@ Each recipe names its forms on this host; the browser forms of the same three ar
 
 A failing run becomes a regression variant only when the new variant keeps the reason the run failed. There are three routes.
 
-- **From the API** — either host; here on the JVM. Compile the source's plan, coerce it to a run artifact, and promote it under a new id:
+- **From the API** — either host; here on the JVM. Compile the source's plan with the run's argument layers, coerce it to a run artifact, and promote it under a new id:
 
   ```clojure
   (require '[re-frame.story :as story]
+           '[re-frame.story.args :as args]
            '[re-frame.story.determinism :as determinism])
   (story/promote-run-artifact!
-    (determinism/->artifact (story/variant-plan :story.cart/checkout-fails))
+    (determinism/->artifact
+      (story/variant-plan :story.cart/checkout-fails
+                          {:run-args (args/run-arg-layers :story.cart/checkout-fails)}))
     {:variant/id :story.cart/checkout-regression})
   ```
+
+  `:run-args` folds in the layers a run applies around the variant: global args and the parent story's `:args`. Without it the plan sees the variant's own `:args` alone, so a script that substitutes a story-level `[:arg …]` throws `:rf.error/story-missing-arg`. If the failing run passed `:active-modes` or `:cell-overrides`, pass that same opts map as `run-arg-layers`' second argument.
 
   The registered body carries the source's whole program (setup and script, `[:assert …]` checkpoints included) and the source's own `:assertions` and `:checks`.
 - **From Test mode** — the browser, where a human or a `re-frame2-pair` session drives it. The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and `:checks`, and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step (every login-form testbed variant) promotes from Test mode too: the dialog captures that variant's own stepped program.
