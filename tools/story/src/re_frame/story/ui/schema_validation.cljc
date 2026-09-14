@@ -82,6 +82,7 @@
                        [re-frame.story.plan       :as rf.story.plan]
                        [re-frame.story.registrar  :as rf.story.registrar]
                        [re-frame.story.view-args  :as rf.story.view-args]
+                       [re-frame.story.ui.state   :as rf.story.ui.state]
                        [re-frame.story.ui.trace-buffer :as rf.story.ui.trace-buffer]])
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as rf.story.theme.colors]))
@@ -446,14 +447,18 @@
 #?(:cljs
    (defn panel
      "The schema-validation panel. Form-2 — the inner
-     render fn derefs the trace buffer so Reagent's reaction
-     tracking sees every change.
+     render fn derefs the trace buffer AND the shell-state ratom, so
+     Reagent's reaction tracking sees every trace event and every
+     Controls edit or mode change.
 
      The panel surfaces two streams:
 
        1. **Args violations** — computed on every render from the
           variant's resolved args + the component's schema +
-          the registered validator. Cheap to recompute (one Malli
+          the registered validator. The args are resolved with the
+          SAME opts the Controls panel validates (the active modes and
+          this variant's cell overrides), so the two panels agree about
+          the live value (rf2-lzzrw). Cheap to recompute (one Malli
           validate per top-level entry); no caching needed at v1.
        2. **Trace failures** — filtered + projected from the variant's
           per-variant trace buffer (the same buffer the trace + actions
@@ -471,10 +476,14 @@
        (fn [variant-id]
          (let [buf            (rf.story.ui.trace-buffer/ensure-buffer! variant-id)
                events         @buf
+               shell          @rf.story.ui.state/shell-state-atom
                trace-rows     (project-failures events)
                schema         (resolve-component-schema variant-id)
                vfns           (validator-fns)
-               eff-args       (rf.story.plan/effective-args variant-id)
+               eff-args       (rf.story.plan/effective-args
+                                variant-id
+                                {:active-modes   (:active-modes shell)
+                                 :cell-overrides (get-in shell [:cell-overrides variant-id])})
                args-viols     (args-violations eff-args schema vfns)
                schema-known?  (some? schema)
                validator-on?  (some? (:validate vfns))]
