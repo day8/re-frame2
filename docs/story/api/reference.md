@@ -141,8 +141,8 @@ Durable app-db classification is declared on the variant body and lowered into t
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `mount-shell!` | `(mount-shell! mount-point opts)` | Mount the Story shell. Production short-circuits before any DOM call. |
-| `unmount-shell!` | `(unmount-shell!)` | Unmount the shell. Idempotent. |
+| `mount-shell!` | `(mount-shell! dom-node)` → handle / nil | Mount the Story shell and return its handle. Production short-circuits before any DOM call. |
+| `unmount-shell!` | `(unmount-shell!)` / `(unmount-shell! handle)` | Unmount the shell. Idempotent. |
 | `active-shell` | `(active-shell)` → map / nil | Inspectable handle on the active shell. |
 
 ### Stage

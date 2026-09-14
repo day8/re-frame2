@@ -407,17 +407,18 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
 
 - **Signature**:
   ```clojure
-  (mount-shell! mount-point opts) → nil
+  (mount-shell! dom-node) → handle / nil
   ```
-- **Description**: Mount the Story shell at `mount-point` (a DOM node). The opts map carries `:initial-variant`, `:initial-mode`, `:theme`, etc. Production builds (`re-frame.story.config/enabled?` false) short-circuit before any DOM call.
+- **Description**: Mount the Story shell at `dom-node` and return its handle, `{:root <react-root> :node <dom-node>}`. One shell at a time: mounting while a shell is mounted tears the previous one down first. There is no options map — what the shell opens on (selected variant or workspace, mode tab, modes, viewport, background) is read from the page URL's query parameters at mount, over a localStorage fallback. Returns nil without any DOM call when `dom-node` is nil or in production builds (`re-frame.story.config/enabled?` false).
 
 ### `unmount-shell!`
 
 - **Signature**:
   ```clojure
   (unmount-shell!) → nil
+  (unmount-shell! handle) → nil
   ```
-- **Description**: Unmount the shell. Idempotent.
+- **Description**: Unmount the active shell, or the shell named by `handle` (the value `mount-shell!` returned). Idempotent.
 
 ### `active-shell`
 

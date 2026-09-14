@@ -176,9 +176,10 @@ The normative slot definition lives in
 ## Shell lifecycle
 
 ```clojure
-(mount-shell! mount-point opts)        ; attach the Story chrome
-(unmount-shell!)                       ; detach
-(active-shell)                         ; => {:mount-point ... :workspace ...} or nil
+(mount-shell! dom-node)                ; attach the Story chrome => handle {:root ... :node ...}, or nil
+(unmount-shell!)                       ; detach the active shell
+(unmount-shell! handle)                ; detach the shell `handle` names
+(active-shell)                         ; => the active handle, or nil
 ```
 
 Hot-reload preserves shell state: a re-mount calls into the same shell
