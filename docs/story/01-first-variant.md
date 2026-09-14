@@ -28,12 +28,19 @@ refer to their ids.
 (story/reg-variant :story.login/idle
   {:doc    "Fresh form, no input typed, no request in flight."
    :setup  [[:login/flow [:login/dismiss]]]
-   :script [[:dispatch-sync
-             [:rf.assert/state-is :login/flow :idle]]]
+   :script [[:assert [:rf.assert/state-is :login/flow :idle]]]
    :tags   #{:dev :docs :test}})
 ```
 
-Open `#/stories`, select `/idle`, and the form appears on the canvas.
+Open your app's `#/stories` route (the one the install page mounts the shell
+on), select `/idle`, and the form appears on the canvas.
+
+To follow along without an app of your own, run the shipped testbed: from
+`implementation/`, `npx shadow-cljs watch :examples/login-form`, then open
+`http://localhost:8043/#/stories`. The testbed registers these states as
+`:story.login-form` in `tools/story/testbeds/login_form/stories.cljs`; this
+tutorial uses the shorter `:story.login` your own app would, so
+`:story.login/idle` here is `:story.login-form/idle` there.
 
 ![The first login variant selected in Story.](../images/story/story-tutorial-01-first-variant.png)
 
@@ -71,12 +78,13 @@ through the app's real event pipeline. In the login testbed, `[:login/flow
 The tutorial starts with an assertion step:
 
 ```clojure
-[:dispatch-sync [:rf.assert/state-is :login/flow :idle]]
+[:assert [:rf.assert/state-is :login/flow :idle]]
 ```
 
-`dispatch-sync` means "dispatch this event and drain to a settled boundary."
-For assertion events, that is exactly what you want: run the assertion and
-record the result before the runner continues.
+`:assert` is the checkpoint step: it runs the assertion at that exact point in
+the script and records the result, pass or fail, before the runner continues.
+Later chapters also spell it `[:dispatch-sync [:rf.assert/...]]`, which sends
+the same assertion event down the plain dispatch rail and records the same row.
 
 `:args` supplies view inputs. A variant can override the parent story's args,
 and live Controls edits can override both. The precedence chain is:
@@ -165,14 +173,12 @@ dev entry point.
 If the canvas says the component cannot be resolved, check that `:component`
 matches a registered view id.
 
-If Test mode says no assertions were recorded, check that the assertion is
-inside a script step, for example:
+If Test mode says no assertions were recorded, check that the variant's
+`:script` actually carries an assertion step, for example:
 
 ```clojure
-[:dispatch-sync [:rf.assert/state-is :login/flow :idle]]
+[:assert [:rf.assert/state-is :login/flow :idle]]
 ```
-
-not a bare event vector sitting directly in `:script`.
 
 You now have one named state. The next problem is the usual one: real UIs do not
 have one state. They have a whole little family of them, and at least one is

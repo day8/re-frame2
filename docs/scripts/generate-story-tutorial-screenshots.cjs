@@ -76,28 +76,28 @@ const SHOTS = [
   {
     file: 'story-tutorial-00-shell.png',
     app: '/login',
-    query: '?variant=story.login%2Fauthenticated',
+    query: '?variant=story.login-form%2Fauthenticated',
     hash: '#/stories',
     waitFor: '[data-test="login-welcome"]',
   },
   {
     file: 'story-tutorial-01-first-variant.png',
     app: '/login',
-    query: '?variant=story.login%2Fidle',
+    query: '?variant=story.login-form%2Fidle',
     hash: '#/stories',
     waitFor: '[data-test="login-form"]',
   },
   {
     file: 'story-tutorial-02-workspace-grid.png',
     app: '/login',
-    query: '?workspace=Workspace.login%2Fall-states',
+    query: '?workspace=Workspace.login-form%2Fall-states',
     hash: '#/stories',
     waitFor: '[data-test="login-error"]',
   },
   {
     file: 'story-tutorial-03-controls-and-fidelity.png',
     app: '/login',
-    query: '?variant=story.login%2Ferror',
+    query: '?variant=story.login-form%2Ferror',
     hash: '#/stories',
     waitFor: '[data-test="story-view-state-section"]',
     before: async (page) => {
@@ -107,7 +107,7 @@ const SHOTS = [
   {
     file: 'story-tutorial-04-test-mode.png',
     app: '/login',
-    query: '?variant=story.login%2Ferror',
+    query: '?variant=story.login-form%2Ferror',
     hash: '#/stories',
     waitFor: '[data-test="story-mode-tabs"]',
     before: async (page) => {
@@ -118,7 +118,7 @@ const SHOTS = [
   {
     file: 'story-tutorial-05-docs-mode.png',
     app: '/login',
-    query: '?variant=story.login%2Ferror',
+    query: '?variant=story.login-form%2Ferror',
     hash: '#/stories',
     waitFor: '[data-test="story-mode-tabs"]',
     before: async (page) => {
@@ -129,7 +129,7 @@ const SHOTS = [
   {
     file: 'story-tutorial-06-share-dialog.png',
     app: '/login',
-    query: '?variant=story.login%2Ferror',
+    query: '?variant=story.login-form%2Ferror',
     hash: '#/stories',
     waitFor: '[data-test="story-toolbar-share"]',
     before: async (page) => {
@@ -140,7 +140,7 @@ const SHOTS = [
   {
     file: 'story-tutorial-07-xray-embed.png',
     app: '/login',
-    query: '?variant=story.login%2Fauthenticated',
+    query: '?variant=story.login-form%2Fauthenticated',
     hash: '#/stories',
     waitFor: '[data-test="story-xray-embed"]',
     before: async (page) => {
