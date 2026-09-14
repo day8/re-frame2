@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"re-frame2-story-mcp","version":"dev"},"instructions":"Story MCP agent surface. Call `tools/list` for the registry, then `tools/call` with the named tool + arguments. See `get-story-instructions` for Story's authoring conventions."}}
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{:stories []}"}],"structuredContent":{"stories":[]}}}
+{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"Variant not found: \":story.login-form/retry-to-success\""}],"isError":true}}
+{"jsonrpc":"2.0","id":4,"result":{}}

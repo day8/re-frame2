@@ -1,0 +1,9 @@
+WARNING: Use of :paths external to the project has been deprecated, please remove: ../story/testbeds
+probe: cannot require login-form.events -> java.io.FileNotFoundException Could not locate login_form/events__init.class, login_form/events.clj or login_form/events.cljc on classpath. Please check that namespaces with dashes use underscores in the Clojure file name.
+probe: cannot require login-form.stories -> java.io.FileNotFoundException Could not locate login_form/stories__init.class, login_form/stories.clj or login_form/stories.cljc on classpath. Please check that namespaces with dashes use underscores in the Clojure file name.
+probe: classpath has testbed dir? true
+probe: login_form/events.cljs on classpath? true
+probe: login_form/events.clj(c) on classpath? false
+[re-frame2-story-mcp] booted; allow-writes?= false  protocol= 2025-06-18  server= re-frame2-story-mcp
+[re-frame2-story-mcp] Sensitive reads: gated (default; pass --allow-sensitive-reads to opt in)
+[re-frame2-story-mcp] stdin closed; exiting
