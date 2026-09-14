@@ -1403,9 +1403,11 @@
         ;; `:active-modes` / `:cell-overrides`. `:run-args` is the
         ;; `{:pre [global story mode] :post [cell-overrides]}` shape
         ;; `re-frame.story.args/run-arg-layers` produces: `:pre` is lower
-        ;; precedence than the variant layer, `:post` higher. Absent (a pure
-        ;; plan-compile / explain / render-prep with no run opts) ⇒ the
-        ;; variant layer alone.
+        ;; precedence than the variant layer, `:post` higher. Absent (a
+        ;; direct compile with no run opts, e.g. any inline map target) ⇒
+        ;; the variant layer alone. For a keyword target the run,
+        ;; `story/explain`, `render/prepare-render` and the Explain /
+        ;; View-State panels all pass it.
         arg-map      (if run-args
                        (rf.story.args/deep-merge-all
                          (concat (:pre run-args)
@@ -1926,10 +1928,12 @@
     `[:world :args]` / `[:world :effective-args]`, every `[:arg key]`
     substitution in setup/script/db-seed/network/sub-overrides, and the
     plan hash all use the SAME effective args as `rf.story.args/resolve-args` for
-    those `:active-modes` / `:cell-overrides`. Absent (a bare
-    compile / `explain` / render-prep) ⇒ the variant arg layer alone, so
-    the controls/render path layers its overrides on top of the plan-time
-    effective args.
+    those `:active-modes` / `:cell-overrides`. Absent ⇒ the variant arg
+    layer alone, which is what a direct compile gets (e.g. any inline map
+    target). For a keyword target the run, `story/explain`,
+    `render/prepare-render` and the Explain / View-State panels all pass
+    it; `prepare-render` then layers its control overrides on top of those
+    plan-time effective args.
 
   Returns the normalized plan map: `:variant/id`, `:source-chain`,
   `:world` (incl. `:effective-args` and `:view-args-schema` when a view
