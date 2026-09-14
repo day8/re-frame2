@@ -20,14 +20,22 @@ You never patch `js/Date`. You never intercept `fetch`. You never replace a modu
 
 First, a fact about Clojure file extensions, because the whole testing strategy leans on it. A `.cljs` file is ClojureScript — it compiles to JavaScript and runs in a browser. A `.clj` file is Clojure — it runs on the JVM. A `.cljc` file is *portable*: one source, both targets. re-frame2's core is `.cljc`, so the very artefact your browser build uses also loads on the JVM — where tests run in milliseconds with no browser and no DOM in sight.
 
-That portability extends to your own code. Your registration namespaces from Parts 1–4 (events, subs, the auth machine, resources, mutations) contain no browser code, so they're portable too — if you wrote them as `.cljs`, rename them to `.cljc` and the JVM can load them. Only your views stay `.cljs`: a [view](../../core/glossary.md#view) renders [app-db](../../core/glossary.md#app-db) into UI, and rendering pulls in React, which is browser-only. Nothing on this page drives a view *through* React, so that costs you nothing — none of these tests need a browser.
+That portability extends to your own code, which is why Parts 2–4 had you write `api.cljc`, `resources.cljc`, `scope.cljc`, `auth.cljc`, `mutations.cljc`, and `views.cljc`. None of them names a browser API outside a `#?(:cljs …)` branch — Part 3 fenced its `localStorage` and `JSON.parse` calls — so the JVM loads them as they stand. Renaming a file to `.cljc` isn't enough on its own: an unguarded `js/globalThis` stops the JVM compiler with `No such namespace: js`. `core.cljs` mounts into `js/document`, so it stays ClojureScript, as do `articles.cljs` and `editor.cljs`, which no test here loads. Nothing on this page drives a [view](../../core/glossary.md#view) *through* React, so none of these tests need a browser — section 5 walks the hiccup a `.cljc` view returns.
 
-Add a `:test` alias to your `deps.edn`. Your re-frame2 deps are already there from [the setup](index.md); the only addition is a runner:
+Add a `:test` alias to your `deps.edn`. Everything else is what Part 3 left there; the only addition is a runner:
 
 ```clojure
 ;; deps.edn
-{:aliases
- {:test {:extra-paths ["test"]
+{:deps {thheller/shadow-cljs        {:mvn/version "3.4.10"}
+        day8/re-frame2              {:local/root "../re-frame2/implementation/core"}
+        day8/re-frame2-reagent      {:local/root "../re-frame2/implementation/adapters/reagent"}
+        day8/re-frame2-routing      {:local/root "../re-frame2/implementation/routing"}
+        day8/re-frame2-http         {:local/root "../re-frame2/implementation/http"}
+        day8/re-frame2-resources    {:local/root "../re-frame2/implementation/resources"}
+        day8/re-frame2-schemas      {:local/root "../re-frame2/implementation/schemas"}}
+ :aliases
+ {:dev  {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}
+  :test {:extra-paths ["test"]
          :extra-deps  {io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}}}
@@ -44,6 +52,7 @@ Then the test namespace. One fixture resets the whole runtime — registrar, fra
             [re-frame.http.test-support :as http-test-support]  ;; canned stubs — test-only
             [re-frame.substrate.plain-atom :as plain-atom] ;; the headless JVM substrate
             [re-frame.test-support :as ts]
+            [conduit.api :as api]
             [conduit.auth]))                               ;; Part 3's registrations load here
 
 (use-fixtures :each
@@ -73,35 +82,39 @@ No frame, no dispatch, no runtime. A coeffects map went in — `:db` holds the c
 Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT (a token from a previous login, kept in `localStorage`) is a fact from outside the event — so it's a [coeffect](../../core/glossary.md#coeffect) too, just one that doesn't arrive for free the way `:db` does. It's registered as a **recordable** coeffect with a supplier: *recordable* means it's durable causal data that survives into the trace and the release build (the [recordable-vs-ambient](../../core/glossary.md#recordable-vs-ambient-coeffects) split), and the supplier is the registration's own `localStorage` read, fired once at the start of the boot dispatch. The handler simply *declares* that it needs it:
 
 ```clojure
-;; src/conduit/auth.cljc — from Part 3 (abridged)
+;; src/conduit/auth.cljc — from Part 3 (doc string elided)
 (rf/reg-cofx :auth.session/token
-  {:recordable? true
-   :doc "The saved JWT (or nil), read from localStorage by this supplier once, at
-         the start of the boot dispatch — never read ambiently by a handler."}
+  {:recordable? true}
   (fn []
-    (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))))
+    #?(:cljs (some-> (.-localStorage js/globalThis) (.getItem "jwtToken")))))
 
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
   (fn [{:keys [db auth.session/token]} _]
-    {:db (assoc db :auth {:user nil :token token})
-     :fx [[:dispatch [:auth/flow [:auth/restore token]]]]}))
+    (cond-> {:db        (assoc db :auth {:user nil :token token})
+             :sensitive [[:auth :token]]}
+      token (assoc :fx [[:rf.http/managed
+                         {:request    {:method :get :url (str api/api-base "/user")}
+                          :decode     :json
+                          :on-success [:auth/session-restored]
+                          :on-failure [:auth/session-expired]}]]))))
 ```
 
 A handler that declares coeffects tests *exactly* the same way — same `reg-event`, just with more facts in the input map. Delivery is flat and declared-only, so you know precisely what the input map contains: `:db`, `:event`, plus exactly the facts in `:rf.cofx/requires` and nothing more. So the fixture is a literal:
 
 ```clojure
-(deftest initialise-seeds-the-session-and-kicks-restore
+(deftest initialise-folds-the-token-and-asks-who-it-is
   (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :auth/initialise}))
         result  (handler {:db                 {}
                           :auth.session/token "jwt-fixture"}  ;; the literal coeffects map
                          [:auth/initialise])]
     (is (= "jwt-fixture" (get-in result [:db :auth :token])))
-    (is (= [[:dispatch [:auth/flow [:auth/restore "jwt-fixture"]]]]
-           (:fx result)))))
+    (is (= [[:auth :token]] (:sensitive result)))
+    (is (= {:method :get :url (str api/api-base "/user")}
+           (get-in result [:fx 0 1 :request])))))
 ```
 
-Look hard at that second assertion. The handler *did not* dispatch anything — [dispatch](../../core/glossary.md#dispatch) being the act of sending an event into the runtime. It returned a *description* of what should happen, and you asserted on the description. The HTTP request behind login tests the same way: the handler returns data naming the request. No network is mocked because no network was involved. (This is just [effects-are-data](../../core/glossary.md#effects-are-data) cashing out: the runtime is the interpreter; your test skips it and reads the script.)
+Look hard at that last assertion. The handler *did not* send a request, or [dispatch](../../core/glossary.md#dispatch) anything — dispatch being the act of sending an event into the runtime. It returned a *description* of the request, and you asserted on the description. No network is mocked because no network was involved. (This is just [effects-are-data](../../core/glossary.md#effects-are-data) cashing out: the runtime is the interpreter; your test skips it and reads the script.)
 
 The declaration doubles as the **fixture checklist**. Writing a test for a handler you don't know by heart? Ask the registry what it must be fed:
 
@@ -122,49 +135,54 @@ Whatever appears there is what your literal map (or your dispatch, below) suppli
 
 ## 3. Test the pipeline run: one dispatch, end to end
 
-Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hits the [machine](../../machines/glossary.md#machine), the machine fires a [managed HTTP](../glossary.md#managed-http) request, the reply re-enters as another event, the session lands in [app-db](../../core/glossary.md#app-db). You want to test that as one piece, the way it actually runs.
+Pure handler tests catch most bugs. But Part 3's boot restore is a *flow*: `:auth/initialise` fires a [managed HTTP](../glossary.md#managed-http) request, the reply re-enters as `:auth/session-restored`, and the user lands in [app-db](../../core/glossary.md#app-db). You want to test that as one piece, the way it actually runs.
 
 So you'll drive a real dispatch through a real [frame](../../core/glossary.md#frame) — an isolated, self-contained runtime instance, the thing your app mounts into — and redirect only the handful of points where it touches the outside world. Call those points the **edges**; you'll meet all four in a moment. Here's the happy path: a cold boot that finds a saved token and lands the user authenticated.
 
 ```clojure
-(deftest cold-boot-with-saved-token-lands-authed
+(deftest cold-boot-with-saved-token-restores-the-user
   ;; :preset :test is one of make-frame's config keys — see the bullets below.
   (rf/with-new-frame [f (rf/make-frame {:preset :test})]
     (http-test-support/with-request-stubs
-      {[:get "https://api.realworld.io/api/user"]          ;; the URL Part 3's restore requests
+      {[:get (str api/api-base "/user")]              ;; the URL Part 3's restore requests
        {:reply {:ok {:user {:username "ada"
                             :email    "ada@example.com"
                             :token    "jwt-fixture"}}}}}
       (fn []
         (rf/dispatch-sync [:auth/initialise]
                           {:rf.cofx {:auth.session/token "jwt-fixture"}})))
-    (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
-    (is (= "ada"   (get-in (rf/app-db-value f) [:auth :user :username])))))
+    (is (= "ada" (get-in (rf/app-db-value f) [:auth :user :username])))
+    (is (true?   (rf/compute-sub [:conduit/signed-in?] (rf/app-db-value f))))))
 ```
 
 Four things do the work — those four edges. Each redirects a *value at a boundary*, never a mechanism the test swaps out:
 
 - **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` declares intent and bundles two deterministic defaults: it redirects the `:rf.http/managed` fx to its canned-success stub, so a request you forgot to stub can never escape to the wire; and it sets a **strict mint policy**, so a handler that declares a generated [coeffect](../../core/glossary.md#coeffect) (a fresh id, say) but isn't *supplied* one fails loud with `:rf.error/missing-required-cofx` rather than quietly minting a value that won't match production. (`:rf/time-ms` is always stamped, so it never trips this — the strict failure is reserved for *declared-but-absent, generator-backed* facts. A test that genuinely wants a fresh value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}`.)
 - **`{:rf.cofx {…}}` on the dispatch** supplies the declared fact, overriding the registered supplier for this one dispatch. That is not a hole in the machinery, it is the machinery: the fact is *declared*, so a value supplied as data is indistinguishable from one the supplier produced, and the test never re-registers anything or reaches for `localStorage`. Under `{:preset :test}`'s strict mint policy, forgetting the key doesn't silently fall through to a live read either — it fails loud with `:rf.error/missing-required-cofx`.
-- **`with-request-stubs`** routes `:rf.http/managed` by method + URL for the thunk's extent and synthesizes a real reply envelope. The exact request data your machine's action produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
-- **`dispatch-sync` drains to fixed point.** The whole pipeline run settles before the call returns — the machine transition, the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
+- **`with-request-stubs`** routes `:rf.http/managed` by method + URL for the thunk's extent and synthesizes a real reply envelope. The exact request data your handler produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
+- **`dispatch-sync` drains to fixed point.** The whole pipeline run settles before the call returns — the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
 
 The unhappy path — the one your users will actually hit — is the same shape with a failure reply:
 
 ```clojure
-(deftest wrong-password-shows-the-error
+(deftest wrong-password-shows-the-servers-words
   (rf/with-new-frame [f (rf/make-frame {:preset :test})]
     (http-test-support/with-request-stubs
-      {[:post "https://api.realworld.io/api/users/login"]
-       {:reply {:failure {:kind :rf.http/http-4xx :status 422}}}}
+      {[:post (str api/api-base "/users/login")]
+       {:reply {:failure {:kind   :rf.http/http-4xx
+                          :status 422
+                          :body   "{\"errors\":{\"email or password\":[\"is invalid\"]}}"}}}}
       (fn []
-        (rf/dispatch-sync [:auth/flow [:auth/login {:email    "ada@example.com"
-                                                    :password "wrong"}]])))
-    (is (= :error (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
-    (is (some?    (rf/compute-sub [:auth/error] (rf/frame-state-value f))))))
+        (rf/dispatch-sync [:auth.login-form/initialise])
+        (rf/dispatch-sync [:auth.login-form/edit-field :email "ada@example.com"])
+        (rf/dispatch-sync [:auth.login-form/edit-field :password "wrong"])
+        (rf/dispatch-sync [:auth.login-form/submit])))
+    (is (= :error (get-in (rf/app-db-value f) [:auth :login-form :status])))
+    (is (= ["email or password is invalid"]
+           (rf/compute-sub [:auth.login-form/form-errors] (rf/app-db-value f))))))
 ```
 
-`compute-sub` runs a [subscription](../../core/glossary.md#subscription)'s derivation — a subscription being a read-only, derived view of app-db — as a plain function against a state value. No reactive machinery, so it runs headlessly on the JVM, machine-backed subs included. These two tests are the pattern for *every* flow in your slice: stub the edges, drive one dispatch, assert on settled state.
+`compute-sub` runs a [subscription](../../core/glossary.md#subscription)'s derivation — a subscription being a read-only, derived view of app-db — as a plain function against a state value. No reactive machinery, so it runs headlessly on the JVM. Notice what the second assertion covered on the way: the stub replied with Conduit's real 422 body, so `failure->form-errors` parsed it through the `:clj` branch Part 3 fenced. These two tests are the pattern for *every* flow in your slice: stub the edges, drive one dispatch, assert on settled state.
 
 ??? note "Going deeper — edges, not mocks"
 
@@ -179,7 +197,7 @@ The unhappy path — the one your users will actually hit — is the same shape 
 Your views read app-db through [subscriptions](../../core/glossary.md#subscription) — Part 3's `:auth.login-form/can-submit?`, the field-error visibility rule, the form's `dirty?` flag. A subscription is a pure derivation: `app-db` value in, derived value out. So you test it the way you tested a handler — give it a value, read the value back — except a sub doesn't take its `db` as an argument the way a handler does. `compute-sub` supplies it:
 
 ```clojure
-(deftest can-submit-flips-once-the-draft-is-filled
+(deftest can-submit-once-the-draft-is-filled
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:auth.login-form/initialise])      ;; seed the empty form
     (rf/dispatch-sync [:auth.login-form/edit-field :email    "ada@example.com"])
@@ -193,11 +211,11 @@ Your views read app-db through [subscriptions](../../core/glossary.md#subscripti
 
     For a trivial reader where the dispatch adds nothing, you *can* pass a literal map — `(compute-sub [:auth.login-form/can-submit?] {:auth {:login-form {:errors {} :status :idle}}})`. Reach for that escape hatch sparingly: a hand-rolled db shape silently rots when the real schema moves underneath it, whereas the dispatch-the-real-events form tracks the schema for free.
 
-There's a [partition](../../core/glossary.md#the-two-partitions) wrinkle the pipeline-run tests above already leaned on. They read `:auth/state` with `(rf/frame-state-value f)`, not `(rf/app-db-value f)`:
+There's a [partition](../../core/glossary.md#the-two-partitions) wrinkle the view test in section 5 leans on. It reads a mutation's status with `(rf/frame-state-value f)`, not `(rf/app-db-value f)`:
 
-!!! warning "Gotcha — app-db subs vs machine-backed subs"
+!!! warning "Gotcha — app-db subs vs runtime-db subs"
 
-    A frame holds state in *two* partitions: [app-db](../../core/glossary.md#app-db) (yours) and [runtime-db](../../core/glossary.md#runtime-db) — the framework-owned partition beside it, holding machine [snapshots](../../machines/glossary.md#snapshot), in-flight mutation status, and the like (full treatment in [app-db](../../core/app-db.md)). Most subs read app-db, so `app-db-value` feeds them. But `:auth/state` is **machine-backed** — its value lives in runtime-db, so feeding it a bare `app-db-value` would find nothing there. The rule is short: app-db subs take `app-db-value`; subs that touch machine snapshots (or any runtime-db state, like the mutation status in section 5) take `frame-state-value`. `frame-state-value` returns *both* partitions as one projection — `{:rf.db/app … :rf.db/runtime …}` — and `compute-sub` reads whichever partition each sub belongs to. Since it always works, when in doubt reach for `frame-state-value`.
+    A frame holds state in *two* partitions: [app-db](../../core/glossary.md#app-db) (yours) and [runtime-db](../../core/glossary.md#runtime-db) — the framework-owned partition beside it, holding resource entries, in-flight mutation status, machine [snapshots](../../machines/glossary.md#snapshot), and the like (full treatment in [app-db](../../core/app-db.md)). Most subs read app-db, so `app-db-value` feeds them. But a mutation instance's status lives in runtime-db, so feeding `[:rf.mutation/status …]` a bare `app-db-value` would find nothing there. The rule is short: app-db subs take `app-db-value`; subs that touch runtime-db state take `frame-state-value`. `frame-state-value` returns *both* partitions as one projection — `{:rf.db/app … :rf.db/runtime …}` — and `compute-sub` reads whichever partition each sub belongs to. Since it always works, when in doubt reach for `frame-state-value`.
 
 ??? note "Going deeper — layered subs come along for free"
 
@@ -210,33 +228,49 @@ Everything so far asserts on *state*. But two bugs live in the gap between corre
 To address a node from a test, give it a stable handle. The `testid` helper builds an attrs map carrying a `:data-testid` — a one-line change at the view's call site, and it elides from production. Part 4's `favorite-button` grows one attribute:
 
 ```clojure
-;; in the view (Part 4's favorite-button), tag the button:
+;; src/conduit/views.cljc — require [re-frame.test-helpers :as th], then tag the button:
 [:button.btn.btn-outline-primary.btn-sm
- (th/testid "favorite-btn" {:type "button" :on-click #(dispatch [:ui/favorite slug favorited])})
+ (th/testid "favorite-btn"
+            {:type     "button"
+             :class    (when favorited "active")
+             :disabled (:pending? fav)
+             :on-click #(dispatch [:ui/favorite slug favorited])})
  [:i.ion-heart] " " favoritesCount]
 ```
 
-Now require the view helpers and walk the tree the view returns:
+Now a second test namespace, for the views. It loads `conduit.views` on the JVM — possible because Part 4 wrote it as `.cljc` — and walks the tree the view returns:
 
 ```clojure
-;; add to the test ns:
-;;   [re-frame.test-helpers :as th]
+;; test/conduit/views_test.clj
+(ns conduit.views-test
+  (:require [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.http.managed]
+            [re-frame.http.test-support]                   ;; :preset :test's canned stub
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
+            [re-frame.test-support :as ts]
+            [conduit.views :refer [favorite-button]]))
+
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :ambient-frame nil}))
 
 (deftest favorite-button-shows-the-count-and-clicks-into-this-frame
-  (rf/with-new-frame [f (rf/make-frame {})]
+  (rf/with-new-frame [f (rf/make-frame {:preset :test :rf.cofx/mint-policy :explicit-live})]
     (rf/dispatch-sync [:rf/set-db {:auth {:user {:username "ada"}}}])   ;; a user is signed in
     (let [article {:slug "x" :favorited false :favoritesCount 7}
           tree    (favorite-button {:article article})]                ;; call the view-fn directly
       ;; class-1 bug: does the button render the count it was handed?
-      (is (= "  7" (th/text-content (th/find-by-testid tree "favorite-btn"))))
+      (is (= " 7" (th/text-content (th/find-by-testid tree "favorite-btn"))))
       ;; class-2 bug: invoking :on-click must dispatch into THIS frame —
-      ;; the favorite mutation's instance comes alive only if it landed here.
+      ;; the favorite write settles here only if the click landed here.
       (th/invoke-handler (th/find-by-testid tree "favorite-btn") :on-click)
-      (is (some? (rf/compute-sub [:rf/mutation {:instance [:favorite "x"]}]
-                                 (rf/frame-state-value f)))))))
+      (is (ts/poll-until
+            #(= :success (rf/compute-sub [:rf.mutation/status {:instance [:favorite "x"]}]
+                                         (rf/frame-state-value f))))))))
 ```
 
-Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hiccup data: `find-by-testid` locates the node carrying that `:data-testid`, `text-content` collects the string leaves under it (the heart glyph contributes nothing, so you read `"  7"` — the two spaces flanking `favoritesCount`), and `invoke-handler` calls a wired handler (`:on-click`, `:on-change`, …). That handler assertion is what catches the wrong-frame-dispatch bug: had the click fired into a sibling frame, *this* frame's mutation instance would never come alive and the second `is` would fail. (The mutation-state sub reads runtime-db, so it's computed against `frame-state-value` — same partition rule as section 4.) `find-by-testid` expands nested view-fns on the way down, so calling a parent view shows you the leaf hiccup the user actually sees.
+Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hiccup data: `find-by-testid` locates the node carrying that `:data-testid`, `text-content` collects the string leaves under it (the heart glyph contributes nothing, so you read `" 7"` — the one space before `favoritesCount`), and `invoke-handler` calls a wired handler (`:on-click`, `:on-change`, …). The click's `dispatch` is queued rather than run inline, so `ts/poll-until` waits — two seconds at most, by default — for the write to settle, and it settles `:success` because `:preset :test` answers `:rf.http/managed` with its canned success. That is what catches the wrong-frame-dispatch bug: had the click fired into a sibling frame, *this* frame's instance would stay `:idle` and the poll would time out. The frame needs one key beyond the preset: a mutation mints a fresh cache generation when it runs, and `:preset :test`'s strict mint policy refuses to invent one, so `:rf.cofx/mint-policy :explicit-live` lets it. (The status sub reads runtime-db, so it's computed against `frame-state-value` — the partition rule from section 4.) `find-by-testid` expands nested view-fns on the way down, so calling a parent view shows you the leaf hiccup the user actually sees.
 
 ??? info "Coming from React Testing Library?"
 
@@ -273,7 +307,7 @@ Run the suite:
 
 ```bash
 clojure -M:test
-# Ran 6 tests containing 10 assertions.
+# Ran 6 tests containing 11 assertions.
 # 0 failures, 0 errors.
 ```
 
