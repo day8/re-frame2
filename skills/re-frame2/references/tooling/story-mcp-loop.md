@@ -1,6 +1,6 @@
 # Story-MCP author/refine — and the run-side handoff
 
-> **What this leaf owns.** The *authoring* half of the Story variant workflow: write a variant body, preview its rendered state, read it back, and refine it — all with the story-mcp tools THIS skill (`re-frame2`) is allowed to call. The *run* half — execute a variant against a live runtime, accumulate `:rf.assert/*` records, read the full failure set, and iterate to `:status :pass` — is a **separate, runtime-bound surface owned by the `re-frame2-pair` skill**. This is a deliberate hybrid split (`tools/story-mcp/spec/002-Tool-Registry.md`): authoring is static; running needs a browser tab behind `shadow-cljs watch`. This leaf teaches the authoring side and tells you exactly how to hand the run side off.
+> **What this leaf owns.** The *authoring* half of the Story variant workflow: write a variant body, preview its rendered state, read it back, and refine it — all with the story-mcp tools THIS skill (`re-frame2`) is allowed to call. The *run* half — execute a variant against a live runtime, accumulate `:rf.assert/*` records, read the full failure set, and iterate to `:status :pass` — is a **separate, runtime-bound surface owned by the `re-frame2-pair` skill**. The split is by runtime, not by tool allow-list: authoring is static; running needs a browser tab behind `shadow-cljs watch`, where a pair session calls the `re-frame.story/*` functions through `eval-cljs` rather than any story-mcp tool. This leaf teaches the authoring side and tells you exactly how to hand the run side off.
 
 > **Mental model: think in Storybook, map onto Story.** When authoring a variant, sketch it as a Storybook story first (which args, which play steps?), then translate to the EDN `reg-variant` body — see `stories.md` §Mental model for the full concept map. Story's distinctive twist over a Storybook play function: `:rf.assert/*` events *record* (they don't throw), so a single run returns **every** mismatch at once — but that recording-and-reading is the run side, which `re-frame2-pair` drives.
 
@@ -18,9 +18,9 @@ Do **not** load this leaf to learn how to author a variant body's *contents* —
    AUTHOR / REFINE  (this skill: re-frame2)        RUN / SELF-HEAL  (re-frame2-pair)
    ┌──────────────────────────────────────┐        ┌──────────────────────────────────────┐
    │ register-variant   write the body     │        │ run-variant      execute, get :status │
-   │ preview-variant    eyeball one render │  ───▶  │ read-failures    full :rf.assert/* set │
+   │ preview-variant    eyeball one render │  ───▶  │ :assertions      full :rf.assert/* set │
    │ get-variant        read it back        │  hand  │ (loop until :status :pass)             │
-   │ explain-variant    why did it resolve  │  off   │ read-a11y-violations                   │
+   │ explain-variant    why did it resolve  │  off   │ (all via eval-cljs, re-frame.story/*)  │
    │ unregister-variant tear down            │        │ snapshot-identity                      │
    └──────────────────────────────────────┘        └──────────────────────────────────────┘
 ```
@@ -43,7 +43,7 @@ Per `tools/story-mcp/spec/002-Tool-Registry.md`, the story-mcp catalogue is nine
 
 † `list-substrates` is the one enumeration that is **browser-only**, so it is not a plain registry read. Substrate registration is CLJS-only (`re-frame.story/register-substrate!`) and the JVM stdio server has no bridge to that registry, so there it returns `isError true` with `:rf.error/story-mcp-capability-unavailable` — never an empty list. The distinction is load-bearing: an empty `:substrates` vec is reserved for a REACHED registry that genuinely holds nothing, so EMPTY means nothing is registered and UNAVAILABLE means the host could not look. Read it from a browser-local Story host. (`tools/story-mcp/spec/002-Tool-Registry.md` §Host execution model; `read-a11y-violations` on the run side behaves the same way.)
 
-What this subset is **missing** (and why): `run-variant`, `read-failures`, `snapshot-identity`, and `read-a11y-violations` are the four **Testing**-category run tools. They surface the live runtime's verdict and captured values, so they live in `re-frame2-pair`'s allow-list — not here. The drift gate (`scripts/check_skill_mcp_drift.py`) pins this split: it marks exactly those four as `intentional_server_only` for `re-frame2`, so an attempt to add them here fails the gate.
+What this subset is **missing** (and why): `run-variant`, `read-failures`, `snapshot-identity`, and `read-a11y-violations` are the four **Testing**-category run tools, and no skill allow-lists them — not this one, and not `re-frame2-pair`. They drive story-mcp's own headless host in its JVM, which has no bridge to a browser tab's Story registry, so an operator reaches them only by launching story-mcp directly for an explicitly headless run. The drift gate (`scripts/check_skill_mcp_drift.py`) records this: its only story-mcp mapping is the one for `re-frame2`, which marks those four `intentional_server_only`, and its single-host rule refuses any story-mcp entry in `re-frame2-pair`'s allow-list. The run loop itself still belongs to a `re-frame2-pair` session, which calls the `re-frame.story/*` functions through `eval-cljs` (§Worked authoring pass — then the handoff).
 
 `preview-variant`, `run-variant`, and `read-failures` all speak the SAME unified run-result the human Story UI reads (spec/017 §Run result) — there is no agent-only result vocabulary. The headline is the top-level `:status` ∈ `{:pass :fail :cannot-run :error}`. You'll see that `:status` on a `preview-variant` here; the *verdict-driven loop* over it is the run side.
 
@@ -65,9 +65,9 @@ agent → preview-variant {:variant-id :story.todos/delete-confirmed}
 
 `preview-variant` confirms the body parses, the parent `:extends` resolves, the script mounts, and the resolved args and post-run state look right (it shares `run-variant`'s headless lifecycle, so it returns no rendered output — the share URL is how a human sees the canvas). If the preview shows the wrong state or `explain-variant` reveals a bad merge/runner, the agent refines the body and re-registers — still entirely on the authoring side.
 
-When the developer wants to **execute the assertions and self-heal against the running library** — the loop where `run-variant` returns `:status :fail`, `read-failures` returns the complete `:rf.assert/*` mismatch set, and the agent iterates to `:status :pass` — hand off to a `re-frame2-pair` session:
+When the developer wants to **execute the assertions and self-heal against the running library** — the loop where `re-frame.story/run-variant` settles `:status :fail` carrying every `:rf.assert/*` record in its `:assertions`, and the agent iterates to `:status :pass` — hand off to a `re-frame2-pair` session:
 
-> "The variant body is registered and previews correctly. To run the assertions and iterate against the live runtime, switch to the **re-frame2-pair** skill (it owns `run-variant` / `read-failures` against a running app behind `shadow-cljs watch`) and run the self-healing loop there — it'll see every `:rf.assert/*` mismatch in one pass because the assertions record rather than throw."
+> "The variant body is registered and previews correctly. To run the assertions and iterate against the live runtime, switch to the **re-frame2-pair** skill (it calls `re-frame.story/run-variant` through `eval-cljs` against the running app behind `shadow-cljs watch`) and run the self-healing loop there — it'll see every `:rf.assert/*` mismatch in one pass because the assertions record rather than throw."
 
 The agent reports the registered body + preview result back, and names the run-side surface for the next step. It does **not** pretend to call `run-variant` from here.
 
@@ -81,7 +81,7 @@ The agent reports the registered body + preview result back, and names the run-s
 
 ## Common gotchas
 
-- **The run loop is not this skill's to drive.** `run-variant` / `read-failures` are owned by `re-frame2-pair`. If the task is "run it and fix the failures," that is the handoff — don't infer access to tools the skill isn't allow-listed for.
+- **The run loop is not this skill's to drive.** It belongs to a `re-frame2-pair` session, which calls `re-frame.story/run-variant` through `eval-cljs`; the story-mcp `run-variant` / `read-failures` tools are allow-listed by no skill. If the task is "run it and fix the failures," that is the handoff — don't infer access to tools the skill isn't allow-listed for.
 - **`:rf.assert/*` events record, they do not throw.** A failing assertion does not abort the script — the run side reads the full failure list per iteration. Assertion events ride the `:dispatch-sync` rail in `:script` (the public phase-4 play surface — spec/017 §Public vocabulary; the retired `:play-script` spelling is rejected at registration).
 - **`:status :pass` is the loop terminator (on the run side).** The top-level `:status` ∈ `{:pass :fail :cannot-run :error}` is the unified verdict (spec/017 §Run result). Distinguish `:fail` (an assertion mismatched — refine the variant) from `:cannot-run` (the runner could not attempt the plan, e.g. a causal assertion under a non-reactive runner — change the runner, refining won't help) from `:error` (a handler / fx / step threw). You may see `:status` on a `preview-variant` here; the verdict-driven *iteration* is the run side.
 - **`explain-variant` is the authoring-side read for surprises.** When a preview renders unexpectedly or a plan merges/composes oddly, `explain-variant` shows the resolved plan — source/parent chain, composed fragments/checks, strict-conflict winners, the selected runner + what it required — the agent's mirror of the human Explain panel.
@@ -91,10 +91,10 @@ The agent reports the registered body + preview result back, and names the run-s
 - Full tool registry + per-tool I/O schemas → `tools/story-mcp/spec/002-Tool-Registry.md` and `tools/story-mcp/spec/API.md`.
 - Wire protocol (JSON-RPC over stdio, `initialize` handshake) → `tools/story-mcp/spec/001-Wire-Protocol.md`.
 - Write-surface gating → `tools/story-mcp/spec/003-Write-Surface-Gating.md`.
-- The **run-side** loop (`run-variant` / `read-failures`) → the `re-frame2-pair` skill (it owns the live-runtime Story tools).
+- The **run-side** loop → the `re-frame2-pair` skill, which drives variants in the attached browser heap through `eval-cljs` over the `re-frame.story/*` functions.
 - Recorder integration → `story-recorder.md` (sibling leaf — interactive canvas recording is performed through Pair in the attached CLJS runtime).
 - Variant body shape, `:rf.assert/*` vocabulary → `stories.md` (sibling leaf).
 
 ---
 
-*Derived from `tools/story-mcp/spec/` @ main. Re-verify after MCP tool-registry changes, write-surface gating updates, or any change to the `re-frame2` ↔ `re-frame2-pair` authoring/run split (`scripts/check_skill_mcp_drift.py`).*
+*Derived from `tools/story-mcp/spec/` @ main. Re-verify after MCP tool-registry changes, write-surface gating updates, or any change to which story-mcp tools a skill allow-lists (`scripts/check_skill_mcp_drift.py`).*
