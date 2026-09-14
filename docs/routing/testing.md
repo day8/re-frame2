@@ -20,10 +20,13 @@ per-process routing state the fixture knows how to reset:
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.routing :as rf.routing]
+            [re-frame.substrate.plain-atom :as plain-atom]   ;; the JVM substrate a frame needs
             [re-frame.test-support :as ts]
             [my-app.routes]))    ;; loading the ns registers the routes
 
-(use-fixtures :each (ts/make-reset-runtime-fixture {}))
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter       plain-atom/adapter
+                                  :ambient-frame nil}))   ;; nil: each test makes its own frame
 ```
 
 ## 1. The URL codec: two pure functions
