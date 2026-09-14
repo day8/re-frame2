@@ -589,7 +589,9 @@
   DISTINCT from save-current-state (spec/019 §3): the source here is the
   CAPTURED RUN ARTIFACT this run produced, not the live canvas args. The
   button captures the current run as an artifact (a replay back-link when
-  present, else synthesized from the run's play-events + result) and opens
+  present, else synthesized from the run's play-events + result, else — for
+  a run whose script dispatched nothing — from the variant's stepped
+  program + result; `result->artifact`) and opens
   the promotion dialog where the user inspects, names, edits, tags, and
   registers a curated regression variant. Non-destructive — the captured
   artifact stays as evidence in the sidebar's 'Captured artifacts'

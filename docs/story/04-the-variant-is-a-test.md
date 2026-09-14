@@ -37,6 +37,16 @@ The Test tab runs the selected variant and shows:
 - the step debugger;
 - promotion controls for turning a useful run into a regression variant.
 
+Promotion turns the run in front of you into a named regression variant that
+fails for the reason this one failed. It captures the program the run
+executed: its dispatches or, when the script dispatches nothing, the
+variant's own stepped script. Every variant of the login-form testbed is that
+second shape (a `:setup` precondition plus `[:assert …]` checkpoints), and
+each one promotes from Test mode. By default the promoted variant extends the
+one you ran, so it inherits that variant's setup, and it carries that
+variant's own `:assertions` and `:checks` and its full script, checkpoints
+included.
+
 The sidebar also tracks test status, so a state matrix can tell you which
 variants have passed without opening each one.
 
