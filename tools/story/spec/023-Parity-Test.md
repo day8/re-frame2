@@ -97,10 +97,23 @@ second flag (a WIN carrying a defect, say) goes in the notes.
 | **MATCH** | Both do the job at comparable quality and ceremony. | `S = B` and `S ≥ 1` |
 | **GAP** | The reference does the job; Story does not, or does it materially worse, and Story's SPEC does not promise it. | `S < B`, SPEC empty or future |
 | **SPEC-ONLY** | Story's spec describes the job as delivered; the code does not do it, or does part. | SPEC present, CODE absent or partial |
-| **UNDERMARKETED** | Story's code does the job at least as well, but docs, README, skills and examples do not teach it, or teach it wrongly. | CODE at least `B`, DOCS absent or wrong; scored at the CODE value |
+| **UNDERMARKETED** | Story's code does the job at least as well, but docs, README, skills and examples do not teach it, or teach it wrongly. | CODE at least `B`, DOCS absent or wrong; `S` scored as the author meets it (§3.5) |
 | **DIVERGENT** | Story deliberately refuses the reference's mechanism, with the rationale recorded; judged on the job's outcome. | A recorded rejection exists; scores stand as measured |
 | **OUT** | Not scored: outside what a workshop tool controls. | Excluded from every denominator |
 | **TARGET** | Neither side does the job well and the substrate gives leverage: a build candidate, not a verdict. | `S ≤ 1` and `B ≤ 1`, or `S < B` with a named lever |
+
+**Precedence.** Where more than one derivation holds, the status is the first
+of these that does: OUT, DIVERGENT, WIN, MATCH, SPEC-ONLY, UNDERMARKETED,
+TARGET, GAP; and GAP also takes any `S < B` row nothing earlier reaches. A
+recorded rejection outranks the scores, so `S = B = 1` reads DIVERGENT where
+the row records one and MATCH otherwise, never TARGET. Any lead is a WIN, half
+a point included, once Story's side is at least source-traced; below that,
+trace it before labelling the row. A shortfall is SPEC-ONLY or UNDERMARKETED
+where the layers place it, then TARGET where both scores are 1 or below or a
+lever is named, and only then GAP, so no row carries both. `S` is always the
+score an author meets (§3.5): an UNDERMARKETED row has already lost what its
+missing teaching costs, and its claim that CODE reaches `B` is carried by the
+row's layers, not by a second score.
 
 ### 3.2 Four layers
 
@@ -132,6 +145,19 @@ counted from a working app to the job done: each new file (+1) and each
 existing file touched (+1); each config key or alias added (+1); each command
 run once (+1; an install of N packages is one command); each mandatory UI
 gesture (+1). The story or variant body is free, because both tools need it.
+
+**Row ledger (§3.2–§3.4).** §7 carries each row's scores and status only. The
+layers, the per-side evidence strength and the ceremony counts behind them are
+in the reading's row ledger, the tracked research corpus it was scored from:
+one entry per row in
+[`fable/matrix.md`](findings/parity-2026-09/fable/matrix.md#rows), whose
+[summary table](findings/parity-2026-09/fable/matrix.md#summary-table) carries
+both evidence columns, scored under
+[`fable/rubric.md`](findings/parity-2026-09/fable/rubric.md). The reference's
+upstream pages are cited per job in
+[`astra/parity-matrix.md`](findings/parity-2026-09/astra/parity-matrix.md#storybook-1060-the-main-comparator),
+in that pass's own ten-job taxonomy, and the versions read are §8's. This page
+repeats a ledger field only where a status or a bound needs it.
 
 ### 3.5 Scores
 
@@ -361,7 +387,7 @@ order (JVM probe at `2284727767`, PR #9822; re-run at `e4d07929c9`).
 
 | Job | w | Pin S / B | Pin status | Trunk status | Bead |
 |---|---|---|---|---|---|
-| A1 | 3 | 0.5 / 2 | GAP | Install page fixed (PR #9797), README and chapter 01 aligned (PR #9807); source-verified only, no clean-consumer walk. | rf2-1bkoc (scaffolder, OPEN) |
+| A1 | 3 | 0.5 / 2 | GAP | Install page fixed (PR #9797), README and chapter 01 aligned (PR #9807); a fresh app from `tools/template` now reaches `#/stories` with zero Story edits on Reagent and UIx (PR #9821), ceremony 0 where it was 7 (8 with the props schema), while an app the template did not generate still follows the install page. Source-verified only, no clean-consumer walk, so not re-scored. | rf2-1bkoc (scaffolder, fixed) |
 | A2 | 3 | 2 / 2 | MATCH | Unchanged; not re-walked. | — |
 | A3 | 2 | 1 / 2 | UNDERMARKETED | The login views carry a props schema (PR #9800); source-verified only. | — |
 | A4 | 2 | 2 / 1 | WIN | The grid header counts rendered cells (PR #9795); source-verified only. | — |
@@ -374,8 +400,8 @@ order (JVM probe at `2284727767`, PR #9822; re-run at `e4d07929c9`).
 | B4 | 2 | 2 / 0.5 | WIN | The upgrade snippet parses and drops a single parent's pin (PRs #9803, #9810); re-executed by probe 5b; a pinning composed fragment is now dropped and named too (PR #9828), not re-probed. | rf2-yt6ak (fixed) |
 | B5 | 3 | 1.5 / 1 | WIN | The Tests-pane row became a button (PR #9795), and a real failed assertion's row now links to its own retained Evidence beat (PR #9830); not re-walked, so not re-scored. | rf2-v5p6l (fixed) |
 | B6 | 1 | 1 / 0 | WIN | Promotion carries the source's expectations (PR #9804), and the Test-mode dialog captures a variant whose `:script` dispatches nothing (PR #9819). Re-scored at `2284727767` from probes 6c and 6d, re-executed: every probed shape reads fail / pass / fail on both routes, so **S 1.5 / B 0, WIN**. Not 2, for one caveat at that re-score: checks a source composes through `:compose` were dropped on both routes; PR #9829 now carries them, not re-probed, so not re-scored. The browser dialog is not re-walked. | rf2-6h2z3 (fixed) |
-| B7 | 2 | 1 / 1.5 | GAP / TARGET | The a11y panel and `read-a11y-violations` now report axe-core's incomplete checks beside violations (login-form `/idle`: 0 violations and 1 incomplete `color-contrast` rule on 5 nodes, panel and a direct `axe.run` agree); the visual assertion still compares the identity key, not pixels ([`017`](017-Testing-Story.md#visual-a11y-and-browser-checks)). | rf2-ia2if (experiment) |
-| C1 | 2 | 2 / 1.5 | MATCH | Re-executed by the MCP loop (19 tools). | — |
+| B7 | 2 | 1 / 1.5 | TARGET (recorded freehand as GAP / TARGET) | The a11y panel and `read-a11y-violations` now report axe-core's incomplete checks beside violations (login-form `/idle`: 0 violations and 1 incomplete `color-contrast` rule on 5 nodes, panel and a direct `axe.run` agree); the visual assertion still compares the identity key, not pixels ([`017`](017-Testing-Story.md#visual-a11y-and-browser-checks)). | rf2-ia2if (experiment) |
+| C1 | 2 | 2 / 1.5 | WIN (recorded freehand as MATCH) | Re-executed by the MCP loop (19 tools). | — |
 | C2 | 3 | 2 / 1 | WIN | The skill leaf was corrected (PR #9798); re-executed by the MCP loop. | — |
 | C3 | 1 | 1 / 1 | DIVERGENT | Chapter 09 names the two hosts (PR #9801); source-verified only. | rf2-szjjx (host rule, OPEN) |
 | C4 | 2 | 1.5 / 0 | WIN | `explain` folds story-level args (PR #9799); re-executed by probe 7; the panel not re-walked. | — |
@@ -428,6 +454,12 @@ re-run re-reads them at step 1.
 The categorical reading in §7 is the finding. The number exists so the rubric
 can be re-run and a second reader can check the arithmetic rather than
 re-argue it; no trunk figure is offered, because no row has been re-walked.
+Every input is a §7 cell or a row-ledger field (§3.4): the weights and pin
+scores are §7's, the evidence strengths are the ledger's
+[summary table](findings/parity-2026-09/fable/matrix.md#summary-table), and the
+cells each bound moves are named below and in the ledger's
+[totals](findings/parity-2026-09/fable/matrix.md#totals). Status labels do not
+enter the number.
 
 Over the n = 21 scored rows (X4 excluded), with Σw = 41: unweighted is
 Σ S / (2 · n); weighted is Σ w·S / (2 · Σw); the parity ratio is
@@ -442,9 +474,11 @@ independent of the other, bring it to **1.00**:
   reference. Give every reference cell whose evidence is documented-only and
   whose score is below 2 the half point an exercised run might earn (A4, A6,
   A7, B4, B6, B7, C1, C2, C3): the reference reads 65.5 / 82 = 0.80, a ratio
-  of 1.00. Against Story's pessimistic reading (each documented-only Story
-  cell loses 0.5, each unverified cell drops to 0: 64 / 82 = 0.78) it is
-  0.98.
+  of 1.00. Against Story's pessimistic reading it is 0.98: each
+  documented-only Story cell loses 0.5 and each unverified cell drops to 0,
+  which the ledger applies to X2 (documented-only) and to B7, whose a11y half
+  is source-traced and sibling-exercised and whose visual half is unverified,
+  so it loses the half point rather than all of it: 64 / 82 = 0.78.
 - **Collapse.** B1, B2, B4, B5 and C2 are five views of one design decision:
   the variant is a plan and the result is a tape. Collapsed into one weight-3
   WIN row (S 2, B 1), Story reads 45 / 60 = 0.75 against the reference's
