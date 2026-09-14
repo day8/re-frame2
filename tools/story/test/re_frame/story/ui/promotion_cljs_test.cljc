@@ -171,6 +171,22 @@
                          (pr-str (:run-artifact body)))
           "the snippet's :run-artifact is the substrate's trimmed link"))))
 
+(deftest promotion-snippet-carries-source-expectations
+  (testing "a captured run whose source variant declared terminal :assertions
+            previews them in the snippet, so the regression an author pastes
+            into source can still fail (rf2-5vmog)"
+    (rf.story.registrar/reg-variant* :story.x/source
+      {:script     [[:dispatch [:counter/inc]]]
+       :assertions [[:rf.assert/path-equals [:count] 1]]})
+    (let [art  (rf.story.artifact/make-run-artifact
+                 {:event-program [[:dispatch [:counter/inc]]]
+                  :result        {:status :fail :variant/id :story.x/source}})
+          snip (rf.story.ui.promotion/promotion-snippet
+                 art {:variant-id :story.x/regression-1 :extends :story.x/source})]
+      (is (str/includes? snip ":assertions"))
+      (is (str/includes? snip (pr-str [[:rf.assert/path-equals [:count] 1]]))
+          "the carried assertion is rendered verbatim"))))
+
 ;; ===========================================================================
 ;; CLJS-only: the capture store
 ;; ===========================================================================
