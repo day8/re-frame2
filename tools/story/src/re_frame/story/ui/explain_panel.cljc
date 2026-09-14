@@ -54,6 +54,7 @@
   it; closure DCEs the lot. The pure `.cljc` helpers carry no DOM /
   Reagent dep."
   (:require [clojure.string :as str]
+            [re-frame.story.args :as rf.story.args]
             [re-frame.story.plan :as rf.story.plan]
             ;; The theme requires are CLJS-only — `typography`/`colors` are
             ;; referenced solely from the `#?(:cljs (def ^:private styles …))`
@@ -93,12 +94,22 @@
   throws; a compile failure is surfaced to the user as an error state
   rather than blanking the panel.
 
+  The panel explains the SCENARIO, so it compiles with the ambient arg
+  layers (global-args + the parent story's `:args`) folded in through
+  `rf.story.args/run-arg-layers` — exactly as `rf.story.plan/effective-args`
+  does. The bare compiler deliberately carries the variant-chain layer
+  alone, so without them a variant whose args live on its story showed
+  `{}` for Args / Effective args while every other surface showed the
+  story's values (rf2-noxox).
+
   `nil` variant-id yields `{:error ...}` so the caller renders the
   no-variant empty state via a separate branch — this fn is only called
   with a concrete id."
   [variant-id]
   (try
-    {:explain (rf.story.plan/explain variant-id)}
+    {:explain (rf.story.plan/explain
+                variant-id
+                {:run-args (rf.story.args/run-arg-layers variant-id)})}
     (catch #?(:clj Throwable :cljs :default) e
       {:error (or #?(:clj (.getMessage ^Throwable e)
                      :cljs (.-message e))
