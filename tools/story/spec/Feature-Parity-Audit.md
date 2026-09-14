@@ -60,7 +60,7 @@ ids are 023's.
 
 | Gap | Job | Status | Bead |
 |---|---|---|---|
-| Test-mode promotion cannot capture a variant whose `:script` has no dispatch step (every login-form testbed variant has that shape), and the JVM bridge registers a hollow body from a nil artifact | B6 | OPEN | rf2-vgthk |
+| Test-mode promotion cannot capture a variant whose `:script` has no dispatch step (every login-form testbed variant has that shape), and the JVM bridge registers a hollow body from a nil artifact | B6 | fixed (PR #9819): the dialog captures the variant's own stepped program, and promotion refuses a nil artifact | rf2-vgthk |
 | A failed assertion's Tests-pane row never renders its link to the Evidence beat: canonical assertion records carry no dispatch id | B5 | held for Mike | rf2-v5p6l |
 | A fidelity upgrade keeps `:sub-overrides` pins that arrive through composed fragments | B4 | held for Mike | rf2-yt6ak |
 | Document isolation: a frame isolates app-db, effects and loaders, not CSS, focus, portals or timers; the canvas is a stamped `div` in one page (`ui/canvas.cljs:728`) | A7 | recorded, not to be built until a real user names a CSS-isolation job; the canvas colour policy is an operator call (rf2-w72ij) | — |

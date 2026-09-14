@@ -142,7 +142,7 @@ mcp__re-frame2-pair__eval-cljs {
 
 The same three recipes, with their host-neutral wording, are in the `re-frame2` skill's [`story-mcp-loop.md` §Three recipes](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#three-recipes); these are their browser forms. Each registration made through `eval-cljs` lives in the heap only, so the user lands the result in source — `(re-frame.story/variant->edn id)` returns the body.
 
-**Promote a failing run.** The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and `:checks`, and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step shows no promote row in Test mode today; use the API route, which is one eval:
+**Promote a failing run.** The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and `:checks`, and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step (every login-form testbed variant) promotes from Test mode too: the dialog captures that variant's own stepped program. The API route is one eval:
 
 ```
 mcp__re-frame2-pair__eval-cljs {

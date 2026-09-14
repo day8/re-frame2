@@ -267,7 +267,7 @@ a merged fix alone.
 | Every run can produce an epoch-backed evidence tape | BUILT | `:epoch-tape` and `:narrative` on every `story/run` result (023 probe 7; `play/evidence_test.cljc`) |
 | Failures explain themselves | BUILT in data; SPECIFIED in the UI gesture until rf2-v5p6l | The tape, narrative and effects ride the result; a failed assertion's Tests-pane row does not render its link to the Evidence beat (rf2-v5p6l, held) |
 | Explicit args with honest fidelity rungs | BUILT for the rung labels and the single-parent upgrade (PR #9803); pins composed from fragments survive the upgrade (rf2-yt6ak, held) | 023 probe 5b; `view_state_upgrade_test.clj` |
-| Generated failures promote to curated variants | BUILT for dispatch-bearing scripts (PR #9804); SPECIFIED for dispatch-free scripts until rf2-vgthk | 023 probes 6c and 6d; [`017-Testing-Story.md`](017-Testing-Story.md) §Promotion |
+| Generated failures promote to curated variants | BUILT (PRs #9804 and #9819); checks a source composes through `:compose` are not carried (rf2-6h2z3, held) | `tools/story/test/re_frame/story/promotion_cljs_test.cljc` rf2-5vmog block (both routes, five shapes); `tools/story/test/re_frame/story/ui/test_mode/promotion_row_dom_cljs_test.cljs`; 023 probes 6c and 6d, re-run at `2284727767`; [`017-Testing-Story.md`](017-Testing-Story.md) §Promotion |
 | Xray exposes runtime causality | BUILT | The per-variant Xray embed paints its panels (`xray_embed_e2e_cljs_test.cljs`); the per-cell cascade with source coordinates was walked on the login-form testbed at the research pin |
 
 Story should not copy Storybook's weaker patterns:

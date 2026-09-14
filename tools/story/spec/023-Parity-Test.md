@@ -210,11 +210,11 @@ every measurement with its evidence strength (§3.3).
    - A deliberately failing variant's Tests-pane row renders a link to its
      Evidence beat (B5; see rf2-v5p6l).
    - The upgrade dialog's snippet pastes and compiles without the pin (B4).
-   - Test-mode promotion: a variant whose `:script` dispatches (register one
-     from the REPL; the testbed has none) promotes to a child that fails for
-     the source's reason, passes after the fix and fails when the fault
-     returns; a login-form variant offers no promote affordance until
-     rf2-vgthk lands (B6).
+   - Test-mode promotion: a login-form variant, whose `:script` dispatches
+     nothing, and a variant whose `:script` dispatches (register one from the
+     REPL; the testbed has none) each promote to a child that fails for the
+     source's reason, passes after the fix and fails when the fault returns
+     (B6).
    - The computed `color` of the subject's heading against its own
      background (A7; the canvas colour policy is rf2-w72ij).
    - The a11y panel's violations **and** incomplete counts (step 6).
@@ -237,15 +237,18 @@ every measurement with its evidence strength (§3.3).
    |---|---|---|---|
    | `probe7.clj` | `story/explain` of a variant whose story carries `:args` returns them in `:args` and `:effective-args`, and a variant's own args win; `story/run` twice carries `:plan-hash` and `:run-hash`, both stable. | C4, B2 | A missing arg or hash, or a hash that moves between identical runs. |
    | `probe5b.clj` | `upgrade-snippet` for a `:sub-overrides` parent targeting `:real-setup` reads back as one form, and the compiled child's `:fidelity` is `#{:real-setup}`. | B4 | A read failure, or `:sub-overrides` in the child's fidelity. |
-   | `probe6c.clj` | The promotion journey (fault, promote, fix, refault) on both routes — dialog: `ui.promotion/result->artifact` over `play/variant-play-events`; API: `determinism/->artifact` of `plan/variant-plan` — for four source shapes. The wanted triple is `[[:fail 1] [:pass 1] [:fail 1]]`. | B6 | Any other triple, except the dialog route of P6c-4 (no `:script` at all), which is rf2-vgthk. |
-   | `probe6d.clj` | The dialog route on setup-bearing shapes. P6d-5, setup plus `[:assert …]` checkpoints, yields `variant-play-events=[]`, a nil artifact and `[[:pass 0] [:pass 0] [:pass 0]]` on the dialog route; the API route, P6d-6 and P6d-7 hold. | B6 | P6d-5's dialog route reading the wanted triple means rf2-vgthk has landed: re-score B6. |
+   | `probe6c.clj` | The promotion journey (fault, promote, fix, refault) on both routes — dialog: `ui.promotion/result->artifact` over `play/variant-play-events`; API: `determinism/->artifact` of `plan/variant-plan` — for four source shapes. The wanted triple is `[[:fail 1] [:pass 1] [:fail 1]]`. | B6 | Any other triple, on either route. |
+   | `probe6d.clj` | The dialog route on setup-bearing shapes. P6d-5, setup plus `[:assert …]` checkpoints, yields `variant-play-events=[]`, so the dialog captures the source's stepped program (`promotion/source-program`) and `result->artifact` is not nil; every shape reads the wanted triple on both routes. | B6 | Any other triple, or `result->artifact nil? true` on P6d-5: the dialog has lost the dispatch-free capture. |
 
-   Two readings of the probes' own text: `probe5b`'s last line prints
+   Three readings of the probes' own text: `probe5b`'s last line prints
    `db :v=nil` because it reads `[:db :v]` where a run result carries
-   `:app-db`, so that line proves nothing and is kept as it ran. And `probe6d`
+   `:app-db`, so that line proves nothing and is kept as it ran. `probe6c`
+   labels P6c-4 "not in the merged tests", but that shape and P6d-5's are now
+   pinned on both routes in
+   `tools/story/test/re_frame/story/promotion_cljs_test.cljc`. And `probe6d`
    labels P6d-6 "TUTORIAL shape", but the first variant in chapter 01
    ([`docs/story/01-first-variant.md:28`](../../../docs/story/01-first-variant.md))
-   now has P6d-5's shape, which is the shape rf2-vgthk must capture.
+   now has P6d-5's shape, which the dialog captures.
 
 5. **The story-mcp stdio loop** (A5, C1, C2). Write the prelude to
    `<scratch>/prelude.clj`:
@@ -336,13 +339,15 @@ Every scored cell was measured at trunk `98e8ffe9cb` (2026-09-14). The JVM
 probes and the story-mcp loop were re-executed at `911c2fed80`, where the Story
 paths are byte-identical to those the research re-executed on. No row has been
 re-walked in a browser or a clean consumer since the pin, so **no score moves
-here**. To be re-run by rf2-4gijz.
+here** except B6's, re-scored in its row from JVM probes 6c and 6d re-executed
+at `2284727767`, after the Test-mode capture fix; its browser gesture is not
+re-walked. To be re-run by rf2-4gijz.
 
 **Categorical reading.** Adoption-blocking for a new user: A1 (no scaffolder;
 the repaired page unwalked) and A3 (unwalked). Adoption-blocking for the
-surpass thesis: B5's evidence gesture, B6's dialog capture for dispatch-free
-scripts, B4's fragment pins. Ahead because of re-frame2: A4, B1, B4, B5 in
-data, C2, C4. Match with a different shape: A2, A5, B2, B3, C1, X1, X3. Behind
+surpass thesis: B5's evidence gesture and B4's fragment pins. Ahead because of
+re-frame2: A4, B1, B4, B5 in data, B6, C2, C4. Match with a different shape:
+A2, A5, B2, B3, C1, X1, X3. Behind
 or unpaid: A1, A3, A7, B7, X2, C3. Unknown: a11y beyond one run, navigation at
 catalogue scale, determinism runs, whether the global decorator stack shows in
 `explain`, the recorder as a capture path, `story:build` outside this
@@ -362,7 +367,7 @@ repository, and every comparative ergonomic claim (§9).
 | B3 | 2 | 2 / 2 | MATCH | Unchanged. | — |
 | B4 | 2 | 2 / 0.5 | WIN | The upgrade snippet parses and drops a single parent's pin (PRs #9803, #9810); re-executed by probe 5b; pins composed from fragments survive. | rf2-yt6ak (held) |
 | B5 | 3 | 1.5 / 1 | WIN | The Tests-pane row became a button (PR #9795), but its link never renders for a real failed assertion; the gesture is unpaid. | rf2-v5p6l (held) |
-| B6 | 1 | 1 / 0 | WIN | Promotion carries the source's expectations (PR #9804); re-executed by probes 6c and 6d: it holds on the API route for every shape and on the dialog route for dispatch-bearing scripts, while dispatch-free scripts (every testbed variant and chapter 01's first) cannot be captured. | rf2-vgthk (OPEN) |
+| B6 | 1 | 1 / 0 | WIN | Promotion carries the source's expectations (PR #9804), and the Test-mode dialog captures a variant whose `:script` dispatches nothing (PR #9819). Re-scored at `2284727767` from probes 6c and 6d, re-executed: every probed shape reads fail / pass / fail on both routes, so **S 1.5 / B 0, WIN**. Not 2, for one caveat: checks a source composes through `:compose` are dropped on both routes. The browser dialog is not re-walked. | rf2-6h2z3 (held) |
 | B7 | 2 | 1 / 1.5 | GAP / TARGET | Unchanged; the visual assertion compares the identity key, not pixels ([`017`](017-Testing-Story.md#visual-a11y-and-browser-checks)). | rf2-ia2if (experiment) |
 | C1 | 2 | 2 / 1.5 | MATCH | Re-executed by the MCP loop (19 tools). | — |
 | C2 | 3 | 2 / 1 | WIN | The skill leaf was corrected (PR #9798); re-executed by the MCP loop. | — |
