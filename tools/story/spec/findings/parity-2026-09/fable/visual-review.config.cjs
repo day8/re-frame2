@@ -28,5 +28,8 @@ module.exports = {
   workers: 1,
   reporter: 'list',
   timeout: 300000,
+  // threshold 0: Playwright's default per-pixel tolerance (0.2) passed a real
+  // text-colour change (#1f2328 to #000, ~500-1900 pixels per case) as no diff.
+  expect: { toHaveScreenshot: { threshold: 0 } },
   use: { browserName: 'chromium', viewport: { width: 1280, height: 800 } },
 };
