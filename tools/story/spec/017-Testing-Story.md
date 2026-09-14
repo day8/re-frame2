@@ -3197,7 +3197,11 @@ the artifact was captured from, so a promoted regression fails for the
 reason its source failed. When the artifact records its source variant
 (`[:source :variant/id]` or `[:result :variant/id]`) and that variant is
 registered, the promoted body carries the source's own terminal
-`:assertions` and `:checks`. When the artifact holds only the
+`:assertions` and the check ids its verdict depends on, as the compiler
+resolves them: composed checks are carried too, because `:compose` is
+child-only and no `:extends` recovers one, and a promotion that does not
+`:extends` its source also keeps the inherited checks, each id once. When
+the artifact holds only the
 dispatch-only projection of the source's step program, as a Test-mode
 capture does, the body carries the source's full step program instead, so
 interactions, waits and `[:assert …]` checkpoints survive. This happens at

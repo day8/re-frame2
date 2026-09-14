@@ -66,7 +66,8 @@
   is the single impure entry; it gates on `re-frame.story.config/enabled?`
   so a production CLJS build short-circuits before touching the side-table
   (mirroring `save-variant`)."
-  (:require [re-frame.story.artifact   :as rf.story.artifact]
+  (:require [re-frame.story.args       :as rf.story.args]
+            [re-frame.story.artifact   :as rf.story.artifact]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.plan       :as rf.story.plan]
             [re-frame.story.play       :as rf.story.play]
@@ -89,8 +90,13 @@
 ;;     DISPATCH-ONLY projection of its program (`variant-play-events`), so
 ;;     those steps never reached the artifact at all.
 ;;
+;; A check named in the source's `:compose` carries that reason too, and it was
+;; dropped the same way (rf2-6h2z3): `:compose` is child-only, so neither the
+;; artifact nor an `:extends` of the source recovers it. Promotion reads the
+;; check ids off the source's compiled plan instead of its raw body.
+;;
 ;; Ordinary `:extends` inheritance is deliberately NOT the fix: terminal
-;; assertions and `:script` stay child-only, a coherent reuse rule. Promotion
+;; assertions, `:script` and `:compose` stay child-only, a coherent reuse rule. Promotion
 ;; is the one transformation that must preserve intent, so it carries them
 ;; explicitly, and only from the variant the artifact records as its source.
 
@@ -108,20 +114,42 @@
   (or (get-in artifact [:source :variant/id])
       (get-in artifact [:result :variant/id])))
 
+(defn- composed-check-ids
+  "The ids `plan`'s `:compose` resolved to checks, in declared order. Read off
+  the compiler's own classification (`[:explain :compose]`), which tries the
+  fragment registry first, so an id that resolved to a fragment is never
+  taken for a check."
+  [plan]
+  (into [] (keep (fn [{:keys [kind id]}] (when (= :check kind) id)))
+        (get-in plan [:explain :compose])))
+
 (defn source-expectations
-  "The declarative expectations a promotion carries from `source-body` (the
-  source variant's registered body): its own `:assertions` and `:checks`,
+  "The declarative expectations a promotion carries from its source variant,
   as `{:assertions … :checks …}` with empty slots omitted. Pure data → data.
 
-  `:assertions` is the load-bearing slot — terminal assertions never inherit
-  through `:extends`, so without this a promoted regression has nothing to
-  fail on. `:checks` do inherit, and the plan compiler de-duplicates a check
-  that arrives both ways, so carrying them is idempotent for a promotion
-  that extends its source and keeps them for one that does not."
-  [source-body]
-  (cond-> {}
-    (seq (:assertions source-body)) (assoc :assertions (vec (:assertions source-body)))
-    (seq (:checks source-body))     (assoc :checks (vec (:checks source-body)))))
+  `source-body` is the source's registered body. Its own `:assertions` are the
+  load-bearing slot: terminal assertions never inherit through `:extends`, so
+  without them a promoted regression has nothing to fail on.
+
+  `:checks` are the check ids the source's verdict depends on, as the plan
+  compiler resolved them into `source-plan` (the source's compiled plan):
+  inherited and own root→child, then the ones named in its `:compose`, each id
+  once. `:compose` is child-only, so no `:extends` recovers a composed check.
+  A promotion that `:extends` its source (`extends-source?`) inherits the rest
+  through the source's chain, so it carries only the source's own `:checks`
+  and its composed ones; any other promotion carries the whole resolved list.
+  Without a `source-plan` (the one-argument arity, or a source that does not
+  compile here) only the source's own `:checks` ride."
+  ([source-body] (source-expectations source-body nil false))
+  ([source-body source-plan extends-source?]
+   (let [own    (:checks source-body)
+         checks (cond
+                  (nil? source-plan) own
+                  extends-source?    (distinct (concat own (composed-check-ids source-plan)))
+                  :else              (get-in source-plan [:expect :checks]))]
+     (cond-> {}
+       (seq (:assertions source-body)) (assoc :assertions (vec (:assertions source-body)))
+       (seq checks)                    (assoc :checks (vec checks))))))
 
 (defn- dispatch-step?
   [step]
@@ -131,17 +159,32 @@
   [steps]
   (into [] (keep rf.story.play.runner/step-event) steps))
 
-(defn- source-steps
-  "The step program `source-id` executes (`rf.story.play/variant-play-steps`,
-  the program Test mode projects its capture from), or nil when the source's
-  plan does not compile here. Only a plan-construction failure is swallowed,
-  exactly as `variant-play-events` does; anything else is a real error."
-  [source-id]
-  (try (rf.story.play/variant-play-steps source-id)
+(defn- unless-plan-fails
+  "Call `f`, answering nil when it fails to construct a variant plan. Only a
+  plan-construction failure is swallowed, exactly as `variant-play-events`
+  does; anything else is a real error."
+  [f]
+  (try (f)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
          (if (= 'rf.story/variant-plan (:where (ex-data e)))
            nil
            (throw e)))))
+
+(defn- source-steps
+  "The step program `source-id` executes (`rf.story.play/variant-play-steps`,
+  the program Test mode projects its capture from), or nil when the source's
+  plan does not compile here."
+  [source-id]
+  (unless-plan-fails #(rf.story.play/variant-play-steps source-id)))
+
+(defn- source-plan
+  "`source-id`'s compiled plan, folded with the arg layers a run of it compiles
+  with (as `variant-play-steps` does), or nil when it does not compile here.
+  `source-expectations` reads the compiler's resolution of its checks off it."
+  [source-id]
+  (unless-plan-fails
+    #(rf.story.plan/variant-plan
+       source-id {:run-args (rf.story.args/run-arg-layers source-id nil)})))
 
 (defn retained-program
   "The event program a promotion builds from: the source variant's FULL step
@@ -348,8 +391,10 @@
   regression fails for the reason its source failed. When the artifact
   records the variant it was captured from (`source-variant-id`) and that
   variant is registered:
-  - its own terminal `:assertions` and `:checks` land on the body
-    (`source-expectations`) — `:extends` alone would drop the assertions;
+  - its own terminal `:assertions` and the check ids its verdict depends on,
+    composed ones included, land on the body (`source-expectations`, reading
+    the source's compiled plan) — `:extends` alone would drop the assertions
+    and every composed check;
   - a dispatch-only capture is replaced by the source's full step program,
     so clicks, typing, waits and `[:assert …]` checkpoints survive
     (`retained-program`).
@@ -378,7 +423,10 @@
          program       (retained-program artifact (when source-body source-id))
          {:keys [setup script]} (partition-program
                                   (assoc artifact :event-program program) opts)
-         {:keys [assertions checks]} (source-expectations source-body)
+         {:keys [assertions checks]} (source-expectations
+                                       source-body
+                                       (when source-body (source-plan source-id))
+                                       (and (some? extends) (= extends source-id)))
          network       (:network artifact)
          has-network?  (boolean (seq network))
          fx-overrides  (lift-fx-overrides (:fx-decisions artifact) has-network?)]
