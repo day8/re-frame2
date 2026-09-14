@@ -104,13 +104,14 @@ view a Malli props schema under `:rf/props` on its registration:
    [login-form]])
 ```
 
-The story file does not change. Select `/idle` and open Controls: Story reads the
-schema off the variant's `:component` and derives a control for each arg, so
-`:heading` gets a text field. Clear the field and the row shows an inline
-`schema:` error, with a banner saying the arg violates the component's schema:
-an empty heading is not a valid render of this view. Without a schema, Story can
-only guess a control from the value, and its schema check reports "no schema
-registered for the variant's :component".
+The story file does not change. Select `/idle` and look at Controls in the
+right-hand rail: Story reads the schema off the variant's `:component` and
+derives a control for each arg, so `:heading` gets a text field. Clear the field
+and the row shows an inline `schema:` error, with a banner saying the arg
+violates the component's schema: an empty heading is not a valid render of this
+view. Without a schema, Story can only guess a control from the value, and the
+Schema validation panel below Controls reports "no schema registered for the
+variant's :component".
 
 Controls follow the schema's shape: `:string` gives a text field, `:int` and
 `:double` a number field, `:boolean` a checkbox, `[:enum ...]` a select, and
