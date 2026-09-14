@@ -38,7 +38,7 @@ run; the per-job walk that would re-score it is rf2-4gijz.
 
 | Gap | 2026-05-20 | 2026-09-14 status | Closed by |
 |---|---|---|---|
-| [C-1] global decorator | missing, P2 | closed: `reg-global-decorator` and `configure! :global-decorators` | rf2-835ey (PR #1664); rf2-9qpk3 (PR #1760) |
+| [C-1] global decorator | missing, P2 | closed: `reg-global-decorator` and `configure! :global-decorators`; taught in chapter 07 since PR #9822, which says `story/explain` does not list the stack | rf2-835ey (PR #1664); rf2-9qpk3 (PR #1760); rf2-3vd8u (PR #9822) |
 | [C-2] rich prose | plain text | closed: markdown, a CommonMark subset | rf2-wl7yr (PR #1764) |
 | [C-3] loader teardown | missing, P2 | closed: `:loaders-teardown` | rf2-lqs0b (PR #1762) |
 | [C-4] per-story docs rollup | missing, P3 | closed: the story rollup page | rf2-8j7wg (PR #1764) |
@@ -64,7 +64,7 @@ ids are 023's.
 | A failed assertion's Tests-pane row never renders its link to the Evidence beat: canonical assertion records carry no dispatch id | B5 | held for Mike | rf2-v5p6l |
 | A fidelity upgrade keeps `:sub-overrides` pins that arrive through composed fragments | B4 | held for Mike | rf2-yt6ak |
 | Document isolation: a frame isolates app-db, effects and loaders, not CSS, focus, portals or timers; the canvas is a stamped `div` in one page (`ui/canvas.cljs:728`) | A7 | recorded, not to be built until a real user names a CSS-isolation job; the canvas colour policy is an operator call (rf2-w72ij) | — |
-| Everyday visual review: `:rf.assert/visual-snapshot` compares the identity key, and no local capture-and-compare path exists | B7 | an experiment before any decision | rf2-ia2if |
+| Everyday visual review: `:rf.assert/visual-snapshot` compares the identity key, and no local capture-and-compare path exists. (The a11y panel and `read-a11y-violations` now report incomplete checks beside violations, so zero violations no longer reads as a clean bill.) | B7 | visual: an experiment before any decision; a11y incomplete: fixed | rf2-ia2if; rf2-0ae7o.2 |
 | No scaffolder: a fresh app from `tools/template` does not reach `#/stories` | A1 | OPEN (carried from [D-1]) | rf2-1bkoc |
 
 ## 2026-05-20 audit (history)

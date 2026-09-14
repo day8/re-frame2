@@ -537,10 +537,15 @@ opt-in (the others: `preview-variant`, `run-variant`, `read-failures`;
 `explain-variant` is NOT among them — it ships author
 data raw, rf2-7k5mce).
 
-**Output.** `{:variant-id keyword :violations [map]}` from a REACHED a11y
-provider (a browser-local consumer of this `.cljc` helper). `:violations
-[]` is reserved for a reached provider that reported no findings for the
-frame. The JVM stdio server cannot access the CLJS `violations-by-frame`
+**Output.** `{:variant-id keyword :violations [map] :incomplete [map]}` from a
+REACHED a11y provider (a browser-local consumer of this `.cljc` helper).
+`:violations []` is reserved for a reached provider that reported no findings
+for the frame. `:incomplete` carries axe-core's checks it could not decide,
+read from `re-frame.story.ui.a11y/incomplete-by-frame` and scrubbed by the
+same re-keyed-runtime route as `:violations`; they are shown, never failed, so
+`:violations []` beside a non-empty `:incomplete` is not a clean bill.
+`:incomplete` is omitted when the provider cannot supply it, never answered
+as a false-empty `[]`. The JVM stdio server cannot access the CLJS `violations-by-frame`
 atom, so it returns the **capability-unavailable error** instead (`isError
 true`, `:rf.error :rf.error/story-mcp-capability-unavailable`,
 `:capability "a11y-panel-state"`) — never a false-empty `{:violations []}`

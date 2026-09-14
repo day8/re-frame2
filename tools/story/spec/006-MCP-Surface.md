@@ -169,7 +169,7 @@ data, so the egress classifies each payload as runtime/captured VALUE
   This path-projection covers the live-state tools' `:app-db` /
   `:snapshot` / evidence slots and assertion records
   (`preview-variant` / `run-variant` / `read-failures`) and
-  `read-a11y-violations`'s `:violations` (axe-core nodes). Those FOUR
+  `read-a11y-violations`'s `:violations` and `:incomplete` (axe-core nodes). Those FOUR
   tools are the whole of the runtime-value class; no other tool reaches
   this boundary. The shared
   `--allow-sensitive-reads` + per-call `:include-sensitive` opt-in is the

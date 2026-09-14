@@ -349,10 +349,14 @@ surpass thesis: B5's evidence gesture and B4's fragment pins. Ahead because of
 re-frame2: A4, B1, B4, B5 in data, B6, C2, C4. Match with a different shape:
 A2, A5, B2, B3, C1, X1, X3. Behind
 or unpaid: A1, A3, A7, B7, X2, C3. Unknown: a11y beyond one run, navigation at
-catalogue scale, determinism runs, whether the global decorator stack shows in
-`explain`, the recorder as a capture path, `story:build` outside this
-repository (answered: exercised once in a scratch consumer, X2), and every
-comparative ergonomic claim (§9).
+catalogue scale, determinism runs, the recorder as a capture path,
+`story:build` outside this repository (answered: exercised once in a scratch
+consumer, X2), and every comparative ergonomic claim (§9).
+
+Answered since the pin: `story/explain` lists no decorators, global or
+variant-level; `story/variant-plan` carries the resolved stack at
+`[:world :decorators]`, and Docs mode's Decorators table reads it in the same
+order (JVM probe at `2284727767`, PR #9822; re-run at `e4d07929c9`).
 
 | Job | w | Pin S / B | Pin status | Trunk status | Bead |
 |---|---|---|---|---|---|
@@ -369,12 +373,12 @@ comparative ergonomic claim (§9).
 | B4 | 2 | 2 / 0.5 | WIN | The upgrade snippet parses and drops a single parent's pin (PRs #9803, #9810); re-executed by probe 5b; pins composed from fragments survive. | rf2-yt6ak (held) |
 | B5 | 3 | 1.5 / 1 | WIN | The Tests-pane row became a button (PR #9795), but its link never renders for a real failed assertion; the gesture is unpaid. | rf2-v5p6l (held) |
 | B6 | 1 | 1 / 0 | WIN | Promotion carries the source's expectations (PR #9804), and the Test-mode dialog captures a variant whose `:script` dispatches nothing (PR #9819). Re-scored at `2284727767` from probes 6c and 6d, re-executed: every probed shape reads fail / pass / fail on both routes, so **S 1.5 / B 0, WIN**. Not 2, for one caveat: checks a source composes through `:compose` are dropped on both routes. The browser dialog is not re-walked. | rf2-6h2z3 (held) |
-| B7 | 2 | 1 / 1.5 | GAP / TARGET | Unchanged; the visual assertion compares the identity key, not pixels ([`017`](017-Testing-Story.md#visual-a11y-and-browser-checks)). | rf2-ia2if (experiment) |
+| B7 | 2 | 1 / 1.5 | GAP / TARGET | The a11y panel and `read-a11y-violations` now report axe-core's incomplete checks beside violations (login-form `/idle`: 0 violations and 1 incomplete `color-contrast` rule on 5 nodes, panel and a direct `axe.run` agree); the visual assertion still compares the identity key, not pixels ([`017`](017-Testing-Story.md#visual-a11y-and-browser-checks)). | rf2-ia2if (experiment) |
 | C1 | 2 | 2 / 1.5 | MATCH | Re-executed by the MCP loop (19 tools). | — |
 | C2 | 3 | 2 / 1 | WIN | The skill leaf was corrected (PR #9798); re-executed by the MCP loop. | — |
 | C3 | 1 | 1 / 1 | DIVERGENT | Chapter 09 names the two hosts (PR #9801); source-verified only. | rf2-szjjx (host rule, OPEN) |
 | C4 | 2 | 1.5 / 0 | WIN | `explain` folds story-level args (PR #9799); re-executed by probe 7; the panel not re-walked. | — |
-| X1 | 1 | 2 / 2 | MATCH | Unchanged. | — |
+| X1 | 1 | 2 / 2 | MATCH | Global decorators taught in chapter 07 as plan data (PR #9822); `story/explain` and the Explain panel do not list the decorator stack (JVM probe at `2284727767`, re-run at `e4d07929c9`), so the opacity bar is paid in the plan and in Docs mode, not in Explain. | — |
 | X2 | 1 | 1 / 2 | GAP | Consumer recipe documented (chapter 08 §Static builds; 013 §Downstream pattern) and exercised once in a scratch consumer outside this repository: release build, headless catalogue and deep link checked. Not re-scored. | rf2-0vwg7 |
 | X3 | 1 | 1 / 2 | DIVERGENT | Unchanged. | — |
 | X4 | — | — | OUT | — | — |
