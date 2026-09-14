@@ -446,7 +446,7 @@
                 stories (slurp (io/file proj "src/acme/my_app/stories.cljs"))
                 core    (slurp (io/file proj "src/acme/my_app/core.cljs"))
                 rename  (string/index-of stories "(set! (.-id node) \"stories\")")
-                mount   (string/index-of stories "(story/mount-shell! node)")]
+                mount   (string/index-of stories "(rf.story/mount-shell! node)")]
             (is (string/includes? stories "(defn ^:export init []")
                 (str substrate ": stories.cljs defines the dev entry `init`"))
             (is (string/includes? stories "(= \"#/stories\" js/window.location.hash)")
