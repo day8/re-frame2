@@ -481,6 +481,10 @@
 ;; nothing, and the promotion registered a hollow body that ran `:pass` with
 ;; zero assertions. Their `:setup` reaches the promoted variant through the
 ;; draft's `:extends`, exactly as it does for a dispatch-bearing source.
+;; Last, a check named in `:compose` (rf2-6h2z3), in a dispatching and a
+;; dispatch-free source. `:compose` is child-only, so no `:extends` recovers
+;; the check and no artifact records it: the promotion has to carry the
+;; source's resolved check ids, so these pin the check count too.
 
 #?(:clj
    (defn- reg-inc!
@@ -511,11 +515,20 @@
        {:variant/id promoted-id})))
 
 #?(:clj
+   (defn- verdict
+     "What a regression is judged by: its status and how many assertion and
+     check records it produced."
+     [result]
+     {:status     (:status result)
+      :assertions (count (:assertions result))
+      :checks     (count (:checks result))}))
+
+#?(:clj
    (defn- run-verdict
      "Run variant `id` headless and keep what a regression is judged by."
      [id]
      (let [result (rf.story.async/deref-blocking (rf.story/run id) 10000)]
-       {:status (:status result) :assertions (count (:assertions result))})))
+       (verdict result))))
 
 #?(:clj
    (defn- fault-fix-fault
@@ -532,24 +545,26 @@
 #?(:clj
    (defn- assert-promotions-fail-pass-fail
      "Register `source-body` under `source-id`, check it fails on its one
-     assertion, promote it by both routes, and check each promotion runs
-     fail / pass / fail with one assertion throughout."
-     [source-id source-body]
-     (rf.story/install-canonical-vocabulary!)
-     (reg-inc! false)
-     (rf.story.registrar/reg-variant* source-id source-body)
-     (let [result   (rf.story.async/deref-blocking (rf.story/run source-id) 10000)
-           dialog   (keyword (namespace source-id) (str (name source-id) "-dialog"))
-           api      (keyword (namespace source-id) (str (name source-id) "-api"))
-           failing  {:status :fail :assertions 1}]
-       (is (= failing {:status (:status result) :assertions (count (:assertions result))})
-           "the source fails on its one assertion under the fault")
-       (dialog-promote! source-id result dialog)
-       (api-promote! source-id api)
-       (doseq [id [dialog api]]
-         (is (= [failing {:status :pass :assertions 1} failing]
-                (fault-fix-fault id))
-             (str id " runs fail / pass / fail with its source's one assertion"))))))
+     assertion and its `checks` check records (0 unless its verdict comes
+     from a check), promote it by both routes, and check each promotion runs
+     fail / pass / fail with the same counts throughout."
+     ([source-id source-body] (assert-promotions-fail-pass-fail source-id source-body 0))
+     ([source-id source-body checks]
+      (rf.story/install-canonical-vocabulary!)
+      (reg-inc! false)
+      (rf.story.registrar/reg-variant* source-id source-body)
+      (let [result   (rf.story.async/deref-blocking (rf.story/run source-id) 10000)
+            dialog   (keyword (namespace source-id) (str (name source-id) "-dialog"))
+            api      (keyword (namespace source-id) (str (name source-id) "-api"))
+            failing  {:status :fail :assertions 1 :checks checks}]
+        (is (= failing (verdict result))
+            "the source fails on its one assertion under the fault")
+        (dialog-promote! source-id result dialog)
+        (api-promote! source-id api)
+        (doseq [id [dialog api]]
+          (is (= [failing {:status :pass :assertions 1 :checks checks} failing]
+                 (fault-fix-fault id))
+              (str id " runs fail / pass / fail with its source's one assertion")))))))
 
 #?(:clj
    (deftest promoted-regression-keeps-its-declarative-expectation
@@ -612,6 +627,44 @@
           :setup  [[:promo/inc]]
           :script [[:assert [:rf.assert/path-equals [:n] 1]]]}))))
 
+#?(:clj
+   (defn- reg-n-is-one-check!
+     "The registered check a composed-check source fails through: the same
+     atom the direct-assertion regressions declare inline."
+     []
+     (rf.story.registrar/reg-check* :check.promo/n-is-one
+       {:assertions [[:rf.assert/path-equals [:n] 1]]})))
+
+#?(:clj
+   (deftest promoted-regression-keeps-its-composed-check
+     (testing "a source whose verdict comes from a check named in :compose
+               promotes, by the dialog route and the API route, into a variant
+               that fails with the same assertion and check counts, passes BY
+               that check once the app is fixed, and fails when the fault
+               returns. :compose is child-only, so even the dialog draft's
+               :extends cannot recover the check (rf2-6h2z3)"
+       (reg-n-is-one-check!)
+       (assert-promotions-fail-pass-fail
+         :story.promo/composed
+         {:tags    #{:test}
+          :script  [[:dispatch [:promo/inc]]]
+          :compose [:check.promo/n-is-one]}
+         1))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-a-dispatch-free-composed-check
+     (testing "the dispatch-free shape Test mode captures from the source's
+               stepped program (rf2-vgthk): a :setup precondition, a composed
+               check and no :script. The capture is empty, so the check reaches
+               the promoted variant only by being carried (rf2-6h2z3)"
+       (reg-n-is-one-check!)
+       (assert-promotions-fail-pass-fail
+         :story.promo/setup-composed
+         {:tags    #{:test}
+          :setup   [[:promo/inc]]
+          :compose [:check.promo/n-is-one]}
+         1))))
+
 (deftest ordinary-extends-inheritance-is-unchanged
   (testing "a plain :extends child still gets NO terminal assertions from its
             parent — promotion carries them, inheritance deliberately does not"
@@ -666,6 +719,43 @@
   (is (= {} (rf.story.promotion/source-expectations {:script [[:dispatch [:promo/inc]]]}))
       "empty slots are omitted, so a body without expectations gains no keys")
   (is (= {} (rf.story.promotion/source-expectations nil))))
+
+(deftest promotion-carries-the-resolved-checks-once
+  (testing "the carried :checks come from the compiler's resolution of the
+            source (inherited, own and composed, each id once), so the promoted
+            plan resolves the same checks as its source whether or not it
+            :extends that source (rf2-6h2z3)"
+    (doseq [cid [:check.promo/inherited :check.promo/own :check.promo/composed]]
+      (rf.story.registrar/reg-check* cid {:assertions [[:rf.assert/path-equals [:n] 1]]}))
+    (rf.story.registrar/reg-variant* :story.promo/checked-parent
+      {:checks [:check.promo/inherited]})
+    (rf.story.registrar/reg-variant* :story.promo/checked
+      {:extends :story.promo/checked-parent
+       :script  [[:dispatch [:promo/inc]]]
+       :checks  [:check.promo/own]
+       :compose [:check.promo/composed :check.promo/own]})
+    (let [resolved  [:check.promo/inherited :check.promo/own :check.promo/composed]
+          art       (rf.story.determinism/->artifact
+                      (rf.story.plan/variant-plan :story.promo/checked))
+          checks-of (fn [body]
+                      (get-in (rf.story.plan/variant-plan
+                                (assoc body :variant/id :story.promo/checked-promoted))
+                              [:expect :checks]))]
+      (is (= resolved (get-in (rf.story.plan/variant-plan :story.promo/checked)
+                              [:expect :checks]))
+          "control: this is how the compiler resolves the source's checks")
+      (testing "without :extends, the inherited check is retained and the id
+                named in both :checks and :compose is carried once"
+        (let [body (rf.story.promotion/artifact->variant-body art)]
+          (is (= resolved (:checks body)))
+          (is (= resolved (checks-of body)))))
+      (testing "with :extends of the source, inheritance supplies the chain's
+                checks, so the body adds beside the source's own only what
+                :extends cannot recover"
+        (let [body (rf.story.promotion/artifact->variant-body
+                     art {:extends :story.promo/checked})]
+          (is (= [:check.promo/own :check.promo/composed] (:checks body)))
+          (is (= resolved (checks-of body))))))))
 
 (def ^:private dom-script
   "A DOM-driven play: typing, a click, a wait and two checkpoints, behind one

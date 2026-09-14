@@ -226,6 +226,30 @@
       (is (str/includes? snip (pr-str [[:rf.assert/path-equals [:count] 1]]))
           "the carried assertion is rendered verbatim"))))
 
+(deftest promotion-snippet-keeps-composed-check-ids
+  (testing "a captured run whose source failed through a check named in
+            :compose pastes back into a variant that still names that check,
+            as the snippet keeps the source's own :checks (rf2-6h2z3)"
+    (rf.story.registrar/reg-check* :check.x/count-is-one
+      {:assertions [[:rf.assert/path-equals [:count] 1]]})
+    (rf.story.registrar/reg-variant* :story.x/composed
+      {:script  [[:dispatch [:counter/inc]]]
+       :compose [:check.x/count-is-one]})
+    (let [art           (rf.story.artifact/make-run-artifact
+                          {:event-program [[:dispatch [:counter/inc]]]
+                           :result        {:status :fail :variant/id :story.x/composed}})
+          draft         {:variant-id :story.x/composed-regression
+                         :tags       #{:test}
+                         :extends    :story.x/composed}
+          [_ id pasted] (edn/read-string
+                          (rf.story.ui.promotion/promotion-snippet art draft))]
+      (is (= [:check.x/count-is-one] (:checks pasted))
+          "the carried check id is in the pasted form")
+      (rf.story.registrar/reg-variant* id pasted)
+      (is (= [:check.x/count-is-one]
+             (get-in (rf.story.plan/variant-plan id) [:expect :checks]))
+          "the pasted variant resolves the check its source failed through"))))
+
 ;; ===========================================================================
 ;; The snippet keeps the run's world: :network and :fx-overrides (rf2-siyxz)
 ;; ===========================================================================
