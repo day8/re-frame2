@@ -406,12 +406,21 @@ re-run re-reads them at step 1.
 - Performance budgets: `018` §10.1 carries them and its own gate.
 - The shell's visual quality.
 - Ecosystem size, hiring pool and hosted-service economics (X4, OUT).
-- **Comparative ergonomic advantage.** Three falsification journeys, each run
-  on Story and on the reference on the same defect, would measure it:
-  explore, retain and strengthen a state; failure to cause to regression; a
-  human-named state handed to an agent for a verified revision. They are
-  rf2-a1v8a. Until they are run, the surplus this test reports is
-  structural, not a measured gain.
+- **Comparative ergonomic advantage.** Measured 2026-09-14 by rf2-a1v8a on
+  Story and on Storybook 10.6 against one planted defect (the login submit
+  drops the email); the tallies, transcripts and controls are in
+  [`findings/parity-2026-09/fable/advantage-measured-2026-09-14.md`](findings/parity-2026-09/fable/advantage-measured-2026-09-14.md).
+  No journey is an ergonomic win yet, so the surplus
+  [§7](#7-the-current-reading) reports is still structural:
+  - Explore, retain, strengthen: both caught the defect; Story took 26
+    gestures, 4 source edits and 4 page reloads against 8, 1 and 1.
+  - Failure to cause to regression: Story's Machines panel shows the failing
+    action and the data it produced without opening the source, but reaching
+    it took 5 gestures and 2 wrong turns against 3.
+  - Human-named state to agent to verified revision: Storybook closed the loop
+    through its MCP addon in 7 steps; on Story it could not run from the
+    measuring session (the testbed is CLJS-only and no browser transport was
+    registered).
 
 ## Appendix A. The number
 
