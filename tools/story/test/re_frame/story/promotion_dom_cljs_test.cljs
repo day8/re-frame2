@@ -96,7 +96,7 @@
                 [:assert [:rf.assert/path-equals [:saved] "Ada"]]]
    :assertions [[:rf.assert/path-equals [:saved] "Ada"]]})
 
-(defn- run!
+(defn- run-variant!
   "Run variant `id` under the `:dom` runner, pointing the form at its frame."
   [id]
   (reset! running id)
@@ -119,7 +119,7 @@
               source (atom nil)]
           (reg-app! false)
           (rf.story.registrar/reg-variant* source-id source-body)
-          (-> (run! source-id)
+          (-> (run-variant! source-id)
               (.then (fn [result]
                        (reset! source (verdict result))
                        (is (= :fail (:status @source))
@@ -132,19 +132,19 @@
                             :tags        #{:test}
                             :setup-count 0
                             :extends     source-id}))
-                       (run! promoted-id)))
+                       (run-variant! promoted-id)))
               (.then (fn [result]
                        (is (= @source (verdict result))
                            "promoted, under the fault: the source's status AND
                             assertion count")
                        (reg-app! true)
-                       (run! promoted-id)))
+                       (run-variant! promoted-id)))
               (.then (fn [result]
                        (is (= {:status :pass :assertions 3} (verdict result))
                            "fixed: passes BY its DOM checkpoint, its in-script
                             checkpoint and its terminal assertion")
                        (reg-app! false)
-                       (run! promoted-id)))
+                       (run-variant! promoted-id)))
               (.then (fn [result]
                        (is (= @source (verdict result))
                            "fault restored: fails again, as its source did")
