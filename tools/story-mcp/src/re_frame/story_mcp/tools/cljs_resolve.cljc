@@ -55,6 +55,13 @@
   'just works' because substrate does. So the seams are held CONSISTENT:
   the bridge wires both, together, and there is no silent asymmetry.
 
+  The a11y panel's INCOMPLETE bag (`re-frame.story.ui.a11y/
+  incomplete-by-frame`, axe-core's undecided checks) rides a sibling seam,
+  `*a11y-incomplete-provider*`, which the bridge binds beside
+  `*a11y-provider*`. It adds no availability of its own: while it is
+  unbound, `read-a11y-violations` omits its `:incomplete` slot rather than
+  reporting a false-empty `[]`.
+
   The two browser-only read handlers (`dev/tool-list-substrates`,
   `testing/tool-read-a11y-violations`) and the `:substrate` validation in
   `args` gate on the availability predicates below, routing an absent
@@ -158,4 +165,21 @@
   here."
   []
   (when-let [p *a11y-provider*]
+    (p)))
+
+(def ^:dynamic *a11y-incomplete-provider*
+  "Provider seam for the a11y panel's INCOMPLETE results — a zero-arg fn
+  returning `{variant-kw [incomplete-result …]}` from
+  `re-frame.story.ui.a11y/incomplete-by-frame`, the sibling of
+  `*a11y-provider*`. `nil` by default on every platform, for the same
+  bundle-isolation reason. Availability stays `*a11y-provider*`'s alone;
+  this seam only decides whether the result can carry `:incomplete`."
+  nil)
+
+(defn a11y-incomplete-by-frame
+  "The reached incomplete provider's by-frame map, or nil when the seam is
+  unbound — which the caller must read as 'cannot say', never as 'nothing
+  incomplete'."
+  []
+  (when-let [p *a11y-incomplete-provider*]
     (p)))

@@ -180,27 +180,22 @@ on the canvas, and only the variant: Story's own chrome is excluded.
 Press **run**. The first time, the panel asks before it loads anything, because
 axe-core@4.10.0 comes from a public CDN. Press **enable axe-core + scan** to
 approve once per browser. The choice is remembered, and no variant state leaves
-the browser. The panel then reports how many violations it found in the
-variant, or "no violations".
+the browser.
 
-Read that line carefully. Besides violations, axe returns **incomplete**
-results: checks it could not decide, which a person has to look at. The panel
-lists violations only, so "no violations" is not a clean bill. A login card can
-read no violations while axe leaves its colour-contrast checks incomplete,
-because it could not determine the background colour behind the text. To see
-those results, run axe on the same subject from the browser console once the
-panel has loaded it:
-
-```js
-const r = await axe.run(document.querySelector('[data-rf-story-variant-root]'));
-[r.violations.length, r.incomplete.length]
-```
-
-Report both numbers. A clean bill never absorbs incomplete findings.
+The panel then reports two numbers: how many violations axe found in the
+variant, and how many checks it left **incomplete**. An incomplete check is one
+axe could not decide, which a person has to look at. A login card can read no
+violations while axe leaves its colour-contrast checks incomplete, because it
+could not determine the background colour behind the text. The panel lists
+those checks under their own heading, and reads "no violations, nothing
+incomplete" only when both numbers are zero. An incomplete check is not a
+failure, but it is not a pass either: report both numbers. A clean bill never
+absorbs incomplete findings.
 
 An agent reads the same stored result through `read-a11y-violations`. That tool
-does not run a scan: it returns what the panel last stored, which is violations
-only. It also needs the browser host, so the story-mcp stdio server answers
+does not run a scan: it returns what the panel last stored, with the violations
+under `:violations` and the incomplete checks beside them under `:incomplete`.
+It also needs the browser host, so the story-mcp stdio server answers
 capability-unavailable rather than an empty list.
 [Chapter 9](09-multi-substrate-and-agent-loop.md#two-hosts) names the two hosts.
 

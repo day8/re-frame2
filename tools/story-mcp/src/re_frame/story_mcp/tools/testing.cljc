@@ -239,6 +239,17 @@
   REACHED provider (a browser-local consumer of this `.cljc` helper whose
   panel actually answered).
 
+  ## Incomplete results
+
+  Beside `:violations` the result carries `:incomplete`: axe-core's checks
+  it could not decide (colour contrast over a background it cannot
+  compute, say), read from `incomplete-by-frame` through the sibling
+  provider seam. They are shown, never failed — and never absorbed into a
+  clean bill, so `:violations []` beside a non-empty `:incomplete` does
+  not mean accessible. The slot is additive: `:violations` keeps its shape,
+  and a reached provider that cannot supply the incomplete bag omits the
+  key rather than answering a false-empty `[]`.
+
   ## Wire-egress posture
 
   The `:violations` vec is LIVE RUNTIME observed state — the rendered DOM
@@ -249,7 +260,8 @@
   attribute, a PII text node) lands verbatim in node `:html`. axe DOM nodes
   are an inherently RE-KEYED runtime payload class (the secret rides node
   `:html`, a non-app-db position), so `:violations` route through the NAMED
-  `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception (rf2-jwggld). Under a LIVE variant frame
+  `rf.story-mcp.tools.egress/scrub-re-keyed-runtime` exception (rf2-jwggld);
+  `:incomplete` nodes are the same class and take the same route. Under a LIVE variant frame
   EP-0025 FAIL-OPEN holds: a value rendered into a node `:html` is a RE-KEYED
   DOM position the classification path cannot reach, so it ships RAW
   (value-match removed; classify the app-db PATH to redact a value before it
@@ -269,12 +281,16 @@
            :detail     (str "The axe-core run + `violations-by-frame` atom are "
                             "CLJS-in-browser only; a reached provider is required "
                             "before an empty result can mean 'zero violations'.")})
-        (let [incl?      (rf.story-mcp.tools.args/include-sensitive? arguments)
-              by-frame   (rf.story-mcp.tools.cljs-resolve/a11y-violations-by-frame)
-              violations (get by-frame vk)
-              payload    {:variant-id vk
-                          :violations (rf.story-mcp.tools.egress/scrub-re-keyed-runtime
-                                        (vec (or violations [])) vk incl?)}]
+        (let [incl?         (rf.story-mcp.tools.args/include-sensitive? arguments)
+              by-frame      (rf.story-mcp.tools.cljs-resolve/a11y-violations-by-frame)
+              incomplete-by (rf.story-mcp.tools.cljs-resolve/a11y-incomplete-by-frame)
+              violations    (get by-frame vk)
+              payload       (cond-> {:variant-id vk
+                                     :violations (rf.story-mcp.tools.egress/scrub-re-keyed-runtime
+                                                   (vec (or violations [])) vk incl?)}
+                              (some? incomplete-by)
+                              (assoc :incomplete (rf.story-mcp.tools.egress/scrub-re-keyed-runtime
+                                                   (vec (get incomplete-by vk [])) vk incl?)))]
           (rf.story-mcp.tools.result/edn-result payload))))))
 
 (defn tool-read-failures
@@ -391,12 +407,13 @@
 
    {:name           "read-a11y-violations"
     :category       :testing
-    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception (rf2-jwggld): a live variant frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW; classify the app-db PATH to redact a value before it reaches the DOM), and a non-live frame ships the nodes raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). Beside `:violations` it returns `:incomplete`, axe-core's checks it could not decide (from `incomplete-by-frame`): shown, never a failure, and never a clean bill, so `:violations []` beside a non-empty `:incomplete` does NOT mean accessible; a provider that cannot supply them omits the key rather than answering `[]`. The `:violations` vec (and `:incomplete`, same class) is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception (rf2-jwggld): a live variant frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW; classify the app-db PATH to redact a value before it reaches the DOM), and a non-live frame ships the nodes raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Host boundary: the shipped JVM stdio server cannot read the CLJS panel atom, so it returns a machine-readable capability-unavailable error (`isError true`, `:rf.error :rf.error/story-mcp-capability-unavailable`) rather than a false-empty `{:violations []}` — an empty vec is reserved for a REACHED provider that reported no findings. "
                          "Examples: "
                          "1. JVM stdio server (no browser bridge): {:variant-id \":story.cart/full\"} -> {:isError true :content [{:text \"Capability unavailable: `read-a11y-violations` needs the a11y-panel-state provider...\"}] :structuredContent {:rf.error :rf.error/story-mcp-capability-unavailable :capability \"a11y-panel-state\" :tool \"read-a11y-violations\" :recovery :read-from-a-browser-local-story-host}}. "
-                         "2. Browser-local state with findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "
-                         "3. Browser-local state, clean frame: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations []} — a reached provider that genuinely reported no violations.")
+                         "2. Browser-local state with findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}] :incomplete []}. "
+                         "3. Browser-local state, clean frame: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :incomplete []} — a reached provider that genuinely reported nothing. "
+                         "4. Browser-local state, undecided checks: {:variant-id \":story.login-form/idle\"} -> {:variant-id :story.login-form/idle :violations [] :incomplete [{:id \"color-contrast\" :nodes [...]}]} — NOT a clean bill: a person must check those nodes.")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (rf.story-mcp.tools.schemas/with-max-tokens

@@ -667,7 +667,8 @@
     (is (false? (rf.story-mcp.tools.cljs-resolve/a11y-provider-available?)))
     (is (= [] (rf.story-mcp.tools.cljs-resolve/registered-substrates)))
     (is (= #{} (rf.story-mcp.tools.cljs-resolve/registered-substrates-set)))
-    (is (nil? (rf.story-mcp.tools.cljs-resolve/a11y-violations-by-frame))))
+    (is (nil? (rf.story-mcp.tools.cljs-resolve/a11y-violations-by-frame)))
+    (is (nil? (rf.story-mcp.tools.cljs-resolve/a11y-incomplete-by-frame))))
   (testing "binding EITHER seam flips ONLY its own availability — independent seams"
     (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent])]
       (is (true? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)))
@@ -1482,6 +1483,45 @@
             "a reached provider with no findings for this frame is a SUCCESS, distinct from unavailable")
         (is (= [] (:violations s))
             "no entry for this frame ⇒ reached-and-empty vec, not an error")))))
+
+(deftest read-a11y-violations-carries-incomplete-beside-violations
+  ;; rf2-0ae7o.2 — axe-core's INCOMPLETE results (checks it could not decide)
+  ;; ride beside `:violations` as an additive `:incomplete` slot, read through
+  ;; the sibling `*a11y-incomplete-provider*` seam. An incomplete-only frame is
+  ;; NOT a clean bill: an agent must see the undecided checks, not `[]` alone.
+  (let [vios [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]
+        incs [{:id "color-contrast" :impact "serious"
+               :nodes [{:target ["h3"]} {:target ["p"]}]}]]
+    (testing "both seams REACHED ⇒ the result carries both; :violations keeps its shape"
+      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {:story.button/primary vios})
+                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (fn [] {:story.button/primary incs})]
+        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= vios (:violations s)) "the violations ride through verbatim, as before")
+          (is (= incs (:incomplete s)) "the incomplete results ride beside them"))))
+    (testing "an INCOMPLETE-ONLY frame does not read as clean: [] violations beside the undecided checks"
+      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {})
+                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (fn [] {:story.button/primary incs})]
+        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r) "incomplete is not a failure")
+          (is (= [] (:violations s)))
+          (is (= 1 (count (:incomplete s)))
+              "the undecided check is returned, so zero violations is not reported alone"))))
+    (testing "incomplete seam REACHED but no entry for this frame ⇒ :incomplete []"
+      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (fn [] {:story.button/primary vios})
+                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (fn [] {:story.other/frame incs})]
+        (let [s (:structuredContent (invoke "read-a11y-violations" {:variant-id "story.button/primary"}))]
+          (is (= [] (:incomplete s))))))
+    (testing "incomplete seam UNBOUND ⇒ no :incomplete slot, never a false-empty []"
+      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.button/primary vios})]
+        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= vios (:violations s)))
+          (is (not (contains? s :incomplete))
+              "a host that cannot see the incomplete bag says nothing about it"))))))
 
 (deftest read-failures-empty-after-no-run
   (testing "no run yet ⇒ zero accumulated assertions, vacuously :pass"
