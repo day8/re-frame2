@@ -34,10 +34,13 @@
             [re-frame.story            :as rf.story]
             [re-frame.story.async      :as rf.story.async]
             [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.ui.evidence-spine  :as rf.story.ui.evidence-spine]
             [re-frame.story.ui.state   :as rf.story.ui.state]
             [re-frame.story.ui.test-mode.pure  :as rf.story.ui.test-mode.pure]
             [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]
-            [re-frame.subs             :as rf.subs]))
+            [re-frame.story.ui.test-mode.view  :as rf.story.ui.test-mode.view]
+            [re-frame.subs             :as rf.subs]
+            [re-frame.test-helpers     :as rf.test-helpers]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -62,6 +65,72 @@
   (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
+
+;; ===========================================================================
+;; rf2-7etf3 — a failed assertion row links to its beat in the Evidence panel
+;;
+;; spec/021 §2: a selected result row drives the evidence spine's selected
+;; span. The row keeps its causal coordinate, and one click on its link opens
+;; the Evidence panel with THAT row's beat selected.
+;; ===========================================================================
+
+(def ^:private two-cascade-narrative
+  ;; Two committed dispatch cascades → flattened beat-idx 0 and 1.
+  [{:step   [:dispatch [:counter/inc]]
+    :epochs [{:epoch-id 100 :dispatch-id 100 :trigger-event [:counter/inc]
+              :db-before {:count 0} :db-after {:count 1}
+              :effects [] :sub-runs [] :renders [] :trace-events []}]}
+   {:step   [:dispatch [:counter/inc]]
+    :epochs [{:epoch-id 101 :dispatch-id 101 :trigger-event [:counter/inc]
+              :db-before {:count 1} :db-after {:count 2}
+              :effects [] :sub-runs [] :renders [] :trace-events []}]}])
+
+(deftest assertion-row-keeps-causal-coordinate-rf2-7etf3
+  (testing "a record's :dispatch-id / :epoch-id ride onto the row"
+    (let [row (rf.story.ui.test-mode.pure/assertion-row
+                {:assertion :rf.assert/path-equals :passed? false
+                 :dispatch-id 101 :epoch-id 101})]
+      (is (= 101 (:dispatch-id row)))
+      (is (= 101 (:epoch-id row)))))
+  (testing "a coordinate-less record's row carries no coordinate keys"
+    (let [row (rf.story.ui.test-mode.pure/assertion-row
+                {:assertion :rf.assert/no-warnings :passed? false})]
+      (is (not (contains? row :dispatch-id)))
+      (is (not (contains? row :epoch-id))))))
+
+(deftest failed-row-one-click-lands-on-its-beat-rf2-7etf3
+  (testing "clicking a failed row's evidence link opens the Evidence panel
+            with that row's beat selected"
+    (reset! rf.story.ui.evidence-spine/selection-atom {})
+    (rf.story.ui.state/swap-state! assoc-in
+                                   [:panel-visibility rf.story.ui.evidence-spine/panel-key] false)
+    (let [row  (rf.story.ui.test-mode.pure/assertion-row
+                 {:assertion :rf.assert/path-equals :payload [[:count] 9]
+                  :passed? false :expected 9 :actual 2 :dispatch-id 101})
+          link (rf.story.ui.test-mode.view/row-evidence-link
+                 :story.pane/v two-cascade-narrative row)]
+      (is (some? link) "a failed row whose coordinate resolves renders the link")
+      (is (= "1" (get (second link) :data-beat-idx)))
+      (rf.test-helpers/invoke-handler link :on-click nil)
+      (is (true? (get-in (rf.story.ui.state/get-state)
+                         [:panel-visibility rf.story.ui.evidence-spine/panel-key]))
+          "the click opens the Evidence panel")
+      (is (= 1 (rf.story.ui.evidence-spine/selected-beat-idx :story.pane/v))
+          "the click lands on the row's own beat (the second cascade), not the first")))
+  (testing "a row that resolves to no beat renders no link"
+    (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
+                :story.pane/v two-cascade-narrative
+                (rf.story.ui.test-mode.pure/assertion-row
+                  {:assertion :rf.assert/no-warnings :passed? false}))))
+    (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
+                :story.pane/v two-cascade-narrative
+                (rf.story.ui.test-mode.pure/assertion-row
+                  {:assertion :rf.assert/path-equals :passed? false :dispatch-id 999}))))
+    (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
+                :story.pane/v nil
+                (rf.story.ui.test-mode.pure/assertion-row
+                  {:assertion :rf.assert/path-equals :passed? false :dispatch-id 101})))
+        "no narrative, no beat to land on")))
 
 ;; ===========================================================================
 ;; rf2-aoqyy — pass / fail / skip row detail

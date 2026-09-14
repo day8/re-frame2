@@ -101,7 +101,9 @@
        :label     \":rf.assert/path-equals [[:count] 7]\"
        :row-key   \":rf.assert/path-equals [[:count] 7]\"
        :detail    {:expected ... :actual ... :reason ...
-                   :source <{:file ... :line ...}|nil>}}
+                   :source <{:file ... :line ...}|nil>}
+       :dispatch-id <id>   ; only when the record carries one
+       :epoch-id    <id>}  ; only when the record carries one
 
   `:detail` is always present so the renderer can read uniformly;
   the renderer decides whether to surface it (only failing rows
@@ -147,19 +149,24 @@
         label    (let [p (pretty-payload payload)]
                    (cond-> (str aid)
                      (seq p) (str " " p)))]
-    {:assertion aid
-     :status    status
-     :label     label
-     :row-key   label
-     :detail    {:expected (:expected rec)
-                 :actual   (:actual rec)
-                 :reason   (:reason rec)
-                 :variant-id (:variant-id rec)
-                 :phase    (:phase rec)
-                 :event    (:event rec)
-                 :predicate (:predicate rec)
-                 :error    (:error rec)
-                 :source   (or (:source rec) (:source-coord rec))}}))
+    (cond-> {:assertion aid
+             :status    status
+             :label     label
+             :row-key   label
+             :detail    {:expected (:expected rec)
+                         :actual   (:actual rec)
+                         :reason   (:reason rec)
+                         :variant-id (:variant-id rec)
+                         :phase    (:phase rec)
+                         :event    (:event rec)
+                         :predicate (:predicate rec)
+                         :error    (:error rec)
+                         :source   (or (:source rec) (:source-coord rec))}}
+      ;; The causal coordinate the evidence spine resolves a row to its
+      ;; beat by (spec/021 §2; `rf.story.ui.evidence-spine/row->beat-index`).
+      ;; Carried only when present, so a coordinate-less row keeps its shape.
+      (some? (:dispatch-id rec)) (assoc :dispatch-id (:dispatch-id rec))
+      (some? (:epoch-id rec))    (assoc :epoch-id (:epoch-id rec)))))
 
 ;; ---- pure: formatting ---------------------------------------------------
 
@@ -551,11 +558,9 @@
 
 (defn evidence-available?
   "True iff `result` carries enough retained evidence for a result→evidence
-  spine link (spec/021 §2). The evidence-spine DISPLAY (ba86n.10) is not
-  built yet, so today this gates a graceful \"evidence pending\" affordance
-  rather than a live link: it is true only when the result carries a
-  non-empty `:epoch-tape` / `:narrative` (the retained tape the spine would
-  project). Pure data → data; JVM-testable."
+  spine link (spec/021 §2): a non-empty `:epoch-tape` / `:narrative` (the
+  retained tape the spine projects). Gates the Test pane's link into the
+  Evidence panel. Pure data → data; JVM-testable."
   [result]
   (boolean (or (seq (:epoch-tape result))
                (seq (:narrative result)))))
