@@ -536,6 +536,14 @@ empty `:violations` vec is reserved for a REACHED panel that genuinely
 recorded no findings: EMPTY means nothing was observed, UNAVAILABLE means
 the host could not look, and a reader who takes the first for the second
 concludes a component is accessible when nothing inspected it.
+Beside `:violations` a reached provider's result carries `:incomplete`:
+axe-core's checks it could not decide, read from
+`re-frame.story.ui.a11y/incomplete-by-frame` through a sibling provider seam
+and scrubbed by the same route as `:violations` (below). They are shown, never
+failed, so an empty `:violations` beside a non-empty `:incomplete` is not a
+clean bill. The slot is additive (`:violations` keeps its shape) and is
+omitted when the provider cannot supply it, never answered as a false-empty
+`[]`.
 
 Wire-egress posture (rf2-q8ebq.2): the `:violations` vec is LIVE RUNTIME
 observed state — the rendered DOM of the variant frame, normalised from

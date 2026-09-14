@@ -17,7 +17,7 @@ Do **not** load this leaf to learn how to author a variant body's *contents* —
 Apply this before the first tool call. The same four lines sit in the `re-frame2-pair` skill's [`references/stories.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md#which-host-to-use) and in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md#which-host-to-use).
 
 1. **No browser in the loop → story-mcp over stdio.** The `re-frame2` skill owns this half: registry reads, `explain-variant`, `preview-variant` (it runs the variant headlessly and returns the unified run-result) and the gated `register-variant`. A tool that needs a rendered substrate or a live a11y engine answers `:rf.error/story-mcp-capability-unavailable`; that is the verdict, not a failure.
-2. **A human's live workshop in the loop → re-frame2-pair.** The `re-frame2-pair` skill owns this half: `eval-cljs` into the browser's Story registry over `re-frame.story/*`, drive the live variant frame with the ordinary Pair tools, and read the a11y panel.
+2. **A human's live workshop in the loop → re-frame2-pair.** The `re-frame2-pair` skill owns this half: `eval-cljs` into the browser's Story registry over `re-frame.story/*`, drive the live variant frame with the ordinary Pair tools, and read the a11y panel, which reports violations and incomplete checks as two counts.
 3. **Never both for one edit.** A variant id registered in both hosts names two frames with two app-dbs, so a read in one host describes nothing the other ran.
 4. **When in doubt, start on the JVM**, and move to the browser only when a tool answers capability-unavailable.
 
