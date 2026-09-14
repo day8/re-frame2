@@ -29,13 +29,14 @@
 > for the migration procedure.
 
 This tool generates a small, working re-frame2 application: a counter
-SPA in twelve files that a programmer — or the agent working with them
+SPA in thirteen files that a programmer — or the agent working with them
 — can read in one sitting, run, test, release, and replace with their
 first feature. It has one selector, `:substrate`, which is `:reagent`
 by default or `:uix`; nothing else is a choice at scaffold time.
-Devtools, the component playground, schemas, HTTP, styling frameworks,
-linters and CI all attach afterwards through their own documented
-recipes, which the generated README links.
+Story, the component playground, comes wired, on the dev build only,
+at `#/stories`. Devtools, schemas, HTTP, styling frameworks, linters
+and CI attach afterwards through their own documented recipes, which
+the generated README links.
 
 ## Quick start
 
@@ -156,7 +157,7 @@ The normative contract lives under [`spec/`](./spec/):
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What the tool is for; lineage from v1; goals; non-goals. |
 | [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | The one selector; Reagent / UIx; coercion; how a substrate is added. |
-| [`spec/002-Generated-Shape.md`](./spec/002-Generated-Shape.md) | The twelve-file manifest; the resource tree; substitution variables; the hot-reload contract. |
+| [`spec/002-Generated-Shape.md`](./spec/002-Generated-Shape.md) | The thirteen-file manifest; the resource tree; substitution variables; the hot-reload contract. |
 | [`spec/005-Repo-Split.md`](./spec/005-Repo-Split.md) | Procedure for the remaining monorepo-to-external-repo split. |
 | [`spec/Principles.md`](./spec/Principles.md) | The design principles (build-time only, counter as canonical example, substrate-agnostic shell, top-level k/v selection, tested per substrate). |
 | [`spec/API.md`](./spec/API.md) | The consolidated public invocation surface and the error table. |
@@ -173,6 +174,7 @@ The normative contract lives under [`spec/`](./spec/):
   canonical counter the Reagent variant mirrors.
 - [`examples/substrates/uix/counter/`](../../examples/substrates/uix/counter/) — UIx
   counter.
-- [`docs/xray/01-installation.md`](../../docs/xray/01-installation.md) and
-  [`docs/story/index.md`](../../docs/story/index.md) — the two
-  post-generation recipes the generated README links.
+- [`docs/xray/01-installation.md`](../../docs/xray/01-installation.md) — the
+  post-generation recipe the generated README links; and
+  [`docs/story/index.md`](../../docs/story/index.md) — Story, which the
+  generated app already wires.

@@ -187,6 +187,10 @@ trees are for studying complete patterns.
 > [`docs/story/index.md`](../../../docs/story/index.md) — a dev-alias
 > coord, a require and a mount — and the generated README's next-steps
 > section links that page. The record below is why the flag existed.
+>
+> **Amended 2026-09-14 (rf2-1bkoc) — see §10's amendment.** The
+> default-off half is reversed as well: every scaffold now wires Story
+> on the dev build, with no flag. The opt-in flag stays gone.
 
 **Decision (superseded).** The template did **not** pre-wire
 [`tools/story/`](../../story/) on the default path. An opt-in Story
@@ -502,6 +506,41 @@ then; the root swap removed the asymmetry, so a revisit no longer has
 to argue past it. The other two conditions — onboarding evidence, a
 published coordinate — are untouched and still unmet, so the decision
 stands.
+
+### Amendment — Story is wired, not flagged (2026-09-14, rf2-1bkoc)
+
+**Decision.** The Story half of option A is reversed: every scaffold,
+on both substrates, now emits Story wiring — a `:dev` alias carrying
+`day8/re-frame2-story` as a `:local/root`, Story's `@xyflow/react` /
+`elkjs` npm pair, and a per-substrate `stories.cljs` with one story, one
+variant and a dev-only entry that mounts the shell on `#/stories`. The
+manifest grows from twelve files to thirteen and the substrate swap from
+three files to four. `:substrate` stays the one selector and no flag
+returns. Xray stays out, and its revisit condition above is unchanged.
+Ruled under epic rf2-0ae7o by delegation; Mike's confirmation of that
+epic is pending.
+
+**Why default-on rather than opt-in.** Option C was rejected because one
+flag preserves the whole option genus — the known-keys gate, coercion,
+capability matrix, error vocabulary and variant resources — and
+deps-new's flat `{{key}}` substitution has no conditional sections to
+hide wiring behind a flag without it. That still holds, so an opt-in
+Story flag would bring the genus back. Default-on needs none of it: the
+wiring is two more resources and two pins. What changed is the other
+side of the ledger. The "three pasted forms" measured at seven edits
+from a fresh scaffold to a working `#/stories` — a new file, three
+touched files, two alias keys and an install — and eight with the props
+schema that derives controls; the scaffold now reaches it with none.
+
+**What it costs, and what it does not.** Scaffold cost rises by one
+file, one alias, two npm packages and a hash branch, and the watch
+compiles Story's classpath. Bundle cost does not rise: the `:app`
+build's `:dev` override boots `stories/init` only in `watch` and
+`compile`, a release boots `core/init`, which never requires Story, and
+the behavioural tier compiles that release without the `:dev` alias, so
+one that reached Story would fail to compile. The Story coordinate is a
+`:local/root` beside the project until Story is published — never a
+Clojars coordinate that does not resolve.
 
 ## Retired — clj-new-over-deps-new
 

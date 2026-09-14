@@ -61,17 +61,19 @@ Events (`events.cljs`), subs (`subs.cljs`), the test
 both substrates**. They live under `_shared/` in the resource tree
 (plus `root/` for the bulk-copied content with default placement).
 
-The substrate-specific files — the only three that genuinely vary
+The substrate-specific files — the only four that genuinely vary
 by substrate — are:
 
 - `core.cljs` — substrate-specific render / mount + adapter wiring.
 - `views.cljs` — substrate-specific component syntax.
 - `deps.edn` — substrate-specific adapter coord + view library.
+- `stories.cljs` — substrate-specific Story wiring: the adapter it
+  installs, and on UIx the view registration and render function.
 
 `shadow-cljs.edn` and `package.json` carry **no** substrate-varying
 content (the React substrate is chosen in `deps.edn` + `core.cljs`,
-and react / react-dom are the only npm dependencies for every
-variant), so they too live under `_shared/` and emit once — the lone
+and the npm dependencies — react / react-dom, and Story's
+`@xyflow/react` / `elkjs` — are the same for every variant), so they too live under `_shared/` and emit once — the lone
 per-variant difference is a display name in a comment / description,
 filled by `{{substrate-label}}`.
 
@@ -156,7 +158,7 @@ is exercised end-to-end across the layers:
    `org.corfield.new/create` in-process (the full deps-new pipeline
    — `data-fn` / `template-fn` / `post-process-fn` — runs exactly
    as a `clojure -Tnew create` shell invocation would), and asserts
-   the emitted file set IS the twelve-file manifest (a set equality),
+   the emitted file set IS the thirteen-file manifest (a set equality),
    the parsed `deps.edn` / `shadow-cljs.edn` / `package.json`, the
    absence of every retired file, coordinate, npm package, preload and
    host in the emitted tree, the argument gate, and the npm name. Each
