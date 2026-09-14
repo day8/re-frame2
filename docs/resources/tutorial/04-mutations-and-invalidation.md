@@ -398,7 +398,7 @@ Watching an instance is the right tool for *rendering*: the button disables itse
 First, the write. Create and edit share one mutation that switches POST/PUT on whether a slug exists yet:
 
 ```clojure
-;; src/conduit/mutations.cljs
+;; src/conduit/mutations.cljc
 ;; cf. examples/real-apps/realworld_resources/article_editor.cljs
 (rf/reg-mutation :conduit/save-article
   {:doc           "Create (POST /articles) or update (PUT /articles/:slug)."
