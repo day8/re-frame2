@@ -1,0 +1,6 @@
+P7 explain keys=(:args :assertions :checks :compose :db-seed :effective-args :fidelity :merge :network :parent-chain :platforms :required-runner :script-order :setup-order :source :source-chain :strict-conflicts :sub-overrides :substitutions :tags :view-args-schema :view-args-validation)
+   :args={:heading "Sign in"} :effective-args={:heading "Sign in"} resolve-args={:heading "Sign in"}
+   ownargs :effective-args={:heading "Own"} (variant must win: Own)
+P7 run keys=(:app-db :assertions :checks :consumed-selectors :decorators :effective-args :effects :elapsed-ms :epoch-tape :frame :lifecycle :narrative :plan-hash :renders :required-runner :run-hash :runner :schema-violations :snapshot :status :sub-runs :warnings :variant/id)
+   :plan-hash present? true stable? true  :run-hash present? true stable? true
+DONE

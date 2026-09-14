@@ -1,0 +1,12 @@
+P5b snippet:
+(story/reg-variant :story.probe/pinned-upgraded
+  {:doc "cheap picture"
+   ;; real events — proves handlers + app-db
+   :setup [[:dispatch [:your/setup-event {}]]]})
+;; upgrade of :story.probe/pinned — drops :sub-overrides on [[:probe/v]] rather than :extends-ing the pin; the artifact stays a variant.
+P5b read-string ok? true form-head=(story/reg-variant :story.probe/pinned-upgraded)
+   child id=:story.probe/pinned-upgraded body keys=(:doc :setup) :extends=nil :sub-overrides=nil
+   explain keys=(:args :assertions :checks :compose :db-seed :effective-args :fidelity :merge :network :parent-chain :platforms :required-runner :script-order :setup-order :source :source-chain :strict-conflicts :sub-overrides :substitutions :tags :view-args-schema :view-args-validation)
+   fidelity=#{:real-setup}  :sub-overrides mentions anywhere in explain=1
+   child run status=:pass db :v=nil (a pinned picture would not have run :probe/set)
+DONE

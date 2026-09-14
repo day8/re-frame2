@@ -1,0 +1,19 @@
+P6d-5 TESTBED shape: :setup event + :script [[:assert …]] only
+   source under fault: [:fail 1]  variant-play-events=[]  result->artifact nil? true
+   dialog body keys=(:doc :extends :run-artifact :tags) :assertions=nil :script=nil :setup=nil
+   dialog fault/fix/fault = [[:pass 0] [:pass 0] [:pass 0]]
+   api body keys=(:doc :run-artifact :script) :assertions=nil :script=[[:dispatch [:probe/inc]] [:assert [:rf.assert/path-equals [:n] 1]]] :setup=nil
+   api fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]
+P6d-6 TUTORIAL shape: :setup event + :script [[:dispatch-sync [:rf.assert/…]]]
+   source under fault: [:fail 1]  variant-play-events=[[:rf.assert/path-equals [:n] 1]]  result->artifact nil? false
+   dialog body keys=(:doc :extends :run-artifact :script :tags) :assertions=nil :script=[[:dispatch [:rf.assert/path-equals [:n] 1]]] :setup=nil
+   dialog fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]
+   api body keys=(:doc :run-artifact :script) :assertions=nil :script=[[:dispatch [:probe/inc]] [:dispatch-sync [:rf.assert/path-equals [:n] 1]]] :setup=nil
+   api fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]
+P6d-7 MIXED: :setup event + :script dispatch + declarative :assertions
+   source under fault: [:fail 1]  variant-play-events=[[:probe/inc]]  result->artifact nil? false
+   dialog body keys=(:assertions :doc :extends :run-artifact :script :tags) :assertions=[[:rf.assert/path-equals [:n] 2]] :script=[[:dispatch [:probe/inc]]] :setup=nil
+   dialog fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]
+   api body keys=(:assertions :doc :run-artifact :script) :assertions=[[:rf.assert/path-equals [:n] 2]] :script=[[:dispatch [:probe/inc]] [:dispatch [:probe/inc]]] :setup=nil
+   api fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]
+DONE

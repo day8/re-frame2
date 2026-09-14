@@ -1,0 +1,25 @@
+P6c-1 DECLARATIVE :assertions beside a :script dispatch
+   source under fault: [:fail 1]
+   dialog promoted body: keys=(:assertions :doc :extends :run-artifact :script :tags) :assertions=[[:rf.assert/path-equals [:n] 1]] :script=[[:dispatch [:probe/inc]]] :setup=nil
+   dialog fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+   api promoted body: keys=(:assertions :doc :run-artifact :script) :assertions=[[:rf.assert/path-equals [:n] 1]] :script=[[:dispatch [:probe/inc]]] :setup=nil
+   api fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+P6c-2 IN-PROGRAM [:assert] checkpoint
+   source under fault: [:fail 1]
+   dialog promoted body: keys=(:doc :extends :run-artifact :script :tags) :assertions=nil :script=[[:dispatch [:probe/inc]] [:assert [:rf.assert/path-equals [:n] 1]]] :setup=nil
+   dialog fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+   api promoted body: keys=(:doc :run-artifact :script) :assertions=nil :script=[[:dispatch [:probe/inc]] [:assert [:rf.assert/path-equals [:n] 1]]] :setup=nil
+   api fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+P6c-3 DISPATCHED :rf.assert/* event (the shape that survived before the fix)
+   source under fault: [:fail 1]
+   dialog promoted body: keys=(:doc :extends :run-artifact :script :tags) :assertions=nil :script=[[:dispatch [:probe/inc]] [:dispatch [:rf.assert/path-equals [:n] 1]]] :setup=nil
+   dialog fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+   api promoted body: keys=(:doc :run-artifact :script) :assertions=nil :script=[[:dispatch [:probe/inc]] [:dispatch [:rf.assert/path-equals [:n] 1]]] :setup=nil
+   api fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+P6c-4 SETUP-ONLY program + declarative :assertions (the tutorial's shape; not in the merged tests)
+   source under fault: [:fail 1]
+   dialog promoted body: keys=(:doc :extends :run-artifact :tags) :assertions=nil :script=nil :setup=nil
+   dialog fault/fix/fault = [[:pass 0] [:pass 0] [:pass 0]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+   api promoted body: keys=(:assertions :doc :run-artifact :script) :assertions=[[:rf.assert/path-equals [:n] 1]] :script=[[:dispatch [:probe/inc]]] :setup=nil
+   api fault/fix/fault = [[:fail 1] [:pass 1] [:fail 1]]   (want [[:fail 1] [:pass 1] [:fail 1]])
+DONE
