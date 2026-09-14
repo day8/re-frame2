@@ -22,9 +22,10 @@
 
 ## TL;DR
 
-**2026-09-14:** the ten gaps this manifest named are re-verified below. Nine
-are closed and one, the scaffolder [D-1], is open (rf2-1bkoc); the 2026-09
-research also found six gaps this manifest did not name. The standing way to
+**2026-09-14:** the ten gaps this manifest named are re-verified below, and
+all ten are now closed: the last, the scaffolder [D-1], closed with PR #9821
+(rf2-1bkoc). The 2026-09 research also found six gaps this manifest did not
+name. The standing way to
 measure closeness is now the job-based test in
 [`023-Parity-Test.md`](023-Parity-Test.md), which carries the protocol, the
 per-job table and its bead ids. Re-run that rather than re-walking these 33
@@ -43,7 +44,7 @@ run; the per-job walk that would re-score it is rf2-4gijz.
 | [C-3] loader teardown | missing, P2 | closed: `:loaders-teardown` | rf2-lqs0b (PR #1762) |
 | [C-4] per-story docs rollup | missing, P3 | closed: the story rollup page | rf2-8j7wg (PR #1764) |
 | [C-5] args undermarketed | P3, docs | closed: args are branded in the docs, and a shipped view now carries a props schema so derived controls can be seen; source-verified only | PR #1759; rf2-wmoer (PR #9800); PR #9807 |
-| [D-1] scaffolder | missing | **open**: `tools/template` carries no Story wiring | rf2-1bkoc |
+| [D-1] scaffolder | missing | closed: a fresh app from `tools/template` carries Story wiring and reaches `#/stories` with zero Story edits, on Reagent and UIx; source-verified only | rf2-1bkoc (PR #9821) |
 | [D-2] vocabulary install ceremony | mandatory | closed: the first `reg-*` auto-installs the canonical vocabulary | rf2-p1ydc (PR #1722); PR #1761 |
 | [D-3] Playwright recipe | missing | closed: `Tutorial-Playwright.md`, beside `Tutorial-CLJS-Unit.md` | rf2-6qqry (PR #1670); PR #1759 |
 | [I-1] frame-as-isolation | undermarketed | closed for STATE; chapter 02 now says a frame isolates state, not the page (the document half is gap A7 below) | PR #1759; rf2-b7o66 (PR #9801) |
@@ -65,7 +66,7 @@ ids are 023's.
 | A fidelity upgrade keeps `:sub-overrides` pins that arrive through composed fragments | B4 | fixed (PR #9828): the upgrade drops a pinning composed fragment and names it, with its queries, in a trailing comment | rf2-yt6ak |
 | Document isolation: a frame isolates app-db, effects and loaders, not CSS, focus, portals or timers; the canvas is a stamped `div` in one page (`ui/canvas.cljs:734`) | A7 | recorded, not to be built until a real user names a CSS-isolation job; chrome no longer leaks text styles or its backdrop into the subject (PR #9827, ruled B) | rf2-w72ij |
 | Everyday visual review: `:rf.assert/visual-snapshot` compares the identity key, and no local capture-and-compare path exists. (The a11y panel and `read-a11y-violations` now report incomplete checks beside violations, so zero violations no longer reads as a clean bill.) | B7 | visual: an experiment before any decision; a11y incomplete: fixed | rf2-ia2if; rf2-0ae7o.2 |
-| No scaffolder: a fresh app from `tools/template` does not reach `#/stories` | A1 | OPEN (carried from [D-1]) | rf2-1bkoc |
+| No scaffolder: a fresh app from `tools/template` does not reach `#/stories` | A1 | fixed (PR #9821): the template emits Story wiring, so a fresh app reaches `#/stories` with zero Story edits on Reagent and UIx; an app the template did not generate still follows the install page | rf2-1bkoc |
 
 ## 2026-05-20 audit (history)
 
@@ -92,6 +93,9 @@ Three **DX gaps** worth surfacing for Mike's review:
 
 - **[D-1] No `npx storybook init`-style scaffolder** for end-users (the
   `template/` artefact ships, but no published one-liner). P3.
+  **CLOSED (rf2-1bkoc, PR #9821):** the template emits Story wiring, so a
+  fresh app reaches `#/stories` with zero Story edits; the published
+  one-liner waits on the template's repo split.
 - **[D-2] `install-canonical-vocabulary!` is mandatory boot ceremony** —
   also F-11; auto-install on first reg-* would remove the tax. P4.
 - **[D-3] No tutorial-shape Playwright recipe** for end-user e2e — also
@@ -175,7 +179,7 @@ by the prior pass; this manifest captures the gap-only summary.
 | 28 | Recorder (record canvas → CSF) | `start-recording!` + `gen-play-snippet` + `:play-script` v2 | **WIN** | — | — | — | EDN-shaped; no DOM-event translation; mid-recording assertion insert |
 | 29 | Save current state as story | `save-current-as-variant!` | matches | — | — | — | Review-then-paste (deliberate vs Storybook's auto-write) |
 | 30 | `npx storybook init` | three-line install (deps + boot + mount) | matches+ | DX | — | — | No toolchain mutation. But see [D-1] — no published scaffolder |
-| 30b | One-liner scaffolder | **MISSING** (template/ artefact ships, no published one-liner) | gap-S | DX | S | P3 | **[D-1]** — see brief below |
+| 30b | One-liner scaffolder | **MISSING** (template/ artefact ships, no published one-liner) | gap-S | DX | S | P3 | **[D-1]** — see brief below (closed: rf2-1bkoc, PR #9821) |
 | 31 | Add-ons ecosystem | `reg-story-panel` + `reg-decorator` (extension points) | matches | — | — | — | One extension point per concern (panel + decorator); no addon registry today. Third-party panels work; ecosystem-as-marketplace is N/A (different distribution model) |
 | 32 | Theming presets (light/dark/HCM) | HCM + system-colors toggle + `reg-mode :axis :theme` | matches | — | — | — | rf2-ubhmn (HCM) + rf2-846h2 (system-colors); presets shipped |
 | 33 | Themes — custom Storybook theme overrides | Story's chrome identity locked (warm-slate + amber + Plex) | divergent-by-design | — | — | — | Per `DESIGN-RATIONALE.md` §Rejected: brand-pink commodity chrome. Theme-tokens public for third-party panels (rf2-2rwdc / rf2-i3i5j) but Story's chrome itself is the identity surface |
@@ -305,6 +309,12 @@ Pair with F-5 (schema → controls auto-derivation promotion).
 follow-on bead alongside F-5; consider folding them together.
 
 #### [D-1] No `npx storybook init`-style one-liner scaffolder (P3, S)
+
+**CLOSED (rf2-1bkoc, PR #9821).** The template now emits Story wiring on
+Reagent and UIx, so a fresh app reaches `#/stories` with zero Story edits. Its
+deps-new invocation is the one command this brief asks for; the published
+git-coord form of it waits on the template's repo split. The brief below is
+kept as written.
 
 Storybook's `npx storybook init` walks the user through framework
 detection, deps install, config scaffolding, and example-story
@@ -442,7 +452,7 @@ decision is which subset to action.
 | **C-2** — MDX / rich-prose rendering | **LANDED (rf2-wl7yr)** | S-M | ~~Re-evaluate the `pre-wrap` deferral~~ — shipped: markdown (CommonMark subset, no MDX/JSX) via `re-frame.story.ui.markdown/parse`; see 008 §Markdown rendering |
 | **C-4** — Per-story-rollup docs page | **THIS AUDIT (new)** | S | Promote v2 → v1.1; chrome projection only |
 | **C-5** — "Args" headline branding | **THIS AUDIT (new)** | S (doc) | Doc reorg; pair with F-5 |
-| **D-1** — `init`-style scaffolder one-liner | **THIS AUDIT (new)** | S | Wrap `tools/template/`; one-command boot |
+| **D-1** — `init`-style scaffolder one-liner | **THIS AUDIT (new)** | S | Wrap `tools/template/`; one-command boot. **CLOSED** (rf2-1bkoc, PR #9821) |
 | **D-3 / F-6** — Tutorial Playwright recipe | prior finding | S (doc) | `rf2-NEW-6` filed; verify Tutorial-Playwright.md content |
 | **I-1 / F-4** — Stateful variants doc subsection | prior finding | S (doc) | `rf2-NEW-4` filed |
 | **I-2 / F-5** — Schema-derived controls headline | prior finding | S (doc) | `rf2-NEW-5` filed |
