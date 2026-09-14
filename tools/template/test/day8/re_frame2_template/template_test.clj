@@ -232,9 +232,9 @@
 
         ;; -- Story: one story, one variant, the dev build only --
         (let [stories (slurp (io/file root "src/acme/my_app/stories.cljs"))]
-          (is (= 1 (occurrences stories "(story/reg-story "))
+          (is (= 1 (occurrences stories "(rf.story/reg-story "))
               "stories.cljs registers exactly one story")
-          (is (= 1 (occurrences stories "(story/reg-variant "))
+          (is (= 1 (occurrences stories "(rf.story/reg-variant "))
               "stories.cljs registers exactly one variant")
           (is (string/includes? stories ":component  :acme.my-app.views/counter-app")
               "the story names the counter view by keyword")
@@ -242,10 +242,10 @@
               (str "the story renders on the scaffold's own substrate, " substrate))
           (is (string/includes? stories ":rf.assert/sub-equals")
               "the variant carries an assertion for Test mode to run")
-          (is (string/includes? stories "(story/mount-shell! node)")
+          (is (string/includes? stories "(rf.story/mount-shell! node)")
               "stories.cljs mounts the Story shell")
           (when (= :uix substrate)
-            (is (string/includes? stories "(story/register-substrate! :uix")
+            (is (string/includes? stories "(rf.story/register-substrate! :uix")
                 "the UIx scaffold registers the render fn Story uses for a :uix story")
             (is (string/includes? stories ":rf/props")
                 "the UIx view's registration carries the props schema Story derives controls from"))

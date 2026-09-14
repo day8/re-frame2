@@ -4,7 +4,7 @@
    never reaches the release bundle."
   (:require [uix.core             :refer [$]]
             [re-frame.core        :as rf]
-            [re-frame.story       :as story]
+            [re-frame.story       :as rf.story]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [{{namespace}}.core   :as core]
             [{{namespace}}.views  :as views]))
@@ -16,20 +16,20 @@
   views/counter-app)
 
 ;; Story renders a UIx view through the function registered for `:uix`.
-(story/register-substrate! :uix
+(rf.story/register-substrate! :uix
   (fn [_variant-id view-id args]
     ($ (rf/view view-id) args)))
 
 ;; A variant is one state of the story: the events that set it up and the
 ;; assertions Test mode runs.
-(story/reg-story :story.counter
+(rf.story/reg-story :story.counter
   {:doc        "The counter view."
    :component  :{{namespace}}.views/counter-app
    :args       {:heading "Counter"}
    :tags       #{:dev :docs}
    :substrates #{:uix}})
 
-(story/reg-variant :story.counter/clicked-twice
+(rf.story/reg-variant :story.counter/clicked-twice
   {:doc    "Seeded, then +1 twice."
    :setup  [[:counter/initialise] [:counter/increment] [:counter/increment]]
    :script [[:assert [:rf.assert/sub-equals [:counter/value] 2]]]
@@ -44,5 +44,5 @@
       ;; core/mount! re-renders #app after every save; renaming the node
       ;; keeps it off the shell.
       (set! (.-id node) "stories")
-      (story/mount-shell! node))
+      (rf.story/mount-shell! node))
     (core/init)))
