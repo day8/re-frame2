@@ -7,7 +7,7 @@
 ## When to load
 
 - A variant's `:script` body needs to grow but you'd rather drive the canvas than hand-author the event vectors.
-- You're scripting an MCP agent that calls `start-recording!` / `stop-recording!` on the variant frame.
+- You're driving the recorder from an agent session — a `re-frame2-pair` session calling `start-recording!` / `stop-recording!` on the variant frame through `eval-cljs`.
 - You're explaining why this is one screenful of code in re-frame2 vs Storybook's Testing-Library translation layer.
 
 Do **not** load this leaf to learn what a story is, or to author a variant body from scratch — see `stories.md` first. Load it for: the recorder's public surface, the filter layers, and the snippet that drops out.
@@ -116,7 +116,7 @@ Paste into the stories namespace. Done. (The bare-vector shorthand `:script [[:d
 
 ## Driving the recorder from an agent session
 
-There is **no headless MCP recorder tool**. Story-MCP's `record-as-variant` was retired (`tools/story-mcp/spec/002-Tool-Registry.md` §What's NOT in the registry): its handler slept the server's single stdio dispatch loop for the whole capture window, so no MCP client could drive an event *during* the recording — the tool could only ever return a green, empty capture. Interactive canvas recording is performed **through Pair in the attached CLJS runtime**: in a `re-frame2-pair` session, drive `re-frame.story/start-recording!` → interact with the canvas (or dispatch programmatically) → `stop-recording!` → `gen-play-snippet` via `eval-cljs` against the live browser heap, where the recorder and the interaction actually share a runtime. Author the resulting `:script` body here; drive the capture from a `re-frame2-pair` session. See `story-mcp-loop.md` for the author/refine vs run-side split and the handoff recipe.
+There is **no headless MCP recorder tool**. Story-MCP's `record-as-variant` was retired (`tools/story-mcp/spec/002-Tool-Registry.md` §What's NOT in the registry): its handler slept the server's single stdio dispatch loop for the whole capture window, so no MCP client could drive an event *during* the recording — the tool could only ever return a green, empty capture. Interactive canvas recording is performed **through Pair in the attached CLJS runtime**: in a `re-frame2-pair` session, drive `re-frame.story/start-recording!` → interact with the canvas (or dispatch programmatically) → `stop-recording!` → `gen-play-snippet` via `eval-cljs` against the live browser heap, where the recorder and the interaction actually share a runtime. Author the resulting `:script` body here; drive the capture from a `re-frame2-pair` session. Recording and promotion are two different captures: the recorder captures a live interaction and emits a `:script` body as data for you to paste, while promotion captures a finished run as a run artifact and registers a regression variant from it (`story-mcp-loop.md` §Three recipes). `story-mcp-loop.md` §Which host to use is the rule that sends recording to the browser.
 
 Authoring rule for tools consuming `gen-play-snippet` output: treat any `[:rf/redacted]` slot as a non-reproducible step — do not auto-commit a `:script` body containing one; ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording. Normative contract: [`../cross-cutting/privacy-and-elision.md` §Where you declare it: the three-owner table](../cross-cutting/privacy-and-elision.md#where-you-declare-it-the-three-owner-table).
 
@@ -125,7 +125,7 @@ Authoring rule for tools consuming `gen-play-snippet` output: treat any `[:rf/re
 - Capture boundary, public API, MCP wiring rationale → `tools/story/spec/005-SOTA-Features.md` §Test Codegen.
 - Trace-bus listener primitive → `tools/story/spec/003-Render-Shell.md` §Trace bus, and Spec 009 §Listener contract.
 - Variant body shape (where the recorded `:script` lands) → `stories.md` (sibling leaf).
-- Story-MCP author/refine side + the run-side handoff to `re-frame2-pair`, whose session runs the loop by calling `re-frame.story/run-variant` through `eval-cljs` (the story-mcp `run-variant` / `read-failures` tools are allow-listed by no skill) → `story-mcp-loop.md` (sibling leaf).
+- Which host to use, the Story-MCP authoring side, the three recipes (promotion among them), and the run-side handoff to `re-frame2-pair`, whose session runs the live loop by calling `re-frame.story/run-variant` through `eval-cljs` (the story-mcp `run-variant` / `read-failures` tools are allow-listed by no skill) → `story-mcp-loop.md` (sibling leaf).
 
 ---
 

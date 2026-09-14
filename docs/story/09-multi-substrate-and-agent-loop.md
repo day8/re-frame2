@@ -22,10 +22,12 @@ An agent drives Story in one of two hosts, and each host owns its own frames.
 
 A variant id registered in both hosts names two frames with two separate
 app-dbs, so run a whole loop in the host that holds the frame you care about.
-The `re-frame2` skill covers the story-mcp authoring loop in
-[`story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md);
-the `re-frame2-pair` skill covers the browser in
-[`stories.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md).
+One rule picks the host before you start, and both skills carry it word for
+word beside the promote, fidelity-upgrade and explain recipes: the `re-frame2`
+skill for story-mcp in
+[`story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#which-host-to-use),
+the `re-frame2-pair` skill for the browser in
+[`stories.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md#which-host-to-use).
 The story-mcp
 [README states the same split](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md#what-it-is),
 and [Two surfaces, one live door](api/mcp-surface.md#two-surfaces-one-live-door)
