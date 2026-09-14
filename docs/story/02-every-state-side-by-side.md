@@ -80,11 +80,14 @@ event queue, subscription cache and epoch history (see
 but every cell renders into the one page that hosts the shell. That page's
 stylesheets reach every cell, only one element on it can hold focus, and a
 modal that a view portals into `document.body` lands on the shared page,
-outside its cell. Storybook renders stories in a preview iframe, although its
-docs pages can render them inline in the page itself; Story's canvas and
-workspaces have no iframe mode. So a job such as checking that a design
-system's CSS holds up without the host page's stylesheets around it may need
-an iframe boundary, and Story does not provide one.
+outside its cell. Inherited styles cross the cell edge as well: the shell sets
+its own warm-white text colour on the canvas and on each workspace cell, so a
+view that sets no text colour of its own inherits it, and on a white card that
+text all but disappears. Storybook renders stories in a preview iframe,
+although its docs pages can render them inline in the page itself; Story's
+canvas and workspaces have no iframe mode. So a job such as checking that a
+design system's CSS holds up without the host page's stylesheets around it may
+need an iframe boundary, and Story does not provide one.
 
 There is also `:variants-grid`, which auto-enumerates variants under a parent
 story:
