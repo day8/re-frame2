@@ -307,20 +307,19 @@
       ;; rf2-xs8vu — drop Xray's own machinery before anything else.
       ;; Self-emitted sub-reads / view-renders from Xray's own panels
       ;; would otherwise drown the host event in `:ungrouped` noise.
-      (self-noise/xray-internal-event? event)
-      nil
-
-      ;; rf2-izhgo — Xray's own sub reads that arrive FRAMELESS. A
+      ;;
+      ;; rf2-izhgo — and Xray's own sub reads that arrive FRAMELESS. A
       ;; render-time cold read (the shell's first mount) runs outside any
       ;; event run, so core leaves its `:rf.sub/run` frameless (Spec 009
-      ;; §Frame identity) and the frame check above cannot see it; core's
-      ;; sub classification also fails a frameless read closed to
-      ;; `:sensitive? true`. Past this point each one would be counted as
-      ;; a redacted HOST event and cost a `:rf.xray/note-sensitive-
-      ;; suppressed` dispatch into `:rf/xray` — 126 in one mount, past the
-      ;; router's depth cap. The sub-id in Xray's reserved namespace is
-      ;; the identity the missing frame would have carried.
-      (self-noise/xray-internal-event-id? (get-in event [:tags :rf.sub/id]))
+      ;; §Frame identity) and the frame check cannot see it; core's sub
+      ;; classification also fails a frameless read closed to `:sensitive?
+      ;; true`. Past this point each one would be counted as a redacted
+      ;; HOST event and cost a `:rf.xray/note-sensitive-suppressed`
+      ;; dispatch into `:rf/xray` — 126 in one mount, past the router's
+      ;; depth cap. The sub-id in Xray's reserved namespace is the identity
+      ;; the missing frame would have carried.
+      (or (self-noise/xray-internal-event? event)
+          (self-noise/xray-internal-event-id? (get-in event [:tags :rf.sub/id])))
       nil
 
       ;; Spec 009 §Privacy — drop sensitive events while the local-render
