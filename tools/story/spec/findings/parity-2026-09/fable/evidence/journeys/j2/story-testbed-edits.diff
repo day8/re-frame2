@@ -1,0 +1,45 @@
+diff --git a/tools/story/testbeds/login_form/events.cljs b/tools/story/testbeds/login_form/events.cljs
+index bf6b062faa..59a782c9b4 100644
+--- a/tools/story/testbeds/login_form/events.cljs
++++ b/tools/story/testbeds/login_form/events.cljs
+@@ -74,7 +74,7 @@
+     ;; Capture the email so the success banner can greet the user
+     ;; by handle. Production might capture the full claims set.
+     (fn [{data :data [_ {:keys [email]}] :event}]
+-      {:data (assoc data :email email :error nil)})
++      {:data (assoc data :error nil)})
+ 
+     :issue-request
+     ;; Issue the login HTTP request. The fx-id `:rf.http/managed`
+diff --git a/tools/story/testbeds/login_form/stories.cljs b/tools/story/testbeds/login_form/stories.cljs
+index 77d7f21f31..85258b6ac0 100644
+--- a/tools/story/testbeds/login_form/stories.cljs
++++ b/tools/story/testbeds/login_form/stories.cljs
+@@ -292,3 +292,27 @@
+ 
+ ;; Fire the registrations once at namespace load.
+ (register-all!)
++
++;; J2 fairness fixture (rf2-a1v8a measurement, uncommitted): mirrors the Storybook
++;; fixture's RetryToSuccess story, so both sides start journey 2 from the same failing test.
++(rf.story/reg-variant :story.login-form/retry-to-success
++  {:doc "A rejected login, then a corrected retry that succeeds and greets the user."
++   :setup [[:login/flow [:login/submit {:email "ada@example.com" :password "wrong"}]]
++           [:login/flow [:login/failure {:failure {:status 401 :message "Invalid credentials."}}]]
++           [:login/flow [:login/retry {:email "ada@example.com" :password "correct-horse"}]]
++           [:login/flow [:login/success {:value {:user {:email "ada@example.com"} :token "story-token"}}]]]
++   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
++   :script [[:assert [:rf.assert/state-is :login/flow :authenticated]]
++            [:assert [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
++   :tags #{:dev :docs :test}
++   :substrates #{:reagent}})
++
++;; J2 promoted regression (rf2-a1v8a measurement, uncommitted): the Test-mode promote
++;; dialog's form, alias translated story -> rf.story; the in-browser registration is not
++;; listed in the sidebar and does not survive the reload that would list it.
++(rf.story/reg-variant :story.login-form/regression-653538
++  {:doc "Promoted from a :rf.test/run-artifact run artifact (spec/017 §Promotion)."
++   :extends :story.login-form/retry-to-success
++   :script [[:assert [:rf.assert/state-is :login/flow :authenticated]] [:assert [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
++   :tags #{:test}
++   :run-artifact {:artifact/kind :rf.test/run-artifact, :event-program [[:assert [:rf.assert/state-is :login/flow :authenticated]] [:assert [:rf.assert/sub-equals [:login/email] "ada@example.com"]]], :fx-decisions {}}})
