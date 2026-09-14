@@ -11,7 +11,7 @@ browser.
 
 > **Cause with a dispatch, answer with a canned reply, read the cache projection.**
 
-Two reads exist for tests specifically. In a view you always project through a subscription — but `rf/resource-state` and `rf/mutation-state` are the documented one-shot, non-reactive snapshots at an explicit frame, built for exactly this context (tools, unit tests, SSR serialisation). A test asserts on them directly:
+A test reads what a view reads — the `:rf/resource` and `:rf/mutation` subscriptions — minus the reactive runtime: `rf/compute-sub` computes a subscription against `rf/frame-state-value`, which carries both [partitions](../core/glossary.md#the-two-partitions), because resource entries and mutation instances live in runtime-db ([Test a subscription](../core/testing/subscriptions.md)). The booleans a view branches on — `:has-data?`, `:stale?`, `:success?` — exist only there. `rf/resource-state` and `rf/mutation-state` are the tool/test snapshot of the durable runtime row underneath: facts such as `:status`, `:data` and `:error`, never derived booleans, so a boolean read off them is `nil`. The setup every test below shares:
 
 ```clojure
 (ns my-app.resources-test
@@ -41,9 +41,9 @@ Ensure is the cause; the stub answers; the projection settles — all inside one
         (rf/dispatch-sync [:rf.resource/ensure {:resource :realworld/article
                                                 :params   {:slug "intro"}
                                                 :cause    [:manual :test/setup]}])
-        (let [state (rf/resource-state {:resource :realworld/article
-                                        :params   {:slug "intro"}
-                                        :frame    f})]
+        (let [state (rf/compute-sub [:rf/resource {:resource :realworld/article
+                                                   :params   {:slug "intro"}}]
+                                    (rf/frame-state-value f))]
           (is (= :loaded (:status state)))
           (is (true? (:has-data? state)))
           (is (= "Welcome" (get-in state [:data :article :title]))))))))
@@ -74,31 +74,30 @@ That second assertion is the one that matters: `nil` is the *fail-closed* answer
 
 ## 3. Invalidation and mutations
 
-A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence. The read it invalidates is *setup*, not the subject — so it rides the frame's `:initial-events`, with the stub table wrapped around frame creation (stubs bind for their dynamic extent, and the seed fetches as the frame boots). Staleness is the observable: an entry with no live owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion:
+A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence. The read it invalidates is *setup*, not the subject — so it rides the frame's `:initial-events`, with the stub table wrapped around frame creation (stubs bind for their dynamic extent, and the seed fetches as the frame boots). Staleness is the observable: an entry with no live owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion. Watch the list, not the article: the favorite [registered in tutorial Part 4](tutorial/04-mutations-and-invalidation.md#register-the-write) `:populates` the article from its reply, and a populated entry counts as freshly loaded:
 
 ```clojure
-(deftest favorite-invalidates-the-article
+(deftest favorite-invalidates-the-list
   (http-test-support/with-request-stubs
-    {[:get  "/api/articles/intro"]          {:reply {:ok {:article {:slug "intro"}}}}
+    {[:get  "/api/articles"]                {:reply {:ok {:articles [{:slug "intro"}]}}}
      [:post "/api/articles/intro/favorite"] {:reply {:ok {:article {:slug "intro" :favorited true}}}}}
     (fn []
-      ;; the frame boots with the article already loaded — through the canned reply
+      ;; the frame boots with the list already loaded — through the canned reply
       (rf/with-new-frame [f (rf/make-frame
                               {:initial-events
-                               [[:rf.resource/ensure {:resource :realworld/article
-                                                      :params   {:slug "intro"}
+                               [[:rf.resource/ensure {:resource :realworld/articles
+                                                      :params   {}
                                                       :cause    [:manual :test/setup]}]]})]
         ;; run the write…
         (rf/dispatch-sync [:rf.mutation/execute {:mutation :realworld/favorite
                                                  :params   {:slug "intro"}
                                                  :instance [:favorite "intro"]
                                                  :cause    [:manual :test/favorite]}])
-        ;; …and assert both sides: the instance settled, the read went stale.
-        (let [m (rf/mutation-state {:instance [:favorite "intro"] :frame f})]
-          (is (true? (:success? m))))
-        (is (true? (:stale? (rf/resource-state {:resource :realworld/article
-                                                :params   {:slug "intro"}
-                                                :frame    f}))))))))
+        ;; …and assert both sides: the instance settled, the list went stale.
+        (is (true? (:success? (rf/compute-sub [:rf/mutation {:instance [:favorite "intro"]}]
+                                              (rf/frame-state-value f)))))
+        (is (true? (:stale? (rf/compute-sub [:rf/resource {:resource :realworld/articles :params {}}]
+                                            (rf/frame-state-value f)))))))))
 ```
 
 !!! warning "Gotcha — a scope mismatch is a silent miss, and a test is where you catch it"
