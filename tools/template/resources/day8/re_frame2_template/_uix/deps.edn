@@ -17,7 +17,6 @@
  {:shadow {:extra-paths ["test"]
            :extra-deps  {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}}
 
-  ;; Story, the component playground (src/{{nested-dirs}}/stories.cljs).
-  ;; Until Story is published it resolves from a re-frame2 checkout beside
-  ;; this project; then it is a :mvn/version at the version above.
+  ;; Story (stories.cljs), from a re-frame2 checkout beside this project
+  ;; until Story is published.
   :dev    {:extra-deps {day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}}}

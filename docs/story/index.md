@@ -89,7 +89,7 @@ matrices. It is the "put every awkward UI state on one screen" example.
 
 ## Install Story
 
-The generator template emits no Story wiring, so a freshly scaffolded app and a long-lived one attach Story the same way: a dev alias, two npm packages, a require and a mount.
+A freshly generated app already has this wiring — the generator template emits the dev alias, the two npm packages, a `stories.cljs` with one story and a dev-only entry that mounts Story on `#/stories` — so the steps below are for an app the template did not generate: a dev alias, two npm packages, a require and a mount.
 
 **This page assumes a `:local/root` install.** During alpha no re-frame2 artefact is published to Clojars, so every `day8/re-frame2*` coordinate resolves from a local re-frame2 checkout — your app's own `day8/re-frame2` and `day8/re-frame2-reagent` included — and all of them must come from the *same* checkout. `:local/root` is relative to *your* `deps.edn`, so the paths below assume that clone sits **beside** your project directory; adjust them if it does not.
 

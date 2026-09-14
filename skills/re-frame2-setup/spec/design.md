@@ -33,11 +33,11 @@ The author picks the VERSION once (or takes the default); every `day8/re-frame2-
 
 ### L3 — Day-one shape matches the generator template; everything else is pay-as-you-go
 
-The day-one deps match the deps-new template after its rf2-zq34m collapse: core (`day8/re-frame2`) + the substrate adapter (`day8/re-frame2-reagent`, or `-uix` on request) + the view library (`reagent/reagent`, or `com.pitch/uix.core` — the adapter's `client-root` / `render!` own the React Root, so `uix.dom` is not day-one either); npm is `shadow-cljs`, `react`, `react-dom`. **No schemas, no Xray, no Story, no HTTP, no CSP or hosting policy on day one** — each is a later, explicit step the generated README's *Next steps* links, installed or explained only when the author asks. The per-feature artefacts (`-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists "add them all defensively". (Before slice B the Reagent route carried `-schemas` + `-xray` + the `@xyflow/react` / `elkjs` npm pair day-one; that shape is retired, not wrapped in compatibility wording.)
+The day-one deps match the deps-new template after its rf2-zq34m collapse: core (`day8/re-frame2`) + the substrate adapter (`day8/re-frame2-reagent`, or `-uix` on request) + the view library (`reagent/reagent`, or `com.pitch/uix.core` — the adapter's `client-root` / `render!` own the React Root, so `uix.dom` is not day-one either); npm is `shadow-cljs`, `react`, `react-dom`, plus the `@xyflow/react` / `elkjs` pair Story's shell needs. **Story is the one tool that is day-one**: its `:dev` alias, `stories.cljs` and a dev-only `#/stories` entry come wired, so a fresh app reaches Story with no edit and a release never carries it. **No schemas, no Xray, no HTTP, no CSP or hosting policy on day one** — each is a later, explicit step the generated README's *Next steps* links, installed or explained only when the author asks. The per-feature artefacts (`-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists "add them all defensively". (Before slice B the Reagent route carried `-schemas` + `-xray` + the `@xyflow/react` / `elkjs` npm pair day-one; that shape is retired, not wrapped in compatibility wording.)
 
-### L4 — The Reagent adapter is the default reference substrate; UIx is a three-file swap
+### L4 — The Reagent adapter is the default reference substrate; UIx is a four-file swap
 
-Unless the author explicitly says UIx, scaffold against Reagent — Reagent v2 is the canonical default. The skill does not branch into a multi-substrate decision tree at greenfield, but it **does** cover UIx greenfield completely and cheaply: the UIx project is the same twelve files with `deps.edn`, `core.cljs` and `views.cljs` replaced — exactly the set the template's `template-fn` varies per substrate — and those three are rendered from the template's `_uix/` tree into `references/entry-namespace.md` §UIx greenfield by the same derivation (L13). The nine shared files are not restated per substrate. SKILL.md cardinal rule 3 and README.md §"What it deliberately does not cover" carry the same pointer.
+Unless the author explicitly says UIx, scaffold against Reagent — Reagent v2 is the canonical default. The skill does not branch into a multi-substrate decision tree at greenfield, but it **does** cover UIx greenfield completely and cheaply: the UIx project is the same thirteen files with `deps.edn`, `core.cljs`, `views.cljs` and `stories.cljs` replaced — exactly the set the template's `template-fn` varies per substrate — and those four are rendered from the template's `_uix/` tree into `references/entry-namespace.md` §UIx greenfield by the same derivation (L13). The nine shared files are not restated per substrate. SKILL.md cardinal rule 3 and README.md §"What it deliberately does not cover" carry the same pointer.
 
 ### L5 — Don't write tests for the author
 
@@ -73,7 +73,7 @@ The manual route writes `first-counter.md`'s files; the generator route runs `cl
 
 ### L13 — The default scaffold is derived from the template, never hand-maintained
 
-`references/first-counter.md`'s twelve files and `references/entry-namespace.md`'s three UIx files are generated regions rendered from `tools/template/` by `tests/first_counter_derivation.clj` (which loads the template's real `hooks.clj` for the substitution values and the file map, and re-does only deps-new's `{{key}}` copy). Two locks hold them to the template from different instruments: `setup_drift_test.clj` compares the leaves to the Babashka render; `emitted_test_run_test.clj` compares them to a real deps-new emission byte for byte. A template change that alters the emission reds both until the leaves are regenerated. There is no second template, no per-skill variant of any file, and no hand edit inside a generated region (rf2-rc0yh slice B, consuming rf2-zq34m's one-selector contract).
+`references/first-counter.md`'s thirteen files and `references/entry-namespace.md`'s four UIx files are generated regions rendered from `tools/template/` by `tests/first_counter_derivation.clj` (which loads the template's real `hooks.clj` for the substitution values and the file map, and re-does only deps-new's `{{key}}` copy). Two locks hold them to the template from different instruments: `setup_drift_test.clj` compares the leaves to the Babashka render; `emitted_test_run_test.clj` compares them to a real deps-new emission byte for byte. A template change that alters the emission reds both until the leaves are regenerated. There is no second template, no per-skill variant of any file, and no hand edit inside a generated region (rf2-rc0yh slice B, consuming rf2-zq34m's one-selector contract).
 
 ### L14 — One project-identity derivation, and it is the generator's
 
@@ -86,8 +86,8 @@ The manual route is NOT folded into the generator, and that is deliberate: it is
 ### In scope
 
 - Authors starting a new directory (or an existing empty CLJS project) that needs re-frame2 wiring.
-- The six canonical steps: write the twelve files → point the framework coordinates → `npm install` → terminating compile → watch → report.
-- Reagent v2 as the default substrate; UIx as the three-file swap (L4).
+- The six canonical steps: write the thirteen files → point the framework coordinates → `npm install` → terminating compile → watch → report.
+- Reagent v2 as the default substrate; UIx as the four-file swap (L4).
 - Troubleshooting the common build failures (SKILL.md's Troubleshooting section: the unresolvable pre-publish coordinate, missing `.cljs` namespace vs missing npm React, missing `rf/init!`, missing `<main id="app">`, `:init-fn` mismatch).
 
 ### Out of scope
@@ -97,7 +97,7 @@ The manual route is NOT folded into the generator, and that is deliberate: it is
 - Live-runtime debugging → `skills/re-frame2-pair/`.
 - Building re-frame2 in a different host language → `skills/re-frame2-implementor/`.
 - Full multi-substrate decision trees at greenfield — Reagent is the default; UIx is a documented swap, not a branching interview (L4).
-- Installing or explaining schemas, Xray, Story, HTTP, SSR, CSP or hosting on the default route (L3).
+- Installing or explaining schemas, Xray, HTTP, SSR, CSP or hosting on the default route (L3).
 - Writing tests, registering events, subs, machines, schemas — all the main `re-frame2` skill's job.
 
 ## 5. File structure (locked)
@@ -110,10 +110,10 @@ skills/re-frame2-setup/
 ├── package.json                   (npm metadata)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 ├── references/
-│   ├── first-counter.md           (the default scaffold: the twelve files, derived — the default route's one leaf)
+│   ├── first-counter.md           (the default scaffold: the thirteen files, derived — the default route's one leaf)
 │   ├── deps-versions.md           (lockstep VERSION discipline; default pins + overrides; coordinate shapes; pay-as-you-go)
 │   ├── shadow-cljs.md             (build config + page explained; hot reload; :test build; release; nREPL)
-│   └── entry-namespace.md         (rf/init! + React-root contract; the UIx three-file swap, derived)
+│   └── entry-namespace.md         (rf/init! + React-root contract; the UIx four-file swap, derived)
 ├── spec/
 │   ├── design.md                  (this file)
 │   ├── inputs.md                  (canonical inputs)
@@ -127,7 +127,7 @@ skills/re-frame2-setup/
     └── evals.json                 (trigger-accuracy fixture + graded start-from-nothing / generator-route evals)
 ```
 
-Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline)), and every leaf meets the byte ceiling. `first-counter.md` runs past the family *line* target because it carries twelve small files as fenced blocks; that is the per-session token-saving exception the discipline allows — the default route reads SKILL.md plus this one leaf (~26 KB) where it previously read SKILL.md plus three leaves (~76 KB). A typical greenfield session reads SKILL.md + 1 reference leaf (2 for UIx, adding `entry-namespace.md`). `spec/`, `tests/`, and `evals/` are excluded from the npm `files` array by design.
+Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline)), and every leaf meets the byte ceiling. `first-counter.md` runs past the family *line* target because it carries thirteen small files as fenced blocks; that is the per-session token-saving exception the discipline allows — the default route reads SKILL.md plus this one leaf (~26 KB) where it previously read SKILL.md plus three leaves (~76 KB). A typical greenfield session reads SKILL.md + 1 reference leaf (2 for UIx, adding `entry-namespace.md`). `spec/`, `tests/`, and `evals/` are excluded from the npm `files` array by design.
 
 ## 6. Discovery surface (frontmatter `description`)
 
@@ -138,7 +138,7 @@ The `description` is "pushy" and lists the greenfield-trigger phrases the shippe
 - **Hand-typing artefact versions** — L1: the pins are derived, and prose never restates them as authority.
 - **Mixing versions across the `day8/re-frame2*` artefacts** — L2 cardinal rule.
 - **Adding per-feature artefacts, devtools, schemas or policy defensively** — L3 + `references/deps-versions.md`'s "pay-as-you-go" framing.
-- **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx is a three-file swap, not a branching interview.
+- **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx is a four-file swap, not a branching interview.
 - **Interviewing the author when a reviewed default exists** — L11. A missing pin / name / substrate / tooling answer is a default, not a question; the only stops are the explicit-latest confirmation and a genuinely non-greenfield project.
 - **Handing the author a command the skill can run** — L12/L6. Install, the terminating compile, the watch, and (on request) the generator are the skill's to execute.
 - **A second, hand-maintained copy of the template** — L13. Files change in `tools/template/`, and the leaves are regenerated.
@@ -156,10 +156,10 @@ The `description` is "pushy" and lists the greenfield-trigger phrases the shippe
 
 The skill's shipped scaffold is proven end to end and drift-guarded in re-frame2's CI:
 
-- **`setup-skill-default-scaffold-mounts-test`** (`tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj`) — the black-box fixture: materialises the twelve files straight out of the shipped `references/first-counter.md` into a fresh temp project, applies the documented pre-publish `:local/root` step, links `node_modules`, compiles the `:app` + `:test` builds, asserts the emitted `package.json` declares every npm package the build resolved, loads the real `index.html` in Chromium and proves the heading paints, the counter reads `0` and a click moves it to `1`, runs the starter test under Node, and proves its own teeth twice — the same browser proof must go RED with the mount node renamed (build/init wiring) and with `views.cljs` dispatching an unregistered event (click path). Behind the `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` gate (the `jvm-tools-template` CI job, armed by any change under `skills/re-frame2-setup/references/` or `tools/template/`). It proves the scaffold against in-repo coords — **not** that a published Clojars coordinate resolves from a fresh project (that buildability gate stays deferred to publication).
+- **`setup-skill-default-scaffold-mounts-test`** (`tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj`) — the black-box fixture: materialises the thirteen files straight out of the shipped `references/first-counter.md` into a fresh temp project, applies the documented pre-publish `:local/root` step, links `node_modules`, compiles the `:app` + `:test` builds, asserts the emitted `package.json` declares every npm package the build resolved, loads the real `index.html` in Chromium and proves the heading paints, the counter reads `0` and a click moves it to `1`, runs the starter test under Node, and proves its own teeth twice — the same browser proof must go RED with the mount node renamed (build/init wiring) and with `views.cljs` dispatching an unregistered event (click path). Behind the `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` gate (the `jvm-tools-template` CI job, armed by any change under `skills/re-frame2-setup/references/` or `tools/template/`). It proves the scaffold against in-repo coords — **not** that a published Clojars coordinate resolves from a fresh project (that buildability gate stays deferred to publication).
 - **`setup-skill-leaves-are-the-template-emission-test`** (same file, ungated) — runs the real deps-new pipeline for `acme/my-app` on both substrates and asserts the leaves' generated blocks equal the emitted files byte for byte; its failure message names the regeneration command.
 - **`scripts/check_skill_setup_counter_drift.py`** — repo-level Python gate (`verify-skill-mcp-drift` CI job): counter-id vocabulary containment (first-counter.md ↔ entry-namespace.md ↔ template), the `:init-fn` hot-reload lifecycle wording, Spec 006 adapter-key vocabulary, one-canonical-source (first-counter.md is the sole copy-complete Reagent `core.cljs`), and the schemas single-require contract.
-- **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): the derivation lock (the leaves equal `first_counter_derivation.clj`'s render, and carry no `{{…}}` / `<VERSION>` placeholder), the day-one-set locks (no schemas, Xray coord, devtools preload, `@xyflow/react` / `elkjs`, Xray host or CSP on the default route; the UIx route is the template's three-file swap and shares the other nine files), the build-discipline lockstep framing, the UIx template-pin parity, the publication-state coordinate branch, the zero-interview pin default + executor posture, the frame-root ENSURE boot on both substrates, the `^:dev/after-load` hook in the UIx entry ns, the leaf-size ceiling, and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
+- **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): the derivation lock (the leaves equal `first_counter_derivation.clj`'s render, and carry no `{{…}}` / `<VERSION>` placeholder), the day-one-set locks (no schemas, Xray coord, devtools preload, Xray host or CSP on the default route; the UIx route is the template's four-file swap and shares the other nine files), the build-discipline lockstep framing, the UIx template-pin parity, the publication-state coordinate branch, the zero-interview pin default + executor posture, the frame-root ENSURE boot on both substrates, the `^:dev/after-load` hook in the UIx entry ns, the leaf-size ceiling, and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
 - **`tests/project_identity_test.clj`** — the L14 parity guard (`skills-structural` CI job): `load-file`s the template's real `hooks.clj` and compares `data-fn`'s `:namespace` / `:nested-dirs` / `:npm-name` against SKILL.md's identity rule *executed*, for the four inputs whose answers differ — the reference identity, a dotted qualified name, a bare (doubled) name and a mixed-case name — plus the npm-invalid artefact that must fail before emission. It also asserts SKILL.md states each derived string and that neither SKILL.md nor `first-counter.md` still offers a consistent token rename. Run locally with `bb tests/project_identity_test.clj`.
 - **`tests/generator_route_test.clj`** — resolves the `:local/root` out of the documented generator command exactly as `tools.deps` would, against a fresh target directory; the opt-in live arm (`RF2_SETUP_RUN_GENERATOR=1`) shells the real command.
 
@@ -169,7 +169,7 @@ Broader real-regression coverage of the wiring lives in the substrate contract t
 
 ### OQ1 — Should the skill cover non-Reagent greenfield? — RESOLVED (done)
 
-**Resolved: yes, at the recipe level, and completely.** The UIx route is the template's three-file swap, derived from `_uix/` (L4, L13). Reagent stays the default. (The recipe originally covered Helix too; Helix was removed from the adapter roster at the S7 wave — EP-0030 Resolved Decisions, 2026-07-17 — and the skill's Helix arm was pruned with it.)
+**Resolved: yes, at the recipe level, and completely.** The UIx route is the template's four-file swap, derived from `_uix/` (L4, L13). Reagent stays the default. (The recipe originally covered Helix too; Helix was removed from the adapter roster at the S7 wave — EP-0030 Resolved Decisions, 2026-07-17 — and the skill's Helix arm was pruned with it.)
 
 ### OQ2 — Should the skill ship a runnable `setup.bb` script? — RESOLVED (no)
 

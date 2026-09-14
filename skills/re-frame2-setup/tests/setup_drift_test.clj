@@ -4,7 +4,7 @@
 ;;;; Guards the contract claims the setup skill must keep correct:
 ;;;;
 ;;;;   1. The default scaffold IS the generator template's emission. The
-;;;;      twelve files in `references/first-counter.md` and the three UIx
+;;;;      thirteen files in `references/first-counter.md` and the four UIx
 ;;;;      files in `references/entry-namespace.md` are generated regions
 ;;;;      rendered from `tools/template/` by `tests/first_counter_derivation.clj`;
 ;;;;      this suite loads that renderer and asserts the leaves equal it, so a
@@ -13,9 +13,10 @@
 ;;;;      against a real deps-new emission.
 ;;;;
 ;;;;   2. The day-one set is the reduced one. No schemas, no Xray coord, no
-;;;;      devtools preload, no Xray host column, no `@xyflow/react` / `elkjs`,
-;;;;      no CSP on the default route — each is a later, explicit step. The
-;;;;      locks that once pinned those pieces as day-one now pin their absence.
+;;;;      devtools preload, no Xray host column, no CSP on the default route —
+;;;;      each is a later, explicit step. The locks that once pinned those
+;;;;      pieces as day-one now pin their absence. Story is wired: the
+;;;;      `@xyflow/react` / `elkjs` pair rides the scaffold as Story's.
 ;;;;
 ;;;;   3. Lockstep is a BUILD/dependency discipline, not a boot-time runtime
 ;;;;      check; the UIx pins match the template; the coordinate guidance
@@ -164,14 +165,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest first-counter-region-is-the-template-render
-  (testing "first-counter.md's twelve files equal the template's Reagent emission for acme/my-app"
+  (testing "first-counter.md's thirteen files equal the template's Reagent emission for acme/my-app"
     (assert-region-matches-render! "first-counter.md" @first-counter-files @rendered-reagent)
-    (is (= 12 (count @first-counter-files))
-        (str "first-counter.md must carry exactly the twelve-file manifest the template "
+    (is (= 13 (count @first-counter-files))
+        (str "first-counter.md must carry exactly the thirteen-file manifest the template "
              "emits; found " (count @first-counter-files) ". " regenerate-hint))))
 
 (deftest uix-region-is-the-template-render
-  (testing "entry-namespace.md's UIx region equals the template's three per-substrate files"
+  (testing "entry-namespace.md's UIx region equals the template's four per-substrate files"
     (assert-region-matches-render! "entry-namespace.md §UIx greenfield" @uix-files @rendered-uix)))
 
 (deftest generated-regions-carry-no-placeholders
@@ -332,7 +333,7 @@
 
 (def ^:private xray-host-tokens
   ["data-rf-xray-host" "rf2-xray-host" "--rf-xray-inline-width" "420px"
-   ":devtools/preloads" "day8.re-frame2-xray.preload" "@xyflow/react" "elkjs"])
+   ":devtools/preloads" "day8.re-frame2-xray.preload"])
 
 (deftest default-scaffold-ships-no-xray-host
   (testing "first-counter.md's index.html / app.css blocks carry no Xray host column or host CSS"
@@ -348,7 +349,7 @@
                  "later by its own recipe (rf2-rc0yh)."))))))
 
 (deftest skill-carries-no-xray-host-wiring
-  (testing "no skill file names the Xray host / preload / npm pair as scaffold wiring"
+  (testing "no skill file names the Xray host / preload as scaffold wiring"
     (doseq [[label body] [["SKILL.md" @skill-md]
                           ["README.md" @readme-md]
                           ["first-counter.md" @first-counter-md]
@@ -357,8 +358,8 @@
                           ["deps-versions.md" @deps-versions-md]]
             token xray-host-tokens]
       (is (not (str/includes? body token))
-          (str label " names `" token "`. Xray, its host column, its devtools "
-               "preload and its npm pair are not part of the scaffold on any route — "
+          (str label " names `" token "`. Xray, its host column and its devtools "
+               "preload are not part of the scaffold on any route — "
                "they attach later, by Xray's own recipe (rf2-rc0yh, rf2-zq34m).")))))
 
 (deftest default-index-html-has-one-mount-node-and-no-aside
@@ -800,9 +801,9 @@
                "trigger. The description deliberately omits it (spec/design.md §6): it "
                "also matches the non-trivial-existing-app case the skill routes away "
                "(eval id 10) (rf2-pv9d)."))))
-  (testing "docs/skills/re-frame2-setup.md teaches the reduced twelve-file scaffold"
-    (is (str/includes? @docs-setup-page-md "twelve files")
-        (str "docs/skills/re-frame2-setup.md no longer describes the twelve-file "
+  (testing "docs/skills/re-frame2-setup.md teaches the reduced thirteen-file scaffold"
+    (is (str/includes? @docs-setup-page-md "thirteen files")
+        (str "docs/skills/re-frame2-setup.md no longer describes the thirteen-file "
              "scaffold the skill writes (rf2-rc0yh)."))))
 
 (deftest docs-setup-page-references-link-is-plural
@@ -930,7 +931,7 @@
                "re-renders (rf2-ms6r8).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 15 — the UIx route is the template's three-file swap of the same
+;; Lock 15 — the UIx route is the template's four-file swap of the same
 ;; Xray-free, schema-free scaffold (flipped by rf2-rc0yh slice B: before the
 ;; collapse only the UIx route was Xray-free and it carried its own build
 ;; wiring; now both routes are, and the UIx route shares the nine other files).
@@ -959,18 +960,20 @@
           (str "entry-namespace.md no longer states that the other nine files are "
                "identical to the Reagent scaffold (rf2-rc0yh).")))))
 
-(deftest uix-route-is-a-three-file-swap
+(deftest uix-route-is-a-four-file-swap
   (testing "the UIx region carries exactly the files the template's template-fn varies per substrate"
     (let [expected (set (first-counter-derivation/substrate-swap-paths))]
-      (is (= #{"deps.edn" "src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"} expected)
+      (is (= #{"deps.edn" "src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"
+               "src/acme/my_app/stories.cljs"}
+             expected)
           (str "the template now varies a different file set per substrate: " (pr-str expected)
-               ". Regenerate the leaves and update SKILL.md's three-file-swap rule."))
+               ". Regenerate the leaves and update SKILL.md's four-file-swap rule."))
       (is (= expected (set (keys @uix-files)))
           (str "entry-namespace.md's UIx region carries " (pr-str (sort (keys @uix-files)))
                " but the template varies " (pr-str (sort expected)) ". " regenerate-hint))))
-  (testing "SKILL.md states the UIx route as the three-file swap of the same scaffold"
-    (is (str/includes? @skill-md "three-file swap")
-        "SKILL.md no longer states the UIx route as a three-file swap (rf2-rc0yh)."))
+  (testing "SKILL.md states the UIx route as the four-file swap of the same scaffold"
+    (is (str/includes? @skill-md "four-file swap")
+        "SKILL.md no longer states the UIx route as a four-file swap (rf2-rc0yh)."))
   (testing "deps-versions.md scopes no Xray to any route"
     (is (not (contains-any? @deps-versions-md ["day-one dep on the Reagent route"
                                                "Reagent-route-only"]))

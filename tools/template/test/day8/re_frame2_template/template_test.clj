@@ -6,14 +6,17 @@
    `clojure -Tnew create` runs — and then reads the generated tree as a
    black box:
 
-     1. The emitted file set is EXACTLY the twelve-file manifest, for
+     1. The emitted file set is EXACTLY the thirteen-file manifest, for
         both substrates (a set equality, not a containment check).
      2. `deps.edn` / `shadow-cljs.edn` / `package.json` parse and carry
-        the substrate's coordinates, the two builds, and an npm-valid name.
-     3. Nothing retired reappears: no advanced coordinate, no Xray npm
-        package, no preload, no layout host, no variant file, no removed
-        option in any emitted text.
-     4. The argument gate: Reagent is the default, `:substrate` is strict
+        the substrate's coordinates, the two builds, Story's `:dev` alias
+        and dev-only entry, and an npm-valid name.
+     3. The Story wiring is one story and one variant on the dev build,
+        and `core.cljs` / `views.cljs` never name Story.
+     4. Nothing retired reappears: no advanced coordinate, no Xray
+        preload, no layout host, no variant file, no removed option in any
+        emitted text.
+     5. The argument gate: Reagent is the default, `:substrate` is strict
         on value and shape, and every retired feature flag (Story, SSR,
         Tailwind CSS) fails as an UNKNOWN key.
 
@@ -29,7 +32,7 @@
 ;; --- The contract ----------------------------------------------------------
 
 (def ^:private manifest
-  "The twelve files every substrate emits for `acme/my-app`."
+  "The thirteen files every substrate emits for `acme/my-app`."
   #{".gitignore"
     "README.md"
     "deps.edn"
@@ -39,6 +42,7 @@
     "resources/public/css/app.css"
     "src/acme/my_app/core.cljs"
     "src/acme/my_app/events.cljs"
+    "src/acme/my_app/stories.cljs"
     "src/acme/my_app/subs.cljs"
     "src/acme/my_app/views.cljs"
     "test/acme/my_app/events_test.cljs"})
@@ -63,10 +67,12 @@
    coordinate, it does not assert the coordinate is gone. This set is the
    absence half, and rf2-j908 is what it guards — the UIx scaffold mounts
    through the adapter's `client-root` / `render!` and must never
-   reacquire a direct DOM-mount dependency."
+   reacquire a direct DOM-mount dependency.
+
+   `day8/re-frame2-story` is NOT here: it rides the `:dev` alias, which the
+   contract below asserts positively (rf2-1bkoc)."
   '#{com.pitch/uix.dom
      day8/re-frame2-xray
-     day8/re-frame2-story
      day8/re-frame2-ssr
      day8/re-frame2-ssr-ring
      day8/re-frame2-schemas
@@ -77,11 +83,13 @@
 
 (def ^:private retired-text
   "Substrings that must not appear in ANY emitted text file: the retired
-   options, the Xray preload / host / npm packages, the schema, error-sink
-   and HTTP tutorials, the toolchain configs and the security policy."
+   options, the Xray preload / host, the schema, error-sink and HTTP
+   tutorials, the toolchain configs and the security policy. Story's two
+   npm packages are not here — `package.json` declares them for the dev
+   build's Story shell."
   ["include-story?" "include-ssr?" ":css :tailwind" "tailwindcss"
    "day8.re-frame2-xray" "data-rf-xray-host" "rf2-xray-host"
-   "@xyflow/react" "elkjs" "rf2-tools-sha"
+   "rf2-tools-sha"
    "re-frame.schemas" "reg-app-schema" "register-schema!"
    "register-listener!" ":rf.http/managed"
    "lefthook" "cljfmt" "clj-kondo" "tools.namespace"
@@ -123,6 +131,11 @@
         :when (string/includes? text s)]
     [rel s]))
 
+(defn- occurrences
+  "How many times the literal `needle` occurs in `text`."
+  [^String text ^String needle]
+  (count (re-seq (re-pattern (java.util.regex.Pattern/quote needle)) text)))
+
 (defn- assert-no-scaffold-emitted!
   "The gate fired before any file was written."
   [^java.nio.file.Path tmp]
@@ -138,7 +151,7 @@
       (let [root (run-template! tmp "acme/my-app" substrate)]
         ;; -- exactly the manifest --
         (is (= manifest (emitted-files root))
-            (str substrate " must emit exactly the twelve-file manifest; "
+            (str substrate " must emit exactly the thirteen-file manifest; "
                  "missing " (pr-str (sort (remove (emitted-files root) manifest)))
                  ", extra " (pr-str (sort (remove manifest (emitted-files root))))))
 
@@ -157,14 +170,21 @@
           (is (= (get-in deps [:deps 'day8/re-frame2 :mvn/version])
                  (get-in deps [:deps (substrate-coord substrate) :mvn/version]))
               "core and adapter ride one :mvn/version")
-          (is (= #{:shadow} (set (keys (:aliases deps))))
-              "deps.edn carries the :shadow alias and nothing else")
+          (is (= #{:shadow :dev} (set (keys (:aliases deps))))
+              "deps.edn carries the :shadow and :dev aliases and nothing else")
           (is (= ["test"] (get-in deps [:aliases :shadow :extra-paths]))
               ":shadow puts test/ on the classpath (and no dev/)")
           (is (nil? (get-in deps [:aliases :shadow :main-opts]))
               ":shadow is deps-only — `npx shadow-cljs` supplies its own -m")
           (is (contains? (get-in deps [:aliases :shadow :extra-deps]) 'thheller/shadow-cljs)
               ":shadow carries the shadow-cljs coordinate")
+          (is (= {:extra-deps {'day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}
+                 (get-in deps [:aliases :dev]))
+              (str ":dev carries Story and only Story, resolved from a re-frame2 "
+                   "checkout beside the project — Story has no published coordinate "
+                   "yet, so none is written"))
+          (is (not (contains? (:deps deps) 'day8/re-frame2-story))
+              "Story is a :dev alias dependency, never a :deps one")
           (is (empty? (retired-coords-in deps))
               (str "deps.edn must name no retired coordinate; found "
                    (pr-str (retired-coords-in deps)))))
@@ -173,8 +193,8 @@
         (let [scs (read-edn (io/file root "shadow-cljs.edn"))
               app (get-in scs [:builds :app])
               tst (get-in scs [:builds :test])]
-          (is (= {:aliases [:shadow]} (:deps scs))
-              "shadow-cljs.edn reads its classpath from the :shadow alias")
+          (is (= {:aliases [:shadow :dev]} (:deps scs))
+              "shadow-cljs.edn reads its classpath from the :shadow and :dev aliases")
           (is (not (contains? scs :source-paths))
               (str "shadow-cljs.edn names no :source-paths — under :deps the classpath is "
                    "deps.edn's (:paths + the :shadow alias's :extra-paths), and shadow "
@@ -183,7 +203,12 @@
               "exactly the :app and :test builds")
           (is (= :browser (:target app)) ":app targets :browser")
           (is (= 'acme.my-app.core/init (get-in app [:modules :main :init-fn]))
-              ":app :init-fn is the generated core/init")
+              ":app :init-fn is the generated core/init — the entry a release boots")
+          (is (= {:modules {:main {:init-fn 'acme.my-app.stories/init}}} (:dev app))
+              (str ":app's :dev override boots stories/init in watch and compile, and "
+                   "overrides nothing else"))
+          (is (not (contains? app :release))
+              ":app carries no :release override — a release boots core/init")
           (is (not (contains? app :devtools))
               ":app wires no :devtools — no preload of any kind")
           (is (= :node-test (:target tst)) ":test targets :node-test")
@@ -195,6 +220,7 @@
               "package.json name is the npm-valid artefact segment, not acme/my-app")
           (is (string/includes? pj "\"private\": true") "package.json is private")
           (doseq [needle ["\"shadow-cljs\"" "\"react\"" "\"react-dom\""
+                          "\"@xyflow/react\"" "\"elkjs\""
                           "\"watch\"" "\"release\"" "\"test\""]]
             (is (string/includes? pj needle)
                 (str "package.json carries " needle))))
@@ -204,17 +230,46 @@
           (is (string/includes? views (case substrate :reagent "reg-view" :uix "defui"))
               (str substrate " views.cljs uses its substrate's view form")))
 
+        ;; -- Story: one story, one variant, the dev build only --
+        (let [stories (slurp (io/file root "src/acme/my_app/stories.cljs"))]
+          (is (= 1 (occurrences stories "(story/reg-story "))
+              "stories.cljs registers exactly one story")
+          (is (= 1 (occurrences stories "(story/reg-variant "))
+              "stories.cljs registers exactly one variant")
+          (is (string/includes? stories ":component  :acme.my-app.views/counter-app")
+              "the story names the counter view by keyword")
+          (is (string/includes? stories (str ":substrates #{" substrate "}"))
+              (str "the story renders on the scaffold's own substrate, " substrate))
+          (is (string/includes? stories ":rf.assert/sub-equals")
+              "the variant carries an assertion for Test mode to run")
+          (is (string/includes? stories "(story/mount-shell! node)")
+              "stories.cljs mounts the Story shell")
+          (when (= :uix substrate)
+            (is (string/includes? stories "(story/register-substrate! :uix")
+                "the UIx scaffold registers the render fn Story uses for a :uix story")
+            (is (string/includes? stories ":rf/props")
+                "the UIx view's registration carries the props schema Story derives controls from"))
+          (when (= :reagent substrate)
+            (is (string/includes? (slurp (io/file root "src/acme/my_app/views.cljs")) ":rf/props")
+                "the Reagent view carries the props schema Story derives controls from")))
+        (doseq [rel ["src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"]]
+          (is (not (string/includes? (slurp (io/file root rel)) "re-frame.story"))
+              (str rel " never requires Story: a release boots core/init, so nothing "
+                   "it compiles reaches Story")))
+
         ;; -- nothing retired, anywhere in the emitted text --
         (is (empty? (retired-text-in root))
             (str "retired vocabulary in the emitted tree: "
                  (pr-str (retired-text-in root))))
 
-        ;; -- the README's two escape hatches --
+        ;; -- the README's run / test / release and next steps --
         (let [readme (slurp (io/file root "README.md"))]
           (is (string/includes? readme "docs/xray/01-installation.md")
               "README links the Xray installation page")
           (is (string/includes? readme "docs/story/index.md")
               "README links the Story page")
+          (is (string/includes? readme "http://localhost:8280/#/stories")
+              "README says where Story is")
           (is (string/includes? readme "npx shadow-cljs watch app")
               "README says how to run")
           (is (string/includes? readme "npm test")
@@ -314,6 +369,7 @@
               "the output dir is the group-stripped artefact")
           (doseq [rel ["src/com/acme/my_cool_app/core.cljs"
                        "src/com/acme/my_cool_app/events.cljs"
+                       "src/com/acme/my_cool_app/stories.cljs"
                        "src/com/acme/my_cool_app/subs.cljs"
                        "src/com/acme/my_cool_app/views.cljs"
                        "test/com/acme/my_cool_app/events_test.cljs"]]
@@ -325,6 +381,13 @@
                  (get-in (read-edn (io/file root "shadow-cljs.edn"))
                          [:builds :app :modules :main :init-fn]))
               "shadow-cljs :init-fn substitutes the derived namespace")
+          (is (= 'com.acme.my-cool-app.stories/init
+                 (get-in (read-edn (io/file root "shadow-cljs.edn"))
+                         [:builds :app :dev :modules :main :init-fn]))
+              "shadow-cljs's :dev entry substitutes the derived namespace")
+          (is (string/includes? (slurp (io/file root "src/com/acme/my_cool_app/stories.cljs"))
+                                ":component  :com.acme.my-cool-app.views/counter-app")
+              "the story's :component keyword substitutes the derived namespace")
           (let [test-text (slurp (io/file root "test/com/acme/my_cool_app/events_test.cljs"))]
             (is (string/includes? test-text "[com.acme.my-cool-app.events]")
                 "events_test.cljs requires the events ns by derived namespace"))
