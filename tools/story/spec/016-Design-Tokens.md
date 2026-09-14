@@ -461,11 +461,18 @@ The shell's atmospheric layer composes **three** distinct surfaces:
    (bottom-right, ~2.5% opacity), blended against the deepest slate
    `#0B0D11`. Reads as **studio lighting** rather than a colour
    assignment.
-2. **Grain overlay** as a `::before` pseudo on the shell root — an
-   SVG-feTurbulence noise sheet at `opacity: 0.04` with
-   `mix-blend-mode: overlay`. The eye reads it as **screen texture**
-   rather than visible noise. Cuts the eyestrain pure-solid dark
-   UIs induce and reduces AMOLED / OLED "screen-burning hole" effect.
+2. **Grain overlay** on its own `aria-hidden` layer at the back of the
+   shell root (`[data-rf-story-grain]`) — an SVG-feTurbulence noise
+   sheet at `opacity: 0.04` with `mix-blend-mode: overlay`. The eye
+   reads it as **screen texture** rather than visible noise. Cuts the
+   eyestrain pure-solid dark UIs induce and reduces AMOLED / OLED
+   "screen-burning hole" effect. The backdrop is scoped so it never
+   sits in the subject's grading path: it was a
+   `[data-rf-story-root]::before` pseudo, and axe-core leaves a text
+   node's contrast ungraded when any ancestor carries a positioned
+   background pseudo, so it is now a sibling of the chrome, never an
+   ancestor of a subject, and axe grades the subject's text nodes
+   (rf2-w72ij).
 3. **Canvas-frame accent edge** on the variant render surface — a 1px
    amber inset shadow so the user's eye lands on the work-in-progress
    automatically.
@@ -511,10 +518,11 @@ lighting" rather than "tint applied."
 
 A self-contained SVG-feTurbulence noise sheet inline-encoded as a
 data URI (no HTTP fetch). Injected once at shell mount via
-`(depth/inject-grain-css!)`. Targets the
-`[data-rf-story-root]::before` pseudo so the overlay lives BEHIND
-the root's content via `z-index: -1` + `position: absolute` from
-the root's `position: relative`. Pointer-events disabled so the
+`(depth/inject-grain-css!)`. Targets the `[data-rf-story-grain]`
+layer the shell renders as its root's first child, which lives
+BEHIND the root's other children: `position: absolute` at
+`z-index: 0` in the root's isolated stacking context, with every
+other direct child lifted to `z-index: 1`. Pointer-events disabled so the
 overlay never swallows clicks. Idempotent and production-elided
 same shape as `inject-motion-css!`.
 
@@ -727,7 +735,7 @@ The shell composes the six token domains in one pass at
 ;; theme/motion.cljc
 (motion/inject-motion-css!)       ; @keyframes + reduced-motion → document.head
 ;; theme/depth.cljc
-(depth/inject-grain-css!)         ; ::before grain overlay → document.head
+(depth/inject-grain-css!)         ; grain layer styles → document.head
 ```
 
 Three idempotent one-shot injections, each gated on
@@ -738,9 +746,13 @@ surfaces resolve immediately.
 
 The shell stamps its root with `data-rf-story-root` — every token-
 dependent CSS rule (the `*:focus-visible` outline, the
-`prefers-reduced-motion` override, the grain overlay's `::before`)
-scopes to this selector so the chrome composes cleanly with
-host-app stylesheets.
+`prefers-reduced-motion` override, the grain layer) scopes to this
+selector so the chrome composes cleanly with host-app stylesheets.
+
+The chrome consumes `:text-primary` and the typography tokens; the
+SUBJECT does not — colour and font are reset to browser defaults at the
+cell boundary (`[data-rf-story-variant-root]`, and the side-by-side
+grid's cell body) so a subject renders as on a plain page (rf2-w72ij).
 
 ## Zero-raw contract (consolidated)
 

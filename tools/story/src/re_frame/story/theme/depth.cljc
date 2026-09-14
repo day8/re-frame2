@@ -16,7 +16,8 @@
     canvas frame; chrome surfaces stay flat so the gradients don't
     fight the data they carry.
   - **Grain overlay** (`grain-css`) — an SVG-feTurbulence noise
-    overlay injected as a `::before` pseudo on the shell root,
+    overlay on its own `aria-hidden` layer at the back of the shell
+    root (`[data-rf-story-grain]`, never a pseudo on the root),
     blended at low opacity to cut the eyestrain pure-solid dark UIs
     induce. Reduces the 'screen-burning hole' effect on AMOLED + OLED
     panels.
@@ -27,9 +28,10 @@
   ## Composition
 
   Apply via `:background` (gradient backdrops) + `:box-shadow`
-  (elevation) on inline `:style` maps. The grain overlay is injected
-  one-shot via `inject-grain-css!` since `::before` pseudos can't
-  live in an inline style.
+  (elevation) on inline `:style` maps. The grain overlay's rules are
+  injected one-shot via `inject-grain-css!` (a blend over a repeating
+  noise sheet plus a lift of the root's other children is selector
+  work, not an inline style); the shell renders the layer they style.
 
   ## Why these specific gradients
 
@@ -87,21 +89,30 @@
    :overlay-glass "radial-gradient(800px circle at 50% 0%, rgba(245, 165, 36, 0.035), transparent 65%), #1E222A"})
 
 (def grain-css
-  "Injects a subtle SVG-feTurbulence noise overlay as a `::before`
-  pseudo on `[data-rf-story-root]`. The grain sits at `opacity: 0.04`
-  with `mix-blend-mode: overlay` so it lifts the bare slate without
-  becoming visible noise — the eye reads it as 'screen texture'
-  rather than 'noisy gradient'.
+  "Styles a subtle SVG-feTurbulence noise overlay on the layer the shell
+  renders as its root's first child, `[data-rf-story-grain]`. The grain
+  sits at `opacity: 0.04` with `mix-blend-mode: overlay` so it lifts the
+  bare slate without becoming visible noise — the eye reads it as
+  'screen texture' rather than 'noisy gradient'.
 
   Pointer-events disabled so the overlay never swallows clicks. The
-  pseudo lives BEHIND the root's content via `z-index: -1` +
-  `position: absolute` from the root's `position: relative`.
+  layer lives BEHIND the root's content: `position: absolute` at
+  `z-index: 0` inside the root's isolated stacking context, with every
+  other direct child of the root lifted to `z-index: 1`.
+
+  A sibling layer, never a `::before` pseudo on the root (rf2-w72ij).
+  axe-core leaves a text node's contrast ungraded (`pseudoContent`)
+  when ANY ancestor carries an absolutely positioned pseudo with a
+  background, however opaque the surfaces between them, and the root
+  is the ancestor of every subject the canvas or a workspace cell
+  renders. As a sibling the layer is no subject's ancestor, so axe
+  grades the subject's text.
 
   Self-contained SVG inline-encoded as a base-64-free data URI so no
   HTTP fetch is required."
   "[data-rf-story-root]{position:relative;isolation:isolate}
-[data-rf-story-root]::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;mix-blend-mode:overlay;opacity:0.04;background-image:url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.4 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\");background-repeat:repeat;background-size:240px 240px}
-[data-rf-story-root] > *{position:relative;z-index:1}")
+[data-rf-story-root] > [data-rf-story-grain]{position:absolute;inset:0;pointer-events:none;z-index:0;mix-blend-mode:overlay;opacity:0.04;background-image:url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.4 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\");background-repeat:repeat;background-size:240px 240px}
+[data-rf-story-root] > :not([data-rf-story-grain]){position:relative;z-index:1}")
 
 #?(:cljs
    (defonce ^:private grain-injected? (atom false)))

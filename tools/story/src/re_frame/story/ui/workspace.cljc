@@ -445,9 +445,12 @@
             ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on
             ;; the immediate wrapper around the decorated view (same
             ;; reason as canvas.cljs) so the a11y panel can scope
-            ;; axe-core to ONLY the variant's rendered tree.
+            ;; axe-core to ONLY the variant's rendered tree. It is also
+            ;; the subject boundary for inherited text styles (rf2-w72ij):
+            ;; the `:cell` colour and font stay on the cell title above.
             [rf/frame-provider {:frame variant-id}
-             [:div {:data-rf-story-variant-root (pr-str variant-id)}
+             [:div {:style rf.story.ui.multi-substrate/subject-root-style
+                    :data-rf-story-variant-root (pr-str variant-id)}
               (rf.story.ui.canvas/safe-decorated-view
                 (rf.story.ui.multi-substrate/render-view
                   substrate variant-id view-id eff-args)

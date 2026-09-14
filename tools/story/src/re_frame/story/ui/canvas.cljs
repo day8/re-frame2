@@ -722,9 +722,15 @@
        ;; `run()` against `document.body` flags Story's own UI as the source of
        ;; violations, which is wrong: Story chrome a11y is Story's concern, not
        ;; the variant author's.
+       ;;
+       ;; The same wrapper is the subject boundary for inherited text styles
+       ;; (rf2-w72ij): `subject-root-style` resets the colour and font this
+       ;; section's `:wrap` sets for the chrome, so the subject renders in
+       ;; browser defaults while the title row above keeps its tokens.
        ^{:key (str "single-" variant-id)}
        [rf/frame-provider {:frame variant-id}
         [:div {:key (str "variant-root:" (pr-str variant-id))
+               :style rf.story.ui.multi-substrate/subject-root-style
                :data-rf-story-variant-root (pr-str variant-id)}
          ;; Bind the variant's resolved view-state
          ;; subscription overrides for the view-render extent (a no-op

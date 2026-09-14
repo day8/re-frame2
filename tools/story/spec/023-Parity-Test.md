@@ -366,7 +366,7 @@ order (JVM probe at `2284727767`, PR #9822; re-run at `e4d07929c9`).
 | A4 | 2 | 2 / 1 | WIN | The grid header counts rendered cells (PR #9795); source-verified only. | — |
 | A5 | 2 | 2 / 2 | MATCH | Unchanged. | — |
 | A6 | 1 | 2 / 1.5 | WIN | Unchanged. | — |
-| A7 | 1 | 0.5 / 1.5 | GAP | Chapter 02 says what a frame does not isolate (PR #9801); the canvas is still a stamped `div` in one page (`ui/canvas.cljs:728`); recorded, not to be built. | rf2-w72ij (operator call) |
+| A7 | 1 | 0.5 / 1.5 | GAP | Chapter 02 says what a frame does not isolate (PR #9801); chrome no longer leaks text styles or its backdrop into the subject; document isolation otherwise unchanged (CSS rules, focus, portals, timers still shared), and the canvas is still a stamped `div` in one page; recorded, not to be built. | rf2-w72ij (ruled B) |
 | B1 | 3 | 2 / 1 | WIN | Unchanged; the detection control held on both sides. | — |
 | B2 | 3 | 2 / 2 | MATCH | `:plan-hash` and `:run-hash` attached (PR #9796); re-executed by probe 7 and the MCP loop. | — |
 | B3 | 2 | 2 / 2 | MATCH | Unchanged. | — |
