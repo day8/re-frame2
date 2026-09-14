@@ -886,8 +886,8 @@
          ;; circuits before the DOM touch.
          (rf.story.theme.motion/inject-motion-css!)
          ;; rf2-ypd6h: inject grain overlay stylesheet — an SVG-feTurbulence
-         ;; noise sheet rendered as a `::before` pseudo on
-         ;; `[data-rf-story-root]` so the bare slate grounds carry studio
+         ;; noise sheet on the `[data-rf-story-grain]` layer the root
+         ;; renders first (rf2-w72ij) so the bare slate grounds carry studio
          ;; texture rather than reading as 'editor pane'. Self-elides on
          ;; prefers-contrast more / when rf.story.config/enabled? is false.
          ;; Idempotent.
@@ -1063,6 +1063,13 @@
                 :data-rf-story-root true
                 :data-rf-chrome-fullscreen (str (get-in shell [:chrome-visibility :full-screen?] false))
                 :data-rf-chrome-embed      (str (get-in shell [:chrome-visibility :embed?] false))}
+          ;; rf2-w72ij: the grain overlay is its own layer, not a `::before`
+          ;; pseudo on this root. axe grades no text node that has a
+          ;; positioned background pseudo on ANY ancestor, and this root is
+          ;; every subject's ancestor; a sibling layer is nobody's. Styled
+          ;; by `rf.story.theme.depth/grain-css`.
+          [:div {:data-rf-story-grain true
+                 :aria-hidden         "true"}]
           ;; rf2-g8l8x — `t` key + embed/full-screen suppress the strip.
           (when show-tb?
             [:div {:style {:animation (rf.story.theme.motion/stagger-animation :toolbar)

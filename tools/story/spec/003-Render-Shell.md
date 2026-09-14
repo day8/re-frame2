@@ -66,7 +66,7 @@ The shell composes its identity-bearing surfaces via the
    `(theme.typography/inject-font-faces!)` (rf2-2rwdc).
 2. **Motion keyframes + `prefers-reduced-motion` override** —
    `(theme.motion/inject-motion-css!)` (rf2-3lt89).
-3. **Grain overlay (`::before` pseudo on `[data-rf-story-root]`)** —
+3. **Grain overlay (the `[data-rf-story-grain]` layer at the back of `[data-rf-story-root]`)** —
    `(theme.depth/inject-grain-css!)` (rf2-ypd6h).
 
 Each injector is idempotent and gated on

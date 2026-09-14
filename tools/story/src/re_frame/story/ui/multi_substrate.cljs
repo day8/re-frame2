@@ -390,6 +390,23 @@
 
 ;; ---- failure-tolerant cell render ---------------------------------------
 
+(def subject-root-style
+  "The inline style at every subject boundary: the canvas and workspace
+  variant roots (`[data-rf-story-variant-root]`) and the side-by-side
+  grid's cell body. It resets the inherited text styles Story's chrome
+  sets on its own surfaces (the `:text-primary` colour, the chrome font
+  stack and type size) to their CSS initial values, so a subject that
+  sets none of its own renders in the browser defaults, as on a plain
+  page, instead of in Story's warm off-white (rf2-w72ij).
+
+  Only the subject subtree is reset. The chrome parts beside it (titles,
+  labels, the assertion strip) keep their tokens, and anything a subject
+  sets on itself wins as usual. A view that relies on inherited text
+  styles from its app shell must set them, which a decorator can."
+  {:color       "initial"
+   :font-family "initial"
+   :font-size   "initial"})
+
 (defn- safe-render-cell
   "Render `view-id` under `substrate` inside a try/catch boundary. Per
   `002-Runtime.md` §Substrate hooks a substrate failure surfaces inline rather than
@@ -437,7 +454,7 @@
             (try
               [:div {:style (:cell styles)}
                [:div {:style (:cell-head styles)} (name substrate)]
-               [:div {:style (:cell-body styles)}
+               [:div {:style (merge (:cell-body styles) subject-root-style)}
                 (render-fn variant-id view-id eff-args)]]
               (catch :default e
                 [:div {:style (:error-cell styles)}

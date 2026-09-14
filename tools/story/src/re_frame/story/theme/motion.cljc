@@ -189,7 +189,7 @@
      * active-row / selected toggles → outlined in Highlight via aria-*
        state hooks; background gradients neutralised so the ground
        reads as plain Canvas
-     * SVG grain overlay (depth.cljc ::before) muted; otherwise the
+     * SVG grain overlay (depth.cljc grain layer) muted; otherwise the
        browser composites the noise over CanvasText and the chrome
        text reads as smeared
      * Buttons get an explicit 1px ButtonText border so the inline
@@ -228,12 +228,12 @@
      to lose, so the same rule is the correct HCM semantics either
      way. */
   [data-rf-story-root] [style*=\"gradient(\"]{background-image:none}
-  /* Story's grain overlay (depth.cljc ::before) is an SVG-feTurbulence
+  /* Story's grain overlay (depth.cljc grain layer) is an SVG-feTurbulence
      noise sheet rendered at opacity:0.04 with mix-blend-mode:overlay.
      Under forced-colors the blend mode is preserved but the noise
      image composites over CanvasText and the chrome reads as smeared.
      Mute it. */
-  [data-rf-story-root]::before{background-image:none;opacity:0}
+  [data-rf-story-root] > [data-rf-story-grain]{background-image:none;opacity:0}
   /* The a11y panel's violation overlay outlines (a11y.cljs
      `violations-stylesheet`) carry hex colours per impact level.
      Map them to Mark (system 'highlight' token) so violations stay
@@ -267,7 +267,7 @@
 [data-rf-story-root][data-rf-force-colors=\"active\"] button[disabled],
 [data-rf-story-root][data-rf-force-colors=\"active\"] [aria-disabled=\"true\"]{color:GrayText;border-color:GrayText}
 [data-rf-story-root][data-rf-force-colors=\"active\"] [style*=\"gradient(\"]{background-image:none}
-[data-rf-story-root][data-rf-force-colors=\"active\"]::before{background-image:none;opacity:0}
+[data-rf-story-root][data-rf-force-colors=\"active\"] > [data-rf-story-grain]{background-image:none;opacity:0}
 [data-rf-force-colors=\"active\"] [data-rf-a11y-violation]{outline-color:Mark}
 [data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"critical\"]{outline-width:3px}
 [data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"serious\"]{outline-width:2px}
