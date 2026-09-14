@@ -266,17 +266,21 @@
   explanations are nested maps with `:errors` carrying per-path
   detail; we pr-str the whole shape when we can't introspect.
 
+  `malli.core/explain` returns `:errors` as a SEQ over its accumulator,
+  not a vector, so the check is `sequential?` — a `vector?` check sent
+  every real explanation to the `pr-str` fallback (rf2-fhjke).
+
   Pure; JVM-testable.
 
   - `nil` → empty string.
-  - Malli explanation map (has `:errors`) → joined error paths.
+  - Malli explanation map (sequential `:errors`) → joined error paths.
   - Anything else → `pr-str`."
   [explanation]
   (cond
     (nil? explanation)
     ""
 
-    (and (map? explanation) (vector? (:errors explanation)))
+    (and (map? explanation) (sequential? (:errors explanation)))
     (->> (:errors explanation)
          (map (fn [{:keys [path message] :as _err}]
                 (let [path-str (if (seq path)

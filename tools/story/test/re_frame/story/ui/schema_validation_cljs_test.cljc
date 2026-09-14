@@ -20,6 +20,7 @@
     `panel` component returns hiccup when called against a
     registered variant."
   (:require [clojure.test :refer [deftest is testing]]
+            [malli.core :as m]
             #?@(:cljs [[re-frame.core             :as rf]
                        [re-frame.frame            :as rf.frame]
                        [re-frame.registrar        :as rf.registrar]
@@ -325,6 +326,33 @@
       (is (re-find #"missing" out))
       (is (re-find #"\(root\)" out))
       (is (re-find #"bad" out)))))
+
+(deftest format-explain-reads-a-real-malli-explanation
+  (testing "the explanation `malli.core/explain` really returns — `:errors`
+            a seq, not a vector, and no `:message` on the error maps —
+            renders as path + message, never as the pr-str of the map
+            (rf2-fhjke: the login card's cleared `:heading`)"
+    (let [schema      [:map [:heading {:optional true} [:string {:min 1}]]]
+          explanation (m/explain schema {:heading ""})]
+      ;; Guard the fixture: a hand-built VECTOR `:errors` passes with or
+      ;; without the fix, so this test only proves anything while the
+      ;; real shape is not a vector.
+      (is (sequential? (:errors explanation)))
+      (is (not (vector? (:errors explanation)))
+          "fixture carries Malli's real non-vector :errors")
+      (is (= ":heading: schema violation"
+             (rf.story.ui.schema-validation/format-explain explanation)))))
+  (testing "the per-entry explanation the Controls row and the args panel
+            actually render — `args-violations` explains the CHILD schema,
+            so the path is the root"
+    (let [viols (rf.story.ui.schema-validation/args-violations
+                  {:heading ""}
+                  [:map [:heading {:optional true} [:string {:min 1}]]]
+                  {:validate m/validate :explain m/explain})]
+      (is (= [:heading] (mapv :key viols)))
+      (is (= "(root): schema violation"
+             (rf.story.ui.schema-validation/format-explain
+               (:explain (first viols))))))))
 
 (deftest format-explain-falls-back-to-pr-str
   (testing "explanations that aren't Malli-shaped fall back to pr-str"
