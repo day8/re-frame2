@@ -29,7 +29,7 @@
       ├──────────────────────────────────────────────────────┤
       │  Cannot run — runner refusals: required vs available  │
       ├──────────────────────────────────────────────────────┤
-      │  Evidence — result→spine link (graceful pending)      │
+      │  Evidence — result→spine link (opens the panel)       │
       └──────────────────────────────────────────────────────┘
 
   ## Result reading (spec/021 §1)
@@ -76,6 +76,7 @@
   never invoke it — closure DCEs the lot."
   (:require [reagent.core                              :as r]
             [re-frame.story.predicates                 :as rf.story.predicates]
+            [re-frame.story.ui.evidence-spine          :as rf.story.ui.evidence-spine]
             [re-frame.story.ui.open-in-editor          :as rf.story.ui.open-in-editor]
             [re-frame.story.ui.promotion               :as rf.story.ui.promotion]
             [re-frame.story.ui.state                   :as rf.story.ui.state]
@@ -349,11 +350,31 @@
     :skip       [:span {:style (:status-skip styles)} "○"]
     [:span {:style (:status-skip styles)} "○"]))
 
+(defn row-evidence-link
+  "The failed-row → evidence-beat link (spec/021 §2 — a selected result row
+  drives the evidence spine's selected span). Resolves `row`'s causal
+  coordinate (`:dispatch-id` / `:epoch-id`, threaded by
+  `test-mode.pure/assertion-row`) against the run's `narrative`; when it
+  lands on a beat, one click opens the Evidence panel with that beat
+  selected. Renders nothing when the row resolves to no beat — there is
+  nowhere to land. Public so the CLJS test corpus can drive the click."
+  [variant-id narrative row]
+  (when (seq narrative)
+    (when-let [idx (rf.story.ui.evidence-spine/row->beat-index narrative row)]
+      [:button {:style         (merge (:details-tog styles) {:margin-left "10px"})
+                :data-test     "story-test-row-evidence-link"
+                :data-beat-idx (str idx)
+                :title         "Open the Evidence panel at this assertion's beat"
+                :on-click      (fn [_] (rf.story.ui.evidence-spine/open! variant-id idx))}
+       "open in Evidence →"])))
+
 (defn- assertion-table
   "Render the assertion `rows` as the per-test table. `expanded` is the
-  set of expanded row-keys (`row-key`). Factored out so both the
-  assertions section and a check group can render the same table shape."
-  [variant-id rows expanded]
+  set of expanded row-keys (`row-key`); `narrative` is the run's
+  narrative, which a failed row's evidence link resolves its beat against.
+  Factored out so both the assertions section and a check group can
+  render the same table shape."
+  [variant-id narrative rows expanded]
   [:table {:style     (:table styles)
            :data-test "story-test-table"}
    [:thead
@@ -389,6 +410,7 @@
                :on-click (fn [_] (rf.story.ui.test-mode.state/toggle-expanded! variant-id rk))
                :aria-expanded (if open? "true" "false")}
               (if open? "hide detail" "show detail")]
+             (row-evidence-link variant-id narrative row)
              (when open? (row-detail (:detail row)))]
 
             (= :skip (:status row))
@@ -437,7 +459,7 @@
              [:div {:style (:section-h styles)} "Assertions"]
              (filter-toggle variant-id failed-only? hidden)
              (if (seq shown)
-               (assertion-table variant-id shown expanded)
+               (assertion-table variant-id (:narrative result) shown expanded)
                [:div {:style     (:filter-hint styles)
                       :data-test "story-test-rows-all-passed"}
                 "all assertions passed — nothing to show"])]))))))
@@ -473,7 +495,7 @@
                    (when (pos? failed) (str " · " failed " failed")))]]
             (when open?
               [:div {:style (:check-body styles)}
-               (assertion-table variant-id rows expanded)])]))])))
+               (assertion-table variant-id (:narrative result) rows expanded)])]))])))
 
 (defn- schema-section
   "Schema violations, marking consumed expected violations distinctly from
@@ -541,11 +563,11 @@
                 (when runner (str " · runner " runner)))]])])))
 
 (defn- evidence-section
-  "Result → evidence-spine link (spec/021 §2). The evidence-spine DISPLAY
-  (ba86n.10) is not built yet, and the Story→Xray focus API (rf2-crtmq) is
-  not wired here, so this renders a graceful affordance honestly: when the
-  run retained an epoch tape the link target exists but the surface is
-  pending; otherwise there is no evidence to link. No fabricated link."
+  "Result → evidence-spine link (spec/021 §2). When the run retained
+  evidence, one click opens the Evidence panel over this run's narrative;
+  each failed row in the assertions table links to its own beat
+  (`row-evidence-link`). Without retained evidence there is nothing to
+  open, and the row says so."
   [variant-id]
   (let [slot   (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result (:result slot)]
@@ -555,9 +577,10 @@
                :data-test "story-test-evidence-row"
                :data-evidence (str evidence?)}
          (if evidence?
-           [:span {:style (:evidence-pending styles)}
-            "evidence spine pending — failures will link here once the "
-            "evidence panel lands"]
+           [:button {:style     (:details-tog styles)
+                     :data-test "story-test-evidence-open"
+                     :on-click  (fn [_] (rf.story.ui.evidence-spine/open!))}
+            "open the Evidence panel →"]
            [:span {:style (:evidence-pending styles)}
             "no retained evidence for this run"])]))))
 
@@ -700,8 +723,8 @@
          ;; rather than as the raw `:actual` EDN blob the generic
          ;; assertions table would show.
          [rf.story.ui.test-mode.visual-a11y-view/visual-a11y-section variant-id]
-         ;; result → evidence-spine link (spec/021 §2),
-         ;; a graceful "evidence pending" until the spine display lands.
+         ;; result → evidence-spine link (spec/021 §2): opens the Evidence
+         ;; panel; failed rows above link to their own beat.
          [evidence-section variant-id]
          ;; generated-failure promotion entry point
          ;; (spec/021 §3). Captures THIS run as an artifact and opens the
