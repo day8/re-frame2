@@ -742,6 +742,11 @@ the hash includes:
   [017 §Strict composition](017-Testing-Story.md#strict-composition) folds
   them into the variant's world; a variant composing no such input keeps
   the identity it had (rf2-pt0d1)
+- The same render-input slots, minus `:script` / `:plays`, of each
+  registered `:extends` ancestor, nearest first, because
+  [017 §`:extends`](017-Testing-Story.md#extends--inherits-context-never-behaviour)
+  passes an ancestor's world down and never its behaviour; a variant whose
+  ancestors carry no such input keeps the identity it had (rf2-0ae7o.5)
 - Parent story `:component` id (the story-level default, via
   `re-frame.story.identity/story-body-slice`)
 - Parent story decorators
