@@ -141,11 +141,12 @@
         references))
 
 (defn- references-in-files
-  "Extract both `(rf/<var>` and `(story/<var>` call-position references from
-   `files` (io/file seq), each tagged with its repo-relative `:file`."
+  "Extract `(rf/<var>`, `(rf.story/<var>` and `(story/<var>` call-position
+   references from `files` (io/file seq), each tagged with its repo-relative
+   `:file`."
   [files]
   (for [file  files
-        alias ["rf" "story"]
+        alias ["rf" "rf.story" "story"]
         ref   (rf.api-manifest.projection/alias-call-references alias (rf.api-manifest.projection/numbered-lines file))]
     (assoc ref :file (rf.api-manifest.projection/repo-relative file))))
 
