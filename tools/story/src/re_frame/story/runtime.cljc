@@ -1704,7 +1704,9 @@
   (rf.story.network/install-for-frame! variant-id (get-in plan [:world :network]))
   (rf.story.frames/allocate-inline! variant-id
                            decorator-stack
-                           (get-in plan [:world :frame :fx-overrides])
+                           ;; The plan's frame overrides: `:fx-overrides` and
+                           ;; `:interceptor-overrides` (rf2-0ae7o.8).
+                           (get-in plan [:world :frame])
                            (inline-events-only? plan decorator-stack)
                            ;; rf2-cmjly3 finding 12: thread the plan's
                            ;; :sensitive/:large classification (carried
