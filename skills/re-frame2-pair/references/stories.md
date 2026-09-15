@@ -36,7 +36,7 @@ This identity is the single most important thing on this page. Once you have it,
 
 ## Enumerate, run, operate
 
-The `re-frame.story` namespace is loaded in any Story-enabled build. Reference it by its full name in an `eval-cljs` form — there is no `story` alias in the browser unless the app made one.
+The `re-frame.story` namespace is loaded in any Story-enabled build. Reference it by its full name in an `eval-cljs` form — there is no `rf.story` alias in the browser unless the app made one.
 
 **1. Enumerate the registry.** `ids` takes a registrar kind — `:story` for the parent stories, `:variant` for every concrete variant; `variants-of` returns one story's variants:
 
@@ -130,7 +130,7 @@ mcp__re-frame2-pair__eval-cljs {
              events
              {:variant-id :story.counter/recorded-flow, :cofx cofx}))"
 }
-;; => "(story/reg-variant :story.counter/recorded-flow
+;; => "(rf.story/reg-variant :story.counter/recorded-flow
 ;;        {:script {:auto-run? true :script [[:dispatch-sync [:counter/inc]] …]}})"
 ```
 
@@ -163,10 +163,10 @@ The registered body carries the source's whole program, its own `:assertions`, a
 
 ```
 mcp__re-frame2-pair__eval-cljs {form: "(re-frame.story.ui.view-state/upgrade-snippet :story.cart/pinned :real-setup)"}
-;; => "(story/reg-variant :story.cart/pinned-upgraded\n  {… :setup [[:dispatch [:your/setup-event {}]]]})\n;; upgrade of …"
+;; => "(rf.story/reg-variant :story.cart/pinned-upgraded\n  {… :setup [[:dispatch [:your/setup-event {}]]]})\n;; upgrade of …"
 ```
 
-It returns ONE `(story/reg-variant …)` form that drops the `:sub-overrides` pin and leaves a `:setup` placeholder to fill. Once the filled form is registered, `(:fidelity (re-frame.story/explain :story.cart/pinned-upgraded))` must not contain `:sub-overrides` unless you kept a pin on purpose. Do not skip that check. A composed fragment (`:compose`) that pins is dropped from the form and named, with the queries it pinned, in a trailing `;;` comment; its `:args` and `:setup` are not inlined, so re-add whatever you still need from it by hand. Fragments that pin nothing stay.
+It returns ONE `(rf.story/reg-variant …)` form that drops the `:sub-overrides` pin and leaves a `:setup` placeholder to fill. Once the filled form is registered, `(:fidelity (re-frame.story/explain :story.cart/pinned-upgraded))` must not contain `:sub-overrides` unless you kept a pin on purpose. Do not skip that check. A composed fragment (`:compose`) that pins is dropped from the form and named, with the queries it pinned, in a trailing `;;` comment; its `:args` and `:setup` are not inlined, so re-add whatever you still need from it by hand. Fragments that pin nothing stay.
 
 **Explain before running.** Read `(re-frame.story/explain id)` (the table above) before you edit a declaration: its `:args` and `:effective-args` fold in the ambient layers — global args, the parent story's `:args`, and any `:active-modes` / `:cell-overrides` in its opts — so they are the values a run uses. The pure compiler `re-frame.story.plan/explain` folds the ambient layers only when handed `:run-args`, so called bare it shows the variant's own layer alone, by design.
 

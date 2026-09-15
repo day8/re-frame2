@@ -2,7 +2,7 @@
 
 This chapter is about a variant's **`:script`** — the slot that turns a variant body into a deterministic, replayable sequence of dispatches, DOM gestures, waits, and assertions. The core is **a tagged-step grammar** that a runner walks in order against the variant's frame. Around it sit the **seven canonical `:rf.assert/*` events** (the assertion vocabulary the `[:dispatch-sync …]` rail rides), the **record-don't-throw** discipline (failures append to the run rather than aborting), the **`:cannot-run`** refusal (a step the runner can't observe is refused, never silently passed), and the **recorder** (which authors a `:script` body from canvas interaction).
 
-The public authoring slots are **`:setup`** (preconditions) and **`:script`** (behaviour under test); you execute a variant with the three verbs `story/run` / `story/is` / `story/explain`.
+The public authoring slots are **`:setup`** (preconditions) and **`:script`** (behaviour under test); you execute a variant with the three verbs `rf.story/run` / `rf.story/is` / `rf.story/explain`.
 
 !!! note "Where the normative contract lives"
 
@@ -61,7 +61,7 @@ The same assertion atom lives in two positions:
 Every assertion records its result and the script continues. A failing assertion does not abort the run — the runner walks every remaining step, accumulates every record, and the result asks "did every entry pass?" at the end. A script with eight assertions where three fail still runs all eight. This diverges from Storybook's throw-on-first-failure, which is partly forced on it by JavaScript's async-throw model; re-frame2's run-to-completion drain gives Story room to do better.
 
 ```clojure
-(story/reg-variant :story.counter/clicked-three-times
+(rf.story/reg-variant :story.counter/clicked-three-times
   {:doc    "Counter after three increments from zero."
    :setup  [[:counter/initialise 0]]
    :script [[:dispatch-sync [:counter/inc]]
@@ -94,7 +94,7 @@ The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:d
 `:rf.assert/*` records build their `:actual` / `:expected` / `:payload` / `:reason` slots through the wire-elision walker before landing in the result — no slot carries a raw secret for a sensitive path. Durable app-db classification is declared on the **variant body** and lowered into the frame's elision registry as commit-plane classification effects: a variant declares its sensitive paths via the `:sensitive` slot on its body, and an assertion against such a path records `:rf/redacted`, not the raw value. The `:rf/redacted` sentinel is a first-class legal `:expected` value — author it directly to pin the redaction contract:
 
 ```clojure
-(story/reg-variant :story.auth/login
+(rf.story/reg-variant :story.auth/login
   {:setup     [[:auth/login {:user "alice" :password "..."}]]
    :sensitive {:app-db [[:auth :token]]}
    :script    [[:dispatch-sync [:rf.assert/path-equals [:auth :token] :rf/redacted]]]})
@@ -121,7 +121,7 @@ The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` ste
 
 ```clojure
 ;; A variant whose script mixes DOM gestures, dispatches, and assertions.
-(story/reg-variant :story.login/error-then-recovery
+(rf.story/reg-variant :story.login/error-then-recovery
   {:doc    "User enters the wrong password, then corrects it."
    :setup  [[:auth/initialise]]
    :script [[:type        "[data-test=username]" "alice"]
