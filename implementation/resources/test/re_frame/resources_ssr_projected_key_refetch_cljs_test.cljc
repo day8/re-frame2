@@ -76,8 +76,8 @@
   surviving ghost carried no `:data`. That assertion PERMITS the defect it was
   written for. An emptied row is still a row: it installs, it survives the
   reconcile, and it sits in `:entries` beside the entry `ensure` writes under
-  the raw key — reachable by nothing, and collectable by nothing either, since
-  GC is timer-driven (`events/gc-fired-handler`) and hydration arms no timers.
+  the raw key — reachable by nothing, and, before rf2-omahf armed a GC timer
+  after hydration, collectable by nothing either.
   The bead's criterion is *no persistent unreachable duplicate*, and a data-less
   duplicate is still a duplicate. The refetch plan named it too, so the plan
   carried an identity no live derivation reproduces.
@@ -835,11 +835,11 @@
              (pr-str (mapv (comp :resource/key second) (rows-for :bulky/report)))))))
 
 (deftest a-coarse-row-was-uncollectable-which-is-why-emptying-it-is-not-enough
-  (testing "rf2-4bjep — the reason removal is the only lifecycle available,
-            asserted rather than argued: hydration arms NO timer, so an
-            ownerless hydrated row has no collector and would persist for the
-            session. The claim is made against the hydrated cache directly —
-            after hydrate there is no coarse row for a collector to want"
+  (testing "rf2-4bjep — removal, not an emptied row: an ownerless hydrated row
+            is reachable by nothing, and until rf2-omahf armed a GC timer after
+            hydration it had no collector at all. The claim is made against the
+            hydrated cache directly — after hydrate there is no coarse row for a
+            collector to want"
     (install-all!)
     (boot-client!)
     (is (empty? (rows-for :sealed/report))
