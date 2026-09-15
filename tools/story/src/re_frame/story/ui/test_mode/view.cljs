@@ -631,7 +631,8 @@
         "captures this run as evidence; distinct from save-current-state"]])))
 
 (defn- empty-state
-  "Placeholder when the variant has no `:script` slot."
+  "Placeholder when the variant has nothing to run — no `:script` /
+  `:plays` play surface and no `:assertions` / `:checks`."
   [variant-id]
   [:div {:style     (:empty styles)
          :data-test "story-test-empty"}
@@ -639,11 +640,15 @@
                   :color (:text-primary rf.story.theme.colors/tokens)}}
     "No tests registered for this variant"]
    [:div
-    "Add a "
+    "Add "
+    [:code ":assertions"]
+    ", "
+    [:code ":checks"]
+    " or a "
     [:code ":script"]
-    " slot to "
+    " to "
     [:code (str variant-id)]
-    " to register assertions."]
+    " to register tests."]
    [:a {:href       "https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/cross-cutting/testing.md"
         :style      (:empty-link styles)
         :data-test  "story-test-empty-link"
