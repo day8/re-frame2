@@ -485,3 +485,62 @@
             "a composed :db-seed edit changes the composing variant's identity")
         (is (not= set-up-id (identity-of :story.x/set-up))
             "a composed :setup edit changes the composing variant's identity")))))
+
+;; ---- rf2-pt0d1: an edit to a registration reached by reference re-runs ---
+;;
+;; A run reads registrations the variant only NAMES: the checks it lists or
+;; receives from an `:extends` ancestor, the fragments and checks it
+;; `:compose`s, and the ancestors themselves, whose world flows down
+;; (spec/017 §`:extends`). Re-registering one of those changed the verdict
+;; while the variant's own body, and so its watch hash, stayed put.
+
+(deftest referenced-registration-edit-drifts-watch-hash
+  (testing "rf2-pt0d1 — re-registering a registration a :test variant
+            reaches only by reference drifts exactly the variants that reach
+            it; a cosmetic :doc edit, an identical re-registration and an
+            edit to an unreferenced registration drift nothing"
+    (rf.story/reg-check :story.x/own       {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-check :story.x/composed  {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-check :story.x/inherited {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-check :story.x/other     {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-check :story.x/unused    {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-fragment :story.x/argtypes {:argtypes {:label {:control :text}}})
+    (rf.story/reg-variant :story.x/parent         {:tags #{:dev} :setup [[:story.x/set-c 0]]
+                                                   :checks [:story.x/inherited]})
+    (rf.story/reg-variant :story.x/names-check    {:tags #{:test} :checks [:story.x/own]})
+    (rf.story/reg-variant :story.x/composes-check {:tags #{:test} :compose [:story.x/composed]})
+    (rf.story/reg-variant :story.x/composes-frag  {:tags #{:test} :compose [:story.x/argtypes]
+                                                   :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.x/child          {:tags #{:test} :extends :story.x/parent})
+    (let [drift (fn [edit!]
+                  (let [before (rf.story.ui.watch/compute-testable-content-hashes)]
+                    (edit!)
+                    (rf.story.ui.state/watch-mode-drift
+                      before (rf.story.ui.watch/compute-testable-content-hashes))))]
+      (is (= [:story.x/names-check]
+             (drift #(rf.story/reg-check :story.x/own {:assertions [[:rf.assert/path-equals [:c] 1]]})))
+          "a check body the variant names")
+      (is (= [:story.x/composes-check]
+             (drift #(rf.story/reg-check :story.x/composed {:assertions [[:rf.assert/path-equals [:c] 1]]})))
+          "a check body the variant composes")
+      (is (= [:story.x/composes-frag]
+             (drift #(rf.story/reg-fragment :story.x/argtypes {:argtypes {:label {:control :select}}})))
+          "a composed fragment's body beyond its render inputs")
+      (is (= [:story.x/child]
+             (drift #(rf.story/reg-check :story.x/inherited {:assertions [[:rf.assert/path-equals [:c] 1]]})))
+          "a check body the variant receives from its :extends parent")
+      (is (= [:story.x/child]
+             (drift #(rf.story/reg-variant :story.x/parent {:tags #{:dev} :setup [[:story.x/set-c 0]]
+                                                            :checks [:story.x/other]})))
+          "the parent's :checks")
+      (is (= [:story.x/child]
+             (drift #(rf.story/reg-variant :story.x/parent {:tags #{:dev} :setup [[:story.x/set-c 1]]
+                                                            :checks [:story.x/other]})))
+          "the parent's world, which flows down through :extends")
+      (is (= [] (drift #(rf.story/reg-check :story.x/own {:doc        "c is one"
+                                                           :assertions [[:rf.assert/path-equals [:c] 1]]})))
+          "a :doc-only edit is cosmetic")
+      (is (= [] (drift #(rf.story/reg-fragment :story.x/argtypes {:argtypes {:label {:control :select}}})))
+          "an identical re-registration, whose :source coords differ, drifts nothing")
+      (is (= [] (drift #(rf.story/reg-check :story.x/unused {:assertions [[:rf.assert/path-equals [:c] 1]]})))
+          "an edit to a registration no variant reaches drifts nothing"))))
