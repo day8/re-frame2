@@ -407,9 +407,21 @@ stacked sections:
    read off each row's raw `:scoped-key`, NOT the truncated/redacted display
    previews, so long-or-colliding params and distinct redacted scopes
    cannot false-trip or be missed; the surfaced output is summarized for
-   privacy), and the **orphaned-owner lint** (an app-minted `[:dashboard/opened …]`
+   privacy), the **orphaned-owner lint** (an app-minted `[:dashboard/opened …]`
    (or other app-kind) owner pinning an entry with no observed release; route /
-   machine / ssr owners are framework-released and not linted).
+   machine / ssr owners are framework-released and not linted), and the
+   **optimistic-reach lint** (informational — a settled optimistic mutation
+   whose `:rf.mutation/optimistic-reconciled` `:optimistic-keys` include a key
+   that none of its `:committed` keys, its `:reconciliation-refetches`, or the
+   `:affected-keys` of its `:rf.mutation/succeeded` settlement reached, e.g. an
+   `:optimistic-tags` patch of the viewer's feed whose `:invalidates` forgets
+   the feed descriptor; one row per settled instance, dedupe-keyed on the
+   mutation, the instance and the missing keys, naming the mutation id, the
+   instance id and the summarized missing keys; the row says what settlement
+   did not reach and
+   does not call it a defect, since leaving a value optimistic can be
+   deliberate; a key in the scope the `:rf.warning/mutation-scope-mismatch`
+   tripwire already named for that mutation gets no second row).
 
 When the host has **no resources registered AND no live instances**, the
 panel renders the silent-by-default caption.
