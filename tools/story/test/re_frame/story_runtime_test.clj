@@ -1011,6 +1011,88 @@
               (run! {:test.id-icpt/tag :test.id-icpt/two})])
           "the inline plan's override decides the settled app-db and the verdict"))))
 
+;; ---- rf2-0ae7o.8: behaviour-variant `:images` ----------------------------
+;;
+;; A variant frame resolves its handlers through `[<story-images…>
+;; <variant-images…> runtime-image]` (002-Runtime §Image composition), so
+;; swapping the image a variant or its story declares changes which handler
+;; runs, and with it the settled app-db and the verdict. Identity selected
+;; `:images` from neither body, and the watch hash missed it too. An `:extends`
+;; ancestor's `:images` never reach the child's frame, and a fragment body
+;; cannot carry `:images` at all.
+
+(def ^:private image-body
+  {:tags       #{:test}
+   :setup      [[:img.counter/step]]
+   :assertions [[:rf.assert/path-equals [:n] 1]]})
+
+(defn- behaviour-image
+  "The v1 (adds 1) or v2 (adds 100) behaviour image over `:img.counter/step`."
+  [v]
+  (rf/image {:id        (keyword "img" (str "behaviour-" v))
+             :select-ns {:include [(str "story.test-helpers.image-behaviour-" v)]}}))
+
+(defn- image-edit
+  "Declare the v1 image through `place!` and run `vid`, then the v2 image and
+  run again. Returns `[before after]`."
+  [vid place!]
+  (require 'story.test-helpers.image-behaviour-v1 :reload)
+  (require 'story.test-helpers.image-behaviour-v2 :reload)
+  (place! (behaviour-image "v1"))
+  (let [before (fx-override-run vid)]
+    (place! (behaviour-image "v2"))
+    [before (fx-override-run vid)]))
+
+(deftest images-own-body
+  (testing "rf2-0ae7o.8 — swapping the variant's own `:images` changes which
+            handler runs, so it moves snapshot identity and the watch hash"
+    (let [vid            :story.id-img/own
+          place!         (fn [image]
+                           (rf.story/reg-variant vid (assoc image-body :images [image])))
+          [before after] (image-edit vid place!)]
+      (is (= [:pass 1 :fail 100] [(:status before) (:n before) (:status after) (:n after)])
+          "the image decides the settled app-db and the verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and a fresh watch hash, so watch mode re-runs the variant"))))
+
+(deftest images-story-body
+  (testing "rf2-0ae7o.8 — swapping the parent story's `:images` changes which
+            handler its variants run, so it moves their snapshot identity"
+    (let [vid            :story.id-imgstory/v
+          place!         (fn [image]
+                           (rf.story/reg-story :story.id-imgstory {:images [image]})
+                           (rf.story/reg-variant vid image-body))
+          [before after] (image-edit vid place!)]
+      (is (= [:pass 1 :fail 100] [(:status before) (:n before) (:status after) (:n after)])
+          "the story's image decides the variant's settled app-db and verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and a fresh watch hash, so watch mode re-runs the variant"))))
+
+(deftest images-not-inherited-through-extends
+  (testing "rf2-0ae7o.8 — an `:extends` ancestor's `:images` never reach the
+            child's frame, so swapping them leaves the child's settled state
+            and its snapshot identity alone"
+    ;; Only v1 is loaded, so the child's default image resolves the step
+    ;; handler without a cross-namespace collision.
+    (require 'story.test-helpers.image-behaviour-v1 :reload)
+    (let [vid    :story.id-imgext/child
+          place! (fn [image]
+                   (rf.story/reg-variant :story.id-imgext/parent {:images [image]})
+                   (rf.story/reg-variant vid
+                     (assoc image-body :extends :story.id-imgext/parent)))
+          _      (place! (behaviour-image "v1"))
+          before (fx-override-run vid)
+          _      (place! (behaviour-image "v2"))
+          after  (fx-override-run vid)]
+      (is (= [:pass 1 :pass 1] [(:status before) (:n before) (:status after) (:n after)])
+          "the ancestor's image does not decide the child's settled app-db")
+      (is (= (:id-hash before) (:id-hash after))
+          "so the child's snapshot identity must not move"))))
+
 ;; ---- rf2-8fz0n8: the STORY-side identity inputs (story-body-slice) --------
 ;;
 ;; `story-body-slice` selects the parent story's `[:component :decorators]`
