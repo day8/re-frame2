@@ -21,7 +21,8 @@
   `jvm_interop_must_work` user-feedback rule the runtime must be JVM-
   portable — `run-variant` returns a CompletableFuture on JVM (vs JS
   Promise on CLJS); the tests `deref` it for the result map."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
             [re-frame.elision         :as rf.elision]
             ;; `run-variant-twice-epoch-tape-does-not-bleed` reads a live
@@ -2337,6 +2338,66 @@
             "the failing interceptor id is preserved")
         (is (not= :pass (:status r))))
       (rf.story/destroy-variant! :story.icpt-boom/v))))
+
+;; ---- rf2-0ae7o.13 — a dispatch that resolves NO handler is a captured failure
+
+(defn- no-such-handler-record [result]
+  (first (filter #(and (= :rf.error/exception (:assertion %))
+                       (= :rf.error/no-such-handler (:operation %)))
+                 (:assertions result))))
+
+(deftest setup-no-such-handler-is-captured
+  (testing "a :setup dispatch whose event has NO registered handler is captured
+            as a failed :rf.error/exception record carrying the
+            :rf.error/no-such-handler operation (rf2-0ae7o.13). The framework
+            refuses the dispatch before any pipeline runs and settles no epoch
+            for it (rf2-erczwd), so the epoch tape is silent — the phase
+            trace-listener is the ONE capture that can see it. Before this the
+            unfilled upgrade scaffold read a vacuous :pass."
+    (rf.story/reg-variant :story.nsh/setup
+      {:setup [[:dispatch [:your/setup-event {}]]]})
+    (let [r   (rf.story.async/deref-blocking (rf.story/run-variant :story.nsh/setup) 5000)
+          rec (no-such-handler-record r)]
+      (is (some? rec)
+          "the refused setup dispatch was captured as an exception assertion")
+      (is (= :phase-2-events (:phase rec)))
+      (is (= [:your/setup-event {}] (:event rec))
+          "the record carries the refused event vector")
+      (is (= :your/setup-event (:failing-id rec))
+          "the failing component is the unregistered event id")
+      (is (and (string? (get-in rec [:error :message]))
+               (str/includes? (get-in rec [:error :message]) ":your/setup-event"))
+          "the message names the unregistered event id (the refusal throws nothing, so Story composes one)")
+      (is (false? (:passed? rec)))
+      (is (not= :pass (:status r))
+          "a refused setup dispatch flips the run off :pass"))
+    (rf.story/destroy-variant! :story.nsh/setup)))
+
+(deftest script-no-such-handler-is-captured
+  (testing "a :script dispatch whose event has NO registered handler is captured
+            the same way, attributed to the play phase (rf2-0ae7o.13) — a
+            misspelt event id in a script is a real authoring error, not a pass"
+    (rf/reg-event :test/nsh-ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+    (rf.story/reg-variant :story.nsh/script
+      {:setup  [[:test/nsh-ok]]
+       :script [[:dispatch [:test/nsh-typo 1]]]})
+    (let [r   (rf.story.async/deref-blocking (rf.story/run-variant :story.nsh/script) 5000)
+          rec (no-such-handler-record r)]
+      (is (some? rec))
+      (is (= :phase-4-play (:phase rec)))
+      (is (= [:test/nsh-typo 1] (:event rec)))
+      (is (not= :pass (:status r))))
+    (rf.story/destroy-variant! :story.nsh/script))
+  (testing "CONTROL: the same variant with the script event registered runs :pass"
+    (rf/reg-event :test/nsh-ok   (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+    (rf/reg-event :test/nsh-typo (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (rf.story/reg-variant :story.nsh/script-ok
+      {:setup  [[:test/nsh-ok]]
+       :script [[:dispatch [:test/nsh-typo 1]]]})
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.nsh/script-ok) 5000)]
+      (is (nil? (no-such-handler-record r)))
+      (is (= :pass (:status r))))
+    (rf.story/destroy-variant! :story.nsh/script-ok)))
 
 ;; ---- rf2-294yq5.3 — run-variant enforces a fresh-run boundary ------------
 
