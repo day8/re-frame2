@@ -511,3 +511,23 @@
                       (map (fn [[k v]] (str k v)))
                       (str/join "\n  "))]
     (rf.story.predicates/reg-variant-envelope alias variant-id body-str)))
+
+;; ---------------------------------------------------------------------------
+;; Pure: the save-as-variant dialog's output
+;; ---------------------------------------------------------------------------
+
+(defn save-dialog-output
+  "What the recorder's save-as-variant dialog shows for `recording` — the
+  rich `:entries` vector, or the bare `:events` vector when no entries were
+  captured: `{:spec <:script body map> :snippet <(rf.story/reg-variant …)>}`.
+
+  `opts`: `:variant-id` (default `:story.recorded/example`) and `:extends`
+  (the recorded source variant). The dialog in `re-frame.story.ui.recorder`
+  is CLJS-only; building its output here keeps it JVM-reachable, so the
+  paste-and-run test grades the snippet the dialog actually emits. Pure
+  data → data."
+  [recording {:keys [variant-id extends]}]
+  (let [spec (recording->script-body recording {:auto-run? false})]
+    {:spec    spec
+     :snippet (render-variant-form spec {:variant-id (or variant-id :story.recorded/example)
+                                         :extends    extends})}))
