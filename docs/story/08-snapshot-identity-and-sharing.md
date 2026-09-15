@@ -42,11 +42,13 @@ capture: the error state in dark mode is
 own subtree, so Story's chrome never enters a baseline. The content hash is not
 part of the key; it is recorded beside each baseline, so a review can tell you
 whether a diff arrived with a declared change or without one. Snapshot identity
-also covers the render inputs of any fragment a variant composes, so editing a
-shared fragment moves the hash of every variant that composes it, and the first
-review after this change reports the hashes of those variants as moved even
-where their pixels match. A moved hash on its own fails no case and asks for no
-new baseline: baselines are keyed by variant, and only a pixel change needs your
+also covers the render inputs a variant receives from a fragment it composes or
+from an ancestor it inherits through `:extends`, so editing a shared fragment,
+or a parent's seed, setup, network stubs or decorators, moves the hash of every
+variant that composes that fragment or sits below that parent, and the first
+review after this change reports those variants' hashes as moved even where
+their pixels match. A moved hash on its own fails no case and asks for no new
+baseline: baselines are keyed by variant, and only a pixel change needs your
 approval.
 
 Put two files in a `story-visual/` directory in your app.
