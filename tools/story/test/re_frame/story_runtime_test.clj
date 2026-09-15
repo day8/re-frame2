@@ -645,6 +645,60 @@
         (is (not= h1 (-> (rf.story/snapshot-identity :story.id-render/v) :content-hash))
             "editing a :network reply must produce a fresh hash")))))
 
+;; ---- rf2-pt0d1: a composed fragment's render inputs ----------------------
+;;
+;; spec/017 §Strict composition folds a composed fragment's `:setup`,
+;; `:db-seed`, `:network`, `:sub-overrides`, `:loaders` and `:decorators`
+;; into the composing variant's world, so each is a render input of that
+;; variant. Identity read only the variant's own body, so editing the
+;; fragment changed the settled app-db and the run's verdict while the
+;; content-hash stayed put. (A composed fragment's `:args` already reached the
+;; hash through `:effective-args`.)
+
+(deftest snapshot-identity-changes-with-composed-fragment-render-inputs
+  (testing "rf2-pt0d1 — re-registering a fragment the variant `:compose`s
+            with a different render input perturbs the variant's hash"
+    (rf.story/reg-decorator :centered
+      {:kind :hiccup :wrap (fn [body _args] [:div.centered body])})
+    (rf.story/reg-decorator :boxed
+      {:kind :hiccup :wrap (fn [body _args] [:div.boxed body])})
+    (rf.story/reg-story :story.id-compose {:component :app/v})
+    (rf.story/reg-fragment :fragment.id-compose/world {:db-seed {:count 1}})
+    (rf.story/reg-variant :story.id-compose/v {:compose [:fragment.id-compose/world]})
+    (let [hash-of (fn [] (:content-hash (rf.story/snapshot-identity :story.id-compose/v)))]
+      (testing ":db-seed"
+        (let [h1 (hash-of)]
+          (rf.story/reg-fragment :fragment.id-compose/world {:db-seed {:count 2}})
+          (is (not= h1 (hash-of))
+              "editing a composed fragment's :db-seed must produce a fresh hash")))
+      (testing ":setup"
+        (rf.story/reg-fragment :fragment.id-compose/world {:setup [[:count/set 1]]})
+        (let [h1 (hash-of)]
+          (rf.story/reg-fragment :fragment.id-compose/world {:setup [[:count/set 2]]})
+          (is (not= h1 (hash-of))
+              "editing a composed fragment's :setup must produce a fresh hash")))
+      (testing ":decorators"
+        (rf.story/reg-fragment :fragment.id-compose/world {:decorators [[:centered]]})
+        (let [h1 (hash-of)]
+          (rf.story/reg-fragment :fragment.id-compose/world {:decorators [[:boxed]]})
+          (is (not= h1 (hash-of))
+              "editing a composed fragment's :decorators must produce a fresh hash"))))))
+
+(deftest snapshot-tuple-unchanged-without-composed-render-inputs
+  (testing "rf2-pt0d1 — the tuple's :composed slot appears only when a
+            composed fragment carries a render input, so a variant that
+            composes nothing, only a check, or only a fragment's :args keeps
+            exactly the identity it had before the slot existed"
+    (rf.story/reg-story :story.id-no-compose {:component :app/v})
+    (rf.story/reg-check :check.id-no-compose/c {:assertions [[:rf.assert/path-equals [:n] 1]]})
+    (rf.story/reg-fragment :fragment.id-no-compose/args {:args {:label "a"}})
+    (rf.story/reg-variant :story.id-no-compose/plain {:setup []})
+    (rf.story/reg-variant :story.id-no-compose/check {:setup [] :compose [:check.id-no-compose/c]})
+    (rf.story/reg-variant :story.id-no-compose/args  {:setup [] :compose [:fragment.id-no-compose/args]})
+    (doseq [vid [:story.id-no-compose/plain :story.id-no-compose/check :story.id-no-compose/args]]
+      (is (not (contains? (rf.story.identity/snapshot-tuple vid) :composed))
+          (str vid " composes no render input, so its tuple carries no :composed slot")))))
+
 ;; ---- rf2-8fz0n8: the STORY-side identity inputs (story-body-slice) --------
 ;;
 ;; `story-body-slice` selects the parent story's `[:component :decorators]`
