@@ -170,6 +170,32 @@
            (rf.story.ui.state/testable-variant-ids
              (rf.story.registrar/registrations :variant))))))
 
+(deftest testable-variant-ids-counts-inherited-and-composed-checks
+  (testing "rf2-ckpm4: a :test variant whose only tests are :checks it
+            receives — from an :extends ancestor at any depth, or through a
+            :compose of a check id — is testable, because the compiled plan
+            hands those checks to the run; an :extends of a check-free
+            parent and a :compose of a fragment still prune"
+    (rf.story/reg-check :story.x/c-is-zero
+      {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-fragment :fragment.x/seed {:setup []})
+    (rf.story/reg-variant :story.x/root  {:tags #{:dev} :setup [] :checks [:story.x/c-is-zero]})
+    (rf.story/reg-variant :story.x/mid   {:tags #{:dev} :extends :story.x/root})
+    (rf.story/reg-variant :story.x/plain {:tags #{:dev} :setup []})
+    (rf.story/reg-variant :story.x/extends-child
+      {:tags #{:test} :extends :story.x/root})
+    (rf.story/reg-variant :story.x/extends-grandchild
+      {:tags #{:test} :extends :story.x/mid})
+    (rf.story/reg-variant :story.x/compose-check
+      {:tags #{:test} :setup [] :compose [:story.x/c-is-zero]})
+    (rf.story/reg-variant :story.x/extends-plain
+      {:tags #{:test} :extends :story.x/plain})
+    (rf.story/reg-variant :story.x/compose-fragment
+      {:tags #{:test} :setup [] :compose [:fragment.x/seed]})
+    (is (= [:story.x/compose-check :story.x/extends-child :story.x/extends-grandchild]
+           (rf.story.ui.state/testable-variant-ids
+             (rf.story.registrar/registrations :variant))))))
+
 (deftest testable-variant-ids-empty-on-no-registrations
   (testing "no :test variants → empty seq, widget renders 'no :test variants'"
     (is (empty? (rf.story.ui.state/testable-variant-ids {})))))
