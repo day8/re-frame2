@@ -196,6 +196,31 @@
            (rf.story.ui.state/testable-variant-ids
              (rf.story.registrar/registrations :variant))))))
 
+(deftest testable-variant-ids-counts-composed-fragment-script
+  (testing "rf2-dt9xf: a :test variant whose only play surface is a composed
+            fragment's :script (bare or map form) is testable, because the
+            compiled plan runs it; composing a fragment whose :script is empty
+            or absent still prunes, and so does a non-:test tag"
+    (rf.story/reg-fragment :fragment.x/script
+      {:script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+    (rf.story/reg-fragment :fragment.x/script-map
+      {:script {:script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]}})
+    (rf.story/reg-fragment :fragment.x/empty-script {:script []})
+    (rf.story/reg-fragment :fragment.x/seed {:setup []})
+    (rf.story/reg-variant :story.x/compose-script
+      {:tags #{:test} :setup [] :compose [:fragment.x/script]})
+    (rf.story/reg-variant :story.x/compose-script-map
+      {:tags #{:test} :setup [] :compose [:fragment.x/script-map]})
+    (rf.story/reg-variant :story.x/compose-empty-script
+      {:tags #{:test} :setup [] :compose [:fragment.x/empty-script]})
+    (rf.story/reg-variant :story.x/compose-seed
+      {:tags #{:test} :setup [] :compose [:fragment.x/seed]})
+    (rf.story/reg-variant :story.x/dev-compose-script
+      {:tags #{:dev} :setup [] :compose [:fragment.x/script]})
+    (is (= [:story.x/compose-script :story.x/compose-script-map]
+           (rf.story.ui.state/testable-variant-ids
+             (rf.story.registrar/registrations :variant))))))
+
 (deftest testable-variant-ids-empty-on-no-registrations
   (testing "no :test variants → empty seq, widget renders 'no :test variants'"
     (is (empty? (rf.story.ui.state/testable-variant-ids {})))))

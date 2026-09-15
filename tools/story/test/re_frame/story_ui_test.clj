@@ -961,6 +961,49 @@
       (is (= :fail (status :story.inh/compose-fail))
           "a composed failing check fails the run, never a silent skip"))))
 
+(deftest composed-fragment-script-selects-and-runs
+  (testing "rf2-dt9xf: a :script a variant receives only through a :compose of
+            a fragment RUNS (the compiler prepends it onto the primary play, or
+            synthesizes one — spec/017 §Total merge order, rf2-k23efg), so the
+            Tests pane's variant-has-tests? and Run all's selection select the
+            variant and its verdict is honest in both directions; composing a
+            fragment with no :script still prunes"
+    (rf.story/reg-fragment :fragment.cmp/c-is-zero
+      {:script [[:assert [:rf.assert/path-equals [:c] 0]]]})
+    (rf.story/reg-fragment :fragment.cmp/c-is-one
+      {:script {:script [[:assert [:rf.assert/path-equals [:c] 1]]]}})
+    (rf.story/reg-fragment :fragment.cmp/no-script {:setup []})
+    (rf.story/reg-variant :story.cmp/compose-pass
+      {:tags #{:test} :db-seed {:c 0} :compose [:fragment.cmp/c-is-zero]})
+    (rf.story/reg-variant :story.cmp/compose-fail
+      {:tags #{:test} :db-seed {:c 0} :compose [:fragment.cmp/c-is-one]})
+    (rf.story/reg-variant :story.cmp/compose-no-script
+      {:tags #{:test} :db-seed {:c 0} :compose [:fragment.cmp/no-script]})
+    (doseq [vid [:story.cmp/compose-pass :story.cmp/compose-fail]]
+      (is (rf.story.ui.test-mode.pure/variant-has-tests? vid)
+          (str vid " — the Tests pane runs it instead of the empty state")))
+    (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.cmp/compose-no-script))
+        "a composed fragment without a :script gives the run nothing to judge")
+    (let [ids     (rf.story.ui.state/testable-variant-ids
+                    (:variants (rf.story.ui.state/registry-snapshot)))
+          results (into {}
+                        (map (fn [vid]
+                               [vid (rf.story.async/deref-blocking
+                                      (rf.story.runtime/run-variant vid nil) 30000)]))
+                        ids)
+          state   (reduce (fn [s vid]
+                            (rf.story.ui.state/record-test-run
+                              s vid (rf.story.ui.state/aggregate-summary
+                                      (:assertions (get results vid)))))
+                          rf.story.ui.state/default-shell-state
+                          ids)
+          status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))]
+      (is (= [:story.cmp/compose-fail :story.cmp/compose-pass] ids)
+          "Run all selects the composed-script variants, not the script-less one")
+      (is (= :pass (status :story.cmp/compose-pass)))
+      (is (= :fail (status :story.cmp/compose-fail))
+          "a failing composed script step fails the run, never a silent skip"))))
+
 (deftest shell-state-aggregate-summary-counts-pass-fail-skip
   (testing "aggregate-summary tallies passed / failed / skipped"
     (let [s (rf.story.ui.state/aggregate-summary
