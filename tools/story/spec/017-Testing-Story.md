@@ -2998,7 +2998,11 @@ implementation, fonts or any rendered output. `:pixels` names a real-browser
 screenshot and pixel diff, and nothing in the tree fulfils it: no runner
 captures a screenshot and diffs it against a baseline. A green visual snapshot
 therefore means "the declared inputs did not change", never "the pixels did
-not change". A local capture-and-compare experiment is rf2-ia2if.
+not change". Pixel comparison is the job of an external runner the user
+brings, keyed by snapshot identity: the variant id and its active modes, plus
+the viewport and browser of the capture.
+[Local visual review](../../../docs/story/08-snapshot-identity-and-sharing.md#local-visual-review)
+is a Playwright recipe for one.
 
 ### The executor: reuse, not a second system
 
