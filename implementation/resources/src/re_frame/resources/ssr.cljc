@@ -980,7 +980,7 @@
   same settlement. An emptied row is still a row: it installs, it survives the
   hydrate reconcile, and it sits in the client's `:entries` beside the entry
   `ensure` writes under the raw key — ownerless, addressable by nothing, and
-  collectable by nothing, since GC is timer-driven and hydration arms no timers.
+  kept only until the GC timer the client arms after hydration collects it.
   It is also, on every SSR render of every page, bytes that no client can use.
   So the row does not ride, and `hydrate-runtime-db` drops one that arrives from
   an older render anyway. The many-to-one collapse it used to have to survive is
@@ -1497,8 +1497,8 @@
        by this build carries none; this is the never-trust-the-wire half, for
        cached HTML rendered by an earlier deploy. Installing one would leave an
        ownerless duplicate beside the entry `ensure` later writes under the raw
-       key, reachable by nothing and collectable by nothing (GC is timer-driven;
-       hydration arms no timers). Dropped rows are named on the
+       key, reachable by nothing and kept only until the GC timer the client
+       arms after hydration collects it. Dropped rows are named on the
        `:rf.resource/hydrated` trace;
     2. recompute `:tag-index` / `:owner-index` from the reconciled
        `:entries` (never trust the wire — part 5);
@@ -1582,8 +1582,8 @@
              ;; HTML, and cached HTML from an earlier deploy is routinely served
              ;; to a newer JS bundle. Installing such a row would leave an
              ;; ownerless duplicate beside the entry `ensure` later writes under
-             ;; the raw key, addressable by nothing and collectable by nothing
-             ;; (GC is timer-driven and hydration arms no timers). It is dropped
+             ;; the raw key, addressable by nothing and kept only until the GC
+             ;; timer the client arms after hydration collects it. It is dropped
              ;; HERE rather than at `ensure-handler` because here the fact is
              ;; known exactly and once, for every such row; `ensure` would have
              ;; to scan `:entries` for a resource-id match on every call — a
