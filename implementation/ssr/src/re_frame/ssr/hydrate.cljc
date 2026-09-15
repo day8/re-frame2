@@ -410,9 +410,11 @@
                    ;; whose owner rode the wire is already owned on the client,
                    ;; so neither the client's fresh-skip nor a later release ever
                    ;; arms its GC timer, and it would never be collected. The
-                   ;; resources artefact arms ONLY the GC timer of each hydrated
-                   ;; entry; that timer's fire re-checks ownership, re-arming
-                   ;; while owned. Same three gates, same post-commit ordering,
+                   ;; resources artefact arms the GC timer of each hydrated
+                   ;; entry, plus the poll timer of each still-owned entry whose
+                   ;; resource declares :poll-interval-ms (rf2-2ojds); each
+                   ;; timer's fire re-checks ownership, GC re-arming while
+                   ;; owned. Same three gates, same post-commit ordering,
                    ;; and nothing it arms rides the wire.
                    (and client?
                         (some? payload-runtime-db)
