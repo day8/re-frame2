@@ -18,6 +18,10 @@
   emitter is CLJS-only and is pinned in `ui/share_egress_cljs_test.cljs`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
             [re-frame.story.artifact :as rf.story.artifact]
             [re-frame.story.author-expectations :as rf.story.author-expectations]
@@ -31,6 +35,16 @@
 
 (defn- clean-registry [test-fn]
   (rf.story/clear-all!)
+  ;; A fresh framework runtime, so a pasted variant can RUN as well as
+  ;; register (the setup `view-state-upgrade-test` uses).
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (try (rf/init! rf.substrate.plain-atom/adapter)
+       (catch clojure.lang.ExceptionInfo _ nil))
+  (rf.story/install-canonical-vocabulary!)
+  (rf.frame/ensure-default-frame!)
+  (rf/reg-event :paste/submit
+    (fn [{:keys [db]} _] {:db (update db :submits (fnil inc 0))}))
   (rf.story/reg-story :story.paste {:component :paste/card})
   (rf.story/reg-variant :story.paste/source {:args {:heading "Sign in"}})
   (rf.story/reg-variant :story.paste/pinned
@@ -144,3 +158,33 @@
       (is (= :story.paste/source (:extends body)))
       (is (= {[:paste/state] :error} (:sub-overrides body))))
     (is (story-alias-fails-to-paste? snippet))))
+
+;; ---- rf2-0ae7o.11 — pasted as-is, a recording RUNS ------------------------
+
+(defn- run-result
+  "Run `variant-id` through the real runner (`story/run`, headless) and
+  return the unified run result."
+  [variant-id]
+  (.get ^java.util.concurrent.CompletableFuture (rf.story/run variant-id)))
+
+(deftest recorder-save-dialog-recording-runs-when-pasted
+  (testing "rf2-0ae7o.11 (b): the save dialog's snippet, pasted as-is, runs its
+            recorded dispatches instead of registering a script nothing runs"
+    (let [{:keys [snippet]} (rf.story.recorder.play-export/save-dialog-output
+                              [{:kind :event/dispatch :event [:paste/submit] :t 0}]
+                              {:variant-id :story.paste/recorded-flow
+                               :extends    :story.paste/source})]
+      (paste! snippet)
+      (is (= 1 (get-in (run-result :story.paste/recorded-flow) [:app-db :submits]))
+          "the recorded dispatch executed"))))
+
+(deftest recorder-save-dialog-click-recording-refuses-headless
+  (testing "rf2-0ae7o.11 (b): a pasted recording of a click is not proved by a
+            headless run — :cannot-run (spec/017 §Requirement inference), never a
+            :pass over a script that never ran"
+    (let [{:keys [snippet]} (rf.story.recorder.play-export/save-dialog-output
+                              [{:kind :dom/click :selector "[data-test=\"paste-submit\"]" :t 0}]
+                              {:variant-id :story.paste/recorded-click
+                               :extends    :story.paste/source})]
+      (paste! snippet)
+      (is (= :cannot-run (:status (run-result :story.paste/recorded-click)))))))

@@ -789,13 +789,9 @@
             ;; bare :events vector only when no rich entries were
             ;; snapshotted (legacy callers / dispatch-only recordings).
             src        (if (seq entries) entries events)
-            spec       (rf.story.recorder.play-export/recording->script-body
-                         src
-                         {:auto-run? false})
-            snippet    (rf.story.recorder.play-export/render-variant-form
-                         spec
-                         {:variant-id (or draft-id :story.recorded/example)
-                          :extends    source-id})
+            {:keys [spec snippet]}
+            (rf.story.recorder.play-export/save-dialog-output
+              src {:variant-id draft-id :extends source-id})
             step-count (count (:script spec))]
         (rf.story.review-dialog/review-dialog dialog
           {:title             "Test Codegen — save recording as variant"
