@@ -303,7 +303,10 @@
       :args        required — args map captured from the live canvas
       :doc         optional — docstring
       :alias       optional — short alias to use in the form
-                              (default `\"story\"`)
+                              (default `\"rf.story\"`, the canonical
+                              `re-frame.story` alias of spec/Conventions.md
+                              §Require-alias dialect, so the form pastes and
+                              runs verbatim in a stories namespace)
 
   The output is human-readable EDN — args render on their own lines,
   sorted by key for determinism. The form is `read-string`-able and
@@ -314,7 +317,7 @@
   STATE — the args snapshot — so the new variant renders with the same
   controls as the source the user was tweaking when they clicked Save."
   [{:keys [variant-id extends args doc alias]
-    :or   {alias "story"}}]
+    :or   {alias "rf.story"}}]
   (let [body-keys (cond-> []
                     doc     (conj [:doc (pr-str doc)])
                     extends (conj [:extends (pr-str extends)])

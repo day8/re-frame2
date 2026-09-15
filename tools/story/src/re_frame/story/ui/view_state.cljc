@@ -410,8 +410,9 @@
 (defn upgrade-snippet
   "Build the copy-paste EDN scaffold that UPGRADES `source-variant-id` to
   the `target-rung` fidelity, KEEPING it a `reg-variant` (same artifact
-  kind). Returns a string that reads back as ONE `(story/reg-variant …)`
-  form.
+  kind). Returns a string that reads back as ONE `(rf.story/reg-variant …)`
+  form — the canonical `re-frame.story` alias, so it pastes and runs
+  verbatim in a stories namespace.
 
   The scaffold carries the source's context forward and adds the rung's
   authoring slot for the author to fill — `:setup` for `:real-setup`,
@@ -431,7 +432,10 @@
     layer (none when the root pins) and re-emits the source's OWN slots
     minus `not-restated`. Pinned layers between that ancestor and the
     source are named in a trailing comment rather than merged here — the
-    plan compiler stays the single merge authority.
+    plan compiler stays the single merge authority. The one exception is
+    `:decorators` (rf2-yemtm): they merge child-wins, so when the source
+    declares none the nearest skipped layer's are copied, because extending
+    above that layer must not strip the fx stubs its setup events need.
 
   Re-emitting the source's own slots re-emits its `:compose`, and a composed
   fragment's `:sub-overrides` reach the child exactly as a direct pin would.
@@ -448,7 +452,7 @@
 
   Hand-built body (rather than `save-variant/gen-variant-snippet`, which
   only emits `:args`) so the rung slot reads honestly, but reusing the
-  same `(story/reg-variant <id> { … })` envelope + alias."
+  same `(rf.story/reg-variant <id> { … })` envelope + alias."
   ([source-variant-id target-rung]
    (upgrade-snippet source-variant-id target-rung nil))
   ([source-variant-id target-rung {:keys [lookup fragment-lookup]}]
@@ -477,15 +481,24 @@
                                                   [fragment-id (keys pins)]))))
                                (:compose body)))
          dropped (set (map first composed-pins))
+         ;; The pinned layers between `base` and the source: extended past, not merged.
+         skipped-layers (when pin-at (subvec chain pin-at (dec (count chain))))
+         ;; `:decorators` merge child-wins down `:extends` (plan `merge-context`),
+         ;; so the source runs under the nearest layer that declares them.
+         ;; Extending above a pinned layer would strip that layer's decorators —
+         ;; the fx stubs its real events need (rf2-yemtm) — so copy them when
+         ;; the source declares none of its own.
+         carried (when (and pin-at (nil? (:decorators body)))
+                   (some (comp :decorators :body) (rseq skipped-layers)))
          own     (when pin-at
                    (let [own  (apply dissoc body not-restated)
                          kept (into [] (remove dropped) (:compose own))]
-                     (cond
-                       (empty? dropped) own
-                       (seq kept)       (assoc own :compose kept)
-                       :else            (dissoc own :compose))))
-         skipped (when pin-at
-                   (map :variant/id (subvec chain pin-at (dec (count chain)))))
+                     (cond-> (cond
+                               (empty? dropped) own
+                               (seq kept)       (assoc own :compose kept)
+                               :else            (dissoc own :compose))
+                       carried (assoc :decorators carried))))
+         skipped (map :variant/id skipped-layers)
          pinned  (into [] (distinct)
                        (concat (mapcat #(keys (get-in % [:body :sub-overrides])) chain)
                                (mapcat second composed-pins)))
@@ -497,7 +510,7 @@
                     (str (pr-str slot) " "
                          (if (contains? own slot) (pr-str (get own slot)) placeholder))])]
      (str (rf.story.predicates/reg-variant-envelope
-            "story" (upgraded-variant-id source-variant-id)
+            "rf.story" (upgraded-variant-id source-variant-id)
             (apply str (interpose "\n   " lines)))
           "\n;; upgrade of " (pr-str source-variant-id)
           (if pin-at

@@ -151,17 +151,28 @@
   recorded fingerprints; if anything drifted, bump the hot-reload tick
   and stamp the new fingerprints.
 
+  The Story registrar's mutation tick rides the same comparison
+  (rf2-yemtm). A registration that no running frame reflects — a hot
+  reload adding a variant, a `:script` landing on a variant nobody has
+  open — changes no fingerprint, so nothing reached the shell state and
+  the sidebar, test widget and Tests pane kept rendering the old registry
+  until some unrelated click. Stamping `:registry-tick` re-renders every
+  pane that reads the shell state. It is not drift: nothing re-mounts or
+  re-runs.
+
   Public so tests can exercise the detector without mounting the shell."
   []
   (when rf.story.config/enabled?
-    (let [current (compute-fingerprint-snapshot)
-          shell   (rf.story.ui.state/get-state)
-          prev    (:fingerprints shell)
-          drift?  (existing-frame-fingerprint-drift? prev current)]
-      (when (not= current prev)
+    (let [current  (compute-fingerprint-snapshot)
+          registry (rf.story.registrar/current-mutation-tick)
+          shell    (rf.story.ui.state/get-state)
+          prev     (:fingerprints shell)
+          drift?   (existing-frame-fingerprint-drift? prev current)]
+      (when (or (not= current prev)
+                (not= registry (:registry-tick shell)))
         (rf.story.ui.state/swap-state!
           (fn [s]
-            (cond-> (assoc s :fingerprints current)
+            (cond-> (assoc s :fingerprints current :registry-tick registry)
               drift? rf.story.ui.state/bump-hot-reload-tick)))
         drift?))))
 

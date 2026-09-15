@@ -67,6 +67,8 @@
           step-btn (first (find-by-data-test tree "story-stepper-step"))]
       (is (some? start)    "Start button is present")
       (is (some? hint)     "inactive hint is present")
+      (is (re-find #"no :script has no steps" (last hint))
+          "the hint does not promise a :script to a variant without one (rf2-yemtm)")
       (is (nil?  step-btn) "Step button is NOT present in inactive state"))))
 
 ;; ---- active state -------------------------------------------------------

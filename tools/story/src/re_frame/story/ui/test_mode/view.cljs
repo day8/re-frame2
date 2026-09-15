@@ -691,6 +691,11 @@
   [variant-id]
   (when variant-id
     (r/with-let [last-variant (atom nil)]
+      ;; rf2-yemtm: `variant-has-tests?` below reads the registrar, which no
+      ;; ratom tracks, so read the registry tick the shell's poll stamps. A
+      ;; registration that adds a `:script` or `:assertions` then re-renders
+      ;; this pane instead of leaving it on 'No tests registered'.
+      @(r/cursor rf.story.ui.state/shell-state-atom [:registry-tick])
       (when (not= variant-id @last-variant)
         (reset! last-variant variant-id)
         ;; Auto-run on first encounter of this variant (a fresh mount OR

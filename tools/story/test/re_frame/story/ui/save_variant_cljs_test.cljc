@@ -31,7 +31,7 @@
                  {:variant-id :story.x/y
                   :extends    :story.x/source
                   :args       {:n 1}})]
-      (is (str/starts-with? snip "(story/reg-variant "))
+      (is (str/starts-with? snip "(rf.story/reg-variant "))
       (is (str/includes? snip ":story.x/y"))
       (is (str/includes? snip ":story.x/source"))
       (is (str/ends-with? snip "})")))))
