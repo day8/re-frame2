@@ -780,7 +780,7 @@
             identity it had before the slot existed"
     (rf.story/reg-story :story.id-no-inherit {:component :app/v})
     (rf.story/reg-variant :story.id-no-inherit/p-args {:args {:label "a"}})
-    (rf.story/reg-variant :story.id-no-inherit/p-tags {:setup [] :tags #{:docs}})
+    (rf.story/reg-variant :story.id-no-inherit/p-tags {:tags #{:docs}})
     (rf.story/reg-variant :story.id-no-inherit/p-script
       {:script     [[:dispatch [:n/set 1]]]
        :assertions [[:rf.assert/path-equals [:n] 1]]})

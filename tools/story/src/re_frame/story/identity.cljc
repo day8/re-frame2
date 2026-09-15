@@ -77,6 +77,11 @@
     folds them into the variant's world (rf2-pt0d1). The `:composed` slot
     is absent when no composed fragment carries one, so every other
     variant's identity is unchanged.
+  - The same render-input slots, minus `:script` / `:plays`, of each
+    registered `:extends` ancestor, nearest first — spec/017 §`:extends`
+    passes an ancestor's world down and never its behaviour (rf2-0ae7o.5).
+    The `:inherited` slot is absent when no ancestor carries one, so every
+    other variant's identity is unchanged.
   - Parent story `:component` id
   - Parent story `:decorators`
   - The *registered* schema digest of the view (per spec/011
@@ -119,7 +124,8 @@
 (def ^:private render-input-keys
   "The body slots that are render inputs (see `variant-body-slice` §Slice
   membership). A variant's own body and each fragment it `:compose`s
-  contribute the same slots."
+  contribute the same slots; an `:extends` ancestor contributes them minus
+  its behaviour (`inherited-input-keys`)."
   [:setup :script :plays
    :loaders :loaders-complete-when :loaders-teardown
    :decorators :args->events :platforms :substrates
@@ -205,10 +211,12 @@
     on the settled rendered state.
   - `:doc` / `:source` — prose + coords; runtime-environmental.
   - `:extends` — the id is not hashed; an ancestor's args and tags reach
-    the hash through `:effective-args` and `:effective-tags`.
+    the hash through `:effective-args` and `:effective-tags`, and its other
+    inherited render inputs through `inherited-slices`.
 
   A composed fragment contributes these same slots through
-  `composed-fragment-slices`."
+  `composed-fragment-slices`, and an `:extends` ancestor all of them but its
+  behaviour through `inherited-slices`."
   [variant-id]
   (let [body (rf.story.registrar/handler-meta :variant variant-id)]
     (when body
@@ -236,6 +244,41 @@
                         (select-keys render-input-keys)
                         not-empty)))
         (:compose (rf.story.registrar/handler-meta :variant variant-id))))
+
+(def ^:private inherited-input-keys
+  "The `render-input-keys` an `:extends` ancestor passes down. spec/017
+  §`:extends` inherits the world, never the behaviour, so an ancestor's
+  `:script` and `:plays` stay with it."
+  (into [] (remove #{:script :plays}) render-input-keys))
+
+(defn- inherited-slices
+  "The render inputs `variant-id` inherits through `:extends`: each
+  registered ancestor's slice over `inherited-input-keys`, nearest first
+  (rf2-0ae7o.5). spec/017 §`:extends` passes an ancestor's world (setup,
+  render fixtures, network stubs, decorators) down to the child, so each is
+  a render input of the child exactly as its own body's are.
+
+  An ancestor input the child overrides is still hashed. Pruning it would
+  copy the plan compiler's per-key merge rules (setup appends, maps merge,
+  other values are replaced) into identity, where any drift would miss a
+  real change; hashing it costs at most a spare identity change when a
+  shadowed value is edited. Ancestor ids are not hashed, and an ancestor
+  carrying only `:args`, `:tags`, behaviour or expectations contributes
+  nothing (its args and tags reach the hash through `:effective-args` and
+  `:effective-tags`). An unregistered parent or a cycle ends the walk,
+  because plan construction refuses both. One side-table lookup per
+  ancestor; no plan compile."
+  [variant-id]
+  (loop [pid  (:extends (rf.story.registrar/handler-meta :variant variant-id))
+         seen #{variant-id}
+         acc  []]
+    (if-let [ancestor (when (and pid (not (contains? seen pid)))
+                        (rf.story.registrar/handler-meta :variant pid))]
+      (let [slice (select-keys ancestor inherited-input-keys)]
+        (recur (:extends ancestor)
+               (conj seen pid)
+               (cond-> acc (seq slice) (conj slice))))
+      acc)))
 
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
@@ -338,7 +381,8 @@
          ;; target for the frame-local app-db schema digest (no ambient
          ;; resolution / no `:rf/default` synthesis).
          schema-digest (view-schema-digest variant-id)
-         composed      (composed-fragment-slices variant-id)]
+         composed      (composed-fragment-slices variant-id)
+         inherited     (inherited-slices variant-id)]
      (cond-> {:rf/snapshot-canonical rf.story.fingerprint/canonical-version
               :variant-id            variant-id
               :variant               variant
@@ -368,7 +412,12 @@
        ;; rf2-pt0d1 — composed fragments' render inputs, in declared order.
        ;; Absent unless one carries a render input, so a variant composing
        ;; nothing (or only checks / `:args`) keeps the identity it had.
-       (seq composed) (assoc :composed composed)))))
+       (seq composed) (assoc :composed composed)
+       ;; rf2-0ae7o.5 — the inheritable render inputs of `:extends`
+       ;; ancestors, nearest first. Absent unless one carries such an input,
+       ;; so a variant with no ancestor (or ancestors carrying only args, tags
+       ;; or behaviour) keeps the identity it had.
+       (seq inherited) (assoc :inherited inherited)))))
 
 (defn snapshot-identity
   "Public entry point per `002-Runtime.md` §Programmatic API — return the snapshot-identity
