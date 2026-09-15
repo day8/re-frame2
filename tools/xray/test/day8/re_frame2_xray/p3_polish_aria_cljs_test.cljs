@@ -316,7 +316,7 @@
     (xray-setup!)
     ;; Force the counter positive so the indicator renders.
     (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed :rf/default]))
+      (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed {:rf/default 1}]))
     (rf/with-frame :rf/xray
       (let [tree      (dynamic-shell-tree/shell-view-tree)
             indicator (rf.test-helpers/find-by-testid tree "rf-xray-redacted-indicator")

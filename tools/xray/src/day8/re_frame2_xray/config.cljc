@@ -32,6 +32,7 @@
             #?@(:cljs [[cljs.reader]
                        [re-frame.core :as rf]
                        [re-frame.frame :as rf.frame]
+                       [re-frame.interop :as rf.interop]
                        [day8.re-frame2-xray.defaults :as defaults]])))
 
 ;; Forward declarations. The `editor preference` block (`get-editor`)
@@ -818,10 +819,31 @@
 ;; `[:rf/xray db :suppressed-counters]` via dispatch (CLJS-only) so
 ;; the `:rf.xray/suppressed-sensitive-count` sub fires on the
 ;; standard reactive write path — the `[● REDACTED N]` indicator
-;; updates IMMEDIATELY on every bump, with no dependency on sibling
+;; updates within one task of the bumps, with no dependency on sibling
 ;; subs recomputing. The atom here remains the JVM-runnable data
 ;; primitive so `config.cljc`'s shape is testable without a CLJS
 ;; runtime + re-frame frame.
+;;
+;; ## The mirror is task-coalesced (rf2-p03xh)
+;;
+;; Pre-rf2-p03xh every bump cost its own
+;; `:rf.xray/note-sensitive-suppressed` round-trip into `:rf/xray`. A host
+;; burst of more than ~100 frameless sensitive traces in one task
+;; therefore carried Xray's queue past the router's depth-100 cap: the
+;; `:rf.error/drain-depth-exceeded` halt was attributed to `:rf/xray`, and
+;; Xray's own queued UI events were dropped behind the burst.
+;;
+;; The remedy is the one Xray already applies twice —
+;; `trace-collector/request-mirror-sync!` (rf2-wq6gx) and install.cljs's
+;; epoch pump (rf2-chs7): pending state keyed by FRAME-ID, a
+;; `compare-and-set!` sentinel, and one `rf.interop/next-tick` drain. The
+;; atom still takes every bump, so the count stays exact; the drain
+;; dispatches ONE event per task carrying `{frame-id → n}`.
+;;
+;; The payload is each frame's count for THE TASK, and the handler ADDS
+;; it. Carrying the atom's running totals for the handler to overwrite
+;; with would be wrong: the palette's reset clears the app-db slot alone,
+;; so an overwrite would bring the pre-reset count back on the next bump.
 
 (defonce
   ^{:doc "Atom: `{frame-id → suppressed-count}`. Xray's trace
@@ -832,41 +854,81 @@
   suppressed-counters
   (atom {}))
 
+#?(:cljs
+   (defonce ^:private pending-suppressed-counts
+     ;; `{frame-id → n}` — bumps noted since the last drain, keyed by
+     ;; FRAME-ID (nil already folded to `:global`). The keying is what lets
+     ;; one dispatch carry every frame that changed in the task.
+     (atom {})))
+
+#?(:cljs
+   (defonce ^:private suppressed-sync-scheduled?
+     ;; `compare-and-set!` sentinel — `true` while a drain task is queued and
+     ;; not yet run; reset to `false` immediately before the task takes the
+     ;; pending counts, so a bump arriving after the take schedules a fresh
+     ;; task rather than merging silently into one already in flight.
+     ;; Mirrors `install/epoch-sync-scheduled?`.
+     (atom false)))
+
+#?(:cljs
+   (defn drain-suppressed-counts!
+     "Dispatch ONE `:rf.xray/note-sensitive-suppressed` carrying every
+     frame's suppressed-event count since the last drain, then clear the
+     pending counts.
+
+     The dispatch targets the production Xray shell frame via the named
+     `defaults/default-frame-id` Var, never a bare frame-map literal. This
+     is a trace-collector infra seam, not a per-instance render affordance:
+     the trace bus has no surrounding render/event frame, and the
+     bottom-rail's `[● REDACTED N]` indicator lives on the single in-app
+     shell. It is the legitimate production-singleton seam, consistent with
+     `spine-filters/hydrate!`.
+
+     PRE-MOUNT / POST-TEARDOWN NO-OP: when the frame is not registered the
+     pending counts are cleared and nothing is dispatched, so no
+     `:rf.error/frame-destroyed` trace reaches the bus and the atom alone
+     keeps the count. The liveness check is taken here, at the instant of
+     dispatch, for the reason `install/drain-epoch-frames!` gives.
+
+     Returns the counts dispatched (`{}` on a no-op). Public so tests can
+     drive the drain deterministically without waiting on `next-tick`."
+     []
+     (let [counts (first (reset-vals! pending-suppressed-counts {}))]
+       (if (and (seq counts) (rf.frame/frame defaults/default-frame-id))
+         (do (rf/dispatch [:rf.xray/note-sensitive-suppressed counts]
+                          {:frame defaults/default-frame-id})
+             counts)
+         {}))))
+
 (defn note-suppressed!
   "Bump the suppressed-events counter for the frame the event
   targeted. Called by Xray's trace collector when
   `suppress-sensitive?` returned true. `frame-id` may be `nil` /
   absent — those count under `:global`.
 
-  In CLJS, also dispatches `:rf.xray/note-sensitive-suppressed`
-  into `:rf/xray` so the bottom-rail's `[● REDACTED N]` indicator
-  updates IMMEDIATELY via the reactive sub-graph (the event handler
-  updates Xray's app-db `:suppressed-counters` slot; the
-  `:rf.xray/suppressed-sensitive-count` sub reads off the same
-  db). The atom-bump stays as the JVM-runnable data primitive
-  (CLJC tests assert it directly); the dispatch is the reactive
-  surface for CLJS.
+  The atom takes every bump, so the count is exact. It stays the
+  JVM-runnable data primitive (CLJC tests assert it directly), and on
+  the JVM the bump is all this does.
 
-  The dispatch targets the production Xray shell frame via the named
-  `defaults/default-frame-id` Var (NOT a bare
-  `{:frame :rf/xray}` literal). This is a trace-collector infra seam,
-  not a per-instance render affordance — `note-suppressed!` is called
-  by the trace bus, which has no surrounding render/event frame, and
-  the bottom-rail's `[● REDACTED N]` indicator lives on the single
-  in-app shell. It is the legitimate production-singleton seam,
-  consistent with `spine-filters/hydrate!`. Guarded on the frame's
-  existence so
-  pre-mount callers (Xray shell not yet opened) bump the atom
-  without emitting an `:rf.error/frame-destroyed` trace into the
-  bus — the seed in `ensure-xray-frame!` lifts the atom's contents
-  on first Ctrl+Shift+C."
+  In CLJS it also adds the bump to the pending per-task counts and, unless
+  a drain is already queued, schedules `drain-suppressed-counts!` on the
+  next task. The bottom-rail's `[● REDACTED N]` indicator therefore updates
+  through the reactive sub-graph within one task (the event handler adds
+  to Xray's app-db `:suppressed-counters` slot; the
+  `:rf.xray/suppressed-sensitive-count` sub reads off the same db). One
+  dispatch per task, never one per bump — see §The mirror is
+  task-coalesced above (rf2-p03xh)."
   [frame-id]
   (let [k (or frame-id :global)]
-    (swap! suppressed-counters update k (fnil inc 0)))
-  #?(:cljs
-     (when (rf.frame/frame defaults/default-frame-id)
-       (rf/dispatch [:rf.xray/note-sensitive-suppressed frame-id]
-                    {:frame defaults/default-frame-id})))
+    (swap! suppressed-counters update k (fnil inc 0))
+    #?(:cljs
+       (do
+         (swap! pending-suppressed-counts update k (fnil inc 0))
+         (when (compare-and-set! suppressed-sync-scheduled? false true)
+           (rf.interop/next-tick
+             (fn []
+               (reset! suppressed-sync-scheduled? false)
+               (drain-suppressed-counts!)))))))
   nil)
 
 (defn suppressed-count
@@ -889,9 +951,14 @@
   In CLJS, also dispatches `:rf.xray/reset-suppressed-counters`
   into `:rf/xray` so the reactive copy in Xray's app-db drops in
   lockstep with the atom. Guarded on the frame existing — this is
-  called from test fixtures before any frame is registered."
+  called from test fixtures before any frame is registered.
+
+  In CLJS it also drops the pending per-task counts, so a bump noted
+  before the reset cannot be dispatched after the reset's own dispatch
+  and re-add what the reset cleared (rf2-p03xh)."
   ([]
    (reset! suppressed-counters {})
+   #?(:cljs (reset! pending-suppressed-counts {}))
    #?(:cljs
       (when (rf.frame/frame defaults/default-frame-id)
         (rf/with-frame defaults/default-frame-id
@@ -899,6 +966,7 @@
    nil)
   ([frame-id]
    (swap! suppressed-counters dissoc (or frame-id :global))
+   #?(:cljs (swap! pending-suppressed-counts dissoc (or frame-id :global)))
    #?(:cljs
       (when (rf.frame/frame defaults/default-frame-id)
         (rf/with-frame defaults/default-frame-id

@@ -777,7 +777,9 @@ lost.
 
 The slot is updated by the `:rf.xray/note-sensitive-suppressed` event
 (per [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md)
-§Shared infrastructure) dispatched from the trace collector. It is
+§Shared infrastructure), which the trace collector's counter
+dispatches at most once per task, carrying that task's per-frame
+counts to add. It is
 cleared by `:rf.xray/reset-suppressed-counters` — either entirely
 (no-arg) or per-bucket — fired from `trace-collector/retroactive-scrub!`
 and test fixtures.
@@ -785,16 +787,20 @@ and test fixtures.
 The `:rf.xray/suppressed-sensitive-count` subscription reads this
 slot and returns the total across every bucket; the
 `[● REDACTED N]` bottom-rail indicator binds to that sub so the count
-updates IMMEDIATELY on every collector bump, with no dependency on
-sibling subs recomputing (rf2-0vxdn PR #681).
+updates on the standard reactive write path within one task of the
+collector's bumps, with no dependency on sibling subs recomputing
+(rf2-0vxdn PR #681).
 
 The slot's source-of-truth duality is deliberate: the underlying atom
 in `day8.re-frame2-xray.config/suppressed-counters` remains the
 JVM-runnable data primitive (so CLJC unit tests can assert it without
 spinning up a CLJS runtime and a frame), and the dispatch into
-`:rf/xray` is the reactive surface for CLJS. Both stay in lockstep —
-every atom bump fires a matching dispatch; every dispatch comes from
-an atom bump.
+`:rf/xray` is the reactive surface for CLJS. The frame slot converges
+to the atom within one task: the atom takes every bump as it happens,
+and the bumps of one task reach the slot together as a single
+dispatch scheduled for the next task. It is never one dispatch per
+bump, so a host burst of sensitive traces cannot carry `:rf/xray`'s
+queue past the router's drain depth (rf2-p03xh).
 
 ### Xray-owned `:rf/xray` frame
 
