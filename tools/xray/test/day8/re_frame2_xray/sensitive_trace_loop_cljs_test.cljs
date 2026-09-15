@@ -35,6 +35,7 @@
   `:rf.trace/no-emit? true`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.config :as config]
@@ -226,10 +227,14 @@
     (let [router  (:router (rf.frame/frame :rf/xray))
           arrived (watch-note-arrivals! router)
           halts   (atom [])]
-      (rf/register-listener! :trace ::drain-depth-spy
-        (fn [ev]
-          (when (= :rf.error/drain-depth-exceeded (:operation ev))
-            (swap! halts conj ev))))
+      ;; The ALWAYS-ON error axis, not the dev `:trace` stream: it is the halt
+      ;; record rf2-izhgo captured in the browser, and it is the one this async
+      ;; drain demonstrably delivers — a `:trace` spy here stayed empty while
+      ;; the badge proved the halt had happened.
+      (rf.error-emit/register-error-listener! ::drain-depth-spy
+        (fn [record]
+          (when (= :rf.error/drain-depth-exceeded (:error record))
+            (swap! halts conj record))))
       (dotimes [_ host-burst]
         (emit-frameless-sub-run! :app/current-user))
       ;; Far past both the collector's coalescing task and the router's drain
@@ -253,6 +258,6 @@
                   "and the whole count reaches the REDACTED badge's sub"))
             (finally
               (remove-watch router ::note-arrivals)
-              (rf/unregister-listener! :trace ::drain-depth-spy)
+              (rf.error-emit/unregister-error-listener! ::drain-depth-spy)
               (done))))
         100))))
