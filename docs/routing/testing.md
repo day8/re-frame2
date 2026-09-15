@@ -174,15 +174,17 @@ unmoved. `{:bypass-leave? true}` skips the park entirely.
 
 The **entry** guard asserts differently, because a refusal is terminal — it parks
 nothing, so there is no pending value to look for. Register a spy handler for
-`:rf.route/entry-denied`, attempt the navigation signed out, and check that the
-slice did not move and the denial fired exactly once:
+`:rf.route/entry-denied` *before* making the frame, attempt the navigation signed
+out, and check that the slice did not move and the denial fired exactly once. A
+frame made without an `:id` keeps the registrations it was made with and does not
+pick up later ones, so a spy registered inside `with-new-frame` is never called:
 
 ```clojure
 (deftest entry-denied-commits-nothing
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (let [denials (atom [])]
-      (rf/reg-event :rf.route/entry-denied
-        (fn [_ [_ denial]] (swap! denials conj denial) {}))
+  (let [denials (atom [])]
+    (rf/reg-event :rf.route/entry-denied
+      (fn [_ [_ denial]] (swap! denials conj denial) {}))
+    (rf/with-new-frame [f (rf/make-frame {})]
       (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
       (is (not= :app/settings @(rf/subscribe [:rf.route/id])))
       (is (nil? @(rf/subscribe [:rf/pending-navigation])))   ;; terminal: nothing parked
