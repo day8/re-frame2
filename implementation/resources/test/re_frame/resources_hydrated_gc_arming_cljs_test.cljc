@@ -233,10 +233,14 @@
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key k :work/id (:current-work e)
                           :generation (:generation e) :data {:title "Intro"}}]))
-    (let [payload {:rf/frame-id   :rf/default
-                   :rf/app-db     {}
-                   :rf/runtime-db (rf.ssr.payload-policy/project-runtime-db (runtime-db))}]
-      (is (= "nav-1" (get-in payload [:rf/runtime-db :rf.runtime/routing :current :nav-token]))
+    (let [payload      {:rf/frame-id   :rf/default
+                        :rf/app-db     {}
+                        :rf/runtime-db (rf.ssr.payload-policy/project-runtime-db (runtime-db))}
+          ;; The token's VALUE is host-dependent (the counter a host has
+          ;; consumed before this navigate), so the preconditions pin the
+          ;; token that rode the wire, never a literal.
+          server-token (get-in payload [:rf/runtime-db :rf.runtime/routing :current :nav-token])]
+      (is (some? server-token)
           "precondition: the route and its nav-token ride the wire")
       ;; "client": fresh counters, timers and captures, then hydrate
       (rf.routing/reset-counters!)
@@ -245,10 +249,10 @@
       (reset! rearms [])
       (rf/dispatch-sync [:rf/hydrate payload])
       (let [at-hydrate (armed-by-hydration)]
-        (is (= #{[:route :route/article "nav-1"]} (:active-owners (entry)))
+        (is (= #{[:route :route/article server-token]} (:active-owners (entry)))
             "precondition: the hydrated entry is owned by the ride-through route owner")
         (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro"])
-        (is (= "nav-1" (get-in (runtime-db) [:rf.runtime/routing :current :nav-token]))
+        (is (= server-token (get-in (runtime-db) [:rf.runtime/routing :current :nav-token]))
             "precondition: the initial URL sync is an exact no-op")
         (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
         (fire-armed-gc!)
