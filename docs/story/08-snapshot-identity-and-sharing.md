@@ -41,7 +41,13 @@ capture: the error state in dark mode is
 `story-login-form-error--dark--1280x800--chromium`. The capture is the variant's
 own subtree, so Story's chrome never enters a baseline. The content hash is not
 part of the key; it is recorded beside each baseline, so a review can tell you
-whether a diff arrived with a declared change or without one.
+whether a diff arrived with a declared change or without one. Snapshot identity
+also covers the render inputs of any fragment a variant composes, so editing a
+shared fragment moves the hash of every variant that composes it, and the first
+review after this change reports the hashes of those variants as moved even
+where their pixels match. A moved hash on its own fails no case and asks for no
+new baseline: baselines are keyed by variant, and only a pixel change needs your
+approval.
 
 Put two files in a `story-visual/` directory in your app.
 
@@ -111,10 +117,10 @@ test('visual review of the :test-tagged variants', async ({ page, browserName })
       const query = new URLSearchParams(theme ? { variant, modes: theme } : { variant });
       await page.goto(`${BASE}?${query}#/stories`);
 
-      // Settle on the variant's play reaching a terminal status, not on a sleep.
-      const chip = page.locator(`[data-test="story-play-status"][data-variant=":${variant}"]`);
-      await expect(chip).toHaveAttribute('data-status', /^(pass|fail|cannot-run|error)$/);
+      // Settle on the variant's run reaching its verdict, not on a sleep. A run
+      // settles whether or not the variant has a play that runs on its own.
       const canvas = page.locator(`section[data-test-variant=":${variant}"]`);
+      await expect(canvas).toHaveAttribute('data-run-status', /^(pass|fail|cannot-run|error)$/);
       await expect(canvas).toHaveAttribute('data-snapshot-hash', /^[0-9a-f]+$/);
       const hash = await canvas.getAttribute('data-snapshot-hash');
 
@@ -185,10 +191,10 @@ nothing turns red until you run it. It depends on:
 - the dev build's JavaScript globals for `re-frame.story` (`registrations` and
   `variants-with-tags`), so it needs a watch build, not the `:advanced`
   [static build](#static-builds);
-- Story's DOM test hooks: the play-status chip's `data-test="story-play-status"`
-  with its `data-variant` and `data-status`, the canvas's `data-test-variant`
-  and `data-snapshot-hash`, and `data-rf-story-variant-root` on the variant's
-  subtree;
+- Story's DOM test hooks: the canvas's `data-test-variant`, `data-snapshot-hash`
+  and `data-run-status`, which carries the verdict of the variant's run once it
+  settles, whether or not the variant has a play that runs on its own; and
+  `data-rf-story-variant-root` on the variant's subtree;
 - the [share URL](#sharing)'s `variant` and `modes` parameters;
 - the help overlay's `re-frame.story/seen-help-v1` localStorage key.
 
