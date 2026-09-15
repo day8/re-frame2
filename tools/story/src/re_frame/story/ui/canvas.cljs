@@ -415,8 +415,10 @@
   (atom nil))
 
 ;; The settled verdict of the canvas's own run (rf2-mc87a): variant-id ->
-;; `{:run-key K :status S}`, written when the one run owner's resume for
-;; run-key K settles and stamped on the canvas section as `data-run-status`.
+;; `{:run-key K :generation G :status S}`, written when the one run owner's
+;; resume of generation G for run-key K settles, and stamped on the canvas
+;; section as `data-run-status` only while G is still the variant's current
+;; generation (rf2-oovoq: a return to a variant re-runs under the same K).
 ;; It is the unified run result's `:status` — the same verdict `run-variant`
 ;; returns — so it settles for every play shape: a variant whose plays auto-run,
 ;; a declarative `:assertions` / `:checks` variant with no play, and a play that
@@ -494,6 +496,10 @@
        (reset! canvas-last-run-key nil)
        (when (not= key @canvas-last-run-key)
          (reset! canvas-last-run-key key)
+         ;; rf2-oovoq: a fresh canvas run invalidates the previous verdict,
+         ;; even under an identical run-key (a return to the same variant),
+         ;; and dropping it re-renders the section without the stamp.
+         (swap! run-settled dissoc variant-id)
          (prepare-for-run-key! variant-id key)
          ;; RESUME the one run owner post-commit. The generation guard makes
          ;; this exactly-once even though the shell also schedules a resume.
@@ -501,15 +507,15 @@
          ;; shell's selection edge prepared, or — when the shell resumed that
          ;; one first — prepares a fresh one. So its promise carries the run
          ;; the canvas renders, and its `:status` is recorded as the settled
-         ;; verdict (`run-settled`) unless a newer prepare superseded it.
-         ;; Returns the chained promise, for tests.
+         ;; verdict (`run-settled`), with the generation it settled, unless a
+         ;; newer prepare superseded it. Returns the chained promise, for tests.
          (let [gen (rf.story.runtime/current-generation variant-id)]
            (some-> (rf.story.runtime/resume-run! variant-id)
                    (rf.story.async/then
                      (fn [result]
                        (when (= gen (rf.story.runtime/current-generation variant-id))
                          (swap! run-settled assoc variant-id
-                                {:run-key key :status (:status result)}))
+                                {:run-key key :generation gen :status (:status result)}))
                        result)))))))))
 
 (defn variant-substrate-set
@@ -797,9 +803,11 @@
   "The canvas `<section>`'s props for the run named by `rk`: the scroll wrap,
   the `data-test-variant` / `data-snapshot-hash` test hooks, and
   `data-run-status` — the settled verdict of the canvas's run (`settled`, the
-  variant's `run-settled` entry) — only once the run under THIS run-key has
-  settled, so a previous run's verdict never stands for the one in flight."
-  [rk snapshot settled]
+  variant's `run-settled` entry) — only once the run under THIS run-key and
+  the variant's current `generation` has settled, so a previous run's verdict
+  never stands for the one in flight, even when a return to the variant runs
+  under an identical run-key (rf2-oovoq)."
+  [rk snapshot settled generation]
   (let [variant-id (:variant-id rk)]
     (cond-> {:style      (:wrap styles)
              :aria-label "Variant canvas"
@@ -807,7 +815,8 @@
       variant-id (assoc :data-test-variant (pr-str variant-id))
       (:content-hash snapshot) (assoc :data-snapshot-hash
                                       (:content-hash snapshot))
-      (and variant-id (:status settled) (= rk (:run-key settled)))
+      (and variant-id (:status settled) (= rk (:run-key settled))
+           (= generation (:generation settled)))
       (assoc :data-run-status (name (:status settled))))))
 
 (def canvas
@@ -868,7 +877,13 @@
                             (select-keys rk [:active-modes :cell-overrides :substrate])))
              ;; rf2-mc87a: the settled verdict of the canvas's run, read
              ;; reactively so the section re-renders once when the run settles.
-             settled    (when variant-id (get @run-settled variant-id))]
+             settled    (when variant-id (get @run-settled variant-id))
+             ;; rf2-oovoq: the generation the stamp must match. A plain read:
+             ;; reselecting a variant claims its fresh generation on the
+             ;; shell's selection edge, before this render, and the canvas's
+             ;; own run start and settlement both write `run-settled`.
+             generation (when variant-id
+                          (rf.story.runtime/current-generation variant-id))]
          ;; The canvas wrap is the scrollable container
          ;; for variant content; `tab-index "0"` makes it keyboard-
          ;; focusable so axe-core's `scrollable-region-focusable` rule
@@ -882,7 +897,7 @@
          ;; `:selected-workspace`, so the canvas never competes with a
          ;; stale workspace pane for the main slot; the stamp also serves
          ;; cross-route test scoping.
-        [:section (section-props rk snapshot settled)
+        [:section (section-props rk snapshot settled generation)
           (if variant-id
             [canvas-inner variant-id rk]
             [:div {:style (:empty styles)}

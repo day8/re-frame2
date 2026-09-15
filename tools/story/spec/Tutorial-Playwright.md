@@ -166,7 +166,7 @@ Story stamps three `data-*` attributes onto the canvas root:
 |---|---|---|
 | `data-test-variant` | The variant id (`:story.counter/at-five`) | Probe scope — assert "I'm looking at the right cell." |
 | `data-snapshot-hash` | The content-hash from `snapshot-identity` | Visual-regression key — name screenshots by hash so a stable variant produces a stable filename. |
-| `data-run-status` | The status of the canvas's rendered run (`pass`, `fail`, `cannot-run` or `error`), keyed by run-key: written only when the current generation's run settles, and cleared on unmount | Settle gate — absent while the run is in flight, so wait for it before asserting or capturing; a previous run's verdict never stands for the current one. |
+| `data-run-status` | The status of the canvas's rendered run (`pass`, `fail`, `cannot-run` or `error`), keyed by run-key and run generation: written only when the current generation's run settles, and cleared on unmount | Settle gate — absent while the run is in flight, so wait for it before asserting or capturing; a previous run's verdict never stands for the current one. |
 
 The hash fingerprints the variant's declared render inputs, including
 resolved args, modes, substrate and schema digest. It is not a hash of
