@@ -211,6 +211,34 @@
            (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))
     (is (contains? rf.story.ui.evidence-spine/focus-panels (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))))
 
+(deftest submit-beat-focus-command-carries-its-coordinates
+  (testing "rf2-2qtgt — the failure-to-cause leg's submit beat. A script of
+            assertions puts every setup epoch in the leading span, and the
+            first :login/flow beat there is the submit. The command its
+            'Xray: Epoch' link sends must pin THAT beat's epoch AND dispatch:
+            without them Xray's spine has nothing to move focus onto."
+    (let [submit [:login/flow [:login/submit {:email "ada@example.com" :password "wrong"}]]
+          tape   [{:epoch-id 24 :dispatch-id 51 :trigger-event submit
+                   :db-before {} :db-after {} :effects [{:fx-id :rf.http/managed}]
+                   :sub-runs [] :renders [] :trace-events []}
+                  {:epoch-id 31 :dispatch-id 58
+                   :trigger-event [:rf.assert/sub-equals [:login/email] "ada@example.com"]
+                   :db-before {} :db-after {} :effects [] :sub-runs [] :renders [] :trace-events []}]
+          script [[:assert [:rf.assert/state-is :login/flow :authenticated]]
+                  [:assert [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
+          beat   (-> (rf.story.play.evidence/narrative script tape)
+                     rf.story.ui.evidence-spine/spine-spans
+                     first :beats first)
+          source (rf.story.ui.evidence-spine/focus-source
+                   :story/evidence-beat :story.login-form/retry-to-success
+                   {:beat-idx (:beat-idx beat) :span-idx (:span-idx beat)})
+          cmd    (rf.story.ui.evidence-spine/build-focus-command :epoch (:coords beat) source)]
+      (is (= submit (:trigger-event beat)) "the leading beat is the submit")
+      (is (:precise? (:focus beat)) "the submit beat offers a precise focus, not the panel-only fallback")
+      (is (= :epoch (:panel cmd)))
+      (is (= 24 (:epoch-id cmd)) "the command pins the submit beat's epoch")
+      (is (= 51 (:dispatch-id cmd)) "the command pins the submit beat's dispatch"))))
+
 (deftest focus-source-threads-only-present-coords
   (testing "focus-source carries kind + variant always; the rest cond->"
     (is (= {:kind :story/assertion :variant/id :v}
