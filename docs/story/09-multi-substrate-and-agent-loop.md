@@ -40,7 +40,7 @@ JSX, Reagent hiccup, or UIx component code. That keeps the variant
 body independent from the renderer:
 
 ```clojure
-(story/reg-story :story.login
+(rf.story/reg-story :story.login
   {:component  :my-app.views/login-card
    :args       {:heading "Sign in"}
    :substrates #{:reagent}})
@@ -121,7 +121,7 @@ Because of that, the same variant can be:
 - placed in a workspace grid;
 - documented in Docs mode;
 - run in Test mode;
-- executed by `story/run` or `story/is`;
+- executed by `rf.story/run` or `rf.story/is`;
 - inspected through Xray;
 - shared through URL or EDN;
 - addressed by Story-MCP.

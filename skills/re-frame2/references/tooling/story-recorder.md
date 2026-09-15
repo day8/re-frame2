@@ -22,15 +22,15 @@ So the recorder is one filter on the existing emit stream, scoped to the recordi
 
 ```clojure
 ;; In re-frame.story
-(story/start-recording!  variant-id)   ; idle → recording; returns recorder state
-(story/stop-recording!)                ; recording → captured; returns state map
-(story/recording?)                     ; boolean
-(story/recorder-state)                 ; read-only view; observe transitions
-(story/clear-recording!)               ; captured → idle; drop the trace
-(story/gen-play-snippet events opts)   ; pure data → string snippet
+(rf.story/start-recording!  variant-id)   ; idle → recording; returns recorder state
+(rf.story/stop-recording!)                ; recording → captured; returns state map
+(rf.story/recording?)                     ; boolean
+(rf.story/recorder-state)                 ; read-only view; observe transitions
+(rf.story/clear-recording!)               ; captured → idle; drop the trace
+(rf.story/gen-play-snippet events opts)   ; pure data → string snippet
 ```
 
-`gen-play-snippet` opts: `:variant-id` (required keyword id), `:doc` (optional docstring), `:extends` (variant id to inherit `:component` / `:args` / `:decorators` from), `:alias` (form alias, default `story`). The returned string is `read-string`-able and round-trips through the registrar.
+`gen-play-snippet` opts: `:variant-id` (required keyword id), `:doc` (optional docstring), `:extends` (variant id to inherit `:component` / `:args` / `:decorators` from), `:alias` (form alias, default `rf.story`, the canonical `re-frame.story` alias, so the form pastes into a namespace that requires `[re-frame.story :as rf.story]`). The returned string is `read-string`-able and round-trips through the registrar.
 
 ## Four filter layers
 
@@ -72,7 +72,7 @@ Properties of the whole-row placeholder:
 
 - **Round-trips cleanly.** `[:rf/redacted]` is a well-formed event vector; `read-string` survives. Re-playing the snippet finds no handler for `:rf/redacted`, so dispatch raises a clean `:rf.error/no-such-handler` rather than a malformed-event-vector error — the dev sees they need to replace the placeholder before re-play works.
 - **The redaction counter still bumps.** The recording overlay's REDACTED indicator shows "N rows redacted" alongside the placeholders themselves, so the dev knows how many slots are pasteholders even before scrolling.
-- **Revealing the verbatim event is a deliberate trusted-local opt-in.** In-box debug only; never enable for snippets that ride into source control. Under EP-0015 this is the per-(tool, frame) `:rf.egress/local-raw` posture — local tools default to `:rf.egress/local-redacted`, and lifting that to raw is an operator act that is itself trace-visible (auditable). Story exposes this as its on-box dev-UI egress profile: `(story/configure! {:rf.story/egress-profile :rf.egress/local-raw})` flips the recorder (and Story's other value-bearing surfaces) to the trusted-local boundary; the redacting default is `:rf.egress/local-redacted`, and narrowing back retroactively scrubs the per-variant buffers. There is no process-global on/off privacy toggle — the question is always *which boundary is this?*
+- **Revealing the verbatim event is a deliberate trusted-local opt-in.** In-box debug only; never enable for snippets that ride into source control. Under EP-0015 this is the per-(tool, frame) `:rf.egress/local-raw` posture — local tools default to `:rf.egress/local-redacted`, and lifting that to raw is an operator act that is itself trace-visible (auditable). Story exposes this as its on-box dev-UI egress profile: `(rf.story/configure! {:rf.story/egress-profile :rf.egress/local-raw})` flips the recorder (and Story's other value-bearing surfaces) to the trusted-local boundary; the redacting default is `:rf.egress/local-redacted`, and narrowing back retroactively scrubs the per-variant buffers. There is no process-global on/off privacy toggle — the question is always *which boundary is this?*
 
 Authoring rule: do NOT publish a `:script` body containing `[:rf/redacted]` slots into committed source — they record credential flows, not reproducible tests. Hand-author the equivalent dispatch with a synthetic credential, or scope the recording away from the sensitive step. And do NOT reach for handler-meta `{:sensitive? true}` — it's a no-op; classify the secret's *path* at its owner (durable app-db secret → writing event's `:sensitive` classification effect; payload-only secret → submit handler's registration `:sensitive` metadata) so the runtime stamps the trace event the recorder gates on. Full contract: [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md).
 
@@ -81,7 +81,7 @@ Authoring rule: do NOT publish a `:script` body containing `[:rf/redacted]` slot
 The author starts with a `happy-path` variant. They want a new variant that exercises three increments and a `:by 7`. They click `REC` in the toolbar (right of the strip, just before `[reset]`), drive the canvas, click `REC` again. The save-as-variant modal shows the generated form — the codegen emits the PUBLIC `:script` slot (an inner `{:auto-run? true :script [...]}` PlaySpec map), each captured event wrapped as a `[:dispatch-sync <ev>]` step:
 
 ```clojure
-(story/reg-variant :story.counter/recorded-739221
+(rf.story/reg-variant :story.counter/recorded-739221
   {:extends :story.counter/happy-path
    :script  {:auto-run? true
              :script    [[:dispatch-sync [:counter/inc]]
@@ -93,7 +93,7 @@ The author starts with a `happy-path` variant. They want a new variant that exer
 The author edits the id (`recorded-739221` → `triple-inc-then-seven`), adds a `:doc`, adds the assertions they want by hand:
 
 ```clojure
-(story/reg-variant :story.counter/triple-inc-then-seven
+(rf.story/reg-variant :story.counter/triple-inc-then-seven
   {:doc     "Three increments then by-7 lands on ten."
    :extends :story.counter/happy-path
    :script  {:auto-run? true

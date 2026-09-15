@@ -17,7 +17,7 @@ In Storybook, a story is usually a render function plus args. In Story, a
 variant is data:
 
 ```clojure
-(story/reg-variant :story.login/error
+(rf.story/reg-variant :story.login/error
   {:setup [[:login/flow [:login/submit {:email "ada@example.com"
                                          :password "wrong"}]]
            [:login/flow [:login/failure
@@ -59,7 +59,7 @@ ids. This is why a variant can be copied, hashed, shared, recorded, tested, and
 driven over MCP without inventing a parallel encoding.
 
 **A visible state can also be a test.** Story's assertions record results
-instead of throwing at the first failure. Test mode, `story/run`, `story/is`,
+instead of throwing at the first failure. Test mode, `rf.story/run`, `rf.story/is`,
 and the sidebar status all read the same run result.
 
 **Evidence is shared with Xray.** Story owns the example, the script, the test
@@ -117,14 +117,14 @@ shell on the Story route. `mount-shell!` takes the DOM node and nothing else:
 ```clojure
 (ns my-app.core
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             [re-frame.adapter.reagent :as reagent-adapter]
             [my-app.stories]))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
   (when (= "#/stories" js/window.location.hash)
-    (story/mount-shell! (js/document.getElementById "app"))))
+    (rf.story/mount-shell! (js/document.getElementById "app"))))
 ```
 
 Loading `my-app.stories` fires the `reg-*` calls. The first registration
@@ -144,7 +144,7 @@ tags, and decorators usually live.
 
 `reg-mode` creates toolbar-wide arg tuples such as light/dark theme or locale.
 
-`story/run`, `story/is`, and `story/explain` are the three programmatic verbs.
+`rf.story/run`, `rf.story/is`, and `rf.story/explain` are the three programmatic verbs.
 They run a registered variant or an inline plan, report through the test
 framework, or show how the final plan was assembled.
 

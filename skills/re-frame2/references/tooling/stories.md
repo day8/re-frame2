@@ -13,7 +13,7 @@
 | **argTypes** | `:argtypes` — but rarely written | Story auto-derives the controls panel from the view's **Malli schema**. Write `[:int {:min 0 :max 100}]` once on the view and every story gets the slider. `:argtypes` is only the per-key override channel for what the schema can't say. |
 | **controls** | the controls panel | Schema-derived (see above). `:string`→text, bounded `:int`→slider, `[:enum …]`→select, `[:map …]`→nested group, `[:vector X]`→repeater. |
 | **play function** | `:script` (phase 4) | A vector of TAGGED steps (`[:dispatch-sync ev]` / `[:click sel]` / `[:type sel txt]` / `[:wait ms]` / …), NOT a closure. Assertions ride `[:dispatch-sync [:rf.assert/* …]]`. **Key divergence:** `:rf.assert/*` events *record* into `:assertions` and continue — Storybook's play throws on first failure; Story collects every mismatch. |
-| **decorators** (project / component / story) | `reg-decorator` + `:decorators` | Three kinds — `:hiccup` (wrapper), `:frame-setup` (seed app-db / fire init events), `:fx-override` (stub an fx). Project-wide decorators: `reg-global-decorator` (registers the decorator and opts it into the global stack in one call), or the one-arg map `configure!` under `{:rf.story/global-decorators […]}` — the `preview.ts` `decorators: […]` parity. Compose order is global → story → variant, same as Storybook; the resolved stack is on `story/variant-plan` at `[:world :decorators]`, and `story/explain` does not list it. |
+| **decorators** (project / component / story) | `reg-decorator` + `:decorators` | Three kinds — `:hiccup` (wrapper), `:frame-setup` (seed app-db / fire init events), `:fx-override` (stub an fx). Project-wide decorators: `reg-global-decorator` (registers the decorator and opts it into the global stack in one call), or the one-arg map `configure!` under `{:rf.story/global-decorators […]}` — the `preview.ts` `decorators: […]` parity. Compose order is global → story → variant, same as Storybook; the resolved stack is on `rf.story/variant-plan` at `[:world :decorators]`, and `rf.story/explain` does not list it. |
 | **globals / globalTypes toolbar** (theme · viewport · locale · backgrounds) **+ Chromatic Modes** | `reg-mode` (saved arg tuples) | One primitive collapses all four Storybook toolbar addons. `(reg-mode :Mode.theme/dark {:axis :theme :args {:theme :dark}})` is the theme switcher; `:viewport` / `:locale` / `:background` axes cover the rest. Each `(variant × mode)` cell is independently snapshot-able — that's the Chromatic-Modes combinatorial-matrix idea, native. |
 | **tags** (`autodocs` / `test` / `dev`, `!`-removal) | `:tags` + `reg-tag` | Same inclusion-and-filter role; same `!`-prefix removal (`:!dev` drops an inherited tag). The seven canonical tags auto-register. |
 | **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:script` | EDN out, not Testing-Library code — no DOM-event translation layer. The codegen emits the PUBLIC `:script` slot directly. See `story-recorder.md`. |
@@ -41,15 +41,15 @@ Do **not** load this leaf to learn what a story is — that is training knowledg
 All nine macros live in `re-frame.story`. All elide to `nil` under `:advanced`.
 
 ```clojure
-(story/reg-story     id metadata)   ; parent — inherits down to variants
-(story/reg-variant   id metadata)   ; one cell — pure-data body, no fn slots
-(story/reg-fragment  id metadata)   ; reusable setup/script/world mixin, composed via :compose
-(story/reg-check     id metadata)   ; named reusable assertion pack, composed via :compose
-(story/reg-workspace id metadata)   ; layout over N variants (:grid / :variants-grid / :prose / :tabs / :custom)
-(story/reg-decorator id metadata)   ; :hiccup | :frame-setup | :fx-override
-(story/reg-story-panel id metadata) ; right/left/bottom/top pane in the shell
-(story/reg-tag       id metadata)   ; project tag; canonical seven register at load
-(story/reg-mode      id metadata)   ; saved args tuple — each (variant × mode) cell has its own snapshot-identity
+(rf.story/reg-story     id metadata)   ; parent — inherits down to variants
+(rf.story/reg-variant   id metadata)   ; one cell — pure-data body, no fn slots
+(rf.story/reg-fragment  id metadata)   ; reusable setup/script/world mixin, composed via :compose
+(rf.story/reg-check     id metadata)   ; named reusable assertion pack, composed via :compose
+(rf.story/reg-workspace id metadata)   ; layout over N variants (:grid / :variants-grid / :prose / :tabs / :custom)
+(rf.story/reg-decorator id metadata)   ; :hiccup | :frame-setup | :fx-override
+(rf.story/reg-story-panel id metadata) ; right/left/bottom/top pane in the shell
+(rf.story/reg-tag       id metadata)   ; project tag; canonical seven register at load
+(rf.story/reg-mode      id metadata)   ; saved args tuple — each (variant × mode) cell has its own snapshot-identity
 ```
 
 Variant `id` grammar: `:story.<dotted.path>/<variant-name>`. Story `id`: `:story.<dotted.path>` (no `/<variant>` suffix). The seven canonical tags — `:dev :docs :test :screenshot :experimental :internal :agent` — register automatically when `re-frame.story` loads; project tags must `reg-tag` before any variant references them, or registration throws `:rf.error/unknown-tag`.
@@ -59,18 +59,18 @@ Variant `id` grammar: `:story.<dotted.path>/<variant-name>`. Story `id`: `:story
 Project tag registrations may carry two optional body slots that drive the sidebar tag-filter UI:
 
 ```clojure
-(story/reg-tag :auth/regression-set
+(rf.story/reg-tag :auth/regression-set
   {:doc  "Auth regression-suite variants."
    :axis :team})                          ; facet grouping hint
 
-(story/reg-tag :alpha
+(rf.story/reg-tag :alpha
   {:doc            "Pre-release status."
    :axis           :status
    :default-filter :exclude})             ; pre-excluded at boot
 ```
 
-- **`:axis :keyword`** — facet classifier (e.g. `:status` / `:role` / `:team` / `:feature`). Tags sharing an axis render as one collapsible row in the sidebar tag-filter; tags without `:axis` render in a trailing un-grouped row. Purely a UI grouping hint — does not affect variant `:tags` set semantics or `variants-with-tags` filtering. Query via `(story/tags-by-axis :status)` / `(story/tags-without-axis)`. Mirrors the same body-shape extension on `reg-mode` (toolbar grouping).
-- **`:default-filter :include|:exclude`** — initial sidebar filter state. `:include` (default) leaves the tag's variants visible; `:exclude` pre-hides them at boot (use for `:internal` / `:experimental` style tags). Query the boot-exclusion set via `(story/tags-default-excluded)`.
+- **`:axis :keyword`** — facet classifier (e.g. `:status` / `:role` / `:team` / `:feature`). Tags sharing an axis render as one collapsible row in the sidebar tag-filter; tags without `:axis` render in a trailing un-grouped row. Purely a UI grouping hint — does not affect variant `:tags` set semantics or `variants-with-tags` filtering. Query via `(rf.story/tags-by-axis :status)` / `(rf.story/tags-without-axis)`. Mirrors the same body-shape extension on `reg-mode` (toolbar grouping).
+- **`:default-filter :include|:exclude`** — initial sidebar filter state. `:include` (default) leaves the tag's variants visible; `:exclude` pre-hides them at boot (use for `:internal` / `:experimental` style tags). Query the boot-exclusion set via `(rf.story/tags-default-excluded)`.
 
 Both slots are opt-in. The seven canonical tags register without `:axis` or `:default-filter`; project tags may opt in. Canonical home: `tools/story/spec/010-Toolbar.md` §Optional grouping (mirrors `reg-mode`); SB9 parity tracker `tools/story/spec/005-SOTA-Features.md`.
 
@@ -80,7 +80,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
 
 ```clojure
 (ns app.stories.counter
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [app.events]                 ;; ensure event ids exist
             [app.views]))                ;; ensure view ids exist
 
@@ -89,7 +89,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
   ;; canonical vocabulary (seven tags, lifecycle machine, :rf.assert/*
   ;; handlers, force-fx-stub decorator, v1 panel set).
 
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc        "The counter."
      :component  :app.views/counter-card  ;; reg-view id, not a fn
      :args       {:label "Count"}
@@ -97,7 +97,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
      :substrates #{:reagent}})
 
   ;; Inherits :component, :args, :tags from the parent story.
-  (story/reg-variant :story.counter/loaded
+  (rf.story/reg-variant :story.counter/loaded
     {:doc        "Seeded with seven."
      :args       {:label "Total"}            ;; override / extend story args
      :setup      [[:dispatch [:counter/initialise 7]]]  ;; phase-2 preconditions; before render
@@ -108,15 +108,15 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
      :tags       #{:dev :docs :test}
      :substrates #{:reagent}})
 
-  (story/reg-decorator :app/log-decorator
+  (rf.story/reg-decorator :app/log-decorator
     {:kind :hiccup                       ;; ONLY :hiccup decorators take a closure
      :wrap (fn [body [_ label]]
              [:div {:style {:border "1px dashed #888"}} body])})
 
-  (story/reg-mode :Mode.app/dark
+  (rf.story/reg-mode :Mode.app/dark
     {:args {:theme :dark}})              ;; deep-merges into variant args at render time
 
-  (story/reg-workspace :Workspace.counter/all
+  (rf.story/reg-workspace :Workspace.counter/all
     {:layout :variants-grid              ;; auto-enumerates :story.counter variants
      :for    :story.counter
      :tags   #{:docs}}))
@@ -130,7 +130,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
 - **`:setup` vs `:script`.** `:setup` (phase 2 — preconditions) runs before render, before the trace-bus accumulator is installed, so `:rf.assert/dispatched?` won't see those events. Put behaviour you want to assert against in `:script` (phase 4). Steps are tagged: `[:dispatch ev]` / `[:dispatch-sync ev]` / `[:wait ms]` / `[:click sel]` / `[:type sel txt]` / `[:assert-db path val]` / `[:assert-dom sel mode]`; bare event vectors lift to `[:dispatch ev]`; assertions ride `[:dispatch-sync [:rf.assert/* ...]]`. (`:setup` / `:script` are the only spellings — the retired `:events` / `:play-script` keys fail shape validation at registration; spec/017 §Public vocabulary.)
 - **Component is an id, not a fn.** `:component :app.views/counter-card` — the keyword id of a `reg-view`. Story consults the view's registered Malli schema (Spec 010) to auto-derive `:argtypes` for the controls panel — see Schema-derivation pipeline below; supplying `:argtypes` overrides per-key.
 - **Reference events / views / decorators by id; require their namespaces only to trigger registration.** The stories namespace does not `:refer` view fns — it `:require`s `[app.events] [app.views]` for side-effect loading and uses the keyword ids.
-- **`:rf.assert/*` events record, they do not throw.** The seven canonical assertions append a record to `:assertions` rather than aborting the play sequence. The verdict is the unified run-result's top-level `:status` ∈ `{:pass :fail :cannot-run :error}` — read `(story/result-status result)` (or `(story/result-passed? result)`) from a test runner; `(story/run-variant variant-id)` returns the unified result and `(story/read-assertions variant-id)` returns the raw accumulator records. See `tools/story/spec/004-Assertions.md` and `tools/story/spec/017-Testing-Story.md` §Run result.
+- **`:rf.assert/*` events record, they do not throw.** The seven canonical assertions append a record to `:assertions` rather than aborting the play sequence. The verdict is the unified run-result's top-level `:status` ∈ `{:pass :fail :cannot-run :error}` — read `(rf.story/result-status result)` (or `(rf.story/result-passed? result)`) from a test runner; `(rf.story/run-variant variant-id)` returns the unified result and `(rf.story/read-assertions variant-id)` returns the raw accumulator records. See `tools/story/spec/004-Assertions.md` and `tools/story/spec/017-Testing-Story.md` §Run result.
 - **`:extends` is stored raw at registration, resolved by the plan compiler.** A variant inheriting from another has its `:extends` stored intact (parents unmerged) at `reg-variant` time; the plan compiler — the single merge authority — resolves it once when the variant is first compiled (preview / run / render). Cycles raise `:rf.error/story-extends-cycle` at compile time, not at `reg-variant` time.
 - **Loaders run before setup, in their own phase.** Phase 1 (`:loaders`) seeds remote-data or installs long-lived fx (websocket subscriptions, firestore listeners) *before* phase-2 `:setup`. The runtime waits for `:loaders-complete-when` (default: HTTP fx complete on response-event dispatch; long-lived fx on first inbound message) before draining `:setup`; override it with an event id or a literal vector-of-event-vectors. Phase 3 renders; phase 4 runs `:script`. So: fixture seeds in `:loaders`, pre-render preconditions in `:setup`, user interactions to assert against in `:script`.
 - **Modes multiply snapshot identity; args precedence is strict.** Each `(variant × mode)` cell has an independent `snapshot-identity` — visual-regression services iterate cells, not variants. Effective args compose in this order (later wins): global `configure!` args → story `:args` → mode `:args` (deep-merge of nested maps, replace for vectors) → variant `:args` → cell-local overrides from the controls panel (`:story/set-arg`).
@@ -164,7 +164,7 @@ When no schema is available the fallback infers from the value: maps recurse as 
 
 ## Stories as a unit-test substrate
 
-A variant's `:script` slot IS the test. `(story/run-variant :story.counter/loaded)` returns the unified run-result; read the verdict off its top-level `:status` ∈ `{:pass :fail :cannot-run :error}` (via `(story/result-status result)` / `(story/result-passed? result)`). The result's `:assertions` are the unified records (each with a derived `:status`); `(story/read-assertions :story.counter/loaded)` returns the raw frame accumulator. The play-runner stamps each `:rf.assert/*` entry with its source coord so failures point at the variant body line.
+A variant's `:script` slot IS the test. `(rf.story/run-variant :story.counter/loaded)` returns the unified run-result; read the verdict off its top-level `:status` ∈ `{:pass :fail :cannot-run :error}` (via `(rf.story/result-status result)` / `(rf.story/result-passed? result)`). The result's `:assertions` are the unified records (each with a derived `:status`); `(rf.story/read-assertions :story.counter/loaded)` returns the raw frame accumulator. The play-runner stamps each `:rf.assert/*` entry with its source coord so failures point at the variant body line.
 
 For tests that don't need a render shell, run variants headless from a JVM test (`shadow-cljs run`, deps.edn alias) — the play-runner is platform-agnostic per `tools/story/spec/017-Testing-Story.md`.
 

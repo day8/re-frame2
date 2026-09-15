@@ -42,10 +42,10 @@ core jar does not transitively pull stdio / JSON-RPC machinery.
 ```clojure
 (ns app.stories.login-form
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             [app.auth.views]))   ; loading it runs the reg-view calls
 
-(story/reg-story :story.auth.login-form
+(rf.story/reg-story :story.auth.login-form
   {:doc        "The login form component."
    :component  :app.auth.views/login-form
    :decorators [[:centered-layout]
@@ -54,11 +54,11 @@ core jar does not transitively pull stdio / JSON-RPC machinery.
                 :submit-label "Sign in"}
    :tags       #{:dev :docs}})
 
-(story/reg-variant :story.auth.login-form/empty
+(rf.story/reg-variant :story.auth.login-form/empty
   {:doc   "Fresh form, nothing entered."
    :setup [[:auth/initialise]]})
 
-(story/reg-variant :story.auth.login-form/validation-error
+(rf.story/reg-variant :story.auth.login-form/validation-error
   {:doc    "Invalid email shown inline after submit."
    :setup  [[:auth/initialise]
             [:auth/email-changed "not-an-email"]

@@ -13,19 +13,19 @@ refer to their ids.
 
 ```clojure
 (ns my-app.stories
-  (:require [re-frame.story :as story]
+  (:require [re-frame.story :as rf.story]
             [my-app.events]
             [my-app.subs]
             [my-app.views]))
 
-(story/reg-story :story.login
+(rf.story/reg-story :story.login
   {:doc        "The login form and its important states."
    :component  :my-app.views/login-card
    :args       {:heading "Sign in"}
    :tags       #{:dev :docs}
    :substrates #{:reagent}})
 
-(story/reg-variant :story.login/idle
+(rf.story/reg-variant :story.login/idle
   {:doc    "Fresh form, no input typed, no request in flight."
    :setup  [[:login/flow [:login/dismiss]]]
    :script [[:assert [:rf.assert/state-is :login/flow :idle]]]
@@ -52,7 +52,7 @@ variant names a registered view id and supplies the state needed to render it.
 The parent story groups variants that share a view and defaults.
 
 ```clojure
-(story/reg-story :story.login
+(rf.story/reg-story :story.login
   {:component :my-app.views/login-card
    :args      {:heading "Sign in"}})
 ```
