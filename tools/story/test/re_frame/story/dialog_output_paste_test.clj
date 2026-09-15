@@ -178,6 +178,39 @@
       (is (= 1 (get-in (run-result :story.paste/recorded-flow) [:app-db :submits]))
           "the recorded dispatch executed"))))
 
+;; ---- rf2-0ae7o.13 — pasted UNFILLED, the upgrade scaffold does not pass ----
+
+(defn- no-such-handler-record [result]
+  (first (filter #(and (= :rf.error/exception (:assertion %))
+                       (= :rf.error/no-such-handler (:operation %)))
+                 (:assertions result))))
+
+(deftest real-setup-upgrade-output-unfilled-does-not-pass
+  (testing "rf2-0ae7o.13: the real-setup upgrade scaffold, pasted with its
+            :your/setup-event placeholder left in, is refused by the runner —
+            never a vacuous :pass over a setup that dispatched nothing"
+    (paste! (rf.story.ui.view-state/upgrade-snippet :story.paste/pinned :real-setup))
+    (let [result (run-result :story.paste/pinned-upgraded)
+          record (no-such-handler-record result)]
+      (is (not= :pass (:status result))
+          "the unfilled scaffold must not read green")
+      (is (some? record)
+          "the refused placeholder dispatch is a failed :rf.error/exception record")
+      (is (= [:your/setup-event {}] (:event record))
+          "the record names the placeholder event the author was told to replace")
+      (is (= :phase-2-events (:phase record))
+          "the refusal is attributed to the :setup phase")))
+  (testing "CONTROL: the same scaffold passes once the placeholder names a
+            registered handler — the refusal is about the missing handler,
+            not about the scaffold"
+    (rf/reg-event :your/setup-event (fn [{:keys [db]} _] {:db (assoc db :setup-ran? true)}))
+    (paste! (rf.story.ui.view-state/upgrade-snippet :story.paste/pinned :real-setup))
+    (let [result (run-result :story.paste/pinned-upgraded)]
+      (is (= :pass (:status result)))
+      (is (nil? (no-such-handler-record result)))
+      (is (true? (get-in result [:app-db :setup-ran?]))
+          "the filled-in setup event actually ran"))))
+
 (deftest recorder-save-dialog-click-recording-refuses-headless
   (testing "rf2-0ae7o.11 (b): a pasted recording of a click is not proved by a
             headless run — :cannot-run (spec/017 §Requirement inference), never a

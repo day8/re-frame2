@@ -128,6 +128,81 @@
       (is (nil? (-> r :error :stack)))
       (is (nil? (-> r :error :data))))))
 
+;; ---- rf2-0ae7o.13: the no-handler refusal is a captured failure -----------
+
+(def ^:private no-such-handler-trace
+  "The trace the framework's `handle-no-handler!` emits for a dispatch that
+  resolves no handler — the exact tag shape observed on the JVM lane. NOTE
+  the shape: the event rides `:rf.event/v`, and there is no `:event`, no
+  `:exception`, no `:exception-message` and no `:failing-id`, because the
+  refusal happens BEFORE any pipeline runs and throws nothing."
+  {:operation :rf.error/no-such-handler
+   :op-type   :error
+   :tags      {:category            :rf.error/no-such-handler
+               :rf.trace/event-id   :your/setup-event
+               :rf.event/v          [:your/setup-event {}]
+               :frame               :story.x/v
+               :kind                :event
+               :rf.trace/dispatch-id 14}})
+
+(deftest no-such-handler-is-a-captured-failure-operation
+  (testing "the ONE capture predicate matches a frame-stamped
+            :rf.error/no-such-handler trace, frame-scoped like the three
+            pipeline exceptions"
+    (is (contains? rf.story.error/pipeline-exception-operations :rf.error/no-such-handler))
+    (is (true?  (rf.story.error/pipeline-exception-event? :story.x/v no-such-handler-trace)))
+    (is (false? (rf.story.error/pipeline-exception-event? :story.other/v no-such-handler-trace))
+        "a sibling frame's refusal is not this frame's failure")))
+
+(deftest captured-failure-record-projects-a-no-such-handler-trace
+  (testing "captured-failure-record turns the refusal trace into the canonical
+            failed :rf.error/exception record — event off :rf.event/v, the
+            event id as the failing component, and a composed message
+            (the refusal carries none)"
+    (rf/make-frame {:id :story.x/v})
+    (try
+      (let [r (rf.story.error/captured-failure-record :story.x/v :phase-2-events
+                                                      no-such-handler-trace)]
+        (is (= :rf.error/exception       (:assertion r)))
+        (is (= :story.x/v                (:variant-id r)))
+        (is (= :phase-2-events           (:phase r)))
+        (is (= [:your/setup-event {}]    (:event r)))
+        (is (= :rf.error/no-such-handler (:operation r)))
+        (is (= :your/setup-event         (:failing-id r)))
+        (is (str/includes? (-> r :error :message) ":your/setup-event"))
+        (is (nil? (-> r :error :stack)))
+        (is (nil? (-> r :error :data)))
+        (is (false? (:passed? r))))
+      (finally
+        (rf/destroy-frame! :story.x/v)))))
+
+(deftest captured-failure-record-projects-a-pipeline-exception-trace
+  (testing "the same projection reads a pipeline-exception trace exactly as
+            the drain sites did before it existed: :event, the pre-extracted
+            :exception-message, the throwable, and :failing-id"
+    (rf/make-frame {:id :story.x/v})
+    (try
+      (let [e (ex-info "kaboom" {:k :v})
+            r (rf.story.error/captured-failure-record
+                :story.x/v :phase-4-play
+                {:operation :rf.error/coeffect-exception
+                 :op-type   :error
+                 :tags      {:frame             :story.x/v
+                             :event-id          :some/event
+                             :event             [:some/event 1]
+                             :failing-id        :some/cofx
+                             :exception         e
+                             :exception-message "kaboom"}})]
+        (is (= [:some/event 1]               (:event r)))
+        (is (= :rf.error/coeffect-exception  (:operation r)))
+        (is (= :some/cofx                    (:failing-id r)))
+        (is (= "kaboom" (-> r :error :message)))
+        (is (= {:k :v}  (-> r :error :data)))
+        (is (string?    (-> r :error :stack)))
+        (is (false? (:passed? r))))
+      (finally
+        (rf/destroy-frame! :story.x/v)))))
+
 ;; ---- drift is gone: every routed record shares the projection -------------
 
 (deftest all-exception-records-share-the-canonical-error-shape
