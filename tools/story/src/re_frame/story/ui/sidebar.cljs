@@ -735,7 +735,7 @@
 
 (defn watch-rerun!
   "Public entry point for the watch-mode detector (rf2-z1h0f). Drives
-  `run-variant` for the given seq of variant-ids whose snapshot-identity
+  `run-variant` for the given seq of variant-ids whose watch hash
   drifted since the last observation. Shares the same per-variant
   pipeline as 'Run all' — marks running, folds the result into
   `[:tests :runs]` — so the sidebar dots and chrome widget headline
@@ -785,7 +785,7 @@
 
   Per rf2-z1h0f the widget also carries an eye-icon watch-mode toggle
   beneath the count chips. When on, the shell auto-re-runs testable
-  variants whose snapshot-identity drifted since the last observation
+  variants whose watch hash drifted since the last observation
   (the detection signal is wired in `re-frame.story.ui.shell`).
 
   HOT PATH (rf2-dtj61): `testable-variant-ids` is the seq the parent

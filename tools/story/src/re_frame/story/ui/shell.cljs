@@ -249,7 +249,7 @@
 (defn- poll-tick!
   "One pass of the shell's polling interval. Runs the fingerprint
   detector (decorator drift → bump `:hot-reload-tick`) followed by the
-  watch-mode detector (per-testable-variant snapshot-identity drift →
+  watch-mode detector (per-testable-variant watch-hash drift →
   dispatch `rf.story.ui.sidebar/watch-rerun!` when watch mode is on). Two
   detectors, one cadence — each guarded on its own, so a throw in one
   never starves the other (rf2-k8mz)."

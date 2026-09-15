@@ -94,12 +94,12 @@
                           summary and the sidebar's per-variant dots.
       `:watch-mode?`    — boolean. When true the chrome test widget's
                           eye-icon toggle is on and the shell auto-
-                          re-runs testable variants whose snapshot
-                          identity drifted since the last observation.
+                          re-runs testable variants whose watch hash
+                          drifted since the last observation.
                           Default false — explicit re-run is the v1
                           contract; watch-mode is opt-in.
       `:content-hashes` — {variant-id → hex-hash} the last-observed
-                          snapshot-identity content hash per testable
+                          watch hash (`re-frame.story.ui.watch`) per testable
                           variant. The watch-mode detector compares the
                           current registry's hashes against this slot;
                           a delta triggers an auto-rerun for the
