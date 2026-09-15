@@ -124,8 +124,11 @@
 
   2. Synchronous pipeline-exception capture: a non-suppressed pipeline
      exception (`:rf.error/handler-exception` /
-     `:rf.error/coeffect-exception` / `:rf.error/interceptor-exception`)
-     is stashed into `pending-exceptions`, which the play-runner drains
+     `:rf.error/coeffect-exception` / `:rf.error/interceptor-exception`),
+     or the no-handler refusal (`:rf.error/no-such-handler`, rf2-0ae7o.13
+     — the one failure the epoch tape never carries, since a refused
+     dispatch settles no epoch), is stashed into `pending-exceptions`,
+     which the play-runner drains
      AFTER each dispatch-sync settles (so it can record an assertion via
      dispatch-sync without re-entering the in-flight drain). The capture
      spans the WHOLE pipeline — a play-script event whose cofx injector or
@@ -168,22 +171,15 @@
   (let [evs (get @pending-exceptions frame-id [])]
     (when (seq evs)
       (doseq [ev evs]
-        (let [event-vec (get-in ev [:tags :event])
-              msg       (get-in ev [:tags :exception-message])
-              exc       (get-in ev [:tags :exception])]
-          ;; The trace event may carry a pre-extracted
-          ;; `:exception-message` (and a possibly-nil `:exception`); thread
-          ;; it as the explicit `:message` override on the shared
-          ;; projection so the message survives even without the throwable.
-          ;; Preserve the originating `:operation` / `:failing-id` so a
-          ;; captured cofx / interceptor failure is distinguishable from a
-          ;; handler throw on the record.
-          (rf.story.assertions/record!
-            frame-id
-            (rf.story.error/exception-record frame-id phase event-vec exc
-                                          {:message    msg
-                                           :operation  (:operation ev)
-                                           :failing-id (get-in ev [:tags :failing-id])}))))
+        ;; ONE trace→record reader (`rf.story.error/captured-failure-record`,
+        ;; shared with `frames`' setup / teardown collector): a pipeline
+        ;; exception's `:event` / pre-extracted `:exception-message` /
+        ;; `:exception` / `:failing-id`, or the no-handler refusal's bare
+        ;; `:rf.event/v` (rf2-0ae7o.13), read in one place rather than
+        ;; once per drain site.
+        (rf.story.assertions/record!
+          frame-id
+          (rf.story.error/captured-failure-record frame-id phase ev)))
       (swap! pending-exceptions assoc frame-id []))))
 
 (defn install-trace-listener!

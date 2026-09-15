@@ -2356,6 +2356,23 @@ already hashes `:epoch-tape` alongside the projected `:schema-violations` /
 `:warnings` / `:effects`, so a divergent projection perturbs the
 run-equivalence hash.
 
+**One failure the tape cannot carry.** A dispatch that resolves NO handler
+on the frame is refused before any pipeline runs and settles no epoch (the
+framework's rule: a refused dispatch commits no misleading record), so
+`:rf.error/no-such-handler` never reaches `tape-shows-failure?`. It is
+caught one layer down instead: the per-frame trace listener that captures a
+phase's pipeline exceptions ([002 §Error projection](002-Runtime.md#error-projection))
+captures the refusal too and projects it onto `:rf.story/assertions` as a
+failed `:rf.error/exception` record carrying `:operation
+:rf.error/no-such-handler`, the refused event, and the unregistered event id
+as `:failing-id`. So a `:setup` or `:script` dispatch of an event nobody
+registered — a misspelt id, or the `:your/setup-event` placeholder an
+unfilled real-setup upgrade scaffold still carries — fails the run rather
+than reading as a zero-assertion vacuous green (rf2-0ae7o.13). No exemption
+exists for a recorded script: the play exporter drops the `[:rf/redacted]`
+placeholder before a recording becomes a script, so a recording never
+dispatches it.
+
 ### Unified run result
 
 There is **one run-result shape**, assembled by **one boundary** —

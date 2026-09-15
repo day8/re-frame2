@@ -573,8 +573,8 @@ The repair is **not** to redact less. Readiness instead rests on a fact the
 filter cannot erase: the capture boundary that drops the event additionally
 records its framework `:operation` — one member of the closed
 `:rf.error/handler-exception` / `:rf.error/coeffect-exception` /
-`:rf.error/interceptor-exception` enum, carrying no message, no `ex-data`, no
-failing event, no `:failing-id`. `prepare-variant` rejects when EITHER set is
+`:rf.error/interceptor-exception` / `:rf.error/no-such-handler` enum, carrying
+no message, no `ex-data`, no failing event, no `:failing-id`. `prepare-variant` rejects when EITHER set is
 non-empty, reporting the visible records under `:failures` and the hidden
 ones' operation keywords under `:redacted-failure-ops`, so the operator
 learns what CLASS of thing failed without the filter yielding an inch. Like
