@@ -18,7 +18,8 @@
       and RED elsewhere (mirroring :doc-guide-known-unmanifested-scoped)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.api-manifest.doc-api-check :as rf.api-manifest.doc-api-check]
-            [re-frame.api-manifest.gen :as rf.api-manifest.gen]))
+            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+            [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private manifest-vars
   ;; A small synthetic stand-in spanning several namespaces, exercising the
@@ -78,6 +79,19 @@
             corrected the residual path/unwrap drift the gate surfaced)"
     (is (true? (rf.api-manifest.doc-api-check/check!))
         "live drift: a human-doc API-reference tree names a removed/renamed public surface")))
+
+(deftest story-api-references-reach-the-check-under-rf-story
+  (testing "docs/story/api/** calls re-frame.story under its canonical rf.story
+            alias, and the extraction still reaches those references
+            (rf2-0ae7o.9). The aggregate floor sits far below the live count,
+            so dropping the alias from the extraction would narrow the gate
+            without turning it red; this is the test that notices."
+    (let [files (rf.api-manifest.projection/require-markdown-files
+                  "docs/story/api/"
+                  (rf.api-manifest.projection/repo-file "docs" "story" "api"))
+          refs  (rf.api-manifest.doc-api-check/references-in-files files)]
+      (is (seq (filter #(re-find #"^rf\.story/" (:raw %)) refs))
+          "no (rf.story/<var> reference extracted from docs/story/api/**"))))
 
 (deftest scoped-allowlist-sidecar-key-is-present-and-a-map
   (testing "the committed sidecar carries the file-scoped allowlist key as a
