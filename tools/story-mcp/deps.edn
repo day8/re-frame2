@@ -59,7 +59,13 @@
          cheshire/cheshire    {:mvn/version "5.12.0"}}
 
  :aliases
- {:test {:extra-paths ["test"]
+ {:test {:extra-paths ["test"
+                       ;; The login_form Story testbed, for
+                       ;; `re-frame.story-mcp.login-form-testbed-test` only
+                       ;; (rf2-fmrgj): it pins that story-mcp holds the
+                       ;; tutorial's flagship subject on the JVM. Test-only;
+                       ;; the published jar carries no testbed.
+                       "../story/testbeds"]
          :extra-deps  {day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
                        ;; Silent-on-success test reporter.
                        day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
