@@ -9,6 +9,10 @@
   timeout on both. The unified run result's `:status` settles for all of
   them, which is what the canvas now records.
 
+  rf2-oovoq: the stamp names the run in view by run-key AND generation, so
+  returning to a variant under an identical run-key does not show the
+  previous visit's verdict while the fresh generation is in flight.
+
   The runs here go through the canvas's own `run-if-needed!` — the same
   prepare + resume the canvas performs post-commit — so no `with-redefs`
   routes around the code under test. Assertions chain off the promise it
@@ -79,6 +83,14 @@
 (defn- statuses [settled]
   (into {} (map (fn [[vid entry]] [vid (:status entry)])) settled))
 
+(defn- stamp
+  "The `data-run-status` the canvas section renders for `variant-id` under
+  run-key `k`, read the way the canvas render reads it."
+  [variant-id k]
+  (:data-run-status
+    (section-props k nil (get @run-settled variant-id)
+                   (rf.story.runtime/current-generation variant-id))))
+
 (deftest the-settled-verdict-is-recorded-for-every-play-shape
   (async done
     (reg-variants!)
@@ -125,19 +137,69 @@
                     (is false (str "the canvas run rejected: " e))
                     (done)))))))
 
-(deftest the-section-carries-the-status-only-for-its-own-run-key
-  (testing "rf2-mc87a: `data-run-status` stamps the settled verdict of the run in view"
+(deftest a-return-to-the-same-run-key-is-unstamped-until-its-fresh-run-settles
+  ;; rf2-oovoq: A settles, B runs, then A is selected again with the same
+  ;; modes, overrides and tick, so under the SAME run-key. The canvas stays
+  ;; mounted, so A's previous entry is still recorded, while the revisit
+  ;; claims a fresh generation and resets A's frame. The previous verdict
+  ;; must not stand for that run.
+  (async done
+    (reg-variants!)
+    (let [a         :story.mc87a/scripted
+          [_ ka pa] (canvas-run! a)]
+      (-> pa
+          (.then (fn [_]
+                   (is (= "pass" (stamp a ka))
+                       "precondition: A's first run settled and is stamped")
+                   (nth (canvas-run! :story.mc87a/declarative) 2)))
+          (.then (fn [_]
+                   (let [old-gen (rf.story.runtime/current-generation a)]
+                     ;; Reselecting A: the shell's selection edge prepares A
+                     ;; (`ensure-variant-frame!`) before the canvas re-renders,
+                     ;; with the same opts the canvas's own prepare passes.
+                     (rf.story.runtime/prepare-run! a {:active-modes   (:active-modes ka)
+                                                       :cell-overrides (:cell-overrides ka)
+                                                       :substrate      (:substrate ka)
+                                                       :run-key        ka})
+                     (is (> (rf.story.runtime/current-generation a) old-gen)
+                         "precondition: reselecting A claimed a fresh generation")
+                     (is (nil? (stamp a ka))
+                         "no stamp in the render between the reselection and the canvas's run")
+                     (let [[_ k p] (canvas-run! a)]
+                       (is (= ka k)
+                           "precondition: the revisit runs under the identical run-key")
+                       (is (some? p)
+                           "precondition: the canvas run claimed the fresh generation")
+                       (is (nil? (get @run-settled a))
+                           "starting the fresh run drops the previous verdict")
+                       (is (nil? (stamp a ka))
+                           "no stamp while the fresh generation is in flight")
+                       p))))
+          (.then (fn [result]
+                   (is (= :pass (:status result))
+                       "precondition: the fresh generation settled pass")
+                   (is (= "pass" (stamp a ka))
+                       "the fresh generation's verdict is stamped once it settles")
+                   (done)))
+          (.catch (fn [e]
+                    (is false (str "a canvas run rejected: " e))
+                    (done)))))))
+
+(deftest the-section-carries-the-status-only-for-its-own-run
+  (testing "rf2-mc87a / rf2-oovoq: `data-run-status` stamps the settled verdict of the run in view"
     (let [rk      {:variant-id :story.mc87a/declarative :hot-reload-tick 0}
           newer   (assoc rk :hot-reload-tick 1)
           snap    {:content-hash "abc123"}]
-      (is (= "pass" (:data-run-status (section-props rk snap {:run-key rk :status :pass}))))
-      (is (= "fail" (:data-run-status (section-props rk snap {:run-key rk :status :fail}))))
-      (is (nil? (:data-run-status (section-props rk snap nil)))
+      (is (= "pass" (:data-run-status (section-props rk snap {:run-key rk :generation 1 :status :pass} 1))))
+      (is (= "fail" (:data-run-status (section-props rk snap {:run-key rk :generation 1 :status :fail} 1))))
+      (is (nil? (:data-run-status (section-props rk snap nil 1)))
           "no stamp while the run is in flight")
-      (is (nil? (:data-run-status (section-props newer snap {:run-key rk :status :pass})))
+      (is (nil? (:data-run-status (section-props newer snap {:run-key rk :generation 1 :status :pass} 1)))
           "a previous run-key's verdict never stands for the run in flight")
-      (is (= ":story.mc87a/declarative" (:data-test-variant (section-props rk snap nil)))
+      (is (nil? (:data-run-status (section-props rk snap {:run-key rk :generation 1 :status :pass} 2)))
+          "a previous generation's verdict never stands for a fresh run under the same run-key")
+      (is (= ":story.mc87a/declarative" (:data-test-variant (section-props rk snap nil 1)))
           "the existing test hooks are unchanged")
-      (is (= "abc123" (:data-snapshot-hash (section-props rk snap nil))))
-      (is (nil? (:data-run-status (section-props {:variant-id nil} nil {:run-key {:variant-id nil} :status :pass})))
+      (is (= "abc123" (:data-snapshot-hash (section-props rk snap nil 1))))
+      (is (nil? (:data-run-status (section-props {:variant-id nil} nil {:run-key {:variant-id nil} :generation 0 :status :pass} 0)))
           "no variant selected, no stamp"))))
