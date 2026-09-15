@@ -2410,34 +2410,42 @@
                      :cause        :hydration}))
      plan)))
 
-;; ---- client hydration GC rearm (rf2-omahf) ---------------------------------
+;; ---- client hydration timer rearm (rf2-omahf, rf2-2ojds) --------------------
 
-(defn rearm-gc-after-hydration!
-  "Arm the GC timer, and ONLY the GC timer, of every resource entry `frame-id`'s
-  runtime-db holds, right after a client `:rf/hydrate` committed it. The body
-  behind the `:resources/rearm-after-hydration!` late-bind hook and the
-  `:rf.resource/hydrate-rearm` fx. Per Spec 016 §Freshness clock contract
-  (hydration and clock skew).
+(defn rearm-timers-after-hydration!
+  "Arm the GC timer of every resource entry `frame-id`'s runtime-db holds, and
+  the poll timer of each of those entries that is owned and whose resource
+  declares `:poll-interval-ms`, right after a client `:rf/hydrate` committed
+  it. The body behind the `:resources/rearm-after-hydration!` late-bind hook
+  and the `:rf.resource/hydrate-rearm` fx. Per Spec 016 §Freshness clock
+  contract (hydration and clock skew) and §Polling.
 
-  Why arm at hydration (rf2-omahf). A hydrated entry whose route owner rode the
-  wire is already OWNED on the client, so the client's ensure is a fresh-skip
-  onto an owned entry, which arms nothing, and on the ordinary SSR boot no client
+  Why arm at hydration. A hydrated entry whose route owner rode the wire is
+  already OWNED on the client, so the client's ensure is a fresh-skip onto an
+  owned entry, which arms nothing, and on the ordinary SSR boot no client
   ensure runs at all. Releasing that owner arms nothing either, because a
-  release never starts a timer. Without this arm no GC re-check ever runs and
-  the entry lives for the session. Arming here is safe because
-  `events/gc-fired-handler` re-checks the LIVE durable facts on fire: a still
-  owned or in-flight entry is kept and its GC timer re-armed, and only an
-  owner-free, idle entry is removed.
+  release never starts a timer.
+    - GC (rf2-omahf). Without this arm no GC re-check ever runs and the entry
+      lives for the session. Arming is safe because `events/gc-fired-handler`
+      re-checks the LIVE durable facts on fire: a still owned or in-flight
+      entry is kept and its GC timer re-armed, and only an owner-free, idle
+      entry is removed.
+    - Poll (rf2-2ojds). Without this arm an owned entry of a polling resource
+      never polls. It arms only for an entry still owned after the reconcile
+      orphaned its SSR owners, because a poll never pins an owner-free entry;
+      `events/poll-fired-handler` re-checks ownership on fire, and the last
+      owner's release cancels it.
 
-  No stale or poll timer is armed. The delay is the resource's normalized
-  `:gc-after-ms`, so `:never`, a non-positive value, or a resource this client
-  never registered arms nothing. `schedule!` is cancel-then-arm, so repeating a
-  hydration leaves one GC handle per entry.
+  No stale timer is armed. The delays are the resource's normalized
+  `:gc-after-ms` and its `:poll-interval-ms`, so `:never`, a non-positive or
+  absent value, or a resource this client never registered arms nothing of
+  that kind. `schedule!` is cancel-then-arm, so repeating a hydration leaves
+  one handle per entry and kind.
 
   Refuses a `:server` frame, so a server-side or isomorphic-loopback hydrate
   arms nothing even when this is called directly. The handles live in the host
   `timers/timer-table`, never in runtime-db, so nothing rides the wire. Each arm
-  emits `:rf.resource/gc-scheduled`, and a listener can destroy this frame and
+  emits its kind's scheduled trace, and a listener can destroy this frame and
   seat a same-id successor, so the incarnation is captured once and rechecked
   before every arm. Returns nil."
   [frame-id]
@@ -2447,12 +2455,16 @@
                           (rf.resources.state/entries-path))]
       (doseq [[_ entry] entries
               :while (rf.frame/frame-incarnation-live? frame-id token)
-              :let  [delay-ms (rf.resources.state/positive-or-nil
-                                (:gc-after-ms (rf.resources.registry/resource-meta
-                                                (:resource/id entry))))]
-              :when delay-ms]
-        (rf.resources.timers/schedule! frame-id (:resource/key entry)
-                                       rf.resources.timers/gc-kind delay-ms))))
+              :let  [policy  (rf.resources.registry/resource-meta (:resource/id entry))
+                     gc-ms   (rf.resources.state/positive-or-nil (:gc-after-ms policy))
+                     poll-ms (when (seq (:active-owners entry))
+                               (rf.resources.state/positive-or-nil (:poll-interval-ms policy)))]]
+        (when gc-ms
+          (rf.resources.timers/schedule! frame-id (:resource/key entry)
+                                         rf.resources.timers/gc-kind gc-ms))
+        (when (and poll-ms (rf.frame/frame-incarnation-live? frame-id token))
+          (rf.resources.timers/schedule! frame-id (:resource/key entry)
+                                         rf.resources.timers/poll-kind poll-ms)))))
   nil)
 
 ;; ---- install / publish ----------------------------------------------------
@@ -2487,8 +2499,9 @@
       nothing leaks no success traces (rf2-obi8rr);
     - `:resources/rearm-after-hydration!` — the SSR `:rf/hydrate` handler's
       PRESENCE gate for the `:rf.resource/hydrate-rearm` fx, which runs this
-      body after the commit on a client frame and arms ONLY the GC timer of
-      each hydrated entry (rf2-omahf).
+      body after the commit on a client frame and arms the GC timer of each
+      hydrated entry (rf2-omahf), plus the poll timer of each owned entry whose
+      resource declares `:poll-interval-ms` (rf2-2ojds).
 
   No-op effect on an app that never SSRs / time-travels — the hooks simply sit
   unread. All are no-op on an app WITHOUT resources (the projection contributes
@@ -2502,7 +2515,7 @@
      :resources/hydrate-runtime-db     hydrate-runtime-db
      :resources/reconcile-on-restore   reconcile-on-restore
      :resources/commit-restore-reconcile! commit-restore-reconcile-traces!
-     :resources/rearm-after-hydration! rearm-gc-after-hydration!})
+     :resources/rearm-after-hydration! rearm-timers-after-hydration!})
   nil)
 
 (defn hydrate-resources!

@@ -300,20 +300,20 @@
 (rf.fx/reg-fx :rf.resource/cancel-poll-timers
            rf.resources.timers/cancel-poll-timers-meta
            rf.resources.timers/cancel-poll-timers-handler)
-;; Client hydration GC rearm (rf2-omahf). Emitted by the `:rf/hydrate` handler,
-;; gated on the `:resources/rearm-after-hydration!` hook's presence, so it runs
-;; AFTER the payload's runtime-db has committed: `commit-frame-effects!` installs
-;; both partitions before `run-fx-effects!` walks `:fx`. The resources mirror of
-;; `:rf.machine/hydrate-rearm`.
+;; Client hydration timer rearm (rf2-omahf, rf2-2ojds). Emitted by the
+;; `:rf/hydrate` handler, gated on the `:resources/rearm-after-hydration!` hook's
+;; presence, so it runs AFTER the payload's runtime-db has committed:
+;; `commit-frame-effects!` installs both partitions before `run-fx-effects!`
+;; walks `:fx`. The resources mirror of `:rf.machine/hydrate-rearm`.
 (rf.fx/reg-fx :rf.resource/hydrate-rearm
-  {:doc "Resource-internal: arm the GC timer (only) of every resource entry the frame's runtime-db holds, right after a client `:rf/hydrate` committed it, so a hydrated entry whose owner rode the wire is still collected once it is owner-free and idle. Refuses a `:server` frame. Per Spec 016 §Freshness clock contract. Not for direct application use."}
+  {:doc "Resource-internal: arm the GC timer of every resource entry the frame's runtime-db holds, and the poll timer of each owned entry whose resource declares `:poll-interval-ms`, right after a client `:rf/hydrate` committed it, so a hydrated entry whose owner rode the wire is still collected once it is owner-free and idle, and polls while it is owned. No stale timer. Refuses a `:server` frame. Per Spec 016 §Freshness clock contract and §Polling. Not for direct application use."}
   (fn [{frame-id :frame} _args]
     (let [;; The cascade envelope frame is the fx-context `:frame`; a nil stamp
           ;; is an invariant failure, never a synthesised `:rf/default`.
           frame-id (rf.frame/require-frame-stamp!
                      frame-id :rf.resource/hydrate-rearm
                      {:where 'rf.resource/hydrate-rearm})]
-      (rf.resources.ssr/rearm-gc-after-hydration! frame-id))
+      (rf.resources.ssr/rearm-timers-after-hydration! frame-id))
     nil))
 
 ;; A time-consuming resource / mutation handler DECLARES the
