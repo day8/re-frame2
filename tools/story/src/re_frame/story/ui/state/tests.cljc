@@ -324,7 +324,7 @@
 
 (defn set-test-watch-mode
   "Toggle/set the chrome-level watch-mode flag. When `on?` is true the
-  shell auto-re-runs testable variants whose snapshot identity drifts;
+  shell auto-re-runs testable variants whose watch hash drifts;
   when false the toggle is off and the recorded hashes are cleared (the
   next toggle-on seeds them fresh from the current registry). Pure data
   → data; JVM-testable."
