@@ -203,7 +203,7 @@ such boot, so make the choice in the same namespace the alias preloads:
 ;; src/app/stories.cljc — the namespace your alias requires
 (ns app.stories
   (:require [re-frame.core                 :as rf]
-            [re-frame.story                :as story]
+            [re-frame.story                :as rf.story]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (rf/init! plain-atom/adapter)   ; renderer-free substrate; idempotent
