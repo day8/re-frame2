@@ -38,7 +38,7 @@ on), select `/idle`, and the form appears on the canvas.
 To follow along without an app of your own, run the shipped testbed: from
 `implementation/`, `npx shadow-cljs watch :examples/login-form`, then open
 `http://localhost:8043/index.html#/stories`. The testbed registers these states as
-`:story.login-form` in `tools/story/testbeds/login_form/stories.cljs`; this
+`:story.login-form` in `tools/story/testbeds/login_form/stories.cljc`; this
 tutorial uses the shorter `:story.login` your own app would, so
 `:story.login/idle` here is `:story.login-form/idle` there.
 
