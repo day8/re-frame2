@@ -734,10 +734,14 @@ the hash includes:
   variant's own `:component` decides which view renders; two variants
   differing only in it must get distinct hashes (rf2-bah5o2)
 - The variant's `:sub-overrides` / `:db-seed` / `:network` /
-  `:fx-overrides` render inputs — pinned subscription outputs the renderer
-  surfaces, the pre-script app-db seed, the stubbed HTTP replies a
-  fetch-on-mount view settles to (rf2-9zj0nc), and the handlers its effects
-  are redirected to (rf2-38gqa)
+  `:fx-overrides` / `:interceptor-overrides` / `:images` render inputs —
+  pinned subscription outputs the renderer surfaces, the pre-script app-db
+  seed, the stubbed HTTP replies a fetch-on-mount view settles to
+  (rf2-9zj0nc), the handlers its effects are redirected to (rf2-38gqa), the
+  interceptors it swaps, and the behaviour images its handlers resolve
+  through, together with its parent story's `:images`; an `:extends`
+  ancestor's `:images` never reach the child's frame and are not hashed
+  (rf2-0ae7o.8)
 - The same render-input slots of each registered fragment the variant's
   `:compose` names, in declared order, because
   [017 §Strict composition](017-Testing-Story.md#strict-composition) folds
