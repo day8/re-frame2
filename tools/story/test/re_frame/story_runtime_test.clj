@@ -954,7 +954,14 @@
                              (assoc icpt-override-body :interceptor-overrides ovr)))
           [before after] (icpt-override-edit vid place!)]
       (is (= [:pass 1 :fail 2] [(:status before) (:tag before) (:status after) (:tag after)])
-          "the override decides the settled app-db and the verdict"))))
+          "the override decides the settled app-db and the verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and a fresh watch hash, so watch mode re-runs the variant")
+      (testing "re-registering the same body moves neither hash"
+        (place! {:test.id-icpt/tag :test.id-icpt/two})
+        (is (= after (icpt-override-run vid)))))))
 
 (deftest interceptor-overrides-compose-fragment
   (testing "rf2-0ae7o.8 — a composed fragment's `:interceptor-overrides` is
@@ -966,7 +973,11 @@
                              (assoc icpt-override-body :compose [:fragment.id-icpt/world])))
           [before after] (icpt-override-edit vid place!)]
       (is (= [:pass 1 :fail 2] [(:status before) (:tag before) (:status after) (:tag after)])
-          "the fragment's override decides the settled app-db and the verdict"))))
+          "the fragment's override decides the settled app-db and the verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and the watch hash still moves through the fragment reference"))))
 
 (deftest interceptor-overrides-extends-ancestor
   (testing "rf2-0ae7o.8 — an `:extends` ancestor's `:interceptor-overrides` is
@@ -978,7 +989,11 @@
                              (assoc icpt-override-body :extends :story.id-icpt/parent)))
           [before after] (icpt-override-edit vid place!)]
       (is (= [:pass 1 :fail 2] [(:status before) (:tag before) (:status after) (:tag after)])
-          "the inherited override decides the settled app-db and the verdict"))))
+          "the inherited override decides the settled app-db and the verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh child snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and the watch hash still moves through the ancestor reference"))))
 
 (deftest interceptor-overrides-inline-plan
   (testing "rf2-0ae7o.8 — an inline plan's `:interceptor-overrides` is
