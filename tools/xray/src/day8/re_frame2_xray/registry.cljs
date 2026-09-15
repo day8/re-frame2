@@ -56,6 +56,7 @@
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.filters :as filters]
+            [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
@@ -212,8 +213,14 @@
         half. The door this removes was a READER: Xray claimed nothing,
         installed nothing and held nothing through it, so clearing the ids
         is the whole delta and there is no ownership to release, no reload
-        to demand and no residue a live process can be left carrying."
-  6)
+        to demand and no residue a live process can be left carrying.
+    7 — `focus!`'s async continuation (rf2-2qtgt): ONE new event,
+        `:rf.xray/focus-after-frame`, inside `focus/install!`. A schema-6
+        process has `focus!`'s new async path the moment the code reloads but
+        not the event it queues, so a host focus naming a frame would dispatch
+        an unregistered event. The migration re-runs `focus/install!` —
+        idempotent, and a pure addition with nothing to release."
+  7)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -323,10 +330,14 @@
                 "page is RELOADED. The Xray registrations themselves have "
                 "already migrated. rf2-7gth0."))))
 
-(defn- migrated-through-6
-  "The tail clauses — schema 5's ADDITION and schema 6's REMOVAL. Both
-  migrate live in full, so both sit past schema 4's fork rather than inside
-  it, and the fn returns TRUE unconditionally.
+(defn- migrated-through-7
+  "The tail clauses — schema 5's ADDITION, schema 6's REMOVAL and schema 7's
+  ADDITION. All three migrate live in full, so they sit past schema 4's fork
+  rather than inside it, and the fn returns TRUE unconditionally.
+
+  Schema 7 — `focus!`'s async continuation (rf2-2qtgt). One NEW event,
+  `:rf.xray/focus-after-frame`, inside the gated `focus/install!`. Re-running
+  it is the whole delta; the registrar replaces in place.
 
   Schema 5 — the Fresco evidence tab (rf2-hic-023). Three NEW registrations
   and one NEW L4 tab entry, all inside the gated `fresco/install!` the
@@ -350,6 +361,8 @@
     (fresco/install!))
   (when (< from 6)
     (run! #(rf/clear :sub %) schema-5-subs-removed))
+  (when (< from 7)
+    (focus/install!))
   true)
 
 (defn- migrate-schema!
@@ -428,8 +441,8 @@
       ;; the upgrade.
       (if (donor-ownership-resident?)
         (do (warn-donor-ownership-resident!) false)
-        (migrated-through-6 from)))
-    (migrated-through-6 from)))
+        (migrated-through-7 from)))
+    (migrated-through-7 from)))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.
@@ -1239,6 +1252,9 @@
     ;; to unpinned on every page load by mount.cljs's
     ;; `::reset-transient-filters` hook.
     (frame-switcher/install!)
+    ;; `focus!`'s async continuation (rf2-2qtgt). Composes the spine and
+    ;; frame-switcher events above, so it installs after both.
+    (focus/install!)
     (app-db-diff/install!)
     ;; App-DB segment-inspector popup — opens when any
     ;; path-segment in the App-DB Diff breadcrumb is clicked. Installs
