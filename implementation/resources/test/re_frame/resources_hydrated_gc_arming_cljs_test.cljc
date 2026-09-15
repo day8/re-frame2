@@ -14,8 +14,10 @@
   fresh-skip path can reach it.
 
   THE RULE (Spec 016 §Freshness clock contract). After the client commits
-  `:rf/hydrate`, the resources artefact arms ONLY the GC timer of each
-  hydrated entry — no stale timer, no poll timer — through the late-bound
+  `:rf/hydrate`, the resources artefact arms the GC timer of each hydrated
+  entry — no stale timer; the poll timer an OWNED entry of a polling resource
+  also gets is pinned by `resources-hydrated-poll-arming-cljs-test` (rf2-2ojds)
+  — through the late-bound
   `:rf.resource/hydrate-rearm` fx, on the `:rf.machine/hydrate-rearm`
   precedent. The GC re-check does the rest: a fire while the entry is owned
   or in flight RE-ARMS, a later release never restarts the armed timer, and
