@@ -16,8 +16,9 @@
   - `test-summary`              — aggregate across an id-seq.
   - `variant-body-has-tests?`   — the ONE 'has tests' predicate (a play
                                   surface, a declarative `:assertions` /
-                                  `:checks`, or `:checks` received through
-                                  `:extends` / `:compose`).
+                                  `:checks`, a `:script` received through a
+                                  composed fragment, or `:checks` received
+                                  through `:extends` / `:compose`).
   - `testable-variant-ids`      — derive the seq of `:test`-tagged
                                   variants that have tests.
   - `set-test-watch-mode`       — toggle the chrome watch-mode flag.
@@ -215,18 +216,33 @@
 (defn- non-empty-vector? [x]
   (and (vector? x) (seq x)))
 
+(defn- non-empty-script?
+  "A non-empty `:script` slot value, in either `PlaySpec` form: the bare
+  vector, or the map carrying its steps under `:script`."
+  [script]
+  (cond
+    (map? script)    (seq (:script script))
+    (vector? script) (seq script)
+    :else            false))
+
 (defn- own-tests?
   "The body's OWN slots: a non-empty `:script` (map or bare-vector form) or
   `:plays`, or a non-empty `:assertions` / `:checks` vector."
   [body]
-  (let [script (:script body)]
-    (or (cond
-          (map? script)    (seq (:script script))
-          (vector? script) (seq script)
-          :else            false)
-        (non-empty-vector? (:plays body))
-        (non-empty-vector? (:assertions body))
-        (non-empty-vector? (:checks body)))))
+  (or (non-empty-script? (:script body))
+      (non-empty-vector? (:plays body))
+      (non-empty-vector? (:assertions body))
+      (non-empty-vector? (:checks body))))
+
+(defn- composed-script?
+  "True iff a `:compose` id names a registered fragment whose own `:script`
+  is non-empty. The plan compiler prepends that script onto the primary
+  play, or synthesizes one (spec/017 §Total merge order, rf2-k23efg), so it
+  runs like the variant's own. One lookup per compose id; `:compose` is
+  child-only, so no ancestor is walked."
+  [body]
+  (some #(non-empty-script? (:script (rf.story.registrar/handler-meta :fragment %)))
+        (:compose body)))
 
 (defn- received-checks?
   "True iff `body` receives `:checks` it does not declare, by the two routes
@@ -250,6 +266,8 @@
   - a play surface — a non-empty `:script` or `:plays`; OR
   - a declarative expectation of its own — a non-empty `:assertions` or
     `:checks` vector (rf2-uiihg); OR
+  - a non-empty `:script` it receives through a `:compose` of a fragment,
+    which the compiler folds into the primary play (rf2-dt9xf); OR
   - `:checks` it receives from an `:extends` ancestor or through a
     `:compose` of a check id (rf2-ckpm4).
 
@@ -262,13 +280,14 @@
   it, so they cannot disagree.
 
   Never compiles a plan, so the sidebar hot path (rf2-dtj61) stays a
-  predicate: the own slots first, then a lookup per `:compose` id and per
+  predicate: the own slots first, then lookups per `:compose` id and per
   `:extends` ancestor. `id->body` resolves the chain; the 1-arity reads the
   registered variants."
   ([body]
    (variant-body-has-tests? body (rf.story.registrar/registrations :variant)))
   ([body id->body]
    (boolean (or (own-tests? body)
+                (composed-script? body)
                 (received-checks? body id->body)))))
 
 (defn testable-variant-ids
@@ -276,11 +295,10 @@
   order. The chrome widget + sidebar dots key off this seq.
 
   Variants are testable iff (a) their `:tags` contains `:test`, AND
-  (b) `variant-body-has-tests?` — a play surface, a declarative
-  expectation of their own, or `:checks` received through `:extends` /
-  `:compose`. The second filter prunes variants tagged `:test` but with
-  nothing to run — those contribute neither to the headline counts nor to
-  the 'Run all' iteration. JVM-testable. `id->body` is the
+  (b) `variant-body-has-tests?` holds for the body. The second filter
+  prunes variants tagged `:test` but with nothing to run — those
+  contribute neither to the headline counts nor to the 'Run all'
+  iteration. JVM-testable. `id->body` is the
   `{variant-id → body}` map from `(registrar/registrations :variant)` (the
   sidebar passes `registry-snapshot`'s tag-resolved `:variants`); the
   `:extends` chain resolves within it."
