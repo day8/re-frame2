@@ -70,22 +70,22 @@
   - The variant's `:component` view-id override — variant-
     first resolution decides WHICH view renders
   - The variant's `:sub-overrides` / `:db-seed` / `:network` /
-    `:fx-overrides` / `:interceptor-overrides` render inputs — pinned sub
-    outputs, pre-script app-db seed, stubbed HTTP replies, the handlers its
-    effects are redirected to (rf2-38gqa), and the interceptors it swaps
-    (rf2-0ae7o.8)
+    `:fx-overrides` / `:interceptor-overrides` / `:images` render inputs —
+    pinned sub outputs, pre-script app-db seed, stubbed HTTP replies, the
+    handlers its effects are redirected to (rf2-38gqa), the interceptors it
+    swaps and the behaviour images its handlers resolve through (rf2-0ae7o.8)
   - The same render-input slots of each registered fragment the variant's
     `:compose` names, in declared order — spec/017 §Strict composition
     folds them into the variant's world (rf2-pt0d1). The `:composed` slot
     is absent when no composed fragment carries one, so every other
     variant's identity is unchanged.
-  - The same render-input slots, minus `:script` / `:plays`, of each
+  - The same render-input slots, minus `:script` / `:plays` / `:images`, of each
     registered `:extends` ancestor, nearest first — spec/017 §`:extends`
     passes an ancestor's world down and never its behaviour (rf2-0ae7o.5).
     The `:inherited` slot is absent when no ancestor carries one, so every
     other variant's identity is unchanged.
   - Parent story `:component` id
-  - Parent story `:decorators`
+  - Parent story `:decorators` and `:images`
   - The *registered* schema digest of the view (per spec/011
     §`:rf/schema-digest`) — sourced via the `:schemas/app-schemas-digest`
     late-bind hook so a schema change invalidates the snapshot identity.
@@ -149,6 +149,11 @@
    ;; dispatch the frame runs (spec/017 §The interceptor-override surface),
    ;; so the settled app-db and the verdict follow it too.
    :interceptor-overrides
+   ;; rf2-0ae7o.8 — `:images` picks the behaviour image the frame resolves
+   ;; its handlers through (002-Runtime §Image composition), so swapping it
+   ;; changes which handler runs. An ancestor's never reach the child
+   ;; (`inherited-input-keys`), and a fragment body cannot carry one.
+   :images
    ;; rf2-9zj0nc — render inputs that change the settled
    ;; rendered state: `:sub-overrides` pins subscription outputs
    ;; the renderer surfaces, `:db-seed` seeds app-db before the
@@ -205,6 +210,8 @@
   - `:interceptor-overrides` — the interceptor swaps spec/017 §The
     interceptor-override surface installs for the variant. Swapping an
     interceptor changes the settled app-db and the verdict (rf2-0ae7o.8).
+  - `:images` — the behaviour images the variant's frame resolves its
+    handlers through. Swapping one changes which handler runs (rf2-0ae7o.8).
 
   Excluded (documented, not an oversight):
   - `:args` — captured via `:effective-args` in `snapshot-tuple` (post-
@@ -233,7 +240,7 @@
 
   A composed fragment contributes these same slots through
   `composed-fragment-slices`, and an `:extends` ancestor all of them but its
-  behaviour through `inherited-slices`."
+  behaviour and its `:images` through `inherited-slices`."
   [variant-id]
   (let [body (rf.story.registrar/handler-meta :variant variant-id)]
     (when body
@@ -267,8 +274,11 @@
 (def ^:private inherited-input-keys
   "The `render-input-keys` an `:extends` ancestor passes down. spec/017
   §`:extends` inherits the world, never the behaviour, so an ancestor's
-  `:script` and `:plays` stay with it."
-  (into [] (remove #{:script :plays}) render-input-keys))
+  `:script` and `:plays` stay with it. Its `:images` stay with it too: a
+  frame composes only its own variant's and its story's images (002-Runtime
+  §Image composition), so an ancestor's image never decides what the child
+  settles to (rf2-0ae7o.8)."
+  (into [] (remove #{:script :plays :images}) render-input-keys))
 
 (defn- inherited-slices
   "The render inputs `variant-id` inherits through `:extends`: each
@@ -304,7 +314,9 @@
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
   Per `002-Runtime.md` §Snapshot-identity computation the parent story's
-  `:component` id and `:decorators` are part of the variant's identity.
+  `:component` id and `:decorators` are part of the variant's identity, and
+  so are its `:images`: every variant frame composes the story's behaviour
+  images first, so swapping one changes which handler runs (rf2-0ae7o.8).
 
   The parent story's `:tags` are NOT selected here — they reach the hash
   (as a fallback default) through the variant's `:effective-tags` slot in
@@ -317,7 +329,7 @@
   (let [story-id (rf.story.args/parent-story-id variant-id)
         body     (when story-id (rf.story.registrar/handler-meta :story story-id))]
     (when body
-      (select-keys body [:component :decorators]))))
+      (select-keys body [:component :decorators :images]))))
 
 (defn view-schema-digest
   "Return the *registered* schema digest of the view per /spec/007-Stories.md §Variant
