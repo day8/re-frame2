@@ -1,6 +1,7 @@
 # Matrix — Story vs Storybook-class workshops (rf2-rln91)
 
 - **Written**: 2026-09-14 10:08 AUSEST. **Revised**: 2026-09-14 11:05 AUSEST at trunk `ece9b657be90e99461773b859a767acdd97662dd` — row A7 added; B6 re-scored in the body; three reference cells raised to `sx`; every total recomputed; the appendix folded into the rows (see §Revision history at the end). **Third revision**: 2026-09-14 14:38 AUSEST at trunk `ad6c2994616b` — **no row re-scored** (nothing was re-walked in the UI); the optimistic (1.27) row withdrawn; a per-row trunk-status table added under §Totals; notes on B5 and B6.
+- **Fourth revision (re-walk)**: 2026-09-15 AUSEST at trunk `138c08909f` (rf2-4gijz). Rows re-scored from a browser walk, a clean scratch consumer, the JVM probes and the story-mcp loops. Each re-walked row is marked `re-walked 138c08909f` in the summary table, §Totals gains a trunk block, and the pin totals stand. Run log: [`rerun-2026-09-15.md`](rerun-2026-09-15.md).
 - **Trunk pinned**: `98e8ffe9cb339295fe2fa459900d9d9647fab015` (read 09:41:33 AUSEST; re-read 09:59:57 AUSEST, unchanged) for every measurement; the Story-path diff from that sha to the revision sha is empty (`evidence.md` §0, §L). R1 (rf2-allgj) then landed at `4ec3fa6c57` and moved `docs/story/index.md`; A1's cell is as measured at the pin, and every `index.md` line cited below is pinned there (`evidence.md` §D).
 - **Reference versions (read 2026-09-14)**: Storybook 10.6.0 (released 2026-09-02 per astra's citation of the GitHub release; v11 prerelease at the time; `npx storybook@latest init` in the scratch Vite app installed `storybook@^10.6.0`, `@storybook/react-vite@^10.6.0`, addon-vitest, addon-a11y, addon-docs, addon-mcp preview, chromatic); `@storybook/addon-vitest@10.6.0` declares Vitest `^3 || ^4` while npm latest Vitest is 5.0.0 (`astra/evidence/npm-baselines.json`); Playwright CT 1.63 (repo runs 1.59.1); MSW 2.15; Histoire 1.0.0-beta.1; Ladle 5.1.1; React Cosmos 7.4.1; Widgetbook 3.25 (v4 beta as a design reference only); elm-book 1.5.1; Nubank workspaces (2024); Portfolio 2026.03.1.
 - **Rules**: `rubric.md`. Scores `S` (Story) / `B` (reference) on {0, 0.5, 1, 1.5, 2}; weight `w` ∈ {1,2,3}; evidence strength per side (`ex` exercised, `sx` sibling-exercised, `st` source-traced, `do` documented-only, `un` unverified). Ceremony counted per `rubric.md` §4.
@@ -8,27 +9,29 @@
 
 ## Summary table
 
+Where a row is marked `re-walked 138c08909f`, its S, status and Story evidence are the trunk reading from rf2-4gijz's re-run ([`rerun-2026-09-15.md`](rerun-2026-09-15.md)), and the pin reading is in the row's section and in §Totals. An unmarked row was not re-walked and reads as at the pin.
+
 | id | Job | w | S | B | Status | Story ev. | Ref ev. | Auto |
 |---|---|---|---|---|---|---|---|---|
-| A1 | Install into an existing app and see a working workshop in the first session (**NEGATIVE control**) | 3 | 0.5 | 2 | **GAP** | ex | ex | manual |
-| A2 | Author the first story + variant for an existing view | 3 | 2 | 2 | MATCH | ex | ex | auto |
-| A3 | Explore view states through controls without hand-writing them | 2 | 1 | 2 | **UNDERMARKETED** | ex/st | ex | auto |
-| A4 | See many application STATES side by side, each its own app | 2 | 2 | 1 | WIN | ex | do | manual |
-| A5 | Read docs beside the example without writing them | 2 | 2 | 2 | MATCH | ex | ex | auto |
-| A6 | Share a specific state by URL, honestly | 1 | 2 | 1.5 | WIN | ex | do | manual |
-| A7 | Isolate the DOCUMENT across side-by-side states: CSS, focus, portals, timers (**new in revision**) | 1 | 0.5 | 1.5 | **GAP** | st (+sx) | do | manual |
-| B1 | Turn a bug report into a failing, re-runnable variant using data only (**DETECTION control**) | 3 | 2 | 1 | **WIN** | ex | ex/sx | auto |
-| B2 | Run variants as tests locally and in CI with one result shape | 3 | 2 | 2 | MATCH | ex | sx | auto |
+| A1 | Install into an existing app and see a working workshop in the first session (**NEGATIVE control**) | 3 | 1 | 2 | **GAP** · re-walked `138c08909f` | ex | ex | manual |
+| A2 | Author the first story + variant for an existing view | 3 | 2 | 2 | MATCH · re-walked `138c08909f` | ex | ex | auto |
+| A3 | Explore view states through controls without hand-writing them | 2 | 2 | 2 | MATCH · re-walked `138c08909f` | ex | ex | auto |
+| A4 | See many application STATES side by side, each its own app | 2 | 2 | 1 | WIN · re-walked `138c08909f` | ex | do | manual |
+| A5 | Read docs beside the example without writing them | 2 | 2 | 2 | MATCH · re-walked `138c08909f` | ex | ex | auto |
+| A6 | Share a specific state by URL, honestly | 1 | 2 | 1.5 | WIN · re-walked `138c08909f` | ex | do | manual |
+| A7 | Isolate the DOCUMENT across side-by-side states: CSS, focus, portals, timers (**new in revision**) | 1 | 0.5 | 1.5 | **GAP** · re-walked `138c08909f` | ex | do | manual |
+| B1 | Turn a bug report into a failing, re-runnable variant using data only (**DETECTION control**) | 3 | 2 | 1 | **WIN** · re-walked `138c08909f` (Story half) | ex | ex/sx | auto |
+| B2 | Run variants as tests locally and in CI with one result shape | 3 | 2 | 2 | MATCH · re-walked `138c08909f` | ex | sx | auto |
 | B3 | Stub a side effect without touching production code | 2 | 2 | 2 | MATCH | ex | do | auto |
-| B4 | Seed state at a declared fidelity rung and be told which rung | 2 | 2 | 0.5 | WIN | ex | do | auto |
-| B5 | See why a variant failed: beats, db change, effects, source | 3 | 1.5 | 1 | WIN | ex (+sx) | sx | manual |
-| B6 | Capture an ad-hoc exploration and promote it to a curated variant | 1 | 1 | 0 | WIN (with defect) | ex (+sx) | do | auto |
-| B7 | Run visual and a11y checks beside the example, locally | 2 | 1 | 1.5 | **GAP / TARGET** | st (+sx) | do | manual |
-| C1 | Discover stories, variants and their contracts by tool call | 2 | 2 | 1.5 | MATCH | ex | do | auto |
-| C2 | Run → read failure → fix → re-run from an agent, no browser (incl. gated writes) | 3 | 2 | 1 | **WIN** | ex | do | auto |
+| B4 | Seed state at a declared fidelity rung and be told which rung | 2 | 1.5 | 0.5 | WIN · re-walked `138c08909f` | ex | do | auto |
+| B5 | See why a variant failed: beats, db change, effects, source | 3 | 2 | 1 | WIN · re-walked `138c08909f` | ex | sx | manual |
+| B6 | Capture an ad-hoc exploration and promote it to a curated variant | 1 | 1.5 | 0 | WIN · re-walked `138c08909f` | ex | do | auto |
+| B7 | Run visual and a11y checks beside the example, locally | 2 | 1 | 1.5 | **TARGET** · re-walked `138c08909f` | ex | do | manual |
+| C1 | Discover stories, variants and their contracts by tool call | 2 | 2 | 1.5 | WIN · re-walked `138c08909f` | ex | do | auto |
+| C2 | Run → read failure → fix → re-run from an agent, no browser (incl. gated writes) | 3 | 2 | 1 | **WIN** · re-walked `138c08909f` | ex | do | auto |
 | C3 | Drive the live browser workshop from the agent | 1 | 1 | 1 | DIVERGENT | ex | do | manual |
-| C4 | Explain a variant's effective plan before running it | 2 | 1.5 | 0 | WIN (with defect) | ex (+sx) | — | auto |
-| X1 | Compose shared context without decorator opacity | 1 | 2 | 2 | MATCH | st | do | manual |
+| C4 | Explain a variant's effective plan before running it | 2 | 1.5 | 0 | WIN · re-walked `138c08909f` | ex | — | auto |
+| X1 | Compose shared context without decorator opacity | 1 | 2 | 2 | MATCH · re-walked `138c08909f` | ex | do | manual |
 | X2 | Publish a static workshop build | 1 | 1 | 2 | GAP | do | do | manual |
 | X3 | Extend the workshop | 1 | 1 | 2 | DIVERGENT | st | do | manual |
 | X4 | Ecosystem breadth, hiring pool, hosted-service economics | — | — | — | OUT | — | — | — |
@@ -99,6 +102,34 @@ Where the surplus and the deficit sit (weighted contribution S−B per row): sur
 | C2 | S 2 | rf2-bf12o PR #9798 (skill leaf) | leaf corrected; orphan parent legitimate; nothing open |
 | C3 | S 1 | rf2-b7o66 PR #9801 (chapter 09) | fixed; source-verified only |
 | C4 | S 1.5 | rf2-noxox PR #9799 | fixed; re-executed §P7 on the JVM; panel not re-walked |
+
+**Trunk reading, re-walked `138c08909f`** (fourth revision, 2026-09-15, rf2-4gijz; run log in [`rerun-2026-09-15.md`](rerun-2026-09-15.md)). A browser walk of `:8043`, a clean scratch consumer following the install page and chapter 01, the four JVM probes and both story-mcp loops, all at this sha. The reference was not re-executed (Storybook, `addon-mcp` and `addon-vitest` still read 10.6.0), so its cells are carried from the pin. The totals above this block are the pin's and stand as they were.
+
+| Row | Pin S / B | Trunk S / B | Trunk status | What the re-walk found |
+|---|---|---|---|---|
+| A1 | 0.5 / 2 | 1 / 2 | GAP (control holds) | The install page works in a consumer the template did not generate, with ceremony 9 and two stalls it is silent on: restart the watch after the alias edit, and branch the entry so the app does not render over the shell. The template's zero-step path (PR #9821) is credited, not walked. |
+| A2 | 2 / 2 | 2 / 2 | MATCH | Chapter 01's story file compiles and renders verbatim. |
+| A3 | 1 / 2 | 2 / 2 | MATCH | A schema-derived `:heading` control with inline validation, on the testbed and in the consumer. |
+| A4 | 2 / 1 | 2 / 1 | WIN | "VARIANTS-GRID · 5" beside 5 cells; the count defect is gone. |
+| A5 | 2 / 2 | 2 / 2 | MATCH | The story rollup renders in Docs. |
+| A6 | 2 / 1.5 | 2 / 1.5 | WIN | The share URL carries live overrides. |
+| A7 | 0.5 / 1.5 | 0.5 / 1.5 | GAP | The specimen is fixed (the variant root resets `color`); a planted chrome rule leaks into the subject and all 5 cells. |
+| B1 | 2 / 1 | 2 / 1 | WIN | Story's half of the detection control held in both loops. |
+| B2 | 2 / 2 | 2 / 2 | MATCH | Probe 7 and both loops carry stable hashes. |
+| B4 | 2 / 0.5 | 1.5 / 0.5 | WIN | Probe 5b and the browser upgrade dialog hold; under the tutorial's `story` alias the pasted snippet never registers (rf2-0ae7o.7). |
+| B5 | 1.5 / 1 | 2 / 1 | WIN | One click from a failed row selects that assertion's Evidence beat; rf2-v5p6l holds in the browser. |
+| B6 | 1 / 0 | 1.5 / 0 | WIN | Test-mode promotion walked on both shapes (fail, pass, fail); a recording does not auto-run and asserts nothing. |
+| B7 | 1 / 1.5 | 1 / 1.5 | TARGET | a11y reads 0 violations and 0 incomplete; chapter 08's visual review catches a CSS-only change on 10 of 10 cases. Ceremony 5. |
+| C1 | 2 / 1.5 | 2 / 1.5 | WIN | 19 tools. |
+| C2 | 2 / 1 | 2 / 1 | WIN | The loop runs fail, fix, pass. |
+| C4 | 1.5 / 0 | 1.5 / 0 | WIN | The Explain panel shows the args; `explain` still carries no decorators. |
+| X1 | 2 / 2 | 2 / 2 | MATCH | A global decorator is absent from `explain` and present in the plan and Docs mode. |
+
+| Total (trunk) | Story | Reference (carried) |
+|---|---|---|
+| Unweighted Σ / (2·n) | **34 / 42 = 0.81** | **29.5 / 42 = 0.70** |
+| Weighted Σ w·score / (2·Σw) | **70 / 82 = 0.85** | **58 / 82 = 0.71** |
+| Parity ratio (weighted) | **1.21** (unweighted 1.15) | |
 
 ## Rows
 
