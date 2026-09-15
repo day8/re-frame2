@@ -33,7 +33,7 @@
   trace events fanning out from the collector's bookkeeping handler
   do NOT re-enter the collector when the bookkeeping handler carries
   `:rf.trace/no-emit? true`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.trace :as rf.trace]
@@ -51,11 +51,14 @@
 ;; `:rf/xray` frame, RE-installs the trace collector (the reset above cleared
 ;; it, so each test runs against the SAME wiring the production preload
 ;; installs), and clears the per-process counter + egress profile so each
-;; test starts from the baseline.
+;; test starts from the baseline. `:async? true` is the map form cljs.test
+;; requires for section (6)'s `(async done …)` test, which has to cross a task
+;; boundary to see the coalesced dispatch land.
 
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
-    {:post-reset
+    {:async? true
+     :post-reset
      (fn []
        (registry/register-xray-handlers!)
        ;; Allocate the :rf/xray frame so `note-suppressed!`'s dispatch
@@ -182,3 +185,74 @@
       (emit-frameless-sub-run! :app/current-user))
     (is (= 3 (config/suppressed-count))
         "a host sub's frameless read is still suppressed and counted")))
+
+;; ---- (6) a HOST burst costs one dispatch per task (rf2-p03xh) ------------
+;;
+;; Section (5) removed the TRIGGER rf2-izhgo met (Xray counting its own reads)
+;; but not the AMPLIFIER: one `:rf.xray/note-sensitive-suppressed` per
+;; suppressed trace. A genuine host burst of more than ~100 frameless sensitive
+;; traces in one task still carried `:rf/xray`'s queue past the router's
+;; depth-100 cap, so the halt was misattributed to Xray and Xray's own queued
+;; UI events were dropped behind it (the rf2-chs7 casualty shape).
+;;
+;; The burst runs through the real `rf.trace/emit!` → collector → privacy-gate
+;; path. Dispatches are counted as ARRIVALS in `:rf/xray`'s router queue across
+;; the whole run rather than read at one instant, because the un-coalesced and
+;; coalesced shapes reach the queue on different ticks: a single read would
+;; compare two different moments, not two behaviours.
+
+(def ^:private host-burst
+  "Past the router's depth-100 cap, with margin."
+  150)
+
+(defn- watch-note-arrivals!
+  "Count every `:rf.xray/note-sensitive-suppressed` envelope that ARRIVES in
+  `router`'s queue from now on, and return the counter atom. A drain only
+  shrinks the queue, so summing the positive deltas counts arrivals."
+  [router]
+  (let [arrived (atom 0)
+        notes   (fn [state]
+                  (count (filter #(= :rf.xray/note-sensitive-suppressed
+                                     (first (:event %)))
+                                 (:queue state))))]
+    (add-watch router ::note-arrivals
+               (fn [_ _ old new]
+                 (let [delta (- (notes new) (notes old))]
+                   (when (pos? delta) (swap! arrived + delta)))))
+    arrived))
+
+(deftest a-host-burst-of-sensitive-traces-costs-one-dispatch-per-task
+  (async done
+    (let [router  (:router (rf.frame/frame :rf/xray))
+          arrived (watch-note-arrivals! router)
+          halts   (atom [])]
+      (rf/register-listener! :trace ::drain-depth-spy
+        (fn [ev]
+          (when (= :rf.error/drain-depth-exceeded (:operation ev))
+            (swap! halts conj ev))))
+      (dotimes [_ host-burst]
+        (emit-frameless-sub-run! :app/current-user))
+      ;; Far past both the collector's coalescing task and the router's drain
+      ;; task that follows it.
+      (js/setTimeout
+        (fn []
+          (try
+            (testing "rf2-p03xh — 150 frameless sensitive HOST traces emitted in
+                      one task. Pre-fix: 150 dispatches, a drain halt at depth
+                      100, and a badge stuck at 100."
+              (is (= host-burst (config/suppressed-count))
+                  "every suppressed trace is counted — the atom stays exact")
+              (is (= 1 @arrived)
+                  (str host-burst " suppressed traces in one task cost ONE "
+                       "dispatch into :rf/xray"))
+              (is (empty? @halts)
+                  "no :rf.error/drain-depth-exceeded on :rf/xray")
+              (is (= host-burst
+                     (rf/with-frame :rf/xray
+                       @(rf/subscribe [:rf.xray/suppressed-sensitive-count])))
+                  "and the whole count reaches the REDACTED badge's sub"))
+            (finally
+              (remove-watch router ::note-arrivals)
+              (rf/unregister-listener! :trace ::drain-depth-spy)
+              (done))))
+        100))))
