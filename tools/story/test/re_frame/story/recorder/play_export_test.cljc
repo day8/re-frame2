@@ -245,7 +245,7 @@
                            :extends    :story.x/source})
           parsed   (edn/read-string form-str)]
       (is (seq? parsed))
-      (is (= 'story/reg-variant (first parsed)))
+      (is (= 'rf.story/reg-variant (first parsed)))
       (is (= :story.x/recorded (second parsed)))
       (let [body (nth parsed 2)]
         (is (= :story.x/source (:extends body)))
@@ -261,7 +261,7 @@
   (testing "defaults fill in when not supplied"
     (let [form-str (rf.story.recorder.play-export/render-variant-form
                      {:script [] :auto-run? true} {})]
-      (is (str/includes? form-str "story/reg-variant"))
+      (is (str/starts-with? form-str "(rf.story/reg-variant "))
       (is (str/includes? form-str ":story.recorded/play-export")))))
 
 ;; ---- runner round-trip ---------------------------------------------------

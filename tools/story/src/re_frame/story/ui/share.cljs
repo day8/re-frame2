@@ -341,7 +341,7 @@
            new-id (or (rf.story.review-dialog/default-variant-id-with-prefix
                         vid now-ms shared-id-prefix)
                       shared-id-fallback)]
-       (rf.story.predicates/reg-variant-form "story" new-id
+       (rf.story.predicates/reg-variant-form "rf.story" new-id
                                              [[:extends (pr-str vid)]
                                               [:args (pr-str eff)]])))))
 

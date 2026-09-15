@@ -240,7 +240,9 @@
                                 (when (contains? body k)
                                   [k (pr-str (get body k))])))
                         vec)]
-    (rf.story.predicates/reg-variant-form "story" variant-id body-keys)))
+    ;; `rf.story` — the canonical `re-frame.story` alias, so the snippet
+    ;; pastes and runs verbatim in a stories namespace (rf2-0ae7o.6).
+    (rf.story.predicates/reg-variant-form "rf.story" variant-id body-keys)))
 
 ;; ===========================================================================
 ;; CLJS-ONLY: the capture store

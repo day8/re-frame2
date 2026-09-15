@@ -159,7 +159,7 @@
 (deftest override-snippet-pins-a-value-keeping-the-artifact-a-variant
   (testing "the scaffold is a reg-variant :extends-ing the source with one pinned entry"
     (let [snip (rf.story.ui.schema-form/override-snippet :story.login/explore [:login/state] :error)]
-      (is (str/includes? snip "story/reg-variant")
+      (is (str/includes? snip "(rf.story/reg-variant")
           "stays a reg-variant — artifact kind unchanged")
       (is (str/includes? snip ":extends :story.login/explore")
           "extends the source so component/decorators/args carry forward")

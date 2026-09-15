@@ -113,9 +113,9 @@
   line, the continuation aligned three spaces under the body's opening
   `{`:
 
-      (reg-variant-form \"story\" :story.saved/x [[:extends \":story/a\"]
-                                                  [:args \"{}\"]])
-      ;; => \"(story/reg-variant :story.saved/x\\n  {:extends :story/a\\n   :args {}})\"
+      (reg-variant-form \"rf.story\" :story.saved/x [[:extends \":story/a\"]
+                                                     [:args \"{}\"]])
+      ;; => \"(rf.story/reg-variant :story.saved/x\\n  {:extends :story/a\\n   :args {}})\"
 
   Lives in the predicates leaf so every producer can `:require` it
   without cycle risk (they already `:require` `indent-after` from here)."

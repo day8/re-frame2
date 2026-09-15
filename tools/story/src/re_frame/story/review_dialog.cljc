@@ -209,7 +209,7 @@
 ;; (event vectors / map kv pairs) align directly under the opening
 ;; bracket/brace of their body key — e.g.
 ;;
-;;     (story/reg-variant :id
+;;     (rf.story/reg-variant :id
 ;;       {:script {:script [[:dispatch-sync [:counter/inc]]
 ;;                          [:dispatch-sync [:counter/dec]]]}})
 ;;

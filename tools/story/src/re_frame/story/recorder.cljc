@@ -245,7 +245,10 @@
       :extends     optional — keyword id to `:extends` from (preserves
                               `:component`, `:args`, `:decorators`)
       :alias       optional — short alias to use in the form
-                              (default `\"story\"`)
+                              (default `\"rf.story\"`, the canonical
+                              `re-frame.story` alias of spec/Conventions.md
+                              §Require-alias dialect, so the form pastes and
+                              runs verbatim in a stories namespace)
       :cofx        optional — a parallel vector of captured flat
                               `:rf.cofx` maps (EP-0017),
                               index-aligned with `events`. Non-empty
@@ -263,7 +266,7 @@
   line, indented under `:script [`. The form is `read-string`-able and
   round-trips through re-frame's registrar machinery."
   [events {:keys [variant-id doc extends alias cofx]
-           :or   {alias "story"}}]
+           :or   {alias "rf.story"}}]
   (let [;; The shared `indent-after` helper (predicates leaf) aligns
         ;; steps on continuation lines directly under the `[` of
         ;; `:script [` — derived from the literal first-line prefix so

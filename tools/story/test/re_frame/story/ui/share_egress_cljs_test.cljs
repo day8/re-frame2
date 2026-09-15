@@ -90,16 +90,36 @@
                   (assoc :selected-variant :story.egress/counter)
                   (assoc-in [:cell-overrides :story.egress/counter] {:n 7}))))
     (let [snip (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state) 1700000000000)]
-      ;; NOT `rf.story/` — this string pins EMITTED OUTPUT, not this file's
-      ;; alias. The snippet is built by `rf.story.predicates/reg-variant-form`,
-      ;; whose alias prefix is a plain `"story"` argument (share.cljs), so the
-      ;; copyable form a user pastes still reads `(story/reg-variant …)`.
-      ;; Renaming the require alias above does not move it.
-      (is (str/starts-with? snip "(story/reg-variant "))
+      ;; This string pins EMITTED OUTPUT, not this file's alias: share.cljs
+      ;; passes `"rf.story"` to `rf.story.predicates/reg-variant-form`, the
+      ;; canonical `re-frame.story` alias (rf2-0ae7o.6), so the copyable form
+      ;; pastes and runs verbatim in a stories namespace.
+      (is (str/starts-with? snip "(rf.story/reg-variant "))
       (is (str/includes? snip ":extends :story.egress/counter")
           "the focused variant is the PARENT")
       (is (str/includes? snip ":n 7") "the cell-override beats the variant default")
       (is (str/ends-with? snip "})")))))
+
+;; ---- rf2-0ae7o.6 — Copy EDN pastes verbatim under the canonical alias -----
+
+(deftest edn-snippet-output-pastes-verbatim
+  (testing "the Copy EDN form names `re-frame.story` by its canonical alias
+            `rf.story` (spec/Conventions.md §Require-alias dialect), so it
+            compiles in a stories namespace whose only Story alias is
+            `rf.story`. CLJS has no runtime `eval`, so the compile half of the
+            JVM `dialog_output_paste_test` shape is the head symbol the reader
+            returns; `edn-snippet-round-trips-through-registration` registers
+            the body."
+    (rf.story/reg-variant :story.egress/counter {:tags #{:dev} :setup [] :args {:n 1}})
+    (rf.story.ui.state/swap-state!
+      (fn [s] (assoc s :selected-variant :story.egress/counter)))
+    (let [snip             (rf.story.ui.share/egress-edn-snippet
+                             (rf.story.ui.state/get-state) 1700000000000)
+          [head _ body]    (reader/read-string snip)]
+      (is (= 'rf.story/reg-variant head))
+      (is (not (str/includes? snip "(story/"))
+          "the spelling J1 had to translate before pasting is gone")
+      (is (= :story.egress/counter (:extends body))))))
 
 ;; ---- rf2-fjax — the copied form must not extend itself -------------------
 

@@ -8,7 +8,7 @@
   the rich play DSL for a different output shape. Both emit the PUBLIC
   `:script` authoring slot (spec/017 §Public vocabulary):
 
-      (story/reg-variant :story.your/recorded
+      (rf.story/reg-variant :story.your/recorded
         {:extends :story.your/source
          :script  {:name      \"happy path\"
                    :auto-run? true

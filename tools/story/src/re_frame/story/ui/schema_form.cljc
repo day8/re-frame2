@@ -341,7 +341,7 @@
          pinned-id (keyword (namespace source-variant-id)
                             (str (name source-variant-id) "-pinned"))]
      (str (rf.story.predicates/reg-variant-envelope
-            "story" pinned-id
+            "rf.story" pinned-id
             (str ":extends " (pr-str source-variant-id) "\n"
                  "   :sub-overrides {" (pr-str query-v) " " v-str "}"))
           "\n;; pins " (pr-str query-v)
