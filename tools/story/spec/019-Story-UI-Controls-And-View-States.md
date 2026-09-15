@@ -300,15 +300,18 @@ acceptance contract:
 
 - **The upgrade path, no artifact-kind change.** `upgrade-targets` lists
   the rungs stronger than the variant's floor; each offers an
-  `upgrade-snippet` — a copy-paste `(story/reg-variant … { … })`
+  `upgrade-snippet` — a copy-paste `(rf.story/reg-variant … { … })`
   scaffold that KEEPS the artifact a variant, adds the higher rung's
   authoring slot (`:setup` / `:db-seed`), and drops the `:sub-overrides`.
   Because `:extends` inherits `:sub-overrides`, the scaffold `:extends` the
   source only when nothing on the source's chain pins a subscription;
   otherwise it re-emits the source's own slots over its nearest pin-free
   ancestor, so the completed upgrade compiles without the
-  `:sub-overrides` rung. Source is never written directly (the
-  save-variant / author-expectations idiom).
+  `:sub-overrides` rung. Because `:decorators` merge child-wins, the
+  nearest skipped pinned layer's `:decorators` are copied when the source
+  declares none, so the fx stubs its setup events need are not stripped.
+  Source is never written directly (the save-variant / author-expectations
+  idiom).
 
 ### 5.2 Schema-generated value entry for sub-overrides (CURRENT, rf2-xon7j)
 
@@ -340,7 +343,7 @@ API is required.
   a value; the designer can always type EDN.
 
 - **Same artifact kind, source never written directly.** Either path emits a
-  copy-paste `(story/reg-variant …-pinned {:extends … :sub-overrides { … }})`
+  copy-paste `(rf.story/reg-variant …-pinned {:extends … :sub-overrides { … }})`
   scaffold (`schema-form/override-snippet`) the author pastes into source —
   exactly the upgrade-path / save-variant idiom. The pinned value remains the
   lowest fidelity rung (a picture for design exploration, never proof).

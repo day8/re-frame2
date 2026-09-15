@@ -316,7 +316,7 @@ in flight, clicking stops + opens a save-as-variant modal carrying the
 generated `(reg-variant ...)` form:
 
 ```clojure
-(story/reg-variant :story.counter/recorded-739221
+(rf.story/reg-variant :story.counter/recorded-739221
   {:extends :story.counter/happy-path
    :script  {:auto-run? true
              :script [[:dispatch-sync [:counter/inc]]
@@ -363,7 +363,7 @@ canvas after inserting. The captured `:script` body comes out
 with assertions interleaved exactly where the user wanted them:
 
 ```clojure
-(story/reg-variant :story.counter/recorded
+(rf.story/reg-variant :story.counter/recorded
   {:extends :story.counter/happy-path
    :script
    {:auto-run? true
@@ -404,7 +404,7 @@ recorder/assertion-vocabulary        ; data — the 7 canonical entries
 - `:doc`        (optional) — docstring.
 - `:extends`    (optional) — variant id to `:extends` from (carries
                               `:component`, `:args`, `:decorators`).
-- `:alias`      (optional) — short alias for the form (default `story`).
+- `:alias`      (optional) — short alias for the form (default `rf.story`, the canonical `re-frame.story` alias, so the form pastes and runs verbatim).
 
 Pure data → string; the emitted form is `read-string`-able and
 round-trips through re-frame's registrar machinery.
@@ -514,7 +514,7 @@ new variant id inline, and copies the form to the clipboard for
 pasting into their stories namespace:
 
 ```clojure
-(story/reg-variant :story.counter/saved-739221
+(rf.story/reg-variant :story.counter/saved-739221
   {:extends :story.counter/happy-path
    :args    {:label "Counter"
              :n     7
