@@ -69,9 +69,10 @@
   - Variant `:args->events`, `:platforms`, `:substrates` targeting
   - The variant's `:component` view-id override — variant-
     first resolution decides WHICH view renders
-  - The variant's `:sub-overrides` / `:db-seed` / `:network` render
-    inputs — pinned sub outputs, pre-script app-db seed,
-    stubbed HTTP replies
+  - The variant's `:sub-overrides` / `:db-seed` / `:network` /
+    `:fx-overrides` render inputs — pinned sub outputs, pre-script app-db
+    seed, stubbed HTTP replies, and the handlers its effects are
+    redirected to (rf2-38gqa)
   - The same render-input slots of each registered fragment the variant's
     `:compose` names, in declared order — spec/017 §Strict composition
     folds them into the variant's world (rf2-pt0d1). The `:composed` slot
@@ -139,6 +140,10 @@
    ;; produces no drift. (Story-level `:component` rides
    ;; `story-body-slice`.)
    :component
+   ;; rf2-38gqa — `:fx-overrides` redirects an effect to another handler
+   ;; (spec/017 §The effect-override surface), so the settled app-db and
+   ;; the verdict follow it.
+   :fx-overrides
    ;; rf2-9zj0nc — render inputs that change the settled
    ;; rendered state: `:sub-overrides` pins subscription outputs
    ;; the renderer surfaces, `:db-seed` seeds app-db before the
@@ -188,6 +193,10 @@
     canonicaliser handles them (hashing the raw authored map incl. any
     `[:arg]` placeholders is sufficient for identity). All three already
     land in the plan-hash; the snapshot path was the straggler.
+  - `:fx-overrides` — the effect redirects spec/017 §The effect-override
+    surface makes a first-class world input. Pointing an effect at a
+    different handler changes the settled app-db and the verdict
+    (rf2-38gqa).
 
   Excluded (documented, not an oversight):
   - `:args` — captured via `:effective-args` in `snapshot-tuple` (post-
@@ -209,6 +218,9 @@
     change the snapshot for a given active-mode context.
   - `:dispatch-console?` / `:xray` — dev-tooling affordances; no effect
     on the settled rendered state.
+  - `:interceptor-overrides` — compiled into the plan, but the runner does
+    not install it on the variant frame, so an edit changes nothing a run
+    settles to (measured, rf2-38gqa).
   - `:doc` / `:source` — prose + coords; runtime-environmental.
   - `:extends` — the id is not hashed; an ancestor's args and tags reach
     the hash through `:effective-args` and `:effective-tags`, and its other
@@ -226,9 +238,10 @@
   "The render inputs contributed by each registered fragment in
   `variant-id`'s `:compose`, in declared order (rf2-pt0d1). spec/017
   §Strict composition folds a composed fragment's `:setup`, `:script`,
-  `:db-seed`, `:network`, `:sub-overrides`, `:loaders` and `:decorators`
-  into the variant's world, so each is a render input of the variant; the
-  slice is `render-input-keys`, exactly as for the variant's own body.
+  `:db-seed`, `:network`, `:sub-overrides`, `:fx-overrides`, `:loaders` and
+  `:decorators` into the variant's world, so each is a render input of the
+  variant; the slice is `render-input-keys`, exactly as for the variant's
+  own body.
 
   Fragment ids are not hashed, so renaming a fragment without changing
   what it contributes leaves identity alone; reordering `:compose` does
@@ -255,8 +268,9 @@
   "The render inputs `variant-id` inherits through `:extends`: each
   registered ancestor's slice over `inherited-input-keys`, nearest first
   (rf2-0ae7o.5). spec/017 §`:extends` passes an ancestor's world (setup,
-  render fixtures, network stubs, decorators) down to the child, so each is
-  a render input of the child exactly as its own body's are.
+  render fixtures, network stubs, effect overrides, decorators) down to the
+  child, so each is a render input of the child exactly as its own body's
+  are.
 
   An ancestor input the child overrides is still hashed. Pruning it would
   copy the plan compiler's per-key merge rules (setup appends, maps merge,
