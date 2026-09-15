@@ -43,14 +43,17 @@ own subtree, so Story's chrome never enters a baseline. The content hash is not
 part of the key; it is recorded beside each baseline, so a review can tell you
 whether a diff arrived with a declared change or without one. Snapshot identity
 also covers the render inputs a variant receives from a fragment it composes or
-from an ancestor it inherits through `:extends`, and its `:fx-overrides`, whether
-they sit on its own body or on one of those. Editing a shared fragment, a
-parent's seed, setup, network stubs or decorators, or pointing an effect override
-at a different handler therefore moves the hash of every variant the edit
-reaches, and the first review after this change reports those variants' hashes
-as moved even where their pixels match. A moved hash on its own fails no case
-and asks for no new baseline: baselines are keyed by variant, and only a pixel
-change needs your approval.
+from an ancestor it inherits through `:extends`; the `:fx-overrides` and
+`:interceptor-overrides` a run installs for it, whether they sit on its own body
+or on one of those; and the behaviour `:images` it or its story declares, though
+not an ancestor's, which never reach the variants that extend it. Editing a
+shared fragment, a parent's seed, setup, network stubs or decorators, pointing
+an effect override at a different handler or an interceptor override at a
+different interceptor, or selecting a different behaviour image therefore moves
+the hash of every variant the edit reaches, and the first review after this
+change reports those variants' hashes as moved even where their pixels match.
+A moved hash on its own fails no case and asks for no new baseline: baselines
+are keyed by variant, and only a pixel change needs your approval.
 
 Put two files in a `story-visual/` directory in your app.
 
