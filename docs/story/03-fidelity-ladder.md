@@ -61,7 +61,7 @@ twenty events are noise for the point of the example. A db seed lets you place
 state directly:
 
 ```clojure
-(story/reg-variant :story.profile/with-avatar
+(rf.story/reg-variant :story.profile/with-avatar
   {:db-seed {:profile {:name "Ada"
                        :avatar-url "/avatars/ada.png"}}
    :tags #{:dev :docs}})
@@ -78,7 +78,7 @@ Use this when the state is legitimate but tedious to reach.
 The fastest design-state path is to pin the value a subscription returns:
 
 ```clojure
-(story/reg-variant :story.login/error-painted
+(rf.story/reg-variant :story.login/error-painted
   {:sub-overrides {[:login/state] :error
                    [:login/error] "Invalid credentials."
                    [:login/attempts] 1}})

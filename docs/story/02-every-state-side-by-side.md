@@ -26,7 +26,7 @@ one click away.
 The error variant looks like this:
 
 ```clojure
-(story/reg-variant :story.login/error
+(rf.story/reg-variant :story.login/error
   {:doc "Server rejected credentials. Form re-enabled; the error is visible."
    :setup [[:login/flow
             [:login/submit {:email "ada@example.com"
@@ -35,7 +35,7 @@ The error variant looks like this:
             [:login/failure
              {:failure {:status 401
                         :message "Invalid credentials."}}]]]
-   :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
+   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
    :script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
             [:dispatch-sync
              [:rf.assert/sub-equals
@@ -54,7 +54,7 @@ A workspace arranges variants together. The simplest useful form is an explicit
 grid:
 
 ```clojure
-(story/reg-workspace :Workspace.login/all-states
+(rf.story/reg-workspace :Workspace.login/all-states
   {:doc      "The five login states side by side."
    :layout   :grid
    :variants [:story.login/idle
@@ -93,7 +93,7 @@ There is also `:variants-grid`, which auto-enumerates variants under a parent
 story:
 
 ```clojure
-(story/reg-workspace :Workspace.login/auto-grid
+(rf.story/reg-workspace :Workspace.login/auto-grid
   {:layout  :variants-grid
    :for     :story.login
    :columns 3})

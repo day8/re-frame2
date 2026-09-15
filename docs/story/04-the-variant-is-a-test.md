@@ -2,7 +2,7 @@
 
 You already wrote setup and assertions, so you are closer to a test than you
 may have noticed. This chapter shows the Test mode UI and the three execution
-verbs: `story/run`, `story/is`, and `story/explain`. The useful idea is that a
+verbs: `rf.story/run`, `rf.story/is`, and `rf.story/explain`. The useful idea is that a
 variant does not need a second encoding to become a regression test.
 
 ## The reveal
@@ -10,7 +10,7 @@ variant does not need a second encoding to become a regression test.
 Look again at the error variant:
 
 ```clojure
-(story/reg-variant :story.login/error
+(rf.story/reg-variant :story.login/error
   {:setup  [...]
    :script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
             [:dispatch-sync
@@ -58,21 +58,21 @@ already maintain to participate in the test suite.
 The public execution surface has three verbs:
 
 ```clojure
-(story/run     target opts) ; returns a future/promise of the run result
-(story/is      target opts) ; reports through clojure.test / cljs.test
-(story/explain target opts) ; returns the compiled plan explanation
+(rf.story/run     target opts) ; returns a future/promise of the run result
+(rf.story/is      target opts) ; reports through clojure.test / cljs.test
+(rf.story/explain target opts) ; returns the compiled plan explanation
 ```
 
 `target` can be a registered variant id:
 
 ```clojure
-(story/run :story.login/error)
+(rf.story/run :story.login/error)
 ```
 
 or an inline plan:
 
 ```clojure
-(story/run
+(rf.story/run
   {:setup [[:login/flow [:login/dismiss]]]
    :script [[:dispatch-sync
              [:rf.assert/state-is :login/flow :idle]]]})
@@ -84,16 +84,16 @@ visible, documented, reviewed, or shared.
 
 ## Using Story from tests
 
-On the JVM, `story/is` blocks until the run resolves and reports per assertion:
+On the JVM, `rf.story/is` blocks until the run resolves and reports per assertion:
 
 ```clojure
 (ns my-app.login-stories-test
   (:require [clojure.test :refer [deftest]]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             [my-app.stories]))
 
 (deftest login-error-story-passes
-  (story/is :story.login/error))
+  (rf.story/is :story.login/error))
 ```
 
 In CLJS, runs are async, so use the usual `cljs.test/async` shape:
@@ -101,16 +101,16 @@ In CLJS, runs are async, so use the usual `cljs.test/async` shape:
 ```clojure
 (ns my-app.login-stories-test
   (:require [cljs.test :refer-macros [deftest async]]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             [my-app.stories]))
 
 (deftest login-error-story-passes
   (async done
-    (-> (story/is :story.login/error)
+    (-> (rf.story/is :story.login/error)
         (.then (fn [_result] (done))))))
 ```
 
-If you want the raw result instead of test reports, call `story/run` and inspect
+If you want the raw result instead of test reports, call `rf.story/run` and inspect
 the resolved map.
 
 ## The run result
@@ -138,7 +138,7 @@ green while the evidence elsewhere was red.
 
 ## Explain
 
-`story/explain` does not run the variant. It shows what the variant becomes
+`rf.story/explain` does not run the variant. It shows what the variant becomes
 after inheritance, composition, args, checks, setup, and script are normalized.
 
 That matters the first time a composed variant surprises you. Instead of
@@ -159,10 +159,10 @@ Assertions in `:assertions` are terminal. They run after the script settles.
 Checks are named assertion packs:
 
 ```clojure
-(story/reg-check :check/no-runtime-warnings
+(rf.story/reg-check :check/no-runtime-warnings
   {:assertions [[:rf.assert/no-warnings]]})
 
-(story/reg-variant :story.login/error
+(rf.story/reg-variant :story.login/error
   {:checks [:check/no-runtime-warnings]
    :setup  [...]
    :script [...]})

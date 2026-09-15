@@ -22,7 +22,7 @@ They change how the selected artifact is presented.
 **Toolbar modes** are registered arg tuples:
 
 ```clojure
-(story/reg-mode :Mode.login/dark
+(rf.story/reg-mode :Mode.login/dark
   {:doc  "Dark theme."
    :axis :theme
    :args {:theme :dark}})
@@ -74,11 +74,11 @@ layouts become useful when a component or workflow deserves real documentation.
 Toolbar modes are saved args:
 
 ```clojure
-(story/reg-mode :Mode.app/light
+(rf.story/reg-mode :Mode.app/light
   {:axis :theme
    :args {:theme :light}})
 
-(story/reg-mode :Mode.app/dark
+(rf.story/reg-mode :Mode.app/dark
   {:axis :theme
    :args {:theme :dark}})
 ```
@@ -100,7 +100,7 @@ Storybook keeps project-wide wrappers such as a theme provider in `preview.ts`.
 In Story it is one registration, made once in your stories namespace:
 
 ```clojure
-(story/reg-global-decorator :app/theme
+(rf.story/reg-global-decorator :app/theme
   {:kind :hiccup
    :wrap (fn [body _args] [:div.app-theme body])})
 ```
@@ -108,9 +108,9 @@ In Story it is one registration, made once in your stories namespace:
 Every variant now renders inside `:app/theme`. Globals are the outermost layer,
 so the stack reads global, then story, then variant, with the earliest-registered
 global outermost. The difference from `preview.ts` is that the chain is data,
-not a module: `story/variant-plan` carries the resolved stack under
+not a module: `rf.story/variant-plan` carries the resolved stack under
 `[:world :decorators]`, and Docs mode's Decorators table lists the global first.
-Explain does not show decorators yet. Neither `story/explain` nor the Explain
+Explain does not show decorators yet. Neither `rf.story/explain` nor the Explain
 panel lists the stack, so check the plan or Docs mode when you want to know what
 wraps a variant. The
 [registration reference](api/registration.md#reg-global-decorator) covers
@@ -121,7 +121,7 @@ wraps a variant. The
 `:extends` specializes another variant:
 
 ```clojure
-(story/reg-variant :story.login/error-after-filled-form
+(rf.story/reg-variant :story.login/error-after-filled-form
   {:extends :story.login/filled
    :script [[:dispatch-sync [:login/flow [:login/submit]]]]
    :assertions [[:rf.assert/state-is :login/flow :error]]})
@@ -151,7 +151,7 @@ variant from becoming a spooky action at a distance.
 Use a fragment for reusable setup/script/world context:
 
 ```clojure
-(story/reg-fragment :fragment.login/filled-form
+(rf.story/reg-fragment :fragment.login/filled-form
   {:setup [[:login/flow
             [:login/type {:email "ada@example.com"
                           :password "correct-horse"}]]]})
@@ -160,14 +160,14 @@ Use a fragment for reusable setup/script/world context:
 Use a check for reusable expectations:
 
 ```clojure
-(story/reg-check :check/no-runtime-warnings
+(rf.story/reg-check :check/no-runtime-warnings
   {:assertions [[:rf.assert/no-warnings]]})
 ```
 
 Compose them explicitly:
 
 ```clojure
-(story/reg-variant :story.login/submits
+(rf.story/reg-variant :story.login/submits
   {:compose [:fragment.login/filled-form
              :check/no-runtime-warnings]
    :script [[:dispatch-sync [:login/flow [:login/submit]]]]
@@ -185,7 +185,7 @@ feels wonderfully boring, good. Merge rules should not be exciting.
 
 ## Explain is the receipt
 
-When composition is involved, use `story/explain` or the Explain panel. It shows
+When composition is involved, use `rf.story/explain` or the Explain panel. It shows
 the source chain, merge decisions, setup order, script order, checks, assertion
 locations, runner requirements, and source coordinates.
 

@@ -43,13 +43,14 @@ own subtree, so Story's chrome never enters a baseline. The content hash is not
 part of the key; it is recorded beside each baseline, so a review can tell you
 whether a diff arrived with a declared change or without one. Snapshot identity
 also covers the render inputs a variant receives from a fragment it composes or
-from an ancestor it inherits through `:extends`, so editing a shared fragment,
-or a parent's seed, setup, network stubs or decorators, moves the hash of every
-variant that composes that fragment or sits below that parent, and the first
-review after this change reports those variants' hashes as moved even where
-their pixels match. A moved hash on its own fails no case and asks for no new
-baseline: baselines are keyed by variant, and only a pixel change needs your
-approval.
+from an ancestor it inherits through `:extends`, and its `:fx-overrides`, whether
+they sit on its own body or on one of those. Editing a shared fragment, a
+parent's seed, setup, network stubs or decorators, or pointing an effect override
+at a different handler therefore moves the hash of every variant the edit
+reaches, and the first review after this change reports those variants' hashes
+as moved even where their pixels match. A moved hash on its own fails no case
+and asks for no new baseline: baselines are keyed by variant, and only a pixel
+change needs your approval.
 
 Put two files in a `story-visual/` directory in your app.
 
@@ -258,6 +259,11 @@ interesting case and you want to keep it as a curated regression.
 Both end with a variant. They start from different places and carry different
 provenance. Keeping them separate makes the source history easier to trust.
 
+**Copy EDN**, **Save current state as variant** and **Promote run to regression
+variant** each emit a whole `rf.story/reg-variant` form that pastes and runs
+as-is in a stories namespace that requires `[re-frame.story :as rf.story]`, as
+the `my-app.stories` namespace from [chapter 1](01-first-variant.md) does.
+
 ## Static builds
 
 A static build packages your registered Story catalogue into a directory of
@@ -278,13 +284,13 @@ no app beside it, so it gets its own entry, `src/my_app/story_static.cljs`:
 ```clojure
 (ns my-app.story-static
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
+            [re-frame.story :as rf.story]
             [re-frame.adapter.reagent :as reagent-adapter]
             [my-app.stories]))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (story/mount-shell! (js/document.getElementById "app")))
+  (rf.story/mount-shell! (js/document.getElementById "app")))
 ```
 
 **2. A build for it**, beside your app's build in `shadow-cljs.edn`:

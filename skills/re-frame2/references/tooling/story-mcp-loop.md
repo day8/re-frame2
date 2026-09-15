@@ -86,13 +86,13 @@ A failing run becomes a regression variant only when the new variant keeps the r
 - **From the API** — either host; here on the JVM. Compile the source's plan with the run's argument layers, coerce it to a run artifact, and promote it under a new id:
 
   ```clojure
-  (require '[re-frame.story :as story]
+  (require '[re-frame.story :as rf.story]
            '[re-frame.story.args :as args]
            '[re-frame.story.determinism :as determinism])
-  (story/promote-run-artifact!
+  (rf.story/promote-run-artifact!
     (determinism/->artifact
-      (story/variant-plan :story.cart/checkout-fails
-                          {:run-args (args/run-arg-layers :story.cart/checkout-fails)}))
+      (rf.story/variant-plan :story.cart/checkout-fails
+                             {:run-args (args/run-arg-layers :story.cart/checkout-fails)}))
     {:variant/id :story.cart/checkout-regression})
   ```
 
@@ -118,11 +118,11 @@ A variant that pins subscription values with `:sub-overrides` shows a picture, n
 clojure -M -e "(require 'app.stories 're-frame.story.ui.view-state) (println (re-frame.story.ui.view-state/upgrade-snippet :story.cart/pinned :real-setup))"
 ```
 
-It prints ONE `(story/reg-variant :story.cart/pinned-upgraded { … })` form with a `:setup` placeholder to fill (`:db-seed` is the other target rung). It drops the pin by walking the source's `:extends` chain: it extends the nearest ancestor above the first pinning layer and restates the source's own slots without `:sub-overrides`. Fill the placeholder, land the form, then check the compiled child: `(:fidelity (story/explain :story.cart/pinned-upgraded))` — `explain-variant`'s `:fidelity` over MCP — must not contain `:sub-overrides` unless you kept a pin on purpose. Do not skip that check. A composed fragment (`:compose`) that pins is dropped from the form and named, with the queries it pinned, in a trailing `;;` comment; its `:args` and `:setup` are not inlined, so re-add whatever you still need from it by hand. Fragments that pin nothing stay.
+It prints ONE `(rf.story/reg-variant :story.cart/pinned-upgraded { … })` form with a `:setup` placeholder to fill (`:db-seed` is the other target rung). It drops the pin by walking the source's `:extends` chain: it extends the nearest ancestor above the first pinning layer and restates the source's own slots without `:sub-overrides`. Fill the placeholder, land the form, then check the compiled child: `(:fidelity (rf.story/explain :story.cart/pinned-upgraded))` — `explain-variant`'s `:fidelity` over MCP — must not contain `:sub-overrides` unless you kept a pin on purpose. Do not skip that check. A composed fragment (`:compose`) that pins is dropped from the form and named, with the queries it pinned, in a trailing `;;` comment; its `:args` and `:setup` are not inlined, so re-add whatever you still need from it by hand. Fragments that pin nothing stay.
 
 ### Explain before running
 
-Read the resolved plan before you edit a declaration. `(story/explain id)` — `explain-variant` over MCP — reports `:args` and `:effective-args` with the ambient layers folded in (global args, the parent story's `:args`, and any `:active-modes` / `:cell-overrides` in its opts), which are the values a run uses. The pure compiler `re-frame.story.plan/explain` folds the ambient layers only when handed `:run-args`, so called bare it shows the variant's own layer alone, by design. A story-level `:args` missing from the pure form is not missing from the run.
+Read the resolved plan before you edit a declaration. `(rf.story/explain id)` — `explain-variant` over MCP — reports `:args` and `:effective-args` with the ambient layers folded in (global args, the parent story's `:args`, and any `:active-modes` / `:cell-overrides` in its opts), which are the values a run uses. The pure compiler `re-frame.story.plan/explain` folds the ambient layers only when handed `:run-args`, so called bare it shows the variant's own layer alone, by design. A story-level `:args` missing from the pure form is not missing from the run.
 
 ## Common gotchas
 
