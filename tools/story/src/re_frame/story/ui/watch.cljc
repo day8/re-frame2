@@ -4,7 +4,8 @@
   The chrome-level test widget's eye toggle enables watch mode; while on,
   the shell polls `compute-testable-content-hashes` every 500ms, diffs it
   against the recorded `[:tests :content-hashes]` slot, and re-runs the
-  variants whose snapshot-identity drifted.
+  variants whose watch hash drifted — snapshot identity plus the slots that
+  decide what a run judges (`judged-slots`, rf2-dt9xf).
 
   This leaf hosts ONLY the pure-ish compute + its cache — it requires
   neither `shell` nor `sidebar`, so BOTH can consume it without a load
@@ -47,9 +48,10 @@
 
   When the key matches the previous tick's key we return the cached map —
   zero hashing work. When it drifts we recompute the lot once and re-seed."
-  (:require [re-frame.story.identity  :as rf.story.identity]
-            [re-frame.story.registrar :as rf.story.registrar]
-            [re-frame.story.ui.state  :as rf.story.ui.state]))
+  (:require [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.identity    :as rf.story.identity]
+            [re-frame.story.registrar   :as rf.story.registrar]
+            [re-frame.story.ui.state    :as rf.story.ui.state]))
 
 (defonce ^:private testable-hash-cache
   (atom {:key nil :hashes nil}))
@@ -66,15 +68,37 @@
   [testable]
   (mapv rf.story.identity/view-schema-digest testable))
 
+(def ^:private judged-slots
+  "Variant-body slots that decide what a run JUDGES without being render
+  inputs (rf2-dt9xf): the declarative expectations, and the `:compose` /
+  `:extends` routes by which checks and a fragment `:script` arrive.
+  Snapshot identity hashes declared render inputs (spec/002
+  §Snapshot-identity computation) and keys visual review and sharing, so it
+  rightly omits them; watch mode folds them into its own hash instead, so
+  an expectation-only edit re-runs the variant without changing its
+  identity. They live on the variant registration, so the registrar tick
+  in the cache key already covers them."
+  [:assertions :checks :compose :extends])
+
+(defn- watch-hash
+  "The watch hash for `vid`: its snapshot-identity content hash plus its
+  `judged-slots`, hashed through the one canonical fingerprint primitive."
+  [vid opts]
+  (rf.story.fingerprint/content-hash
+    {:snapshot-identity (:content-hash (rf.story.identity/snapshot-identity vid opts))
+     :judged            (select-keys (rf.story.registrar/handler-meta :variant vid)
+                                     judged-slots)}))
+
 (defn compute-testable-content-hashes
   "Walk the registered testable variants and return a `{variant-id →
-  hex-hash}` map of snapshot-identity content hashes. The hash captures
-  the variant's `:script` / `:setup` / `:loaders` / `:decorators` /
+  hex-hash}` map of watch hashes (`watch-hash`). Its snapshot-identity half
+  captures the variant's `:script` / `:setup` / `:loaders` / `:decorators` /
   `:component` / `:sub-overrides` / `:db-seed` / `:network` / `:tags`
   slots plus the parent story's slice, the view's registered schema-
   digest, AND the variant's resolved effective args (which fold in the
-  user's live `:cell-overrides`). See `re-frame.story.identity` §What's in
-  the hash + /spec/007-Stories.md §Variant snapshot identity.
+  user's live `:cell-overrides`) — see `re-frame.story.identity` §What's in
+  the hash + /spec/007-Stories.md §Variant snapshot identity. The other
+  half is the variant's `judged-slots`.
 
   HOT PATH (rf2-zrswb): the registrar-driven cache short-circuits when
   none of the five perturbing inputs (registrar tick, `:active-modes`,
@@ -102,8 +126,7 @@
                                 (let [opts {:active-modes   modes
                                             :substrate      subs
                                             :cell-overrides (get overrides vid)}]
-                                  [vid (:content-hash
-                                         (rf.story.identity/snapshot-identity vid opts))])))
+                                  [vid (watch-hash vid opts)])))
                          testable)]
         (reset! testable-hash-cache {:key key :hashes hashes})
         hashes))))
