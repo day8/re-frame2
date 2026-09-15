@@ -449,3 +449,39 @@
             "an expectation-only edit drifts the variant, so the detector re-runs it")
         (is (= ids-before (identities))
             "snapshot identity is NOT widened — these slots are not render inputs")))))
+
+;; ---- rf2-pt0d1: a composed fragment's render-input edit re-runs ---------
+;;
+;; A fragment the variant `:compose`s folds its `:db-seed` / `:setup` into the
+;; variant's world (spec/017 §Strict composition), so editing the fragment
+;; changes the settled state and the verdict. Snapshot identity hashes those
+;; render inputs, and the watch hash carries identity, so the edit re-runs
+;; exactly the variants composing that fragment.
+
+(deftest composed-fragment-render-edit-drifts-identity-and-watch-hash
+  (testing "rf2-pt0d1 — re-registering a composed fragment with a different
+            :db-seed or :setup drifts the composing variant's snapshot
+            identity and its watch hash; a variant that does not compose the
+            fragment does not drift"
+    (rf.story/reg-fragment :story.x/seed  {:db-seed {:c 0}})
+    (rf.story/reg-fragment :story.x/setup {:setup [[:story.x/set-c 0]]})
+    (rf.story/reg-variant :story.x/seeded    {:tags #{:test} :compose [:story.x/seed]
+                                              :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.x/set-up    {:tags #{:test} :compose [:story.x/setup]
+                                              :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.x/unrelated {:tags #{:test}
+                                              :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (let [identity-of (fn [vid] (:content-hash (rf.story.identity/snapshot-identity vid)))
+          before      (rf.story.ui.watch/compute-testable-content-hashes)
+          seeded-id   (identity-of :story.x/seeded)
+          set-up-id   (identity-of :story.x/set-up)]
+      (rf.story/reg-fragment :story.x/seed  {:db-seed {:c 1}})
+      (rf.story/reg-fragment :story.x/setup {:setup [[:story.x/set-c 1]]})
+      (let [after (rf.story.ui.watch/compute-testable-content-hashes)]
+        (is (= [:story.x/seeded :story.x/set-up]
+               (rf.story.ui.state/watch-mode-drift before after))
+            "a composed fragment's render-input edit re-runs exactly the variants composing it")
+        (is (not= seeded-id (identity-of :story.x/seeded))
+            "a composed :db-seed edit changes the composing variant's identity")
+        (is (not= set-up-id (identity-of :story.x/set-up))
+            "a composed :setup edit changes the composing variant's identity")))))
