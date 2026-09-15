@@ -81,7 +81,7 @@
   []
   (let [snippet      (rf.story.ui.view-state/upgrade-snippet :story.upgrade/pinned :real-setup)
         [op id body] (edn/read-string snippet)]
-    (is (= 'story/reg-variant op) "the snippet reads back as a reg-variant form")
+    (is (= 'rf.story/reg-variant op) "the snippet reads back as a reg-variant form")
     (rf.story.registrar/reg-variant* id (assoc body :setup [[:dispatch [:login/set-email address]]]))
     id))
 

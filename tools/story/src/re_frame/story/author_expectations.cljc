@@ -459,13 +459,15 @@
       :authored      required — the authored canonical atoms (from
                                 `expectation->atom` over the draft rows)
       :doc           optional — a docstring
-      :alias         optional — the reg-variant alias (default \"story\")
+      :alias         optional — the reg-variant alias (default \"rf.story\",
+                                the canonical `re-frame.story` alias, so the
+                                form pastes and runs verbatim)
 
   The output is `read-string`-able EDN that round-trips through the Story
   registrar. The author pastes it into source — source is never written
   directly (same escape hatch as save-variant / recorder / promotion)."
   [{:keys [variant-id extends existing authored doc alias]
-    :or   {alias "story"}}]
+    :or   {alias "rf.story"}}]
   (let [merged    (merge-assertions existing authored)
         body-keys (cond-> []
                     doc     (conj [:doc (pr-str doc)])

@@ -154,7 +154,17 @@
                                   :compose       [:fragment.login/pinned-email]
                                   :args          {:heading "context"}}
    :story.login/composed-context {:sub-overrides {[:login/own] "own pin"}
-                                  :compose       [:fragment.login/context]}})
+                                  :compose       [:fragment.login/context]}
+   ;; A pinned layer carrying the fx-stub decorator its real events need,
+   ;; under a source that declares no decorators of its own (rf2-yemtm), and
+   ;; a sibling source that does declare its own.
+   :story.login/stubbed-pin      {:extends       :story.login/base
+                                  :decorators    [[:story.login/fx-stub :rf.http/managed {}]]
+                                  :sub-overrides {[:login/state] :authenticated}}
+   :story.login/stubbed-child    {:extends :story.login/stubbed-pin
+                                  :args    {:heading "Welcome back"}}
+   :story.login/own-decorators   {:extends    :story.login/stubbed-pin
+                                  :decorators [[:story.login/theme]]}})
 
 (def ^:private upgrade-fragments
   "Raw fragment bodies for the `:compose` ids above: one pins a subscription,
@@ -195,7 +205,7 @@
                               [:story.login/composed-context :real-setup]
                               [:story.nope/unregistered :real-setup]]]
       (let [[op id body] (read-upgrade source-id rung)]
-        (is (= 'story/reg-variant op) (str source-id " → " rung))
+        (is (= 'rf.story/reg-variant op) (str source-id " → " rung))
         (is (= (rf.story.ui.view-state/upgraded-variant-id source-id) id))
         (is (map? body))))))
 
@@ -205,7 +215,7 @@
             :sub-overrides, so extending it would keep the pin (rf2-mw9th
             half 2; this test used to pin `:extends <source>`)"
     (let [[op id body] (read-upgrade :story.login/error :real-setup)]
-      (is (= 'story/reg-variant op) "stays a reg-variant — artifact kind unchanged")
+      (is (= 'rf.story/reg-variant op) "stays a reg-variant — artifact kind unchanged")
       (is (= :story.login/error-upgraded id))
       (is (= :story.login/base (:extends body))
           "extends the nearest pin-free ancestor, never the pinned source")
@@ -281,6 +291,26 @@
       (is (not (str/includes? (emit-upgrade :story.login/composed-context :real-setup)
                               "not composed"))
           "nothing was dropped, so nothing is named"))))
+
+(deftest completed-upgrade-carries-decorators-from-a-skipped-pinned-layer
+  (testing "extending above a pinned layer must not strip the decorators that
+            layer supplied — the fx stubs real setup events need (rf2-yemtm).
+            `:decorators` merge child-wins, so the nearest skipped layer's are
+            copied when the source declares none"
+    (let [stub        [[:story.login/fx-stub :rf.http/managed {}]]
+          source-plan (rf.story.plan/variant-plan :story.login/stubbed-child
+                                                  {:lookup upgrade-lookup})]
+      (testing "control — the pinned source runs under the pinned layer's decorator"
+        (is (= stub (get-in source-plan [:world :decorators]))))
+      (let [[body plan] (compile-completed-upgrade :story.login/stubbed-child)]
+        (is (= :story.login/base (:extends body)) "still extends above the pin")
+        (is (= stub (:decorators body)) "the skipped layer's decorators are copied")
+        (is (= (get-in source-plan [:world :decorators]) (get-in plan [:world :decorators]))
+            "the completed child runs under the source's decorator stack")
+        (is (= #{:real-setup} (get-in plan [:world :fidelity])))))
+    (testing "a source that declares its own decorators keeps them, and nothing is copied over them"
+      (is (= [[:story.login/theme]]
+             (:decorators (nth (read-upgrade :story.login/own-decorators :real-setup) 2)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; provenance summaries — source shown

@@ -550,7 +550,7 @@ extra plumbing.
                               `:decorators`, non-overridden args).
 - `:args`       (required) — the captured args map.
 - `:doc`        (optional) — docstring.
-- `:alias`      (optional) — short alias for the form (default `story`).
+- `:alias`      (optional) — short alias for the form (default `rf.story`, the canonical `re-frame.story` alias, so the form pastes and runs verbatim).
 
 Pure data → string; the emitted form is `read-string`-able and
 round-trips through re-frame's registrar machinery. Args keys render
