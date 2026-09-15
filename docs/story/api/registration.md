@@ -18,7 +18,7 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
 - **Description**: Register a story (a cluster of variants under one heading). `metadata` is an EDN map with `:doc`, `:component`, `:args`, `:tags`, `:decorators`, and optional `:variants` (Form B desugaring).
 - **Example**:
   ```clojure
-  (story/reg-story :story.counter
+  (rf.story/reg-story :story.counter
     {:doc       "The app counter."
      :component :app.ui/counter
      :args      {:label "Count"}})
@@ -34,7 +34,7 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
 - **Description**: Register one variant — view, `:args`, `:setup` events, decorators, `:script`. The single most-called macro in a typical stories namespace.
 - **Example**:
   ```clojure
-  (story/reg-variant :story.counter/at-five
+  (rf.story/reg-variant :story.counter/at-five
     {:component :app.ui/counter
      :setup     [[:counter/initialise 5]]})
   ```
@@ -91,7 +91,7 @@ The macros expand to their `*`-suffix runtime fns — `reg-story` expands to `(r
 The combined form `(reg-story id {:variants {...} ...})` desugars at macro-expansion time to N independent `reg-variant` calls plus the bare `reg-story`. This is the ergonomic shortcut for a story whose every variant is a thin override of the same parent body — the parent's `:component` / `:args` / `:decorators` flow into each variant by deep-merge.
 
 ```clojure
-(story/reg-story :story.counter
+(rf.story/reg-story :story.counter
   {:component :app.ui/counter
    :args      {:label "Count" :max 100}
    :variants  {:empty      {:setup [[:counter/initialise 0]]}
@@ -200,7 +200,7 @@ Reach for the `*` forms when authoring inside a higher-order fn, a fixture loade
 
 ## Canonical-vocabulary auto-install
 
-The canonical Story vocabulary auto-installs on the first `reg-*` call. Authors don't call `(story/install-canonical-vocabulary!)` explicitly; the boot is implicit, matching Storybook's ergonomic.
+The canonical Story vocabulary auto-installs on the first `reg-*` call. Authors don't call `(rf.story/install-canonical-vocabulary!)` explicitly; the boot is implicit, matching Storybook's ergonomic.
 
 The seven `reg-*` macros expand to their `*`-fn helpers, and the first call to ANY of those helpers flips a single boolean gate in `re-frame.story.canonical` and runs the installer chain: register the seven canonical tags, register the `:rf.assert/*` event handlers, register the `force-fx-stub` decorator, register the layout-debug decorator trio, register the toolbar cofx + subs, register the lifecycle machine, register the v1.0 SOTA panel set, and (CLJS only) register the multi-substrate Reagent default.
 
@@ -256,7 +256,7 @@ Layer 1 of the five-layer args precedence chain (global → story → mode → v
 The five-layer precedence diagram (later wins):
 
 ```
-1. global args      ← (story/configure! {:rf.story/global-args {...}})       — boot
+1. global args      ← (rf.story/configure! {:rf.story/global-args {...}})    — boot
 2. story args       ← :args on the parent (reg-story)                         — story default
 3. mode args        ← active :mode's :args (reg-mode)                          — saved tuple
 4. variant args     ← :args on the variant (reg-variant)                      — per-scenario
@@ -295,15 +295,15 @@ Worked example:
 
 ```clojure
 ;; Stub :http for a login-pending variant.
-(story/reg-variant :story.auth/login-pending
-  {:decorators [[story/force-fx-stub-id :http {:status :pending}]]
+(rf.story/reg-variant :story.auth/login-pending
+  {:decorators [[rf.story/force-fx-stub-id :http {:status :pending}]]
    :script     [[:dispatch [:auth/login]]
                 [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
 
 ;; Layout debug a button variant.
-(story/reg-variant :story.button/pressed
-  {:decorators [[story/layout-debug-outline-id]
-                [story/layout-debug-pseudo-id #{:hover}]]})
+(rf.story/reg-variant :story.button/pressed
+  {:decorators [[rf.story/layout-debug-outline-id]
+                [rf.story/layout-debug-pseudo-id #{:hover}]]})
 ```
 
 ## Privacy — variant-body classification
@@ -311,7 +311,7 @@ Worked example:
 A variant declares its sensitive / large app-db paths via the `:sensitive` / `:large` slots on its body, keyed by `:app-db`:
 
 ```clojure
-(story/reg-variant :story.auth/login-form
+(rf.story/reg-variant :story.auth/login-form
   {:component login-form
    :args      {:user/email "ada@example.com"
                :user/password "•••••"}
