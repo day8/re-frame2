@@ -181,11 +181,14 @@ and its provenance named.
 
 Both are declared before scoring and scored by the same rules.
 
-- **NEGATIVE — A1.** Installing into an existing app in the first session
-  must read **GAP** (`S < B`) while the doorstep is open: no scaffolder
-  (rf2-1bkoc, OPEN) and a repaired install page nobody has walked in a clean
-  consumer. If A1 reads anything else, the instrument is biased toward Story:
-  stop and re-read every WIN.
+- **NEGATIVE — A1**, scoped to installing into an app the template did not
+  generate. A1 must read **GAP** (`S < B`) while installing into an existing
+  app takes more ceremony than Storybook's one CLI and the install page is
+  unwalked in a clean consumer. A template-generated app is outside the
+  control; its zero-step path is credited in A1's row notes (§7). If A1
+  reads anything else, the instrument is biased toward Story: stop and
+  re-read every WIN. If the existing-app path ever reaches MATCH, the control
+  moves to another row, and the edit that moves it says so.
 - **DETECTION — B1.** A known, planted defect (a variant whose setup sets
   `:v` to 1 while its assertion expects 2) must be **detected by both
   products**: Story returns `:fail` with actual and expected on the record,
@@ -362,53 +365,59 @@ happens:
 
 ## 7. The current reading
 
-Every scored cell was measured at trunk `98e8ffe9cb` (2026-09-14). The JVM
-probes and the story-mcp loop were re-executed at `911c2fed80`, where the Story
-paths are byte-identical to those the research re-executed on. No row has been
-re-walked in a browser or a clean consumer since the pin, so **no score moves
-here** except B6's, re-scored in its row from JVM probes 6c and 6d re-executed
-at `2284727767`, after the Test-mode capture fix; its browser gesture is not
-re-walked. To be re-run by rf2-4gijz.
+The **pin** columns are the research reading at trunk `98e8ffe9cb`
+(2026-09-14). The **trunk** columns are rf2-4gijz's re-run at `138c08909f`
+(2026-09-15): a clean scratch consumer following the install page and chapter
+01, a headless browser walk of `:8043`, the four JVM probes and both story-mcp
+loops, all executed at that sha. The reference side was not re-executed:
+Storybook and its MCP and Vitest addons still read 10.6.0, so its cells are
+carried from the research reading, and the evidence column marks them. The run
+log, stall log and receipts are in
+[`fable/rerun-2026-09-15.md`](findings/parity-2026-09/fable/rerun-2026-09-15.md).
 
-**Categorical reading.** Adoption-blocking for a new user: A1 (no scaffolder;
-the repaired page unwalked) and A3 (unwalked). Adoption-blocking for the
-surpass thesis: B5's evidence gesture and B4's fragment pins. Ahead because of
-re-frame2: A4, B1, B4, B5 in data, B6, C2, C4. Match with a different shape:
-A2, A5, B2, B3, C1, X1, X3. Behind
-or unpaid: A1, A3, A7, B7, X2, C3. Unknown: a11y beyond one run, navigation at
-catalogue scale, determinism runs, the recorder as a capture path,
-`story:build` outside this repository (answered: exercised once in a scratch
-consumer, X2), and every comparative ergonomic claim (§9).
+**Categorical reading.** Adoption-blocking for a new user: A1 (an app the
+template did not generate: ceremony 9 against 2, and two stalls the install
+page is silent on). Adoption-blocking for the surpass thesis: none (B5's
+evidence gesture and B4's upgrade both walked in a browser). Ahead because of
+re-frame2: A4, B1, B4, B5, B6, C1, C2, C4. Match with a different shape: A2,
+A3, A5, B2, B3, X1, X3. Behind or unpaid: A1, A7, B7, X2, C3. Unknown:
+navigation at catalogue scale, the reference side at trunk (carried, not
+re-run), composed fragment pins and composed checks in a browser, and every
+comparative ergonomic claim (§9). Answered at this reading: a11y (0 violations
+and 0 incomplete on `/idle`), determinism runs (`:deterministic` on two
+`:test` variants) and the recorder as a capture path (its snippet compiles,
+but the recording does not auto-run and asserts nothing).
 
 Answered since the pin: `story/explain` lists no decorators, global or
 variant-level; `story/variant-plan` carries the resolved stack at
 `[:world :decorators]`, and Docs mode's Decorators table reads it in the same
-order (JVM probe at `2284727767`, PR #9822; re-run at `e4d07929c9`).
+order (JVM probe at `2284727767`, PR #9822; re-run at `e4d07929c9`; walked in
+a browser at `138c08909f`).
 
-| Job | w | Pin S / B | Pin status | Trunk status | Bead |
-|---|---|---|---|---|---|
-| A1 | 3 | 0.5 / 2 | GAP | Install page fixed (PR #9797), README and chapter 01 aligned (PR #9807); a fresh app from `tools/template` now reaches `#/stories` with zero Story edits on Reagent and UIx (PR #9821), ceremony 0 where it was 7 (8 with the props schema), while an app the template did not generate still follows the install page. Source-verified only, no clean-consumer walk, so not re-scored. | rf2-1bkoc (scaffolder, fixed) |
-| A2 | 3 | 2 / 2 | MATCH | Unchanged; not re-walked. | — |
-| A3 | 2 | 1 / 2 | UNDERMARKETED | The login views carry a props schema (PR #9800); source-verified only. | — |
-| A4 | 2 | 2 / 1 | WIN | The grid header counts rendered cells (PR #9795); source-verified only. | — |
-| A5 | 2 | 2 / 2 | MATCH | Unchanged. | — |
-| A6 | 1 | 2 / 1.5 | WIN | Unchanged. | — |
-| A7 | 1 | 0.5 / 1.5 | GAP | Chapter 02 says what a frame does not isolate (PR #9801); chrome no longer leaks text styles or its backdrop into the subject; document isolation otherwise unchanged (CSS rules, focus, portals, timers still shared), and the canvas is still a stamped `div` in one page; recorded, not to be built. | rf2-w72ij (ruled B) |
-| B1 | 3 | 2 / 1 | WIN | Unchanged; the detection control held on both sides. | — |
-| B2 | 3 | 2 / 2 | MATCH | `:plan-hash` and `:run-hash` attached (PR #9796); re-executed by probe 7 and the MCP loop. | — |
-| B3 | 2 | 2 / 2 | MATCH | Unchanged. | — |
-| B4 | 2 | 2 / 0.5 | WIN | The upgrade snippet parses and drops a single parent's pin (PRs #9803, #9810); re-executed by probe 5b; a pinning composed fragment is now dropped and named too (PR #9828), not re-probed. | rf2-yt6ak (fixed) |
-| B5 | 3 | 1.5 / 1 | WIN | The Tests-pane row became a button (PR #9795), and a real failed assertion's row now links to its own retained Evidence beat (PR #9830); not re-walked, so not re-scored. | rf2-v5p6l (fixed) |
-| B6 | 1 | 1 / 0 | WIN | Promotion carries the source's expectations (PR #9804), and the Test-mode dialog captures a variant whose `:script` dispatches nothing (PR #9819). Re-scored at `2284727767` from probes 6c and 6d, re-executed: every probed shape reads fail / pass / fail on both routes, so **S 1.5 / B 0, WIN**. Not 2, for one caveat at that re-score: checks a source composes through `:compose` were dropped on both routes; PR #9829 now carries them, not re-probed, so not re-scored. The browser dialog is not re-walked. | rf2-6h2z3 (fixed) |
-| B7 | 2 | 1 / 1.5 | TARGET (recorded freehand as GAP / TARGET) | The a11y panel and `read-a11y-violations` now report axe-core's incomplete checks beside violations (login-form `/idle`: 0 violations and 1 incomplete `color-contrast` rule on 5 nodes, panel and a direct `axe.run` agree); the visual assertion still compares the identity key, not pixels ([`017`](017-Testing-Story.md#visual-a11y-and-browser-checks)). | rf2-ia2if (experiment) |
-| C1 | 2 | 2 / 1.5 | WIN (recorded freehand as MATCH) | Re-executed by the MCP loop (19 tools). | — |
-| C2 | 3 | 2 / 1 | WIN | The skill leaf was corrected (PR #9798); re-executed by the MCP loop. | — |
-| C3 | 1 | 1 / 1 | DIVERGENT | Chapter 09 names the two hosts (PR #9801); source-verified only. | rf2-szjjx (host rule, OPEN) |
-| C4 | 2 | 1.5 / 0 | WIN | `explain` folds story-level args (PR #9799); re-executed by probe 7; the panel not re-walked. | — |
-| X1 | 1 | 2 / 2 | MATCH | Global decorators taught in chapter 07 as plan data (PR #9822); `story/explain` and the Explain panel do not list the decorator stack (JVM probe at `2284727767`, re-run at `e4d07929c9`), so the opacity bar is paid in the plan and in Docs mode, not in Explain. | — |
-| X2 | 1 | 1 / 2 | GAP | Consumer recipe documented (chapter 08 §Static builds; 013 §Downstream pattern) and exercised once in a scratch consumer outside this repository: release build, headless catalogue and deep link checked. Not re-scored. | rf2-0vwg7 |
-| X3 | 1 | 1 / 2 | DIVERGENT | Unchanged. | — |
-| X4 | — | — | OUT | — | — |
+| Job | w | Pin S / B | Pin status | Trunk S / B | Trunk status | Evidence S / B | Re-walked at `138c08909f` | Bead |
+|---|---|---|---|---|---|---|---|---|
+| A1 | 3 | 0.5 / 2 | GAP | 1 / 2 | GAP | ex / ex (pin) | Install page fixed (PR #9797) and walked in a clean consumer the template did not generate: `#/stories` renders, ceremony 9 against 2, and two stalls (restart the watch after the alias edit; branch the entry so the app does not render over the shell). A fresh app from `tools/template` reaches `#/stories` with zero Story edits on Reagent and UIx (PR #9821; source-verified, not walked). | rf2-1bkoc (template, fixed) |
+| A2 | 3 | 2 / 2 | MATCH | 2 / 2 | MATCH | ex / ex (pin) | Chapter 01's story file compiles and renders verbatim in the consumer. | — |
+| A3 | 2 | 1 / 2 | UNDERMARKETED | 2 / 2 | MATCH | ex / ex (pin) | A schema-derived `:heading` control with inline validation, on the testbed and in the consumer (PR #9800). | — |
+| A4 | 2 | 2 / 1 | WIN | 2 / 1 | WIN | ex / do | The grid header reads 5 beside 5 cells (PR #9795). | — |
+| A5 | 2 | 2 / 2 | MATCH | 2 / 2 | MATCH | ex / ex (pin) | The story rollup renders in Docs. | — |
+| A6 | 1 | 2 / 1.5 | WIN | 2 / 1.5 | WIN | ex / do | The share URL carries the variant and live control overrides. | — |
+| A7 | 1 | 0.5 / 1.5 | GAP | 0.5 / 1.5 | GAP | ex / do | Chrome text styles stop at the subject (PR #9827); a planted chrome rule still reaches the subject and all five grid cells. Recorded, not to be built. | rf2-w72ij (ruled B) |
+| B1 | 3 | 2 / 1 | WIN | 2 / 1 | WIN | ex / ex (pin) | The detection control held on Story's side in both story-mcp loops; the reference half was not re-run. | — |
+| B2 | 3 | 2 / 2 | MATCH | 2 / 2 | MATCH | ex / sx (pin) | Probe 7 and both story-mcp loops carry stable `:plan-hash` and `:run-hash` (PR #9796). | — |
+| B3 | 2 | 2 / 2 | MATCH | 2 / 2 | MATCH | ex (pin) / do | Not re-walked. | — |
+| B4 | 2 | 2 / 0.5 | WIN | 1.5 / 0.5 | WIN | ex / do | Probe 5b holds; the upgrade dialog's snippet compiles without the pin in an `rf.story`-aliased namespace, but under the tutorial's `story` alias it never registers (rf2-0ae7o.7): S 1.5. Fragment pins (PR #9828) not re-probed. | rf2-0ae7o.7 (alias, open) |
+| B5 | 3 | 1.5 / 1 | WIN | 2 / 1 | WIN | ex / sx (pin) | One click from a failed Tests row lands on that assertion's Evidence beat (PR #9830). | rf2-v5p6l (fixed) |
+| B6 | 1 | 1 / 0 | WIN | 1.5 / 0 | WIN | ex / do | Test-mode promotion walked for a dispatch-free and a dispatching script: each child fails under the fault, passes after the fix and fails when it returns (PRs #9804, #9819). Not 2: a recording does not auto-run and asserts nothing. Composed checks (PR #9829) not re-probed. | rf2-6h2z3 (fixed) |
+| B7 | 2 | 1 / 1.5 | TARGET | 1 / 1.5 | TARGET | ex / do | a11y on `/idle`: 0 violations and 0 incomplete, the panel and a direct `axe.run` agreeing. Chapter 08's local visual review ran end to end, and a CSS-only change differed on all 10 cases with every hash unchanged. Ceremony 5, so S stays 1. | rf2-ftiz4 (recipe, fixed) |
+| C1 | 2 | 2 / 1.5 | WIN | 2 / 1.5 | WIN | ex / do | `tools/list` returns 19. | — |
+| C2 | 3 | 2 / 1 | WIN | 2 / 1 | WIN | ex / do | Fail, read failures, re-register, pass, in both loops; PR #9798's leaf holds. | — |
+| C3 | 1 | 1 / 1 | DIVERGENT | 1 / 1 | DIVERGENT | ex (pin) / do | Not re-walked. | rf2-szjjx (host rule, OPEN) |
+| C4 | 2 | 1.5 / 0 | WIN | 1.5 / 0 | WIN | ex / — | The Explain panel shows ARGS and EFFECTIVE ARGS (PR #9799). Not 2: `explain` carries no decorators. | — |
+| X1 | 1 | 2 / 2 | MATCH | 2 / 2 | MATCH | ex / do | A global decorator is absent from `explain` and present in `variant-plan` and Docs mode (PR #9822). | — |
+| X2 | 1 | 1 / 2 | GAP | 1 / 2 | GAP | do / do | Not re-walked; the consumer recipe was exercised once before this reading. | rf2-0vwg7 |
+| X3 | 1 | 1 / 2 | DIVERGENT | 1 / 2 | DIVERGENT | st / do | Not re-walked. | — |
+| X4 | — | — | OUT | — | OUT | — | — | — |
 
 ## 8. The comparison set
 
@@ -453,9 +462,8 @@ re-run re-reads them at step 1.
 
 The categorical reading in §7 is the finding. The number exists so the rubric
 can be re-run and a second reader can check the arithmetic rather than
-re-argue it; no trunk figure is offered, because no row has been re-walked.
-Every input is a §7 cell or a row-ledger field (§3.4): the weights and pin
-scores are §7's, the evidence strengths are the ledger's
+re-argue it. Every input is a §7 cell or a row-ledger field (§3.4): the
+weights and scores are §7's, the evidence strengths are the ledger's
 [summary table](findings/parity-2026-09/fable/matrix.md#summary-table), and the
 cells each bound moves are named below and in the ledger's
 [totals](findings/parity-2026-09/fable/matrix.md#totals). Status labels do not
@@ -484,3 +492,12 @@ independent of the other, bring it to **1.00**:
   WIN row (S 2, B 1), Story reads 45 / 60 = 0.75 against the reference's
   45 / 60 = 0.75, a ratio of 1.00. A reader who rejects that design decision
   should read the ratio this way.
+
+At trunk `138c08909f` (rf2-4gijz's re-run), Story reads 70 / 82 = **0.85**
+weighted against the reference's carried 58 / 82 = **0.71**: a ratio of
+**1.21** (doorstep 0.84 against 0.89; substance 0.86 against 0.61). Five Story
+cells moved (A1, A3, B5 and B6 up; B4 down), and no reference cell was
+re-measured, so the rise overstates Story's position by however much the
+reference would gain from its own re-run. The same two corrections read 1.07
+(reference-generous, 65.5 / 82; 1.06 against Story's pessimistic 69.5 / 82,
+which docks X2 alone) and 1.09 (collapsed, 49 / 60 against 45 / 60).
