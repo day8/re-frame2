@@ -737,6 +737,11 @@ the hash includes:
   — pinned subscription outputs the renderer surfaces, the pre-script
   app-db seed, and the stubbed HTTP replies a fetch-on-mount view settles
   to (rf2-9zj0nc)
+- The same render-input slots of each registered fragment the variant's
+  `:compose` names, in declared order, because
+  [017 §Strict composition](017-Testing-Story.md#strict-composition) folds
+  them into the variant's world; a variant composing no such input keeps
+  the identity it had (rf2-pt0d1)
 - Parent story `:component` id (the story-level default, via
   `re-frame.story.identity/story-body-slice`)
 - Parent story decorators

@@ -382,9 +382,11 @@ hash (per `re-frame.story.identity/snapshot-identity` + IMPL-SPEC
 produces a fresh hash. The watch hash also folds in the variant's own
 `:assertions` / `:checks` / `:compose` / `:extends` — slots that decide
 what a run judges, which identity leaves out because it hashes render
-inputs — so an expectation-only edit re-runs the variant without changing
-its snapshot identity. Cosmetic edits (docstring, `:source` coords)
-do not contribute. (Per rf2-bgwnf — the slice was previously keyed on
+inputs — and the registrations those slots name: each composed fragment
+or check, each `:extends` ancestor, and each check the variant names or
+inherits. So an expectation-only edit, or an edit to a registration the
+variant reaches only by reference, re-runs the variant. Cosmetic edits
+(docstring, `:source` coords) do not contribute. (Per rf2-bgwnf — the slice was previously keyed on
 the removed `:play` slot, so play edits silently failed to perturb the
 hash; the slice now reads `:script` / `:plays`.)
 
