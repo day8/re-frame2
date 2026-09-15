@@ -148,6 +148,27 @@
       (is (not (some #{:story.x/b} testable)))
       (is (not (some #{:story.x/c} testable))))))
 
+(deftest testable-variant-ids-counts-declarative-expectations
+  (testing "rf2-uiihg: a :test variant whose only tests are declarative
+            :assertions or :checks is testable beside a :script control;
+            empty expectation vectors and a non-:test tag still prune"
+    (rf.story/reg-check :story.x/c-is-zero
+      {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.x/assertions-only
+      {:tags #{:test} :setup [] :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.x/checks-only
+      {:tags #{:test} :setup [] :checks [:story.x/c-is-zero]})
+    (rf.story/reg-variant :story.x/script
+      {:tags #{:test} :setup []
+       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+    (rf.story/reg-variant :story.x/empty-expectations
+      {:tags #{:test} :setup [] :assertions [] :checks []})
+    (rf.story/reg-variant :story.x/dev-assertions
+      {:tags #{:dev} :setup [] :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (is (= [:story.x/assertions-only :story.x/checks-only :story.x/script]
+           (rf.story.ui.state/testable-variant-ids
+             (rf.story.registrar/registrations :variant))))))
+
 (deftest testable-variant-ids-empty-on-no-registrations
   (testing "no :test variants → empty seq, widget renders 'no :test variants'"
     (is (empty? (rf.story.ui.state/testable-variant-ids {})))))
