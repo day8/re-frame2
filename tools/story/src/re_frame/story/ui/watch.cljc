@@ -5,7 +5,9 @@
   the shell polls `compute-testable-content-hashes` every 500ms, diffs it
   against the recorded `[:tests :content-hashes]` slot, and re-runs the
   variants whose watch hash drifted — snapshot identity plus the slots that
-  decide what a run judges (`judged-slots`, rf2-dt9xf).
+  decide what a run judges (`judged-slots`, rf2-dt9xf) and the
+  registrations the variant reaches by reference
+  (`referenced-registrations`, rf2-pt0d1).
 
   This leaf hosts ONLY the pure-ish compute + its cache — it requires
   neither `shell` nor `sidebar`, so BOTH can consume it without a load
@@ -80,14 +82,56 @@
   in the cache key already covers them."
   [:assertions :checks :compose :extends])
 
+(defn- without-cosmetics
+  "A registration body minus what spec/009 §Watch mode calls cosmetic: its
+  `:doc`, and the `:source` coords every re-registration restamps."
+  [body]
+  (some-> body (dissoc :doc :source)))
+
+(defn- extends-ancestors
+  "`body`'s `:extends` ancestors, nearest first, as `[id body]` pairs. An
+  unregistered parent or a cycle ends the walk; plan construction refuses
+  both with its own error."
+  [body]
+  (loop [pid (:extends body) seen #{} acc []]
+    (let [parent (when (and pid (not (contains? seen pid)))
+                   (rf.story.registrar/handler-meta :variant pid))]
+      (if parent
+        (recur (:extends parent) (conj seen pid) (conj acc [pid parent]))
+        acc))))
+
+(defn- referenced-registrations
+  "The registrations a run of `body` reads by reference (rf2-pt0d1), each
+  `without-cosmetics`: every fragment or check its `:compose` names, every
+  `:extends` ancestor (whose world and `:checks` flow down, spec/017
+  §`:extends`), and every check it names or receives from one. An edit to
+  any of them can change the verdict without touching the variant's own
+  body. An ancestor is hashed whole, so an edit to one of its own
+  non-inherited slots re-runs the child too: a spare re-run, never a
+  missed one. They are Story side-table registrations, so the registrar
+  tick in the cache key already covers them. One lookup per id and per
+  ancestor; no plan compile."
+  [body]
+  (let [ancestors (extends-ancestors body)
+        lookup    (fn [kind id]
+                    (without-cosmetics (rf.story.registrar/handler-meta kind id)))]
+    {:compose (mapv (fn [id] [id (or (lookup :fragment id) (lookup :check id))])
+                    (:compose body))
+     :extends (mapv (fn [[id ancestor]] [id (without-cosmetics ancestor)])
+                    ancestors)
+     :checks  (mapv (fn [id] [id (lookup :check id)])
+                    (distinct (mapcat :checks (cons body (map second ancestors)))))}))
+
 (defn- watch-hash
-  "The watch hash for `vid`: its snapshot-identity content hash plus its
-  `judged-slots`, hashed through the one canonical fingerprint primitive."
+  "The watch hash for `vid`: its snapshot-identity content hash, its
+  `judged-slots` and its `referenced-registrations`, hashed through the one
+  canonical fingerprint primitive."
   [vid opts]
-  (rf.story.fingerprint/content-hash
-    {:snapshot-identity (:content-hash (rf.story.identity/snapshot-identity vid opts))
-     :judged            (select-keys (rf.story.registrar/handler-meta :variant vid)
-                                     judged-slots)}))
+  (let [body (rf.story.registrar/handler-meta :variant vid)]
+    (rf.story.fingerprint/content-hash
+      {:snapshot-identity (:content-hash (rf.story.identity/snapshot-identity vid opts))
+       :judged            (select-keys body judged-slots)
+       :referenced        (referenced-registrations body)})))
 
 (defn compute-testable-content-hashes
   "Walk the registered testable variants and return a `{variant-id →
@@ -97,8 +141,9 @@
   slots plus the parent story's slice, the view's registered schema-
   digest, AND the variant's resolved effective args (which fold in the
   user's live `:cell-overrides`) — see `re-frame.story.identity` §What's in
-  the hash + /spec/007-Stories.md §Variant snapshot identity. The other
-  half is the variant's `judged-slots`.
+  the hash + /spec/007-Stories.md §Variant snapshot identity (which now
+  includes composed fragments' render inputs). The rest is the variant's
+  `judged-slots` and its `referenced-registrations`.
 
   HOT PATH (rf2-zrswb): the registrar-driven cache short-circuits when
   none of the five perturbing inputs (registrar tick, `:active-modes`,
