@@ -7,10 +7,11 @@
   Xray registers `trace-collector/seed-trace-for-test!` as the
   `:rf.xray/trace-collector` callback at preload time. Whenever a
   `:sensitive?` trace event arrives, `collect-trace!` calls
-  `config/note-suppressed!`, which itself dispatches
-  `:rf.xray/note-sensitive-suppressed` into the `:rf/xray` frame so
-  the reactive `[● REDACTED N]` indicator updates on the standard
-  app-db-write path (rf2-0vxdn).
+  `config/note-suppressed!`, which schedules a task-coalesced
+  `:rf.xray/note-sensitive-suppressed` into the `:rf/xray` frame (one
+  per task, not one per event — rf2-p03xh) so the reactive
+  `[● REDACTED N]` indicator updates on the standard app-db-write path
+  (rf2-0vxdn).
 
   Pre-fix that dispatch was the root of an infinite loop because the
   bookkeeping handler's `:rf.event/dispatched` trace would re-enter the
@@ -62,9 +63,9 @@
      :post-reset
      (fn []
        (registry/register-xray-handlers!)
-       ;; Allocate the :rf/xray frame so `note-suppressed!`'s dispatch
-       ;; guard passes. Without the frame, `note-suppressed!` skips the
-       ;; dispatch entirely — which would mask the loop scenario.
+       ;; Allocate the :rf/xray frame so the counter's coalesced drain
+       ;; finds its frame. Without it the drain dispatches nothing —
+       ;; which would mask the loop scenario.
        (rf/make-frame {:id :rf/xray})
        ;; Re-install the trace collector. The reset tier above cleared it.
        (preload/register-trace-collector!)
@@ -261,3 +262,32 @@
               (rf.error-emit/unregister-error-listener! ::drain-depth-spy)
               (done))))
         100))))
+
+(deftest one-dispatch-carries-every-frame-that-changed-in-the-task
+  (testing "rf2-p03xh — the pending counts are keyed by FRAME-ID, so the one
+            dispatch carries each frame's count for the task (nil folded to
+            `:global`) rather than collapsing them into a single bucket."
+    (let [baseline (xray-queue-depth)]
+      (dotimes [_ 3] (config/note-suppressed! :app/main))
+      (config/note-suppressed! :app/sidebar)
+      (config/note-suppressed! nil)
+      (is (= baseline (xray-queue-depth))
+          "a bump does not itself enqueue — the dispatch waits for the drain")
+      (is (= {:app/main 3 :app/sidebar 1 :global 1}
+             (config/drain-suppressed-counts!))
+          "the drain reports every frame's count for the task")
+      (is (= (inc baseline) (xray-queue-depth))
+          "three frames' counts cost ONE queue slot")
+      (is (= {} (config/drain-suppressed-counts!))
+          "the drain takes-and-clears, so nothing is dispatched twice"))))
+
+(deftest a-reset-drops-the-counts-noted-before-it
+  (testing "rf2-p03xh — `reset-suppressed-count!` clears the pending counts
+            along with the atom. Otherwise a bump noted before the reset would
+            be dispatched AFTER the reset's own dispatch and re-add the count
+            the reset had just cleared from the badge."
+    (config/note-suppressed! :app/main)
+    (config/reset-suppressed-count!)
+    (config/note-suppressed! :app/sidebar)
+    (is (= {:app/sidebar 1} (config/drain-suppressed-counts!))
+        "only the bump noted after the reset is still pending")))

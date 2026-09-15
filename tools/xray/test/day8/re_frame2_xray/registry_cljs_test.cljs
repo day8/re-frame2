@@ -1721,20 +1721,21 @@
   (testing ":rf.xray/suppressed-sensitive-count reads from Xray's
             app-db at `:suppressed-counters` (rf2-0vxdn) — first deref
             returns 0; each `:rf.xray/note-sensitive-suppressed`
-            dispatch re-fires the sub on the standard write path
+            dispatch carries one task's per-frame counts (rf2-p03xh)
+            and re-fires the sub on the standard write path
             (immediate reactive update, no clear-sub-cache!
             workaround required)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (is (= 0 @(rf/subscribe [:rf.xray/suppressed-sensitive-count]))
           "empty :suppressed-counters slot → total of 0")
-      (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed :rf/default])
-      (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed :rf/default])
+      (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed {:rf/default 2}])
       (is (= 2 @(rf/subscribe [:rf.xray/suppressed-sensitive-count]))
-          "two bumps via dispatch → sub returns 2 immediately")
-      (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed :rf/xray])
-      (is (= 3 @(rf/subscribe [:rf.xray/suppressed-sensitive-count]))
-          "different frame bucket bumps the same total")
+          "one dispatch carrying a task's two bumps → sub returns 2 immediately")
+      (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed {:rf/default 1
+                                                             :rf/xray    1}])
+      (is (= 4 @(rf/subscribe [:rf.xray/suppressed-sensitive-count]))
+          "a later task's counts ADD to the slot, across frame buckets")
       (rf/dispatch-sync [:rf.xray/reset-suppressed-counters])
       (is (= 0 @(rf/subscribe [:rf.xray/suppressed-sensitive-count]))
           "reset event drops every bucket"))))

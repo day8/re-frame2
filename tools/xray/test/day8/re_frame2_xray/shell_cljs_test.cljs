@@ -115,10 +115,14 @@
 
 (defn- note-suppressed!
   "Drive the redaction counter through the production reactive path
-  (rf2-0vxdn)."
-  [frame-id]
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed frame-id])))
+  (rf2-0vxdn): one `:rf.xray/note-sensitive-suppressed` carries a task's
+  per-frame counts (rf2-p03xh). The one-arg form is a task holding a single
+  bump; `n` delivers a burst of `n` bumps from one task."
+  ([frame-id] (note-suppressed! frame-id 1))
+  ([frame-id n]
+   (rf/with-frame :rf/xray
+     (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed
+                        {(or frame-id :global) n}]))))
 
 (defn- reset-suppressed!
   "Reset the redaction counter via the production event."
@@ -2184,9 +2188,10 @@
 
 (deftest redacted-indicator-overflow-renders-large-count
   (testing "no upper-bound clipping — the indicator renders the raw
-            count even at large values"
+            count even at large values. A 250-event burst in one task
+            arrives as ONE coalesced dispatch (rf2-p03xh)."
     (xray-setup!)
-    (dotimes [_ 250] (note-suppressed! :rf/default))
+    (note-suppressed! :rf/default 250)
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)
             node (find-by-testid tree "rf-xray-redacted-indicator")]

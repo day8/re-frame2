@@ -121,9 +121,10 @@ cover residual classes the frame gate misses:
    fails a frameless sub trace closed to `:sensitive? true`. So
    `collect-trace!`'s self-noise drop also takes any trace whose
    `:rf.sub/id` is in the `rf.xray` namespace or a sub-namespace —
-   otherwise each read would reach the privacy gate, count as a
-   redacted host event and cost a `:rf.xray/note-sensitive-suppressed`
-   dispatch into `:rf/xray` (rf2-izhgo). Pinned by
+   otherwise each read would reach the privacy gate and count as a
+   redacted host event (rf2-izhgo; before rf2-p03xh coalesced the
+   counter's dispatch, each read also cost its own
+   `:rf.xray/note-sensitive-suppressed` dispatch into `:rf/xray`). Pinned by
    `xray-own-frameless-sub-reads-cost-no-queue-slot`, with the host-sub
    control `control-a-host-frameless-sub-read-is-still-redacted`, in
    `sensitive_trace_loop_cljs_test.cljs`.
@@ -220,12 +221,15 @@ per-frame count. The counter is exposed under
 `:rf.xray/suppressed-sensitive-count` (a layer-1 sub reading
 `:suppressed-counters` off Xray's app-db).
 
-`config/note-suppressed!` dispatches `:rf.xray/note-sensitive-
-suppressed` into `:rf/xray` so the sub fires on the standard app-db
-write path — the bottom-rail indicator updates IMMEDIATELY on every
-bump, with no dependency on sibling subs recomputing. The plain
-`config/suppressed-counters` atom remains as the JVM-runnable data
-primitive for testing.
+`config/note-suppressed!` bumps the plain `config/suppressed-counters`
+atom (the JVM-runnable data primitive for testing) on every suppressed
+event, and schedules a task-coalesced
+`:rf.xray/note-sensitive-suppressed` into `:rf/xray` carrying that
+task's per-frame counts, so the sub fires on the standard app-db write
+path within one task, with no dependency on sibling subs recomputing.
+It is one dispatch per task, never one per bump (rf2-p03xh), so a host
+burst of sensitive traces cannot carry `:rf/xray`'s queue past the
+router's drain depth.
 
 Counters MUST reset alongside the trace surface; see
 [§Retroactive scrub](#retroactive-scrub-on-profile-narrowing) below.

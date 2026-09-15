@@ -496,9 +496,10 @@
     ;;
     ;; The counter lives in Xray's app-db at
     ;; `:suppressed-counters` ({frame-id → count}); `config/note-
-    ;; suppressed!` dispatches `:rf.xray/note-sensitive-suppressed`
-    ;; in CLJS, so the sub fires on the standard app-db-write
-    ;; reactive path and the bottom-rail re-renders IMMEDIATELY —
+    ;; suppressed!` schedules ONE `:rf.xray/note-sensitive-suppressed`
+    ;; per task in CLJS, carrying that task's per-frame counts
+    ;; (rf2-p03xh), so the sub fires on the standard app-db-write
+    ;; reactive path and the bottom-rail re-renders within one task —
     ;; no dependency on sibling subs recomputing. The plain
     ;; `config/suppressed-counters` atom remains as the JVM-runnable
     ;; data primitive (sensitive_trace CLJC tests + the JVM-runnable
@@ -1109,17 +1110,21 @@
       (fn [{:keys [db]} [_ buffer]]
         {:db (assoc db :trace-buffer (vec buffer))}))
 
-    ;; Bump the per-frame suppressed-events counter.
-    ;; Dispatched from `trace-collector/collect-trace!` (CLJS) under
-    ;; `:rf/xray` whenever the privacy gate drops a `:sensitive? true`
-    ;; trace event. `frame-id` is the event's `:tags :frame` (the host
-    ;; frame the trace targeted); `nil` falls under `:global`. Drives
+    ;; Add one task's suppressed-event counts to the per-frame counter.
+    ;; Dispatched at most once per task, under `:rf/xray`, by
+    ;; `config/note-suppressed!`'s coalesced drain (CLJS, rf2-p03xh) —
+    ;; the collector calls that whenever the privacy gate drops a
+    ;; `:sensitive? true` trace event. `counts` maps each event's
+    ;; `:tags :frame` (the host frame the trace targeted, `nil` already
+    ;; folded to `:global`) to how many were dropped in that task. The
+    ;; handler ADDS rather than overwriting with the atom's totals, so a
+    ;; palette reset of this slot alone keeps counting from zero. Drives
     ;; the bottom-rail `[● REDACTED N]` indicator via the
     ;; `:rf.xray/suppressed-sensitive-count` sub — fully reactive.
     ;;
     ;; `:rf.trace/no-emit? true` opts the handler out of
-    ;; framework trace emission. Without this, the dispatch fired by
-    ;; `trace-collector/collect-trace!` would itself emit
+    ;; framework trace emission. Without this, the dispatch fired on
+    ;; the collector's behalf would itself emit
     ;; `:rf.event/dispatched` etc. back through the trace-cb fan-out,
     ;; the collector would see
     ;; its own self-emit, and the event-bundle would loop until
@@ -1129,9 +1134,8 @@
     ;; guard is needed.
     (rf/reg-event :rf.xray/note-sensitive-suppressed
       {:rf.trace/no-emit? true}
-      (fn [{:keys [db]} [_ frame-id]]
-        {:db (update-in db [:suppressed-counters (or frame-id :global)]
-                   (fnil inc 0))}))
+      (fn [{:keys [db]} [_ counts]]
+        {:db (update db :suppressed-counters #(merge-with + % counts))}))
 
     ;; Reset the suppressed-events counter. With no arg,
     ;; clears every bucket; with a `frame-id`, drops just that bucket.
