@@ -40,14 +40,14 @@
 ;; ---- pure: variant-has-tests? -------------------------------------------
 
 (defn variant-has-tests?
-  "True iff `variant-id`'s registered body has something to run — a
-  non-empty `:script` / `:plays` play surface OR a non-empty declarative
-  `:assertions` / `:checks` slot. Used by the pane to gate between the
-  run-and-render path and the empty-state placeholder.
+  "True iff `variant-id`'s registered body has something to run, as
+  `rf.story.ui.state.tests/variant-body-has-tests?` defines it. Used by the
+  pane to gate between the run-and-render path and the empty-state
+  placeholder.
 
-  Delegates to `rf.story.ui.state.tests/variant-body-has-tests?`, the
-  SAME predicate `testable-variant-ids` (sidebar dots, Run all) filters
-  on, so the Tests pane and Run all agree on what is a test (rf2-uiihg).
+  That is the SAME predicate `testable-variant-ids` (sidebar dots, Run all)
+  filters on, so the Tests pane and Run all agree on what is a test
+  (rf2-uiihg).
 
   Pure data → data; JVM-testable."
   [variant-id]
