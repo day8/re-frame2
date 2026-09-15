@@ -48,6 +48,7 @@
             [re-frame.story.identity  :as rf.story.identity]
             [re-frame.story.loaders   :as rf.story.loaders]
             [re-frame.story.runtime   :as rf.story.runtime]
+            [re-frame.story.ui.watch  :as rf.story.ui.watch]
             ;; EP-0023 behaviour-variant image fixtures (rf2-fpr0b5): two
             ;; namespaces register the SAME event id with DIFFERENT meanings;
             ;; a variant's `:images` `:select-ns` selects one or the other.
@@ -805,6 +806,94 @@
         {:extends :story.id-no-inherit/ext-script})
       (is (= [{:db-seed {:n 1}} {:setup [[:n/set 2]]}]
              (:inherited (rf.story.identity/snapshot-tuple :story.id-no-inherit/ext-ext)))))))
+
+;; ---- rf2-38gqa: authored `:fx-overrides` ----------------------------------
+;;
+;; spec/017 §The effect-override surface makes `:fx-overrides` a first-class
+;; world input on a variant or fragment body, and §`:extends` passes it down.
+;; Identity selected it in none of its slices, so pointing an override at a
+;; different effect changed the settled app-db and the verdict while the hash
+;; stayed put. On the variant's own body the watch hash stayed put too, so
+;; watch mode kept the old verdict.
+
+(def ^:private fx-override-body
+  {:tags       #{:test}
+   :setup      [[:test.id-fx/start]]
+   :assertions [[:rf.assert/path-equals [:n] 1]]})
+
+(defn- fx-override-run
+  "Snapshot identity, watch hash, verdict and settled `:n` of `vid`."
+  [vid]
+  (let [id-hash (:content-hash (rf.story/snapshot-identity vid))
+        watch   (get (rf.story.ui.watch/compute-testable-content-hashes) vid)
+        r       (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)]
+    (rf.story/destroy-variant! vid)
+    {:id-hash id-hash :watch watch :status (:status r) :n (-> r :app-db :n)}))
+
+(defn- fx-override-edit
+  "Point `:test.id-fx/resolve` at `:test.id-fx/one` through `place!` and run
+  `vid`, then point it at `:test.id-fx/two` and run again. The two effects
+  settle `:n` to 1 and 2, so only the second run fails. Returns
+  `[before after]`."
+  [vid place!]
+  (rf/reg-event :test.id-fx/put (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+  (rf/reg-event :test.id-fx/start (fn [_ _] {:fx [[:test.id-fx/resolve {}]]}))
+  (rf/reg-fx :test.id-fx/resolve (fn [_ _] nil))
+  (rf/reg-fx :test.id-fx/one (fn [ctx _] (rf/dispatch [:test.id-fx/put 1] {:frame (:frame ctx)})))
+  (rf/reg-fx :test.id-fx/two (fn [ctx _] (rf/dispatch [:test.id-fx/put 2] {:frame (:frame ctx)})))
+  (place! {:test.id-fx/resolve :test.id-fx/one})
+  (let [before (fx-override-run vid)]
+    (place! {:test.id-fx/resolve :test.id-fx/two})
+    [before (fx-override-run vid)]))
+
+(deftest snapshot-identity-changes-with-own-fx-overrides
+  (testing "rf2-38gqa — editing the variant's own `:fx-overrides` flips its
+            verdict, so it moves both snapshot identity and the watch hash"
+    (let [vid            :story.id-fx/own
+          place!         (fn [ovr]
+                           (rf.story/reg-variant vid (assoc fx-override-body :fx-overrides ovr)))
+          [before after] (fx-override-edit vid place!)]
+      (is (= [:pass 1 :fail 2] [(:status before) (:n before) (:status after) (:n after)])
+          "the override decides the settled app-db and the verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and a fresh watch hash, so watch mode re-runs the variant")
+      (testing "re-registering the same body moves neither hash"
+        (place! {:test.id-fx/resolve :test.id-fx/two})
+        (is (= after (fx-override-run vid)))))))
+
+(deftest snapshot-identity-changes-with-composed-fx-overrides
+  (testing "rf2-38gqa — editing the `:fx-overrides` of a fragment the variant
+            `:compose`s flips its verdict and moves its snapshot identity"
+    (let [vid            :story.id-fx/composed
+          place!         (fn [ovr]
+                           (rf.story/reg-fragment :fragment.id-fx/world {:fx-overrides ovr})
+                           (rf.story/reg-variant vid
+                             (assoc fx-override-body :compose [:fragment.id-fx/world])))
+          [before after] (fx-override-edit vid place!)]
+      (is (= [:pass 1 :fail 2] [(:status before) (:n before) (:status after) (:n after)])
+          "the fragment's override decides the settled app-db and the verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and the watch hash still moves through the fragment reference"))))
+
+(deftest snapshot-identity-changes-with-inherited-fx-overrides
+  (testing "rf2-38gqa — editing the `:fx-overrides` of an `:extends` ancestor
+            flips the child's verdict and moves the child's snapshot identity"
+    (let [vid            :story.id-fx/child
+          place!         (fn [ovr]
+                           (rf.story/reg-variant :story.id-fx/parent {:fx-overrides ovr})
+                           (rf.story/reg-variant vid
+                             (assoc fx-override-body :extends :story.id-fx/parent)))
+          [before after] (fx-override-edit vid place!)]
+      (is (= [:pass 1 :fail 2] [(:status before) (:n before) (:status after) (:n after)])
+          "the inherited override decides the settled app-db and the verdict")
+      (is (not= (:id-hash before) (:id-hash after))
+          "so editing it must produce a fresh child snapshot identity")
+      (is (not= (:watch before) (:watch after))
+          "and the watch hash still moves through the ancestor reference"))))
 
 ;; ---- rf2-8fz0n8: the STORY-side identity inputs (story-body-slice) --------
 ;;
