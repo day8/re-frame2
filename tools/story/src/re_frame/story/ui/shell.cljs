@@ -33,9 +33,10 @@
 
   ## Hot-reload trigger
 
-  Per `003-Render-Shell.md` §Shell lifecycle the shell watches the variant /
-  decorator fingerprints from `re-frame.story.decorators/
-  resolution-fingerprints` and bumps `:hot-reload-tick` when they drift.
+  Per `003-Render-Shell.md` §Shell lifecycle the shell watches each running
+  variant's decorator fingerprints (`re-frame.story.decorators/
+  resolution-fingerprints`) and its own body's snapshot-identity content
+  hash, and bumps `:hot-reload-tick` when either drifts.
   The canvas / workspace components watch the tick and re-mount the
   variant on change.
 
@@ -109,29 +110,42 @@
 ;; ---- hot-reload trigger --------------------------------------------------
 
 (defn- compute-fingerprint-snapshot
-  "Walk every running variant frame and capture its current decorator
-  fingerprint map. Pure data → data.
+  "Walk every running variant frame and capture what a hot reload can make
+  stale in it: `{:decorators <decorator fingerprint map> :body <hash>}`.
+  Pure data → data.
 
   rf2-eyrpr — thread each frame's per-run opts (`:active-modes` +
   per-variant `:cell-overrides`) into `resolution-fingerprints` so the
   plan compile that yields the decorator ref list substitutes `[:arg]`
   keys resolvable only through a mode / cell layer rather than throwing
   on the 500ms hot-reload poll. Fingerprints are body-derived and run-
-  layer-invariant; the opts only let the ref collection's compile succeed."
+  layer-invariant; the opts only let the ref collection's compile succeed.
+
+  rf2-0ae7o.14 — `:body` is the variant's snapshot-identity content hash,
+  the existing per-variant hash over its registered render inputs
+  (`re-frame.story.identity`), so an edit to a mounted variant's own
+  `:args`, `:setup`, `:script` and the rest re-mounts it, while a hot
+  reload that re-registers it unchanged (only its `:source` / `:doc` move)
+  does not. It is taken WITHOUT the run layers on purpose: a control edit or
+  mode toggle already re-runs the canvas through `run-key`, and folding
+  those layers in here would re-run it a second time on the next poll. Its
+  effective-args read falls back instead of throwing, so it needs no opts
+  to be safe on the poll."
   []
   (let [shell        (rf.story.ui.state/get-state)
         active-modes (:active-modes shell)]
     (into {}
           (map (fn [vid]
-                 [vid (rf.story.decorators/resolution-fingerprints
-                        vid
-                        {:active-modes   active-modes
-                         :cell-overrides (get-in shell [:cell-overrides vid])})]))
+                 [vid {:decorators (rf.story.decorators/resolution-fingerprints
+                                     vid
+                                     {:active-modes   active-modes
+                                      :cell-overrides (get-in shell [:cell-overrides vid])})
+                       :body       (:content-hash (rf.story.runtime/snapshot-identity vid))}]))
           (rf.story.frames/variant-frames))))
 
 (defn- existing-frame-fingerprint-drift?
-  "True when a frame that was present on the previous poll now reports
-  different decorator fingerprints.
+  "True when a frame that was present on the previous poll now reports a
+  different fingerprint entry — its decorator stack or its own body.
 
   New frames are not hot-reload drift: they were just allocated by
   selection/canvas and already ran with the current registry. Treating
@@ -259,7 +273,7 @@
 
 (defn- poll-tick!
   "One pass of the shell's polling interval. Runs the fingerprint
-  detector (decorator drift → bump `:hot-reload-tick`) followed by the
+  detector (decorator or own-body drift → bump `:hot-reload-tick`) followed by the
   watch-mode detector (per-testable-variant watch-hash drift →
   dispatch `rf.story.ui.sidebar/watch-rerun!` when watch mode is on). Two
   detectors, one cadence — each guarded on its own, so a throw in one
