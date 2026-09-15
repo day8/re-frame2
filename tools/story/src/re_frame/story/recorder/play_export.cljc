@@ -490,7 +490,9 @@
 (defn render-variant-form
   "Render a full `(reg-variant <id> {:script {...}})` form the user
   pastes into source. `variant-id` defaults to
-  `:story.recorded/play-export`; `alias` defaults to `\"story\"`.
+  `:story.recorded/play-export`; `alias` defaults to `\"rf.story\"`, the
+  canonical `re-frame.story` alias, so the form pastes and runs verbatim in
+  a stories namespace.
 
   The emitted body uses the `:script` slot (spec/017 §Public
   vocabulary), so pasted recorder output reads the way the docs teach
@@ -501,7 +503,7 @@
   registers cleanly via `re-frame.story/reg-variant`."
   [spec {:keys [variant-id alias extends]
          :or   {variant-id :story.recorded/play-export
-                alias      "story"}}]
+                alias      "rf.story"}}]
   (let [body (cond-> []
                extends (conj [":extends " (pr-str extends)])
                true    (conj [":script  " (render-script-body spec)]))

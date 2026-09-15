@@ -1961,7 +1961,9 @@
     :variant-id  required — keyword id for the new variant.
     :doc         optional — short docstring.
     :extends     optional — keyword id of a variant to `:extends`.
-    :alias       optional — short ns alias for the form (default `story`).
+    :alias       optional — short ns alias for the form (default `rf.story`,
+                 the canonical `re-frame.story` alias, so the form pastes
+                 and runs verbatim in a stories namespace).
 
   Empty `events` still produces a valid form (with an empty `:script []`)
   so the user sees the shape to fill in."

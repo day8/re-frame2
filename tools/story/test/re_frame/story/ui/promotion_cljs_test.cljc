@@ -196,7 +196,7 @@
     (let [art  (sample-artifact)
           snip (rf.story.ui.promotion/promotion-snippet art {:variant-id :story.x/regression-1
                                                 :tags #{:test}})]
-      (is (str/starts-with? snip "(story/reg-variant "))
+      (is (str/starts-with? snip "(rf.story/reg-variant "))
       (is (str/includes? snip ":story.x/regression-1"))
       (is (str/includes? snip ":run-artifact")
           "promotion always carries the source-artifact provenance link")
