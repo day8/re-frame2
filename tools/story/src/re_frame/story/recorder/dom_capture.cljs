@@ -403,17 +403,25 @@
             (flush-type-buffer! sel)))))))
 
 (defn- handle-submit!
-  "submit handler — best-effort form-submit capture. The translator
-  maps the recorded `[:dom/submit form-selector t]` to a
-  `[:click <submit-button>]` at export time when it can resolve
-  the form's submit button; otherwise it ships the form selector
-  + a hint."
+  "submit handler — best-effort capture of a form submission that no
+  recorded click represents. The translator maps the recorded
+  `[:dom/submit form-selector t]` to a `[:click <submit-button>]` at
+  export time when it can resolve the form's submit button; otherwise it
+  ships the form selector + a hint.
+
+  A submission carrying a `submitter` was fired by activating that submit
+  button — a click, or Enter's implicit submission, which the browser also
+  delivers as a click on the form's default button. The click listener has
+  already recorded that click, and replaying it submits the form again, so
+  such a submit is not recorded: it would add a `[:click <form>]` step
+  nobody performed (rf2-0ae7o.11)."
   [ev]
   (when (should-capture?)
     (when-let [el (.-target ev)]
       (flush-type-buffer!)
-      (when-let [sel (rf.story.recorder.selector/pick-for-element el)]
-        (record-dom-submit! sel)))))
+      (when-not (.-submitter ev)
+        (when-let [sel (rf.story.recorder.selector/pick-for-element el)]
+          (record-dom-submit! sel))))))
 
 ;; ---- install / remove --------------------------------------------------
 ;;
