@@ -194,6 +194,27 @@
     #(rf.story.plan/variant-plan
        source-id {:run-args (rf.story.args/run-arg-layers source-id run-opts)})))
 
+(defn- run-input-args
+  "The args the run inputs recorded on a capture supplied to `source-id`, at
+  the values the run resolved (rf2-rky08): each top-level key an active mode
+  or a cell override names, read off `plan`, the source compiled with those
+  inputs (`source-plan`). nil when nothing was recorded or `plan` is nil.
+
+  A promotion carries these as the body's own `:args`. The dialog's default
+  draft `:extends` the source, and `:setup` is inherited context whose
+  `[:arg]` placeholders re-substitute when the promoted variant compiles, so
+  without them it reads the source's defaults, not the input that ran. The
+  resolved value is carried rather than the raw input because the promoted
+  variant runs with neither the modes nor the overrides, so the variant layer
+  must hold what the full precedence fold produced."
+  [source-id run-opts plan]
+  (when (and plan (seq run-opts))
+    (let [{:keys [pre post]} (rf.story.args/run-arg-layers source-id run-opts)
+          ;; The two per-run layers: the active modes' args close `:pre`, and
+          ;; the cell overrides are `:post`.
+          supplied (into #{} (mapcat keys) (cons (peek pre) post))]
+      (not-empty (select-keys (get-in plan [:world :args]) supplied)))))
+
 (defn retained-program
   "The event program a promotion builds from: the source variant's FULL step
   program when `artifact` carries only its dispatch-only shadow, else the
@@ -415,7 +436,11 @@
     (`retained-program`).
   Both compile the source with the run inputs a Test-mode capture recorded
   (`[:source :run-opts]`), so an `[:arg]` a mode or cell override supplied
-  resolves to the value that ran (rf2-cml0h).
+  resolves to the value that ran (rf2-cml0h). Those inputs also ride the
+  body's `:args`, at the values the run resolved (`run-input-args`), so the
+  context a promotion inherits by `:extends`-ing its source — its `:setup`
+  above all — substitutes the input that ran rather than the source's
+  default (rf2-rky08).
   An artifact with no registered source is promoted exactly as captured.
   Registers nothing; the source is read from the Story side-table.
 
@@ -428,7 +453,8 @@
                  promoted variant can inherit a story's `:component` /
                  decorators / fixture args.
   - `:tags`    — a tag set for the curated variant.
-  - `:args`    — an args map for the curated variant.
+  - `:args`    — an args map for the curated variant, deep-merged over any
+                 carried run inputs, so an explicit arg wins.
 
   Slots the artifact carries that are not part of the variant surface are
   not copied — the body is a clean authoring surface, the artifact link
@@ -438,14 +464,17 @@
    (let [source-id     (source-variant-id artifact)
          source-body   (when source-id
                          (rf.story.registrar/handler-meta :variant source-id))
+         run-opts      (recorded-run-opts artifact)
+         plan          (when source-body (source-plan source-id run-opts))
          program       (retained-program artifact (when source-body source-id))
          {:keys [setup script]} (partition-program
                                   (assoc artifact :event-program program) opts)
          {:keys [assertions checks]} (source-expectations
                                        source-body
-                                       (when source-body
-                                         (source-plan source-id (recorded-run-opts artifact)))
+                                       plan
                                        (and (some? extends) (= extends source-id)))
+         run-args      (run-input-args source-id run-opts plan)
+         args          (if run-args (rf.story.args/deep-merge run-args args) args)
          network       (:network artifact)
          has-network?  (boolean (seq network))
          fx-overrides  (lift-fx-overrides (:fx-decisions artifact) has-network?)]

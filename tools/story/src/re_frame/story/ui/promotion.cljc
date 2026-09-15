@@ -131,7 +131,9 @@
   `[:arg]` the run substituted. They compile 3's program, and the artifact
   records them under `[:source :run-opts]` so promotion compiles the source
   with the same inputs: a required input stays capturable and an overridden
-  default stays the value that ran (rf2-cml0h). `play-events` must come from
+  default stays the value that ran (rf2-cml0h). Promotion also carries them
+  onto the promoted body's `:args`, so the `:setup` its default draft inherits
+  through `:extends` reads them too (rf2-rky08). `play-events` must come from
   the same opts, as `store-result!` compiles them. `:substrate` feeds no
   `[:arg]` and is not recorded. Without `run-opts` nothing is recorded and
   only the ambient arg layers compile in.
@@ -211,7 +213,8 @@
   `:setup`, behaviour-under-test on `:script` (per the projection rule),
   the trimmed source-artifact link on `:run-artifact` — plus the author's
   `:doc` / `:tags` / `:extends`, the run's `:network` / `:fx-overrides`
-  world, and the source's carried `:checks` (composed ones included) /
+  world and its mode / cell-override inputs as `:args`, and the source's
+  carried `:checks` (composed ones included) /
   `:assertions`. The snippet is the readable mirror of what
   the IMPURE promote call registers, so what the user reviews IS what gets
   committed."
