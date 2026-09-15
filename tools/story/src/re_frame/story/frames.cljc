@@ -18,7 +18,8 @@
        :preset       :story
        :rf/story?    true
        :rf/variant   <variant-id>
-       :fx-overrides {<fx-id> <stub-event-id>}}
+       :fx-overrides {<fx-id> <stub-event-id>}
+       :interceptor-overrides {<interceptor-id> <interceptor-ref>}}
 
   - `:preset :story` (spec/002 §Frame presets) sets `:drain-depth 16`
     + redirects `:rf.http/managed` to its canned stub, which is the
@@ -494,6 +495,7 @@
   Per spec/002 §Frame lifecycle the framework recognises:
     :preset :story
     :fx-overrides {...}
+    :interceptor-overrides {...}
     plus arbitrary user-stamped keys.
 
   Per `002-Runtime.md` §Per-variant frame allocation we stamp `:rf/story?` and `:rf/variant` so tools
@@ -510,8 +512,14 @@
   unreported — that is what keeps `re-frame.error-emit`'s dev console
   fallback quiet for Story's frames without silencing a host app's frames on
   the same page. Conj'd onto whatever `[:observability :errors]` entries are
-  already there, never replacing them."
-  [variant-id fx-overrides {:keys [image-ids]}]
+  already there, never replacing them.
+
+  rf2-0ae7o.8: `interceptor-overrides` is the compiled plan's
+  `[:world :frame :interceptor-overrides]`, installed under the framework's
+  per-frame `:interceptor-overrides` key beside `:fx-overrides`, so an
+  authored override swaps the interceptor in every dispatch the frame runs
+  (spec/017 §The interceptor-override surface)."
+  [variant-id fx-overrides {:keys [image-ids interceptor-overrides]}]
   (cond-> {:doc        (str "Variant frame for " variant-id ".")
            :preset     :story
            :rf/story?  true
@@ -519,6 +527,7 @@
     :always            (update-in [:observability :errors] (fnil conj [])
                                   {:sink rf.story.config/error-sink-id})
     (seq fx-overrides) (assoc :fx-overrides fx-overrides)
+    (seq interceptor-overrides) (assoc :interceptor-overrides interceptor-overrides)
     ;; EP-0023 §Stories — report the IMAGE ids this behaviour-variant frame
     ;; resolves behaviour against, on frame-meta, so Test mode / MCP / Xray can
     ;; surface which behaviour set ran. The actual image
@@ -711,7 +720,7 @@
 
   `world` (optional) is the ALREADY-COMPILED plan's `:world` — the SCENARIO
   this frame is allocated for, with `:extends` and `:compose` resolved. The
-  runtime (`run-phase-0!`) threads `(:world plan)`; three groups of slots are
+  runtime (`run-phase-0!`) threads `(:world plan)`; four groups of slots are
   read off it:
 
   - `:sensitive` / `:large` — the EFFECTIVE app-db classification
@@ -725,6 +734,9 @@
     redirect. They merge UNDER the decorator stack's materialised stubs (the
     plan map wins), exactly as `allocate-inline!` merges its own; without
     them an authored `:network` fixture reached the REAL transport.
+  - `[:frame :interceptor-overrides]` — the compiled interceptor overrides
+    (rf2-0ae7o.8), installed as the frame's `:interceptor-overrides`. Nothing
+    installed them before, so an authored override was silently ignored.
   - `:loaders` / `:loaders-complete-when` / `:loaders-teardown` — the RESOLVED
     loader world (rf2-gwye.5). The events-only classification is taken from
     it, so a variant that only `:extends` (or `:compose`s) a loader fixture
@@ -795,7 +807,9 @@
            config-map     (variant-frame-config
                             variant-id fx-overrides
                             (assoc (select-keys scenario [:sensitive :large])
-                                   :image-ids (keep image-id author-images)))
+                                   :image-ids (keep image-id author-images)
+                                   :interceptor-overrides
+                                   (get-in world [:frame :interceptor-overrides])))
            ;; Classify off the RESOLVED loader world: an inherited or composed
            ;; `:loaders` / `:loaders-complete-when` keeps the variant off the
            ;; events-only fast path, so its fixture actually runs (rf2-gwye.5).
@@ -884,7 +898,7 @@
   plan fails on purpose exactly as a variant does, and a frame Story
   allocated without the policy would be the one hole in
   \"every Story frame routes its refusals\"."
-  [frame-id fx-overrides]
+  [frame-id fx-overrides interceptor-overrides]
   (cond-> {:doc        (str "Inline-plan frame for " frame-id ".")
            :preset     :story
            :rf/story?  true
@@ -892,7 +906,8 @@
            :rf/variant frame-id}
     :always            (update-in [:observability :errors] (fnil conj [])
                                   {:sink rf.story.config/error-sink-id})
-    (seq fx-overrides) (assoc :fx-overrides fx-overrides)))
+    (seq fx-overrides) (assoc :fx-overrides fx-overrides)
+    (seq interceptor-overrides) (assoc :interceptor-overrides interceptor-overrides)))
 
 (defn allocate-inline!
   "Allocate an anonymous frame for an inline plan run (spec/017
@@ -902,8 +917,10 @@
     registered variant id);
   - `decorator-stack` — `rf.story.decorators/resolve-decorator-refs` over the plan's
     `[:world :decorators]` refs (the runtime resolves it upstream);
-  - `plan-fx-overrides` — the plan's `[:world :frame :fx-overrides]` lowered
-    map (e.g. the managed-HTTP stub the compiler folded `:network` into);
+  - `plan-frame` — the plan's `[:world :frame]` map, whose `:fx-overrides`
+    (the lowered map, e.g. the managed-HTTP stub the compiler folded
+    `:network` into) and `:interceptor-overrides` (rf2-0ae7o.8) are both
+    installed on the frame;
   - `events-only?` — whether the plan drives no loaders / frame-setup, so
     the lifecycle takes the `:pre-mount → :ready` fast-path;
   - `classification` (optional, 5-arity; rf2-cmjly3 finding 12) — the
@@ -946,15 +963,16 @@
   throw site between `rf/make-frame` and the `allocated?` flip
   (`rf.story.loaders/mount!` / `apply-frame-setup!`'s `:init` events) already shares
   it."
-  ([frame-id decorator-stack plan-fx-overrides events-only?]
-   (allocate-inline! frame-id decorator-stack plan-fx-overrides events-only? nil))
-  ([frame-id decorator-stack plan-fx-overrides events-only? classification]
+  ([frame-id decorator-stack plan-frame events-only?]
+   (allocate-inline! frame-id decorator-stack plan-frame events-only? nil))
+  ([frame-id decorator-stack plan-frame events-only? classification]
    (when rf.story.config/enabled?
      (install-canonical-frame-events!)
      (let [fx-stack     (rf.story.decorators/fx-overrides-map (:fx-override decorator-stack))
            decor-fx     (register-fx-overrides! fx-stack)
-           fx-overrides (merge decor-fx plan-fx-overrides)
-           config-map   (inline-frame-config frame-id fx-overrides)]
+           fx-overrides (merge decor-fx (:fx-overrides plan-frame))
+           config-map   (inline-frame-config frame-id fx-overrides
+                                             (:interceptor-overrides plan-frame))]
        (rf/make-frame (assoc config-map :id frame-id))
        (apply-variant-classification! frame-id classification)
        (if events-only?
