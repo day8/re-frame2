@@ -9,7 +9,9 @@ tool cannot observe the evidence it needs, it should say so plainly.
 
 The recorder watches the selected variant frame while you interact with the
 canvas. When you stop recording, Story produces EDN you can paste into a
-variant.
+variant. The recorder's dialogs emit a whole `rf.story/reg-variant` form, and
+it pastes and runs as-is in a stories namespace that requires
+`[re-frame.story :as rf.story]`.
 
 The loop is:
 
