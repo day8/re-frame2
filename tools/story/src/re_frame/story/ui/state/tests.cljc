@@ -14,9 +14,10 @@
   - `clear-test-run`            — drop a run record.
   - `variant-test-status`       — read the per-variant status keyword.
   - `test-summary`              — aggregate across an id-seq.
-  - `variant-body-has-tests?`   — the ONE body-level 'has tests'
-                                  predicate (a play surface OR a
-                                  declarative `:assertions` / `:checks`).
+  - `variant-body-has-tests?`   — the ONE 'has tests' predicate (a play
+                                  surface, a declarative `:assertions` /
+                                  `:checks`, or `:checks` received through
+                                  `:extends` / `:compose`).
   - `testable-variant-ids`      — derive the seq of `:test`-tagged
                                   variants that have tests.
   - `set-test-watch-mode`       — toggle the chrome watch-mode flag.
@@ -33,7 +34,8 @@
   ceiling without losing locality. The parent ns re-exports the
   public defs so existing consumer requires (`re-frame.story.ui.state`)
   keep working."
-  (:require [re-frame.story.verdict :as rf.story.verdict]))
+  (:require [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.verdict   :as rf.story.verdict]))
 
 ;; ---- test-runs -----------------------------------------------------------
 ;;
@@ -213,51 +215,80 @@
 (defn- non-empty-vector? [x]
   (and (vector? x) (seq x)))
 
+(defn- own-tests?
+  "The body's OWN slots: a non-empty `:script` (map or bare-vector form) or
+  `:plays`, or a non-empty `:assertions` / `:checks` vector."
+  [body]
+  (let [script (:script body)]
+    (or (cond
+          (map? script)    (seq (:script script))
+          (vector? script) (seq script)
+          :else            false)
+        (non-empty-vector? (:plays body))
+        (non-empty-vector? (:assertions body))
+        (non-empty-vector? (:checks body)))))
+
+(defn- received-checks?
+  "True iff `body` receives `:checks` it does not declare, by the two routes
+  the plan compiler merges into `[:expect :checks]` (spec/017 §Parent
+  chain): a `:compose` id naming a registered check, or an `:extends`
+  ancestor whose OWN `:checks` is non-empty. `:compose` is child-only, so an
+  ancestor's composed checks do not reach the child. One lookup per compose
+  id and per ancestor; an unknown parent or a cycle ends the walk (the
+  compiler refuses both with its own error)."
+  [body id->body]
+  (or (some #(rf.story.registrar/registered? :check %) (:compose body))
+      (loop [pid (:extends body) seen #{}]
+        (when (and pid (not (contains? seen pid)))
+          (let [parent (get id->body pid)]
+            (or (non-empty-vector? (:checks parent))
+                (recur (:extends parent) (conj seen pid))))))))
+
 (defn variant-body-has-tests?
-  "True iff a variant `body` declares something a run judges:
+  "True iff a variant `body` has something a run judges:
 
-  - a play surface — a non-empty `:script` (map `:script` or bare-vector
-    form) or a non-empty `:plays` vector (multi-play); OR
-  - a declarative expectation — a non-empty `:assertions` or `:checks`
-    vector (rf2-uiihg).
+  - a play surface — a non-empty `:script` or `:plays`; OR
+  - a declarative expectation of its own — a non-empty `:assertions` or
+    `:checks` vector (rf2-uiihg); OR
+  - `:checks` it receives from an `:extends` ancestor or through a
+    `:compose` of a check id (rf2-ckpm4).
 
-  spec/017 lowers `:assertions` / `:checks` into `[:expect …]`, and
-  `run-variant` evaluates them against the final settled state whether or
-  not a script ran, so a variant whose only tests are declarative is a
-  real test. This is the ONE body-level 'has tests' predicate:
+  spec/017 lowers `:assertions` / `:checks` into `[:expect …]`, merging the
+  inherited and composed check ids in, and `run-variant` evaluates them
+  against the final settled state whether or not a script ran, so each is
+  a real test. This is the ONE 'has tests' predicate:
   `testable-variant-ids` (chrome widget, sidebar dots, Run all, watch
   mode) and `test-mode.pure/variant-has-tests?` (the Tests pane) both call
   it, so they cannot disagree.
 
-  Reads the body's OWN slots — no plan compile — so the sidebar hot path
-  (rf2-dtj61) stays a predicate rather than a walk. Pure data → boolean."
-  [body]
-  (let [script (:script body)]
-    (boolean
-      (or (cond
-            (map? script)    (seq (:script script))
-            (vector? script) (seq script)
-            :else            false)
-          (non-empty-vector? (:plays body))
-          (non-empty-vector? (:assertions body))
-          (non-empty-vector? (:checks body))))))
+  Never compiles a plan, so the sidebar hot path (rf2-dtj61) stays a
+  predicate: the own slots first, then a lookup per `:compose` id and per
+  `:extends` ancestor. `id->body` resolves the chain; the 1-arity reads the
+  registered variants."
+  ([body]
+   (variant-body-has-tests? body (rf.story.registrar/registrations :variant)))
+  ([body id->body]
+   (boolean (or (own-tests? body)
+                (received-checks? body id->body)))))
 
 (defn testable-variant-ids
   "Return the seq of variant-ids tagged `:test`, in stable (alphabetical)
   order. The chrome widget + sidebar dots key off this seq.
 
   Variants are testable iff (a) their `:tags` contains `:test`, AND
-  (b) `variant-body-has-tests?` — they declare a play surface (`:script`
-  / `:plays`) or a declarative expectation (`:assertions` / `:checks`).
-  The second filter prunes variants tagged `:test` but with nothing to
-  run — those contribute neither to the headline counts nor to the
-  'Run all' iteration. Pure data → data; JVM-testable. `id->body` is the
-  `{variant-id → body}` map from `(registrar/registrations :variant)`."
+  (b) `variant-body-has-tests?` — a play surface, a declarative
+  expectation of their own, or `:checks` received through `:extends` /
+  `:compose`. The second filter prunes variants tagged `:test` but with
+  nothing to run — those contribute neither to the headline counts nor to
+  the 'Run all' iteration. JVM-testable. `id->body` is the
+  `{variant-id → body}` map from `(registrar/registrations :variant)` (the
+  sidebar passes `registry-snapshot`'s tag-resolved `:variants`); the
+  `:extends` chain resolves within it."
   [id->body]
   (->> id->body
        (filter (fn [[_ body]]
                  (and (contains? (or (:tags body) #{}) :test)
-                      (variant-body-has-tests? body))))
+                      (variant-body-has-tests? body id->body))))
        (map first)
        sort
        vec))
