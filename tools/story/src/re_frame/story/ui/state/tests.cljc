@@ -316,11 +316,11 @@
 ;; Storybook 9 ships a Vitest-addon watch-mode toggle (eye icon) that
 ;; re-runs the changed stories on file save. Story's parity surface is
 ;; this: an opt-in toggle on the chrome-level test widget that
-;; subscribes to per-variant snapshot-identity drift and re-fires
-;; `run-variant` for the variants whose identity changed. The detection
-;; signal is the variant's snapshot-identity content-hash
-;; (re-frame.story.identity/snapshot-identity); a delta against the
-;; recorded [:tests :content-hashes] slot triggers the re-run.
+;; subscribes to per-variant drift and re-fires `run-variant` for the
+;; variants that changed. The detection signal is the variant's watch hash
+;; (re-frame.story.ui.watch — its snapshot-identity content-hash plus the
+;; slots that decide what a run judges); a delta against the recorded
+;; [:tests :content-hashes] slot triggers the re-run.
 
 (defn set-test-watch-mode
   "Toggle/set the chrome-level watch-mode flag. When `on?` is true the
