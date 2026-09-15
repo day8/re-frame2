@@ -1754,6 +1754,86 @@
          distinct
          vec)))
 
+(defn optimistic-reach-lint
+  "Optimistic-reach lint (rf2-ynkzj): a settled optimistic mutation whose
+  patch reached a cache key that its settlement never did. The canonical
+  case is a favourite whose `:optimistic-tags` patch the viewer's feed while
+  its `:invalidates` forgets the feed descriptor — the feed stays on the
+  optimistic value, loaded and never marked stale, and nothing says so.
+
+  A set difference over records the runtime already emits: the
+  `:rf.mutation/optimistic-reconciled` `:optimistic-keys`, minus its
+  `:committed` keys and `:reconciliation-refetches`, minus the
+  `:affected-keys` on the `:rf.mutation/succeeded` settlement of the same
+  instance and work id (the union survives that settlement row having left
+  the buffer, since both reconcile facets are subsets of it).
+
+  A key in a scope the write-side `:rf.warning/mutation-scope-mismatch`
+  tripwire already named as `:other-scope` for the same mutation is left to
+  that warning: a wrong-scope descriptor gets one diagnostic, not two.
+
+  Informational and dedupe-keyed on `[mutation instance missing-keys]` (raw
+  keys, not their summaries), so a settled instance seen twice is one row:
+
+      [{:id           <reconciled trace id>
+        :mutation     :realworld/favorite-article
+        :instance     [:favorite \"welcome\"]
+        :missing-keys [<scoped-key-summary> …]
+        :hint         \"not reconciled — …\"}]
+
+  Leaving a value optimistic can be a deliberate authoring choice, so the
+  hint says what settlement did not reach rather than calling it a defect.
+  PRIVACY: the missing scoped keys are summarized. Pure; preserves order."
+  [trace-buffer]
+  (let [buffer (or trace-buffer [])
+        affected-by-work
+        (reduce (fn [acc ev]
+                  (if (= :rf.mutation/succeeded (trace-op ev))
+                    (let [tags (trace-tags ev)]
+                      (update acc [(:instance tags) (:work/id tags)]
+                              (fnil into #{}) (:affected-keys tags)))
+                    acc))
+                {} buffer)
+        warned-scopes
+        (into #{}
+              (comp (filter #(= :rf.warning/mutation-scope-mismatch (trace-op %)))
+                    (map trace-tags)
+                    (map (juxt :mutation :other-scope)))
+              buffer)
+        candidates
+        (keep (fn [ev]
+                (let [{:keys [mutation instance] :as tags} (trace-tags ev)
+                      reached (-> #{}
+                                  (into (:committed tags))
+                                  (into (:reconciliation-refetches tags))
+                                  (into (get affected-by-work [instance (:work/id tags)])))
+                      missing (->> (:optimistic-keys tags)
+                                   (remove reached)
+                                   (remove #(and (vector? %)
+                                                 (contains? warned-scopes [mutation (first %)])))
+                                   distinct
+                                   (sort-by pr-str)
+                                   vec)]
+                  (when (seq missing)
+                    {:dedupe-key   [mutation instance missing]
+                     :id           (:id ev)
+                     :mutation     mutation
+                     :instance     instance
+                     :missing-keys (mapv scoped-key-summary missing)
+                     :hint         (str "not reconciled — the optimistic patch reached "
+                                        (str/join ", " (map #(pr-str (when (vector? %) (second %)))
+                                                            missing))
+                                        " and this settlement did not populate, patch, remove or "
+                                        "invalidate " (if (= 1 (count missing)) "it" "them")
+                                        ", so the optimistic value stays until something reloads it.")})))
+              (filter #(= optimistic-reconcile-op (trace-op %)) buffer))]
+    (first
+      (reduce (fn [[rows seen] {:keys [dedupe-key] :as row}]
+                (if (contains? seen dedupe-key)
+                  [rows seen]
+                  [(conj rows (dissoc row :dedupe-key)) (conj seen dedupe-key)]))
+              [[] #{}] candidates))))
+
 ;; ---------------------------------------------------------------------------
 ;; Tool-accessor filtering (Spec 016 §Xray and AI tooling — the
 ;; list-resources / list-resource-instances / get-resource-state /

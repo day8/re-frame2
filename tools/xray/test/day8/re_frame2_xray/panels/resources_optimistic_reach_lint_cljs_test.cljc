@@ -240,7 +240,7 @@
     (testing "the existing write-side tripwire fires for the wrong scope"
       (is (some? warning))
       (is (= :m/favorite-wrong-scope (:mutation warning)))
-      (is (= session (:other-scope warning)))))
+      (is (= session (:other-scope warning))))
     (testing "the lint adds no second row for it"
       (is (empty? (h/optimistic-reach-lint trace))))
     (testing "because the warning covers that key: without it the lint would name the feed"

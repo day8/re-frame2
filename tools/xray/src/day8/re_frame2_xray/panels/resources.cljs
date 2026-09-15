@@ -1013,7 +1013,7 @@
 
 ;; ---- §8 SCOPE AUDIT + LINTS --------------------------------------------
 
-(defn- audit-section [{:keys [global-audit suspicious mismatches orphans]}]
+(defn- audit-section [{:keys [global-audit suspicious mismatches orphans optimistic-reach]}]
   (section
     {:first? false :testid "rf-xray-resources-audit"}
     (section-caption "Scope audit + lints" "rf-xray-resources-audit-caption")
@@ -1052,7 +1052,15 @@
                [:div {:key   (str (:owner o))
                       :style {:color (:warning tokens)}}
                 "orphaned owner " (pr-str (:owner o))
-                " pins " (str (:resource-id o))])))]))
+                " pins " (str (:resource-id o))])))
+     ;; optimistic-reach lint — informational: a value left optimistic can be deliberate
+     (when (seq optimistic-reach)
+       (into [:div {:data-testid "rf-xray-resources-audit-optimistic-reach"
+                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
+             (for [r optimistic-reach]
+               [:div {:key   (str (:id r))
+                      :style {:color (:info tokens)}}
+                (str (:mutation r)) " " (pr-str (:instance r)) " — " (:hint r)])))]))
 
 ;; ---- empty (no resources artefact / no resources registered) -----------
 
@@ -1470,7 +1478,9 @@
          :audit         {:global-audit (h/global-scope-audit registry-rows)
                          :suspicious   (h/suspicious-global-warnings registry-rows)
                          :mismatches   (h/scope-mismatch-lint instance-rows sub-reads)
-                         :orphans      (h/orphaned-owner-lint instance-rows trace-buffer)}})))
+                         :orphans      (h/orphaned-owner-lint instance-rows trace-buffer)
+                         ;; rf2-ynkzj — optimistic keys the settlement never reached
+                         :optimistic-reach (h/optimistic-reach-lint trace-buffer)}})))
 
   ;; Register the Dynamic Resources tab with the internal L4 tab registry.
   ;; Per Mike's cohesive-sub-domain ruling (server-state earns its own L4
