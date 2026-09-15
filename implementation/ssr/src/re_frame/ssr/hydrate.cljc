@@ -404,7 +404,20 @@
                    (and client?
                         (some? payload-runtime-db)
                         (some? (rf.late-bind/get-fn :machines/rearm-after-hydration!)))
-                   (conj [:rf.machine/hydrate-rearm {}]))}
+                   (conj [:rf.machine/hydrate-rearm {}])
+
+                   ;; The RESOURCES counterpart (rf2-omahf). A hydrated entry
+                   ;; whose owner rode the wire is already owned on the client,
+                   ;; so neither the client's fresh-skip nor a later release ever
+                   ;; arms its GC timer, and it would never be collected. The
+                   ;; resources artefact arms ONLY the GC timer of each hydrated
+                   ;; entry; that timer's fire re-checks ownership, re-arming
+                   ;; while owned. Same three gates, same post-commit ordering,
+                   ;; and nothing it arms rides the wire.
+                   (and client?
+                        (some? payload-runtime-db)
+                        (some? (rf.late-bind/get-fn :resources/rearm-after-hydration!)))
+                   (conj [:rf.resource/hydrate-rearm {}]))}
       ;; Install the runtime-db partition when EITHER a server-settled
       ;; runtime-db slice rode the payload OR hydration metadata was produced.
       ;; The metadata merges on top of the payload slice (server-hash/version

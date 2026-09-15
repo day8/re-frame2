@@ -637,6 +637,10 @@
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-ctk2av"
     :description "Cross-feature LATE-BOUND SSR hydration RECONCILE hook (Spec 016 §SSR and hydration / §Restore and replay) — the client-side counterpart of :ssr/extend-runtime-db-projection. Takes the runtime-db the :rf/hydrate handler is about to install (+ the carried frame id) and returns it with the :rf.runtime/resources subtree reconciled: reverse indexes recomputed from entries (never trusted from the wire), SSR owners orphaned, transient :current-work cleared, server clock skew surfaced. Resources is the first consumer; consulted by re-frame.ssr.hydrate/hydrate-event-handler*. Absent hook (no resources artefact) leaves the runtime-db unchanged."}
+   {:key         :resources/rearm-after-hydration!
+    :producer-ns 're-frame.resources.ssr
+    :design-bead "rf2-omahf"
+    :description "SSR-hydration host-work ARM for resource GC timers, the resources counterpart of :machines/rearm-after-hydration!. The wire carries no timer, and a hydrated entry whose owner rode the wire is already owned on the client, so neither the client's fresh-skip (which arms only onto a previously owner-free entry) nor a later release (which never starts a timer) would ever arm its GC timer, and the entry would never be collected. Consulted by re-frame.ssr.hydrate/hydrate-event-handler* as a PRESENCE gate (absent hook → no resources artefact → no rearm fx emitted); the :rf.resource/hydrate-rearm fx it gates runs this same body AFTER the payload runtime-db has committed, on a client frame only, and arms ONLY the GC timer of each hydrated entry at its resource's normalized :gc-after-ms (:never or non-positive → nothing). Safe because the GC re-check (re-frame.resources.events/gc-fired-handler) re-arms while the entry is owned or in flight and removes it only once owner-free and idle; a later release never restarts the armed timer. Refuses a :server frame."}
    {:key         :resources/reconcile-on-restore
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-7r5mc2"
