@@ -12,7 +12,8 @@
     `record-test-run` / `clear-test-run` state transitions;
     `variant-test-status` lookup; `test-summary` aggregation across a
     fixture of variants in mixed states; `testable-variant-ids`
-    filter (must be both `:test`-tagged AND `:script`-bearing); the
+    filter (must be both `:test`-tagged AND carry tests — a play
+    surface or declarative `:assertions` / `:checks`); the
     `dot-style` descriptor projection and `dot-aria-label`.
   - **CLJS-only**: the rendered hiccup for the chrome widget carries
     the expected counts + headline; the sidebar's variant-row hiccup

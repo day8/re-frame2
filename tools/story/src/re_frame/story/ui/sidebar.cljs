@@ -773,9 +773,10 @@
 
 (defn test-widget
   "Chrome-level test widget. Aggregates `run-variant` outcomes across
-  every testable variant. `:test`-tagged + `:script`-bearing variants
-  contribute; variants without `:script` are excluded by `testable-
-  variant-ids` so the headline counts don't mislead.
+  every testable variant. `:test`-tagged variants with a play surface
+  or declarative `:assertions` / `:checks` contribute; variants with
+  nothing to run are excluded by `testable-variant-ids` so the headline
+  counts don't mislead.
 
   Renders nothing when no variants are testable — the widget is the
   Vitest-reporter parity (rf2-q0irb) per spec/009 §Foundational

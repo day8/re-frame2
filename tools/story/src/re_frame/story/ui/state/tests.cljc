@@ -14,8 +14,11 @@
   - `clear-test-run`            — drop a run record.
   - `variant-test-status`       — read the per-variant status keyword.
   - `test-summary`              — aggregate across an id-seq.
+  - `variant-body-has-tests?`   — the ONE body-level 'has tests'
+                                  predicate (a play surface OR a
+                                  declarative `:assertions` / `:checks`).
   - `testable-variant-ids`      — derive the seq of `:test`-tagged
-                                  variants with a non-empty `:script`.
+                                  variants that have tests.
   - `set-test-watch-mode`       — toggle the chrome watch-mode flag.
   - `test-watch-mode?`          — read the flag.
   - `record-test-content-hashes` — stamp per-variant snapshot hashes.
@@ -207,39 +210,54 @@
                       (zero? running)
                       (zero? pending))}))
 
-(defn- play-surface-has-steps?
-  "True iff `body` declares a non-empty play surface — EITHER a
-  `:script` (map `:script` or bare-vector form) OR a non-empty
-  `:plays` vector (multi-play). A `:plays`-only variant counts as
-  testable in the chrome widget + sidebar dots, matching
-  `ci-runner/has-any-play?` and `test-mode.pure/variant-has-tests?`."
+(defn- non-empty-vector? [x]
+  (and (vector? x) (seq x)))
+
+(defn variant-body-has-tests?
+  "True iff a variant `body` declares something a run judges:
+
+  - a play surface — a non-empty `:script` (map `:script` or bare-vector
+    form) or a non-empty `:plays` vector (multi-play); OR
+  - a declarative expectation — a non-empty `:assertions` or `:checks`
+    vector (rf2-uiihg).
+
+  spec/017 lowers `:assertions` / `:checks` into `[:expect …]`, and
+  `run-variant` evaluates them against the final settled state whether or
+  not a script ran, so a variant whose only tests are declarative is a
+  real test. This is the ONE body-level 'has tests' predicate:
+  `testable-variant-ids` (chrome widget, sidebar dots, Run all, watch
+  mode) and `test-mode.pure/variant-has-tests?` (the Tests pane) both call
+  it, so they cannot disagree.
+
+  Reads the body's OWN slots — no plan compile — so the sidebar hot path
+  (rf2-dtj61) stays a predicate rather than a walk. Pure data → boolean."
   [body]
-  (let [script (:script body)
-        plays  (:plays body)]
+  (let [script (:script body)]
     (boolean
-      (or
-        (cond
-          (map? script)    (seq (:script script))
-          (vector? script) (seq script)
-          :else            false)
-        (and (vector? plays) (seq plays))))))
+      (or (cond
+            (map? script)    (seq (:script script))
+            (vector? script) (seq script)
+            :else            false)
+          (non-empty-vector? (:plays body))
+          (non-empty-vector? (:assertions body))
+          (non-empty-vector? (:checks body))))))
 
 (defn testable-variant-ids
   "Return the seq of variant-ids tagged `:test`, in stable (alphabetical)
   order. The chrome widget + sidebar dots key off this seq.
 
   Variants are testable iff (a) their `:tags` contains `:test`, AND
-  (b) they declare a non-empty play surface (`:script` OR `:plays`).
-  The second filter prunes variants tagged `:test` but
-  without any assertions to run — those contribute neither to the
-  headline counts nor to the 'Run all' iteration. Pure data → data;
-  JVM-testable. `id->body` is the `{variant-id → body}` map from
-  `(registrar/registrations :variant)`."
+  (b) `variant-body-has-tests?` — they declare a play surface (`:script`
+  / `:plays`) or a declarative expectation (`:assertions` / `:checks`).
+  The second filter prunes variants tagged `:test` but with nothing to
+  run — those contribute neither to the headline counts nor to the
+  'Run all' iteration. Pure data → data; JVM-testable. `id->body` is the
+  `{variant-id → body}` map from `(registrar/registrations :variant)`."
   [id->body]
   (->> id->body
        (filter (fn [[_ body]]
                  (and (contains? (or (:tags body) #{}) :test)
-                      (play-surface-has-steps? body))))
+                      (variant-body-has-tests? body))))
        (map first)
        sort
        vec))

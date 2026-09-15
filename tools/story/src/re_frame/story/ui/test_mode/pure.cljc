@@ -17,6 +17,7 @@
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar  :as rf.story.registrar]
+            [re-frame.story.ui.state.tests :as rf.story.ui.state.tests]
             [re-frame.story.verdict    :as rf.story.verdict]))
 
 ;; ---- aliases on the leaf predicates ns ----------------------------------
@@ -38,40 +39,20 @@
 
 ;; ---- pure: variant-has-tests? -------------------------------------------
 
-(defn- has-play-script?
-  "True iff `vb` carries a non-empty `:script` (map `:script` or
-  bare vector)."
-  [vb]
-  (let [script (:script vb)]
-    (boolean
-      (cond
-        ;; Map form — {:auto-run? ... :script [...]}
-        (map? script)    (seq (:script script))
-        ;; Bare-vector form — legacy callers + the test fixtures pass
-        ;; the script vector directly; the runner normalises both.
-        (vector? script) (seq script)
-        :else            false))))
-
-(defn- has-plays?
-  "True iff `vb` carries a non-empty `:plays` vector (multi-play)."
-  [vb]
-  (let [plays (:plays vb)]
-    (boolean (and (vector? plays) (seq plays)))))
-
 (defn variant-has-tests?
-  "True iff `variant-id`'s registered body declares a non-empty
-  `:script` OR a non-empty `:plays` vector. Used by the pane to
-  gate between the run-and-render path and the empty-state placeholder.
+  "True iff `variant-id`'s registered body has something to run — a
+  non-empty `:script` / `:plays` play surface OR a non-empty declarative
+  `:assertions` / `:checks` slot. Used by the pane to gate between the
+  run-and-render path and the empty-state placeholder.
 
-  `:script` is the canonical phase-4 slot; `:plays` is the
-  multi-play slot. This predicate recognises BOTH, so a `:plays`-only
-  variant counts as testable — matching `ci-runner/has-any-play?`.
+  Delegates to `rf.story.ui.state.tests/variant-body-has-tests?`, the
+  SAME predicate `testable-variant-ids` (sidebar dots, Run all) filters
+  on, so the Tests pane and Run all agree on what is a test (rf2-uiihg).
 
   Pure data → data; JVM-testable."
   [variant-id]
-  (let [vb (rf.story.registrar/handler-meta :variant variant-id)]
-    (or (has-play-script? vb)
-        (has-plays? vb))))
+  (rf.story.ui.state.tests/variant-body-has-tests?
+    (rf.story.registrar/handler-meta :variant variant-id)))
 
 ;; ---- pure: aggregate-summary --------------------------------------------
 ;;
