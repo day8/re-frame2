@@ -631,8 +631,8 @@
         "captures this run as evidence; distinct from save-current-state"]])))
 
 (defn- empty-state
-  "Placeholder when the variant has nothing to run — no `:script` /
-  `:plays` play surface and no `:assertions` / `:checks`."
+  "Placeholder when the variant has nothing to run — `variant-has-tests?`
+  is false."
   [variant-id]
   [:div {:style     (:empty styles)
          :data-test "story-test-empty"}
