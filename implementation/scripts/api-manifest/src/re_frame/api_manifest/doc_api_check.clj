@@ -9,8 +9,8 @@
 
   It uses the same call-position discipline as the guide check: every
   call-position
-  `(rf/<var>` / `(story/<var>` reference must resolve to a manifest row, so a
-  reference to a renamed / removed / never-manifested public surface goes RED.
+  `(rf/<var>` / `(rf.story/<var>` reference must resolve to a manifest row, so
+  a reference to a renamed / removed / never-manifested public surface goes RED.
 
   Per-capability `docs/<cap>/api.md` files are scanned by a one-level glob that
   also discovers future capability docs.
@@ -21,13 +21,21 @@
   `:rf/default`, `:rf.cofx/requires`, `:rf.egress/*`, etc.). Two alias forms
   are extracted, because these reference trees mix them:
 
-    * `(rf/<var>`     — the conventional `re-frame.core` alias, used across
-                        all three trees;
-    * `(story/<var>`  — the `re-frame.story` alias, used in the Story API
-                        reference (`docs/story/api/**`).
+    * `(rf/<var>`       — the conventional `re-frame.core` alias, used across
+                          all three trees;
+    * `(rf.story/<var>` — the canonical `re-frame.story` alias
+                          (spec/Conventions.md §Require-alias dialect), used in
+                          the Story API reference (`docs/story/api/**`).
+
+  The retired leaf alias `(story/<var>` is no longer extracted: no scanned page
+  uses it since those pages moved to `rf.story` (rf2-0ae7o.9), and the dialect
+  reserves bare leaf aliases for application namespaces. The check learned
+  `rf.story` before the pages switched, so the reference count held across the
+  move. A page written under `story/` is now outside the check, like any other
+  alias below.
 
   ALIAS SCOPE — narrower than it looks, and NOT established as contractual.
-  Only those two aliases are extracted, so a call written under a
+  Only those two aliases are extracted, so a call written under any other
   sub-namespace alias (`(rf.machines/…`, `(rf.http/…`, `(rf.routing/…`) is
   outside this check entirely. Measured 2026-09-07 and offered as a dated
   snapshot rather than an invariant: the narrowness is not load-bearing today
@@ -140,13 +148,13 @@
              :detail "no manifest row (renamed / removed / never-manifested public surface)"}))
         references))
 
-(defn- references-in-files
-  "Extract `(rf/<var>`, `(rf.story/<var>` and `(story/<var>` call-position
-   references from `files` (io/file seq), each tagged with its repo-relative
-   `:file`."
+(defn references-in-files
+  "Extract both `(rf/<var>` and `(rf.story/<var>` call-position references from
+   `files` (io/file seq), each tagged with its repo-relative `:file`. Public so
+   a test can pin that the Story API reference still reaches the check."
   [files]
   (for [file  files
-        alias ["rf" "rf.story" "story"]
+        alias ["rf" "rf.story"]
         ref   (rf.api-manifest.projection/alias-call-references alias (rf.api-manifest.projection/numbered-lines file))]
     (assoc ref :file (rf.api-manifest.projection/repo-relative file))))
 
