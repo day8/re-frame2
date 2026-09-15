@@ -19,10 +19,12 @@
             [re-frame.registrar       :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story           :as rf.story]
+            [re-frame.story.async     :as rf.story.async]
             [re-frame.story.config    :as rf.story.config]
             [re-frame.story.loaders   :as rf.story.loaders]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.runtime   :as rf.story.runtime]
             [re-frame.story.ui.command-palette :as rf.story.ui.command-palette]
             [re-frame.story.ui.docs   :as rf.story.ui.docs]
             [re-frame.story.ui.state  :as rf.story.ui.state]
@@ -840,6 +842,73 @@
         "a :plays-only variant is testable (was false before the fix)"))
   (testing "variant-has-tests? returns false for an unknown variant-id"
     (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/unknown)))))
+
+(deftest test-mode-variant-has-tests?-declarative-expectations
+  (testing "rf2-uiihg: variant-has-tests? is true for a variant whose only
+            tests are declarative :assertions or :checks — the Tests pane
+            runs it instead of reading 'No tests registered'"
+    (rf.story/reg-check :story.tm/c-is-zero
+      {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.tm/assertions-only
+      {:setup [] :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.tm/checks-only
+      {:setup [] :checks [:story.tm/c-is-zero]})
+    (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/assertions-only))
+    (is (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/checks-only)))
+  (testing "empty :assertions / :checks vectors are not tests"
+    (rf.story/reg-variant :story.tm/empty-expectations
+      {:setup [] :assertions [] :checks []})
+    (is (not (rf.story.ui.test-mode.pure/variant-has-tests? :story.tm/empty-expectations)))))
+
+(deftest run-all-runs-declarative-expectation-variants
+  (testing "rf2-uiihg: Run all — the sidebar's `testable-variant-ids`
+            selection driven through its per-variant pipeline
+            (`run-one-test!`: run-variant → aggregate-summary →
+            record-test-run) — executes an :assertions-only and a
+            :checks-only variant beside a :script control, and their
+            records take the script assert's shape"
+    (rf.story/reg-check :story.rall/c-is-zero
+      {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.rall/assertions-only
+      {:tags #{:test} :db-seed {:c 0}
+       :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.rall/checks-only
+      {:tags #{:test} :db-seed {:c 0} :checks [:story.rall/c-is-zero]})
+    (rf.story/reg-variant :story.rall/script
+      {:tags #{:test} :db-seed {:c 0}
+       :script [[:assert [:rf.assert/path-equals [:c] 0]]]})
+    (rf.story/reg-variant :story.rall/failing
+      {:tags #{:test} :db-seed {:c 0}
+       :assertions [[:rf.assert/path-equals [:c] 1]]})
+    (let [ids     (rf.story.ui.state/testable-variant-ids
+                    (rf.story.registrar/registrations :variant))
+          results (into {}
+                        (map (fn [vid]
+                               [vid (rf.story.async/deref-blocking
+                                      (rf.story.runtime/run-variant vid nil) 30000)]))
+                        ids)
+          state   (reduce (fn [s vid]
+                            (rf.story.ui.state/record-test-run
+                              s vid (rf.story.ui.state/aggregate-summary
+                                      (:assertions (get results vid)))))
+                          rf.story.ui.state/default-shell-state
+                          ids)
+          status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))
+          shape   (fn [vid] (set (mapcat keys (:assertions (get results vid)))))]
+      (is (= [:story.rall/assertions-only :story.rall/checks-only
+              :story.rall/failing :story.rall/script]
+             ids)
+          "Run all selects the declarative variants, not only the :script control")
+      (is (= :pass (status :story.rall/script)) "the :script control passes")
+      (is (= :pass (status :story.rall/assertions-only)))
+      (is (= :pass (status :story.rall/checks-only)))
+      (is (= :fail (status :story.rall/failing))
+          "a failing declarative assertion fails the run, never a silent skip")
+      (is (seq (shape :story.rall/script)))
+      (is (= (shape :story.rall/script)
+             (shape :story.rall/assertions-only)
+             (shape :story.rall/checks-only))
+          "declarative records carry the same keys as a script assert record"))))
 
 (deftest shell-state-aggregate-summary-counts-pass-fail-skip
   (testing "aggregate-summary tallies passed / failed / skipped"
