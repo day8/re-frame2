@@ -17,11 +17,12 @@
     on, off clears the recorded hashes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
+            [re-frame.story.identity :as rf.story.identity]
             [re-frame.story.ui.state :as rf.story.ui.state]
+            [re-frame.story.ui.watch :as rf.story.ui.watch]
             #?@(:cljs [[re-frame.late-bind        :as rf.late-bind]
                        [re-frame.story.ui.shell   :as rf.story.ui.shell]
-                       [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
-                       [re-frame.story.ui.watch   :as rf.story.ui.watch]])))
+                       [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -400,3 +401,51 @@
                    "the cache must bust on a view-schema hot-reload")))
            (finally
              (rf.late-bind/set-fn! :schemas/app-schemas-digest prior)))))))
+
+;; ---- rf2-dt9xf: an expectation-only edit re-runs ------------------------
+;;
+;; Snapshot identity hashes a variant's declared RENDER inputs (spec/002
+;; §Snapshot-identity computation) because it keys visual review and
+;; sharing, so it leaves out the slots that only decide what a run JUDGES.
+;; Watch mode keyed on identity alone, so re-registering a variant with only
+;; its expectations changed left the hash where it was and the dot kept the
+;; previous verdict. The watch hash folds those slots in; identity is
+;; unchanged.
+
+(deftest expectation-only-edit-drifts-watch-hash
+  (testing "rf2-dt9xf — re-registering :test variants with ONLY :assertions,
+            :checks, :compose or :extends changed drifts exactly those
+            variants' watch hashes (so detect-watch-drift! re-runs them) and
+            leaves their snapshot identity unchanged; an identical
+            re-registration does not drift"
+    (rf.story/reg-check :story.x/c-is-zero {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-check :story.x/c-is-one  {:assertions [[:rf.assert/path-equals [:c] 1]]})
+    (rf.story/reg-variant :story.x/parent-zero {:tags #{:dev} :checks [:story.x/c-is-zero]})
+    (rf.story/reg-variant :story.x/parent-one  {:tags #{:dev} :checks [:story.x/c-is-one]})
+    (rf.story/reg-variant :story.x/assertions {:tags #{:test} :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-variant :story.x/checks     {:tags #{:test} :checks [:story.x/c-is-zero]})
+    (rf.story/reg-variant :story.x/compose    {:tags #{:test} :compose [:story.x/c-is-zero]})
+    (rf.story/reg-variant :story.x/extends    {:tags #{:test} :extends :story.x/parent-zero})
+    (rf.story/reg-variant :story.x/unedited   {:tags #{:test} :assertions [[:rf.assert/path-equals [:c] 0]]})
+    (let [vids       [:story.x/assertions :story.x/checks :story.x/compose
+                      :story.x/extends :story.x/unedited]
+          identities (fn []
+                       (into {}
+                             (map (fn [vid]
+                                    [vid (:content-hash (rf.story.identity/snapshot-identity vid))]))
+                             vids))
+          before     (rf.story.ui.watch/compute-testable-content-hashes)
+          ids-before (identities)]
+      (rf.story/reg-variant :story.x/assertions {:tags #{:test} :assertions [[:rf.assert/path-equals [:c] 1]]})
+      (rf.story/reg-variant :story.x/checks     {:tags #{:test} :checks [:story.x/c-is-one]})
+      (rf.story/reg-variant :story.x/compose    {:tags #{:test} :compose [:story.x/c-is-one]})
+      (rf.story/reg-variant :story.x/extends    {:tags #{:test} :extends :story.x/parent-one})
+      (rf.story/reg-variant :story.x/unedited   {:tags #{:test} :assertions [[:rf.assert/path-equals [:c] 0]]})
+      (let [after (rf.story.ui.watch/compute-testable-content-hashes)]
+        (is (= (set vids) (set (keys before)))
+            "every edited variant is testable, so watch mode hashes it")
+        (is (= [:story.x/assertions :story.x/checks :story.x/compose :story.x/extends]
+               (rf.story.ui.state/watch-mode-drift before after))
+            "an expectation-only edit drifts the variant, so the detector re-runs it")
+        (is (= ids-before (identities))
+            "snapshot identity is NOT widened — these slots are not render inputs")))))
