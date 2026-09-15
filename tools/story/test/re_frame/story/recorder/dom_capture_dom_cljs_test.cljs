@@ -258,6 +258,32 @@
           (is (= 1 (count submit-entries)))
           (is (= "[id=\"login\"]" (:selector (first submit-entries)))))))))
 
+(deftest click-on-submit-button-records-one-step
+  (if-not (dom-available?)
+    (skip!)
+    (testing "rf2-0ae7o.11 (a): clicking a form's submit button records the click
+              alone — the submit event that click causes is not captured as a
+              second, spurious `[:click <form>]` step. (A submit with no
+              submitter, which no click represents, is still captured: see
+              `submit-listener-captures-form-selector`.)"
+      (rf.story.recorder/start-recording! :story.x/y)
+      (let [form (.createElement js/document "form")
+            btn  (.createElement js/document "button")]
+        (.setAttribute form "data-test" "login-form")
+        (.setAttribute btn "type" "submit")
+        (.setAttribute btn "data-test" "login-submit")
+        ;; The variant's own submit handler prevents the navigation.
+        (.addEventListener form "submit" (fn [e] (.preventDefault e)))
+        (.appendChild form btn)
+        (.appendChild @test-root form)
+        (.click btn)
+        (let [entries (rf.story.recorder/recorded-entries)]
+          (is (= [:dom/click] (mapv :kind entries))
+              "one click, one captured entry")
+          (is (= [[:click "[data-test=\"login-submit\"]"]]
+                 (:script (rf.story.recorder.play-export/recording->script-body entries)))
+              "one click, one script step"))))))
+
 (deftest click-flushes-pending-type
   (if-not (dom-available?)
     (skip!)
