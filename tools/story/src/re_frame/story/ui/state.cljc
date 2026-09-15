@@ -59,9 +59,11 @@
   - `:hot-reload-tick`   — integer that increments when the shell detects
                            a registrar mutation; variant components watch
                            this slot to know they must re-mount.
-  - `:fingerprints`      — {variant-id → {decorator-id → hash}} the last-
-                           observed decorator fingerprints. Stale entries
-                           trigger a hot-reload tick.
+  - `:fingerprints`      — {variant-id → {:decorators {decorator-id → hash}
+                           :body content-hash}} the last-observed decorator
+                           fingerprints and own-body snapshot hash of each
+                           running variant. Stale entries trigger a
+                           hot-reload tick.
   - `:registry-tick`     — the Story registrar's mutation tick as of the
                            shell's last poll. Advancing it re-renders the
                            panes that read the registry (sidebar, test
