@@ -60,8 +60,8 @@ Three companion namespaces (split per rf2-8n2fz — see `pure.cljc`,
 
 ;; pure data → data (JVM-testable) — under re-frame.story.ui.test-mode.pure:
 (variant-has-tests? variant-id)
-  ; → boolean — true iff the variant body declares a non-empty
-  ;   :script / :plays play surface
+  ; → boolean — true iff a run of the variant would judge something;
+  ;   the ONE predicate §Testable variants defines and Run all shares
 (assertion-row assertion)
   ; → {:assertion :rf.assert/path-equals
   ;    :status   :pass|:fail|:skip
@@ -86,7 +86,7 @@ The pane renders four sections, top-to-bottom:
 | 1 | Header           | variant id + parent-story id + run/elapsed status                        | always                                         |
 | 2 | Summary badge    | overall pass/fail/skip count + "all passed" / "<n> failed" status pill  | a run has executed                             |
 | 3 | Per-test rows    | one row per `:assertions` record — green/red/grey + collapsible detail   | a run has executed AND `:assertions` non-empty |
-| 4 | Empty state      | "No tests registered for this variant" + link to testing recipes         | `:script` / `:plays` play surface is empty      |
+| 4 | Empty state      | "No tests registered for this variant" + link to testing recipes         | `variant-has-tests?` is false (§Testable variants) |
 
 ### 1. Header
 
@@ -151,16 +151,17 @@ exactly which file/line declared the assertion.
 
 ### 4. Empty state
 
-When `(variant-has-tests? variant-id)` is false — the variant body's
-play surface (`:script` / `:plays`) is empty or absent — the pane
+When `(variant-has-tests? variant-id)` is false — a run of the variant
+would judge nothing, by the predicate
+[§Testable variants](#testable-variants) defines — the pane
 skips the run entirely and renders a
-placeholder that points the author at the PUBLIC authoring slot:
+placeholder that points the author at the PUBLIC authoring slots:
 
 ```
 No tests registered for this variant
 
-Add a :script slot to register assertions.
-See: skills/re-frame2/references/cross-cutting/testing.md
+Add :assertions, :checks or a :script to <variant-id> to register tests.
+skills/re-frame2/references/cross-cutting/testing.md
 ```
 
 The link forward-points to the canonical testing recipes leaf so a
@@ -289,7 +290,7 @@ hashes]` (the watch-mode detector's drift baseline).
                                               ;    :pending :all-green?}
 (testable-variant-ids id->body)              ; → vector of variant-ids
                                               ; whose :tags contains :test
-                                              ; AND :script / :plays is non-empty.
+                                              ; AND that have tests (below).
 ```
 
 The `re-frame.story.ui.sidebar` namespace renders the chrome widget
@@ -300,12 +301,20 @@ can render them directly.
 ### Testable variants
 
 The widget aggregates over **testable** variants — variants whose
-`:tags` set contains `:test` AND whose `:script` / `:plays` play
-surface is non-empty. A
-variant tagged `:test` but without any assertions to run is excluded
-so the headline counts don't mislead. Per-variant dots follow the
-same filter: a `:dev`-only variant or an empty-`:script` `:test`
-variant renders no dot.
+`:tags` set contains `:test` AND that have tests. A variant has tests
+when a run of it would judge something: its own non-empty `:script` /
+`:plays` play surface, `:assertions` or `:checks`, or `:checks` it
+receives from an `:extends` ancestor or through a `:compose` of a check
+id. The plan compiler merges those received checks into
+`[:expect :checks]` ([`017-Testing-Story.md`](017-Testing-Story.md#composition)
+§Composition), and `run-variant` settles them even when no script runs,
+so they are real tests. The predicate reads the body, its `:extends`
+ancestors and the check registry; it never compiles a plan, so the
+sidebar stays cheap. A variant tagged `:test` with nothing to run is
+excluded so the headline counts don't mislead. Per-variant dots follow
+the same filter: a `:dev`-only variant or a `:test` variant with
+nothing to run renders no dot. The `:test` pane's `variant-has-tests?`
+(§4 Empty state) is the same predicate.
 
 ### Status semantics
 
