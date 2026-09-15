@@ -910,6 +910,57 @@
              (shape :story.rall/checks-only))
           "declarative records carry the same keys as a script assert record"))))
 
+(deftest inherited-and-composed-checks-select-and-run
+  (testing "rf2-ckpm4: :checks a variant receives only through :extends or a
+            :compose of a check id RUN (the compiler merges them into
+            [:expect :checks]), so the Tests pane's variant-has-tests? and
+            Run all's selection — fed the sidebar's own registry-snapshot —
+            select the variant, and its verdict is honest in both directions"
+    (rf.story/reg-check :story.inh/c-is-zero
+      {:assertions [[:rf.assert/path-equals [:c] 0]]})
+    (rf.story/reg-check :story.inh/c-is-one
+      {:assertions [[:rf.assert/path-equals [:c] 1]]})
+    (rf.story/reg-variant :story.inh/parent-pass
+      {:tags #{:dev} :db-seed {:c 0} :checks [:story.inh/c-is-zero]})
+    (rf.story/reg-variant :story.inh/parent-fail
+      {:tags #{:dev} :db-seed {:c 0} :checks [:story.inh/c-is-one]})
+    (rf.story/reg-variant :story.inh/extends-pass
+      {:tags #{:test} :extends :story.inh/parent-pass})
+    (rf.story/reg-variant :story.inh/extends-fail
+      {:tags #{:test} :extends :story.inh/parent-fail})
+    (rf.story/reg-variant :story.inh/compose-pass
+      {:tags #{:test} :db-seed {:c 0} :compose [:story.inh/c-is-zero]})
+    (rf.story/reg-variant :story.inh/compose-fail
+      {:tags #{:test} :db-seed {:c 0} :compose [:story.inh/c-is-one]})
+    (doseq [vid [:story.inh/extends-pass :story.inh/extends-fail
+                 :story.inh/compose-pass :story.inh/compose-fail]]
+      (is (rf.story.ui.test-mode.pure/variant-has-tests? vid)
+          (str vid " — the Tests pane runs it instead of the empty state")))
+    (let [ids     (rf.story.ui.state/testable-variant-ids
+                    (:variants (rf.story.ui.state/registry-snapshot)))
+          results (into {}
+                        (map (fn [vid]
+                               [vid (rf.story.async/deref-blocking
+                                      (rf.story.runtime/run-variant vid nil) 30000)]))
+                        ids)
+          state   (reduce (fn [s vid]
+                            (rf.story.ui.state/record-test-run
+                              s vid (rf.story.ui.state/aggregate-summary
+                                      (:assertions (get results vid)))))
+                          rf.story.ui.state/default-shell-state
+                          ids)
+          status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))]
+      (is (= [:story.inh/compose-fail :story.inh/compose-pass
+              :story.inh/extends-fail :story.inh/extends-pass]
+             ids)
+          "Run all selects the inherited and composed check variants, not their :dev parents")
+      (is (= :pass (status :story.inh/extends-pass)))
+      (is (= :fail (status :story.inh/extends-fail))
+          "an inherited failing check fails the run, never a silent skip")
+      (is (= :pass (status :story.inh/compose-pass)))
+      (is (= :fail (status :story.inh/compose-fail))
+          "a composed failing check fails the run, never a silent skip"))))
+
 (deftest shell-state-aggregate-summary-counts-pass-fail-skip
   (testing "aggregate-summary tallies passed / failed / skipped"
     (let [s (rf.story.ui.state/aggregate-summary
