@@ -384,7 +384,17 @@ runtime's phase-1 driver in two complementary places:
    a false green: a loader/event/play/teardown path whose cofx injector
    or user interceptor threw passed silently. The originating
    `:operation` and `:failing-id` are preserved on the record so a cofx
-   failure is distinguishable from a handler failure.
+   failure is distinguishable from a handler failure. The same listener
+   captures a FOURTH operation that is not a chain throw at all:
+   `:rf.error/no-such-handler`, the dispatch that resolved no handler on
+   the frame (rf2-0ae7o.13). The router refuses it before any pipeline
+   runs and settles no epoch for it, so the epoch tape never sees it and
+   this listener is the one capture that can. Its record carries the
+   refused event, the event id as `:failing-id`, and a composed message
+   naming it — the refusal throws nothing, so there is no message to
+   extract. `re-frame.story.error/captured-failure-record` is the one
+   trace-event→record reader every drain site uses, so both tag shapes
+   are read in one place.
 
 The record carries `:phase :phase-1-loaders` (distinguishing the
 loader phase from `:phase-2-events`, `:phase-3-render`, and

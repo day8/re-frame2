@@ -213,19 +213,13 @@
 
   Thin wrapper over the shared `re-frame.story.error/exception-record`
   — the Throwable→`{:message :stack :data}` projection + the
-  `:rf.error/exception` shape are the ONE canonical form. `opts`
-  (optional) is threaded through so a drained pipeline-exception trace
-  event preserves its originating `:operation` / `:failing-id`."
-  ([variant-id phase event err] (phase-exception-record variant-id phase event err nil))
-  ([variant-id phase event err opts]
-   (rf.story.error/exception-record variant-id phase event err opts)))
-
-(defn- pipeline-event-opts
-  "Pull the `:operation` / `:failing-id` attribution off a captured
-  pipeline-exception trace event for `phase-exception-record`."
-  [tev]
-  {:operation  (:operation tev)
-   :failing-id (get-in tev [:tags :failing-id])})
+  `:rf.error/exception` shape are the ONE canonical form. This is the
+  DIRECT-THROW path only (a synchronous throw the walk's own try/catch
+  met); a DRAINED trace event never comes through here —
+  `rf.story.error/captured-failure-record` reads it straight into the
+  same record, `:operation` / `:failing-id` attribution included."
+  [variant-id phase event err]
+  (rf.story.error/exception-record variant-id phase event err))
 
 (defn- exception-collector
   "Returns `{:listener _ :drain! _}` for one lifecycle-phase walk over
@@ -247,7 +241,9 @@
   `:listener` — pass to the walk's `with-*-trace-listener`. It captures
   every pipeline exception (handler / coeffect / interceptor) targeting
   `id`, not just handler-exception: a phase event whose cofx injector or
-  user interceptor throws is a first-class failure too.
+  user interceptor throws is a first-class failure too — and so is a
+  phase event nobody registered a handler for (the no-handler refusal,
+  rf2-0ae7o.13).
 
   `:drain!` — THE ORDERING CONTRACT, which governs every call site.
   Call it after EVERY dispatch inside the listener-bound walk, and once
@@ -265,10 +261,12 @@
        spec's \"land in the variant's last `:rf.story/assertions`
        record\" contract for in-order observability.
 
-  Each captured event keeps its `:operation` / `:failing-id` attribution
-  via `pipeline-event-opts`. A projection dispatch that itself throws is
-  swallowed: the walk records what it can and never aborts
-  `destroy-frame!`."
+  Each captured event is read into its record by
+  `rf.story.error/captured-failure-record` — the one trace→record reader,
+  shared with the play-runner's drain, which also knows the no-handler
+  refusal's bare tag shape (rf2-0ae7o.13). A projection dispatch that
+  itself throws is swallowed: the walk records what it can and never
+  aborts `destroy-frame!`."
   [id phase]
   (let [pending (atom [])]
     {:listener (fn [ev]
@@ -278,11 +276,7 @@
                  (when-let [evs (seq @pending)]
                    (reset! pending [])
                    (doseq [tev evs]
-                     (let [record (phase-exception-record
-                                    id phase
-                                    (get-in tev [:tags :event])
-                                    (get-in tev [:tags :exception])
-                                    (pipeline-event-opts tev))]
+                     (let [record (rf.story.error/captured-failure-record id phase tev)]
                        (try
                          (rf/dispatch-sync [::append-teardown-assertion record]
                                            {:frame id})

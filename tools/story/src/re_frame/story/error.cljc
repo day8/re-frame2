@@ -64,8 +64,16 @@
   listeners match all three: a loader/event/play/teardown path whose
   cofx injector or user interceptor throws is captured with the same
   fidelity as a handler throw, never a silent false-green.
+
+  A fourth captured operation is not a chain throw at all:
+  `:rf.error/no-such-handler`, the dispatch that resolved no handler
+  (rf2-0ae7o.13). It is emitted before any pipeline runs, throws nothing,
+  and carries a different tag shape (the event as the raw `:rf.event/v`,
+  no message, no `:failing-id`) — which is why `captured-failure-record`
+  reads a captured trace into its record in ONE place for every drain
+  site, rather than each site pulling tags apart itself.
   `pipeline-exception-event?` is the ONE projection predicate every
-  capture site consults — any of the three operations targeting the
+  capture site consults — any of the four operations targeting the
   frame is a captured failure (spec/009 §Error contract)."
   (:require [re-frame.privacy    :as rf.privacy]
             ;; The egress DOOR's home namespace (rf2-kuky.88). Reached
@@ -88,23 +96,36 @@
   (:refer-clojure :exclude [error]))
 
 (def pipeline-exception-operations
-  "The framework `:rf.error/*` operations that represent an
-  interceptor-chain (event-pipeline) exception Story projects onto the
-  variant's `:rf.story/assertions`. Per the router's
-  `classify-pipeline-exception` a chain throw is attributed
-  to its true failing component — a cofx injector, a user interceptor,
-  or the event handler itself — so Story must capture all three rather
-  than only `:rf.error/handler-exception`."
+  "The framework `:rf.error/*` operations Story projects onto the
+  variant's `:rf.story/assertions` as failed `:rf.error/exception`
+  records: the three interceptor-chain (event-pipeline) exceptions, plus
+  the one refusal a dispatch meets BEFORE the chain runs.
+
+  Per the router's `classify-pipeline-exception` a chain throw is
+  attributed to its true failing component — a cofx injector, a user
+  interceptor, or the event handler itself — so Story must capture all
+  three rather than only `:rf.error/handler-exception`.
+
+  `:rf.error/no-such-handler` (rf2-0ae7o.13) is the dispatch that resolved
+  NO handler on the frame. It throws nothing, and the framework settles no
+  epoch for it (rf2-erczwd: a refused dispatch commits no misleading
+  record), so the epoch tape — the spec/017 agreement floor's evidence —
+  is silent about it; this per-frame trace capture is the one place Story
+  can see it. Without it a misspelt `:setup` / `:script` event, or the
+  `:your/setup-event` placeholder of an unfilled real-setup upgrade
+  scaffold, read a vacuous `:pass`."
   #{:rf.error/handler-exception
     :rf.error/coeffect-exception
-    :rf.error/interceptor-exception})
+    :rf.error/interceptor-exception
+    :rf.error/no-such-handler})
 
 (defn pipeline-exception-event?
-  "True iff trace event `ev` is a pipeline exception (one of
+  "True iff trace event `ev` is a captured failure (one of
   `pipeline-exception-operations`) targeting `frame-id`. The ONE
   predicate every Story phase-capture site (runtime loaders/events,
   play, frame setup/teardown) consults so a cofx / user-interceptor
-  failure is captured with the same fidelity as a handler throw.
+  failure — or a dispatch nobody registered a handler for — is captured
+  with the same fidelity as a handler throw.
   Reads the raw event's frame via the canonical
   `re-frame.trace/trace-event-frame` reader (`[:tags :frame]` — spec/009
   §Frame identity on the raw event)."
@@ -253,3 +274,40 @@
             :passed?    false}
      operation  (assoc :operation operation)
      failing-id (assoc :failing-id failing-id))))
+
+(defn captured-failure-record
+  "Project a CAPTURED failure trace event `ev` — one of
+  `pipeline-exception-operations`, already matched against `variant-id`
+  by `pipeline-exception-event?` — into the `:rf.error/exception`
+  assertion record `exception-record` builds, stamped with `phase`. The
+  ONE trace-event→record reader every drain site uses (the play-runner's
+  `drain-pending-exceptions!` for phases 1, 2 and 4, and `frames`' phase-0
+  setup / teardown collector), so the two tag shapes a captured trace can
+  take are read in one place:
+
+  - a PIPELINE EXCEPTION (handler / coeffect / interceptor) stamps the
+    event as `:event`, the throwable as `:exception`, its pre-extracted
+    `:exception-message` (threaded as the `:message` override so the
+    message survives without the throwable), and the router-attributed
+    `:failing-id`;
+  - the NO-HANDLER REFUSAL (`:rf.error/no-such-handler`, rf2-0ae7o.13) is
+    emitted by the router BEFORE any pipeline runs and throws nothing: the
+    event rides only as the raw `:rf.event/v`, and there is no message and
+    no `:failing-id`. The failing component IS the unregistered event id,
+    and the message is composed here — naming that id — so the record
+    reads in the test pane the way a handler throw does."
+  [variant-id phase ev]
+  (let [operation  (:operation ev)
+        tags       (:tags ev)
+        refusal?   (= :rf.error/no-such-handler operation)
+        event-id   (:rf.trace/event-id tags)
+        event      (or (:event tags) (:rf.event/v tags))
+        message    (or (:exception-message tags)
+                       (when refusal?
+                         (str "no handler registered for " (pr-str event-id))))
+        failing-id (or (:failing-id tags)
+                       (when refusal? event-id))]
+    (exception-record variant-id phase event (:exception tags)
+                      {:message    message
+                       :operation  operation
+                       :failing-id failing-id})))

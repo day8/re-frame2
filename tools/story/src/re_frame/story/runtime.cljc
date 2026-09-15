@@ -102,7 +102,8 @@
   RECORDING a phase's pipeline exceptions is not this listener's job. The
   play-runner's per-frame listener (`rf.story.play/install-trace-listener!`,
   installed by phase 0 before any loader fires) captures every pipeline
-  exception — handler, coeffect and interceptor alike, through the shared
+  exception — handler, coeffect and interceptor alike, and the no-handler
+  refusal beside them (rf2-0ae7o.13) — through the shared
   `pipeline-exception-event?` predicate, with the originating `:operation`
   / `:failing-id` preserved — into `pending-exceptions`, and the phase
   driver drains that slot after each dispatch. That is the ONE recording
