@@ -72,6 +72,11 @@
   - The variant's `:sub-overrides` / `:db-seed` / `:network` render
     inputs — pinned sub outputs, pre-script app-db seed,
     stubbed HTTP replies
+  - The same render-input slots of each registered fragment the variant's
+    `:compose` names, in declared order — spec/017 §Strict composition
+    folds them into the variant's world (rf2-pt0d1). The `:composed` slot
+    is absent when no composed fragment carries one, so every other
+    variant's identity is unchanged.
   - Parent story `:component` id
   - Parent story `:decorators`
   - The *registered* schema digest of the view (per spec/011
@@ -110,6 +115,31 @@
             [re-frame.story.tags        :as rf.story.tags]))
 
 ;; ---- snapshot tuple -------------------------------------------------------
+
+(def ^:private render-input-keys
+  "The body slots that are render inputs (see `variant-body-slice` §Slice
+  membership). A variant's own body and each fragment it `:compose`s
+  contribute the same slots."
+  [:setup :script :plays
+   :loaders :loaders-complete-when :loaders-teardown
+   :decorators :args->events :platforms :substrates
+   :viewport :background
+   ;; rf2-bah5o2 — the per-variant `:component` view-id
+   ;; OVERRIDE (schemas §`:component`). The renderer resolves
+   ;; variant-first `(or (:component variant) (:component
+   ;; story))`, so a variant's own `:component` decides WHICH
+   ;; view renders; without it two variants differing only in
+   ;; `:component` collide and a watch-session `:component` swap
+   ;; produces no drift. (Story-level `:component` rides
+   ;; `story-body-slice`.)
+   :component
+   ;; rf2-9zj0nc — render inputs that change the settled
+   ;; rendered state: `:sub-overrides` pins subscription outputs
+   ;; the renderer surfaces, `:db-seed` seeds app-db before the
+   ;; script, `:network` stubs the HTTP replies a fetch-on-mount
+   ;; view settles to. All three already land in the plan-hash;
+   ;; the snapshot-identity path was the straggler.
+   :sub-overrides :db-seed :network])
 
 (defn- variant-body-slice
   "Return the slice of the variant body that contributes to the snapshot
@@ -174,31 +204,38 @@
   - `:dispatch-console?` / `:xray` — dev-tooling affordances; no effect
     on the settled rendered state.
   - `:doc` / `:source` — prose + coords; runtime-environmental.
-  - `:extends` — resolved away into `:effective-args` before hashing."
+  - `:extends` — the id is not hashed; an ancestor's args and tags reach
+    the hash through `:effective-args` and `:effective-tags`.
+
+  A composed fragment contributes these same slots through
+  `composed-fragment-slices`."
   [variant-id]
   (let [body (rf.story.registrar/handler-meta :variant variant-id)]
     (when body
-      (select-keys body
-                   [:setup :script :plays
-                    :loaders :loaders-complete-when :loaders-teardown
-                    :decorators :args->events :platforms :substrates
-                    :viewport :background
-                    ;; rf2-bah5o2 — the per-variant `:component` view-id
-                    ;; OVERRIDE (schemas §`:component`). The renderer resolves
-                    ;; variant-first `(or (:component variant) (:component
-                    ;; story))`, so a variant's own `:component` decides WHICH
-                    ;; view renders; without it two variants differing only in
-                    ;; `:component` collide and a watch-session `:component` swap
-                    ;; produces no drift. (Story-level `:component` rides
-                    ;; `story-body-slice`.)
-                    :component
-                    ;; rf2-9zj0nc — render inputs that change the settled
-                    ;; rendered state: `:sub-overrides` pins subscription outputs
-                    ;; the renderer surfaces, `:db-seed` seeds app-db before the
-                    ;; script, `:network` stubs the HTTP replies a fetch-on-mount
-                    ;; view settles to. All three already land in the plan-hash;
-                    ;; the snapshot-identity path was the straggler.
-                    :sub-overrides :db-seed :network]))))
+      (select-keys body render-input-keys))))
+
+(defn- composed-fragment-slices
+  "The render inputs contributed by each registered fragment in
+  `variant-id`'s `:compose`, in declared order (rf2-pt0d1). spec/017
+  §Strict composition folds a composed fragment's `:setup`, `:script`,
+  `:db-seed`, `:network`, `:sub-overrides`, `:loaders` and `:decorators`
+  into the variant's world, so each is a render input of the variant; the
+  slice is `render-input-keys`, exactly as for the variant's own body.
+
+  Fragment ids are not hashed, so renaming a fragment without changing
+  what it contributes leaves identity alone; reordering `:compose` does
+  not, because setup appends and later seeds win in declared order. An id
+  naming a check contributes nothing, nor does a fragment carrying only
+  `:args` (those reach the hash through `:effective-args`), and an
+  unregistered id is skipped because plan construction refuses it. One
+  side-table lookup per id; no plan compile."
+  [variant-id]
+  (into []
+        (keep (fn [cid]
+                (some-> (rf.story.registrar/handler-meta :fragment cid)
+                        (select-keys render-input-keys)
+                        not-empty)))
+        (:compose (rf.story.registrar/handler-meta :variant variant-id))))
 
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
@@ -300,33 +337,38 @@
          ;; EP-0002 — the variant frame is the explicit
          ;; target for the frame-local app-db schema digest (no ambient
          ;; resolution / no `:rf/default` synthesis).
-         schema-digest (view-schema-digest variant-id)]
-     {:rf/snapshot-canonical rf.story.fingerprint/canonical-version
-      :variant-id            variant-id
-      :variant               variant
-      :story                 story
-      :effective-args        effective
-      ;; The variant's RESOLVED tag set (shared `re-frame.story.tags`
-      ;; resolver — `:extends`/story inheritance + `:!x` marker removal),
-      ;; the single tag input to the hash. Raw child + story `:tags` slots
-      ;; are intentionally NOT selected in the body slices; this subsumes
-      ;; them. Keeps watch-mode drift + visual-regression identity keyed
-      ;; off the SAME effective classification every other consumer reads.
-      :effective-tags        (effective-tags-slice variant-id)
-      :view-schema-digest    schema-digest
-      ;; `:active-modes` already perturbs identity via
-      ;; `:effective-args` (mode args are merged in by `resolve-args`),
-      ;; so this top-level slot is intentionally belt-and-braces: it
-      ;; keeps the mode-id SET part of the identity so two distinct modes
-      ;; that happen to register identical args (and therefore identical
-      ;; `:effective-args`) still produce DIFFERENT snapshot hashes. The
-      ;; visual-regression baseline is keyed per active-mode context, so
-      ;; the mode id — not just its resolved args — is identity-bearing.
-      ;; Do not "simplify" this away. (Contrast `:cell-overrides`, which
-      ;; perturbs identity only via `:effective-args` — overrides carry
-      ;; no id, so there is no analogous collision risk.)
-      :active-modes          (vec (or active-modes []))
-      :substrate             substrate})))
+         schema-digest (view-schema-digest variant-id)
+         composed      (composed-fragment-slices variant-id)]
+     (cond-> {:rf/snapshot-canonical rf.story.fingerprint/canonical-version
+              :variant-id            variant-id
+              :variant               variant
+              :story                 story
+              :effective-args        effective
+              ;; The variant's RESOLVED tag set (shared `re-frame.story.tags`
+              ;; resolver — `:extends`/story inheritance + `:!x` marker removal),
+              ;; the single tag input to the hash. Raw child + story `:tags` slots
+              ;; are intentionally NOT selected in the body slices; this subsumes
+              ;; them. Keeps watch-mode drift + visual-regression identity keyed
+              ;; off the SAME effective classification every other consumer reads.
+              :effective-tags        (effective-tags-slice variant-id)
+              :view-schema-digest    schema-digest
+              ;; `:active-modes` already perturbs identity via
+              ;; `:effective-args` (mode args are merged in by `resolve-args`),
+              ;; so this top-level slot is intentionally belt-and-braces: it
+              ;; keeps the mode-id SET part of the identity so two distinct modes
+              ;; that happen to register identical args (and therefore identical
+              ;; `:effective-args`) still produce DIFFERENT snapshot hashes. The
+              ;; visual-regression baseline is keyed per active-mode context, so
+              ;; the mode id — not just its resolved args — is identity-bearing.
+              ;; Do not "simplify" this away. (Contrast `:cell-overrides`, which
+              ;; perturbs identity only via `:effective-args` — overrides carry
+              ;; no id, so there is no analogous collision risk.)
+              :active-modes          (vec (or active-modes []))
+              :substrate             substrate}
+       ;; rf2-pt0d1 — composed fragments' render inputs, in declared order.
+       ;; Absent unless one carries a render input, so a variant composing
+       ;; nothing (or only checks / `:args`) keeps the identity it had.
+       (seq composed) (assoc :composed composed)))))
 
 (defn snapshot-identity
   "Public entry point per `002-Runtime.md` §Programmatic API — return the snapshot-identity
