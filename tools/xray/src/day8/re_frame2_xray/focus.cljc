@@ -70,7 +70,16 @@
   the correct frame's ring), THEN `:dispatch-id` / `:epoch-id` (the
   spine pin), THEN `:panel` (the tab) and `:path` (the app-db slice).
   Reversing frame and epoch would let the epoch pin resolve against the
-  wrong frame's ring."
+  wrong frame's ring.
+
+  The order has to hold in the QUEUE, and on the async path it does not by
+  itself: `:rf.xray/select-frame` reaches `:rf.xray/set-frame` through a
+  `:dispatch` fx, which the router appends to the back of the queue —
+  behind any pin queued beside it, so `set-frame` would land last and clear
+  the pin. `focus!` therefore queues the frame step alone and the rest
+  behind the one sequencing event this namespace registers,
+  `:rf.xray/focus-after-frame` (rf2-2qtgt). `:applied` still reports the
+  canonical events above, in their order."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panel-registry :as panel-registry]))
@@ -210,6 +219,23 @@
     (some? path)        (conj [:rf.xray/focus-slice-path path])))
 
 ;; ---------------------------------------------------------------------------
+;; The one sequencing event (rf2-2qtgt)
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn install!
+     "Register `:rf.xray/focus-after-frame`, the continuation `focus!`'s
+     async path queues behind a frame step (see `apply-focus!`). Its
+     handler re-dispatches the events it carries, in order, and writes
+     nothing itself: no app-db slot, no spine model, no panel state — the
+     carried events are the canonical writes. Called from
+     `registry/register-xray-handlers!`."
+     []
+     (rf/reg-event :rf.xray/focus-after-frame
+       (fn [_ctx [_ dispatches]]
+         {:fx (mapv (fn [event-vec] [:dispatch event-vec]) dispatches)}))))
+
+;; ---------------------------------------------------------------------------
 ;; Host-facing focus entry point (CLJS — fires into the Xray frame)
 ;; ---------------------------------------------------------------------------
 
@@ -250,9 +276,27 @@
          ;; runtime.cljs's mutation accessors, which target
          ;; `defaults/default-frame-id` for the no-surrounding-frame case.
          (rf/with-frame defaults/default-frame-id
-           (doseq [event-vec dispatches]
-             (if sync?
-               (rf/dispatch-sync event-vec)
+           (cond
+             ;; Each `dispatch-sync` drains before the next begins, so the
+             ;; frame step's own `:rf.xray/set-frame` lands before the pin.
+             sync?
+             (doseq [event-vec dispatches]
+               (rf/dispatch-sync event-vec))
+
+             ;; rf2-2qtgt — the ASYNC path, which is how a host sends it.
+             ;; `:rf.xray/select-frame` reaches `:rf.xray/set-frame` through
+             ;; a `:dispatch` fx, appended to the BACK of the queue. Queued
+             ;; beside it, the pin would land first and `set-frame` would
+             ;; clear it, leaving the spine on LIVE head. So queue the frame
+             ;; step alone and the rest behind a one-hop continuation, which
+             ;; runs after `select-frame` has queued its `set-frame`.
+             (= :rf.xray/select-frame (ffirst dispatches))
+             (do (rf/dispatch (first dispatches))
+                 (when-let [more (seq (rest dispatches))]
+                   (rf/dispatch [:rf.xray/focus-after-frame (vec more)])))
+
+             :else
+             (doseq [event-vec dispatches]
                (rf/dispatch event-vec))))
          {:ok?     true
           :applied dispatches

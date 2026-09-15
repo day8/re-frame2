@@ -607,6 +607,9 @@
    :rf.xray/filter-by-fx
    :rf.xray/filter-by-http-correlation
    :rf.xray/filter-by-machine
+   ;; rf2-2qtgt — `focus!`'s async continuation, queued behind a frame
+   ;; step so `:rf.xray/set-frame` lands before the spine pin.
+   :rf.xray/focus-after-frame
    :rf.xray/focus-event
    :rf.xray/focus-event-next
    :rf.xray/focus-event-prev
@@ -1454,7 +1457,7 @@
 ;; no-migration rationale) and update the pins here. Mirrors the drift-guard
 ;; discipline of `focus-valid-panels-mirrors-live-dynamic-registry`.
 
-(def ^:private expected-schema-version 6)
+(def ^:private expected-schema-version 7)
 
 (deftest schema-version-is-pinned-so-changed-registrations-name-a-migration
   (testing "registry/schema-version matches the governance pin"
