@@ -29,6 +29,7 @@
             [re-frame.http.test-support]  ;; stub install seam + canned-stub handlers
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
+            [re-frame.story.args :as rf.story.args]
             [re-frame.story.artifact :as rf.story.artifact]
             [re-frame.story.determinism :as rf.story.determinism]
             [re-frame.story.plan :as rf.story.plan]
@@ -491,7 +492,10 @@
 ;; or overridden by it. Capture and promotion must compile the source with
 ;; those inputs: otherwise a required input fails the compile and nothing is
 ;; captured, and an overridden default promotes the default, not the value
-;; that ran.
+;; that ran. The same input can reach the promoted variant through a setup it
+;; INHERITS (rf2-rky08): the dialog's draft `:extends` the source, whose
+;; `:setup` re-substitutes its `[:arg]` when the promoted variant compiles, so
+;; the promotion carries the run's inputs as its own `:args`.
 
 #?(:clj
    (defn- reg-inc!
@@ -740,6 +744,135 @@
           :setup  [[:promo/boot]]
           :script [[:assert [:rf.assert/path-equals [:n] [:arg :expected]]]]}
          {:cell-overrides {:expected 2}}))))
+
+#?(:clj
+   (def ^:private seeds
+     "How many times `:promo/seed` has run — the setup-once pin."
+     (atom 0)))
+
+#?(:clj
+   (defn- reg-seed!
+     "The app under test for a run input its SETUP reads. `:promo/seed` takes a
+     quantity and records whether the app accepts it. `fixed?` false is the
+     FAULT — only the source's default quantity, 1, is accepted; true is the
+     repair."
+     [fixed?]
+     (rf/reg-event :promo/seed
+       (fn [{:keys [db]} [_ qty]]
+         (swap! seeds inc)
+         {:db (assoc db :accepted? (if fixed? (pos? qty) (= 1 qty)))}))))
+
+#?(:clj
+   (defn- assert-setup-input-promotion-fail-pass-fail
+     "Run `source-body` under `source-id` with the Test-mode `run-opts`, whose
+     input only the source's `:setup` reads, capture the failing run and promote
+     it with the dialog's default draft, which `:extends` the source and so
+     inherits that setup. Run with NO opts, the promoted variant must fail as
+     its source did, pass once the app is fixed and fail when the fault returns,
+     with its source's one assertion. Run with the source's opts it fails too
+     (the positive control), and its inherited setup runs once per run."
+     [source-id source-body run-opts]
+     (rf.story/install-canonical-vocabulary!)
+     (reg-seed! false)
+     (rf.story.registrar/reg-variant* source-id source-body)
+     (let [result   (rf.story.async/deref-blocking (rf.story/run source-id run-opts) 10000)
+           capture  (rf.story.ui.promotion/result->artifact
+                      result (rf.story.play/variant-play-events source-id run-opts) run-opts)
+           promoted (keyword (namespace source-id) (str (name source-id) "-dialog"))
+           failing  {:status :fail :assertions 1 :checks 0}]
+       (is (= failing (verdict result))
+           "the source fails on its one checkpoint under the run's input")
+       (when (is (some? capture) "the run is capturable")
+         (rf.story.promotion/promote-run-artifact!
+           capture
+           (rf.story.ui.promotion/draft->promote-opts
+             {:variant-id promoted :tags #{:test} :setup-count 0 :extends source-id}))
+         (is (= [failing {:status :pass :assertions 1 :checks 0} failing]
+                (fault-fix-fault promoted reg-seed!))
+             (str promoted ", run with no opts, runs fail / pass / fail with its source's one assertion"))
+         (is (= failing
+                (verdict (rf.story.async/deref-blocking (rf.story/run promoted run-opts) 10000)))
+             "positive control: run with the source's opts, the promoted variant fails")
+         (reset! seeds 0)
+         (is (= failing (run-verdict promoted)))
+         (is (= 1 @seeds) "the inherited setup runs once per run")))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-an-overridden-input-its-setup-reads
+     (testing "the audit's shape: the source's :setup reads [:arg :qty], which
+               defaults to 1, and the run overrides it to 2 through
+               :cell-overrides. The checkpoint reads no input, so the capture is
+               the same under any input. The promoted variant :extends the
+               source and inherits that setup, so it must run it with the 2
+               that failed, not the default that passes against the unchanged
+               app (rf2-rky08)"
+       (assert-setup-input-promotion-fail-pass-fail
+         :story.promo/setup-overridden-input
+         {:tags   #{:test}
+          :args   {:qty 1}
+          :setup  [[:promo/seed [:arg :qty]]]
+          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]}
+         {:cell-overrides {:qty 2}}))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-a-required-input-its-setup-reads
+     (testing "the source's :setup reads [:arg :qty] with NO default, supplied
+               only by the run's :cell-overrides: the promoted variant must
+               still compile and run it with the input that ran (rf2-rky08)"
+       (assert-setup-input-promotion-fail-pass-fail
+         :story.promo/setup-required-input
+         {:tags   #{:test}
+          :setup  [[:promo/seed [:arg :qty]]]
+          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]}
+         {:cell-overrides {:qty 2}}))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-a-mode-supplied-input-its-setup-reads
+     (testing "the source's :setup reads [:arg :qty], supplied only by an
+               active mode: the promoted variant runs with no modes, so it must
+               carry the input that ran (rf2-rky08)"
+       (rf.story.registrar/reg-mode* :Mode.promo/qty-two {:args {:qty 2}})
+       (assert-setup-input-promotion-fail-pass-fail
+         :story.promo/setup-mode-input
+         {:tags   #{:test}
+          :setup  [[:promo/seed [:arg :qty]]]
+          :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]}
+         {:active-modes [:Mode.promo/qty-two]}))))
+
+(deftest promotion-carries-the-run-inputs-at-the-values-that-ran
+  (testing "the promoted body's :args carry exactly the keys the run's modes and
+            cell overrides supplied, at the values the source resolved under the
+            ordinary precedence, so the setup the promotion inherits through
+            :extends is the setup the run executed (rf2-rky08)"
+    (rf.story.registrar/reg-mode* :Mode.promo/qty-three {:args {:qty 3 :note "mode"}})
+    (rf.story.registrar/reg-variant* :story.promo/seeded
+      {:args   {:qty 1 :note "variant" :label "default"}
+       :setup  [[:promo/seed [:arg :qty]]]
+       :script [[:assert [:rf.assert/path-equals [:accepted?] true]]]})
+    (let [run-opts {:active-modes [:Mode.promo/qty-three] :cell-overrides {:qty 2}}
+          capture  (rf.story.ui.promotion/result->artifact
+                     {:status :fail :variant/id :story.promo/seeded} [] run-opts)
+          draft    {:extends :story.promo/seeded}
+          ran      (rf.story.plan/variant-plan
+                     :story.promo/seeded
+                     {:run-args (rf.story.args/run-arg-layers :story.promo/seeded run-opts)})]
+      (is (= {:qty 2 :note "variant"}
+             (:args (rf.story.promotion/artifact->variant-body capture draft)))
+          "the cell override beats the mode for :qty, the source's own :note
+           beats the mode, and :label, which no run input named, is not carried")
+      (is (= (get-in ran [:world :setup])
+             (get-in (rf.story.promotion/materialize-variant-plan capture draft) [:world :setup]))
+          "the promoted plan's inherited setup is the setup the run executed")
+      (is (= {:qty 5 :note "variant"}
+             (:args (rf.story.promotion/artifact->variant-body
+                      capture (assoc draft :args {:qty 5}))))
+          "an explicit :args opt still wins over a carried input")
+      (is (not (contains? (rf.story.promotion/artifact->variant-body
+                            (rf.story.ui.promotion/result->artifact
+                              {:status :fail :variant/id :story.promo/seeded} [])
+                            draft)
+                          :args))
+          "a capture that recorded no run inputs carries no :args"))))
 
 (deftest promotion-compiles-the-source-with-the-captured-run-inputs
   (testing "promotion compiles the source with the run inputs a Test-mode
