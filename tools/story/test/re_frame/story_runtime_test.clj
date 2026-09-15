@@ -895,6 +895,107 @@
       (is (not= (:watch before) (:watch after))
           "and the watch hash still moves through the ancestor reference"))))
 
+;; ---- rf2-0ae7o.8: authored `:interceptor-overrides` ----------------------
+;;
+;; spec/017 §The interceptor-override surface: the override is the ref "the
+;; runner installs under that id for the duration of the variant". The plan
+;; compiled an own, inherited or composed map into
+;; `[:world :frame :interceptor-overrides]`, but frame allocation installed
+;; only `:fx-overrides`, so an authored interceptor override was silently
+;; ignored and every run settled as if it were absent.
+
+(def ^:private icpt-override-body
+  {:tags       #{:test}
+   :setup      [[:test.id-icpt/start]]
+   :assertions [[:rf.assert/path-equals [:tag] 1]]})
+
+(defn- icpt-tagger
+  "An interceptor whose `:before` stamps `n` at `[:tag]` in the `:db` coeffect."
+  [n]
+  {:before (fn [ctx] (assoc-in ctx [:coeffects :db :tag] n))})
+
+(defn- reg-icpt-fixtures!
+  "`:test.id-icpt/start` runs `:test.id-icpt/tag` (stamps 0); `:one` and
+  `:two` are the replacements an override swaps in (stamp 1 and 2)."
+  []
+  (rf/reg-interceptor :test.id-icpt/tag (icpt-tagger 0))
+  (rf/reg-interceptor :test.id-icpt/one (icpt-tagger 1))
+  (rf/reg-interceptor :test.id-icpt/two (icpt-tagger 2))
+  (rf/reg-event :test.id-icpt/start {:interceptors [:test.id-icpt/tag]}
+    (fn [{:keys [db]} _] {:db db})))
+
+(defn- icpt-override-run
+  "Snapshot identity, watch hash, verdict and settled `:tag` of `vid`."
+  [vid]
+  (let [id-hash (:content-hash (rf.story/snapshot-identity vid))
+        watch   (get (rf.story.ui.watch/compute-testable-content-hashes) vid)
+        r       (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)]
+    (rf.story/destroy-variant! vid)
+    {:id-hash id-hash :watch watch :status (:status r) :tag (-> r :app-db :tag)}))
+
+(defn- icpt-override-edit
+  "Swap `:test.id-icpt/tag` for `:test.id-icpt/one` through `place!` and run
+  `vid`, then for `:test.id-icpt/two` and run again. Installed, the overrides
+  settle `:tag` to 1 and 2, so only the second run fails; ignored, the chain's
+  own interceptor settles it to 0 both times. Returns `[before after]`."
+  [vid place!]
+  (reg-icpt-fixtures!)
+  (place! {:test.id-icpt/tag :test.id-icpt/one})
+  (let [before (icpt-override-run vid)]
+    (place! {:test.id-icpt/tag :test.id-icpt/two})
+    [before (icpt-override-run vid)]))
+
+(deftest interceptor-overrides-own-body
+  (testing "rf2-0ae7o.8 — the variant's own `:interceptor-overrides` is
+            installed on its frame, so it decides what the run settles to"
+    (let [vid            :story.id-icpt/own
+          place!         (fn [ovr]
+                           (rf.story/reg-variant vid
+                             (assoc icpt-override-body :interceptor-overrides ovr)))
+          [before after] (icpt-override-edit vid place!)]
+      (is (= [:pass 1 :fail 2] [(:status before) (:tag before) (:status after) (:tag after)])
+          "the override decides the settled app-db and the verdict"))))
+
+(deftest interceptor-overrides-compose-fragment
+  (testing "rf2-0ae7o.8 — a composed fragment's `:interceptor-overrides` is
+            installed on the variant's frame"
+    (let [vid            :story.id-icpt/composed
+          place!         (fn [ovr]
+                           (rf.story/reg-fragment :fragment.id-icpt/world {:interceptor-overrides ovr})
+                           (rf.story/reg-variant vid
+                             (assoc icpt-override-body :compose [:fragment.id-icpt/world])))
+          [before after] (icpt-override-edit vid place!)]
+      (is (= [:pass 1 :fail 2] [(:status before) (:tag before) (:status after) (:tag after)])
+          "the fragment's override decides the settled app-db and the verdict"))))
+
+(deftest interceptor-overrides-extends-ancestor
+  (testing "rf2-0ae7o.8 — an `:extends` ancestor's `:interceptor-overrides` is
+            installed on the child's frame"
+    (let [vid            :story.id-icpt/child
+          place!         (fn [ovr]
+                           (rf.story/reg-variant :story.id-icpt/parent {:interceptor-overrides ovr})
+                           (rf.story/reg-variant vid
+                             (assoc icpt-override-body :extends :story.id-icpt/parent)))
+          [before after] (icpt-override-edit vid place!)]
+      (is (= [:pass 1 :fail 2] [(:status before) (:tag before) (:status after) (:tag after)])
+          "the inherited override decides the settled app-db and the verdict"))))
+
+(deftest interceptor-overrides-inline-plan
+  (testing "rf2-0ae7o.8 — an inline plan's `:interceptor-overrides` is
+            installed on its anonymous frame"
+    (reg-icpt-fixtures!)
+    (let [run! (fn [ovr]
+                 (let [r (rf.story.async/deref-blocking
+                           (rf.story/run {:setup                 [[:dispatch [:test.id-icpt/start]]]
+                                          :interceptor-overrides ovr
+                                          :assertions            [[:rf.assert/path-equals [:tag] 1]]})
+                           5000)]
+                   [(:status r) (-> r :app-db :tag)]))]
+      (is (= [[:pass 1] [:fail 2]]
+             [(run! {:test.id-icpt/tag :test.id-icpt/one})
+              (run! {:test.id-icpt/tag :test.id-icpt/two})])
+          "the inline plan's override decides the settled app-db and the verdict"))))
+
 ;; ---- rf2-8fz0n8: the STORY-side identity inputs (story-body-slice) --------
 ;;
 ;; `story-body-slice` selects the parent story's `[:component :decorators]`
