@@ -772,9 +772,9 @@
   `[:wait ...]` steps in the primary save flow, and the displayed count
   reflects the full rich recording.
 
-  The `:auto-run?` flag is forced off in the snippet so the pasted
-  variant doesn't replay on mount until the author opts in — the
-  secondary Export dialog owns the auto-run + auto-assert affordances.
+  The snippet comes from `play-export/save-dialog-output`, whose script
+  auto-runs, so the pasted variant runs as-is (rf2-0ae7o.11); the
+  secondary Export dialog keeps the auto-run and auto-assert options.
 
   Reads `:entries` + `:source-id` from the dialog state itself — the
   snapshot was taken at `open-dialog!` time so a subsequent

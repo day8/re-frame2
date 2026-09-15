@@ -525,9 +525,15 @@
   (the recorded source variant). The dialog in `re-frame.story.ui.recorder`
   is CLJS-only; building its output here keeps it JVM-reachable, so the
   paste-and-run test grades the snippet the dialog actually emits. Pure
-  data → data."
+  data → data.
+
+  The script keeps the translator's `:auto-run? true` default, so the
+  pasted variant runs as-is: a click step the runner cannot drive refuses
+  `:cannot-run`, and a dispatch runs. Forcing it off registered a script
+  nothing ran, and the variant read `:pass` having tested nothing
+  (rf2-0ae7o.11)."
   [recording {:keys [variant-id extends]}]
-  (let [spec (recording->script-body recording {:auto-run? false})]
+  (let [spec (recording->script-body recording)]
     {:spec    spec
      :snippet (render-variant-form spec {:variant-id (or variant-id :story.recorded/example)
                                          :extends    extends})}))
