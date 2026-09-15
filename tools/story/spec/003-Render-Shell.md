@@ -184,9 +184,11 @@ The normative slot definition lives in
 ```
 
 Hot-reload preserves shell state: a re-mount calls into the same shell
-node and reseats the workspace. Decorator fingerprinting tracks
-whether the decorator stack used by a mounted variant has changed at
-the registry level; stale variants re-mount.
+node and reseats the workspace. Fingerprinting tracks whether a mounted
+variant's own registered body (its snapshot identity, taken without the
+run's mode and control layers) or the decorator stack it uses has
+changed at the registry level; stale variants re-mount. An edit to a
+variant with no running frame re-mounts nothing.
 
 ### Error-stream ownership
 
