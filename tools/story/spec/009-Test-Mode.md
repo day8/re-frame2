@@ -303,13 +303,15 @@ can render them directly.
 The widget aggregates over **testable** variants — variants whose
 `:tags` set contains `:test` AND that have tests. A variant has tests
 when a run of it would judge something: its own non-empty `:script` /
-`:plays` play surface, `:assertions` or `:checks`, or `:checks` it
-receives from an `:extends` ancestor or through a `:compose` of a check
-id. The plan compiler merges those received checks into
+`:plays` play surface, `:assertions` or `:checks`; a non-empty `:script`
+it receives through a `:compose` of a fragment, which the compiler folds
+into the primary play; or `:checks` it receives from an `:extends`
+ancestor or through a `:compose` of a check id. The plan compiler merges
+those received checks into
 `[:expect :checks]` ([`017-Testing-Story.md`](017-Testing-Story.md#composition)
 §Composition), and `run-variant` settles them even when no script runs,
 so they are real tests. The predicate reads the body, its `:extends`
-ancestors and the check registry; it never compiles a plan, so the
+ancestors and the fragment and check registries; it never compiles a plan, so the
 sidebar stays cheap. A variant tagged `:test` with nothing to run is
 excluded so the headline counts don't mislead. Per-variant dots follow
 the same filter: a `:dev`-only variant or a `:test` variant with
@@ -377,7 +379,11 @@ hash (per `re-frame.story.identity/snapshot-identity` + IMPL-SPEC
 §5.6) — the hash captures `:script` / `:plays` / `:setup` /
 `:loaders` / `:loaders-teardown` / `:viewport` / `:background` / args
 / decorators / parent-story slice, so a change to any of those
-produces a fresh hash. Cosmetic edits (docstring, `:source` coords)
+produces a fresh hash. The watch hash also folds in the variant's own
+`:assertions` / `:checks` / `:compose` / `:extends` — slots that decide
+what a run judges, which identity leaves out because it hashes render
+inputs — so an expectation-only edit re-runs the variant without changing
+its snapshot identity. Cosmetic edits (docstring, `:source` coords)
 do not contribute. (Per rf2-bgwnf — the slice was previously keyed on
 the removed `:play` slot, so play edits silently failed to perturb the
 hash; the slice now reads `:script` / `:plays`.)
