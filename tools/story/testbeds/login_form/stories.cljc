@@ -35,13 +35,21 @@
   The `force-fx-stub` decorator is wired on every variant that hits the
   network — the variant body never makes a real HTTP request; the stub
   resolves the request with the canned-success / canned-failure shape
-  per Spec 014 §Testing."
+  per Spec 014 §Testing.
+
+  This namespace is `.cljc`, and so are `login-form.events` and
+  `login-form.subs`, so a JVM host (story-mcp) holds the same stories the
+  browser shell shows. Only the views and the browser mount are
+  ClojureScript."
   (:require [re-frame.core  :as rf]
             [re-frame.story :as rf.story]
             ;; Sourcing these via :require fires the registrations.
             [login-form.events]
             [login-form.subs]
-            [login-form.views]))
+            ;; The parent story names its view by id
+            ;; (`:login-form.views/login-card`), so only a rendering host
+            ;; needs the view registered.
+            #?(:cljs [login-form.views])))
 
 ;; ---------------------------------------------------------------------------
 ;; App image (EP-0026 §Default Image)
