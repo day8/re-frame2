@@ -183,16 +183,19 @@
     (let [{:keys [body]} (:request args-map)
           good?          (= "correct-horse" (:password body))
           ok-stub        (rf.registrar/handler :fx :rf.http/managed-canned-success)
-          fail-stub      (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-      (js/setTimeout
-        (fn []
-          (if good?
-            (ok-stub frame-ctx
-                     (assoc args-map :value {:user  {:email (:email body)}
-                                             :token "demo-token"}))
-            (fail-stub frame-ctx
-                       (assoc args-map
-                              :kind :rf.http/http-4xx
-                              :tags {:status 401
-                                     :message "Invalid credentials."}))))
-        250))))
+          fail-stub      (rf.registrar/handler :fx :rf.http/managed-canned-failure)
+          respond!       (fn []
+                           (if good?
+                             (ok-stub frame-ctx
+                                      (assoc args-map :value {:user  {:email (:email body)}
+                                                              :token "demo-token"}))
+                             (fail-stub frame-ctx
+                                        (assoc args-map
+                                               :kind :rf.http/http-4xx
+                                               :tags {:status 401
+                                                      :message "Invalid credentials."}))))]
+      ;; The latency is for the live page, which is a browser. This is the
+      ;; one host-specific form in the namespace: a JVM host answers at once,
+      ;; which is what lets story-mcp load the testbed at all.
+      #?(:cljs (js/setTimeout respond! 250)
+         :clj  (respond!)))))
