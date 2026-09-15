@@ -699,6 +699,113 @@
       (is (not (contains? (rf.story.identity/snapshot-tuple vid) :composed))
           (str vid " composes no render input, so its tuple carries no :composed slot")))))
 
+;; ---- rf2-0ae7o.5: render inputs inherited through `:extends` -------------
+;;
+;; spec/017 §`:extends` passes an ancestor's world down (setup, render
+;; fixtures, network stubs, decorators) and never its behaviour, so each of
+;; those is a render input of every variant below it. Identity resolved only
+;; args and tags through the chain, so editing a parent's `:db-seed` or
+;; `:setup` changed the child's settled app-db and its verdict while the
+;; child's content-hash stayed put.
+
+(deftest snapshot-identity-changes-with-inherited-render-inputs
+  (testing "rf2-0ae7o.5 — re-registering an `:extends` ancestor with a
+            different render input changes what the child settles to AND the
+            child's hash"
+    (rf/reg-event :test.id-inherit/set-n
+      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    (rf.story/reg-decorator :centered
+      {:kind :hiccup :wrap (fn [body _args] [:div.centered body])})
+    (rf.story/reg-decorator :boxed
+      {:kind :hiccup :wrap (fn [body _args] [:div.boxed body])})
+    (rf.story/reg-story :story.id-inherit {:component :app/v})
+    (let [parent  {:db-seed    {:count 1}
+                   :setup      [[:test.id-inherit/set-n 5]]
+                   :decorators [[:centered]]}
+          hash-of (fn [vid] (:content-hash (rf.story/snapshot-identity vid)))
+          run!    (fn []
+                    (let [r (rf.story.async/deref-blocking
+                              (rf.story/run-variant :story.id-inherit/child) 5000)]
+                      (rf.story/destroy-variant! :story.id-inherit/child)
+                      r))]
+      (rf.story/reg-variant :story.id-inherit/parent parent)
+      (rf.story/reg-variant :story.id-inherit/child
+        {:extends    :story.id-inherit/parent
+         :assertions [[:rf.assert/path-equals [:count] 1]
+                      [:rf.assert/path-equals [:n] 5]]})
+      (rf.story/reg-variant :story.id-inherit/grandchild
+        {:extends :story.id-inherit/child})
+      (let [child-0      (hash-of :story.id-inherit/child)
+            grandchild-0 (hash-of :story.id-inherit/grandchild)]
+        (is (= :pass (:status (run!)))
+            "sanity: the inherited seed and setup satisfy the child's assertions")
+        (testing ":db-seed"
+          (rf.story/reg-variant :story.id-inherit/parent (assoc parent :db-seed {:count 2}))
+          (let [r (run!)]
+            (is (= 2 (-> r :app-db :count)) "the parent's seed reaches the child's app-db")
+            (is (= :fail (:status r)) "and flips the child's verdict")
+            (is (not= child-0 (hash-of :story.id-inherit/child))
+                "so editing a parent's :db-seed must produce a fresh child hash")
+            (is (not= grandchild-0 (hash-of :story.id-inherit/grandchild))
+                "and a fresh hash two levels down")))
+        (testing ":setup"
+          (rf.story/reg-variant :story.id-inherit/parent
+            (assoc parent :setup [[:test.id-inherit/set-n 6]]))
+          (let [r (run!)]
+            (is (= 6 (-> r :app-db :n)) "the parent's setup runs in the child")
+            (is (= :fail (:status r)) "and flips the child's verdict")
+            (is (not= child-0 (hash-of :story.id-inherit/child))
+                "so editing a parent's :setup must produce a fresh child hash")))
+        (testing ":decorators"
+          (rf.story/reg-variant :story.id-inherit/parent (assoc parent :decorators [[:boxed]]))
+          (is (= [:boxed]
+                 (mapv :id (:hiccup (rf.story/resolve-decorators :story.id-inherit/child))))
+              "the child renders inside the parent's decorators")
+          (is (not= child-0 (hash-of :story.id-inherit/child))
+              "so editing a parent's :decorators must produce a fresh child hash"))
+        (testing ":network"
+          (rf.story/reg-variant :story.id-inherit/parent
+            (assoc parent :network {[:get "/api/x"] {:reply {:ok {:status 200}}}}))
+          (is (not= child-0 (hash-of :story.id-inherit/child))
+              "adding a parent :network stub must produce a fresh child hash"))
+        (testing "restoring the parent restores the child's identity"
+          (rf.story/reg-variant :story.id-inherit/parent parent)
+          (is (= child-0 (hash-of :story.id-inherit/child))))))))
+
+(deftest snapshot-tuple-unchanged-without-inherited-render-inputs
+  (testing "rf2-0ae7o.5 — the tuple's :inherited slot appears only when an
+            `:extends` ancestor carries an inheritable render input, so a
+            variant with no ancestor, or whose ancestors carry only `:args`,
+            `:tags` or behaviour (`:script`, expectations), keeps exactly the
+            identity it had before the slot existed"
+    (rf.story/reg-story :story.id-no-inherit {:component :app/v})
+    (rf.story/reg-variant :story.id-no-inherit/p-args {:args {:label "a"}})
+    (rf.story/reg-variant :story.id-no-inherit/p-tags {:setup [] :tags #{:docs}})
+    (rf.story/reg-variant :story.id-no-inherit/p-script
+      {:script     [[:dispatch [:n/set 1]]]
+       :assertions [[:rf.assert/path-equals [:n] 1]]})
+    (rf.story/reg-variant :story.id-no-inherit/plain {:setup [] :db-seed {:n 1}})
+    (rf.story/reg-variant :story.id-no-inherit/ext-args
+      {:extends :story.id-no-inherit/p-args})
+    (rf.story/reg-variant :story.id-no-inherit/ext-tags
+      {:extends :story.id-no-inherit/p-tags})
+    (rf.story/reg-variant :story.id-no-inherit/ext-script
+      {:extends :story.id-no-inherit/p-script :db-seed {:n 1}})
+    (doseq [vid [:story.id-no-inherit/plain :story.id-no-inherit/ext-args
+                 :story.id-no-inherit/ext-tags :story.id-no-inherit/ext-script]]
+      (is (not (contains? (rf.story.identity/snapshot-tuple vid) :inherited))
+          (str vid " inherits no render input, so its tuple carries no :inherited slot")))
+    (testing "the slot holds each carrying ancestor's inheritable slice,
+              nearest first, without ancestor ids and without behaviour"
+      (rf.story/reg-variant :story.id-no-inherit/p-script
+        {:script     [[:dispatch [:n/set 1]]]
+         :assertions [[:rf.assert/path-equals [:n] 1]]
+         :setup      [[:n/set 2]]})
+      (rf.story/reg-variant :story.id-no-inherit/ext-ext
+        {:extends :story.id-no-inherit/ext-script})
+      (is (= [{:db-seed {:n 1}} {:setup [[:n/set 2]]}]
+             (:inherited (rf.story.identity/snapshot-tuple :story.id-no-inherit/ext-ext)))))))
+
 ;; ---- rf2-8fz0n8: the STORY-side identity inputs (story-body-slice) --------
 ;;
 ;; `story-body-slice` selects the parent story's `[:component :decorators]`
