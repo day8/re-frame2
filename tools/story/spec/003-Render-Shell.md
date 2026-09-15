@@ -117,8 +117,9 @@ parses visually without reading text.
 **Amber-cyan temperature split** — the story + active-selection
 glyphs wear warm amber; the workspace glyph wears cool info-cyan.
 The temperature contrast tells the eye "this row is a different
-category" without needing labels. Testable variants (carrying `:test`
-in `:tags` or a non-empty `:script` sequence) replace the muted variant
+category" without needing labels. Testable variants
+([`009-Test-Mode.md`](009-Test-Mode.md#testable-variants) §Testable
+variants) replace the muted variant
 glyph with a **`status-dot`** that wears the semantic colour from
 the variant's last `run-variant` outcome
 (`:success`/`:danger`/`:warning`/pending).
