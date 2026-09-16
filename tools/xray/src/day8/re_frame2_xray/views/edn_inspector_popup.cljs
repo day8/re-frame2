@@ -641,9 +641,11 @@
 ;; the thing that head site already writes. `machine_after_rings.cljs`
 ;; records the same fork from the other side.
 ;;
-;; SCAFFOLDING WITH A DEFINED END. When the shell is itself a Fresco
-;; tree, `edn-inspector-popup-stack-view` takes this name directly, the
-;; `[:>]` goes, and both defs below are deleted.
+;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
+;; this comment used to name has ARRIVED: the shell IS a Fresco tree. The
+;; pair stayed anyway, because a Reagent parent still heads it on purpose
+;; — the shipped boundary witness suite. The chain is `[:>]` ->
+;; `as-component` -> [[edn-inspector-popup-stack-view]].
 
 (def ^:private edn-inspector-popup-stack-component
   "The React component [[edn-inspector-popup-stack-view]] presents as, for

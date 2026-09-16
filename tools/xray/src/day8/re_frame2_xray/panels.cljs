@@ -721,9 +721,10 @@
   mount as an ARGUMENT, so the embedding contract needs a name it can
   pass. `panels/resources`'s bridge is public for the same reason.
 
-  THIS IS SCAFFOLDING WITH A DEFINED END. When `render-panel!` itself
-  builds a Fresco tree, it takes `ManagedFxList` directly, `[:>]` goes,
-  and both defs here are deleted with every other `*-bridge`.
+  NOT SCAFFOLDING — THE PAIR STAYS. [[render-panel!]] builds a Reagent
+  tree and rf2-l1jm keeps it ratom-family, so a Reagent parent heads this
+  bridge by ruling. The chain is `[:>]` -> `as-component` ->
+  [[ManagedFxList]].
 
   rf2-5ykm — the 1-arity is how a caller names one of two lists sharing a
   frame; the 0-arity stays because that is what an unnamed standalone mount

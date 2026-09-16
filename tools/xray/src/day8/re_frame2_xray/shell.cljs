@@ -2449,9 +2449,9 @@
   "The name `panels/mount-event-spine!` mounts the L2 spine through — a
   plain alias of [[event-list]] until this view migrates to Fresco, when
   it becomes the `as-component` bridge without the mount facade moving.
-  Scaffolding with a defined end: it is deleted with every other
-  `*-bridge` when the shell itself becomes a Fresco tree. See the comment
-  above."
+  THE NAME STAYS EITHER WAY: `mount-event-spine!` reaches it through
+  `render-panel!`, which rf2-l1jm keeps ratom-family, so the mount facade
+  needs a name it can pass from a Reagent parent. See the comment above."
   event-list)
 
 ;; ---- L3 tab bar ----------------------------------------------------------

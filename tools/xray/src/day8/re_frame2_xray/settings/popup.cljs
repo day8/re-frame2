@@ -152,9 +152,11 @@
 ;; `rf/frame-provider` reaches [[Popup]] regardless. `shell.cljs`'s own
 ;; `surface-bridge` is this identical shape, shipped and green.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When `shell-view` is itself a
-;; Fresco boundary it heads `Popup` directly, `[:>]` goes, and both defs
-;; below are deleted.
+;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
+;; this comment used to name has ARRIVED: `shell-view` lowers to a Fresco
+;; boundary. The pair stayed anyway, because a Reagent parent still heads
+;; it on purpose — the shipped boundary witness suite. The chain is
+;; `[:>]` -> `as-component` -> [[Popup]].
 
 (def ^:private Popup-component
   "The React component [[Popup]] presents as, for a non-Fresco parent.

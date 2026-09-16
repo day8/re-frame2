@@ -366,9 +366,11 @@
 ;; props map, the case `as-component`'s own note calls sound — the
 ;; inspected value never crosses it; it is read inside the boundary.
 ;;
-;; SCAFFOLDING WITH A DEFINED END. When the shell is itself a Fresco tree,
-;; [[PopupView]] takes the name directly, the `[:>]` goes, and the
-;; component plus both bridges below are deleted.
+;; NOT SCAFFOLDING — THESE STAY. The shell IS a Fresco tree now and they
+;; stayed anyway: `panels/mount-segment-inspector!` reaches [[Popup-bridge]]
+;; through `render-panel!`, which rf2-l1jm keeps ratom-family, so a Reagent
+;; parent heads it by ruling; rf2-lect (option 2) rules the pair permanent.
+;; The chain is `[:>]` -> `as-component` -> [[PopupView]].
 
 (def ^:private Popup-component
   "The React component [[PopupView]] presents as, for a non-Fresco parent.

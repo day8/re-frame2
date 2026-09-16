@@ -138,9 +138,10 @@
     still a Reagent tree and stays so until the epic's coupling (1) is
     severed. `rf.fresco/as-component` is Fresco's own outward door; the
     component is declared once at top level, as its contract requires.
-    SCAFFOLDING WITH A DEFINED END — when `mount.cljs` owns a Fresco
-    root and `shell-view` becomes a boundary, it heads
-    [[handle-view]] directly and both defs go.
+    NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
+    `mount.cljs` owns a Fresco root and `shell-view` lowers to a
+    boundary, and the pair stayed anyway: a Reagent parent still heads
+    it on purpose, in the shipped boundary witness suite.
 
   THE MODE GATE STAYS ON THE REAGENT SIDE OF THE CROSSING, and that is
   load-bearing rather than stylistic: `as-component`'s contract is that
@@ -560,13 +561,12 @@
   "The callable `shell.cljs`'s `shell-view-tree` mounts, and the name
   that file has always headed.
 
-  `shell-view-tree` is still a Reagent tree — it stays one until the
-  epic's coupling (1) is severed and `mount.cljs` owns a Fresco root —
-  so a React component is not a legal hiccup head there. This is the
-  T5 bridge: [[handle-component]] is mounted through `[:>]`, and the
-  shell's enclosing `rf/frame-provider` is what puts the instance frame
-  in React context for it. No second root, no adapter-kind branch, no
-  props ABI.
+  `shell-view-tree` is a Fresco tree since rf2-k97c.3 and CALLS this fn
+  rather than heading it. This is the T5 bridge: [[handle-component]] is
+  mounted through `[:>]`, the interop escape a Reagent parent needs and
+  Fresco accepts, and the shell's enclosing `rf/frame-provider` is what
+  puts the instance frame in React context for it. No second root, no
+  adapter-kind branch, no props ABI.
 
   THE MODE GATE IS HERE rather than in the boundary, and it has to be:
   `mode` is a KEYWORD, `as-component`'s contract round-trips prop names
@@ -579,9 +579,10 @@
   `:fullscreen` is full-viewport with no width to drag, so both render
   nil exactly as before.
 
-  SCAFFOLDING WITH A DEFINED END: when `shell-view` becomes a boundary
-  it heads [[handle-view]] directly and both this and
-  [[handle-component]] are deleted."
+  NOT SCAFFOLDING — THIS STAYS (rf2-lect, ruled option 2). `shell-view`
+  lowers to a boundary now, and this and [[handle-component]] stayed
+  anyway: a Reagent parent still heads them on purpose, in the shipped
+  boundary witness suite."
   [mode]
   (when (= mode :inline)
     [:> handle-component {}]))

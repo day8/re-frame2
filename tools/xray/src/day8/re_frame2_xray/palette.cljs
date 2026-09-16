@@ -103,9 +103,11 @@
 ;; second root. So there is no second root here, no adapter-kind branch,
 ;; and no props ABI.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When `mount.cljs` owns a
-;; Fresco root and `shell-view` is itself a boundary, it heads
-;; [[ModalView]] directly, `[:>]` goes, and both defs below are deleted.
+;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
+;; this comment used to name has ARRIVED: `mount.cljs` owns a Fresco root
+;; and `shell-view` lowers to a boundary. The pair stayed anyway, because
+;; a Reagent parent still heads it on purpose — the shipped boundary
+;; witness suite. The chain is `[:>]` -> `as-component` -> [[ModalView]].
 
 (def ^:private Modal-component
   "The React component [[ModalView]] presents as, for a non-Fresco

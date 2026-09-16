@@ -225,14 +225,15 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; Same shape, and the same defined end, as `settings/popup.cljs`'s bridge —
-;; its comment carries the full reasoning and is not repeated here.
-;; `shell.cljs`'s `shell-view` is still an `rf/reg-view` and mounts this
-;; toast as the Reagent hiccup head `[editor-hint/Toast]`, which a React
-;; component cannot be; `rf.fresco/as-component` is the outward door, and
-;; the frame comes from the enclosing `rf/frame-provider` through React
-;; context. When `shell-view` becomes a boundary it heads `Hint` directly
-;; and both defs below are deleted.
+;; Same shape as `settings/popup.cljs`'s bridge — its comment carries the
+;; full reasoning and is not repeated here. `rf.fresco/as-component` is the
+;; outward door, and the frame comes from the enclosing
+;; `rf/frame-provider` through React context.
+;;
+;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
+;; this comment used to name has ARRIVED: `shell-view` lowers to a Fresco
+;; boundary. The pair stayed anyway, because a Reagent parent still heads
+;; it on purpose. The chain is `[:>]` -> `as-component` -> [[Hint]].
 
 (def ^:private Hint-component
   "The React component [[Hint]] presents as, for a non-Fresco parent.

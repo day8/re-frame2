@@ -236,9 +236,10 @@
 ;; a React parent mounts the component UNDER THE FRAME IT IS ALREADY IN,
 ;; taking the frame from React context rather than from a second root.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
-;; Fresco tree, `reg-l4-tab!` and `mount-app-db-diff!` take `Panel`
-;; directly, `[:>]` goes, and both defs below are deleted.
+;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-app-db-diff!` reaches
+;; this bridge through `render-panel!`, which rf2-l1jm keeps ratom-family,
+;; so a Reagent parent heads it by ruling whatever the L4 registry does.
+;; The chain is `[:>]` -> `as-component` -> `Panel`.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
