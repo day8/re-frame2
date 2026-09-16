@@ -122,16 +122,10 @@ reasons, and they recur all through this framework:
    computation runs once per change no matter how many views consume it. The
    forty-first reader costs nothing.
 
-One rookie mistake will quietly defeat reason 2, so hear it now: **don't build a
-non-primitive argument inline on every render.** `[:article/by-id "BK-1"]` from a
-hundred views is one cache node, because keywords and strings are value-stable. But
-`@(subscribe [:report/rows {:cols cols}])` with `{:cols cols}` assembled right
-there in the render body mints a *fresh* cache entry every time that map isn't `=`
-to the last one — unbounded cache growth, zero hit-rate, and the sub still computes
-the right answer, so nothing *looks* wrong. The dev build catches it with a
-one-shot `:rf.warning/sub-arg-cache-fragmentation` per sub-id. The fix: hoist the
-argument to a value-stable reference — `let`-bound, subscribed, or memoised — so
-repeated subscribes share one slot.
+That keying is by *value*, not by allocation identity, so an argument built
+inline on every render — `@(subscribe [:report/rows {:cols cols}])` — shares one
+cache node for as long as it stays `=` to the last one; only an argument that is
+`=` to nothing, a freshly-built closure being the usual one, misses every time.
 
 Coming from Redux? A subscription is a selector — Reselect's `createSelector` with
 the memoisation built in. From Solid or Jotai? A derived signal. Three deliberate
