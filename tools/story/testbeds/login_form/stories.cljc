@@ -20,14 +20,18 @@
 
   Every variant pins its terminal state with `:rf.assert/state-is
   :login/flow ...`, the runtime-db-aware machine checkpoint. Machine
-  snapshots live in the frame's runtime-db partition (EP-0001); the
-  play-runner's `:rf.assert/sub-equals` / `:rf.assert/path-equals`
-  evaluate against app-db, so a machine projection isn't observable
-  through them. The machine-snapshot `:data` values (`:error` /
-  `:attempts` / `:email`) are therefore verified in the testbed's CLJS
-  unit test (`stories_cljs_test.cljs`), which can read the variant
-  frame's runtime-db directly. The variant `:script` slots exercise the
-  play-runner shapes that ARE supported:
+  snapshots live in the frame's runtime-db partition (EP-0001).
+  `:rf.assert/path-equals` reads the app-db value directly, so a machine
+  projection is NOT observable through it. `:rf.assert/sub-equals`, by
+  contrast, IS runtime-db-aware: the play-runner hands it the full
+  frame-state value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`,
+  so a sub projecting a machine snapshot resolves its real value
+  (rf2-pecaxy). The machine-snapshot `:data` values (`:error` /
+  `:attempts` / `:email`) are verified in the testbed's CLJS unit test
+  (`stories_cljs_test.cljs`), which reads the variant frame's runtime-db
+  directly; a `:script`-level `:rf.assert/sub-equals` over one of the
+  projection subs is an equally valid check. The variant `:script` slots
+  exercise these play-runner shapes:
 
     :state-is        — every variant (`:rf.assert/state-is :login/flow ...`)
     :effect-emitted  — :submitting (the :rf.http/managed fx fired)
@@ -203,9 +207,10 @@
      ;; partition, so the state checkpoint reads it via
      ;; `:rf.assert/state-is` (which evaluates against runtime-db).
      ;; The error-message text in the snapshot's `:data` slot is verified
-     ;; in the testbed's CLJS unit test (`stories_cljs_test.cljs`): the
-     ;; play-runner's `:rf.assert/sub-equals` evaluates subs against app-db
-     ;; only, so a runtime-db machine projection isn't observable through it.
+     ;; in the testbed's CLJS unit test (`stories_cljs_test.cljs`); a
+     ;; `:script`-level `:rf.assert/sub-equals` over the `:login/error`
+     ;; projection sub reaches it too, since sub-equals resolves subs
+     ;; against the full frame-state value, runtime-db included.
      :script [[:assert [:rf.assert/state-is :login/flow :error]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
@@ -234,9 +239,10 @@
      ;; EP-0001: the attempt counter lives in the runtime-db snapshot's
      ;; `:data`; the state checkpoint reads the
      ;; snapshot via `:rf.assert/state-is`. The attempt-count value is
-     ;; verified in the testbed's CLJS unit test (`stories_cljs_test.cljs`)
-     ;; — the play-runner's `:rf.assert/sub-equals` only sees app-db, so a
-     ;; runtime-db machine projection isn't observable through it.
+     ;; verified in the testbed's CLJS unit test (`stories_cljs_test.cljs`);
+     ;; a `:script`-level `:rf.assert/sub-equals` over the `:login/attempts`
+     ;; projection sub reaches it too, since sub-equals resolves subs
+     ;; against the full frame-state value, runtime-db included.
      :script [[:assert [:rf.assert/state-is :login/flow :submitting-retry]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
@@ -246,9 +252,10 @@
   ;;
   ;; The canonical screenshot. Submit → success drives the machine
   ;; through to :authenticated; the view swaps the form for the
-  ;; welcome banner. The `:rf.assert/sub-equals` assertion pins the
-  ;; email the banner greets the user with — exactly the round-trip
-  ;; the EDN-first contract is built for.
+  ;; welcome banner. The `:script` pins the terminal state; the email
+  ;; the banner greets the user with is checked in the testbed's CLJS
+  ;; unit test, and is equally reachable from the `:script` via
+  ;; `:rf.assert/sub-equals` on `:login/email`.
   ;; -------------------------------------------------------------------------
 
   (rf.story/reg-variant :story.login-form/authenticated
@@ -265,9 +272,11 @@
      ;; EP-0001: the welcome-banner email lives in the runtime-db
      ;; snapshot's `:data`; the state checkpoint reads
      ;; the snapshot via `:rf.assert/state-is`. The email value is verified
-     ;; in the testbed's CLJS unit test (`stories_cljs_test.cljs`) — the
-     ;; play-runner's `:rf.assert/sub-equals` only sees app-db, so a
-     ;; runtime-db machine projection isn't observable through it.
+     ;; in the testbed's CLJS unit test (`stories_cljs_test.cljs`); a
+     ;; `:script`-level `[:rf.assert/sub-equals [:login/email]
+     ;; "ada@example.com"]` reaches it too — sub-equals resolves the
+     ;; projection sub against the full frame-state value (exercised
+     ;; under rf2-z06wh: fail / pass / fail against a seeded defect).
      :script [[:assert [:rf.assert/state-is :login/flow :authenticated]]]
      :tags   #{:dev :docs :test :login-form/tutorial}
      :substrates #{:reagent}})
