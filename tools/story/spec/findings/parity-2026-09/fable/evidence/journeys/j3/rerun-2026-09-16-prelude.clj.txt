@@ -1,0 +1,21 @@
+;; Journey 3 re-run (rf2-z06wh): does the JVM host now hold the flagship
+;; login_form testbed? Preloaded into the story-mcp JVM before the stdio loop.
+(require '[re-frame.core :as rf]
+         '[re-frame.frame :as rf.frame]
+         '[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+         '[re-frame.story :as rf.story])
+(rf/init! rf.substrate.plain-atom/adapter)
+(rf.story/install-canonical-vocabulary!)
+(rf.frame/ensure-default-frame!)
+(binding [*out* *err*]
+  (doseq [ns-sym '[login-form.events login-form.subs login-form.stories]]
+    (try
+      (require ns-sym)
+      (println "prelude: required" ns-sym)
+      (catch Throwable t
+        (println "prelude: cannot require" ns-sym "->"
+                 (.getName (class t)) (.getMessage t)))))
+  (println "prelude: login_form/events.cljc on classpath?"
+           (boolean (clojure.java.io/resource "login_form/events.cljc")))
+  (println "prelude: login_form/events.cljs on classpath?"
+           (boolean (clojure.java.io/resource "login_form/events.cljs"))))

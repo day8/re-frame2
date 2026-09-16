@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"j3-control","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"register-variant","arguments":{"variant-id":":story.login-form/authenticated-strengthened","body":"{:extends :story.login-form/authenticated :doc \"control: the flagship's expectation strengthened to the greeted email\" :decorators [[:rf.story/force-fx-stub :rf.http/managed {}]] :script [[:assert [:rf.assert/state-is :login/flow :authenticated]] [:assert [:rf.assert/sub-equals [:login/email] \"ada@example.com\"]]] :tags #{:dev :test}}"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"run-variant","arguments":{"variant-id":":story.login-form/authenticated-strengthened","dedup":false}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"read-failures","arguments":{"variant-id":":story.login-form/authenticated-strengthened"}}}
+{"jsonrpc":"2.0","id":5,"method":"shutdown","params":{}}
