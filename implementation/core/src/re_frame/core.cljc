@@ -980,10 +980,16 @@
      caller's `:ns`; and `reg-route` REJECTS it loudly
      (`:rf.error/route-bad-metadata`), `:ns` not being a reserved
      route-metadata key. Each `reg-*` fn-alias docstring says which of these
-     it is. Where `:ns` does not work, use the corresponding MACRO, whose
-     source-coord capture supplies the provenance. (`:ns` is in the shared
-     registration-metadata vocabulary for every kind — a statement about key
-     VALIDATION, not about the key reaching the store.)
+     it is. The MACRO form is the remedy for the LATTER TWO only: those
+     registrations do reach the store, so the macro's source-coord capture
+     supplies the provenance with no `:ns` stamp needed. It CANNOT help the
+     FRAME-OWNED kinds — a macro supplies COORDINATES, not OWNERSHIP, and
+     both spellings delegate to the same per-frame writer, so no descriptor
+     is recorded either way and there is nothing to select. Those
+     definitions are installed against the explicit or ambient frame, which
+     is their target. (`:ns` is in the shared registration-metadata
+     vocabulary for every kind — a statement about key VALIDATION, not
+     about the key reaching the store.)
 
      A MACRO (not a plain fn) purely to elide production bytes at the authoring
      seam (rf2-v2j8e): `rf/image` is value-oriented, but a LITERAL inline
