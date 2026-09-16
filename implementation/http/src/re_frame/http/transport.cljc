@@ -36,6 +36,7 @@
             [re-frame.http.transport-cljs :as rf.http.transport-cljs]
             [re-frame.http.transport-jvm  :as rf.http.transport-jvm]
             [re-frame.interop           :as rf.interop]
+            [re-frame.late-bind         :as rf.late-bind]
             [re-frame.trace             :as rf.trace])
   #?(:clj (:import [java.util.concurrent CompletableFuture])))
 
@@ -145,15 +146,38 @@
   registry cleared BEFORE the reply tail ran), so no teardown is performed
   here — only the observable emit. The reply itself is not delivered (delivery
   is what threw); the emit names the situation and the failing interceptor /
-  target so the broken `:after` / reply target is fixable. Dev-gated
-  (`interop/debug-enabled?`), diagnostic channel, and privacy-composed (the
-  URL redacts under the per-call `:sensitive?` flag / query-param denylist)
-  matching the sibling `:rf.http/*` error rows."
+  target so the broken `:after` / reply target is fixable. Privacy-composed
+  (the URL redacts under the per-call `:sensitive?` flag / query-param
+  denylist) matching the sibling `:rf.http/*` error rows.
+
+  rf2-1eng8 — ALWAYS-ON, and this is a deliberate PRODUCTION behaviour change.
+  The emit was wrapped in an outer `interop/debug-enabled?` gate and reached
+  the dev trace ONLY, so in a production CLJS bundle — the one place a broken
+  `:after` cannot be caught by running the tests — the reply vanished with
+  nothing left behind. Spec 014 §Failure mode promises the throw is surfaced
+  \"observably\", and a dev-only surface does not keep that promise. The emit
+  now fans out through BOTH error substrates via the
+  `:error-emit/emit-error-both` late-bind hook, exactly as core's
+  `fx/emit-fx-error!` does for the request-side `:rf.error/fx-handler-exception`
+  boundary this one is the response-side analogue of: axis 1 is the always-on
+  listener registry (production-survivable, the off-box shipper's source of
+  truth), axis 2 is the dev trace. The DEV surface is byte-for-byte unchanged —
+  same category, same tag map, and the `debug-enabled?` gate still applies to
+  it, now from INSIDE `trace/emit-error!` rather than from out here — so the
+  only delta is that production observers start seeing a failure that was
+  previously silent. Production emit VOLUME therefore rises on this path: it
+  was zero, and is now one record per reply tail that throws. That is the
+  point of the item, not a side effect of it.
+
+  The hook is read through `late-bind` rather than a static require because
+  `emit-fx-error!` does the same for the same reason (a load cycle through the
+  error-emit substrate); `nil` when the substrate namespace has not loaded, in
+  which case nothing is emitted — it is a foundational always-on surface, so in
+  practice it is present."
   [ctx e]
-  (when rf.interop/debug-enabled?
-    (let [reply-error-id (:rf.error/id (ex-data e))]
-      (rf.trace/emit-error!
-        :rf.error/http-reply-tail-failed
+  (let [reply-error-id (:rf.error/id (ex-data e))
+        origin-event   (:origin-event ctx)
+        trace-tags
         (rf.http.privacy/prepare-emit-tags
           {:url            (:url ctx)
            :kind           (:kind ctx)
@@ -171,8 +195,72 @@
                                 "and is surfaced here rather than swallowed. Fix "
                                 "the `:after` interceptor or reply target so it "
                                 "does not throw (Spec 014 §Middleware §Failure mode).")}
-          (true? (:sensitive? ctx))))))
+          (true? (:sensitive? ctx)))]
+    ;; Both channels through the shared helper — axis 1 the always-on corpus
+    ;; listener (survives CLJS `:advanced` + `goog.DEBUG=false`), axis 2 the
+    ;; dev trace (DCE'd there). `elapsed-ms 0` — this is not a timed path;
+    ;; `(rf.interop/now-ms)` is the emit instant. Mirrors `fx/emit-fx-error!`.
+    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/http-reply-tail-failed
+                        origin-event (first origin-event) (:frame ctx) e 0
+                        (rf.interop/now-ms) trace-tags)))
   nil)
+
+(defn- complete-fenced!
+  "rf2-1eng8 — THE COMPLETION FENCE. Invoke `f`, the WHOLE body of a platform
+  completion callback (the Fetch `.then` on CLJS, the `CompletableFuture`
+  `.whenComplete` on the JVM), and catch anything it throws.
+
+  The reply-tail fence in `dispatch-reply!` below covers the BOTTOM of that
+  callback — the `:after` chain and the late-bind reply dispatch. This covers
+  everything ABOVE it: the 4xx/5xx/2xx cascade, response-body schema
+  classification, the retry decision, and the finalise + teardown itself. A
+  throw there was unfenced, and it failed differently — and badly — on each
+  host:
+
+  - CLJS — the throw rejected the promise `.then` returns, so the `.catch`
+    chained after it fed `classify-cljs-error` → `:rf.http/transport` →
+    `maybe-retry!`, which RE-SENT a request whose wire outcome had already
+    SUCCEEDED. The retry mints a FRESH handle, so the once-only `:finalised?`
+    guard does not stop it. The double-send presents to the caller as success:
+    nothing observable says the request ran twice, and a non-idempotent
+    endpoint is mutated twice.
+  - JVM — the throw escaped into the `whenComplete` stage nobody holds, which
+    completes that discarded future exceptionally and swallows it. No reply is
+    dispatched and the registry entry is never cleared, so the request hangs
+    in flight for ever, silently.
+
+  Those are exactly the two registers Spec 014 §Failure mode already names for
+  a response-side throw, which is why this routes to the SAME non-retrying,
+  observable `:rf.error/http-reply-tail-failed` emit the reply-tail fence uses
+  rather than minting a second category: from the app's point of view the
+  situation is identical — the transport succeeded and the outcome could not be
+  delivered. `:reply-error-id` carries the caught throw's own `:rf.error/id`,
+  which is what tells the two apart on the wire; the reachable case named on
+  the item is `:rf.error/schemas-artefact-missing`, thrown by
+  `privacy-body/classify-decoded` when the request's `:decode` schema declares
+  a per-slot mark and the shared walker hook is unbound.
+
+  A throw ABOVE `finalise-success!` / `finalise-failure!` has not cleared the
+  in-flight registry, so the fence performs the same terminal teardown the
+  natural completion does. All three steps are idempotent — `clear-in-flight!`
+  is identity-conditional, `evict-issuance-on-completion!` conditional-atomic,
+  `detach-external-abort!` a no-op when absent — so a throw BELOW the teardown,
+  where the natural path has already run it, costs nothing.
+
+  Deliberately NO reply is dispatched here: the once-only `:finalised?` token
+  may already be spent, and inventing a reply would race the one the finalise
+  path may have just delivered. The app's `:on-success` / `:on-failure` does
+  not fire; the emit is what makes the failure fixable."
+  [ctx f]
+  (try
+    (f)
+    (catch #?(:clj Throwable :cljs :default) e
+      (rf.http.registry/clear-in-flight! (:frame ctx) (:request-id ctx) (:handle ctx))
+      (rf.http.registry/evict-issuance-on-completion! (:frame ctx) (:request-id ctx) (:issuance ctx))
+      (detach-external-abort! ctx)
+      (emit-reply-tail-error! ctx e)
+      nil)))
 
 (defn- dispatch-reply!
   "Threads the reply-payload through the per-frame `:after` interceptor
@@ -2056,7 +2144,14 @@
                             ;; JVM branch threads into `jvm-fetch` below.
                             :sensitive?          (true? (:sensitive? ctx))
                             :frame               (:frame ctx)})
-               (.then (fn [result] (handle-response! ctx' result)))
+               ;; rf2-1eng8 — the completion fence. Without it a throw anywhere
+               ;; in the response cascade rejects this promise, and the `.catch`
+               ;; below reclassifies it as `:rf.http/transport` → `maybe-retry!`
+               ;; → a RE-SEND of a request whose 2xx already landed. The fence
+               ;; catches first, so the `.catch` only ever sees a genuine
+               ;; transport rejection.
+               (.then (fn [result]
+                        (complete-fenced! ctx' #(handle-response! ctx' result))))
                ;; Pass `url` so `classify-cljs-error` can
                ;; distinguish `:rf.http/cors` from `:rf.http/transport`
                ;; via the cross-origin heuristic.
@@ -2139,11 +2234,19 @@
                  ;; user. An abort that cancelled cf between the region
                  ;; ending and this line lands the same way — registering on
                  ;; an already-cancelled future fires the callback at once.
+                 ;; rf2-1eng8 — the completion fence. This BiConsumer's returned
+                 ;; stage is discarded, so without the fence a throw in the
+                 ;; response cascade completes that unheld future exceptionally
+                 ;; and vanishes: no reply, registry never cleared, caller hangs
+                 ;; for ever with nothing on any surface. The fence tears down
+                 ;; and emits observably instead.
                  (.whenComplete cf
                                 (reify java.util.function.BiConsumer
                                   (accept [_ result throwable]
-                                    (if throwable
-                                      (maybe-retry! ctx' (rf.http.transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
-                                      (handle-response! ctx' result))))))
+                                    (complete-fenced!
+                                      ctx'
+                                      #(if throwable
+                                         (maybe-retry! ctx' (rf.http.transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
+                                         (handle-response! ctx' result)))))))
                (catch Throwable t
                  (maybe-retry! ctx' (rf.http.transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))))))
