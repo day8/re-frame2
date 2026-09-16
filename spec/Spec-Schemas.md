@@ -3201,8 +3201,10 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
   ;; is a best-effort hint (abort is opportunistic — correctness rests on
   ;; work-id + generation stale-suppression, not on the cancel landing).
   ;; Terminal rows carry an :outcome summary and are pruned on the linked
-  ;; entry's next successful transition (a bounded per-key tail kept for
-  ;; Xray). Per [016 §Frame work ledger] / [§Ledger row retention and identity].
+  ;; entry's next TERMINAL transition — every settle, not only a successful
+  ;; one — with a bounded per-key tail kept for Xray, and all of a key's rows
+  ;; drop when the entry itself leaves the cache.
+  ;; Per [016 §Frame work ledger] / [§Ledger row retention and identity].
   [:map
    [:work/id      ResourceWorkId]
    [:work/kind    [:= :resource]]                            ;; neutral; later slices add :timer/:stream/:route/:actor
