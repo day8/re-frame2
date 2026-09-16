@@ -106,6 +106,44 @@
   ([] (ledger :rf/default))
   ([frame-id] (get-in (runtime-db frame-id) [:rf.runtime/work-ledger])))
 
+(defn- bucket
+  "This scoped key's bucket in the ledger's `resource-key -> work-id-id`
+  inverse index, or nil when the key has none. rf2-6gzdb — a removal path must
+  drop the BUCKET as well as the rows, or the index accumulates one orphaned
+  entry per removed key for the frame's life (the rows are the visible half of
+  that leak; the bucket is the half a row-count census misses)."
+  ([scoped-key] (bucket :rf/default scoped-key))
+  ([frame-id scoped-key]
+   (get-in (runtime-db frame-id)
+           [rf.resources.work-ledger/work-ledger-by-key-key
+            (rf.resources.state/key-id scoped-key)])))
+
+(defn- rows-for
+  "Every ledger row currently linked to `scoped-key`, read by a FULL SCAN of the
+  ledger rather than through the inverse index — so a test can tell a genuinely
+  dropped row from one the index merely stopped pointing at (rf2-6gzdb)."
+  ([scoped-key] (rows-for :rf/default scoped-key))
+  ([frame-id scoped-key]
+   (into {} (filter (fn [[_wid-id r]] (= scoped-key (:resource/key r))))
+         (ledger frame-id))))
+
+(def ^:private trace-listener-seq (atom 0))
+
+(defn- capture-traces
+  "Run `f` with a trace listener installed; return the collected trace events.
+  Trace delivery is synchronous (Spec 009 §Emitting trace events)."
+  [f]
+  (let [seen (atom [])
+        id   (keyword "rf2-work-ledger" (str "listener-" (swap! trace-listener-seq inc)))]
+    (rf/register-listener! :trace id (fn [ev] (swap! seen conj ev)))
+    (try (f) (finally (rf/unregister-listener! :trace id)))
+    @seen))
+
+(defn- trace-rows
+  "The captured trace events whose operation is `op`."
+  [traces op]
+  (filterv #(= op (:operation %)) traces))
+
 (defn- req
   "The frame-QUALIFIED managed-HTTP transport request-id the runtime aborts
   by (`managed-request-id`, rf2-sxyrzk) — the token captured into `@aborts`
@@ -528,12 +566,22 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
                                             :params {:slug "w"} :owner [:app :a 1]}])
     (let [wid (:current-work (entry ka))]
+      ;; PRECONDITION (rf2-6gzdb) — the row must actually be THERE, and live,
+      ;; before the clear; without this the post-conditions below pass
+      ;; vacuously the moment whatever populated the ledger moves or is renamed.
+      (is (some? (record wid)) "precondition: the in-flight row exists")
+      (is (rf.resources.work-ledger/live-work? (runtime-db) wid)
+          "precondition: it is non-terminal")
+      (is (seq (rows-for ka)) "precondition: the ledger holds a row for the key")
       (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}])
-      (testing "Spec 016 §clear-scope — the in-flight work row is settled
-                terminal :cancelled and best-effort aborted"
-        (is (= :cancelled (:status (record wid))))
-        (is (= :clear-scope (get-in (record wid) [:outcome :reason])))
-        (is (contains? (set @aborts) (req wid)))))))
+      (testing "Spec 016 §clear-scope — the in-flight attempt is best-effort
+                aborted, and the cleared entry's whole ledger holding goes with
+                it (rf2-6gzdb)"
+        (is (contains? (set @aborts) (req wid)))
+        (is (nil? (record wid))
+            "the cleared key's rows are DROPPED, not left as a terminal tail")
+        (is (empty? (rows-for ka))
+            "no row for the key survives a full ledger scan either")))))
 
 (deftest remove-cancels-in-flight-row
   (rf/reg-resource :rm/article (article-spec) article-spec-request)
@@ -541,21 +589,37 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rm/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :rm 1]}])
     (let [wid (:current-work (entry scoped-key))]
+      ;; PRECONDITION (rf2-6gzdb) — see the clear-scope sibling above.
+      (is (some? (record wid)) "precondition: the in-flight row exists")
+      (is (rf.resources.work-ledger/live-work? (runtime-db) wid)
+          "precondition: it is non-terminal")
+      (is (seq (rows-for scoped-key))
+          "precondition: the ledger holds a row for the key")
       (rf/dispatch-sync [:rf.resource/remove {:resource :rm/article :scope :rf.scope/global
                                               :params {:slug "w"}}])
-      (testing "Spec 016 §Events — remove settles the in-flight row :cancelled
-                + best-effort aborts"
-        (is (= :cancelled (:status (record wid))))
-        (is (contains? (set @aborts) (req wid)))))))
+      (testing "Spec 016 §Events — remove best-effort aborts the in-flight
+                attempt, and the removed entry's whole ledger holding goes with
+                it (rf2-6gzdb)"
+        (is (contains? (set @aborts) (req wid)))
+        (is (nil? (record wid))
+            "the removed key's rows are DROPPED, not left as a terminal tail")
+        (is (empty? (rows-for scoped-key))
+            "no row for the key survives a full ledger scan either")))))
 
 (deftest clear-scope-cancelled-row-carries-causal-completed-at
-  ;; rf2-x76af2.14 — a clear-scope cancellation is a COMPLETION: the terminal
-  ;; :cancelled work row carries the event's causal :completed-at (from the
-  ;; declared-flat :rf/time-ms), symmetric with the reply-driven aborted /
-  ;; failed rows (rf2-rl27r2). Pre-fix, clear-scope was registered
-  ;; framework-authority-meta (no :rf/time-ms cofx) so the row had NO
-  ;; :completed-at — an epoch / tooling correlation gap for logout / tenant
-  ;; switch cancellations.
+  ;; rf2-x76af2.14 — a clear-scope cancellation is a COMPLETION, so it carries
+  ;; the event's causal :completed-at (from the declared-flat :rf/time-ms),
+  ;; symmetric with the reply-driven aborted / failed rows (rf2-rl27r2).
+  ;; Pre-fix, clear-scope was registered framework-authority-meta (no
+  ;; :rf/time-ms cofx) so the fact was absent — an epoch / tooling correlation
+  ;; gap for logout / tenant-switch cancellations.
+  ;;
+  ;; rf2-6gzdb MOVED WHERE THIS IS READ, and did not remove it. The cleared
+  ;; key's ledger rows are now dropped with the entry, so the row's copy of
+  ;; :completed-at is no longer observable — but the `:rf.resource/removed`
+  ;; TRACE carries the same causal value (and the aborted work id), and the
+  ;; trace is where epoch / tooling correlation of a cancellation actually
+  ;; reads it. This pins the surviving surface.
   (rf/reg-resource :cst/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [scope-a      {:user "a"}
         ka           (rf.resources.state/scoped-resource-key scope-a :cst/article {:slug "w"})
@@ -563,29 +627,121 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cst/article :scope scope-a
                                             :params {:slug "w"} :owner [:app :a 1]}])
     (let [wid (:current-work (entry ka))]
-      (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}]
-                        {:rf.cofx {:rf/time-ms completed-at}})
-      (testing "the cancelled work row carries the causal :completed-at"
-        (is (= :cancelled (:status (record wid))))
-        (is (= {:reason :clear-scope :completed-at completed-at}
-               (:outcome (record wid))))))))
+      ;; PRECONDITION — a live row to cancel, or the claim below is vacuous.
+      (is (some? (record wid)) "precondition: the in-flight row exists")
+      (let [traces (capture-traces
+                     #(rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}]
+                                        {:rf.cofx {:rf/time-ms completed-at}}))
+            rows   (trace-rows traces :rf.resource/removed)]
+        (testing "the clear-scope cancellation carries the causal :completed-at"
+          (is (= 1 (count rows)) "precondition: exactly one removal trace row")
+          (is (= completed-at (-> rows first :tags :completed-at)))
+          (is (= :clear-scope (-> rows first :tags :reason)))
+          (is (= [wid] (-> rows first :tags :aborted))
+              "and names the cancelled attempt"))
+        (testing "the cleared key's ledger rows go with the entry (rf2-6gzdb)"
+          (is (nil? (record wid)))
+          (is (empty? (rows-for ka))))))))
 
 (deftest remove-cancelled-row-carries-causal-completed-at
-  ;; rf2-x76af2.14 — remove has the identical gap clear-scope had: its terminal
-  ;; :cancelled row now carries the event's causal :completed-at.
+  ;; rf2-x76af2.14 — remove has the identical gap clear-scope had: its
+  ;; cancellation carries the event's causal :completed-at. rf2-6gzdb moved
+  ;; where that is read (see the clear-scope sibling above): the removed key's
+  ;; rows are dropped with the entry, and the `:rf.resource/removed` trace is
+  ;; the surviving surface carrying the causal value.
   (rf/reg-resource :rmt/article (article-spec) article-spec-request)
   (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :rmt/article {:slug "w"})
         completed-at 1781649764333]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rmt/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :rm 1]}])
     (let [wid (:current-work (entry scoped-key))]
-      (rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope :rf.scope/global
-                                              :params {:slug "w"}}]
-                        {:rf.cofx {:rf/time-ms completed-at}})
-      (testing "the cancelled work row carries the causal :completed-at"
-        (is (= :cancelled (:status (record wid))))
-        (is (= {:reason :remove :completed-at completed-at}
-               (:outcome (record wid))))))))
+      ;; PRECONDITION — a live row to cancel, or the claim below is vacuous.
+      (is (some? (record wid)) "precondition: the in-flight row exists")
+      (let [traces (capture-traces
+                     #(rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope :rf.scope/global
+                                                              :params {:slug "w"}}]
+                                        {:rf.cofx {:rf/time-ms completed-at}}))
+            rows   (trace-rows traces :rf.resource/removed)]
+        (testing "the remove cancellation carries the causal :completed-at"
+          (is (= 1 (count rows)) "precondition: exactly one removal trace row")
+          (is (= completed-at (-> rows first :tags :completed-at)))
+          (is (= :remove (-> rows first :tags :reason)))
+          (is (= [wid] (-> rows first :tags :aborted))
+              "and names the cancelled attempt"))
+        (testing "the removed key's ledger rows go with the entry (rf2-6gzdb)"
+          (is (nil? (record wid)))
+          (is (empty? (rows-for scoped-key))))))))
+
+;; ===========================================================================
+;; 8b. the ledger is bounded on keys that never succeed (rf2-6gzdb)
+;; ===========================================================================
+
+(deftest repeated-failing-settles-keep-the-ledger-bounded
+  ;; rf2-6gzdb — THE DEFECT, mechanism 1. Terminal rows used to be pruned only
+  ;; by a LATER SUCCESS: `succeeded-handler` and `page-succeeded-handler` were
+  ;; the ONLY two call sites of `prune-terminal-for-key`, against 24
+  ;; `mark-terminal` sites across the artefact. So a key that never succeeds —
+  ;; a polled resource against a failing endpoint — grew ONE `:failed` row per
+  ;; tick for the frame's life (720 rows/hour at a 5s interval), inside every
+  ;; frame-state value and every epoch snapshot, because the success that would
+  ;; have pruned them never comes. Spec 016 §Ledger row retention promises "the
+  ;; ledger is bounded"; this pins that it is bounded by the TERMINAL
+  ;; transition, not by a successful one.
+  (rf/reg-resource :fl/article (article-spec) article-spec-request)
+  (let [q        {:resource :fl/article :scope :rf.scope/global :params {:slug "w"}}
+        k        (rf.resources.state/scoped-resource-key :rf.scope/global :fl/article {:slug "w"})
+        attempts 12
+        fail!    #(rf/dispatch-sync
+                    (conj (:on-failure @last-managed-args)
+                          {:status :error
+                           :error  {:kind :rf.http/server-error :status 500}}))]
+    ;; the control this assertion needs: the attempt count must EXCEED the tail,
+    ;; or "bounded by the tail" and "one row per attempt" are the same number.
+    (is (> attempts rf.resources.work-ledger/default-terminal-tail)
+        "control: more attempts than the retained tail, so the two readings differ")
+    (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner [:app :fl 1])])
+    (fail!)
+    ;; PRECONDITION — a failing settle really does write a terminal row, so the
+    ;; bounded reading below cannot be satisfied by a ledger that holds nothing.
+    (is (= 1 (count (rows-for k)))
+        "precondition: the first failure left a row in the ledger")
+    (is (= #{:failed} (into #{} (map (comp :status val)) (rows-for k)))
+        "precondition: and it is terminal :failed — the status that no later
+         success will ever arrive to prune")
+    (dotimes [_ (dec attempts)]
+      (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause [:user :retry])])
+      (fail!))
+    (testing "N failing settles leave the bounded per-key tail, never N rows"
+      (is (= rf.resources.work-ledger/default-terminal-tail (count (rows-for k))))
+      (is (= #{:failed} (into #{} (map (comp :status val)) (rows-for k)))
+          "the retained rows are the failures themselves — Xray's recent-races
+           view survives; it is only the unbounded remainder that goes"))))
+
+(deftest removal-drops-the-keys-inverse-index-bucket
+  ;; rf2-6gzdb — the ledger's `resource-key -> work-id-id` inverse index is the
+  ;; half of the removal leak a ROW census misses entirely: dropping a removed
+  ;; key's rows while leaving its BUCKET behind still accumulates one orphaned
+  ;; index entry per removed key, for the frame's life.
+  ;;
+  ;; This test SETTLES before removing, deliberately. The index is built
+  ;; LAZILY — `put-record` maintains it only once it exists, and the first
+  ;; prune is what creates it — so on a frame whose key was ensured but never
+  ;; settled there is no bucket at all, and a "the bucket is gone" assertion
+  ;; would pass without the removal path doing anything. The precondition below
+  ;; is what makes the claim real.
+  (rf/reg-resource :bk/article (article-spec) article-spec-request)
+  (let [q       {:resource :bk/article :scope :rf.scope/global :params {:slug "w"}}
+        k       (rf.resources.state/scoped-resource-key :rf.scope/global :bk/article {:slug "w"})
+        settle! #(rf/dispatch-sync (conj (:on-success @last-managed-args)
+                                         {:status :ok :value {:title "W"}}))]
+    (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner [:app :bk 1])])
+    (settle!)
+    (is (seq (bucket k)) "precondition: the settled key HAS an index bucket to lose")
+    (is (seq (rows-for k)) "precondition: and a retained terminal row")
+    (rf/dispatch-sync [:rf.resource/remove q])
+    (testing "remove drops the key's rows AND its inverse-index bucket"
+      (is (empty? (rows-for k)))
+      (is (nil? (bucket k))))))
 
 ;; ===========================================================================
 ;; 9. frame destroy cleans the side tables (durable records may persist)

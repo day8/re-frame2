@@ -563,8 +563,14 @@
                      (rf.resources.events/with-classification-lowering
                        (with-mutation-classification-lowering
                          rf.resources.mutation-events/execute-handler)))
+;; rf2-pk4i6.1#6 — `:rf.mutation/clear` settles the cleared instances' in-flight
+;; work rows terminal `:cancelled`, and a cancellation is a COMPLETION, so it
+;; declares the causal `:rf/time-ms` for their `:completed-at` exactly as the
+;; resource-side `:rf.resource/clear-scope` / `:rf.resource/remove` siblings do
+;; (rf2-x76af2.14). Declared-only delivery: without this the handler would not
+;; SEE the framework-stamped fact at all.
 (rf.events/reg-event :rf.mutation/clear
-                     framework-authority-meta
+                     time-meta
                      (with-mutation-classification-lowering
                        rf.resources.mutation-events/clear-handler))
 ;; The mutation reply handlers consume the reply token's
