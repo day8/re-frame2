@@ -14,6 +14,7 @@
     - Tag shorthand (`:div.foo#bar`) merged into class/id attrs.
     - User-fn heads invoked + recurse.
     - React-component heads (`:>`, `:r>`, `:f>`) emit comment placeholder.
+    - React context PROVIDER heads walk their children (rf2-iyz6j).
 
   Parity tests against `react-dom/server.renderToStaticMarkup` live
   in `reagent2.dom.parity-cljs-test` per IMPL-SPEC §8.7 + §12.5 R-004.
@@ -21,7 +22,8 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.core :as r]
-            [reagent2.dom.server :as server]))
+            [reagent2.dom.server :as server]
+            ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
 ;; Text content escaping
@@ -312,6 +314,85 @@
              (server/render-to-static-markup [:f> Foo])))
       (is (= "<!--reagent-react-component-->"
              (server/render-to-static-markup [:r> Foo #js {}]))))))
+
+;; ---------------------------------------------------------------------------
+;; React context Providers (rf2-iyz6j)
+;;
+;; A context Provider is NOT opaque foreign content: it renders nothing of
+;; its own and its output IS its children. Before rf2-iyz6j the walker
+;; lumped it in with the foreign-component placeholder above, so the
+;; canonical slim mount `[rf/frame-provider {:frame f} [app]]` — which
+;; expands to `[:r> (.-Provider frame-context) #js {:value f} …]` — emitted
+;; `<!--reagent-react-component-->` and NOTHING ELSE. An empty document, no
+;; error.
+;;
+;; These pin the walker itself. `server-subscribe-ssr-cljs-test` pins the
+;; end-to-end canonical mount through `re-frame.core/frame-provider`.
+;;
+;; The contexts below are built with the REAL `react/createContext` rather
+;; than a hand-rolled `$$typeof` literal. That is deliberate: the detection
+;; is React-VERSION-dependent (on React 19 `ctx.Provider` IS `ctx`, tagged
+;; `Symbol.for("react.context")`; on React <=18 `ctx.Provider` is a distinct
+;; object tagged `Symbol.for("react.provider")`), so asking React for the
+;; object is what makes a future symbol change fail LOUDLY here instead of
+;; silently reverting to the dropped-subtree behaviour.
+;; ---------------------------------------------------------------------------
+
+(deftest context-provider-head-renders-children
+  (testing "rf2-iyz6j: a context Provider scopes rather than renders, so the
+            static walker walks THROUGH it — children reach the markup"
+    (let [ctx      (react/createContext :rf/none)
+          Provider (.-Provider ctx)]
+      ;; `:r>` — the head the canonical frame-provider uses. Children start
+      ;; at index 3 (the props slot at 2 is unconditional for `:r>`).
+      (is (= "<div>hello</div>"
+             (server/render-to-static-markup
+              [:r> Provider #js {:value :frame/a} [:div "hello"]]))
+          "the Provider's subtree is present, not a placeholder comment")
+      ;; Multiple children, in order.
+      (is (= "<p>a</p><p>b</p>"
+             (server/render-to-static-markup
+              [:r> Provider #js {:value :frame/a} [:p "a"] [:p "b"]])))
+      ;; `:>` — the hiccup-props interop head, same Provider.
+      (is (= "<div>hello</div>"
+             (server/render-to-static-markup
+              [:> Provider {:value :frame/a} [:div "hello"]])))
+      ;; `:>` with the props slot OMITTED: `props-slot?` treats a non-map
+      ;; first slot as the first CHILD, so children start at index 2.
+      (is (= "<div>hello</div>"
+             (server/render-to-static-markup
+              [:> Provider [:div "hello"]])))
+      ;; A childless Provider is legitimately empty — not a placeholder.
+      (is (= "" (server/render-to-static-markup
+                 [:r> Provider #js {:value :frame/a}]))))))
+
+(deftest context-provider-head-nests-and-escapes
+  (testing "rf2-iyz6j: nested Providers compose, and content under a
+            Provider is escaped exactly as it is anywhere else"
+    (let [outer (.-Provider (react/createContext :rf/none))
+          inner (.-Provider (react/createContext :rf/none))]
+      (is (= "<section><div>a &amp; b</div></section>"
+             (server/render-to-static-markup
+              [:r> outer #js {:value :frame/a}
+               [:section
+                [:r> inner #js {:value :frame/b}
+                 [:div "a & b"]]]]))))))
+
+(deftest context-consumer-head-stays-opaque
+  (testing "rf2-iyz6j negative control: a context CONSUMER takes a RENDER FN
+            as its child, not elements, so it must NOT be walked — it stays
+            opaque like any other foreign component"
+    (let [ctx (react/createContext :rf/none)]
+      (is (= "<!--reagent-react-component-->"
+             (server/render-to-static-markup
+              [:r> (.-Consumer ctx) #js {} (fn [_v] [:div "nope"])]))))))
+
+(deftest non-provider-react-component-still-opaque
+  (testing "rf2-iyz6j does not widen the walker: a genuine foreign React
+            component head is still opaque even when it carries children"
+    (let [Foo (fn [_] [:div "x"])]
+      (is (= "<!--reagent-react-component-->"
+             (server/render-to-static-markup [:> Foo {} [:div "dropped"]]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; User-fn heads (function-call path, matches stock Reagent)

@@ -177,6 +177,101 @@
           (str "subscribed :counter/value (5) from the Form-2 inner closure "
                "appears in the markup — got: " (pr-str markup))))))
 
+;; ---- the canonical slim mount under frame-provider (rf2-iyz6j) -------------
+;;
+;; `[rf/frame-provider {:frame f} [app]]` is the mount the guides teach and
+;; `docs/core/how-to/use-uix-or-slim.md` sells for HTML export. It expands
+;; (via `re-frame.views.provider/frame-provider-component`) to
+;; `[:r> (.-Provider frame-context) #js {:value f} & children]`.
+;;
+;; Before rf2-iyz6j the static walker treated that `:r>` head as opaque
+;; foreign content and emitted `<!--reagent-react-component-->` and NOTHING
+;; ELSE — the whole app subtree silently gone, no error, for the documented
+;; mount on the documented export path.
+;;
+;; These assert the PRECONDITION — that the subtree's CONTENT is actually
+;; in the markup — rather than merely that nothing threw. An empty or
+;; placeholder-only string fails every one of them.
+
+(deftest canonical-frame-provider-mount-renders-its-subtree
+  (testing "rf2-iyz6j: the canonical mount [rf/frame-provider {:frame f} [app]]
+            renders its subtree through slim's render-to-static-markup
+            instead of collapsing to a placeholder comment"
+    (register-counter!)
+    (rf/dispatch-sync [:counter/initialise])
+    (let [markup (server/render-to-static-markup
+                  [rf/frame-provider {:frame :rf/default}
+                   [counter-app]])]
+      (is (string? markup) "the canonical mount rendered to a string")
+      ;; (a) the defect, stated directly: the output is NOT the placeholder
+      ;;     and NOT empty.
+      (is (not= "" markup)
+          "the canonical mount did not render an EMPTY document")
+      (is (not (re-find #"reagent-react-component" markup))
+          (str "the frame-provider subtree was not replaced by the opaque "
+               "foreign-component placeholder — got: " (pr-str markup)))
+      ;; (b) the positive precondition: real content from INSIDE the
+      ;;     provider's subtree reached the markup.
+      (is (re-find #"<div>" markup)
+          (str "the app subtree's own markup is present — got: " (pr-str markup)))
+      (is (re-find #">5<" markup)
+          (str "the subscribed :counter/value (5) from inside the provider "
+               "subtree is present — got: " (pr-str markup))))))
+
+(deftest frame-provider-mount-matches-the-unwrapped-render
+  (testing "rf2-iyz6j: a frame-provider is a SCOPING wrapper — it renders no
+            markup of its own, so wrapping the app in one must not change a
+            single byte of the output"
+    (register-counter!)
+    (rf/dispatch-sync [:counter/initialise])
+    (let [bare     (server/render-to-static-markup [counter-app])
+          provided (server/render-to-static-markup
+                    [rf/frame-provider {:frame :rf/default}
+                     [counter-app]])]
+      ;; Precondition: the bare render is non-trivial, so the equality below
+      ;; cannot be satisfied by two empty strings.
+      (is (re-find #">5<" bare) "precondition: the bare render has content")
+      (is (= bare provided)
+          (str "frame-provider contributed no markup of its own — bare: "
+               (pr-str bare) " provided: " (pr-str provided))))))
+
+(deftest frame-provider-mount-renders-multiple-children
+  (testing "rf2-iyz6j: frame-provider takes VARIADIC children; every one of
+            them must reach the markup, in order"
+    (register-counter!)
+    (rf/dispatch-sync [:counter/initialise])
+    (let [markup (server/render-to-static-markup
+                  [rf/frame-provider {:frame :rf/default}
+                   [:h1 "header"]
+                   [counter-app]
+                   [:footer "foot"]])]
+      (is (re-find #"<h1>header</h1>" markup)
+          (str "first child present — got: " (pr-str markup)))
+      (is (re-find #">5<" markup)
+          (str "middle child (the subscribing app) present — got: " (pr-str markup)))
+      (is (re-find #"<footer>foot</footer>" markup)
+          (str "last child present — got: " (pr-str markup))))))
+
+(deftest frame-provider-mount-over-a-non-default-frame
+  (testing "rf2-iyz6j: the mount also renders its subtree when it scopes a
+            NON-default frame (the shape the multi-frame guides teach)"
+    (register-counter!)
+    (rf/make-frame {:id :tenant/a :doc "rf2-iyz6j provider-subtree probe frame"})
+    (rf/dispatch-sync [:counter/initialise])
+    (let [markup (server/render-to-static-markup
+                  [rf/frame-provider {:frame :tenant/a}
+                   [counter-app]])]
+      (is (not (re-find #"reagent-react-component" markup))
+          (str "no opaque placeholder for a non-default frame — got: "
+               (pr-str markup)))
+      ;; Assert the STRUCTURE the app renders, not a particular frame's
+      ;; value: which frame a descendant `subscribe` resolves under the
+      ;; static walker is a separate question from whether the subtree is
+      ;; walked at all, which is what rf2-iyz6j is about.
+      (is (re-find #"data-testid=\"counter-value\"" markup)
+          (str "the app subtree rendered inside the provider — got: "
+               (pr-str markup))))))
+
 (deftest form2-ssr-deref-reads-live-app-db
   (testing "rf2-o3hqr: after [:counter/inc], the Form-2 SSR re-render
             reflects live app-db (6), proving the inner closure re-ran and
