@@ -19,9 +19,13 @@
   loudly.
 
   Why compute-sub here rather than a `:rf.assert/sub-equals` `:script`
-  checkpoint: the play-runner's `:sub-equals` evaluator computes subs
-  against app-db ONLY, so a runtime-db machine projection reads nil through
-  it. The variant `:script`s pin state with `:rf.assert/state-is`
+  checkpoint: this test reads every projection sub directly, one call per
+  sub, without going through the play-runner — so a sub that stops reading
+  the runtime-db partition is caught even for a variant whose `:script`
+  pins nothing but state. `:rf.assert/sub-equals` WOULD also reach these
+  values: the play-runner hands it the full frame-state value
+  (app + runtime), so it resolves runtime-db projection subs (rf2-pecaxy).
+  The variant `:script`s pin state with `:rf.assert/state-is`
   (runtime-db-aware); this CLJS test owns the `:data`-slice
   (`:error` / `:attempts` / `:email`) verification.
 
