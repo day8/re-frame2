@@ -64,6 +64,16 @@
       (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "unknown operator shape must fail closed: " (pr-str s))))))
 
+(deftest local-registry-forms-fail-closed
+  (testing "rf2-amgtr — a Malli local `{:registry ...}` hides its referenced
+            shapes (and their per-slot flags) behind keyword references the
+            walk resolves nowhere, so it fails closed (true). The CLJS half
+            asserts the SAME corpus, so the classification cannot diverge by
+            host"
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/local-registry-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
+          (str "local-registry form must fail closed: " (pr-str s))))))
+
 ;; ---- registration warning (ACCEPTANCE #2) ---------------------------------
 
 (deftest literal-vector-forms-do-not-warn-walker-opaque
