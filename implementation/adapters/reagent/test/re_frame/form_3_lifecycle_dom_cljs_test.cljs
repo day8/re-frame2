@@ -6,8 +6,12 @@
   returned `reagent.core/create-class` closes over it. Lifecycle callbacks run
   after ambient resolver scope has unwound, so one-shot reads and imperative
   teardown name the captured frame explicitly. Ordinary reactive deref stays in
-  `:reagent-render`; `r/with-let` releases that render-owned cache reference only
-  when Reagent destroys the render owner.
+  `:reagent-render`, acquired once per render owner through `r/with-let` — and
+  since rf2-ty246 it is NOT released by hand: a render-phase read is owned by the
+  render owner, which holds one reference per (owning reaction, slot) and releases
+  it when Reagent destroys that owner. The imperative hook-owned subscription is
+  the other case and still pairs its own explicit teardown, because it is acquired
+  in `:component-did-mount`, outside any reactive context.
 
   Browser-only because the proof needs real React class mount/unmount ordering.
   The `-dom-cljs-test` suffix selects the existing `:browser-test` build; the
