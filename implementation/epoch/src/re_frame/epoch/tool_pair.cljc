@@ -1951,8 +1951,8 @@
 
 (defn- redact-fx-entry
   "Fail-closed projection of ONE `[<fx-id> <args> …]` entry of the
-  `:rf.event/fx` effect vector: retain the head fx-id keyword and redact
-  every remaining element to `:rf/redacted` — the SAME shape
+  `:rf.event/fx` effect vector: retain the head WHEN it is an fx-id
+  keyword, and redact every remaining element to `:rf/redacted` — the SAME shape
   `omit-off-box-event-args` gives a dispatched event vector, and the same
   head-kept/payload-redacted split the structured `:effects` row's
   `:fx-id` / `:args` pair takes (`elide-effect-row`).
@@ -1965,16 +1965,29 @@
 
   A `nil` entry — the legal conditional-fx no-op — rides through as nil: it
   carries nothing to leak, and substituting a sentinel would report a
-  withheld value where none existed. Any other non-sequential entry (the
-  forgot-the-inner-vector typo, which reaches this slot because the tag is
-  stamped from the RAW `(:fx effects)` before the walk polices entries)
-  redacts whole: it has no head to keep and nothing about it can be proven
-  safe."
+  withheld value where none existed.
+
+  A head is kept ONLY when it is a STRUCTURAL fx-id, i.e. a keyword — the
+  same predicate `re-frame.fx/fx-entry-ok?` applies before it will walk an
+  entry at all, so this is core's existing notion of an fx-id rather than a
+  second one. Every other entry redacts WHOLE, because it has no head to
+  keep and nothing about it can be proven safe:
+
+    - a non-sequential entry (the forgot-the-inner-vector typo); and
+    - a sequential entry whose head is a MAP, VECTOR or STRING — there the
+      first element is not an id at all but PAYLOAD, and keeping it shipped
+      an `[{:password …} {:arg 1}]` entry's secret verbatim through this
+      carrier (rf2-75yrq).
+
+  Both reach this slot for the same reason: the tag is stamped from the RAW
+  `(:fx effects)` on the terminal `do-fx` marker, and `fx-entry-ok?`'s
+  rejection drops a malformed entry from the WALK, not from the trace — so
+  an entry the effect pipeline itself refused to run still arrives here."
   [entry]
   (cond
     (nil? entry) entry
 
-    (and (sequential? entry) (seq entry))
+    (and (sequential? entry) (seq entry) (keyword? (first entry)))
     (into [(first entry)] (repeat (dec (count entry)) :rf/redacted))
 
     :else :rf/redacted))
