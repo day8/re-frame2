@@ -190,6 +190,16 @@ unblocked item goes out now, not next tick.**
   **Record the fence on the item it fences, with what clears it, at the top, and in the same words every
   time.** The tick reading it back is scanning, not reading; a fence recorded on the item that *causes*
   it is never met by its own reader. The sameness does the work, not the wording.
+- **A fence has TWO release conditions and they are different events.** The RE-DISPATCH fence — do not
+  put a second worker on this item or this branch — releases on the worker's own completion report, or on
+  a death you have recorded. The SURFACE fence — this worker holds these files — releases only when its
+  change MERGES: a worker that has reported still has an open change editing them, and a second worker
+  branched off the trunk today would not carry it, so the two collide at merge — the very thing the fence
+  existed to prevent, reached through the fence's own release line. **So ask both questions: can you
+  quote the sentence where this agent says it is done, AND has the change that edits this surface
+  merged?** Yes to the first and no to the second means reap the worktree if you like, but do not
+  dispatch onto that surface. That is not a second condition on the reap rule, whose strength is having
+  one — it is the single condition of a different fence.
 - **A marker finds a DISCHARGED hold as well as a live one.** Whoever discharges it strikes it in the
   same act. Where you cannot edit the original, append the negation in the same words so a scan returns
   every occurrence and **the newest governs**.
