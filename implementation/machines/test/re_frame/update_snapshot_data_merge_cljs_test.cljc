@@ -64,11 +64,21 @@
 ;; One generic driver for both pins: emit the escape hatch from an ordinary
 ;; event handler's `:fx`, targeting whichever actor the event names. Keeping
 ;; the patch OUT of a machine action is what makes the `:after` pin honest.
-(rf/reg-event :rf2-0hi3x/patch-data
-  (fn [_ [_ actor-id data-patch]]
-    {:fx [[:rf.machine/update-snapshot
-           {:rf/machine-id actor-id
-            :rf/patch      {:data data-patch}}]]}))
+;;
+;; Registered from INSIDE each test rather than at ns top level. The reset
+;; fixture captures its registrar baseline when the `use-fixtures` form above
+;; is evaluated and folds that baseline back before each test, so a top-level
+;; registration sitting BELOW that form is stranded — the handler silently
+;; vanishes and the patch dispatch becomes a no-op. That fails in the
+;; reassuring direction (the snapshot simply keeps its old `:data`), and it
+;; only bites in a FULL-lane run, where a sibling namespace's fixture has
+;; already reset the registrar; a focused single-ns run passes.
+(defn- reg-patch-event! []
+  (rf/reg-event :rf2-0hi3x/patch-data
+    (fn [_ [_ actor-id data-patch]]
+      {:fx [[:rf.machine/update-snapshot
+             {:rf/machine-id actor-id
+              :rf/patch      {:data data-patch}}]]})))
 
 ;; ---------------------------------------------------------------------------
 ;; (a) the `:after` timer stays LIVE across a user-domain `:data` patch
@@ -78,6 +88,7 @@
   (testing "a `{:data {:status :degraded}}` patch leaves the actor's in-flight
             :after timer LIVE — the reserved :rf/after-epoch map survives, so
             the timer still arrives instead of being silently dropped as stale"
+    (reg-patch-event!)
     (rf/reg-machine :rf2-0hi3x/timer
       {:initial :idle
        :data    {:status :ok}
@@ -123,6 +134,7 @@
   (testing "a `{:data {...}}` patch on a SPAWNED child leaves its :rf/parent-id
             lineage intact, so it completes to the parent's :spawn :on-done
             instead of finishing as a singleton"
+    (reg-patch-event!)
     (rf/reg-machine :rf2-0hi3x/child
       {:initial :running
        :data    {:status :ok}
