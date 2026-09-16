@@ -2003,7 +2003,20 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;; (drain-depth+1)th event never runs). This matches the `:test`
       ;; preset's "drain bounded at 100" = at-most-100 reading and the
       ;; `:halted-depth` epoch's `:depth` tag (= `drain-depth`).
-      (when (>= depth (:drain-depth (:config frame)))
+      ;;
+      ;; PEEK BEFORE HALTING. The queue test is part of the halt CONDITION,
+      ;; not an optimisation. `depth` counts the events already SETTLED, so
+      ;; the depth test on its own also fires at the top of the pass that
+      ;; follows a cascade which ran exactly `drain-depth` events and then
+      ;; TERMINATED, leaving nothing queued — a clean drain reaching its
+      ;; fixed point, not a runaway. Rule 3 above says the halt discards
+      ;; "the remaining queued events (the next, *halting* event never
+      ;; runs)", which presupposes a next event; with the queue empty there
+      ;; is none to discard and none to name, and a halt record synthesised
+      ;; anyway would name the event that had just settled `:ok`. So when
+      ;; the queue is empty the drain simply settles.
+      (when (and (>= depth (:drain-depth (:config frame)))
+                 (peek @(:queue (:router frame))))
         ;; Per-event epochs (rule 3): already-settled events kept their own
         ;; durable :ok epochs + db writes — there is NO whole-drain rollback,
         ;; so :rollback? is false. Drop the remaining queue (the next, halting
