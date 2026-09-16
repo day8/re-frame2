@@ -39,9 +39,13 @@
   ## Retention (Spec 016 §Ledger row retention and identity)
 
   Terminal rows (`:completed` / `:failed` / `:timed-out` / `:suppressed`
-  / `:cancelled`) are pruned on the linked entry's next successful
-  transition; a small bounded per-resource-key tail is retained for
-  Xray's recent-races view. Only NON-terminal rows' summaries ride the
+  / `:cancelled`) are pruned on the linked entry's next TERMINAL
+  transition — every settle, not only a successful one (rf2-6gzdb) — and a
+  small bounded per-resource-key tail is retained for Xray's recent-races
+  view. When the entry itself LEAVES the cache the whole holding goes with
+  it, tail and inverse-index bucket alike (`drop-rows-for-key`), and a
+  mutation instance's rows are bounded by the same per-key mechanism under
+  its `[:rf.mutation <instance-id>]` key. Only NON-terminal rows' summaries ride the
   hydration / epoch wire. ONE identity per work record — stale
   suppression keys on `:work/id` (which embeds the generation); there is
   no separate `:stale-key` synonym.
@@ -364,7 +368,8 @@
   "Settle a work record to a terminal `status` (`:completed` / `:failed` /
   `:timed-out` / `:suppressed` / `:cancelled`) with an `outcome` summary.
   Per Spec 016 §Ledger row retention and identity — the row is then prunable
-  on the linked entry's next successful transition. `outcome` is a small
+  on the linked entry's next TERMINAL transition. Prefer `settle-terminal`,
+  which marks AND prunes in one step (rf2-6gzdb). `outcome` is a small
   serializable summary (NOT raw data — Xray gets summaries, the projection
   boundary)."
   [record status outcome]

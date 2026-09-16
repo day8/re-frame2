@@ -17,8 +17,10 @@
     5. stale suppression by work-id + generation is mandatory (a late reply
        for a superseded work id never overwrites + settles the old row
        terminal :suppressed);
-    6. terminal rows are pruned on the linked entry's next successful
-       transition (bounded per-key tail kept for Xray);
+    6. terminal rows are pruned on the linked entry's next TERMINAL
+       transition — every settle, not only a successful one (rf2-6gzdb) —
+       with a bounded per-key tail kept for Xray, and are dropped outright
+       when the entry itself leaves the cache;
     7. frame destroy cleans the side tables (durable records may persist;
        transient host handles are dropped);
     8. dedupe joins the existing record (owner attached, cause appended, no

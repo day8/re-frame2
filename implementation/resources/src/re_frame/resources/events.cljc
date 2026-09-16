@@ -60,7 +60,9 @@
   supersession / owner-loss / scope-clear); STALE SUPPRESSION by work-id +
   generation is the MANDATORY correctness boundary (enforced on the entry by
   `live-entry-for-reply`). Terminal rows are pruned on the linked entry's
-  next successful transition, retaining a bounded per-key tail for Xray."
+  next TERMINAL transition — every settle, not only a successful one
+  (rf2-6gzdb) — retaining a bounded per-key tail for Xray, and are dropped
+  outright when the entry itself leaves the cache."
   (:require [clojure.set :as set]
             [re-frame.error :as rf.error]
             [re-frame.reply :as rf.reply]
