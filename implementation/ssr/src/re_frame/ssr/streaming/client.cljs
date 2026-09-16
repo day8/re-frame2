@@ -94,6 +94,8 @@
   installs a `MutationObserver`."
   (:require [cljs.reader :as reader]
             [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.constants :as rf.ssr.constants]
             ;; The suspense component's render-time failed-boundary record.
             ;; `suspense` depends on core only, never on this ns.
@@ -320,6 +322,45 @@
 
 ;; ---- chunk processing ------------------------------------------------------
 
+(defn- always-on-boundary-failure!
+  "Fan a STRUCTURAL-ONLY `:rf.ssr/suspense-boundary-failed` union record onto
+  the always-on axis (rf2-tildz), beside the dev traces below.
+
+  Every caller of this ns runs in the BROWSER, where a streaming-SSR
+  boundary can fail in production exactly as it can in dev. The
+  `rf.trace/emit-error!` traces beside each call site are DCE'd under
+  `:advanced` + `goog.DEBUG=false` — `emit-error!`'s whole body sits inside
+  `rf.interop/debug-enabled?` — so before this record a production boundary
+  failure was absorbed fail-closed and reported to NOBODY, which is the same
+  defect as the hydration mismatch in `ssr/hydrate.cljc`.
+
+  STRUCTURAL SLOTS ONLY. This record fans out to corpus listeners (Sentry /
+  Datadog) and the frame's `:observability :errors` sinks RAW — it is NOT
+  privacy-gated like the dev trace. It carries the boundary id, the frame,
+  the `:where` locator and the `:recovery` disposition, which is what names
+  WHICH of the three fail-closed arms fired (`:skipped-delta` /
+  `:quarantined-delta` / `:inline-fallback`). The branch-specific
+  `:reason` prose, the reader `:exception`, and `:malformed-value-type`
+  stay on the DCE'd dev trace: the first interpolates the raw wire id and
+  the second two are derived from UNTRUSTED wire bytes. No delta, no
+  markup, no app-db slice — ever.
+
+  Reached through the published `:error-emit/dispatch-error-record`
+  late-bind hook rather than a static require into core's error-emit ns,
+  the same route `ssr/hydrate.cljc` and `ssr/boot.cljc` take. A nil hook is
+  a silent skip."
+  [frame-id boundary-id recovery]
+  (when-let [dispatch-error-record!
+             (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      {:error    :rf.ssr/suspense-boundary-failed
+       :id       boundary-id
+       :frame    frame-id
+       :where    'rf.ssr/streaming-client
+       :recovery recovery
+       :time     (rf.interop/now-ms)}))
+  nil)
+
 (defn- malformed-delta!
   "Emit the `:rf.ssr/suspense-boundary-failed` / `:skipped-delta` trace for
   a delta `<script>` whose body did not yield a usable delta-map — EITHER a
@@ -330,13 +371,19 @@
   merged in to carry the branch-specific field (`:exception` for the reader
   throw, `:malformed-value-type` for a non-map parse)."
   [frame-id wire-id-string reason extra]
-  (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
-                     (merge {:id       (read-boundary-id wire-id-string)
-                             :frame    frame-id
-                             :where    'rf.ssr/streaming-client
-                             :reason   reason
-                             :recovery :skipped-delta}
-                            extra)))
+  (let [boundary-id (read-boundary-id wire-id-string)]
+    ;; Axis 1 — always-on (rf2-tildz). Structural slots only: the
+    ;; branch-specific `extra` (`:exception` / `:malformed-value-type`) is
+    ;; derived from UNTRUSTED wire bytes and stays on the dev trace.
+    (always-on-boundary-failure! frame-id boundary-id :skipped-delta)
+    ;; Axis 2 — the dev-only trace, byte-identical to before.
+    (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
+                       (merge {:id       boundary-id
+                               :frame    frame-id
+                               :where    'rf.ssr/streaming-client
+                               :reason   reason
+                               :recovery :skipped-delta}
+                              extra))))
 
 (defn- read-delta
   "Parse a delta `<script>`'s bare delta-map EDN body, failing CLOSED on any
@@ -393,6 +440,13 @@
   sibling of `malformed-delta!`'s `:skipped-delta` and the swap-time
   `:inline-fallback`."
   [frame-id wire-id-string]
+  ;; Axis 1 — always-on (rf2-tildz). The `:reason` below interpolates the
+  ;; raw `wire-id-string`, so it stays on the DCE'd dev trace; the record
+  ;; carries the READ boundary id and the recovery disposition alone.
+  (always-on-boundary-failure! frame-id
+                               (read-boundary-id wire-id-string)
+                               :quarantined-delta)
+  ;; Axis 2 — the dev-only trace, byte-identical to before.
   (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                      {:id       (read-boundary-id wire-id-string)
                       :frame    frame-id
@@ -557,6 +611,13 @@
         ;; by `apply-ready-deltas!` at the sweep level so it survives arriving
         ;; in a later observer batch than this template (rf2-x76af2.35).
         (when (and failed? swapped?)
+          ;; Axis 1 — always-on (rf2-tildz). A server continuation that
+          ;; failed and was swapped for its fallback is a production-visible
+          ;; degradation, so it must survive `goog.DEBUG=false`.
+          (always-on-boundary-failure! frame-id
+                                       (read-boundary-id wire-id-string)
+                                       :inline-fallback)
+          ;; Axis 2 — the dev-only trace, byte-identical to before.
           (rf.trace/emit-error! :rf.ssr/suspense-boundary-failed
                              {:id        (read-boundary-id wire-id-string)
                               :frame     frame-id
