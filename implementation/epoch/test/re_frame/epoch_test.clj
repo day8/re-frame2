@@ -3206,6 +3206,134 @@
         (is (= {:n 7} (rf/app-db-value :test/main))
             "undo works after the injection — restore rewound past it")))))
 
+;; ---- rf2-2wntx — a halt record is a MARKER, never the settled state --------
+;;
+;; `last-settled-epoch` names the last epoch that actually SETTLED: it is what
+;; `restore-epoch!` rewinds to, what a post-settle render / sub-run / unmount
+;; back-fills onto, and the source `commit-halt-record!` reads its own durable
+;; frame-state snapshot from. A `:halted-depth` / `:halted-destroy` record
+;; describes an event that never ran, so it is a candidate for none of those —
+;; yet `commit-frame-owner-record!` anchored on EVERY published record.
+;;
+;; The visible consequence is a refusal that reads as data loss: the newest
+;; epoch is the halt marker, `restore-epoch!` refuses a non-`:ok` target with
+;; `:rf.epoch/restore-non-ok-record`, and a pair tool asking to rewind to "now"
+;; is told it cannot — although the state that epoch names IS the live state.
+;;
+;; These sit beside the depth-0 phantom-anchor gates above because they are the
+;; same invariant from the other side: an anchor must name a real, settled
+;; epoch, and the fix is to refuse to move it rather than to move it somewhere
+;; plausible.
+
+(deftest drain-depth-halt-leaves-the-restore-anchor-on-the-last-ok-epoch
+  (testing "rf2-2wntx — a committed :halted-depth record does NOT take the
+            last-settled anchor, so restore of the anchored epoch still works"
+    (rf/configure! {:epoch-history {:depth 50}})
+    (rf/make-frame {:id :test/halt-anchor :drain-depth 4})
+    (rf/reg-event :halt-seed (fn [_ _] {:db {:n 0}}))
+    (rf/dispatch-sync [:halt-seed] {:frame :test/halt-anchor})
+    ;; A GENUINE runaway — self-redispatching, so there really is a halting
+    ;; event at the seam and a real `:halted-depth` record is committed. (The
+    ;; router fix removes the OTHER producer, a clean cascade of exactly
+    ;; `:drain-depth` events; this pin is about what the epoch surface does
+    ;; with a halt record that is entirely legitimate.)
+    (rf/reg-event :halt-loop
+      (fn [{:keys [db]} _]
+        {:db (update db :n inc)
+         :fx [[:dispatch [:halt-loop]]]}))
+    (rf/dispatch-sync [:halt-loop] {:frame :test/halt-anchor})
+    (let [history  (rf/epoch-history :test/halt-anchor)
+          head     (last history)
+          anchor   (rf.epoch.state/last-settled-epoch-id :test/halt-anchor)
+          anchored (some (fn [r] (when (= anchor (:epoch-id r)) r)) history)]
+      ;; PRECONDITIONS — assert the halt actually happened and was actually
+      ;; recorded. Without these the test passes vacuously on a tree where the
+      ;; drain never reached the depth limit at all, which is precisely the
+      ;; state the sibling router fix produces for a NON-runaway cascade.
+      (is (= :halted-depth (:outcome head))
+          "PRECONDITION: the runaway drain committed a :halted-depth record at
+           the head of the ring")
+      (is (= 4 (:n (rf/app-db-value :test/halt-anchor)))
+          "PRECONDITION: exactly :drain-depth events settled before the halt")
+      ;; The defect.
+      (is (some? anchored) "the anchor names a real ring epoch")
+      (is (not= (:epoch-id head) anchor)
+          "the :halted-depth head did NOT take the last-settled anchor")
+      (is (= :ok (:outcome anchored))
+          "last-settled-epoch names an epoch that actually SETTLED")
+      (is (true? (rf/restore-epoch! :test/halt-anchor anchor))
+          "restore-epoch! of the anchored epoch SUCCEEDS — with the anchor on
+           the halt record this refused with :rf.epoch/restore-non-ok-record,
+           although the state it named was the live state"))))
+
+(deftest commit-frame-owner-record-does-not-anchor-a-non-ok-record
+  (testing "rf2-2wntx — the anchor moves for an :ok record only; a non-:ok
+            record still publishes into the ring as a devtools marker"
+    (rf/configure! {:epoch-history {:depth 50}})
+    (rf/make-frame {:id :test/anchor-unit})
+    (rf/reg-event :seed-u (fn [_ _] {:db {:n 1}}))
+    (rf/dispatch-sync [:seed-u] {:frame :test/anchor-unit})
+    (let [ok-anchor (rf.epoch.state/last-settled-epoch-id :test/anchor-unit)
+          token     (rf.frame/frame-incarnation-token :test/anchor-unit)
+          fs        (rf.frame/frame-state-value :test/anchor-unit)
+          halt-rec  (assoc (rf.epoch.assembly/build-record
+                             :test/anchor-unit fs fs []
+                             (rf.interop/epoch-now-ms)
+                             :halted-depth
+                             {:operation :rf.error/drain-depth-exceeded
+                              :depth     4})
+                           :event-id      :unit/halting
+                           :trigger-event [:unit/halting])]
+      (is (some? ok-anchor)
+          "PRECONDITION: the :ok seed dispatch anchored last-settled")
+      ;; A true return also proves the owner token matched — so a later
+      ;; refactor that made this a silent no-op would fail HERE rather than
+      ;; leaving the anchor assertion below passing for the wrong reason.
+      (is (true? (rf.epoch.state/commit-frame-owner-record!
+                   :test/anchor-unit token halt-rec))
+          "the halt record still publishes")
+      (is (some (fn [r] (= (:epoch-id halt-rec) (:epoch-id r)))
+                (rf/epoch-history :test/anchor-unit))
+          "the :halted-depth record IS in the ring — still visible to devtools
+           as the 'drain halted here' marker, which is its whole purpose")
+      (is (= ok-anchor (rf.epoch.state/last-settled-epoch-id :test/anchor-unit))
+          "last-settled-epoch did NOT move onto the non-:ok record"))))
+
+(deftest commit-halt-record-commits-nothing-without-a-halting-event
+  (testing "rf2-2wntx — no halting envelope, no record"
+    (rf/configure! {:epoch-history {:depth 50}})
+    (rf/make-frame {:id :test/halt-nil})
+    (rf/reg-event :seed-h (fn [_ _] {:db {:n 1}}))
+    (rf/dispatch-sync [:seed-h] {:frame :test/halt-nil})
+    (let [before-count  (count (rf/epoch-history :test/halt-nil))
+          before-anchor (rf.epoch.state/last-settled-epoch-id :test/halt-nil)
+          token         (rf.frame/frame-incarnation-token :test/halt-nil)
+          fs            (rf.frame/frame-state-value :test/halt-nil)
+          halt-reason   {:operation :rf.error/drain-depth-exceeded :depth 4}]
+      (is (pos? before-count) "PRECONDITION: the seed dispatch recorded an epoch")
+      (is (some? before-anchor) "PRECONDITION: the seed anchored last-settled")
+      ;; The router can no longer reach this with a nil halting event, but the
+      ;; epoch surface must not DEPEND on that: the halting event's vector is
+      ;; the only thing naming what a halt record is about, and a nameless one
+      ;; still heads the ring.
+      (#'rf.epoch/commit-halt-record! :test/halt-nil fs (rf.interop/epoch-now-ms)
+                                      :halted-depth halt-reason nil token)
+      (is (= before-count (count (rf/epoch-history :test/halt-nil)))
+          "no record committed for a halt with no halting event")
+      (is (= before-anchor (rf.epoch.state/last-settled-epoch-id :test/halt-nil))
+          "the anchor is untouched")
+      ;; CONTROL — the identical call WITH a halting event DOES commit. Without
+      ;; this the assertions above would pass just as well against a call that
+      ;; never reached the commit for some unrelated reason (a lost owner
+      ;; token, a disabled ring), i.e. they would be about nothing.
+      (#'rf.epoch/commit-halt-record! :test/halt-nil fs (rf.interop/epoch-now-ms)
+                                      :halted-depth halt-reason
+                                      [:unit/halting] token)
+      (is (= (inc before-count) (count (rf/epoch-history :test/halt-nil)))
+          "CONTROL: the same call WITH a halting event does commit")
+      (is (= :unit/halting (:event-id (last (rf/epoch-history :test/halt-nil))))
+          "CONTROL: and the committed record is named by the halting event"))))
+
 (deftest replace-frame-state-app-only-subs-re-fire
   (testing "Subscribers route off the post-reset app-db value (the
             substrate's reactive container drives sub re-evaluation,
