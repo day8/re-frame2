@@ -528,13 +528,22 @@
   handler, built once per render; an event costs one composition test and
   one lookup. The argument law applies through `key`: without it a
   value-first invoker's first argument would find no `.key`, and the
-  handler would silently do nothing."
+  handler would silently do nothing.
+
+  THE ARM ORDER IS THE CONTRACT, not a formatting choice. `callback?` is
+  `fn?` plus one marker read, so `fn?` is true of a callback TOO: asked
+  first it claims the callback and installs it raw, and the intent vector
+  the body returns is dropped on the floor — no error, no dispatch,
+  against the promise `callback`'s own docstring makes at every event
+  position. A branch is lowered by the SAME `event-callback` as a bare
+  event position, so this is one rule reused and not a second one."
   [k key-map]
   (let [lowered (reduce-kv (fn [m key-name v]
                              (assoc m key-name (cond
-                                                 (vector? v) (intent-handler k v)
-                                                 (fn? v)     v
-                                                 :else       nil)))
+                                                 (vector? v)   (intent-handler k v)
+                                                 (callback? v) (event-callback k v)
+                                                 (fn? v)       v
+                                                 :else         nil)))
                            {}
                            key-map)]
     (fn [e]

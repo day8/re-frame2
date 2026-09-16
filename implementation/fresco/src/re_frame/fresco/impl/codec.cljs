@@ -1127,17 +1127,28 @@
         (fn? k)      "a function"
         :else        "a foreign object"))
 
-(defn- warn-entity-key!
-  "One console line per site, where a site is *(member head, which
-  hazard)*. Built only on detection, never on the render path."
-  [head kind i]
+(defn- warn-once!
+  "The dedupe BOTH key warnings share: one console line per site, where a
+  site is *(member head, which hazard)*. `kind` NAMES the hazard, so one
+  head can report a missing key and an entity-valued one separately and
+  neither silences the other. Reached only on detection, never on the
+  render path, so building the message thunk costs nothing in the common
+  case — which is why there is one dedupe here and not one per warning."
+  [head kind msg]
   (let [kinds (or (.get keywarn head)
                   (let [o #js {}] (.set keywarn head o) o))]
     (when-not (unchecked-get kinds kind)
       (unchecked-set kinds kind true)
       (when (exists? js/console)
-        (.warn js/console
-               (str "[fresco] Entity-valued :key on boundary children: a seq of "
+        (.warn js/console (msg)))))
+  nil)
+
+(defn- warn-entity-key!
+  "A `:key` React would coerce by CONTENT. Built only on detection."
+  [head kind i]
+  (warn-once! head kind
+    (fn []
+      (str "[fresco] Entity-valued :key on boundary children: a seq of "
                     (head-name head) " members carries " kind
                     " at :key (first at index " i ")."
                     " React coerces a key to a string, so a value like this"
@@ -1149,8 +1160,7 @@
                     " onto a single key. Key on a stable identifier instead"
                     " — [child {:key (:id entity), …}]. Warned once per"
                     " site, in development builds only."
-                    " [:rf.warning/fresco-entity-key]")))))
-  nil)
+                    " [:rf.warning/fresco-entity-key]"))))
 
 (defn- check-member-key!
   "One member of a lowered child seq, at index `i`: warn when it is a
@@ -1171,15 +1181,65 @@
             (warn-entity-key! h (key-shape k) i))))))
   nil)
 
+(def ^:private missing-key-kind
+  "`warn-once!`'s hazard name for an ABSENT `:key`. Cannot collide with a
+  `key-shape` answer: those all begin with an article."
+  "missing")
+
+(defn- warn-missing-key!
+  "No `:key` at all on a boundary-headed member of a seq crossing INTO a
+  boundary. Built only on detection."
+  [head i]
+  (warn-once! head missing-key-kind
+    (fn []
+      (str "[fresco] Missing :key on boundary children: a seq of "
+           (head-name head) " members crosses into a boundary with no :key"
+           " (first at index " i ")."
+           " The crossing flattens a seq into separate createElement"
+           " ARGUMENTS, which React marks validated — so React's own"
+           " missing-key check never runs here, and the list reconciles BY"
+           " INDEX in silence. Delete the first row and every row's local"
+           " state — focus, scroll position, any presence retention — is"
+           " handed the next row's data. Key on a stable identifier"
+           " — [child {:key (:id entity), …}]. Warned once per"
+           " site, in development builds only."
+           " [:rf.warning/fresco-missing-key]"))))
+
+(defn- check-crossing-key!
+  "One member of a seq being flattened INTO a boundary, at index `i`:
+  warn when it is a boundary-headed vector carrying no `:key`.
+
+  Deliberately NOT folded into `check-member-key!`, because that one also
+  rides `expand-seq`, where the seq becomes a JS ARRAY that React still
+  key-checks when it reconciles — there an absent key is React's own
+  warning and ours would be a second voice saying the same thing. Here
+  the flatten has destroyed that: the members reach React as separate
+  arguments, which it marks validated and never checks. So the two paths
+  warn about different things on purpose, and this is the one place the
+  absent key is OURS to report."
+  [m i]
+  (when (vector? m)
+    (let [h (nth m 0 nil)]
+      (when (boundary-head? h)
+        (let [p (nth m 1 nil)]
+          (when (nil? (when (map? p) (:key p)))
+            (warn-missing-key! h i))))))
+  nil)
+
 (defn- check-seq-keys!
-  "`check-member-key!` over a whole seq, for `realize-children`'s
-  one-level flatten — the crossing INTO a boundary, where `into` walks the
-  seq and there is no loop of its own to ride. The rare path."
+  "`check-member-key!` and `check-crossing-key!` over a whole seq, for
+  `realize-children`'s one-level flatten — the crossing INTO a boundary,
+  where `into` walks the seq and there is no loop of its own to ride. The
+  two are mutually exclusive on any one member (one fires on a `:key`
+  present and entity-valued, the other on none at all), so a member never
+  draws two lines. The rare path."
   [s]
   (loop [items (seq s)
          i     0]
     (when items
-      (check-member-key! (first items) i)
+      (let [m (first items)]
+        (check-member-key! m i)
+        (check-crossing-key! m i))
       (recur (next items) (inc i))))
   nil)
 

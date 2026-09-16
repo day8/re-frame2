@@ -1184,8 +1184,8 @@
 ;;
 ;; TWO hazards share that one dedupe, and which applies turns on the PARENT.
 ;; Under a HOST parent a seq becomes a JS array (`expand-seq`), React sees it
-;; as children and runs its own missing-key check, so an ABSENT key is left to
-;; React and the codec says nothing; what the codec warns on there is a key
+;; as children and runs its own missing-key check WHEN IT RECONCILES, so an
+;; ABSENT key is left to React and the codec says nothing; what it warns on
 ;; React would coerce by CONTENT. At a BOUNDARY crossing (`check-seq-keys!`)
 ;; the members never reach React as children at all — they ride inside
 ;; `rfProps` as CLJS data — so React's check cannot run, and there the ABSENT
@@ -1210,22 +1210,13 @@
     (try (f) (finally (set! (.-warn js/console) original)))
     @seen))
 
-(defn- errors-during
-  "Everything REACT said on `console.error` while `f` ran. The other half
-  of the pair: the whole point of the crossing warning is that React's own
-  missing-key check never runs there, and a claim about silence is worth
-  nothing without the instrument that would have heard the noise."
-  [f]
-  (let [seen     (atom [])
-        original (.-error js/console)]
-    (set! (.-error js/console) (fn [& args] (swap! seen conj (apply str args))))
-    (try (f) (finally (set! (.-error js/console) original)))
-    @seen))
-
-(defn- missing-key-errors-during
-  "React's own missing-key line, isolated from anything else it may say."
-  [f]
-  (vec (filter #(re-find #"unique \"key\"" %) (errors-during f))))
+;; A console.error spy on React deliberately does NOT appear here. React 19
+;; removed key validation from `createElement` — the reconciler does it during
+;; render — so at `as-element` time React is silent about EVERY shape, keyed
+;; or not, host parent or boundary. A row asserting "React said nothing at the
+;; crossing" would therefore pass on a tree where the defect was fully fixed,
+;; and pass just as well on one where it was never present: a green that means
+;; nothing. The mechanism is pinned structurally instead, below.
 
 (deftest under-a-host-parent-an-unkeyed-seq-is-reacts-to-warn-about-and-the-codec-is-silent
   (let [row (named-view "w1.ns/row")]
@@ -1235,27 +1226,6 @@
     (is (= [] (warnings-during
                 #(rf.fresco.impl.codec/as-element [:ul (list [row {:key nil :id 1}])])))
         "and `:key nil` is the same absent key")))
-
-;; ---------------------------------------------------------------------------
-;; PROBE-DZA90 — temporary. Delete before the PR opens.
-;; ---------------------------------------------------------------------------
-
-(deftest probe-dza90-what-each-parent-actually-emits
-  (let [row  (named-view "probe.ns/row")
-        host (named-view "probe.ns/host")]
-    (println "PROBE-DZA90 host-parent   react-errors:"
-             (pr-str (missing-key-errors-during
-                       #(rf.fresco.impl.codec/as-element
-                          [:ul (for [i (range 3)] [row {:id i}])]))))
-    (println "PROBE-DZA90 boundary-parent react-errors:"
-             (pr-str (missing-key-errors-during
-                       #(rf.fresco.impl.codec/as-element
-                          [host {} (for [i (range 3)] [row {:id i}])]))))
-    (println "PROBE-DZA90 boundary-parent fresco-warns:"
-             (pr-str (warnings-during
-                       #(rf.fresco.impl.codec/as-element
-                          [host {} (for [i (range 3)] [row {:id i}])]))))
-    (is true)))
 
 ;; ---------------------------------------------------------------------------
 ;; THE BOUNDARY CROSSING — where React's own missing-key check cannot run
@@ -1287,22 +1257,25 @@
       (is (re-find #"w11\.ns/row" line) "the member head, not the parent")
       (is (re-find #"first at index 0" line))
       (is (re-find #":rf\.warning/fresco-missing-key" line))))
-  (testing "and React itself said nothing about it — the reason the warning
-            has to exist. The same spy hears React perfectly well under a
-            HOST parent, which is what makes this silence a finding rather
-            than a broken instrument."
-    (let [row   (named-view "w12.ns/row")
-          host  (named-view "w12.ns/host")
-          under-host     (missing-key-errors-during
-                           #(rf.fresco.impl.codec/as-element
-                              [:ul (for [i (range 3)] [row {:id i}])]))
-          under-boundary (missing-key-errors-during
-                           #(rf.fresco.impl.codec/as-element
-                              [host {} (for [i (range 3)] [row {:id i}])]))]
-      (is (= 1 (count under-host))
-          "CONTROL: React's own check runs under a host parent, so the spy bites")
-      (is (= [] under-boundary)
-          "and is silent at the crossing, where the members never reach it")))
+  (testing "the MECHANISM, pinned structurally rather than argued: React
+            cannot key-check what it is never handed as children. Under a
+            host parent the seq arrives as a React children ARRAY, which the
+            reconciler still walks; at the crossing there is no children slot
+            at all — the members ride inside `rfProps` as CLJS data. Every
+            member here is KEYED, so this row measures shape and nothing else."
+    (let [row      (named-view "w12.ns/row")
+          host     (named-view "w12.ns/host")
+          host-el  (rf.fresco.impl.codec/as-element
+                     [:ul (for [i (range 3)] [row {:key i}])])
+          bound-el (rf.fresco.impl.codec/as-element
+                     [host {} (for [i (range 3)] [row {:key i}])])]
+      (is (array? (.-children (.-props host-el)))
+          "CONTROL: under a host parent the seq IS a React children array")
+      (is (= 3 (alength (.-children (.-props host-el)))))
+      (is (undefined? (.-children (.-props bound-el)))
+          "at the crossing React is handed no children slot whatsoever")
+      (is (= 3 (count (:children (.-rfProps (.-props bound-el)))))
+          "the members are all present — as CLJS data React never inspects")))
   (testing "`:key nil` and a member with no props map at all are the same
             absent key"
     (let [a (named-view "w13.ns/a")
