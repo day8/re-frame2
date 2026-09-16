@@ -81,7 +81,9 @@ a safe, bounded, discriminating plant — a question about the **gate**, not abo
 > **This brief's premises are CLAIMS, not findings.** Check each at source before
 > acting on it. A verified "already fixed" or "the premise does not hold" is a
 > complete and good deliverable — report it with the evidence rather than going
-> looking for work to do.
+> looking for work to do. And a premise can hold where it was measured yet be
+> false where you are about to apply it, so check each claim's DOMAIN and not
+> only its truth.
 
 > **Read the item before this brief, and order it by the tracker's own timestamps —
 > not by position, and not by dates written in the prose.** Where they disagree, the
@@ -90,6 +92,14 @@ a safe, bounded, discriminating plant — a question about the **gate**, not abo
 > **The control is the deliverable.** Show it red when the property is removed,
 > restore, and verify the restore by hashing the bytes.
 
+- **Checking a premise at source settles its TRUTH, not its DOMAIN, and the rule is fully satisfied by
+  the first.** Measured: a drift sweep checked one sentence about how a registration is selected, found
+  it true of the registrations it was checked against, and carried it to four siblings where it is
+  false — three do not use that mechanism at all, and the fourth's wrapper discards the value the
+  sentence turns on. The worker obeyed the rule exactly; the correction reached the trunk and only a
+  post-merge audit caught it. **It fails in the AUTHORITATIVE direction** — an over-generalised
+  correction is newer than the text it replaces, so it reads as the more reliable one — and a repair
+  that reads as *verify harder* misses it entirely.
 - **The first is the highest-yield sentence in the preamble.** Read-the-item-first caught five stale
   briefs in one day: a fix that had landed two days earlier under a sibling item; the wrong audit
   finding named; a resolution already merged; a scope correction that had redefined the item; and three
@@ -281,10 +291,11 @@ surface), solo (correctness, large, decision-resolved or cross-cutting), or defe
 next-dispatch shape in two or three sentences. **Do not change tracker state.**
 
 **When items arrive faster than the mayor can read them, ask this shape for the brief inputs too**, per
-item: the premise check at the current tip (each cited line holds, drifted to what, or does not hold;
-every asserted count re-run), the surfaces it would edit and which are hot-zone, same-file collisions
-against the live and queued sets, the gates by exact command with the heavyweight ones marked, and each
-ambiguity a worker would otherwise improvise, with a recommendation. That is the part of a brief the
+item: the premise check at the current tip (each cited line holds, drifted to what, does not hold, or
+holds only where it was measured; every asserted count re-run), the surfaces it would edit and which
+are hot-zone, same-file collisions against the live and queued sets, the gates by exact command with
+the heavyweight ones marked, and each ambiguity a worker would otherwise improvise, with a
+recommendation. That is the part of a brief the
 mayor cannot write without reading the tree, and the part that goes stale first.
 
 **Shape 5 — Fix a failing check.** The failing check name and log lines; two or three root-cause
@@ -593,7 +604,9 @@ THIS BRIEF'S PREMISES ARE CLAIMS, NOT FINDINGS. Check each at source before you 
 on it: that a ruling it names is ruled and not merely recommended, that a gate it
 names covers your path, that a symbol it names resolves. A verified "already fixed"
 or "the premise does not hold" is a complete and good deliverable — report it with
-the evidence rather than going looking for work to do.
+the evidence rather than going looking for work to do. AND A PREMISE CAN HOLD WHERE
+IT WAS MEASURED YET BE FALSE WHERE YOU ARE ABOUT TO APPLY IT, so check each claim's
+DOMAIN and not only its truth.
 
 Do NOT link version-ignored working files from committed documents — a strict link
 validator fails the build in cascade. Inline a one-sentence summary instead.
