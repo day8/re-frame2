@@ -42,15 +42,29 @@
 
   ## Posture split (rf2-lwtlk)
 
-  `verify-hydration!` has TWO output channels for one detection, and only
-  one of them survives production. The `:rf.ssr/hydration-mismatch` TRACE
-  goes through the `:trace/emit-error!` late-bind hook, whose emit site is
-  gated on `interop/debug-enabled?` — read once at namespace-load time, so
-  under `-Dre-frame.debug=false` nothing is emitted. The strict-mode THROW
-  is always-on: `hydrate.cljc` builds ONE shared payload and uses it for
-  both, so `:server-hash`, `:client-hash`, `:failing-id`, `:recovery`,
-  `:reason` and `:where` are observable in production through
-  `ex-data` even though the trace carrying the identical map is not.
+  `verify-hydration!` has THREE output channels for one detection, and TWO
+  of them survive production (rf2-tildz revised this paragraph: it read
+  \"TWO … only one\" while the mismatch was still reported to nobody in a
+  default-policy production build).
+
+  The `:rf.ssr/hydration-mismatch` TRACE goes through the
+  `:trace/emit-error!` late-bind hook, whose emit site is gated on
+  `interop/debug-enabled?` — read once at namespace-load time, so under
+  `-Dre-frame.debug=false` nothing is emitted. The strict-mode THROW is
+  always-on: `hydrate.cljc` builds ONE shared payload and uses it for both,
+  so `:server-hash`, `:client-hash`, `:failing-id`, `:recovery`, `:reason`
+  and `:where` are observable in production through `ex-data` even though
+  the trace carrying the identical map is not.
+
+  The THIRD channel is the always-on union RECORD, fanned through
+  `:error-emit/dispatch-error-record` beside the trace. It is what makes
+  the detection observable in production under the DEFAULT `:warn` policy,
+  where no throw happens and the trace is DCE'd — previously that build
+  did the hash comparison and reported the answer to nobody. It carries
+  STRUCTURAL slots only (`:frame`, `:server-hash`, `:client-hash`,
+  `:failing-id`, `:recovery`), NOT the shared payload: `:reason` and
+  `:first-diff-path` stay on the trace and the throw, both of which are
+  local, because this record reaches off-box shippers raw.
 
   That is why `mismatch-strict-mode-throws-with-structured-payload` was
   already green under the gate, and it is the production witness the trace
