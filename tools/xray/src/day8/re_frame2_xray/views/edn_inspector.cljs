@@ -4057,9 +4057,10 @@
 ;; `edn-inspector` is the REAGENT head and its public hiccup shape is
 ;; unchanged: every `[ei/edn-inspector value opts]` call site in the tree
 ;; keeps working, keeps its testids, and keeps the per-call-site expansion
-;; isolation the form-2 closure used to deliver. It is SCAFFOLDING with a
-;; defined end — it goes in the commit that flips the shell's root, which
-;; is the same commit that deletes every `*-bridge` (see the bead's step 3).
+;; isolation the form-2 closure used to deliver. THE SHELL'S ROOT HAS SINCE
+;; BEEN FLIPPED and this head stayed: no commit deletes every `*-bridge` —
+;; rf2-lect (option 2) rules those permanent — so this head's end is its
+;; own call sites going, not theirs.
 ;;
 ;; `edn-inspector-view` is the FRESCO BOUNDARY: a real React function
 ;; component whose reads go through Fresco's own collector rather than

@@ -1202,9 +1202,10 @@
 ;; second root. So there is no second root here, no adapter-kind branch,
 ;; and no props ABI.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
-;; Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and
-;; both defs below are deleted.
+;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-resources!` reaches
+;; this bridge through `render-panel!`, which rf2-l1jm keeps ratom-family,
+;; so a Reagent parent heads it by ruling whatever the L4 registry does.
+;; The chain is `[:>]` -> `as-component` -> `Panel`.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.

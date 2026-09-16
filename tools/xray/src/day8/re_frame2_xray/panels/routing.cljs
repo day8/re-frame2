@@ -552,10 +552,10 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; Xray's shell, `panels.cljs`'s `render-panel!` and the panel-gallery
-;; testbed are all still `reg-view` trees rendered by the installed
-;; adapter, and each mounts this panel as the hiccup head `[routing/Panel]`
-;; — which a React component is not.
+;; `panels.cljs`'s `render-panel!` and the panel-gallery testbed are
+;; Reagent trees rendered by the installed adapter, and each mounts this
+;; panel as the hiccup head `[routing/Panel]` — which a React component is
+;; not. The shell reaches it across its L4 `as-child` seam.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly
 ;; this: it answers a real React component for a boundary, which a React
@@ -565,9 +565,10 @@
 ;; and no props ABI — the three things the spike's Arm A needed and the
 ;; ruling counted against it.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
-;; Fresco tree, `PanelView` takes the name `Panel` directly, `[:>]` goes,
-;; and both defs below are deleted.
+;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-routing!` reaches
+;; [[Panel]] through `render-panel!`, which rf2-l1jm keeps ratom-family,
+;; so a Reagent parent heads it by ruling whatever the L4 registry does.
+;; The chain is `[:>]` -> `as-component` -> [[PanelView]].
 
 (def ^:private Panel-component
   "The React component [[PanelView]] presents as, for a non-Fresco

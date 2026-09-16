@@ -6310,9 +6310,11 @@
 ;; ABI — and the `[rf/frame-provider {:frame :rf/xray}]` the shell already
 ;; wraps the panel in is what puts `:rf/xray` in that context.
 ;;
-;; STILL SCAFFOLDING WITH A DEFINED END: when the shell is itself a Fresco
-;; tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and both defs
-;; below are deleted with every other `*-bridge`.
+;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-epoch-panel!` reaches
+;; this bridge (via `panels.epoch-panel`'s re-export) through
+;; `render-panel!`, which rf2-l1jm keeps ratom-family, so a Reagent parent
+;; heads it by ruling whatever the L4 registry does. The chain is `[:>]`
+;; -> `as-component` -> `Panel`.
 (def ^:private Panel-component
   "The React component [[Panel]] presents as, for a non-Fresco parent.
   Declared ONCE at top level beside the view, as `rf.fresco/as-component`'s
@@ -6328,8 +6330,9 @@
 
   PUBLIC, because this panel carries a `mount-epoch-panel!` facade and
   `panels/render-panel!` takes the view to mount as an ARGUMENT — so the
-  embedding contract needs a name it can pass. Deleted with the component
-  above when the shell itself becomes a Fresco tree.
+  embedding contract needs a name it can pass. That door stays
+  ratom-family (rf2-l1jm), so this name and the component above stay
+  with it.
 
   rf2-3ymg — the 1-arity is how a REAGENT parent names an instance when it
   renders two of these under one `frame-provider`:

@@ -376,16 +376,17 @@
 
   Since rf2-k97c.3 it is the MIGRATION BRIDGE rather than the view:
   Reagent-shaped hiccup interoping to the React component
-  [[RowContextMenuView]] presents as. `shell-view` is still an
-  `rf/reg-view` tree, and the enclosing `rf/frame-provider` is what puts
-  the instance frame in React context for it. The open/closed gate is
+  [[RowContextMenuView]] presents as, and the enclosing
+  `rf/frame-provider` is what puts the instance frame in React context
+  for it. The open/closed gate is
   inside the view, so this is always mounted and renders nothing while
   the menu is closed — the same shape a mounted `reg-view` returning nil
   had.
 
-  SCAFFOLDING WITH A DEFINED END: when the shell is itself a Fresco
-  tree, [[RowContextMenuView]] takes this name directly and the `[:>]`
-  and the two defs above it go."
+  NOT SCAFFOLDING — THIS STAYS (rf2-lect, ruled option 2). The shell IS a
+  Fresco tree now, and this pair stayed anyway: a Reagent parent still
+  heads it on purpose, in the shipped boundary witness suite. The chain is
+  `[:>]` -> `as-component` -> [[RowContextMenuView]]."
   []
   [:> RowContextMenu-component {}])
 

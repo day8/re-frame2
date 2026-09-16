@@ -703,9 +703,12 @@
 ;; second root. So there is no second root here, no adapter-kind branch,
 ;; and no props ABI.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
-;; Fresco tree, the two `*View` boundaries take these names directly,
-;; `[:>]` goes, and the four defs below are deleted.
+;; NOT SCAFFOLDING — THE FOUR DEFS STAY. The shell IS a Fresco tree now
+;; and they stayed anyway: `panels.cljs`'s `mount-cancellation-cascade-*!`
+;; facades reach both names through `render-panel!`, which rf2-l1jm keeps
+;; ratom-family, so a Reagent parent heads them by ruling; rf2-lect
+;; (option 2) rules the pairs permanent. The chain is `[:>]` ->
+;; `as-component` -> the `*View` boundary.
 
 (def ^:private SidePanel-component
   "The React component [[SidePanelView]] presents as, for a non-Fresco
