@@ -150,7 +150,25 @@
     ;; the entry is the same forward-looking symmetry the members above carry,
     ;; and it is what makes a future change that gives the materialiser a frame
     ;; safe rather than silently status-flipping every request it reports on.
-    :rf.error/ssr-ring-response-status-invalid})
+    :rf.error/ssr-ring-response-status-invalid
+    ;; rf2-tildz — the two SSR categories promoted onto the always-on axis.
+    ;; Both are RECOVERABLE DEGRADATIONS by their catalogued recovery, which
+    ;; is the whole membership test for this set: a hydration mismatch is
+    ;; `:warned-and-replaced` (the client re-renders and the page becomes
+    ;; interactive) and a failed streaming boundary is `:skipped-delta` /
+    ;; `:quarantined-delta` / `:inline-fallback` (the fallback stands and the
+    ;; stream continues). Neither is a reason to refuse the response.
+    ;;
+    ;; Before the promotion these rode the dev trace ALONE, so they reached a
+    ;; buffering listener only in a dev build; now they reach BOTH paths, and
+    ;; without these entries the promotion would have silently turned a
+    ;; degraded-but-served page into a non-200 — the exact dev/production
+    ;; asymmetry the header above says this chokepoint exists to close.
+    ;; `:rf.ssr/suspense-boundary-failed` additionally has a SERVER-side emit
+    ;; (`ssr/streaming.cljc`), which is precisely the routing change the
+    ;; forward-looking members above are written for.
+    :rf.ssr/hydration-mismatch
+    :rf.ssr/suspense-boundary-failed})
 
 (defn- non-projection-eligible-error?
   "True when `operation` names a recoverable-degradation error category
