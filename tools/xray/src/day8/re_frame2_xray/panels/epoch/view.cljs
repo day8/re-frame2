@@ -6297,9 +6297,9 @@
 ;; IT IS NO LONGER A NO-OP. Until this commit `Panel-bridge` was a `def`
 ;; aliasing the `reg-view` value, and nothing downstream could tell the two
 ;; names apart. `Panel` is now a Fresco boundary — a React function
-;; component — and Xray's shell is still a `reg-view` tree rendered by the
-;; installed adapter, which mounts the active tab as the hiccup head
-;; `[(:panel tab)]` with `panel-registry/reg-l4-tab!`'s `:pre` requiring
+;; component — and Xray's shell reaches the active tab across its L4
+;; `as-child` seam as the hiccup head
+;; `[(:panel tab)]`, with `panel-registry/reg-l4-tab!`'s `:pre` requiring
 ;; `:panel` to be CALLABLE. A React component is neither.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:

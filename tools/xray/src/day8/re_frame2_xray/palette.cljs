@@ -89,9 +89,10 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; Xray's shell is still a `reg-view` tree rendered by the installed
-;; adapter, and `shell.cljs` mounts the palette as a hiccup head —
-;; `[palette/Modal]` at the shell-view root. `defview`'s contract is that
+;; Since rf2-k97c.3 `shell.cljs`'s tree is a Fresco one and CALLS the
+;; palette — `(palette/Modal)` at the shell-view root — while the shipped
+;; boundary witness suite still HEADS it from a Reagent parent, which is
+;; the crossing this bridge exists for. `defview`'s contract is that
 ;; a boundary is mounted as `[head props]` inside a Fresco body or
 ;; through `as-component` from OUTSIDE, never as a hiccup render fn in a
 ;; Reagent tree.

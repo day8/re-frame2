@@ -620,9 +620,10 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) ----------------------------------
 ;;
-;; Xray's shell is still a `reg-view` tree rendered by the installed
-;; adapter, and `shell.cljs` mounts `[edn-inspector-popup/edn-inspector-
-;; popup-stack]` as a hiccup head — which a React component is not.
+;; Since rf2-k97c.3 `shell.cljs`'s tree is a Fresco one and CALLS
+;; `(edn-inspector-popup/edn-inspector-popup-stack)`, while the shipped
+;; boundary witness suite still HEADS it from a Reagent parent — which a
+;; React component cannot be, and which is the crossing this bridge is for.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
 ;; it answers a real React component for a boundary, which a React parent

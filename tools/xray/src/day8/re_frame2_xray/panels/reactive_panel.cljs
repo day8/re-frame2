@@ -86,9 +86,10 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; Xray's shell is still a `reg-view` tree rendered by the installed
-;; adapter, and `panels/render-panel!` takes the view to mount as an
-;; ARGUMENT and builds a Reagent tree around it. `defview`'s contract is
+;; `panels/render-panel!` takes the view to mount as an ARGUMENT and
+;; builds a REAGENT tree around it, and `shell/detail-panel` — a Fresco
+;; boundary since rf2-k97c.3 — reaches each registered tab across an
+;; `as-child` seam rather than heading it. `defview`'s contract is
 ;; that a boundary is mounted as `[head props]` inside a Fresco body or
 ;; through `as-component` from outside — never as a hiccup render fn in a
 ;; Reagent tree. `panel-registry/reg-l4-tab!`'s `:pre` likewise requires

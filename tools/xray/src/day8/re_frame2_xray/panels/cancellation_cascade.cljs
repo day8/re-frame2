@@ -690,11 +690,10 @@
 
 ;; ---- the migration bridges (rf2-k97c.3) ----------------------------------
 ;;
-;; Xray's shell is still a `reg-view` tree rendered by the installed
-;; adapter. `shell.cljs` mounts `[cancellation-cascade/Popover]` as a
-;; hiccup head, and `panels.cljs`'s `render-panel!` takes both vars and
-;; mounts them the same way — neither of which a React component is, and
-;; both of those files belong to step 3 rather than to this bead.
+;; `shell.cljs`'s tree is a Fresco one since rf2-k97c.3 and CALLS
+;; `(cancellation-cascade/Popover)`, while `panels.cljs`'s `render-panel!`
+;; takes both vars as an ARGUMENT and builds a REAGENT tree around them —
+;; which a React component cannot head.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly
 ;; this: it answers a real React component for a boundary, which a React
