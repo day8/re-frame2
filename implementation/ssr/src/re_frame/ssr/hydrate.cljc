@@ -668,7 +668,41 @@
                                first-diff-path
                                (assoc :first-diff-path first-diff-path))
                emit-error! (rf.late-bind/get-fn :trace/emit-error!)]
-           ;; Always emit the trace (monitoring integrations rely on it),
+           ;; Axis 1 — ALWAYS-ON (rf2-tildz). A mismatch is a PRODUCTION
+           ;; event: detection is on by default in every build (Spec 011
+           ;; §Mismatch recovery and configuration row 4), so the client
+           ;; pays for the hash comparison in an `:advanced` +
+           ;; `goog.DEBUG=false` build and the monitoring integration that
+           ;; row 3 promises must see the result. The dev trace below is
+           ;; DCE'd there — `trace/emit-error!`'s whole body sits inside
+           ;; `rf.interop/debug-enabled?` — so before this record a
+           ;; production mismatch was detected and reported to NOBODY.
+           ;;
+           ;; STRUCTURAL SLOTS ONLY, and that is the contract rather than an
+           ;; oversight: this record fans out to corpus listeners (Sentry /
+           ;; Datadog) and to the frame's `:observability :errors` sinks RAW
+           ;; — it is NOT privacy-gated like the dev trace. The two hashes
+           ;; are digests, `:failing-id` discriminates body from head, and
+           ;; `:recovery` says what the runtime did. The `:reason` prose and
+           ;; `:first-diff-path` (a path INTO the render tree) stay on the
+           ;; DCE'd dev trace and on the strict-mode throw, which are local.
+           ;; No render tree, no markup, no app-db slice — ever.
+           (when-let [dispatch-error-record!
+                      (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
+             (dispatch-error-record!
+               {:error       :rf.ssr/hydration-mismatch
+                :where       'rf/verify-hydration!
+                :frame       frame-id
+                :failing-id  (or failing-id :rf/hydrate)
+                :server-hash server-hash
+                :client-hash client-hash
+                :recovery    recovery
+                :time        (rf.interop/now-ms)}))
+           ;; Axis 2 — the dev-only trace, kept BYTE-IDENTICAL to before:
+           ;; it carries the rich `:reason` + `:first-diff-path` for the
+           ;; local debugger. Emitted after the always-on record per the
+           ;; rf2-vkn8 axis-1-then-axis-2 ordering, so a last-write-wins
+           ;; listener buffer keeps the richer trace as its final input.
            ;; THEN escalate in strict mode. The thrown ex-info carries the
            ;; same structured payload so a CI run sees the full diff.
            (when emit-error!
