@@ -308,18 +308,59 @@
       (is (true? (rf.resources.mutation-runtime/optimistic-conflict? competed applied-revision))
           "the moved revision is detected as a conflict — the recorded inverse
            is now a stale `before` the settle must NOT blindly restore")))
-  (testing "the REMOVE branch (`applied-removed-revision` sentinel): a
-            still-absent entry is UNMOVED, a re-created one is a conflict"
-    (let [removed-baseline (:applied-revision
-                             (rf.resources.mutation-runtime/record-optimistic-entry
-                               (rf.resources.state/scoped-resource-key
-                                 :rf.scope/global :conduit/article {:slug "r"})
-                               rf.resources.mutation-runtime/absent-snapshot :remove))]
-      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? nil removed-baseline))
+  (testing "the REMOVE forms need NO branch of their own (rf2-pkkft): a remove
+            that TOMBSTONES an existing entry leaves a concrete revision, so it
+            is compared exactly as a patch is"
+    (let [sk       (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "r"})
+          loaded   (-> (rf.resources.state/empty-entry :conduit/article sk)
+                       (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 1
+                                                            :stale-at 2 :tags #{}}))
+          observed (rf.resources.state/entry-revision loaded)
+          tomb     (rf.resources.mutation-runtime/apply-optimistic-remove loaded)
+          recorded (rf.resources.mutation-runtime/record-optimistic-entry sk loaded :remove)]
+      (is (= (inc observed) (:applied-revision recorded))
+          "the tombstone bumped, so the derived baseline is one past what was observed")
+      (is (= (:applied-revision recorded) (rf.resources.state/entry-revision tomb))
+          "the DERIVED baseline agrees with the revision the apply actually left behind")
+      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? tomb (:applied-revision recorded)))
+          "the tombstone standing where the apply left it is conflict-free")
+      (is (true? (rf.resources.mutation-runtime/optimistic-conflict?
+                   (rf.resources.state/bump-revision tomb) (:applied-revision recorded)))
+          "a competing write past the tombstone IS a conflict — this is the bump
+           an owner release makes (rf2-cxwuhl), and the whole reason the remove
+           form now keeps an entry at all")))
+  (testing "the REMOVE of an ABSENT key wrote nothing, so its baseline is the
+            revision the key already had — still-absent is UNMOVED, and a key
+            some authoritative write RE-CREATED is a conflict"
+    (let [absent-baseline (:applied-revision
+                            (rf.resources.mutation-runtime/record-optimistic-entry
+                              (rf.resources.state/scoped-resource-key
+                                :rf.scope/global :conduit/article {:slug "r"})
+                              rf.resources.mutation-runtime/absent-snapshot :remove))]
+      (is (zero? absent-baseline)
+          "nothing was written, so the apply left the key exactly where it was")
+      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? nil absent-baseline))
           "absent-after-remove — the remove stands, no conflict")
       (is (true? (rf.resources.mutation-runtime/optimistic-conflict?
-                   (rf.resources.state/empty-entry :conduit/article) removed-baseline))
-          "re-created-after-remove — a competing write seeded the removed key")))
+                   (rf.resources.state/entry-succeeded
+                     (rf.resources.state/empty-entry :conduit/article)
+                     {:data {:n 1} :loaded-at 1 :stale-at 2 :tags #{}})
+                   absent-baseline))
+          "re-created-after-remove — a competing AUTHORITATIVE write seeded the key")
+      ;; THE ONE DIVERGENCE FROM THE RETIRED SENTINEL, AND IT IS DELIBERATE.
+      ;; The sentinel's rule was `(some? current-entry)`, so ANY entry present at
+      ;; settle — including one a first load had only just created — read as a
+      ;; conflict and got `entry-invalidate`d, marking an entry stale before it
+      ;; had ever loaded. Under the uniform revision rule a bare revision-0 entry
+      ;; is indistinguishable from absence, which is CORRECT here: the `:absent`
+      ;; restore arm already preserves a live read rather than dissoc'ing it
+      ;; (rf2-veef), so the read is protected structurally instead of by a
+      ;; conflict. Reaching revision 0 in a real cache takes a load that attached
+      ;; no owner, since `attach-owner` itself bumps (rf2-cxwuhl).
+      (is (false? (rf.resources.mutation-runtime/optimistic-conflict?
+                    (rf.resources.state/empty-entry :conduit/article) absent-baseline))
+          "a bare revision-0 entry reads as unmoved; the live-read case is held
+           by `restore-before`'s `:absent` arm, not by the conflict check")))
   (testing "the comparison is canonical-identity over the monotone counter, not
             a value diff: an absent entry reads as revision 0"
     (is (false? (rf.resources.mutation-runtime/optimistic-conflict? nil 0))

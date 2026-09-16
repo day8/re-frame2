@@ -341,10 +341,15 @@
 
 (def absent-snapshot
   "The `:before` sentinel for an optimistic apply against a key with NO entry
-  (EP-0019 Open Issue 6 — optimistic SEED of an absent key, or an optimistic
-  REMOVE that vanishes a card). A rollback of an `:absent` snapshot REMOVES the
+  (EP-0019 Open Issue 6 — an optimistic SEED of an absent key, or the no-op
+  optimistic REMOVE of one). A rollback of an `:absent` snapshot REMOVES the
   entry (restores the absence). Distinct from a `nil` entry value so the settle
-  protocol can tell \"there was nothing here\" from \"we did not snapshot\"."
+  protocol can tell \"there was nothing here\" from \"we did not snapshot\".
+
+  It is the ABSENCE OF AN ENTRY that puts this sentinel on a record, never the
+  forward op: an optimistic remove of an entry that EXISTS snapshots that entry
+  like any other apply and tombstones it in place (rf2-pkkft), so the remove
+  form reaches this sentinel only when there was nothing to remove."
   :rf.optimistic/absent)
 
 (defn snapshot-entry
@@ -371,8 +376,8 @@
   - an ABSENT entry — SEED it `:loaded` with `(patch-fn nil)` (an optimistic
     PUT/seed of an absent key); `resource-id` / `scoped-key` / `tags` stamp the
     fresh entry exactly as `populate-entry` does;
-  - a `nil` `patch-fn` — an optimistic REMOVE (the caller dissocs the entry; this
-    fn is not called for that form).
+  - a `nil` `patch-fn` — an optimistic REMOVE (the caller writes a tombstone via
+    `apply-optimistic-remove`; this fn is not called for that form).
 
   `clock-ms` / `stale-at` re-stamp freshness; `tags` (opt) stamps a freshly
   seeded entry's tags (so a later invalidation can reach it). Per EP-0019
@@ -403,13 +408,55 @@
         ;; settle-time conflict check detect a competing write.
         rf.resources.state/bump-revision)))
 
-(def applied-removed-revision
-  "The `:applied-revision` sentinel for an optimistic REMOVE (the apply dissoc'd
-  the entry, so it left NO revision behind). The settle conflict check treats a
-  still-absent entry (current revision 0) as UNMOVED for a remove, and a
-  RE-CREATED entry (a competing write seeded the key) as MOVED. Distinct from a
-  numeric applied revision (a patch/seed left the entry at a concrete count)."
-  :rf.optimistic/removed)
+(defn apply-optimistic-remove
+  "PURE: apply a FORWARD optimistic REMOVE to a resource entry — a TOMBSTONE
+  written IN PLACE (`:data nil`, `:status :idle`), never a dissoc (rf2-pkkft).
+  The payload-clearing twin of `apply-optimistic-patch`, and it bumps the
+  per-entry `:revision` for the same reason: the optimistic apply IS an
+  authoritative durable write a later rollback could clobber.
+
+  WHY IN PLACE. A dissoc left the settle protocol with NO ENTRY to reason about,
+  and every owner-liveness guard in this artefact is keyed to an entry existing:
+  `rf.resources.state/detach-owner` is a documented no-op on a nil entry, so an
+  owner that RELEASED between the apply and a failing reply moved no
+  `:revision`, the conflict check saw an UNMOVED entry, and `restore-before`
+  seated the pre-apply snapshot verbatim — RESURRECTING the departed owner onto
+  the entry. The entry then never GCs (`gc-fired` reads `:has-owner`), refetches
+  on every focus and reconnect, and polls for the frame's life. A tombstone
+  keeps the entry, so BOTH ordinary protections apply again, unchanged: the
+  `detach-owner` / `attach-owner` revision bump (rf2-cxwuhl) makes a mid-flight
+  owner change a CONFLICT, and `reconcile-restored-entry` carries the CURRENT
+  `live-work-keys` forward over the snapshot's (rf2-veef). This is the exact
+  pair that already protects the optimistic PATCH form; the remove form had no
+  entry for them to protect, which is the whole of why it survived.
+
+  What the tombstone keeps is as load-bearing as what it clears: `:tags`,
+  `:active-owners`, `:current-work` and the rest of the live read-work facts
+  ride through untouched — a remove writes the entry's PAYLOAD and nothing else,
+  exactly as a patch does. The entry is left owner-free-collectable rather than
+  collected: an owner-free `:idle` tombstone is GC-eligible on the ordinary
+  structural gate (owner-free + no in-flight work), and `gc-fired` drops its
+  work-ledger rows and inverse-index bucket with it (rf2-6gzdb).
+
+  `clock-ms` is accepted for signature symmetry with `apply-optimistic-patch`
+  and deliberately unused: a tombstone has no data, so it has no freshness to
+  stamp — `:loaded-at` / `:stale-at` / `:invalidated-at` all clear. Per EP-0019
+  Decision 1 / Open Issue 6 / Spec 016 §Optimistic mutations."
+  [entry]
+  (-> entry
+      (assoc
+        :data           nil
+        :status         :idle
+        :error          nil
+        :refresh-error  nil
+        :loaded-at      nil
+        :stale-at       nil
+        :invalidated-at nil
+        ;; `:previous-key` projects a PRIOR key's data while this one loads
+        ;; (`:keep-previous?`). A tombstone must not project the very row the
+        ;; user just deleted, so the pointer clears with the payload.
+        :previous-key   nil)
+      rf.resources.state/bump-revision))
 
 (defn record-optimistic-entry
   "PURE: the recorded INVERSE shape for ONE touched entry on the instance row's
@@ -426,14 +473,21 @@
   value here.
 
   3-arity (slice 2 shape — `:applied-revision` derived from `before` + forward):
-  a patch/seed bumps the before-revision by one; a remove leaves no revision.
+  the apply bumped the before-revision by one, UNLESS it wrote nothing at all —
+  a remove over an ABSENT key has no entry to tombstone and leaves the cache
+  untouched, so the key is still exactly where it was (rf2-pkkft). Every other
+  form (patch, seed, and a remove that tombstones an existing entry) writes the
+  entry and bumps.
   4-arity: the caller supplies the observed post-apply `applied-revision`
   explicitly (the apply already computed it). Per EP-0019 Decision 2 / §Optimistic
   settle."
   ([scoped-key before-entry forward]
-   (let [observed (rf.resources.state/entry-revision
-                    (when (not= before-entry absent-snapshot) before-entry))
-         applied  (if (= forward :remove) applied-removed-revision (inc observed))]
+   (let [observed  (rf.resources.state/entry-revision
+                     (when (not= before-entry absent-snapshot) before-entry))
+         ;; the ONE apply form that writes nothing: a remove with no entry to
+         ;; tombstone. Everything else bumps.
+         no-op?    (and (= forward :remove) (= before-entry absent-snapshot))
+         applied   (if no-op? observed (inc observed))]
      (record-optimistic-entry scoped-key before-entry forward observed applied)))
   ([scoped-key before-entry forward observed-revision applied-revision]
    {:resource/key     scoped-key
@@ -492,22 +546,25 @@
 (defn optimistic-conflict?
   "PURE: did an authoritative durable write land on the entry BETWEEN the
   optimistic apply and the reply settling (EP-0019 Decision 3)? The apply LEFT
-  the entry at `applied-revision` (a numeric revision for a patch/seed, or the
-  `applied-removed-revision` sentinel for a remove); a CONFLICT is the entry
-  moving AWAY from that baseline — the apply's OWN +1 bump is expected and is NOT
-  a conflict, only a competing write beyond it is. A canonical-identity
-  comparison over the monotone `:revision`, never a value diff:
+  the entry at `applied-revision`; a CONFLICT is the entry moving AWAY from that
+  baseline — the apply's OWN +1 bump is expected and is NOT a conflict, only a
+  competing write beyond it is. A canonical-identity comparison over the monotone
+  `:revision`, never a value diff.
 
-  - patch / seed (`applied-revision` numeric) -> conflict iff the entry's current
-    revision ≠ the applied revision (a competing write bumped it further, or the
-    entry was removed-then-reseeded landing at a different count);
-  - remove (`applied-revision` = `:removed`) -> conflict iff the entry was
-    RE-CREATED (a competing write seeded the key the apply had removed); a
-    still-absent entry is UNMOVED (no conflict — the remove stands)."
+  ONE RULE, ALL THREE FORWARD FORMS (rf2-pkkft). Every optimistic apply now
+  leaves a concrete numeric revision behind, so there is nothing to special-case:
+  a patch and a seed bump the entry they wrote, a remove bumps the TOMBSTONE it
+  wrote in place, and a remove over an ABSENT key wrote nothing and so left the
+  key at the revision it already had. An absent entry reads as revision 0
+  (`rf.resources.state/entry-revision`), which is what makes the no-op case fall
+  out of the same comparison: still-absent is UNMOVED, and a key some competing
+  write RE-CREATED reads ≥ 1 and is correctly a conflict.
+
+  This used to need a `:rf.optimistic/removed` sentinel and a second branch,
+  because an optimistic remove DISSOC'd the entry and so left no revision to
+  compare. The tombstone removed the reason for both."
   [current-entry applied-revision]
-  (if (= applied-revision applied-removed-revision)
-    (some? current-entry)
-    (not= (rf.resources.state/entry-revision current-entry) applied-revision)))
+  (not= (rf.resources.state/entry-revision current-entry) applied-revision))
 
 (defn rollback-entry-disposition
   "PURE: decide ONE recorded inverse entry's rollback disposition at settle time

@@ -198,7 +198,14 @@
 ;;    full :before so the settle can restore it.
 ;; ===========================================================================
 
-(deftest optimistic-remove-vanishes-entry-and-records-before
+(deftest optimistic-remove-tombstones-the-entry-in-place-and-records-before
+  ;; rf2-pkkft — an optimistic remove writes a TOMBSTONE (`:data nil`,
+  ;; `:status :idle`) IN PLACE rather than dissoc'ing the entry. The card still
+  ;; disappears from the view (no data), but the ENTRY survives to carry the
+  ;; owner-liveness facts the settle protocol needs: a dissoc'd entry cannot
+  ;; record an owner releasing mid-flight (`detach-owner` is a no-op on a nil
+  ;; entry), so a failed reply restored the pre-apply snapshot verbatim and
+  ;; RESURRECTED the departed owner, pinning the entry for the frame's life.
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:slug "w" :title "Doomed"}})
@@ -210,14 +217,37 @@
                    {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} nil})}
     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
   (is (some? (entry article-key)))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete :params {:slug "w"} :instance :d1}])
-  (testing "the entry is optimistically REMOVED from the cache"
-    (is (nil? (entry article-key))))
+  (let [before-revision (:revision (entry article-key))]
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete :params {:slug "w"} :instance :d1}])
+    (testing "the entry is TOMBSTONED in place — present, but carrying no data"
+      (let [e (entry article-key)]
+        (is (some? e)
+            "the entry survives the optimistic remove (it is not dissoc'd)")
+        (is (nil? (:data e)) "the payload is gone — the card disappears from the view")
+        (is (= :idle (:status e)) "an entry with no data is :idle")
+        (is (nil? (:error e)) "a remove is not an error state")
+        (is (nil? (:loaded-at e)) "no data means no load timestamp")
+        (is (nil? (:stale-at e)) "no data means no freshness deadline")
+        (is (nil? (:invalidated-at e)) "a tombstone is empty, not stale")))
+    (testing "the tombstone KEEPS the live facts a remove never owned"
+      (let [e (entry article-key)]
+        (is (= #{[:v :d]} (:active-owners e))
+            "the owner still holds the entry — this is what a dissoc destroyed")
+        (is (seq (:tags e)) "tags ride through, so an invalidation can still reach the key")
+        (is (= (:resource/key (entry article-key)) article-key) "identity is intact")))
+    (testing "the tombstone is an authoritative durable write, so it BUMPS :revision"
+      ;; the whole point: a concrete revision is what lets the ordinary
+      ;; detach-owner / attach-owner bumps register as a CONFLICT at settle.
+      (is (= (inc before-revision) (:revision (entry article-key))))))
   (testing "the recorded inverse carries the full :before entry + :remove op"
     (let [[inv] (:rollback (patch-summary :d1))]
       (is (= :remove (:forward inv)))
       (is (= {:article {:slug "w" :title "Doomed"}} (:data (:before inv)))
-          "the whole removed entry is snapshotted so the settle can restore it"))))
+          "the whole removed entry is snapshotted so the settle can restore it")
+      (is (= (:revision (entry article-key)) (:applied-revision inv))
+          "the baseline is the revision the apply LEFT the tombstone at — a
+           concrete number now, never the retired `:rf.optimistic/removed`
+           sentinel"))))
 
 ;; ===========================================================================
 ;; 5. Tag-addressed optimistic — :optimistic-tags patches EVERY tag-matched
