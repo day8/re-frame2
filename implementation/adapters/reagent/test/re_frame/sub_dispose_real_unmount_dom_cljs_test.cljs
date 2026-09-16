@@ -137,6 +137,7 @@
             done!    (fn [] (when (compare-and-set! done? false true) (done)))]
         (rf/make-frame {:id frame-kw :doc "rf2-ty246 plain real-unmount probe frame"})
         (rf/reg-event :rf.ty246.reagent/seed (fn [_ _] {:db {:n 1}}))
+        (rf/reg-event :rf.ty246.reagent/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
         (rf/dispatch-sync [:rf.ty246.reagent/seed] {:frame frame-kw})
         (rf/reg-sub :rf.ty246.reagent/n (fn [db _] (:n db)))
         (rf/reg-view* view-id
@@ -183,6 +184,26 @@
                        "mounted; got " (pr-str (:ref-count entry)))))
             (is (zero? (count (dispose-events-for @disposes query-v)))
                 "precondition: nothing has disposed the view's slot while it is mounted")
+
+            ;; ---- :ref-count is a READER count, not a RENDER tally ----------
+            ;; The other half of the contract, and the half a dispose assertion
+            ;; cannot reach. One mounted reader is one reference NO MATTER HOW
+            ;; MANY TIMES IT RENDERS, so re-render the same component over the
+            ;; same slot and require the count to stand still. Against the
+            ;; unfixed tree this reads 2 — each render bumped and nothing ever
+            ;; paired the bump — which is exactly the "cumulative render
+            ;; counter" defect.
+            (is (= 1 (:ref-count (slot frame-kw query-v)))
+                (str "one mounted reader is one reference; got "
+                     (pr-str (:ref-count (slot frame-kw query-v)))))
+            ((:flush-render! rf.adapter.reagent/adapter)
+             (fn [] (rf/dispatch-sync [:rf.ty246.reagent/bump] {:frame frame-kw})))
+            (is (= "n=2" (.-textContent mount-node))
+                "precondition for the re-render pin: the component really did render again")
+            (is (= 1 (:ref-count (slot frame-kw query-v)))
+                (str "STILL one reference after a re-render — :ref-count counts live "
+                     "readers, not renders; got "
+                     (pr-str (:ref-count (slot frame-kw query-v)))))
 
             ;; ---- the real unmount ------------------------------------------
             (-> (await-teardown! root)
