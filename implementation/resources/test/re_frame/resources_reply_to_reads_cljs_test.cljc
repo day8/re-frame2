@@ -17,8 +17,13 @@
     3. JOIN-IN-FLIGHT — two ensures sharing one in-flight work record each supply
        their own `:reply-to`; the ONE accepted terminal reply fans out to BOTH
        targets exactly once;
-    4. STALE / superseded — a reply that no longer correlates with the live entry
-       (a forced-refetch supersession) NEVER fires the continuation;
+    4. SUPERSESSION — a stale REPLY that no longer correlates with the live entry
+       NEVER fires the continuation (suppression is unchanged and mandatory), but
+       a superseded ATTEMPT HANDS its `:reply-to` to its successor, which delivers
+       it exactly once from the fresher attempt (rf2-0czaw — a RULED change to a
+       previously specified behaviour, not a bug fix; the hand-over goes through
+       `add-reply-target`, so a refetch repeating the same target still fires
+       once);
     5. failure — an accepted terminal failure fires the continuation with
        `:status :error` (so a machine learns the read it caused failed);
     6. the `:rf.resource/replied` trace mirrors `:rf.mutation/replied`;
@@ -267,10 +272,24 @@
           (is (= {:title "Shared"} (:value reply))))))))
 
 ;; ===========================================================================
-;; 4. Stale / superseded — the continuation is NEVER delivered
+;; 4. Supersession — the stale REPLY delivers nothing, but the superseded
+;;    ATTEMPT hands its continuation to its successor (rf2-0czaw)
 ;; ===========================================================================
+;;
+;; MOVED PIN, NOT A DELETED ONE. This replaces
+;; `reply-to-stale-superseded-never-delivered`, which pinned the OLD contract:
+;; a superseded attempt's `:reply-to` was voided and the continuation never
+;; arrived at all. That test was CORRECT against the spec of its day — it is
+;; re-pointed here because Mike RULED the behaviour changed (option A), not
+;; because it was broken. Spec 016 §Read completion continuations now reads
+;; "a superseded attempt hands its continuation to its successor".
+;;
+;; What does NOT change, and is still pinned below: the stale reply itself
+;; delivers nothing. Stale suppression is untouched and remains mandatory —
+;; the continuation arrives from the FRESHER attempt, never from the
+;; superseded one, so it can never carry data older than the target expects.
 
-(deftest reply-to-stale-superseded-never-delivered
+(deftest reply-to-superseded-attempt-hands-continuation-to-successor
   (rf/reg-resource :rr/article (article-spec) article-request)
   (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
     ;; gen-1 ensure carries a :reply-to
@@ -278,18 +297,58 @@
                        {:resource :rr/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]
                         :reply-to [:test/read-replied]}])
-    (let [gen1-args @last-managed-args]
-      ;; a forced refetch supersedes gen-1 with gen-2 (no :reply-to on gen-2)
+    (let [gen1-args @last-managed-args
+          gen1-work (:current-work (entry rkey))]
+      ;; a forced refetch supersedes gen-1 with gen-2. gen-2 carries NO
+      ;; `:reply-to` of its own, so the ONLY target in play is the handed-over
+      ;; one — if it arrives, it arrived by the hand-over and nothing else.
       (rf/dispatch-sync [:rf.resource/refetch
                          {:resource :rr/article :scope :rf.scope/global
                           :params {:slug "w"}}])
       (is (= 2 (:generation (entry rkey))) "gen-2 is now the live work")
-      (testing "the STALE gen-1 reply NEVER fires the continuation (suppression)"
+      (testing "the superseded attempt HANDED its target over, rather than copying it"
+        (let [gen2-work (:current-work (entry rkey))]
+          (is (= 1 (count (:reply-targets
+                            (rf.resources.work-ledger/get-record (runtime-db) gen2-work))))
+              "the successor record carries the handed-over continuation")
+          (is (nil? (:reply-targets
+                      (rf.resources.work-ledger/get-record (runtime-db) gen1-work)))
+              "and the superseded row no longer advertises a target it can never deliver")))
+      (testing "the STALE gen-1 reply STILL fires nothing (suppression unchanged)"
         (reply-success! gen1-args {:title "stale"})
         (is (= 0 (count @replied)) "a superseded reply delivers nothing"))
-      (testing "the live gen-2 reply (which carried no :reply-to) fires nothing either"
+      (testing "the live gen-2 reply DELIVERS the handed-over continuation exactly once"
         (reply-success! @last-managed-args {:title "fresh"})
-        (is (= 0 (count @replied)))))))
+        (is (= 1 (count @replied)) "the continuation arrived from the fresher attempt")
+        (let [[_ reply] (first @replied)]
+          (is (= :ok (:status reply)))
+          (is (= {:title "fresh"} (:value reply))
+              "carrying the SUCCESSOR's data — never the superseded attempt's"))))))
+
+(deftest reply-to-superseded-hand-over-dedupes-a-repeated-target
+  ;; The hand-over goes through `add-reply-target` — the ONE dedupe definition —
+  ;; rather than concatenating onto the successor's own seed. A refetch that
+  ;; repeats the superseded read's target must still fire EXACTLY ONCE off the
+  ;; one settle; a naive concat would record it twice and fan out twice, which
+  ;; is the exactly-once guarantee the delivery rule promises.
+  (rf/reg-resource :rr/article (article-spec) article-request)
+  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :rr/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:view :a]
+                        :reply-to [:test/read-replied]}])
+    ;; the forced refetch repeats the SAME target
+    (rf/dispatch-sync [:rf.resource/refetch
+                       {:resource :rr/article :scope :rf.scope/global
+                        :params {:slug "w"}
+                        :reply-to [:test/read-replied]}])
+    (testing "the repeated target is recorded ONCE on the successor, not twice"
+      (is (= 1 (count (:reply-targets
+                        (rf.resources.work-ledger/get-record
+                          (runtime-db) (:current-work (entry rkey))))))))
+    (testing "and it fires exactly once off the one settle"
+      (reply-success! @last-managed-args {:title "fresh"})
+      (is (= 1 (count @replied))))))
 
 ;; ===========================================================================
 ;; 5. Failure — an accepted terminal failure fires the continuation (:error)

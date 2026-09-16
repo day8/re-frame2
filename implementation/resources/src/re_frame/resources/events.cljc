@@ -707,6 +707,22 @@
             ;; protects the late reply by work-id + generation). Per Spec 016
             ;; §Race (refetch may force a new generation).
             superseding? (and in-flight? force-new?)
+            ;; rf2-0czaw — A SUPERSEDED ATTEMPT HANDS ITS CONTINUATION TO ITS
+            ;; SUCCESSOR. The read was ACTUALLY CAUSED, so its call-site
+            ;; `:reply-to` continuation must still arrive. Before this, a poll /
+            ;; focus scan / invalidation / manual refetch that superseded an
+            ;; in-flight attempt STRANDED that attempt's targets on the
+            ;; `:suppressed {:reason :superseded}` row — where no delivery site
+            ;; can ever reach them, because every fan-out sits in the LIVE arm of
+            ;; `live-entry-for-reply` and a superseded work-id can never again
+            ;; equal a live `:current-work` (generations are monotone). A machine
+            ;; that `ensure`d with `:reply-to` therefore hung, with only a generic
+            ;; `:rf.resource/stale-suppressed` to show for it. Read off the
+            ;; ORIGINAL runtime-db — BEFORE the row is settled terminal below.
+            ;; Per Spec 016 §Read completion continuations (delivery rule).
+            superseded-targets (when superseding?
+                                 (:reply-targets
+                                   (rf.resources.work-ledger/get-record runtime-db prior-work)))
             record     (rf.resources.work-ledger/work-record
                          {:work-id      work-id
                           :frame-id     frame-id
@@ -736,15 +752,37 @@
                           ;; call-site `:reply-to` continuation on the fresh work
                           ;; record so the accepted terminal reply fans out to
                           ;; it (a later joining ensure appends more targets).
-                          ;; Omitted when the read carried none.
-                          :reply-targets (when reply-to' [reply-to'])})
+                          ;; rf2-0czaw — seeded FIRST with the targets handed over
+                          ;; by the attempt this one supersedes, so the fan-out
+                          ;; keeps chronological append order. Omitted entirely
+                          ;; when neither this read nor its predecessor carried
+                          ;; one — the row shape is unchanged for every ordinary
+                          ;; read.
+                          :reply-targets superseded-targets})
+            ;; rf2-0czaw — this call's OWN `:reply-to` goes on through
+            ;; `add-reply-target`, the one dedupe definition, rather than being
+            ;; concatenated: a `refetch` that repeats the superseded read's target
+            ;; would otherwise appear twice on the successor and fire TWICE off one
+            ;; settle, breaking the exactly-once the delivery rule promises.
+            record     (cond-> record
+                         reply-to' (rf.resources.work-ledger/add-reply-target reply-to'))
             rdb'       (-> runtime-db
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
                            (cond->
                              superseding?
-                             (rf.resources.work-ledger/settle-terminal
-                               prior-work
-                               :suppressed {:reason :superseded :by work-id}))
+                             ;; rf2-0czaw — HAND OVER rather than copy: the targets
+                             ;; were seeded onto the successor above, so drop them
+                             ;; from the superseded row before it settles terminal.
+                             ;; One continuation, one owner — a terminal row still
+                             ;; advertising targets it can never deliver is exactly
+                             ;; what read as "voided" to anybody querying the
+                             ;; ledger. `update-record` is a no-op on an absent row
+                             ;; and `dissoc` a no-op on a read that carried none.
+                             (-> (rf.resources.work-ledger/update-record
+                                   prior-work dissoc :reply-targets)
+                                 (rf.resources.work-ledger/settle-terminal
+                                   prior-work
+                                   :suppressed {:reason :superseded :by work-id})))
                            (rf.resources.work-ledger/put-record work-id record)
                            (cond->
                              owner (update-in (rf.resources.state/owner-index-path)
