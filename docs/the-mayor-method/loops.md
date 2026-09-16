@@ -491,6 +491,9 @@ Then prune stale remote-tracking refs and clear any stray stashes.
 - **Every defence above finds a record that EXISTS. The case with no record is a LIVE worker's branch**
   — a dispatch in flight has written its name into no item, so the strongest query returns zero and zero
   authorises deletion. **Subtract the live set before reading any zero as an orphan.**
+- **An id the tracker cannot resolve is a third answer, not an absent one** — several items agreeing on
+  a well-formed id is not evidence that the ruling is still there, so walk the export's history for that
+  id as an identity field before re-deriving the ruling, and say in the report that you did.
 - **Key destructive operations on identity, never on a name** — names repeat and prefix-match.
 - **But equality over a LISTING still filters a WINDOW, silently.** Prefer an instrument that takes the
   identity as INPUT, filtering before paging, so it caps how many MATCHES return rather than how far
