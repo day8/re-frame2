@@ -173,7 +173,9 @@
     (ensure! :iv/article sb "w" [:app :b 1])
     (succeed! kb {:title "B"})
     ;; release both owners so the invalidation marks stale WITHOUT refetching
-    ;; (a refetch would satisfy + clear the invalidation, masking the test)
+    ;; (a refetch that SUCCEEDED would satisfy + clear the invalidation,
+    ;; masking the test — rf2-ifzg4: a refetch that merely STARTS does not,
+    ;; and §6 below pins that a failed or aborted one leaves the fact standing)
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :b 1]}])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
