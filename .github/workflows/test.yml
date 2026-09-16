@@ -3053,9 +3053,9 @@ jobs:
   # rf2-ipx7h — the Fresco artefact's JVM lane, and the CI half of a pin that
   # had a local half only.
   #
-  # WHAT IT RUNS is one namespace: `re-frame.bench.fresco.front.slot-cljs-test`,
+  # WHAT IT RUNS is one namespace: `re-frame.fresco.slot-cljs-test`,
   # the `.cljc` EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y).
-  # Measured: 3 tests, 92 assertions, ~5s. `front/slot.cljc` has exactly one
+  # Measured: 3 tests, 92 assertions, ~5s. `impl/slot.cljc` has exactly one
   # definition of `prop-name`, so the failure it hunts is not "someone edited
   # one copy" — it is the two ways ONE definition still answers two things: a
   # `#?(:clj … :cljs …)` reader conditional inside the rule or anything it
@@ -3083,8 +3083,9 @@ jobs:
   #      own definition — `implementation/fresco/deps.edn`, which decides
   #      whether the pin is discovered at all — measures implementation_jvm
   #      FALSE, as does `implementation/fresco/test_kit/src/**`, also on the
-  #      `:test` classpath. The two files that DO arm it (`slot_cljs_test.cljc`
-  #      and its subject `front/slot.cljc`) arm it only INCIDENTALLY, through
+  #      `:test` classpath. The one file that DOES arm it (`slot_cljs_test.cljc`;
+  #      its subject `impl/slot.cljc` is under `src/` and arms nothing) does so
+  #      only INCIDENTALLY, through
   #      `is_route_path_census_input` — a predicate that exists for the routing
   #      route-path census and matches `implementation/fresco/test/*` `.cljs`/
   #      `.cljc`. Resting this lane on that predicate means the census's roster
