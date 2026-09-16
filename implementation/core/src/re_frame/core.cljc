@@ -322,9 +322,13 @@
   §Registration."}
        reg-interceptor  rf.interceptor-registry/reg-interceptor*)
      (def ^{:doc "Fn-alias of the `reg-flow` macro for HoF / programmatic
-  registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Register a flow under `flow-id`:
+  registration (no source-coord capture). FRAME-OWNED, not image-selected:
+  `reg-flow` writes only the flows artefact's own per-frame store — the
+  `:flow` registrar kind is RESERVED with an intentionally EMPTY slot
+  (rf2-en00bk), so there is no source-store descriptor to select and
+  stamping `:ns` cannot move the registration into an explicit image. Its
+  target is the explicit/ambient frame (the `:frame` mounting key below).
+  Register a flow under `flow-id`:
   `(reg-flow flow-id metadata derive-fn)` — the pure `:derive` fn is the
   THIRD value slot (rf2-bqstzr), `metadata` carries `:inputs` /
   `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
@@ -371,8 +375,15 @@
        reg-mutation    rf.core-resources/reg-mutation)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
   programmatic registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Register a PURE named
+  `:rf.provenance/ns` — selectable only by the DEFAULT image). STAMPING
+  `:ns` DOES NOT HELP HERE, unlike the other registrar-backed kinds: this
+  registration does not forward the caller's metadata map — it builds its
+  own registrar metadata from the canonical spec (`:doc`,
+  `:rf/resource-scope`, `:handler-fn`), so a caller-supplied `:ns` is
+  dropped before the source store ever sees it and the descriptor is
+  recorded under nil provenance. Use the `reg-resource-scope` MACRO, whose
+  source-coord capture supplies the provenance, when the registration must
+  be image-selectable. Register a PURE named
   scope resolver under `scope-id`. Per rf2-bqstzr the 3-slot grammar is
   `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn is the
   value slot, `metadata` carries the declared `:inputs` map `{name [:db
@@ -383,11 +394,13 @@
   `re-frame.core-resources/reg-resource-scope` and spec/API.md §Resources."}
        reg-resource-scope rf.core-resources/reg-resource-scope)
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
-  registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Register a Malli schema at a
-  path inside app-db (frame-scoped per Spec 010). Implementation ships
-  in `day8/re-frame2-schemas`.
+  registration (no source-coord capture). FRAME-OWNED, not image-selected:
+  app-db schemas are NOT a registrar kind — `reg-app-schema` writes only the
+  schemas artefact's own per-frame side-table (`schemas-by-frame`, keyed
+  `[frame-id path]`), so there is no source-store descriptor to select and
+  stamping `:ns` cannot move the registration into an explicit image.
+  Register a Malli schema at a path inside app-db (frame-scoped per Spec
+  010). Implementation ships in `day8/re-frame2-schemas`.
 
   DEVELOPMENT-BUILD ASSERTION. A production build registers the schema
   (tools can still introspect it) but never checks it — a violating
@@ -399,9 +412,11 @@
   §Registration."}
        reg-app-schema  rf.core-schemas/reg-app-schema)
      (def ^{:doc "Fn-alias of the `reg-app-schemas` macro for HoF /
-  programmatic registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Bulk-register a
+  programmatic registration (no source-coord capture). FRAME-OWNED, not
+  image-selected, exactly as the singular form: the batch delegates to
+  `reg-app-schema`, which writes only the schemas artefact's own per-frame
+  side-table, so stamping `:ns` cannot move it into an explicit image.
+  Bulk-register a
   `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
 
   DEVELOPMENT-BUILD ASSERTION, as for the singular form: the batch
