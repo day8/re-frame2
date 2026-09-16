@@ -54,7 +54,12 @@
             ;; rf2-ty246: reuse the ONE proven teardown idiom (real `flushSync`
             ;; unmount + the settled macrotask window) rather than minting a
             ;; second one. Both helpers were made public for this.
-            [re-frame.frame-provider-context-dom-cljs-test :as rf.teardown]))
+            ;;
+            ;; `:refer` rather than `:as`: the canonical require-alias dialect
+            ;; would spell this ns's alias out in full, which reads worse at
+            ;; every call site than the two bare helper names do.
+            [re-frame.frame-provider-context-dom-cljs-test
+             :refer [await-teardown! settle-macrotasks]]))
 
 ;; MAP-FORM fixture (`:async? true`): cljs.test requires `:each` fixtures to be
 ;; maps when the ns contains ANY `async` test, otherwise teardown runs before
@@ -180,7 +185,7 @@
                 "precondition: nothing has disposed the view's slot while it is mounted")
 
             ;; ---- the real unmount ------------------------------------------
-            (-> (rf.teardown/await-teardown! root)
+            (-> (await-teardown! root)
                 (.then
                   (fn [_]
                     ;; The eviction DID happen — this is what keeps the next
@@ -277,7 +282,7 @@
                                   [:> (.-StrictMode React)
                                    [rf/frame-provider {:frame frame-kw}
                                     [render-fn]]]))))
-                (.then (fn [_] (rf.teardown/settle-macrotasks 3)))
+                (.then (fn [_] (settle-macrotasks 3)))
                 (.then
                   (fn [_]
                     ;; Non-vacuity: StrictMode really is active, so the genuine
@@ -298,7 +303,7 @@
                     (let [before-disposes (count (dispose-events-for @disposes query-v))
                           before-unmounts (count @unmounts)]
                       (-> (js/Promise.resolve (act-fn (fn [] (rdc/unmount root))))
-                          (.then (fn [_] (rf.teardown/settle-macrotasks 3)))
+                          (.then (fn [_] (settle-macrotasks 3)))
                           (.then
                             (fn [_]
                               (is (nil? (slot frame-kw query-v))
