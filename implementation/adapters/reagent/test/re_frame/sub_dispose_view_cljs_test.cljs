@@ -323,17 +323,34 @@
 
         ;; The cache's `add-on-dispose!` cascade ran: each input was
         ;; `unsubscribe`d, dropping their ref-counts to 0, evicting
-        ;; their slots, and emitting `:rf.sub/dispose`. The parent's
-        ;; slot is removed via the cascade's direct `swap!` (no emit
-        ;; for the parent on this path — pinned by the rf2-mrnur cache
-        ;; test from the JVM side; the reagent-leg exercise here
-        ;; surfaces the input-cascade emit signal).
-        (let [a-evs (dispose-by-id @traces :rf2-b2bxk.rea/a)
-              b-evs (dispose-by-id @traces :rf2-b2bxk.rea/b)]
+        ;; their slots, and emitting `:rf.sub/dispose`.
+        ;;
+        ;; THE PARENT EMITS HERE TOO, SINCE rf2-ty246. This comment used
+        ;; to say the opposite — "no emit for the parent on this path" —
+        ;; and that silence was the defect rf2-ty246 closed, not a
+        ;; property worth keeping: this is the substrate-side reap that a
+        ;; real componentWillUnmount takes, so it is exactly the path on
+        ;; which Spec 006 §Reference counting and disposal promises the
+        ;; emit at the eviction site. The callback now emits when IT is
+        ;; the call that removed the slot, which is the case here and is
+        ;; not the case on any cache-driven eviction (those remove the
+        ;; slot before disposing the reaction, so the callback finds
+        ;; nothing to remove and stays quiet — which is what keeps this
+        ;; from double-emitting).
+        (let [a-evs   (dispose-by-id @traces :rf2-b2bxk.rea/a)
+              b-evs   (dispose-by-id @traces :rf2-b2bxk.rea/b)
+              sum-evs (dispose-by-id @traces :rf2-b2bxk.rea/sum)]
           (is (= 1 (count a-evs))
               "input :a evicted via the reaction-dispose cascade")
           (is (= 1 (count b-evs))
               "input :b evicted via the reaction-dispose cascade")
+          (is (= 1 (count sum-evs))
+              (str "rf2-ty246: the PARENT's own slot emits exactly one "
+                   ":rf.sub/dispose on the substrate-side reap — one, not "
+                   "zero (the pre-rf2-ty246 silence) and not two (a double "
+                   "emit); got " (count sum-evs)))
+          (is (= :no-more-derefers (-> sum-evs first :tags :rf.sub/reason))
+              "rf2-ty246: the parent's emit carries :rf.sub/reason :no-more-derefers")
           (doseq [ev (concat a-evs b-evs)]
             (let [t (:tags ev)]
               (is (= :no-more-derefers (:rf.sub/reason t))
