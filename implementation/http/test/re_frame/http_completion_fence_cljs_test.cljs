@@ -124,6 +124,16 @@
               #(seq (ops traces :rf.error/http-reply-tail-failed))
               {:timeout-ms 3000
                :label "cljs completion-fence :rf.error/http-reply-tail-failed surfaced"})
+            ;; Swallow the poll TIMEOUT so the chain continues to the
+            ;; assertions instead of jumping to the terminal `.catch`. Without
+            ;; this the first missing signal makes every assertion below
+            ;; unreachable — including the fetch COUNT, which is the one that
+            ;; catches the double-send. Measured against the unfixed tree: with
+            ;; the jump in place the run reported a single poll-timeout and
+            ;; nothing about re-sending; with it removed the same run reports
+            ;; the count. A pin should say what went wrong, not just that
+            ;; something did.
+            (.catch (fn [_] nil))
             (.then (fn [_]
                      ;; Wait past several backoff windows. A regression re-sends
                      ;; HERE, so the fetch-count assertion below is only
