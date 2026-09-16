@@ -789,7 +789,7 @@ The mutate-existing-attrs strategy avoids every one of these failure modes — t
 
 ### Known limits of the tag and of DOM-containment inference
 
-These shapes are exempt from `data-rf-view` annotation (the wrapper SKIPs with a one-shot warning per id, same as the source-coord exemption). An untagged view is invisible to view-id lookup, and — for a tool that chooses to infer hierarchy (§Hierarchy inference below) — invisible to that inference too:
+These shapes are exempt from `data-rf-view` annotation (the wrapper SKIPs with a one-shot warning per id, same as the source-coord exemption). **Fresco skips silently**, and deliberately: every `defview` is registered, so a fragment-rooted or boundary-rooted body is routine composition there rather than the exception it is under Reagent's opt-in `reg-view` — a warn-once per id would fire across a large share of any Fresco app's views. The warning is a property of the Reagent annotation path, not of the exemption. An untagged view is invisible to view-id lookup, and — for a tool that chooses to infer hierarchy (§Hierarchy inference below) — invisible to that inference too:
 
 1. **React Fragment root (`:<>` / `<Fragment>`)** — a fragment has no DOM element to annotate, so the view is invisible to view-id lookup. Under DOM-containment inference its children become orphans of the next-up tagged ancestor.
 

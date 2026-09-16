@@ -283,28 +283,38 @@
 #?(:cljs
    (do
      (def ^{:doc "Fn-alias of the `reg-event` macro for HoF / programmatic
-  registration (no source-coord capture). Register a
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a
   `(fn [coeffects event-vec] effect-map)` event handler under `id` — the
   ONE public event form (EP-0018). See `re-frame.events/reg-event` and
   spec/API.md §Registration."}
        reg-event       rf.events/reg-event)
      (def ^{:doc "Fn-alias of the `reg-sub` macro for HoF / programmatic
-  registration (no source-coord capture). Register a subscription under
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a subscription under
   `id`. See `re-frame.subs/reg-sub` and spec/API.md §Registration."}
        reg-sub         rf.subs/reg-sub)
      (def ^{:doc "Fn-alias of the `reg-fx` macro for HoF / programmatic
-  registration (no source-coord capture). Register an effect handler
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register an effect handler
   under `id`. See `re-frame.fx/reg-fx` and spec/API.md §Registration."}
        reg-fx          rf.fx/reg-fx)
      (def ^{:doc "Fn-alias of the `reg-cofx` macro for HoF / programmatic
-  registration (no source-coord capture). Register a coeffect SUPPLIER —
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a coeffect SUPPLIER —
   a value-returning fn whose result is delivered FLAT into a declaring
   handler's `:coeffects` map (the handler declares `:rf.cofx/requires
   [id]`). See `re-frame.cofx/reg-cofx` (grades: `:recordable?` /
   `:provided?`) and spec/API.md §Registration."}
        reg-cofx        rf.cofx/reg-cofx)
      (def ^{:doc "Fn-alias of the `reg-interceptor` macro for HoF /
-  programmatic registration (no source-coord capture). Register an
+  programmatic registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register an
   interceptor DESCRIPTOR (`{:before}` / `{:after}` / `{:before :after}` /
   `{:factory}`) under `id` — the public interceptor-authoring form (EP-0022).
   Event/frame `:interceptors` chains reference it by id. See
@@ -312,7 +322,9 @@
   §Registration."}
        reg-interceptor  rf.interceptor-registry/reg-interceptor*)
      (def ^{:doc "Fn-alias of the `reg-flow` macro for HoF / programmatic
-  registration (no source-coord capture). Register a flow under `flow-id`:
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a flow under `flow-id`:
   `(reg-flow flow-id metadata derive-fn)` — the pure `:derive` fn is the
   THIRD value slot (rf2-bqstzr), `metadata` carries `:inputs` /
   `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
@@ -321,7 +333,9 @@
   `re-frame.core-flows/reg-flow` and spec/API.md §Registration."}
        reg-flow        rf.core-flows/reg-flow)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
-  registration (no source-coord capture). Register a route: `(reg-route id
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a route: `(reg-route id
   metadata path)` — `metadata` is the MIDDLE registration-metadata map
   (`:doc`, `:params`, `:on-match`, …); the `path` pattern is the THIRD value
   slot (rf2-wvh95f F1), merged onto the stored route-meta so downstream
@@ -330,7 +344,9 @@
   `re-frame.core-routing/reg-route` and spec/API.md §Registration."}
        reg-route       rf.core-routing/reg-route)
      (def ^{:doc "Fn-alias of the `reg-resource` macro for HoF / programmatic
-  registration (no source-coord capture). Register a resource — a named,
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a resource — a named,
   cached read of remote/external state: `(reg-resource resource-id metadata
   request-fn)` — `metadata` is the MIDDLE registration-metadata map carrying
   the REQUIRED fail-closed `:scope` policy plus `:params-schema` (and `:doc`,
@@ -341,7 +357,9 @@
   `re-frame.core-resources/reg-resource` and spec/API.md §Registration."}
        reg-resource    rf.core-resources/reg-resource)
      (def ^{:doc "Fn-alias of the `reg-mutation` macro for HoF / programmatic
-  registration (no source-coord capture). Register a mutation — a named,
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a mutation — a named,
   causal WRITE to remote state that, on success, invalidates / patches /
   populates cached resource reads: `(reg-mutation mutation-id metadata
   request-fn)` — the `:request` write fn (a Spec 014 managed-HTTP args map)
@@ -352,7 +370,9 @@
   `re-frame.core-resources/reg-mutation` and spec/API.md §Resources."}
        reg-mutation    rf.core-resources/reg-mutation)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
-  programmatic registration (no source-coord capture). Register a PURE named
+  programmatic registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a PURE named
   scope resolver under `scope-id`. Per rf2-bqstzr the 3-slot grammar is
   `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn is the
   value slot, `metadata` carries the declared `:inputs` map `{name [:db
@@ -363,7 +383,9 @@
   `re-frame.core-resources/reg-resource-scope` and spec/API.md §Resources."}
        reg-resource-scope rf.core-resources/reg-resource-scope)
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
-  registration (no source-coord capture). Register a Malli schema at a
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a Malli schema at a
   path inside app-db (frame-scoped per Spec 010). Implementation ships
   in `day8/re-frame2-schemas`.
 
@@ -377,7 +399,9 @@
   §Registration."}
        reg-app-schema  rf.core-schemas/reg-app-schema)
      (def ^{:doc "Fn-alias of the `reg-app-schemas` macro for HoF /
-  programmatic registration (no source-coord capture). Bulk-register a
+  programmatic registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Bulk-register a
   `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
 
   DEVELOPMENT-BUILD ASSERTION, as for the singular form: the batch
@@ -389,7 +413,9 @@
   §Registration."}
        reg-app-schemas rf.core-schemas/reg-app-schemas)
      (def ^{:doc "Fn-alias of the `reg-error-projector` macro for HoF /
-  programmatic registration (no source-coord capture). Register an error
+  programmatic registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register an error
   projector — `(fn [trace-event] public-error-map)` — under `id`; frames opt
   in via the `:ssr` config's `:public-error-id` key. Implementation ships in
   `day8/re-frame2-ssr`; require `re-frame.ssr` at boot. See
@@ -397,14 +423,18 @@
   projection."}
        reg-error-projector rf.core-ssr/-reg-error-projector)
      (def ^{:doc "Fn-alias of the `reg-head` macro for HoF / programmatic
-  registration (no source-coord capture). Register a head-fragment producer —
+  registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register a head-fragment producer —
   `(fn [db route] head-model)` — under a namespaced keyword `id`; routes name
   a registered head via `:head` route metadata. Implementation ships in
   `day8/re-frame2-ssr`; require `re-frame.ssr` at boot. See
   `re-frame.core-ssr/-reg-head` and Spec 011 §Head/meta contract."}
        reg-head        rf.core-ssr/-reg-head)
      (def ^{:doc "Fn-alias of the `reg-http-interceptor` macro for HoF /
-  programmatic registration (no source-coord capture). Register an HTTP
+  programmatic registration (no source-coord capture, so no
+  `:rf.provenance/ns` — selectable only by the DEFAULT image
+  unless the metadata stamps `:ns`). Register an HTTP
   interceptor on a frame's `:rf.http/managed` middleware chain:
   `(reg-http-interceptor id interceptor-map)` — per rf2-uheqq the surface
   mirrors the event-interceptor `{:id :before :after}` shape, so the single
@@ -901,6 +931,17 @@
      (the later image wins, EP-0026 §Layered Resolution). The EP-0023 keys
      `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` /
      `:rf.image/requires` are RETIRED (EP-0026) and fail loud.
+
+     A PROGRAMMATIC registration has NO provenance, and `:select-ns` cannot
+     see it. The `reg-*` fn-aliases — and any code-generated or JVM-direct
+     registration — leave the macro's source-coord capture unbound, so their
+     descriptors carry no `:rf.provenance/ns` and are never matched by an
+     `:include` glob: they are reachable through the DEFAULT image alone.
+     Nothing reports this — the zero-match guard fires per PATTERN, not per
+     descriptor, so a glob that matches some other namespace stays silent
+     while the programmatic registration is quietly absent from the image.
+     Stamp `:ns` in the registration metadata to make it selectable (`:ns` is
+     an accepted bare key on every kind).
 
      A MACRO (not a plain fn) purely to elide production bytes at the authoring
      seam (rf2-v2j8e): `rf/image` is value-oriented, but a LITERAL inline
