@@ -1992,6 +1992,35 @@
 
     :else :rf/redacted))
 
+(def ^:private fx-args-alias-slots
+  "The value-bearing slots a `:where :fx-args` schema-validation row stamps
+  with the SAME fx args `:rf.fx/args` carries (rf2-536ax).
+
+  This is `re-frame.schemas.validate/redact-tags`' own canonical slot set,
+  minus `:rf.fx/args` (closed by the first arm of `omit-off-box-fx-args`, and
+  redacted there for every row rather than only this one) and minus
+  `:rf.sub/query-v` (a `:where :sub-return` slot that never rides this row —
+  a different surface, governed elsewhere). Naming the set here rather than
+  reaching across artefacts keeps epoch's off-box rule readable on its own;
+  the schemas-side list is the ON-BOX `:sensitive?` decision and this is the
+  off-box fail-closed one, which is why they are allowed to differ.
+
+  `:explain` and `:explain-humanized` are both listed because Spec 010
+  §Humanize-hook §Composition with `:sensitive?` requires them to redact
+  SYMMETRICALLY — a redacted raw explanation beside a verbatim humanized one
+  re-leaks exactly the value the first clause scrubbed."
+  [:value :received :explain :explain-humanized])
+
+(defn- scrub-fx-args-aliases
+  "Scrub every [[fx-args-alias-slots]] slot PRESENT in `tags` to
+  `:rf/redacted`. `contains?`-guarded so an absent slot is not INTRODUCED —
+  the row's shape must not change, only its payload. Idempotent."
+  [tags]
+  (reduce (fn [t slot]
+            (cond-> t (contains? t slot) (assoc slot :rf/redacted)))
+          tags
+          fx-args-alias-slots))
+
 (defn- omit-off-box-fx-args
   "Enforce the fx-args fail-closed rule on the TRACE-EVENT TAG CARRIERS of
   the same payload the structured `:effects` row already fails closed on
@@ -2015,6 +2044,16 @@
                         by `do-fx` on `:rf.fx/do-fx`. Here the head IS
                         inside the value, one per entry, so the redaction is
                         per-entry (`redact-fx-entry`).
+    - `:value`        — on a `:rf.error/effect-map-shape` row, the REJECTED
+      + `:reason`       effect payload plus the human-facing prose that
+                        interpolates it. An entry the effect pipeline itself
+                        REFUSED still reaches the trace, because
+                        `fx-entry-ok?`'s rejection drops it from the WALK, not
+                        from the trace (rf2-fbzwx).
+    - the `:where`    — `:value` / `:received` / `:explain` /
+      `:fx-args`        `:explain-humanized`, the aliases under which
+      aliases          `validate-fx!` re-stamps the very args `:rf.fx/args`
+                        already carries on that one row (rf2-536ax).
 
   So an `[:http {:body {:password …}}]` or a `[:dispatch [:login \"pw\"]]`
   reached an MCP wire through these tags while the same bytes read
@@ -2063,7 +2102,46 @@
                            (fn [effect-vector]
                              (if (sequential? effect-vector)
                                (mapv redact-fx-entry effect-vector)
-                               :rf/redacted))))))
+                               :rf/redacted)))
+
+                ;; rf2-fbzwx — the ERROR-TRACE carrier of the same bytes. The
+                ;; `:value` slot holds the REJECTED effect payload itself, so
+                ;; it takes `redact-fx-entry` — the SAME function the
+                ;; `:rf.event/fx` arm above applies, not a second notion of
+                ;; what an fx entry may disclose. It is the right shape for
+                ;; all three of the category's cases: the entry-level case
+                ;; (`fx/fx-entry-ok?`) puts one malformed `[fx-id args]`
+                ;; entry here, and the two ENVELOPE cases (`router/emit-
+                ;; effect-map-shape!` — a foreign top-level key, a
+                ;; non-sequential `:fx`) put an arbitrary effect-map value,
+                ;; which has no keyword head and so redacts WHOLE.
+                (and (= :rf.error/effect-map-shape (:operation trace-event))
+                     (contains? (:tags trace-event) :value))
+                (update-in [:tags :value] redact-fx-entry)
+
+                ;; …and `:reason` redacts WHOLE rather than per-slot, because
+                ;; it is PROSE with the payload interpolated into it
+                ;; (`(pr-str pair)`): a shape-driven projector reading it as an
+                ;; opaque scalar structurally cannot reach the bytes inside.
+                ;; The category stays AUDIBLE — this touches only the dev-trace
+                ;; tags, never the always-on axis-1 record, whose closed key set
+                ;; carries neither slot (`emit-error-both!` lifts `:reason` only
+                ;; when `:failing-id` DIFFERS from `:event-id`, and here they
+                ;; are equal) — and ON-BOX the full prose is untouched.
+                (and (= :rf.error/effect-map-shape (:operation trace-event))
+                     (contains? (:tags trace-event) :reason))
+                (assoc-in [:tags :reason] :rf/redacted)
+
+                ;; rf2-536ax — the `:where :fx-args` schema-validation row
+                ;; stamps the SAME fx args under several aliases beside
+                ;; `:rf.fx/args` (which the first arm above already closed).
+                ;; `re-frame.schemas.validate/redact-tags` scrubs exactly this
+                ;; slot set, but only when the SCHEMA declares `:sensitive?`;
+                ;; off-box cannot prove an undeclared arg safe any more than it
+                ;; can prove `:rf.fx/args` safe, so the same bytes fail closed
+                ;; here under the same one switch.
+                (= :fx-args (get-in trace-event [:tags :where]))
+                (update :tags scrub-fx-args-aliases))))
           trace-events)))
 
 (defn- elide-whole-output-large-slots
