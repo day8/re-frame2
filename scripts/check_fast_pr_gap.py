@@ -297,10 +297,32 @@ SPINE_LANES = (
         r"^npm run test:scripts$",
         "spine node tier: 'implementation JS harness self-tests' -- the one discovery command, as CI runs it",
     ),
+    # rf2-m3iin -- ANCHORED ON THE WRAPPER, and the working directory is half
+    # the signature.  This lane used to read
+    # `^npx shadow-cljs compile node-test ; node out/node-test\.js$` while
+    # DESCRIBING itself as "spine node tier: `npm run test:cljs`", and the two
+    # are not the same check: both compile `:node-test` and run the same
+    # bundle, but only `npm run test:cljs` goes through
+    # `implementation/scripts/compile-node-test.cjs`, which reds on shadow's
+    # warning tally.  So this file -- whose whole job is to notice when the
+    # spine's claim about a CI check has gone false -- was itself asserting the
+    # false half: the spine REFUSED trees the required `cljs` job merged green
+    # (a bare `"` in a deftest docstring; rf2-4a6ei).  A lane signature is a
+    # claim that the spine runs what CI runs, so it must name the command whose
+    # VERDICT the spine reproduces, not merely one that compiles the same build.
+    #
+    # `working_dir` is not decoration here.  test.yml's `jvm-tools-mcp-base` job
+    # also runs a step spelled exactly `npm run test:cljs`, from tools/mcp-base,
+    # where that name resolves to a DIFFERENT script
+    # (`shadow-cljs compile cljs-test && node out/cljs-test.js`) which the spine
+    # does not run at all.  Unscoped, this signature would credit that step too
+    # and re-open this very defect one job over -- an npm script name is only
+    # unique within its own package.
     Lane(
         "cljs-node-test",
-        r"^npx shadow-cljs compile node-test ; node out/node-test\.js$",
-        "spine node tier: `npm run test:cljs`",
+        r"^npm run test:cljs$",
+        "spine node tier: `npm run test:cljs` -- the same command, wrapper included",
+        working_dir="implementation",
     ),
     Lane(
         "per-ns-isolation-self-test",

@@ -119,6 +119,35 @@
 //     implementation/scripts/compile-node-test.cjs        :node-test-family (this)
 //     bench/fresco/src/re_frame/bench/fresco/lane_build.cjs  :fresco-bench (repo root)
 //
+// AND ONE LANE THAT READS NOTHING, declared here because a roster that lists
+// only its readers is the same false completeness this file was written to
+// stop (rf2-m3iin, from the rf2-pk4i6 senior review):
+//
+//     npm run test:tools-machines-viz    :machines-viz-node-test    NO READER
+//
+// `tools/machines-viz/shadow-cljs.edn` declares `:machines-viz-node-test` with
+// `:target :node-test` — a `:node-test`-family build by construction, and a
+// required PR check (test.yml's `cljs-tools-machines-viz`) — but the lane
+// compiles it as `clojure -M:cljs-test -m shadow.cljs.devtools.cli compile
+// machines-viz-node-test`, bare shadow through the artefact's own classpath.
+// So it has NEITHER half of this script: no warnings-fatal read, and no
+// unlink-before-compile.  Its `&&` chain does stop a FAILED compile running a
+// stale bundle, so the rf2-6t03c exposure is bounded; the rf2-4a6ei one is not
+// — a broken deftest docstring in that artefact compiles to warnings, runs,
+// counts every test, and exits 0, which is exactly the hole the required `cljs`
+// job had until rf2-m3iin.
+//
+// It is left UNGATED deliberately rather than by oversight.  By the test stated
+// below, its selection policy is this file's (take the LAST tally row), so the
+// right repair is for it to CALL this reader — not for a fourth parser to be
+// written — and that needs a spawn form this script does not have: it runs
+// shadow-cljs's own `runner.js` under `process.execPath` from IMPL_DIR, which
+// cannot express "through another artefact's `clojure -M:cljs-test` alias, from
+// another directory".  That form was scoped and deliberately not taken here, to
+// keep this change to the required lane it was about.  A worker adding it wants
+// `--via-clojure-alias <alias> --cwd <dir>`, and then this row moves up into the
+// roster above.
+//
 // THE COUNT WAS STILL THE WRONG TRIGGER, so it is replaced rather than
 // incremented.  MEASURED at three, against the live parsers: no single pattern
 // serves all three as they stand — the examples regex matches ZERO bare-keyword
