@@ -53,6 +53,12 @@
     :adapter/add-on-dispose!
     :adapter/dispose!
     :adapter/reactive?
+    ;; rf2-ty246 — the reaction currently capturing derefs, i.e. the IDENTITY
+    ;; behind `:adapter/reactive?`'s boolean. `re-frame.subs` holds ONE
+    ;; reference per (owning reaction, cache slot) and releases it on that
+    ;; owner's dispose, so it needs the owner itself and not merely the fact
+    ;; that there is one. Published by the ratom family alone.
+    :adapter/reactive-owner
     :adapter/after-render
     :adapter/derived-container?
     :adapter/arm-hiccup-emitter-if-unarmed!

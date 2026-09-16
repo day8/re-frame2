@@ -1721,11 +1721,24 @@
   Per-entry contract. For every `[k entry]` in every live frame's
   `:sub-cache` atom:
 
-    1. Dispose the cached `:reaction` through the supplied disposer.
-       Adapter teardown supplies the exact claimed generation's disposer;
-       the direct/test arity routes through `rf.interop/dispose!`.
-    2. After draining each frame's entries, `reset!` its sub-cache
-       atom to `{}`.
+    1. Snapshot the frame's entries and `reset!` its sub-cache atom to
+       `{}` FIRST.
+    2. Then dispose each snapshotted `:reaction` through the supplied
+       disposer. Adapter teardown supplies the exact claimed generation's
+       disposer; the direct/test arity routes through `rf.interop/dispose!`.
+
+  CLEAR-BEFORE-DISPOSE IS LOAD-BEARING, NOT COSMETIC (rf2-ty246). It is the
+  same discipline `re-frame.subs.cache/clear-sub-cache!` already documents,
+  and it is what keeps this walk OUT of the per-slot eviction emit. Since
+  rf2-ty246 the on-dispose callback re-frame wires in `build-and-cache!*`
+  emits `:rf.sub/dispose` `:no-more-derefers` when IT is the call that
+  removed the slot — which is how a real ratom unmount gets its emit. This
+  walk is not that: the adapter is going away, the derefers may still exist,
+  and `:no-more-derefers` would be a mislabel. Disposing while the slot was
+  still in the atom made every `dispose-adapter!` emit exactly that, once per
+  cached slot. Clearing first means the callback finds nothing of its own to
+  remove and stays silent here, which is also this walk's pre-rf2-ty246
+  behaviour — so the ordering preserves it rather than changing it.
 
   The walk is best-effort: a throwing per-entry dispose (e.g. a
   misbehaving user `:on-dispose` hook, or a poison entry inserted by
@@ -1759,11 +1772,17 @@
   ([dispose-reaction! failures]
    (doseq [[_ frame-record] @rf.frame/frames]
      (when-let [cache (:sub-cache frame-record)]
-       (doseq [[_k entry] @cache]
-         (when-let [r (:reaction entry)]
-           (try (dispose-reaction! r)
-                (catch :default e (record-teardown-failure! failures e)))))
-       (reset! cache {})))
+       ;; rf2-ty246 — snapshot and CLEAR before disposing; see the
+       ;; clear-before-dispose note in the docstring. The walk still drains
+       ;; every entry it found, so a re-entrant subscribe during a dispose
+       ;; callback is no more (and no less) reachable than it was when the
+       ;; `doseq` iterated a deref'd snapshot of its own.
+       (let [entries (vals @cache)]
+         (reset! cache {})
+         (doseq [entry entries]
+           (when-let [r (:reaction entry)]
+             (try (dispose-reaction! r)
+                  (catch :default e (record-teardown-failure! failures e))))))))
    nil))
 
 (defn dispose-active-roots-and-caches!
