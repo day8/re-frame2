@@ -143,6 +143,33 @@
                   :rf.sub/query-v k
                   :rf.sub/reason  reason})))
 
+(defn ^:no-doc emit-no-more-derefers!
+  "INTERNAL (rf2-ty246). Emit the `:no-more-derefers` dispose trace for a slot
+  evicted by the RATOM FAMILY'S OWN teardown route rather than by a ref-count
+  decrement taken here.
+
+  WHY A SECOND DOOR TO THE SAME EMIT EXISTS. On Reagent and reagent-slim a
+  cached sub reaction can be torn down by the substrate instead of by the
+  cache: `Reaction`'s `-remove-watch` disposes itself once its last watcher
+  drops and it carries no `auto-run`, which is precisely what a view unmount
+  does. That fires re-frame's own on-dispose callback, which then removes the
+  slot — a genuine eviction, at a genuine `no-more-derefers` moment, reached
+  without passing through `unsubscribe!`'s 1 → 0 edge. Spec 006 §Reference
+  counting and disposal requires the emit AT THE EVICTION SITE, so the
+  on-dispose callback needs a way to make it.
+
+  DOUBLE-EMIT IS IMPOSSIBLE BY CONSTRUCTION, and that is why this is safe to
+  call unconditionally from that callback — the CALLER gates on having
+  actually removed the slot. Every other eviction path in this namespace
+  (`dispose-entry-now!`, `invalidate-sub-on-replace!`, `clear-sub-cache!`,
+  `invalidate-frame-subs!`) removes the slot from the cache atom BEFORE it
+  disposes the reaction, so by the time the reaction's on-dispose callback
+  runs, its identity-guarded removal finds nothing to remove and the caller
+  never reaches this fn. It fires only when the reaction died while STILL
+  cached, which is the ratom auto-dispose case and nothing else."
+  [frame-id k]
+  (emit-dispose! frame-id k :no-more-derefers))
+
 ;; ---- disposal ------------------------------------------------------------
 
 (defn dispose-entry-now!

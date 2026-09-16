@@ -57,6 +57,7 @@
   headless tests rely on this)."
   (:require [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
@@ -341,10 +342,31 @@
   lifecycle to observe, so this returns nil and the caller skips the
   deref — headless direct invocations do not emit `:rf.view/unmounted`
   (there is no teardown to trace). Likewise returns nil when `build-fn`
-  yields nil (the active adapter publishes no reaction primitive)."
+  yields nil (the active adapter publishes no reaction primitive).
+
+  THE HOLDER IS CLEARED WHEN THE REACTION IT HOLDS DISPOSES (rf2-ty246).
+  Caching the reaction on the instance is what guarantees ONE unmount emit per
+  instance; it also means the holder can outlive what it holds. React.StrictMode
+  puts a SIMULATED unmount between the mount and the remount and reuses the same
+  component instance, so the transient teardown disposes this reaction while the
+  holder goes on pointing at it — after which the remounted instance is holding
+  a corpse, `build-fn` is never re-run, and the instance's GENUINE unmount emits
+  nothing at all. Measured on reagent-slim: one `:rf.view/unmounted` before the
+  real unmount and none within it. Clearing the holder from the reaction's own
+  dispose restores the invariant the cache was there for — one LIVE reaction per
+  mounted instance — and a normal single mount never reaches it, because nothing
+  disposes the reaction until the instance is gone.
+
+  The clear is identity-guarded: a rebuild may have already installed a
+  successor by the time a late dispose callback runs, and clearing the holder
+  then would strand the remounted instance exactly as the original defect did."
   [build-fn]
   (when-let [cmp (current-component)]
     (or (.-rfLifecycleReaction ^js cmp)
         (when-let [rea (build-fn)]
           (set! (.-rfLifecycleReaction ^js cmp) rea)
+          (rf.interop/add-on-dispose! rea
+            (fn clear-lifecycle-holder [_]
+              (when (identical? rea (.-rfLifecycleReaction ^js cmp))
+                (set! (.-rfLifecycleReaction ^js cmp) nil))))
           rea))))

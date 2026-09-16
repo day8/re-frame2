@@ -240,4 +240,9 @@
      :add-on-dispose!   ratom/add-on-dispose!
      :dispose!          dispose-once!
      :reactive?         ratom/reactive?
+     ;; rf2-ty246 — the reaction currently capturing derefs, i.e. the component
+     ;; render Reaction a view's `@(subscribe q)` is running inside. A lambda,
+     ;; not the Var value, because `*ratom-context*` is a dynamic var: it must be
+     ;; read at CALL time, inside the binding, or it answers nil for every caller.
+     :reactive-owner    (fn [] ratom/*ratom-context*)
      :after-render      r/after-render}))

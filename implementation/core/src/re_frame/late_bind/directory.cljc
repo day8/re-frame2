@@ -959,6 +959,12 @@
     :chained?    true
     :design-bead "rf2-s36l"
     :description "Substrate-specific reactive? predicate (re-frame.interop/reactive?). Per rf2-jicu2 not published by UIx; absent-hook fallback returns false."}
+   {:key         :adapter/reactive-owner
+    :producer-ns '[re-frame.adapter.reagent
+                   re-frame.adapter.reagent-slim]
+    :chained?    true
+    :design-bead "rf2-ty246"
+    :description "The reaction currently capturing derefs — the substrate's *ratom-context* — or nil outside a reactive context. The IDENTITY behind :adapter/reactive?'s boolean, and published for a reason that predicate cannot serve: re-frame.subs holds ONE reference per (owning reaction, cache slot) and releases it on that owner's dispose, so it needs the owner itself. Before rf2-ty246 a ratom view's @(subscribe q) bumped :ref-count on EVERY render with nothing ever pairing it, because on this family nothing calls unsubscribe — the slot was removed by the substrate when the render Reaction dropped its last watch and the sub Reaction auto-disposed. :ref-count therefore counted renders rather than readers, and the 1 -> 0 edge Spec 006 §Reference counting and disposal describes was never taken. Published by the ratom family ALONE: the React-hook spine (UIx) owns its reference through use-subscribe's own commit cleanup, and plain-atom / test-react have no reactive context at all, so the routed chain-bottom returns nil and the whole render-owned path is unreached on those substrates."}
    {:key         :adapter/derived-container?
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
