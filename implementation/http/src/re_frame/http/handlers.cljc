@@ -24,6 +24,7 @@
             [re-frame.http.encoding  :as rf.http.encoding]
             [re-frame.http.middleware :as rf.http.middleware]
             [re-frame.http.privacy   :as rf.http.privacy]
+            [re-frame.http.privacy-body :as rf.http.privacy-body]
             [re-frame.http.registry  :as rf.http.registry]
             [re-frame.http.reply     :as rf.http.reply]
             [re-frame.http.transport :as rf.http.transport]
@@ -200,7 +201,14 @@
   unchanged; the downstream JVM/CLJS transport collapses them to the
   no-timeout opt-out via a `(pos? timeout-ms)` guard (NOT a bare
   truthiness check — `0` is truthy in Clojure). The three-way contract
-  is thus preserved end-to-end without any reshaping here."
+  is thus preserved end-to-end without any reshaping here.
+
+  rf2-1eng8 — THROWS `:rf.error/schemas-artefact-missing` when `:decode` is a
+  schema declaring a per-slot `:sensitive?` / `:large?` mark and the shared
+  schema-walker hook is unbound. That check used to fire at RESPONSE time,
+  after the request had already succeeded on the wire; forcing it here fails
+  the dispatch instead, so the request is never issued. See the
+  `decode-schema-marks` binding below."
   [{:keys [request decode accept retry timeout-ms request-id abort-signal]
     :or   {timeout-ms 30000}
     :as   args-map}
@@ -232,6 +240,36 @@
         ;; :rf.http/* trace event emitted within the cascade so
         ;; consumers honour the privacy contract per Spec 009 §Privacy.
         sensitive?   (rf.http.privacy/request-sensitive? args-map)
+        ;; rf2-1eng8 — DISPATCH-TIME `:decode` marks check. When the request's
+        ;; `:decode` schema declares a per-slot `:sensitive?` / `:large?` mark
+        ;; but the shared schema-walker hook is unbound (the schemas artefact is
+        ;; not on the classpath / `re-frame.schemas` was never required), the
+        ;; extraction throws `:rf.error/schemas-artefact-missing` — a fail-loud
+        ;; deps error, deliberately, because the alternative is riding a marked
+        ;; slot onto the trace unredacted.
+        ;;
+        ;; Forcing it HERE makes it fail at the dispatch site, inside the fx
+        ;; boundary, where it surfaces as `:rf.error/fx-handler-exception` and
+        ;; the request is never issued. Before this it fired at RESPONSE time,
+        ;; from `privacy-body/classify-decoded` inside the platform completion
+        ;; callback, where it was the reachable case for the unfenced-completion
+        ;; seam: the request had already succeeded on the wire, so the throw hung
+        ;; the caller on the JVM and re-sent a completed 2xx on CLJS. The
+        ;; completion fence in `http-transport` now contains that throw whatever
+        ;; raises it; this makes the artefact-missing case — which is a static
+        ;; property of the request and the classpath, knowable before a single
+        ;; byte goes out — impossible to reach that way at all.
+        ;;
+        ;; It belongs in `normalise-args` rather than beside `managed-handler`'s
+        ;; other dispatch-time guards because this fn OWNS `:decode` (it
+        ;; destructures it and threads it onto the normalised ctx), and because
+        ;; it runs on the POST-`:before` args — `validate-retry!` and
+        ;; `validate-reply-target!` fire before the chain, so a `:before` that
+        ;; SET `:decode` would be checked there against a decode the transport
+        ;; never uses. The result is discarded: the walker is memoised
+        ;; (`late-bind/get-fn-cached`) and the response-time call recomputes it,
+        ;; which is a schema walk against a network round trip.
+        _            (rf.http.privacy-body/decode-schema-marks decode)
         ;; rf2-wu1n5 — keyword-interning DoS guard. The reserved
         ;; `:rf.http/max-decoded-keys` arg overrides the JSON reader's
         ;; default cap on unique decoded object keys. Absent → reader
