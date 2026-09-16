@@ -37,8 +37,7 @@
                                   HttpResponse HttpResponse$BodyHandlers]
                    [java.nio.charset Charset StandardCharsets]
                    [java.time Duration]
-                   [java.util.concurrent CancellationException
-                                        CompletableFuture TimeUnit TimeoutException])))
+                   [java.util.concurrent CompletableFuture TimeUnit TimeoutException])))
 
 ;; Reflection warnings catch unhinted calls in this interop-heavy namespace.
 #?(:clj (set! *warn-on-reflection* true))
@@ -300,20 +299,7 @@
      the JDK withdraws the deadline when the future completes any other way
      (success, failure, or a lifecycle abort's `.cancel`); and `nil` / `0` arm
      nothing, exactly as for the builder timeout. The CLJS host gets the same
-     bound by racing fetch-plus-body-read against its timer (`cljs-fetch`).
-
-     rf2-1eng8 — that upstream cancel is armed for a LIFECYCLE ABORT too, and
-     unconditionally. The returned future is the one `run-attempt!` publishes
-     to the abort closure, so a user abort / supersede / actor-destroy cancels
-     it; but cancelling a DERIVED stage does not reach its source, so before
-     this an aborted request kept its exchange open and kept downloading — the
-     abort-versus-exchange distinction the timeout paragraph above draws,
-     reached through the other door. The callback therefore fires on a
-     `CancellationException` as well as a `TimeoutException`, and is registered
-     whether or not a positive `:timeout-ms` was configured (an abort on a
-     request that opted OUT of the timeout previously armed nothing at all).
-     Cancelling an already-completed `future-resp` is a no-op, so the natural
-     success and failure paths are unaffected."
+     bound by racing fetch-plus-body-read against its timer (`cljs-fetch`)."
      [opts]
      (let [client ^HttpClient (jvm-http-client-for (:redirect opts))
            req    (jvm-build-request opts)
@@ -347,31 +333,12 @@
        ;; rf2-fzbj.11 — the whole-attempt deadline (see docstring). `pos?`
        ;; keeps `nil` / `0` as the documented opt-outs.
        (when (and timeout-ms (pos? timeout-ms))
-         (.orTimeout result (long timeout-ms) TimeUnit/MILLISECONDS))
-       ;; rf2-1eng8 — UPSTREAM CANCELLATION, armed UNCONDITIONALLY and on a
-       ;; CANCELLATION as well as a timeout. `result` is a DERIVED stage
-       ;; (`future-resp.thenApply(…)`), and the JDK does not propagate a
-       ;; dependent's cancellation back to its source: cancelling `result`
-       ;; completes `result` exceptionally and leaves `sendAsync`'s exchange
-       ;; running — the connection stays open and the body keeps downloading
-       ;; behind a request the app has already been told was cancelled. That is
-       ;; the same abort-versus-exchange distinction the docstring above draws
-       ;; for the timeout ("timing out the result alone would leave the download
-       ;; running"), and the LIFECYCLE ABORT reaches it through the other door:
-       ;; `run-attempt!` publishes THIS future to the abort closure's holder, so
-       ;; a user abort / supersede / actor-destroy calls `.cancel` on `result`.
-       ;; Previously this callback fired only on `TimeoutException`, and only
-       ;; when a positive `:timeout-ms` was configured — so every abort, and
-       ;; every abort on a request that opted out of the timeout, cancelled the
-       ;; wrong thing. A debounce search held one live connection per keystroke.
-       ;; Cancelling an already-completed `future-resp` is a no-op, so arming
-       ;; this unconditionally costs nothing on the natural-completion path.
-       (.whenComplete result
-                      (reify java.util.function.BiConsumer
-                        (accept [_ _ t]
-                          (when (or (instance? TimeoutException t)
-                                    (instance? CancellationException t))
-                            (.cancel future-resp true)))))
+         (.orTimeout result (long timeout-ms) TimeUnit/MILLISECONDS)
+         (.whenComplete result
+                        (reify java.util.function.BiConsumer
+                          (accept [_ _ t]
+                            (when (instance? TimeoutException t)
+                              (.cancel future-resp true))))))
        result)))
 
 #?(:clj
