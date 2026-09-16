@@ -461,6 +461,20 @@
     (update-in runtime-db [work-ledger-by-key-key rk-id] (fnil conj #{}) work-id-id*)
     runtime-db))
 
+(defn- ensure-ledger-index
+  "rf2-wyan7e — self-heal: a wholesale-installed ledger (hydration / restore)
+  arrives with NO inverse index (it is a derived projection, never trusted from
+  the wire). Rebuild it ONCE so a per-key visit is bounded; live operation keeps
+  it in step via `put-record` and the per-key row droppers' own bulk bucket
+  updates. A ledger present but index absent is exactly the post-install shape;
+  an EMPTY ledger leaves the index absent (there is nothing to index, and the
+  absence stays the rebuild signal for whatever installs rows next). Pure."
+  [runtime-db]
+  (if (and (seq (:rf.runtime/work-ledger runtime-db))
+           (not (index-present? runtime-db)))
+    (recompute-ledger-index runtime-db)
+    runtime-db))
+
 (defn put-record
   "Write `record` at the work-ledger byte-keyed slot for `work-id` in
   `runtime-db`, and register it in the resource-key inverse index when that
@@ -532,23 +546,18 @@
   ledger, retaining at most `keep-tail` of the most-recently-started ones
   for Xray's recent-races view (Spec 016 §Ledger row retention and
   identity — \"a small bounded per-resource-key tail\"). Non-terminal rows
-  for the key are NEVER pruned. Called on the linked entry's next
-  successful transition. Returns the updated runtime-db.
+  for the key are NEVER pruned. Called on the linked entry's next TERMINAL
+  transition — every settle, not only a successful one (rf2-6gzdb; see
+  `settle-terminal`, which is the seam every caller should use). Returns the
+  updated runtime-db.
 
   `keep-tail` defaults to `default-terminal-tail`."
   ([runtime-db resource-key] (prune-terminal-for-key runtime-db resource-key default-terminal-tail))
   ([runtime-db resource-key keep-tail]
-   ;; rf2-wyan7e — self-heal: a wholesale-installed ledger (hydration /
-   ;; restore) arrives with NO inverse index (it is a derived projection, never
-   ;; trusted from the wire). Rebuild it ONCE here so the per-key visit below is
-   ;; bounded; live operation keeps it in step via put-record and this prune's
-   ;; own bulk bucket update below.
-   ;; A ledger present but index absent is exactly the post-install shape.
-   (let [ledger (:rf.runtime/work-ledger runtime-db)
-         runtime-db (if (and (seq ledger)
-                             (not (contains? runtime-db work-ledger-by-key-key)))
-                      (recompute-ledger-index runtime-db)
-                      runtime-db)
+   ;; rf2-wyan7e — self-heal the inverse index when a wholesale-installed
+   ;; ledger (hydration / restore) arrives without one, so the per-key visit
+   ;; below is bounded.
+   (let [runtime-db (ensure-ledger-index runtime-db)
          ;; rf2-9e0tyq — match by CEDN-1 byte identity, not `=` over the
          ;; `:resource/key` vector (which would `=`-collapse a list- and a
          ;; vector-params key and prune both resources' rows).
@@ -580,6 +589,64 @@
                        (update rdb work-ledger-by-key-key dissoc rk-id)
                        rdb)))
        runtime-db))))
+
+(defn settle-terminal
+  "Settle the work record under `work-id` TERMINAL (`mark-terminal` with
+  `status` + `outcome`) AND prune that key's terminal tail, in one step. This
+  is the seam Spec 016 §Ledger row retention's \"the ledger is bounded\"
+  promise actually rests on, and it is why callers should reach for this rather
+  than `update-record` + `mark-terminal` (rf2-6gzdb).
+
+  Pruning on a later SUCCESS alone bounds nothing on a key that never succeeds:
+  a polled resource against a failing endpoint settles `:failed` once per tick
+  and the success that would prune those rows never comes, so the ledger — which
+  rides every frame-state value and every epoch snapshot — grows a row per tick
+  for the frame's life. Mutation rows had no prune at all; their rows are keyed
+  `[:rf.mutation <instance-id>]`, so the SAME per-key mechanism bounds them per
+  instance.
+
+  The prune key is read off the JUST-SETTLED row (`:resource/key`), so no caller
+  threads it and a row whose key is absent simply settles unpruned. The freshly
+  settled row is the newest terminal row for its key, so it always survives
+  inside `default-terminal-tail` — settling never discards the outcome it just
+  recorded. No-op when no record exists (a reply for an already-dropped row).
+  Returns the updated runtime-db."
+  [runtime-db work-id status outcome]
+  (let [runtime-db (update-record runtime-db work-id mark-terminal status outcome)]
+    (if-let [resource-key (:resource/key (get-record runtime-db work-id))]
+      (prune-terminal-for-key runtime-db resource-key)
+      runtime-db)))
+
+(defn drop-rows-for-key
+  "Drop EVERY work record linked to `resource-key` — terminal and non-terminal
+  alike — and remove the key's inverse-index bucket. Returns the updated
+  runtime-db.
+
+  The REMOVAL counterpart of `prune-terminal-for-key`, and the distinction is
+  the entry's continued existence (rf2-6gzdb): a pruned key still exists, so a
+  bounded tail is retained as Xray's recent-races view of work that is still
+  meaningful. A key whose entry (or mutation instance) has LEFT the cache has no
+  recent-races view left to serve — nothing can join those rows to an entry
+  again — so retaining a tail for it is pure unbounded growth, one orphaned
+  bucket per removed key. Call it wherever the linked entry leaves the cache:
+  `:rf.resource/remove`, clear-scope, `clear-resource`, GC collection, a
+  mutation `:removes` target, and `:rf.mutation/clear`.
+
+  Non-terminal rows go too, deliberately: the caller removing the entry has
+  already settled any in-flight attempt and issued its opportunistic abort, and
+  correctness rests on stale suppression (a late reply finds no live entry /
+  instance and is suppressed) rather than on the row surviving — `update-record`
+  is a documented no-op for an already-dropped row. Per Spec 016 §Ledger row
+  retention and identity / §Cancellation is opportunistic."
+  [runtime-db resource-key]
+  (let [runtime-db (ensure-ledger-index runtime-db)
+        rk-id      (rf.resources.state/key-id resource-key)
+        row-ids    (get-in runtime-db [work-ledger-by-key-key rk-id])]
+    (if (seq row-ids)
+      (-> runtime-db
+          (update :rf.runtime/work-ledger (fn [l] (reduce dissoc l row-ids)))
+          (update work-ledger-by-key-key dissoc rk-id))
+      runtime-db)))
 
 ;; ---- host-side handle side table (Spec 016 §Frame work ledger) ------------
 ;;
