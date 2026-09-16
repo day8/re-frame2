@@ -3363,19 +3363,32 @@
         ;; The halting event — the next one that would have been dequeued.
         ;; It never runs; its event vector pins the `:halted-depth` marker.
         ;; The queue holds ENVELOPES (`build-envelope` maps), so reach the
-        ;; raw `[event-id …]` vector through `:event`. Falls back to
-        ;; `last-event` (the most-recently-run event) if the queue is empty
-        ;; at the halt seam (defensive — the depth-exceed path always has a
-        ;; pending child under the runaway-cascade pattern that trips it).
+        ;; raw `[event-id …]` vector through `:event`.
+        ;;
+        ;; rf2-2wntx: there is NO `last-event` fallback. This used to read
+        ;; `(or (:event halting-envelope) last-event)`, described as defensive
+        ;; against an empty queue at the halt seam — but it was reachable, and
+        ;; when it fired it was WRONG in the worst available way: it named the
+        ;; most-recently-SETTLED event as the one that had been refused, so the
+        ;; `:halted-depth` record claimed a successful `:ok` event had never
+        ;; run. `run-one-pass!` now peeks before halting and only enters here
+        ;; with a pending envelope, so the fallback is unreachable by
+        ;; construction and the sole caller cannot resurrect it. Should some
+        ;; future caller arrive with an empty queue anyway, `halting-event` is
+        ;; nil and the epoch surface's `commit-halt-record!` declines to commit
+        ;; rather than inventing a record — a phantom halt record moves
+        ;; `last-settled-epoch` and blocks `restore-epoch!`, so silence is
+        ;; strictly better than a confident lie.
         halting-envelope (peek queue)
-        halting-event   (or (:event halting-envelope) last-event)
+        halting-event   (:event halting-envelope)
         ;; rf2-bh56rc: the halting event's causal `:rf/time-ms` (stamped on its
         ;; envelope at the causal boundary). Threaded into the synthesised
         ;; `:halted-depth` record's `:committed-at` so even this never-ran
         ;; marker carries a replayable causal time per EP-0010 §Time / Spec
-        ;; 002 §Recordable coeffects, not an ambient assembly-time read. nil
-        ;; only on the defensive empty-queue fallback (no envelope to read);
-        ;; the epoch surface tolerates a nil `:committed-at` there.
+        ;; 002 §Recordable coeffects, not an ambient assembly-time read.
+        ;; rf2-2wntx: non-nil whenever this fn is entered, since the caller now
+        ;; guarantees a pending envelope; the epoch surface still tolerates a
+        ;; nil `:committed-at`.
         halting-time-ms (-> halting-envelope :rf.cofx :rf/time-ms)
         ;; Current durable frame-state value — the state the last-settled
         ;; event left behind. The halting event makes no write, so
@@ -3692,7 +3705,33 @@
          last-event nil
          tail-ring  []]
     (cond
-      (>= depth drain-depth)
+      ;; rf2-2wntx — PEEK BEFORE HALTING. `depth` counts the events already
+      ;; SETTLED, so `(>= depth drain-depth)` on its own fires at the top of the
+      ;; pass that FOLLOWS the last admitted event — including when that event
+      ;; settled the cascade and left the queue EMPTY. A clean, terminating
+      ;; cascade of exactly `drain-depth` events (16 under the `:story` preset,
+      ;; 100 under the default) therefore halted as a runaway: an always-on
+      ;; `:rf.error/drain-depth-exceeded` and a `:halted-depth` epoch record
+      ;; whose "halting event" was the one that had just settled `:ok`.
+      ;;
+      ;; A halt is only meaningful when there IS a next event to refuse. Spec
+      ;; 002 §Run-to-completion rule 3 says the runtime "discards the remaining
+      ;; queued events (the next, *halting* event never runs)" — which
+      ;; presupposes one. With the queue empty there is nothing to discard and
+      ;; nothing to name, so the drain has simply reached its fixed point: fall
+      ;; through to the `:else` arm, where `take-event!` returns nil and the
+      ;; pass reports `::settled`.
+      ;;
+      ;; The queue read is NOT on the hot path — `and` short-circuits, so it
+      ;; runs at most once per drain, on the pass that would have halted. It is
+      ;; also race-free in the direction that matters: only the drainer pops,
+      ;; and this loop does not pop between this peek and `handle-depth-
+      ;; exceeded!`'s own, so a queue seen non-empty here is still non-empty
+      ;; there (that is what makes the `last-event` fallback below unreachable
+      ;; and lets it go). A submitter conj-ing the tail just after an empty read
+      ;; costs at most one extra admitted event before the next pass halts.
+      (and (>= depth drain-depth)
+           (seq (:queue @router)))
       ;; rf2-vxgfnd.154: thread A's EXACT owner token (`:drain-lock`) so the halt
       ;; fanout, frame route, dev trace, and terminal commit all bind to A's
       ;; incarnation and are fenced from a same-id B a depth-error listener may

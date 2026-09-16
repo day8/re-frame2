@@ -664,3 +664,64 @@
           (is (not (contains? rec :last-event))
               "the always-on record carries NO :last-event vector (dev-trace only)"))))))
 
+(deftest drain-of-exactly-drain-depth-events-settles-with-no-halt
+  ;; rf2-2wntx — a CLEAN cascade of EXACTLY `:drain-depth` events must SETTLE,
+  ;; not halt as a runaway.
+  ;;
+  ;; `run-one-pass!` (router.cljc) tested `(>= depth drain-depth)` as its FIRST
+  ;; `cond` arm — BEFORE `take-event!` ever consulted the queue. `depth` counts
+  ;; events ALREADY SETTLED, so a terminating cascade of exactly N events left
+  ;; the loop at `depth` = N with an EMPTY queue, and the depth arm fired
+  ;; anyway. `handle-depth-exceeded!` then peeked that empty queue, fell back to
+  ;; `last-event`, and named as the "halting event" the event that had just
+  ;; settled `:ok` — an always-on `:rf.error/drain-depth-exceeded` and a phantom
+  ;; `:halted-depth` epoch record on a drain that did nothing wrong. 16 events
+  ;; under the `:story` preset, 100 under the default, were enough to trip it.
+  ;;
+  ;; Spec 002 §Run-to-completion rule 3 is unambiguous that the halt discards
+  ;; "the remaining queued events (the next, *halting* event never runs)" — a
+  ;; halt PRESUPPOSES a next event. The router now peeks first and halts only
+  ;; when there IS one.
+  ;;
+  ;; This is the boundary case of `drain-depth-halts-after-exactly-drain-depth-
+  ;; events` above, which could not reach it: that pin drives a RUNAWAY cascade,
+  ;; which ALWAYS has a pending event at the halt seam, so it stayed green
+  ;; throughout. The defect lived exactly in the terminating case.
+  (testing "a terminating cascade of exactly N events settles; no depth halt"
+    (doseq [n [1 4 16]]
+      (let [frame-id (keyword "drain.exact" (str "loop-" n))
+            event-id (keyword "drain.exact" (str "tick-" n))
+            runs     (atom 0)
+            records  (atom [])]
+        ;; The ALWAYS-ON axis, not the dev `:trace` stream — this assertion is
+        ;; posture-independent and so runs under `scripts/test-core-prod-gate.sh`
+        ;; too (see the ns docstring's posture split).
+        (rf.error-emit/register-error-listener! ::exact-depth
+                                               (fn [rec] (swap! records conj rec)))
+        (rf/make-frame {:id frame-id :drain-depth n})
+        ;; Dispatches a child only while fewer than n events have run, so the
+        ;; cascade TERMINATES having run exactly n events — leaving the queue
+        ;; empty at precisely the seam where `depth` first equals `drain-depth`.
+        (rf/reg-event event-id
+          (fn [{:keys [db]} _]
+            (let [c (swap! runs inc)]
+              (cond-> {:db (assoc db :n c)}
+                (< c n) (assoc :fx [[:dispatch [event-id]]])))))
+        (rf/dispatch-sync [event-id] {:frame frame-id})
+        (rf.error-emit/unregister-error-listener! ::exact-depth)
+        ;; PRECONDITION — assert the cascade actually ran N deep. Without this
+        ;; the test passes VACUOUSLY if the cascade shape or the depth constant
+        ;; drifts: a cascade that stops at 1 under `:drain-depth` 16 never
+        ;; approaches the halt seam and would be green while exercising nothing.
+        (is (= n @runs)
+            (str "PRECONDITION: the cascade ran exactly " n " events, reaching"
+                 " depth = :drain-depth " n " (got " @runs ")"))
+        (is (= n (:n (rf/app-db-value frame-id)))
+            "every event in the clean cascade settled its own durable write")
+        ;; The defect itself.
+        (is (empty? (filter #(= :rf.error/drain-depth-exceeded (:error %))
+                            @records))
+            (str "a clean cascade of exactly " n " events must NOT fan a"
+                 " drain-depth halt — the queue is empty, there is no"
+                 " halting event"))))))
+
