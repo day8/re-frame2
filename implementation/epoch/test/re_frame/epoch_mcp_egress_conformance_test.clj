@@ -1540,17 +1540,187 @@
             "`:rf.egress/include-fx-args? true` still hands back every entry
              verbatim, malformed ones included")))))
 
-;; rf2-75yrq, REPORTED NOT TAKEN — a DISTINCT carrier of these same bytes
-;; survives the test above, deliberately unasserted here. `fx-entry-ok?`'s
-;; `:rf.error/effect-map-shape` trace stamps the offending entry on `:value`
-;; AND interpolates `(pr-str pair)` into the human-facing `:reason` string, and
-;; no projection arm in `tool_pair.cljc` reaches either slot — so the cascade
-;; above egresses the secret six more times on three error rows. That is the
-;; error-trace carrier, not the `:rf.event/fx` one this bead owns, and its emit
-;; site is in core (`implementation/core/src/re_frame/fx.cljc`); folding it in
-;; here would be a second place deciding what an effect may disclose. It is
-;; filed rather than pinned, because pinning a leak as expected behaviour is
-;; what left this file's :1715-1720 assertions encoding the rf2-79fvm leak.
+;; rf2-75yrq's REPORTED-NOT-TAKEN note stood here: `fx-entry-ok?`'s
+;; `:rf.error/effect-map-shape` trace stamps the offending entry on `:value` AND
+;; interpolates `(pr-str pair)` into the human-facing `:reason`, so the SAME
+;; cascade above egressed the secret six more times on three error rows. That is
+;; rf2-fbzwx, TAKEN below — at the epoch end, reusing `redact-fx-entry` rather
+;; than inventing a second notion of what an fx entry may disclose, so the
+;; "one value, several carriers, ONE rule" shape still holds.
+
+(defn- error-rows
+  "The trace rows of `record` whose `:operation` is `op`. The error-trace
+  counterpart of `do-fx-tags`, which addresses a single aggregate row — this
+  category emits one row PER rejected entry, so the count is part of what is
+  pinned (a projection that dropped rows would otherwise read as 'clean')."
+  [record op]
+  (filterv #(= op (:operation %)) (:trace-events record)))
+
+(deftest forwarder-effect-map-shape-row-redacts-value-and-reason
+  (testing "rf2-fbzwx — the `:rf.error/effect-map-shape` ERROR-TRACE carrier of
+            the very bytes the test above just made fail closed on
+            `:rf.event/fx`. `fx-entry-ok?` REJECTS a malformed `:fx` entry and
+            drops it from the WALK, not from the TRACE, then stamps the rejected
+            entry on `:value` and interpolates `(pr-str pair)` into the
+            human-facing `:reason` — so the same secret reached an MCP wire
+            through a third carrier on the same record, by the same public door.
+
+            `:value` takes `redact-fx-entry`, the SAME function the
+            `:rf.event/fx` arm applies; `:reason` redacts WHOLE, because it is
+            PROSE with the payload interpolated into it and a shape-driven
+            projector reading it as an opaque scalar structurally cannot reach
+            the bytes inside.
+
+            The category is DELIBERATELY always-on — a production build must
+            still hear about a dropped `:fx` entry — so this is asserted to keep
+            the error AUDIBLE while making the payload SAFE."
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (let [creds {:password secret-password :token "tok-abc"}
+          raw   (drive-malformed-fx-head! :test/mcp creds)
+          proj  (rf/project-egress raw)
+          rraw  (error-rows raw  :rf.error/effect-map-shape)
+          rproj (error-rows proj :rf.error/effect-map-shape)]
+
+      (testing "PRECONDITION — the rejected entries REACHED this carrier and the
+                secret is really on BOTH slots. Without this the assertions
+                below pass just as happily against a cascade that emitted no
+                error row at all, which is the vacuous shape rf2-79fvm shipped
+                in this very file"
+        (is (= 3 (count rraw))
+            "three malformed entries were rejected, so three error rows — one
+             per entry (the `nil` no-op and the well-formed entry emit none)")
+        (is (= 3 (count (filter #(seq (secret-leak-paths (:value (:tags %)))) rraw)))
+            "every raw row's `:value` carries the secret")
+        (is (= 3 (count (filter #(seq (secret-leak-paths (:reason (:tags %)))) rraw)))
+            "every raw row's `:reason` carries the secret, interpolated into prose"))
+
+      (testing "the category stays AUDIBLE — projection redacts the payload, it
+                does not drop the row or demote the category"
+        (is (= 3 (count rproj))
+            "all three error rows survive projection"))
+
+      (testing "and both slots are projected, each in the shape that fits it"
+        (is (= [:rf/redacted :rf/redacted :rf/redacted]
+               (mapv #(:value (:tags %)) rproj))
+            "`:value` — every rejected entry here has a MAP, VECTOR or STRING
+             head, so `redact-fx-entry` finds no structural fx-id to keep and
+             redacts each WHOLE")
+        (is (= [:rf/redacted :rf/redacted :rf/redacted]
+               (mapv #(:reason (:tags %)) rproj))
+            "`:reason` — prose redacts whole; the bytes are INSIDE the string"))
+
+      (testing "so no leaf of the error rows names the secret — reported BY PATH,
+                because this leak hides four levels down inside a trace tag"
+        (is (= [] (secret-leak-paths rproj))
+            "no slot of any `:rf.error/effect-map-shape` row carries the secret"))
+
+      (testing "and the projection stays idempotent over the new shape"
+        (is (= rproj (error-rows (rf/project-egress proj) :rf.error/effect-map-shape))
+            "re-projecting is structurally identical"))
+
+      (testing "the trusted-local opt-in posture is UNCHANGED — this is a
+                tightening of the fail-closed default, not a new refusal"
+        (let [opted (error-rows (rf/project-egress
+                                  raw {:rf.egress/include-fx-args? true})
+                                :rf.error/effect-map-shape)]
+          (is (= (mapv #(:value  (:tags %)) rraw)
+                 (mapv #(:value  (:tags %)) opted))
+              "`:rf.egress/include-fx-args? true` hands `:value` back verbatim")
+          (is (= (mapv #(:reason (:tags %)) rraw)
+                 (mapv #(:reason (:tags %)) opted))
+              "…and `:reason` too"))))))
+
+(defn- drive-bad-fx-args!
+  "Fire one cascade whose fx ARGS fail the fx's `:schema`, carrying the secret.
+  That drives `re-frame.schemas.validate/validate-fx!`, which emits the
+  `:rf.error/schema-validation-failure :where :fx-args` row — the row that
+  re-stamps the same args under several aliases. Returns the raw epoch record."
+  [frame-id creds]
+  (rf/reg-fx :fxp/notify
+             {:schema [:map [:level :keyword]]}
+             (fn [_ _] nil))
+  (rf/reg-event :do-bad-fx-args
+                (fn [_ [_ c]]
+                  {:fx [[:fxp/notify {:level    "not-a-keyword"
+                                      :password (:password c)}]]}))
+  (rf/dispatch-sync [:do-bad-fx-args creds] {:frame frame-id})
+  (last (rf/epoch-history frame-id)))
+
+(deftest forwarder-fx-args-schema-row-redacts-every-alias
+  (testing "rf2-536ax — the SECOND error row in this family. `validate-fx!`
+            stamps one fx's args under FOUR value-bearing slots of a single
+            `:where :fx-args` row: `:rf.fx/args`, `:received`, `:value` and
+            `:explain`. rf2-79fvm closed `:rf.fx/args` alone, so a reader who
+            saw that slot fail closed would reasonably assume the row was safe
+            while three aliases beside it still carried the identical bytes.
+
+            `re-frame.schemas.validate/redact-tags` scrubs exactly this slot
+            set, but ONLY when the schema declares `:sensitive?` — an ON-BOX
+            privacy decision. Off-box cannot prove an UNDECLARED arg safe any
+            more than it can prove `:rf.fx/args` safe, so every alias fails
+            closed here under the same one switch.
+
+            `:explain` is asserted although the filing bead named only three
+            stamps: it is the same bytes on the same row, measured, and Spec 010
+            §Humanize-hook requires it and `:explain-humanized` to redact
+            symmetrically."
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (let [creds {:password secret-password :token "tok-abc"}
+          raw   (drive-bad-fx-args! :test/mcp creds)
+          proj  (rf/project-egress raw)
+          rraw  (first (error-rows raw  :rf.error/schema-validation-failure))
+          rproj (first (error-rows proj :rf.error/schema-validation-failure))]
+
+      (testing "PRECONDITION — validation actually FIRED and every alias really
+                carries the secret. A row that never emitted, or a schema that
+                happened to pass, would make every assertion below vacuous"
+        (is (some? rraw)
+            "the fx-args validation row was emitted")
+        (is (= :fx-args (:where (:tags rraw)))
+            "…and it is the `:where :fx-args` surface, not another `:where`")
+        (is (= [:rf.fx/args :received :value]
+               (filterv #(seq (secret-leak-paths (get (:tags rraw) %)))
+                        [:rf.fx/args :received :value]))
+            "all three named stamps carry the secret RAW")
+        (is (seq (secret-leak-paths (:explain (:tags rraw))))
+            "…and so does `:explain`, the fourth carrier the bead did not name"))
+
+      (testing "the row stays AUDIBLE — projection redacts, it does not drop"
+        (is (some? rproj)
+            "the validation row survives projection"))
+
+      (testing "and every alias fails closed, matching `:rf.fx/args`"
+        (is (= [:rf/redacted :rf/redacted :rf/redacted :rf/redacted]
+               (mapv #(get (:tags rproj) %)
+                     [:rf.fx/args :received :value :explain]))
+            "one rule, four carriers, one shape — redacted WHOLE, because the
+             args' structural head rides the sibling `:rf.fx/id` tag and so
+             nothing is lost with the payload"))
+
+      (testing "the row's non-payload metadata is PRESERVED — the diagnosis
+                survives, only the bytes go"
+        (is (= :fx-args (:where    (:tags rproj))) "`:where` preserved")
+        (is (= :fxp/notify (:rf.fx/id (:tags rproj))) "`:rf.fx/id` preserved")
+        (is (= :skipped (:recovery rproj)) "`:recovery` preserved"))
+
+      (testing "so no leaf of the row names the secret"
+        (is (= [] (secret-leak-paths rproj))
+            "no slot of the `:where :fx-args` row carries the secret"))
+
+      (testing "and the projection stays idempotent"
+        (is (= rproj (first (error-rows (rf/project-egress proj)
+                                        :rf.error/schema-validation-failure)))
+            "re-projecting is structurally identical"))
+
+      (testing "the trusted-local opt-in still hands every alias back verbatim"
+        (let [opted (first (error-rows (rf/project-egress
+                                         raw {:rf.egress/include-fx-args? true})
+                                       :rf.error/schema-validation-failure))]
+          (is (= (mapv #(get (:tags rraw)  %) [:rf.fx/args :received :value :explain])
+                 (mapv #(get (:tags opted) %) [:rf.fx/args :received :value :explain]))
+              "`:rf.egress/include-fx-args? true` lifts all four together"))))))
 
 (deftest include-sensitive-keeps-runtime-db-partition-redacted
   (testing "rf2-m9duxl — `{:rf.egress/include-sensitive? true}` keeps the
