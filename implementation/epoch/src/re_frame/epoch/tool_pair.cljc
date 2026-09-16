@@ -1949,6 +1949,110 @@
             trace-events)
       trace-events)))
 
+(defn- redact-fx-entry
+  "Fail-closed projection of ONE `[<fx-id> <args> …]` entry of the
+  `:rf.event/fx` effect vector: retain the head fx-id keyword and redact
+  every remaining element to `:rf/redacted` — the SAME shape
+  `omit-off-box-event-args` gives a dispatched event vector, and the same
+  head-kept/payload-redacted split the structured `:effects` row's
+  `:fx-id` / `:args` pair takes (`elide-effect-row`).
+
+  Trailing elements past the args are redacted rather than preserved: an
+  entry longer than the `[:tuple :keyword :any]` the effect-map schema pins
+  is malformed, and a malformed entry's extra elements are payload nobody
+  declared. (The emit-time classification arm preserves them, because it is
+  projecting DECLARED paths rather than failing closed.)
+
+  A `nil` entry — the legal conditional-fx no-op — rides through as nil: it
+  carries nothing to leak, and substituting a sentinel would report a
+  withheld value where none existed. Any other non-sequential entry (the
+  forgot-the-inner-vector typo, which reaches this slot because the tag is
+  stamped from the RAW `(:fx effects)` before the walk polices entries)
+  redacts whole: it has no head to keep and nothing about it can be proven
+  safe."
+  [entry]
+  (cond
+    (nil? entry) entry
+
+    (and (sequential? entry) (seq entry))
+    (into [(first entry)] (repeat (dec (count entry)) :rf/redacted))
+
+    :else :rf/redacted))
+
+(defn- omit-off-box-fx-args
+  "Enforce the fx-args fail-closed rule on the TRACE-EVENT TAG CARRIERS of
+  the same payload the structured `:effects` row already fails closed on
+  (rf2-79fvm) — the tag-carrier twin of `elide-effect-row`, and the direct
+  sibling of `omit-off-box-event-args` directly above.
+
+  `:rf.egress/include-fx-args? false` protected only the structured row. The
+  identical fx-handler argument payload rides the trace events three rows
+  up, under two slots:
+
+    - `:rf.fx/args`   — the argument payload VERBATIM and alone, stamped by
+                        `re-frame.fx/handle-one-fx` on `:rf.fx/handled`, on
+                        `:rf.fx/skipped-on-platform`, on the always-on
+                        `:rf.error/*` fx-failure traces (handler-exception,
+                        no-such-fx, the typed reserved-fx categories) and on
+                        the `:where :fx-args` schema-validation row. Its
+                        structural head is NOT inside the value — the
+                        resolved id rides the sibling `:rf.fx/id` tag — so
+                        the whole slot redacts with no metadata lost.
+    - `:rf.event/fx`  — the handler's WHOLE returned effect vector, stamped
+                        by `do-fx` on `:rf.fx/do-fx`. Here the head IS
+                        inside the value, one per entry, so the redaction is
+                        per-entry (`redact-fx-entry`).
+
+  So an `[:http {:body {:password …}}]` or a `[:dispatch [:login \"pw\"]]`
+  reached an MCP wire through these tags while the same bytes read
+  `:rf/redacted` on the `:effects` row below — one value, two carriers, one
+  rule now applied to both (the rf2-irwsq shape).
+
+  The emit-time classification chokepoint (`classification/project-fx-tags`
+  / `project-event-fx-tags`) already projects both slots, but it is
+  DECLARATION-DRIVEN and fail-open by design at four points an off-box
+  boundary cannot accept: a list-valued `:fx`, a malformed entry, an fx-id
+  with no `reg-fx` classification (explicitly including the unregistered id
+  on `:rf.error/no-such-fx`), and production, where the dev trace never
+  emits at all. Off-box egress cannot prove an UNDECLARED arg safe any more
+  than it can prove an undeclared `:effects[*].args` safe — the args are not
+  rooted at the frame's app-db, so the schema-path-keyed `elide-wire-value`
+  walker cannot reach them either — so this seam fails closed and the
+  chokepoint's declarations remain what shapes the ON-BOX trace.
+
+  The redaction is the off-box default; the trusted-local
+  `:rf.egress/include-fx-args? true` opt-in lifts it — the SAME switch that
+  lifts the `:effects[*].args` redaction, because it is one fx-args
+  keyspace and it takes one switch. Orthogonal to the app-db
+  `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` opt-ins, which
+  therefore do NOT lift it. Runs AFTER
+  `omit-off-box-fx-args-resource-keys` so that step's owner-classification
+  work — including the `:sensitive?` stamp it puts on a row whose key it
+  tokenized — still shapes the row; under the trusted-local opt-in it is
+  that step, not this one, that keeps a `:sensitive?` owner's scoped keys
+  from riding raw.
+
+  Idempotent (a `:rf/redacted` slot re-redacts to itself, a
+  `[<fx-id> :rf/redacted]` entry to the same shape) and
+  nil/non-sequential-preserving."
+  [trace-events {:rf.egress/keys [include-fx-args?]}]
+  (if (or include-fx-args? (not (sequential? trace-events)))
+    trace-events
+    (mapv (fn [trace-event]
+            (if-not (and (map? trace-event) (map? (:tags trace-event)))
+              trace-event
+              (cond-> trace-event
+                (some? (get-in trace-event [:tags :rf.fx/args]))
+                (assoc-in [:tags :rf.fx/args] :rf/redacted)
+
+                (some? (get-in trace-event [:tags :rf.event/fx]))
+                (update-in [:tags :rf.event/fx]
+                           (fn [effect-vector]
+                             (if (sequential? effect-vector)
+                               (mapv redact-fx-entry effect-vector)
+                               :rf/redacted))))))
+          trace-events)))
+
 (defn- elide-whole-output-large-slots
   "The ONE whole-output `:large?` egress rule (rf2-irwsq).
 
@@ -2057,11 +2161,14 @@
   dispatched-event-vector args (`:rf.event/v` / `:event`
   carry the same registration-owned transient args as `:trigger-event`,
   which the app-db walker cannot prove safe), then enforce the off-box
-  HTTP response-body fail-closed rule, then run the bulk
+  HTTP response-body fail-closed rule, then fail closed on the fx-args
+  carriers (`:rf.fx/args` / `:rf.event/fx` carry the same fx-handler
+  argument payload the structured `:effects` row redacts), then run the bulk
   frame/profile `project-egress` walk over the
   whole vector to handle the other payload-bearing tag values
   (`:rf.cofx/value`, etc.) with their own per-tag paths. `opts`
-  `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` / `:rf.egress/include-event-args?` opt
+  `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` /
+  `:rf.egress/include-event-args?` / `:rf.egress/include-fx-args?` opt
   the per-call posture back in. Idempotent (a
   second pass walks already-redacted scalars). Nil-preserving."
   [trace-events frame-id opts]
@@ -2084,6 +2191,16 @@
         ;; lowered `ensure` addresses its work by scoped key inside the effects
         ;; (rf2-1kiuj).
         (omit-off-box-fx-args-resource-keys frame-id opts)
+        ;; …then fail closed on the fx-args carriers THEMSELVES (rf2-79fvm).
+        ;; The step above speaks for the resource family's scoped keys inside
+        ;; these slots; this one speaks for the slots' whole payload, which is
+        ;; the same `:args` the structured `:effects` row below already
+        ;; redacts (`elide-effect-row`). Runs AFTER it so the family's
+        ;; owner-classification work — and the `:sensitive?` stamp it leaves
+        ;; on a row whose key it tokenized — still shapes the row, and so that
+        ;; under the trusted-local `:rf.egress/include-fx-args? true` opt-in
+        ;; the family rule is still what protects a `:sensitive?` owner's keys.
+        (omit-off-box-fx-args opts)
         ;; Honour the whole-output `:large?` stamp on the `:rf.sub/run` tags —
         ;; the trace-tag twin of the `:sub-runs` row elision, sharing one rule
         ;; with it (rf2-irwsq). Runs BEFORE the bulk walk so the marker is

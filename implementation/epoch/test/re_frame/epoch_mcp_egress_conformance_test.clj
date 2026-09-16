@@ -1304,6 +1304,135 @@
              the fx-arg keyspace is orthogonal to the app-db sensitive axis")
         (is (= :fxp/login (:fx-id fx-row)) "value-free :fx-id preserved")))))
 
+(defn- do-fx-tags
+  "The tags of `record`'s `:rf.fx/do-fx` aggregate row — the one that carries
+  the `:rf.event/fx` whole-effect-vector carrier."
+  [record]
+  (->> (:trace-events record)
+       (filter #(= :rf.fx/do-fx (:operation %)))
+       first
+       :tags))
+
+(defn- drive-payload-bearing-fx!
+  "Fire one cascade whose fx ARGS carry the secret — the shape
+  `drive-mixed-ring!` deliberately keeps out of its matrix (it exercises the
+  app-db classification axis, closing over its secret in the handler), and the
+  reason no existing whole-record scan could see the carrier leak. Writes the
+  declared sensitive app-db path with the SAME bytes, so the orthogonality of
+  the two axes can be read off one record. Returns the raw epoch record."
+  [frame-id creds]
+  (rf/reg-fx :fxp/login (fn [_ _] nil))
+  (rf/reg-event :do-login
+                (fn [_ [_ c]]
+                  {:db {:auth {:password (:password c)}}
+                   :fx [[:fxp/login c]]}))
+  (rf/dispatch-sync [:do-login creds] {:frame frame-id})
+  (last (rf/epoch-history frame-id)))
+
+(deftest forwarder-fx-args-tag-carriers-fail-closed
+  (testing "rf2-79fvm — an MCP forwarder shipping a record whose fx ARGS carried
+            a secret MUST NOT egress it on the TRACE-EVENT TAG CARRIERS either.
+            `:rf.egress/include-fx-args? false` redacted the structured
+            `:effects[*].args` row and shipped the identical payload raw three
+            rows up, under `:rf.fx/args` (the args verbatim) and
+            `:rf.event/fx` (the whole effect vector) — so an
+            `[:http {:body {:password …}}]` reached the wire through a tag while
+            the same bytes read `:rf/redacted` on the row below. One value, two
+            carriers, ONE rule (the rf2-irwsq shape). spec/Security.md
+            §Off-box egress says that exact value cannot be proven safe."
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (let [creds {:password secret-password :token "tok-abc"}
+          raw   (drive-payload-bearing-fx! :test/mcp creds)
+          proj  (rf/project-egress raw)]
+
+      (testing "FIXTURE — the raw in-process ring really does carry the secret
+                on the carriers, so the scans below are not vacuous"
+        (is (contains-secret? (:trace-events raw))
+            "the raw trace events carry the secret the projection must remove")
+        (is (some? (fx-row raw :fxp/login))
+            "and the payload-bearing fx row is present to carry it"))
+
+      (testing "the whole projected record leaks nothing — the cross-cutting
+                promise the MCP wire boundary makes"
+        (is (not (contains-secret? proj))
+            "no leaf anywhere in the projected record carries the secret")
+        (is (= [] (secret-leak-paths proj))
+            "and no path names one — reported by path, because the leak this
+             pins is four levels down inside a trace tag"))
+
+      (testing "`:rf.fx/args` — the args VERBATIM slot — fails closed, keeping
+                the value-free sibling metadata that identifies the fx"
+        (let [tags (fx-row proj :fxp/login)]
+          (is (some? tags) "FIXTURE — the fx row survived projection")
+          (is (= :rf/redacted (:rf.fx/args tags))
+              "the argument payload is the redaction sentinel")
+          (is (= :fxp/login (:rf.fx/id tags))
+              "the resolved fx-id rides the SIBLING tag, so nothing structural
+               was lost by redacting the whole args slot")))
+
+      (testing "`:rf.event/fx` — the whole effect vector — fails closed PER
+                ENTRY, because here the structural head is INSIDE the value"
+        (let [tags (do-fx-tags proj)]
+          (is (some? tags) "FIXTURE — the :rf.fx/do-fx aggregate row is present")
+          (is (= [[:fxp/login :rf/redacted]] (:rf.event/fx tags))
+              "each entry keeps its fx-id head and redacts its args — the same
+               head-kept/payload-redacted shape `:trigger-event` takes")))
+
+      (testing "and the structured `:effects[*].args` twin still fails closed —
+                the asymmetry this bead closed was between these two carriers,
+                so the fix must not have been to open the redacted one"
+        (is (every? #(= :rf/redacted (:args %))
+                    (filter #(contains? % :args) (:effects proj)))
+            "every outcome row's args stay redacted")
+        (is (= :fxp/login (:fx-id (some #(when (= :fxp/login (:fx-id %)) %)
+                                        (:effects proj))))
+            "and its value-free :fx-id is preserved, as it always was"))
+
+      (testing "re-projecting an already-projected record does not drift the
+                wire shape (the uniform idempotence Security.md requires)"
+        (let [twice (rf/project-egress proj)]
+          (is (= :rf/redacted (:rf.fx/args (fx-row twice :fxp/login))))
+          (is (= [[:fxp/login :rf/redacted]] (:rf.event/fx (do-fx-tags twice)))))))))
+
+(deftest include-fx-args-reveals-tag-carriers-but-keeps-app-db-axes
+  (testing "rf2-79fvm — `{:rf.egress/include-fx-args? true}` is the trusted-local
+            opt-in for the TAG CARRIERS as well as for the structured row (one
+            fx-args keyspace, one switch), and it is ORTHOGONAL to the app-db
+            sensitive axis in BOTH directions. The second half is the one that
+            was broken: spec/Security.md §Off-box egress requires that
+            `:rf.egress/include-sensitive?` lift ONLY the app-db axis and that
+            the orthogonal `:rf.egress/include-fx-args?` stay at its fail-closed
+            default regardless — yet asking for sensitive APP-DB values used to
+            hand back the fx-arg payload on these carriers as well."
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (let [creds {:password secret-password :token "tok-abc"}
+          raw   (drive-payload-bearing-fx! :test/mcp creds)]
+
+      (testing "include-fx-args reveals the raw carriers, and does NOT lift the
+                app-db sensitive leaf"
+        (let [proj (rf/project-egress raw {:rf.egress/include-fx-args? true})]
+          (is (= creds (:rf.fx/args (fx-row proj :fxp/login)))
+              "the raw fx args ride the tag carrier under the opt-in")
+          (is (= [[:fxp/login creds]] (:rf.event/fx (do-fx-tags proj)))
+              "and the whole effect vector rides verbatim beside it")
+          (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
+              "the app-db sensitive leaf STAYS redacted — orthogonal axis")))
+
+      (testing "include-sensitive reveals the app-db leaf and keeps the fx-args
+                CARRIERS redacted — not only the structured row"
+        (let [proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
+          (is (= secret-password (get-in proj [:db-after :auth :password]))
+              "`:rf.egress/include-sensitive? true` reveals the app-db leaf")
+          (is (= :rf/redacted (:rf.fx/args (fx-row proj :fxp/login)))
+              "the `:rf.fx/args` tag STAYS redacted — the fx-args keyspace is a
+               different axis and include-sensitive must not conflate them")
+          (is (= [[:fxp/login :rf/redacted]] (:rf.event/fx (do-fx-tags proj)))
+              "and so does the `:rf.event/fx` tag")
+          (is (not (contains-secret? (:trace-events proj)))
+              "so no trace event carries the fx-arg secret under include-sensitive"))))))
+
 (deftest include-sensitive-keeps-runtime-db-partition-redacted
   (testing "rf2-m9duxl — `{:rf.egress/include-sensitive? true}` keeps the
             `:rf.db/runtime` frame-state partition REDACTED. The runtime-db
@@ -1519,7 +1648,21 @@
           record    (record-carrying-resource-rows :test/mcp rows)
           projected (rf/project-egress record)
           proj-rows (filter resource-family-row? (:trace-events projected))
-          proj-hist (mapv rf/project-egress raw-hist)]
+          proj-hist (mapv rf/project-egress raw-hist)
+          ;; The same history at the trusted-local fx-args posture. Since
+          ;; rf2-79fvm the `:rf.fx/args` / `:rf.event/fx` carriers FAIL CLOSED
+          ;; off-box — `omit-off-box-fx-args` redacts the whole payload, as
+          ;; `elide-effect-row` always has for the structured `:effects[*].args`
+          ;; twin — so at the default posture there is nothing left inside a
+          ;; carrier for the family's key projection to discriminate. The
+          ;; rf2-1kiuj / rf2-0t7o8 owner-discrimination claims below therefore
+          ;; read the carriers HERE, the one posture in which these bytes reach
+          ;; a wire at all and so the only one in which it still matters whether
+          ;; a resolver-owned key inside them is tokenized. The default
+          ;; posture's own claim — that the carriers disclose NOTHING — is
+          ;; pinned by `forwarder-fx-args-tag-carriers-fail-closed` below.
+          carrier-hist (mapv #(rf/project-egress % {:rf.egress/include-fx-args? true})
+                             raw-hist)]
 
       ;; ---- fixture controls: the shape the scans below must be able to see --
       (testing "FIXTURE — the cascade produced real family rows carrying the
@@ -1684,7 +1827,7 @@
               "and so do the declared input NAMES — only the VALUES redact")))
 
       ;; ---- the FX-ARGS carriers, per slot (rf2-1kiuj) -----------------------
-      (let [ensure-rec (first proj-hist)
+      (let [ensure-rec (first carrier-hist)
             family-key (:resource/key (family-row proj-rows :rf.resource/work-started
                                                   sensitive-resource-id))
             managed    (fx-row ensure-rec :rf.http/managed)
@@ -1712,12 +1855,37 @@
           (is (redacted-token? (nth family-key 0)) "the resolved scope is tokenized")
           (is (redacted-token? (nth family-key 2)) "the canonical params are tokenized"))
 
-        (testing "and the row's NON-key payload is untouched — the projector
-                  speaks for the family's keys, not for the fx family's args"
+        (testing "at THIS posture the row's NON-key payload is untouched — the
+                  family projector speaks for the family's keys, not for the fx
+                  family's args, so opting the fx-args axis in gets the args
+                  back with only the keys inside them projected"
           (is (= {:method :get :url "/secret"} (:request (:rf.fx/args managed)))
               "the resolver's request map rides verbatim")
           (is (= :test/mcp (:frame-id (:rf.fx/args handle))))
           (is (= :rf.http/managed (:transport (:rf.fx/args handle)))))
+
+        ;; rf2-79fvm — the SAME three slots at the DEFAULT posture, which is
+        ;; what an MCP forwarder actually ships. Until rf2-79fvm these
+        ;; assertions were the ones directly above, taken off a default
+        ;; projection: the payload rode VERBATIM there, so the suite pinned the
+        ;; leak as expected behaviour — `:rf.egress/include-fx-args? false`
+        ;; redacted the structured `:effects` row while the identical bytes
+        ;; egressed three rows up on the tag carriers.
+        (testing "but at the OFF-BOX DEFAULT the whole carrier payload is gone —
+                  the resolver's request map is not merely key-projected, it is
+                  the `:rf/redacted` sentinel, the same value its
+                  `:effects[*].args` twin has always carried"
+          (let [default-rec     (first proj-hist)
+                default-managed (fx-row default-rec :rf.http/managed)
+                default-handle  (fx-row default-rec :rf.resource/record-work-handle)]
+            (is (some? default-managed)
+                "FIXTURE — the same lowered fx row is present at the default posture")
+            (is (= :rf/redacted (:rf.fx/args default-managed))
+                "the resolver's request map does NOT ride verbatim off-box")
+            (is (= :rf/redacted (:rf.fx/args default-handle))
+                "nor does the work-handle's args map")
+            (is (empty? (carrier-keys-naming default-rec sensitive-resource-id))
+                "and no scoped key survives inside a carrier to be projected at all")))
 
         (testing "a carrier row whose key redacted is stamped :sensitive?, the
                   same signal the family rows carry"
@@ -1727,9 +1895,11 @@
 
         (testing "and the structured `:effects[*].args` twin still fails closed —
                   the asymmetry this bead closed was between these two slots, so
-                  the fix must not have been to open the redacted one"
+                  the fix must not have been to open the redacted one. Read off
+                  the DEFAULT projection, since `ensure-rec` above is the
+                  fx-args opt-in posture, which lifts this slot by design"
           (is (every? #(= :rf/redacted (:args %))
-                      (filter #(contains? % :args) (:effects ensure-rec)))))
+                      (filter #(contains? % :args) (:effects (first proj-hist))))))
 
         (testing "the MIXED slot: the release cascade's
                   `:rf.resource/cancel-poll-timers` args name every timer key
@@ -1737,7 +1907,7 @@
                   on ONE row and the projection must tell them apart. This is
                   the sensitive half; the plain half is the over-redaction
                   control in the sibling deftest below"
-          (let [cancel (fx-row (nth proj-hist 2) :rf.resource/cancel-poll-timers)
+          (let [cancel (fx-row (nth carrier-hist 2) :rf.resource/cancel-poll-timers)
                 keys*  (get-in cancel [:rf.fx/args :resource/keys])
                 sk     (first (filter #(= sensitive-resource-id (second %)) keys*))]
             (is (some? cancel) "FIXTURE — the cancel-timers fx row is present")
@@ -1760,7 +1930,7 @@
       ;; carrier further out, where the family projector never runs.
       (let [sess?     (fn [r] (seq (carrier-keys-naming r session-resource-id)))
             raw-sess  (first (filter sess? raw-hist))
-            proj-sess (first (filter sess? proj-hist))]
+            proj-sess (first (filter sess? carrier-hist))]
         (testing "FIXTURE — the session-scoped `ensure` lowered into fx and the
                   runtime planted its RESOLVED scope inside both carriers"
           (is (some? raw-sess)
@@ -1782,8 +1952,12 @@
               "projection neither drops nor invents a `:scope` slot")
           (is (every? tokenized-scope? (carrier-scopes proj-sess))
               "`[:rf.scope/session {:rf/redacted <digest>}]` at all four")
-          (is (empty? (secret-leak-paths proj-sess))
-              "and the whole record is clean"))
+          (is (empty? (secret-leak-paths (dissoc proj-sess :effects)))
+              "and the whole record is clean — bar the structured
+               `:effects[*].args` slot, which this posture
+               (`:rf.egress/include-fx-args? true`) opens deliberately; the
+               default posture's whole-record scan, which covers that slot
+               too, is `forwarder-fx-args-tag-carriers-fail-closed`"))
 
         (testing "and it projects EXACTLY as the SAME value does on a row the
                   family OWNS — the two carriers of one scope cannot drift,
@@ -1828,6 +2002,13 @@
     (install-resource-family! :test/mcp)
     (let [rows      (drive-resource-family! :test/mcp)
           proj-hist (mapv rf/project-egress (rf/epoch-history :test/mcp))
+          ;; rf2-79fvm — the carrier halves below read the trusted-local
+          ;; fx-args posture, for the reason set out on the sibling deftest's
+          ;; `carrier-hist` binding: off-box the carriers now fail closed, so
+          ;; the over-redaction control this test exists to be can only be
+          ;; stated where the args ride at all.
+          carrier-hist (mapv #(rf/project-egress % {:rf.egress/include-fx-args? true})
+                             (rf/epoch-history :test/mcp))
           projected (rf/project-egress
                       (record-carrying-resource-rows :test/mcp rows))
           proj-rows (filter resource-family-row? (:trace-events projected))
@@ -1872,8 +2053,8 @@
               "a row that redacted nothing is NOT stamped :sensitive?")))
 
       ;; ---- and the same control on the FX-ARGS carriers (rf2-1kiuj) --------
-      (let [plain-rec (second proj-hist)          ; the PLAIN owner's `ensure`
-            release   (nth proj-hist 2)
+      (let [plain-rec (second carrier-hist)       ; the PLAIN owner's `ensure`
+            release   (nth carrier-hist 2)
             managed   (fx-row plain-rec :rf.http/managed)
             cancel    (fx-row release :rf.resource/cancel-poll-timers)]
         (testing "FIXTURE — the plain `ensure` lowered into fx rows too"
@@ -1884,13 +2065,29 @@
         (testing "every key in every carrier of the plain cascade rides its
                   scope + params VERBATIM — closing rf2-1kiuj cost no
                   attribution on the ordinary row, and a blanket redaction of
-                  the carriers would fail here"
+                  the carriers would fail here. Stated at the trusted-local
+                  fx-args posture since rf2-79fvm: the claim is about the
+                  FAMILY projector discriminating by owner, which needs args to
+                  discriminate within"
           (is (= #{plain-key} (carrier-keys-naming plain-rec plain-resource-id)))
           (is (= {:method :get :url "/public"} (:request (:rf.fx/args managed)))
               "as does the non-key payload beside it")
           (is (not (:sensitive? managed))
               "and a carrier row that redacted nothing is NOT stamped
                :sensitive?"))
+
+        ;; rf2-79fvm — the over-redaction control has a FLOOR, and this is it.
+        ;; "Verbatim" above is a statement about the trusted-local posture, and
+        ;; it must not be read as one about the wire: a PLAIN owner buys no
+        ;; exemption from the fx-args fail-closed rule, because the rule is not
+        ;; about owners at all — it is about a payload nothing can prove safe.
+        (testing "yet off-box the PLAIN owner's carrier payload is redacted too
+                  — the fail-closed fx-args rule is orthogonal to the family's
+                  owner classification, so a plain owner is not a way around it"
+          (let [default-managed (fx-row (second proj-hist) :rf.http/managed)]
+            (is (some? default-managed) "FIXTURE — the plain fx row is present")
+            (is (= :rf/redacted (:rf.fx/args default-managed))
+                "the plain owner's request map does NOT ride the wire verbatim")))
 
         ;; The MIXED row — `:rf.resource/cancel-poll-timers`, whose args name
         ;; every timer key the released owner held, so BOTH owners' keys sit in

@@ -1479,6 +1479,39 @@
 ;; a `:rf.scope/global` scalar rides verbatim, a `[tier {identity}]` tuple keeps
 ;; its tier and tokenizes its identity map.
 
+(defn- project-carrier-egress
+  "Project `record` at the posture the FX-CARRIER tests below speak about:
+  the trusted-local `:rf.egress/include-fx-args? true` opt-in.
+
+  Every test in this file that reads a value OUT of `:rf.fx/args` or
+  `:rf.event/fx` goes through this door rather than through bare
+  `project-egress`, because since rf2-79fvm those two slots FAIL CLOSED at the
+  off-box default: `omit-off-box-fx-args` redacts the whole fx-args payload
+  there, exactly as `elide-effect-row` has always redacted the structured
+  `:effects[*].args` twin. At that default posture there is nothing left in a
+  carrier for the family's key projection to discriminate, so a test asserting
+  a plain owner's request map rides verbatim — or that a `:sensitive?` owner's
+  scope tokenizes rather than vanishing — could only ever assert the blanket
+  redaction, and the rf2-1kiuj / rf2-0t7o8 / rf2-425mm owner-discrimination
+  contract would go unpinned.
+
+  The opt-in is where that contract now lives, and it is load-bearing exactly
+  there: `:rf.egress/include-fx-args? true` is the ONE posture in which these
+  bytes reach a wire at all, so it is the only posture in which it still
+  matters whether a resolver-owned key inside them is tokenized. The default
+  posture is pinned separately, and deliberately from the OTHER side — that
+  the carriers disclose nothing whatever — by the fail-closed tests in
+  `re-frame.epoch-mcp-egress-conformance-test`.
+
+  Note this is NOT `:rf.egress/include-sensitive?`. That opt lifts the app-db
+  sensitive axis ALONE (spec/Security.md §Off-box egress MUST be projected);
+  it does not lift the orthogonal fx-args axis, and before rf2-79fvm it wrongly
+  did for these carriers. A test wanting BOTH axes raw passes
+  `{:rf.egress/include-sensitive? true}` here and gets both."
+  ([record] (project-carrier-egress record nil))
+  ([record opts]
+   (rf/project-egress record (merge {:rf.egress/include-fx-args? true} opts))))
+
 (def ^:private profile-params {:slug "me"})
 
 (defn- secret-leak-paths
@@ -1500,6 +1533,26 @@
                                 (walk (conj path i) vv))))]
     (walk [] x)
     @found))
+
+(defn- carrier-leak-paths
+  "`secret-leak-paths` over a CARRIER-POSTURE projection — everything in the
+  record except the structured `:effects[*].args` slot.
+
+  That slot is excluded because these records come from
+  `project-carrier-egress`, i.e. `:rf.egress/include-fx-args? true`, and that
+  opt lifts the `:effects[*].args` redaction (`elide-effect-row`) exactly as it
+  lifts the tag carriers' — one fx-args keyspace, one switch. So raw args in
+  `:effects` here are the posture doing what it was asked, not a leak, and a
+  whole-record scan at this posture would report the opt-in against itself.
+
+  What is scanned is still everything the carrier tests speak about: the trace
+  events (both carriers included), `:db-before` / `:db-after`, `:trigger-event`
+  and the remaining structured slots. The whole-record scan at the OFF-BOX
+  DEFAULT — the posture an MCP forwarder actually ships, where `:effects` is
+  covered too — is `forwarder-fx-args-tag-carriers-fail-closed` in
+  `re-frame.epoch-mcp-egress-conformance-test`."
+  [projected]
+  (secret-leak-paths (dissoc projected :effects)))
 
 (defn- carrier-scopes
   "Every value sitting under a `:scope` key anywhere inside the `:rf.fx/args` /
@@ -1579,7 +1632,7 @@
             `:rf.fx/args` and again under `:rf.event/fx`."
     (let [records   (drive-session-scoped-ensure! :derived/profile)
           raw       (last records)
-          projected (rf/project-egress raw)]
+          projected (project-carrier-egress raw)]
 
       (testing "FIXTURE — the producer really put an identity-bearing scope on
                 the fx carriers, so the assertions below are not passing over an
@@ -1595,7 +1648,7 @@
 
       (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
                 record"
-        (is (= [] (secret-leak-paths projected))
+        (is (= [] (carrier-leak-paths projected))
             "every leaking path is named here; before the repair this printed
              the four [:trace-events n :tags :rf.fx/args :on-success 1 :scope 1
              :username] shapes"))
@@ -1664,7 +1717,7 @@
             planted there."
     (let [k1        (sk session-scope :derived/profile profile-params)
           args      (managed-args k1 session-scope)
-          projected (rf/project-egress (fx-carrier-record args))
+          projected (project-carrier-egress (fx-carrier-record args))
           scopes    (carrier-scopes projected)]
       (is (= 4 (count scopes))
           "two payloads per carrier, two carriers — the four paths the bead named")
@@ -1695,7 +1748,7 @@
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           args      (managed-args k1 :rf.scope/global)
           record    (fx-carrier-record args)
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           [handled do-fx] (:trace-events projected)]
       (is (= args (:rf.fx/args (:tags handled)))
           "the whole args map rides verbatim — request, request-id and both
@@ -1720,7 +1773,7 @@
     (let [proj  (fn [scope]
                   (let [k (sk scope :derived/profile profile-params)]
                     (-> (fx-carrier-record (managed-args k scope))
-                        rf/project-egress
+                        project-carrier-egress
                         carrier-scopes
                         first)))
           s1    (proj session-scope)
@@ -1738,12 +1791,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-scope
-  (testing "rf2-425mm — the trusted-local `:rf.egress/include-sensitive?` opt-in keeps the
-            raw carrier scope (the local-raw boundary — the tokenization is the
-            off-box default, not a strip)"
+  (testing "rf2-425mm — the trusted-local opt-ins keep the raw carrier scope
+            (the local-raw boundary — the tokenization is the off-box default,
+            not a strip). Reaching a carrier's contents at all takes BOTH axes
+            since rf2-79fvm: `:rf.egress/include-fx-args? true` (supplied by
+            `project-carrier-egress`) lifts the fail-closed fx-args redaction,
+            and `:rf.egress/include-sensitive? true` lifts the family's key
+            tokenization. Neither lifts the other"
     (let [k1        (sk session-scope :derived/profile profile-params)
           args      (managed-args k1 session-scope)
-          projected (rf/project-egress (fx-carrier-record args)
+          projected (project-carrier-egress (fx-carrier-record args)
                                             {:rf.egress/include-sensitive? true})]
       (is (= [session-scope session-scope session-scope session-scope]
              (carrier-scopes projected))
@@ -1914,7 +1971,7 @@
       (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf/project-egress raw)]
+                projected (project-carrier-egress raw)]
 
             (testing "FIXTURE — the producer really put a decoded body on the fx
                       carriers, so the assertions below are not passing over an
@@ -1931,7 +1988,7 @@
 
             (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
                       record"
-              (is (= [] (secret-leak-paths projected))
+              (is (= [] (carrier-leak-paths projected))
                   "every leaking path is named here; before the repair this
                    printed the [:trace-events n :tags :rf.fx/args 1 :value :email]
                    and :params :slug shapes, once per carrier"))
@@ -2012,7 +2069,7 @@
             because the resource family speaks only for what it planted."
     (let [k1        (sk session-scope :derived/profile reply-params)
           reply     (read-reply k1 session-scope reply-value)
-          projected (rf/project-egress (reply-carrier-record reply))
+          projected (project-carrier-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)
           [handled do-fx] (:trace-events projected)]
       (is (= 2 (count replies))
@@ -2048,7 +2105,7 @@
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (read-reply k1 :rf.scope/global {:title "hello"})
           record    (reply-carrier-record reply)
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           [handled do-fx] (:trace-events projected)]
       (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
           "the whole dispatched event vector rides verbatim — reply :value,
@@ -2080,7 +2137,7 @@
                            {:rf.frame/id :test/rt :frame :test/rt
                             :rf.fx/id :rf.http/managed
                             :rf.fx/args {:request req}})])
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           [reply-row req-row] (:trace-events projected)]
       (is (redacted-component? (:params (first (carrier-replies projected))))
           "the reply's :params — a named owner's, read through that owner")
@@ -2104,8 +2161,13 @@
             rides verbatim beside these slots"
     (let [proj  (fn [params value]
                   (let [k (sk session-scope :derived/profile params)]
+                    ;; rf2-79fvm — carrier posture. At the off-box default both
+                    ;; replies would come back NIL (the carriers fail closed and
+                    ;; `carrier-replies` finds nothing), and every assertion
+                    ;; below would compare nil to nil and pass without touching
+                    ;; a token.
                     (-> (reply-carrier-record (read-reply k session-scope value))
-                        rf/project-egress
+                        project-carrier-egress
                         carrier-replies
                         first)))
           r1    (proj reply-params reply-value)
@@ -2120,15 +2182,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-reply
-  (testing "rf2-xx4ty — the trusted-local `:rf.egress/include-sensitive?` opt-in keeps the
-            raw reply payload (the local-raw boundary — the tokenization is the
-            off-box default, not a strip). This is load-bearing beyond the
+  (testing "rf2-xx4ty — the trusted-local opt-ins keep the raw reply payload
+            (the local-raw boundary — the tokenization is the off-box default,
+            not a strip; since rf2-79fvm it takes the fx-args axis as well as
+            the sensitive one — see `project-carrier-egress`). This is
+            load-bearing beyond the
             pattern: a `:reply-to` continuation is how a workflow reads a
             resource, so a local tool that could not see `:value` could not
             debug the workflow at all."
     (let [k1        (sk session-scope :derived/profile reply-params)
           reply     (read-reply k1 session-scope reply-value)
-          projected (rf/project-egress (reply-carrier-record reply)
+          projected (project-carrier-egress (reply-carrier-record reply)
                                             {:rf.egress/include-sensitive? true})]
       (is (= [reply-value reply-value] (mapv :value (carrier-replies projected)))
           "every carrier's raw :value rides with :rf.egress/include-sensitive?")
@@ -2198,7 +2262,7 @@
                                :rf.fx/id :rf.resource/cancel-timers
                                :rf.fx/args {:frame-id :test/rt
                                             :resource/keys [gone]}})])
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           [custom audit cancel] (:trace-events projected)]
       (testing "the foreign lookalikes ride verbatim"
         (is (= foreign (first (:rows (:rf.fx/args (:tags custom)))))
@@ -2259,7 +2323,7 @@
           mut-row*  (event :rf.fx/handled
                            {:rf.frame/id :test/rt :frame :test/rt
                             :rf.fx/id :rf.http/managed :rf.fx/args mut-args})
-          project1  (fn [row] (rf/project-egress (record-with [row])))]
+          project1  (fn [row] (project-carrier-egress (record-with [row])))]
       (testing "the app's own request map is untouched"
         (let [tags (:tags (first (:trace-events (project1 app-row*))))]
           (is (= {:method :post :scope app-scope :body {:x 1}} (:request (:rf.fx/args tags)))
@@ -2307,7 +2371,7 @@
                               {:rf.frame/id :test/rt :frame :test/rt
                                :rf.fx/id :dispatch
                                :rf.fx/args (conj read-reply-target marked)})])
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           [custom reply-row] (:trace-events projected)
           proj-un   (:rf.fx/args (:tags custom))]
       (testing "the UNMARKED map: the key tokenizes, its foreign neighbours do not"
@@ -2449,7 +2513,7 @@
       (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf/project-egress raw)]
+                projected (project-carrier-egress raw)]
 
             (testing "FIXTURE — the producer really put a decoded body on the fx
                       carriers, and the owner really makes no coarse claim"
@@ -2463,7 +2527,7 @@
 
             (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
                       record"
-              (is (= [] (secret-leak-paths projected))
+              (is (= [] (carrier-leak-paths projected))
                   "every leaking path is named here; before the repair this
                    printed the [:trace-events n :tags :rf.fx/args 1 :value :email]
                    shape, once per carrier"))
@@ -2507,7 +2571,7 @@
             resource family speaks only for what it planted."
     (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
           reply     (read-reply k1 :rf.scope/global declared-reply-value)
-          projected (rf/project-egress (reply-carrier-record reply))
+          projected (project-carrier-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)
           [handled do-fx] (:trace-events projected)]
       (is (= 2 (count replies))
@@ -2543,7 +2607,7 @@
     (let [params    {:account "acct-9911" :slug plain-slug}
           k1        (sk :rf.scope/global :declared/params-owner params)
           reply     (read-reply k1 :rf.scope/global {:ok true})
-          projected (rf/project-egress (reply-carrier-record reply))
+          projected (project-carrier-egress (reply-carrier-record reply))
           r         (first (carrier-replies projected))]
       (is (= :rf/redacted (:account (:params r)))
           "the `[:params :account]` declaration reaches the reply's :params")
@@ -2567,7 +2631,7 @@
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (read-reply k1 :rf.scope/global declared-reply-value)
           record    (reply-carrier-record reply)
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           [handled do-fx] (:trace-events projected)]
       (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
           "the whole dispatched event vector rides verbatim — reply :value,
@@ -2593,7 +2657,7 @@
                       [(event :rf.fx/handled
                               {:rf.frame/id :test/rt :frame :test/rt
                                :rf.fx/id :app/custom :rf.fx/args unmarked})])
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= declared-reply-value (:value (:rf.fx/args tags)))
           "no marker, no reply, no declaration — the map rides byte-for-byte")
@@ -2605,15 +2669,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-declared-reply
-  (testing "rf2-ko5lm — the trusted-local `:rf.egress/include-sensitive?` opt-in keeps the
-            raw declared slots (the local-raw boundary — the redaction is the
-            off-box default, not a strip). Load-bearing for the same reason the
+  (testing "rf2-ko5lm — the trusted-local opt-ins keep the raw declared slots
+            (the local-raw boundary — the redaction is the off-box default, not
+            a strip; since rf2-79fvm it takes the fx-args axis as well as the
+            sensitive one — see `project-carrier-egress`). Load-bearing for the
+            same reason the
             coarse arm's opt-in is: a `:reply-to` continuation is how a workflow
             reads a resource, and a local tool that could not see the declared
             field could not debug the workflow."
     (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
           reply     (read-reply k1 :rf.scope/global declared-reply-value)
-          projected (rf/project-egress (reply-carrier-record reply)
+          projected (project-carrier-egress (reply-carrier-record reply)
                                             {:rf.egress/include-sensitive? true})]
       (is (= [declared-reply-value declared-reply-value]
              (mapv :value (carrier-replies projected)))
@@ -2733,7 +2799,7 @@
                                   ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf/project-egress raw)]
+                projected (project-carrier-egress raw)]
 
             (testing "FIXTURE — the producer really put the MERGED ITEM LIST on
                       the fx carriers, so the assertions below are not passing
@@ -2749,7 +2815,7 @@
 
             (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
                       record"
-              (is (= [] (secret-leak-paths projected))
+              (is (= [] (carrier-leak-paths projected))
                   "every leaking path is named here; before the repair this
                    printed the [:trace-events n :tags :rf.fx/args 1 :value i
                    :email] shape, once per item per carrier"))
@@ -2805,7 +2871,7 @@
             shape: the identically-named `:email` / `:avatar` fields that
             redact for `:declared/feed` are fully readable here."
     (let [raw       (record-carrying-reply (drive-feed-reply-to-read! :plain/feed) false)
-          projected (rf/project-egress raw)]
+          projected (project-carrier-egress raw)]
       (is (some? raw) "FIXTURE — the plain feed's continuation reached a carrier")
       (is (= 2 (count (reply-carrier-rows raw)))
           "FIXTURE — both carriers are present, as they are for the declared feed")
@@ -2830,7 +2896,7 @@
                       :display-name "Ada"
                       :meta         {:email (str secret "-nested@example.com")}}]
           reply     (read-reply k1 :rf.scope/global items)
-          projected (rf/project-egress (reply-carrier-record reply))
+          projected (project-carrier-egress (reply-carrier-record reply))
           item      (first (:value (first (carrier-replies projected))))]
       (is (= :rf/redacted (:email item))
           "the declared field, one index down, redacts")
@@ -2845,14 +2911,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-declared-feed-items
-  (testing "rf2-zaopo — the trusted-local `:rf.egress/include-sensitive?` opt-in keeps the
-            raw declared item fields, exactly as it does for the scalar reply.
+  (testing "rf2-zaopo — the trusted-local opt-ins keep the raw declared item
+            fields, exactly as they do for the scalar reply (since rf2-79fvm
+            that means the fx-args axis as well as the sensitive one — see
+            `project-carrier-egress`).
             A feed's `:reply-to` continuation is how a workflow reads a page,
             and a local tool that could not see the declared field could not
             debug the workflow."
     (let [k1        (sk :rf.scope/global :declared/feed declared-feed-params)
           reply     (read-reply k1 :rf.scope/global declared-feed-items)
-          projected (rf/project-egress (reply-carrier-record reply)
+          projected (project-carrier-egress (reply-carrier-record reply)
                                             {:rf.egress/include-sensitive? true})]
       (is (= [declared-feed-items declared-feed-items]
              (mapv :value (carrier-replies projected)))
@@ -3067,7 +3135,7 @@
             halves inside ONE map."
     (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
           reply     (read-reply k1 :rf.scope/global {:email (str vector-secret "@example.com")})
-          projected (rf/project-egress (reply-carrier-record reply))
+          projected (project-carrier-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)]
       (is (= 2 (count replies)) "one reply per carrier")
       (doseq [r replies]
@@ -3095,7 +3163,7 @@
     (let [gone      [:rf.scope/global :gone/vector-params [vector-secret]]
           reply     (assoc (read-reply gone :rf.scope/global {:ok true})
                            :resource :gone/vector-params)
-          projected (rf/project-egress (reply-carrier-record reply))
+          projected (project-carrier-egress (reply-carrier-record reply))
           replies   (carrier-replies projected)]
       (is (= 2 (count replies)))
       (doseq [r replies]
@@ -3150,7 +3218,13 @@
       (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
         (testing label
           (let [raw       (record-carrying-reply records cache-hit?)
-                projected (rf/project-egress raw)]
+                ;; rf2-79fvm — the carrier posture, like every sibling in this
+                ;; section. At the off-box default the carriers fail closed, so
+                ;; `carrier-replies` below would find NOTHING and its `doseq`
+                ;; would assert nothing at all: this test went on passing while
+                ;; testing zero of what it names (measured: 12 of its
+                ;; assertions stopped executing, and the suite stayed green).
+                projected (project-carrier-egress raw)]
             (testing "FIXTURE — the producer really put the vector params on the
                       fx carriers"
               (is (some? raw) "the continuation reached an fx carrier at all")
@@ -3299,7 +3373,7 @@
     (let [records   (drive-failing-reply-to-read! :derived/profile reply-params
                                                   failure-envelope)
           raw       (record-carrying-reply records false)
-          projected (rf/project-egress raw)]
+          projected (project-carrier-egress raw)]
 
       (testing "FIXTURE — the producer really put the envelope on the fx
                 carriers, so the sweep below is not passing over an empty set"
@@ -3313,7 +3387,7 @@
 
       (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
                 record"
-        (is (= [] (secret-leak-paths projected))))
+        (is (= [] (carrier-leak-paths projected))))
 
       (testing "and each reply's envelope is TOKENIZED, not merely absent"
         (is (= (count (carrier-replies raw)) (count (carrier-replies projected)))
@@ -3350,7 +3424,7 @@
     (let [records   (drive-failing-reply-to-read! :plain/article {:slug plain-slug}
                                                   failure-envelope)
           raw       (record-carrying-reply records false)
-          projected (rf/project-egress raw)]
+          projected (project-carrier-egress raw)]
       (testing "FIXTURE — a plain owner, and the envelope is the ONLY secret"
         (is (some? raw))
         (is (every? #(= failure-envelope (:error %)) (carrier-replies raw)))
@@ -3361,7 +3435,7 @@
              the envelope is the only leaking datum on a plain owner's reply, so
              the acceptance below cannot pass for some other repair's reason"))
       (testing "ACCEPTANCE — the plain owner's envelope tokenizes anyway"
-        (is (= [] (secret-leak-paths projected)))
+        (is (= [] (carrier-leak-paths projected)))
         (is (every? #(redacted-component? (:error %)) (carrier-replies projected))))
       (testing "and the owner's OWN data still rides verbatim — the arm is
                 marker-gated, not owner-gated, so nothing else moved"
@@ -3431,7 +3505,7 @@
             split."
     (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (failure-read-reply k :rf.scope/global failure-envelope)
-          projected (rf/project-egress (both-carriers-of k reply))
+          projected (project-carrier-egress (both-carriers-of k reply))
           row-error (:error (:tags (first (:trace-events projected))))
           replies   (family-carrier-replies projected)]
       (is (= 2 (count replies)) "one reply per carrier")
@@ -3449,7 +3523,7 @@
             `:error`, so it must tokenize on the cancel branch too."
     (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (failure-read-reply k :rf.scope/global abort-envelope)
-          projected (rf/project-egress (both-carriers-of k reply))
+          projected (project-carrier-egress (both-carriers-of k reply))
           replies   (family-carrier-replies projected)]
       (is (= :cancelled (:status (first replies))) "it really is the cancel branch")
       (is (= :user-abort (:rf.reply/cancel-reason (first replies)))
@@ -3463,7 +3537,7 @@
     (let [k    (sk :rf.scope/global :plain/article {:slug plain-slug})
           tok  (fn [envelope]
                  (-> (both-carriers-of k (failure-read-reply k :rf.scope/global envelope))
-                     rf/project-egress
+                     project-carrier-egress
                      family-carrier-replies
                      first
                      :error))]
@@ -3476,9 +3550,14 @@
   (testing "rf2-rnsv2 — an already-projected record re-projects to itself; the
             token is not re-digested (the `redacted-token?` guard)."
     (let [k     (sk :rf.scope/global :plain/article {:slug plain-slug})
-          once  (rf/project-egress
+          ;; rf2-79fvm — carrier posture, so this still speaks about the TOKEN
+          ;; it names. At the off-box default the claim degrades to the
+          ;; idempotence of the blanket fx-args redaction, which is real but is
+          ;; a different property and is pinned by
+          ;; `forwarder-fx-args-tag-carriers-fail-closed`.
+          once  (project-carrier-egress
                   (both-carriers-of k (failure-read-reply k :rf.scope/global failure-envelope)))
-          twice (rf/project-egress once)]
+          twice (project-carrier-egress once)]
       (is (= once twice)))))
 
 ;; ---------------------------------------------------------------------------
@@ -3496,7 +3575,7 @@
                               {:rf.frame/id :test/rt :frame :test/rt
                                :rf.event/fx [[:rf.error/report foreign]
                                              [:dispatch [:app/oops foreign]]]})])
-          projected (rf/project-egress record)
+          projected (project-carrier-egress record)
           tags      (:tags (first (:trace-events projected)))]
       (is (= [[:rf.error/report foreign] [:dispatch [:app/oops foreign]]]
              (:rf.event/fx tags))
@@ -3519,7 +3598,7 @@
                                {:rf.frame/id :test/rt :frame :test/rt
                                 :rf.fx/id :dispatch
                                 :rf.fx/args [:app/http-done http-reply]})])
-          projected  (rf/project-egress record)
+          projected  (project-carrier-egress record)
           tags       (:tags (first (:trace-events projected)))]
       (is (= [:app/http-done http-reply] (:rf.fx/args tags))
           "the HTTP family's reply rides through this projector untouched"))))
@@ -3529,12 +3608,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-error
-  (testing "rf2-rnsv2 — `:rf.egress/include-sensitive?` still shows the raw envelope. The
-            redaction is the OFF-BOX default, not a strip: a local operator
-            debugging a 422 needs the body."
+  (testing "rf2-rnsv2 — the trusted-local opt-ins still show the raw envelope
+            (since rf2-79fvm that means the fx-args axis as well as the
+            sensitive one — see `project-carrier-egress`). The redaction is the
+            OFF-BOX default, not a strip: a local operator debugging a 422
+            needs the body."
     (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
           reply     (failure-read-reply k :rf.scope/global failure-envelope)
-          projected (rf/project-egress (both-carriers-of k reply)
+          projected (project-carrier-egress (both-carriers-of k reply)
                                             {:rf.egress/include-sensitive? true})]
       (is (= [failure-envelope failure-envelope]
              (mapv :error (family-carrier-replies projected)))
@@ -3630,7 +3711,7 @@
             closed the sixth."
     (let [records   (drive-mutation-reply-to! :m/save {:status :error :error failure-envelope})
           raw       (first (filter #(seq (family-carrier-replies %)) records))
-          projected (rf/project-egress raw)]
+          projected (project-carrier-egress raw)]
       (testing "FIXTURE — the producer really put the envelope on the carriers"
         (is (some? raw) "the mutation continuation reached an fx carrier")
         (is (every? #(= :mutation (:rf.reply/work-kind %))
@@ -3641,7 +3722,7 @@
         (is (seq (secret-leak-paths raw))
             "the unprojected record leaks"))
       (testing "ACCEPTANCE — nothing raw survives"
-        (is (= [] (secret-leak-paths projected)))
+        (is (= [] (carrier-leak-paths projected)))
         (is (every? #(redacted-component? (:error %))
                     (family-carrier-replies projected))))
       (testing "and the reply still reads as a failed mutation reply"
@@ -3885,7 +3966,7 @@
         (str "the drive really settled the named branch — " k " = " v)))
   (is (seq (secret-leak-paths raw))
       "FIXTURE — the unprojected record leaks, so the sweep below is real")
-  (is (= [] (secret-leak-paths (rf/project-egress raw)))
+  (is (= [] (carrier-leak-paths (project-carrier-egress raw)))
       "ACCEPTANCE — the canary survives at zero paths of the projected record"))
 
 (defn- drive-session-feed-reply-to!
