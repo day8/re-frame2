@@ -61,8 +61,10 @@
 ;; ---------------------------------------------------------------------------
 
 (def always-on-categories
-  "Every `:rf.error/*` category Spec 009 §Error event catalogue marks
-  `always-on` — the production-survivable error-emit axis (surface #4).
+  "Every category Spec 009 §Error event catalogue marks `always-on` — the
+  production-survivable error-emit axis (surface #4). Mostly `:rf.error/*`,
+  but membership is the CHANNEL CELL and not the namespace: the two
+  `:rf.ssr/*` members joined under rf2-tildz.
   Pinned == the parsed catalogue always-on set by the JVM companion."
   #{:rf.error/handler-exception
     :rf.error/coeffect-exception
@@ -293,7 +295,22 @@
     ;; DROPPED EFFECT, which has no symptom at the dispatch call site, so a
     ;; production build that could only see it on the DCE'd dev trace saw
     ;; nothing at all.
-    :rf.error/effect-map-shape})
+    :rf.error/effect-map-shape
+    ;; rf2-tildz: the two SSR categories that were DETECTED in production and
+    ;; reported to nobody. Both were catalogued `diagnostic` while their only
+    ;; emit was `trace/emit-error!`, whose whole body sits inside
+    ;; `rf.interop/debug-enabled?` — so an `:advanced` + `goog.DEBUG=false`
+    ;; build did the detection work and threw the answer away. A hydration
+    ;; mismatch is a production event by construction (detection defaults ON
+    ;; in every build, 011 §Mismatch recovery and configuration row 4, whose
+    ;; row 3 promises monitoring integrations see it); a streaming boundary
+    ;; fails in production exactly as in dev and is absorbed fail-closed, so
+    ;; silence was the only signal. Both now fan a STRUCTURAL-ONLY union
+    ;; record — no payload, no markup, no app data — and both are
+    ;; non-projection-eligible in the SSR listener, so promoting them cannot
+    ;; turn a degraded-but-served page into a non-200.
+    :rf.ssr/hydration-mismatch
+    :rf.ssr/suspense-boundary-failed})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
@@ -340,7 +357,13 @@
     ;; tail reaches the same non-event union-record helper rather than the
     ;; event-centric `dispatch-on-error!`, whose positional shape would carry
     ;; the `:event` wire value the structural record deliberately omits.
-    :rf.error/schema-validation-failure})
+    :rf.error/schema-validation-failure
+    ;; rf2-tildz: a hydration mismatch and a failed streaming boundary are
+    ;; both page-lifecycle facts rather than dispatched-event failures —
+    ;; nothing threw at a dispatch boundary — so they ride the same non-event
+    ;; union-record helper as their `malformed-hydration-payload` sibling.
+    :rf.ssr/hydration-mismatch
+    :rf.ssr/suspense-boundary-failed})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
