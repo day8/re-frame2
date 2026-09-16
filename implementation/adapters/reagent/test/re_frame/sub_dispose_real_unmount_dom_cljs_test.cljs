@@ -332,4 +332,4 @@
                                     (finish)))))))
                 (.catch (fn [e]
                           (is false (str "StrictMode scenario rejected: " (pr-str e)))
-                          (finish)))))))))
+                          (finish))))))))))
