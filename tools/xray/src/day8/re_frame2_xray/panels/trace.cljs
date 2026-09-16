@@ -1100,8 +1100,8 @@
 ;; was still a plain alias (PR #9654), which is what let this panel's
 ;; migration happen entirely INSIDE THIS FILE: `panels.cljs` is untouched.
 ;;
-;; Xray's shell is still a `reg-view` tree rendered by the installed
-;; adapter. `shell/detail-panel` mounts the active tab as the hiccup head
+;; `shell/detail-panel` — a Fresco boundary since rf2-k97c.3 — reaches the
+;; active tab across an `as-child` seam as the hiccup head
 ;; `[(:panel tab)]`, `panel-registry/reg-l4-tab!`'s `:pre` requires
 ;; `:panel` to be CALLABLE, and `render-panel!` builds the component VECTOR
 ;; `[panel-view]` — none of which a React component is (it IS `fn?`, but

@@ -1190,8 +1190,8 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; Xray's shell is still a `reg-view` tree rendered by the installed
-;; adapter. `shell/detail-panel` mounts the active tab as the hiccup head
+;; `shell/detail-panel` — a Fresco boundary since rf2-k97c.3 — reaches the
+;; active tab across an `as-child` seam as the hiccup head
 ;; `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s `:pre` requires
 ;; `:panel` to be CALLABLE — neither of which a React component is.
 ;;
