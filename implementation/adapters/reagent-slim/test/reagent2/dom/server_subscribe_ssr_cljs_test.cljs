@@ -212,8 +212,15 @@
                "foreign-component placeholder — got: " (pr-str markup)))
       ;; (b) the positive precondition: real content from INSIDE the
       ;;     provider's subtree reached the markup.
-      (is (re-find #"<div>" markup)
+      ;; The app's root element is a `<div …>` carrying reg-view's
+      ;; source-coord attrs, so match the open TAG rather than a bare
+      ;; `<div>` — the attrs are the live renderer's business, not this
+      ;; test's.
+      (is (re-find #"<div[ >]" markup)
           (str "the app subtree's own markup is present — got: " (pr-str markup)))
+      (is (re-find #"<button>\+</button>" markup)
+          (str "a leaf deep inside the provider subtree is present — got: "
+               (pr-str markup)))
       (is (re-find #">5<" markup)
           (str "the subscribed :counter/value (5) from inside the provider "
                "subtree is present — got: " (pr-str markup))))))
