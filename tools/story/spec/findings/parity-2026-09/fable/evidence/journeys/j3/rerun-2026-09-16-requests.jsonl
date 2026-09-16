@@ -1,0 +1,9 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"j3-rerun","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list-stories","arguments":{}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get-variant","arguments":{"variant-id":":story.login-form/authenticated"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"explain-variant","arguments":{"variant-id":":story.login-form/authenticated"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run-variant","arguments":{"variant-id":":story.login-form/authenticated","dedup":false}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"read-failures","arguments":{"variant-id":":story.login-form/authenticated"}}}
+{"jsonrpc":"2.0","id":8,"method":"shutdown","params":{}}
