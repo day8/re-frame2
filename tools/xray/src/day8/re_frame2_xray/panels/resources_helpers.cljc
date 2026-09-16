@@ -559,7 +559,35 @@
   "Pure freshness derivation (Spec 016 §Status semantics — `:stale?` is a
   derived value, never a stored fact): an entry is stale iff it was
   invalidated, or `now-ms` has passed its `:stale-at`. nil `now-ms` or a
-  nil `:stale-at` falls back to the invalidation flag alone."
+  nil `:stale-at` falls back to the invalidation flag alone.
+
+  ## Second implementation, deliberately (rf2-vyvo8)
+
+  This MIRRORS `re-frame.resources.state/entry-stale?`, which Spec 016
+  §Stale and GC scheduling calls \"the single shared derivation\". The
+  sibling is the canonical one; this is the panel's copy, and the copy is
+  a CHOICE rather than a necessity — `tools/README.md` permits a tool to
+  `:require` from `implementation/`, and only the reverse is forbidden.
+  What it buys is the panel's decoupled read path: the Resources artefact
+  is POST-V1 OPTIONAL, and keeping this file free of a
+  `re-frame.resources.*` require edge is what lets an app that omits the
+  artefact still render the panel (see the ns docstring above and
+  `tools/xray/spec/024-Resources-Panel.md` §Decoupled reads). Spec 016's
+  claim enumerates four RUNTIME readers — the fresh-skip gate, the SSR
+  projection, the stale-timer re-check and the `:stale?` sub — so a tool
+  projection sits outside the set it governs.
+
+  DO NOT \"fix\" this by delegating to the sibling: the two are NOT
+  interchangeable. The canonical predicate is not nil-clock safe
+  (`(>= nil stale-at)` throws on the JVM), whereas `project-instances`
+  has a 1-arity that passes `now-ms` as nil by design, so delegation
+  would be a regression rather than a tidy-up.
+
+  The duplication is held honest by a test-only pin —
+  `stale-derivation-agrees-with-framework-pin` in
+  `resources_helpers_cljs_test.cljc` — which runs both derivations over a
+  shared matrix and fails the moment they disagree. The require edge it
+  needs lives in test code, so the pin costs this surface nothing."
   [entry now-ms]
   (boolean
     (or (some? (:invalidated-at entry))
