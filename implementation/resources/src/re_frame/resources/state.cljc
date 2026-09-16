@@ -173,8 +173,10 @@
 
 (def terminal-work-statuses
   "The terminal work-ledger statuses an attempt may reach. Terminal rows
-  are pruned on the linked entry's next successful transition (a small
-  bounded per-resource-key tail is retained for Xray). Per Spec 016
+  are pruned on the linked entry's next TERMINAL transition — every settle,
+  not only a successful one (rf2-6gzdb) — with a small bounded
+  per-resource-key tail retained for Xray, and are dropped outright when the
+  entry itself leaves the cache. Per Spec 016
   §Ledger row retention and identity."
   #{:completed :failed :timed-out :suppressed :cancelled})
 
