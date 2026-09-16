@@ -2053,14 +2053,28 @@
   the ring immediately evicted — and true at depth 0, where `record!` appends
   nothing at all. It is handed the WHOLE record rather than the epoch-id alone
   because the answer is correlated by the record's `:dispatch-id`, not by
-  commit order (rf2-fzbj.19)."
+  commit order (rf2-fzbj.19).
+
+  rf2-2wntx — ONLY AN `:ok` RECORD MOVES THE ANCHOR. `last-settled-epoch` names
+  the last epoch that actually SETTLED, which is what restore rewinds to and
+  what a post-settle observation back-fills onto; a `:halted-depth` /
+  `:halted-destroy` record describes an event that never ran and never settled,
+  so it is not a candidate for either. Letting one take the anchor made
+  `restore-epoch!` refuse the newest epoch — `:rf.epoch/restore-non-ok-record`
+  — even though the state it named was the live state, and pointed
+  `commit-halt-record!`'s own durable-snapshot lookup at a record carrying no
+  write of its own. The halt record is still appended to the ring and still
+  reported as this dispatch's commit observation: it stays fully visible to
+  devtools as the \"drain halted here\" marker, which is its entire purpose. It
+  simply does not get to claim it is the settled state."
   [frame-id owner-token record]
   (boolean
     (with-frame-owner-lock
       (fn []
         (when (identical? (get @frame-owner-tokens frame-id) owner-token)
           (record! record)
-          (set-last-settled-epoch! frame-id (:epoch-id record))
+          (when (= :ok (get record :outcome :ok))
+            (set-last-settled-epoch! frame-id (:epoch-id record)))
           (note-commit! frame-id record)
           true)))))
 
