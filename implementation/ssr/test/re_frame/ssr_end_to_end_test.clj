@@ -267,10 +267,13 @@
               (rf/unregister-listener! :trace ::match)
               (is (= server-hash client-hash-1)
                   "first client render hashes identically to the server hash")
-              ;; rf2-lwtlk DEV ARM — `:rf.ssr/hydration-mismatch` is a
-              ;; dev-only diagnostic (Spec 011 §Hydration mismatch: the
-              ;; recovery is `:warned-and-replaced`, and the WARNING is the
-              ;; whole of it). This is also a NEGATIVE over the trace ring, so
+              ;; rf2-lwtlk DEV ARM — the `:rf.ssr/hydration-mismatch` TRACE
+              ;; is dev-only (Spec 011 §Hydration mismatch: the recovery is
+              ;; `:warned-and-replaced`). rf2-tildz: the CATEGORY is no
+              ;; longer dev-only — it also fans an always-on record — but
+              ;; this assertion reads `@match-traces`, a TRACE listener, so
+              ;; it is the trace channel that puts it in this arm, not the
+              ;; category. This is also a NEGATIVE over the trace ring, so
               ;; under the production gate it would pass with hydration
               ;; verification removed entirely — it moves into the arm WITH
               ;; the positive it discriminates against, not outside it. The
@@ -1370,11 +1373,20 @@
                   :first-diff-path [:head :title]})
       (rf/unregister-listener! :trace ::head)
 
-      ;; rf2-lwtlk DEV ARM — the host-supplied `:failing-id` seam exists to
-      ;; put a host's own attribution ON THE MISMATCH TRACE, and that trace is
-      ;; the dev-only `:rf.ssr/hydration-mismatch` warning (recovery
-      ;; `:warned-and-replaced` — the client re-renders either way). So the
-      ;; seam is dev-posture by construction. What is NOT dev-posture is the
+      ;; rf2-lwtlk DEV ARM — the host-supplied `:failing-id` seam puts a
+      ;; host's own attribution on the `:rf.ssr/hydration-mismatch` warning,
+      ;; and THIS ASSERTION reads it off the dev-only TRACE (recovery
+      ;; `:warned-and-replaced` — the client re-renders either way), which is
+      ;; what puts it in this arm.
+      ;;
+      ;; rf2-tildz: the SEAM itself is no longer dev-posture — `:failing-id`
+      ;; is one of the structural slots the always-on record carries, and it
+      ;; is the body/head discriminator there, so a host's attribution now
+      ;; reaches an off-box shipper in a `goog.DEBUG=false` build. Only the
+      ;; CHANNEL this deftest watches is dev-posture. A production witness
+      ;; for the record-borne `:failing-id` would belong in
+      ;; `ssr_error_emit_promotion_test`, which has no leg for this category
+      ;; yet. What is NOT dev-posture is the
       ;; payload stash asserted above: `:rf/hydrate` puts the server hash into
       ;; the runtime-db partition in every build, and that assertion runs in
       ;; this lane — which is why guarding here does not leave the deftest

@@ -1,9 +1,23 @@
 (ns re-frame.ssr-error-emit-promotion-test
-  "EP-0008 (rf2-hhutya) ACCEPTANCE — the seven promoted SSR error
-  categories ride the ALWAYS-ON `register-error-listener!` error-emit axis
-  (surface #4) under `interop/debug-enabled? = false`, WITHOUT altering the
-  wire outcome (the 200 / degraded-200 / 5xx the request would have
-  produced before promotion).
+  "EP-0008 (rf2-hhutya) ACCEPTANCE — the promoted SSR error categories ride
+  the ALWAYS-ON `register-error-listener!` error-emit axis (surface #4)
+  under `interop/debug-enabled? = false`, WITHOUT altering the wire outcome
+  (the 200 / degraded-200 / 5xx the request would have produced before
+  promotion).
+
+  The count is deliberately NOT stated here. It read \"seven\" while
+  rf2-tildz was promoting `:rf.ssr/hydration-mismatch` and
+  `:rf.ssr/suspense-boundary-failed`, and nothing in this file asserts a
+  count, so the number could drift unchallenged — the roster of record is
+  the Spec 009 catalogue's `always-on` Channel cells, which
+  `parsed-always-on-set-equals-the-exercise-literal` pins to the
+  `always-on-categories` literal.
+
+  THOSE TWO CATEGORIES HAVE NO ACCEPTANCE LEG HERE YET. Their
+  `non-projection-eligible-errors` entries make exactly the claim this
+  file's (A) EXERCISE / (B) WIRE-UNCHANGED pattern exists to pin — reaches
+  the listener under `debug-enabled? = false`, and the response is still
+  the 200 it would have been — so this is the natural home for it.
 
   The promotion adds the production-survivable OFF-BOX RECORD; the wire
   consequence is unchanged. The per-category acceptance has two legs:

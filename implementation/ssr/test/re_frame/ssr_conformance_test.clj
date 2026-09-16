@@ -111,11 +111,21 @@
       `:fixture/calls`, `:expect-error` — is posture-independent and runs
       under the gate unchanged.
 
-  Two claims in the corpus have NO production counterpart and are dev-only
-  by design: `:rf.ssr/hydration-mismatch` (emitted solely through
-  `trace/emit-error!`, `hydrate.cljc`) and the `:source :ssr-hydration`
-  slot on a `run-start` trace (the always-on event record carries no
-  `:source`). Both remain asserted verbatim in the dev arm.
+  ONE claim in the corpus has NO production counterpart and is dev-only by
+  design: the `:source :ssr-hydration` slot on a `run-start` trace (the
+  always-on event record carries no `:source`). It remains asserted
+  verbatim in the dev arm.
+
+  `:rf.ssr/hydration-mismatch` WAS a second such claim and is NOT one any
+  more (rf2-tildz). It is no longer emitted solely through
+  `trace/emit-error!`: `verify-hydration!` now also fans a
+  structural-only always-on record, so the CATEGORY has a production
+  counterpart. What stays dev-only is this corpus's CLAIM SHAPE rather
+  than the category — `spec/conformance/fixtures/ssr-hydration-mismatch.edn`
+  asserts a `:trace-emissions` row, and the trace bus is still DCE'd under
+  `goog.DEBUG=false`, so the claim goes on being asserted in the dev arm
+  alone. Do not read this paragraph as saying the mismatch is invisible in
+  production; it says the conformance corpus watches the dev channel.
 
   ## Capability claim
 
