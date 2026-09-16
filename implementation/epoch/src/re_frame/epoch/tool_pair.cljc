@@ -1658,7 +1658,11 @@
   "The off-box-body-bearing tag-slot PATH(S) per `:rf.http/*` operation —
   the slots an `:rf.http/off-box-body :omit` stamp omits off-box:
 
-   - `:rf.http/replied`        — the decoded body at `[:value]`;
+   - `:rf.http/replied`        — the SUCCESS reply's decoded body at `[:value]`,
+     and a FAILURE reply's body nested under its failure map at `[:error :body]`
+     / `[:error :body-text]` / `[:error :decoded]` (rf2-kiepc — a failure lowers
+     through the SAME reply envelope, so this one operation row carries both
+     shapes; the emit site stamps the disposition for whichever is present);
    - `:rf.http/accept-failure` — the pre-`:accept` decoded body at `[:decoded]`;
    - `:rf.http/http-4xx` / `:rf.http/http-5xx` — the raw response body at
      `[:body]`;
@@ -1667,8 +1671,8 @@
      `[:failure :body]` / `[:failure :body-text]`.
 
   A vector of slot PATHS (each a `get-in`/`assoc-in` path) so an operation
-  whose body can ride in more than one slot (retry-attempt) is covered with
-  one general rule rather than a per-slot special case.
+  whose body can ride in more than one slot (replied, retry-attempt) is covered
+  with one general rule rather than a per-slot special case.
 
   The five PRODUCTION-REAL operation rows (`:rf.http/replied`,
   `:rf.http/accept-failure`, `:rf.http/http-4xx`, `:rf.http/http-5xx`,
@@ -1696,7 +1700,10 @@
   read once at load and a prod process simply omits the row. A retry-attempt
   record only ever exists in a debug build anyway, so omitting its row under
   prod is unreachable, not a fail-open."
-  (cond-> {:rf.http/replied        [[:value]]
+  (cond-> {:rf.http/replied        [[:value]
+                                    [:error :body]
+                                    [:error :body-text]
+                                    [:error :decoded]]
            :rf.http/accept-failure [[:decoded]]
            :rf.http/http-4xx       [[:body]]
            :rf.http/http-5xx       [[:body]]
