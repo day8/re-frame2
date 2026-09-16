@@ -808,3 +808,72 @@
         (is (nil? (get-in (rf.resources.mutation-runtime/restore-before rdb disp)
                           (rf.resources.state/entry-path article-key)))
             "the seeded key is removed, exactly as before")))))
+
+;; ===========================================================================
+;; 6. An optimistic SEED the reply does not cover ARMS ITS GC TIMER (rf2-6gzdb)
+;; ===========================================================================
+
+(deftest optimistic-seed-uncovered-by-the-reply-arms-its-gc-timer
+  ;; rf2-6gzdb — THE DEFECT, mechanism 2, and the one that regresses silently.
+  ;;
+  ;; An optimistic SEED (`:forward :seed` — a patch over an ABSENT entry) creates
+  ;; a brand-new cache entry back at execute time, phase 1.5. No read path ever
+  ;; touched that key, so nothing armed its advisory stale / GC timers, and the
+  ;; entry is OWNERLESS: a mutation seeded it, no view ensured it.
+  ;;
+  ;; When the success reply's authoritative `:patches` / `:populates` /
+  ;; `:removes` COVER the key, the settle's ordinary timer arming reaches it.
+  ;; When they do NOT — the common shape for a create-mutation that seeds a
+  ;; detail key the server response does not echo back — the entry used to
+  ;; settle owner-free carrying a durable `:stale-at` / `:gc-after-ms` policy
+  ;; and NO armed reaper, and was collected only by luck: nothing else in the
+  ;; system will ever visit that key again. That is unbounded per-frame cache
+  ;; growth on a production path, and it is the mutation-side peer of rf2-ar9pcx
+  ;; / rf2-kz5op1, which closed the same leak on the resource read path's
+  ;; first-load `:error` and abort settles.
+  (let [armed (atom [])]
+    (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ args] (swap! armed conj args) nil))
+    (rf/reg-resource :r/detail
+      {:scope          :rf.scope/global
+       :params-schema  [:map [:id :string]]
+       :stale-after-ms 60000
+       :gc-after-ms    120000
+       :tags           (fn [{:keys [id]} _] #{[:detail id]})}
+      (fn [{:keys [id]} _] {:request {:method :get :url (str "/d/" id)}}))
+    ;; a create-mutation: it SEEDS the detail key optimistically, and its reply
+    ;; declares NO :patches / :populates / :removes at all — so the seeded key is
+    ;; never in `authoritative-keys`.
+    (rf/reg-mutation :m/create
+      {:scope         :rf.scope/global
+       :params-schema [:map [:id :string]]
+       :optimistic    (fn [{:keys [id]}]
+                        {{:resource :r/detail :params {:id id} :scope :rf.scope/global}
+                         (fn [_absent] {:detail {:id id :pending true}})})}
+      (fn [_params _ctx] {:request {:method :post :url "/d"}}))
+    (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :r/detail {:id "7"})]
+      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/create :params {:id "7"}
+                                               :instance :c1}])
+      ;; PRECONDITIONS — without these the timer claim below is satisfied by a
+      ;; run in which nothing was ever seeded.
+      (is (some? (entry k))
+          "precondition: the optimistic apply SEEDED an entry at execute time")
+      (is (= [:seed] (mapv :forward (:rollback (patch-summary :c1))))
+          "precondition: and recorded it as a :seed forward, not a :patch")
+      ;; only the SETTLE's arming is under test; drop anything execute armed.
+      (reset! armed [])
+      (reply-success! @last-managed-args {:id "7"})
+      (let [ps (patch-summary :c1)]
+        (is (and (empty? (:patched ps)) (empty? (:populated ps)) (empty? (:removed ps)))
+            "precondition: the reply covers the seeded key with NO authoritative
+             write, which is the whole point — a covered key was never the leak"))
+      (is (some? (entry k)) "the seeded entry survives the settle")
+      (is (empty? (:active-owners (entry k)))
+          "and is OWNERLESS — GC fodder, collectable only if a reaper is armed")
+      (testing "the uncovered seeded key arms its GC timer from the resource's policy"
+        (let [for-k (filterv #(= k (:resource/key %)) @armed)]
+          (is (= 1 (count for-k))
+              "exactly one :rf.resource/schedule-timers fx for the seeded key")
+          (is (= 120000 (-> for-k first :timers :gc))
+              "carrying the resource's :gc-after-ms — the reaper that was missing")
+          (is (= 60000 (-> for-k first :timers :stale))
+              "and its :stale-after-ms, exactly as a fetched entry would arm"))))))
