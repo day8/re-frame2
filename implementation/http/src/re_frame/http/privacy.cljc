@@ -376,9 +376,16 @@
   redacts URL query-string values whose param name is in the query-
   param denylist (rf2-2p8wr) — denylisted param names are the signal.
 
-  rf2-ee38b.7 — public for direct test assertion only; production reaches
-  redaction via `prepare-emit-failure` (which uses the `*-with-flag`
-  form). No production caller invokes this non-flag wrapper."
+  rf2-ee38b.7 — public for direct test assertion; most production emit sites
+  reach redaction via `prepare-emit-failure` (which uses the `*-with-flag`
+  form to drive its own `:sensitive?` stamping decision).
+
+  rf2-kiepc — ONE production caller invokes this non-flag wrapper:
+  `http-transport/emit-reply-trace!`, redacting the failure map that a
+  failure / cancelled reply seats at `:error`. It wants the redaction
+  without the URL-hit flag — that row's `:sensitive?` is resolved from the
+  request and forwarded to `trace-reply` as the wire-slot force-redact
+  opt, so there is no tags-level stamp here for the flag to feed."
   ([failure sensitive?] (redact-failure failure sensitive? nil))
   ([failure sensitive? carriers]
    (when failure

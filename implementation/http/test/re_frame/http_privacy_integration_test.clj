@@ -638,6 +638,73 @@
         (finally
           (stop-server! srv))))))
 
+(deftest replied-trace-redacts-denylisted-headers-in-the-failure-error-slot
+  (testing "rf2-kiepc — a FAILED request's :rf.http/replied row seats the
+            classified failure map VERBATIM at :error, so its denylisted
+            response headers (set-cookie / www-authenticate) must be redacted
+            THERE on the trace, not only on the :rf.http/http-4xx category row.
+            Spec 014 §Privacy rule 1 is always-on — 'regardless of the
+            effective :sensitive? flag' — so this fires on the ORDINARY
+            request below, which declares no :sensitive? anywhere. The
+            DELIVERED reply keeps everything raw (on-box app data), and the
+            raw error body is stamped :omit for the off-box projector
+            (§Response-body classification Rule 4)"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (let [hs (.getResponseHeaders ex)]
+                    (.set hs "Set-Cookie"       "session=SECRET-COOKIE; Path=/")
+                    (.set hs "WWW-Authenticate" "Bearer realm=\"SECRET-REALM\"")
+                    (.set hs "X-Request-Id"     "req-42"))
+                  (write-response! ex 403 "text/plain" "forbidden: echoes-token-SECRET")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (rf.trace.tooling/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event :api/guarded-load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request  {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/guarded")}
+                      :reply-to [:api/guarded-load msg]}]]})))
+
+        (rf/dispatch-sync [:api/guarded-load])
+
+        (let [[db ev] (await-reply-and-replied-trace! captured)]
+          (testing "the DELIVERED failure reply rides raw — the caller's own response"
+            (is (= "session=SECRET-COOKIE; Path=/"
+                   (find-header (get-in db [:reply :error :headers]) "Set-Cookie"))
+                "Set-Cookie reaches APP code unredacted on the failure reply")
+            (is (= "forbidden: echoes-token-SECRET" (get-in db [:reply :error :body]))
+                "the raw error body reaches APP code verbatim"))
+
+          (testing "the trace surface redacts the denylisted names in the :error slot"
+            ;; THE PIN (rf2-kiepc). Against the unfixed tree this read the raw
+            ;; cookie: `emit-reply-trace!` ran only `redact-response-meta`,
+            ;; which touches `[:meta :headers]` and never the failure map.
+            (is (= :rf/redacted (get-in ev [:tags :error :headers "set-cookie"]))
+                "set-cookie is redacted on the :rf.http/replied failure row")
+            (is (= :rf/redacted (get-in ev [:tags :error :headers "www-authenticate"]))
+                "www-authenticate is redacted on the same row")
+            (is (not (str/includes? (pr-str (:tags ev)) "SECRET-COOKIE"))
+                "the raw cookie value survives nowhere in the emitted tags")
+            (is (not (str/includes? (pr-str (:tags ev)) "SECRET-REALM"))
+                "the raw www-authenticate value survives nowhere in the emitted tags")
+            (is (= "req-42" (find-header (get-in ev [:tags :error :headers]) "X-Request-Id"))
+                "an ordinary response header stays useful on the on-box trace"))
+
+          (testing "the raw error body is stamped for the off-box projector"
+            (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
+                "raw 4xx body stamped :omit on the replied row too")
+            (is (= "forbidden: echoes-token-SECRET" (get-in ev [:tags :error :body]))
+                "on-box the raw error body still rides for the local operator")
+            (is (nil? (get-in ev [:tags :sensitive?]))
+                "no per-call :sensitive? was set — this redaction is unconditional")))
+        (finally
+          (stop-server! srv))))))
+
 (deftest decode-failure-stamps-off-box-omit-on-raw-body-text
   (testing "rf2-t55hxg.10 — a :rf.http/decode-failure (a 200 whose body fails
             the :decode) carries the raw text at :body-text; it is UNSCHEMATIZED

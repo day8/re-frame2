@@ -403,8 +403,10 @@
     ;; `:decode` (`:auto` / `:json` / `:text` / binary / custom fn) is a
     ;; no-op here — its body is governed by the per-call `:sensitive?` flag on
     ;; the dev trace (and by the off-box fail-closed disposition for captures).
-    ;; Only the success status carries a decoded body; failure / cancel carry
-    ;; `:error`, untouched here. The schema's per-slot marks now cover BOTH
+    ;; Only the success status carries a DECODED body; failure / cancel carry
+    ;; the classified failure map at `:error`, which gets its own family
+    ;; redaction below (rf2-kiepc) rather than this schema pass — its body is
+    ;; raw and unschematized by construction. The schema's per-slot marks cover
     ;; `:sensitive?` (→ `:rf/redacted`) and `:large?` (→ `:rf.size/large-elided`)
     ;; through the shared marks walker.
     (let [reply' (if (and (= :ok (:status reply))
@@ -421,7 +423,30 @@
           ;; summary walk, matching the failure-map `:headers` posture.
           ;; Per-call `:sensitive?` then force-redacts the whole `:meta`
           ;; wire slot via `trace-reply` below, as for every wire slot.
-          reply' (rf.http.privacy/redact-response-meta reply')]
+          reply' (rf.http.privacy/redact-response-meta reply')
+          ;; rf2-kiepc — an `:error` / `:cancelled` reply seats the
+          ;; classified `:rf.http/*` failure map VERBATIM under `:error`
+          ;; (`http-reply/failure-reply`), so WITHOUT this step a 4xx/5xx
+          ;; put its response `:headers` — `set-cookie`, `www-authenticate`
+          ;; — on this trace row unredacted, on an ordinary request that
+          ;; never asked for `:sensitive?`. Spec 014 §Privacy rule 1
+          ;; redacts denylisted headers "regardless of the effective
+          ;; `:sensitive?` flag", and §Response-meta states this row's
+          ;; `:headers` posture matches the failure map's — so the failure
+          ;; map runs through the same family redactor every OTHER
+          ;; `:rf.http/*` emit site already uses (`prepare-emit-failure`
+          ;; for `emit-error!`, `prepare-emit-tags` for `retry-attempt`).
+          ;; It also scrubs denylisted query-param values in the failure's
+          ;; `:url` and, when the request IS `:sensitive?`, its body slots.
+          ;; The DELIVERED reply is untouched — `dispatch-failure!` hands
+          ;; the app its own raw `reply`; this redaction is trace-only.
+          failure (:error reply)
+          reply' (if failure
+                   (update reply' :error
+                           rf.http.privacy/redact-failure
+                           (true? (:sensitive? ctx))
+                           (rf.http.privacy/managed-carriers))
+                   reply')]
       ;; Thread the CARRIED frame into the elider opts (EP-0002 — wire-egress
       ;; frame resolves from the carried stamp; HTTP completions fire from the
       ;; transport callback, OUTSIDE any `with-frame` scope, so without an
@@ -438,13 +463,36 @@
       ;; event — so we STAMP the off-box disposition forward under
       ;; `:rf.http/off-box-body`; the off-box trace-events projector
       ;; (`re-frame.epoch.tool-pair`) consults it and omits / classifies the
-      ;; body slot. Only the success status carries a body slot to gate.
+      ;; body slot. BOTH statuses carry a body slot to gate: success at
+      ;; `:value`, failure at `[:error :body]` / `[:error :body-text]` /
+      ;; `[:error :decoded]` (rf2-kiepc).
       (rf.trace/emit! :info :rf.http/replied
                    (cond-> (rf.http.reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
                                                             (:frame ctx) (assoc :frame (:frame ctx))))
                      (= :ok (:status reply))
                      (assoc :rf.http/off-box-body
-                            (rf.http.privacy-body/off-box-body-disposition (:decode ctx))))))))
+                            (rf.http.privacy-body/off-box-body-disposition (:decode ctx)))
+
+                     ;; rf2-kiepc / rf2-t55hxg.10 — the FAILURE arm of the same
+                     ;; off-box fail-closed rule (Spec 014 §Response-body
+                     ;; classification Rule 4). A failure reply's body rides
+                     ;; nested under `:error`, so the slot paths tool-pair omits
+                     ;; are `[:error :decoded]` / `[:error :body]` /
+                     ;; `[:error :body-text]`. This mirrors the stamp the
+                     ;; `emit-error!` site already applies to the SAME failure
+                     ;; map, including its ordering: `:decoded` (an
+                     ;; `:rf.http/accept-failure`'s pre-`:accept` body) rides the
+                     ;; schema disposition, while a RAW error body is
+                     ;; unconditionally `:omit` — unschematized by construction,
+                     ;; since status classification runs before decode — and so
+                     ;; takes precedence when both are somehow present.
+                     (contains? failure :decoded)
+                     (assoc :rf.http/off-box-body
+                            (rf.http.privacy-body/off-box-body-disposition (:decode ctx)))
+
+                     (or (contains? failure :body)
+                         (contains? failure :body-text))
+                     (assoc :rf.http/off-box-body :omit))))))
 
 (defn emit-superseded-stale-trace!
   "Emit the canonical `:status :stale` /
