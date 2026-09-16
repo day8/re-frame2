@@ -445,7 +445,9 @@ re-run re-reads them at step 1.
 - **Comparative ergonomic advantage.** Measured 2026-09-14 by rf2-a1v8a on
   Story and on Storybook 10.6 against one planted defect (the login submit
   drops the email); the tallies, transcripts and controls are in
-  [`findings/parity-2026-09/fable/advantage-measured-2026-09-14.md`](findings/parity-2026-09/fable/advantage-measured-2026-09-14.md).
+  [`findings/parity-2026-09/fable/advantage-measured-2026-09-14.md`](findings/parity-2026-09/fable/advantage-measured-2026-09-14.md);
+  journey 3's re-run is
+  [`findings/parity-2026-09/fable/journey3-rerun-2026-09-16.md`](findings/parity-2026-09/fable/journey3-rerun-2026-09-16.md).
   No journey is an ergonomic win yet, so the surplus
   [§7](#7-the-current-reading) reports is still structural:
   - Explore, retain, strengthen: both caught the defect; Story took 26
@@ -454,9 +456,16 @@ re-run re-reads them at step 1.
     action and the data it produced without opening the source, but reaching
     it took 5 gestures and 2 wrong turns against 3.
   - Human-named state to agent to verified revision: Storybook closed the loop
-    through its MCP addon in 7 steps; on Story it could not run from the
-    measuring session (the testbed is CLJS-only and no browser transport was
-    registered).
+    through its MCP addon in 7 steps. Story's side was re-run at trunk
+    `7c6afb1b8c` (2026-09-16, rf2-z06wh) once the flagship testbed became
+    `.cljc`: the JVM host now holds the subject, the host decision resolves on
+    the rule's first line, and seven agent steps complete — but the journey
+    stops at the run, which reports `:pass` under the planted defect because
+    the flagship's variants assert terminal state only and the defect does not
+    move the state. No repair is provoked, so no verified revision is produced.
+    A control extending the flagship with one `:rf.assert/sub-equals` on the
+    greeted email reads fail / pass / fail, so the defect is observable on that
+    host and is simply unasserted.
 
 ## Appendix A. The number
 
