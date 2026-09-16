@@ -530,6 +530,13 @@ file rather than noting it.
 
 - **A measured constant that has gone stale.** The check-count band is the standing example: written
   down, moving, and stale exactly where it has to be right.
+- **A disposition you have reported more than once.** A conclusion you keep restating is a rule you
+  are *enforcing*, so the second axis above owns it — but your own last report is not among the
+  things this loop rereads, so nothing brings it round. **Re-run the test rather than re-reading your
+  own report**, and treat a report that CITES the rule which would refute it as the dangerous case
+  rather than the safe one: naming the right authority is not applying it, and the citation is what
+  makes the text read as rigorous. **The discharging question is whether you can state the check you
+  made THIS pass** — if what you can quote is your own last report, you carried the conclusion.
 - **An unsatisfiable quantifier** — *"every gate prints X"* when a third do not. Workers facing one do
   not stop; they improvise, and the improvisation varies.
 - **A block that has diverged from the command file that pastes it.**
