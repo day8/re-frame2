@@ -407,14 +407,106 @@
   (re-pattern (str "(?:emit-error-both!|dispatch-on-error!)\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
+(def ^:private always-on-record-mechanism-re
+  "The THIRD always-on chokepoint: `dispatch-error-record!` (rf2-tildz).
+
+  `emit-error-both!` / `dispatch-on-error!` above take their category as a
+  POSITIONAL first argument. `dispatch-error-record!` does not — it takes a
+  PRE-BUILT union record, so the category is the value of the record's
+  `:error` KEY:
+
+      (rf.error-emit/dispatch-error-record!
+        {:error      :rf.ssr/hydration-mismatch
+         :frame      frame-id
+         …})
+
+  THIS IS WHY THE OBVIOUS EXTENSION IS A NO-OP, and it is worth stating
+  because the no-op reads exactly like coverage. Adding
+  `dispatch-error-record!` to the positional alternation above matches
+  NOTHING: after the fn token comes `{`, never `:rf.…`. Measured over this
+  corpus, that spelling harvested ZERO additional categories — a green
+  scan that had been widened to see nothing at all.
+
+  `:error` is the first key at every literal site, so a bounded window is
+  enough and keeps the scan from wandering into a following form. The
+  window spans newlines because the dominant idiom puts the record on the
+  line after the call. It also reaches the `(assoc tags :error …)` shape
+  that `routing/url_change.cljc` uses.
+
+  `dispatch-frame-teardown-report!` is DELIBERATELY ABSENT, and this is the
+  other half of the same trap. It is an always-on chokepoint, but it takes
+  `[frame-id hook-failures time]` — POSITIONAL, and carrying no category at
+  all. Its category is a constant built INSIDE its own definition
+  (`:rf.error/frame-teardown-failed`), so no call-site scan of any spelling
+  can harvest it, and adding its token here would only look like coverage.
+  That category is pinned instead by
+  `ep0008-promoted-categories-are-present-and-always-on` above, which names
+  it literally, and by `report-categories` in the CLJS conformance
+  companion.
+
+  Same CONSERVATIVE limitation as its siblings: a record whose `:error`
+  value is a VARIABLE (the SSR forwarders in `ssr/boot.cljc`,
+  `ssr/error_projector.cljc`, `ssr/response.cljc` and `ssr-ring/lifecycle.clj`,
+  each of which passes a record built by its caller) is not captured.
+  Literal-only stays literal-only: it under-reports, never false-positives."
+  (re-pattern (str "dispatch-error-record!(?:[\\s\\S]{0,64}?):error\\s+"
+                   "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
+
+(def ^:private dev-gated-record-categories
+  "Categories whose ONLY `dispatch-error-record!` sites sit inside a
+  `rf.interop/debug-enabled?` gate, so the always-on MECHANISM does not make
+  them production-reaching and their `diagnostic` Channel cell is CORRECT.
+
+  This set exists because the mechanism scan is a TEXT scan: it can see that
+  an always-on fn was called, but not that the call sits behind a debug gate.
+  Wrapping an always-on chokepoint in a debug gate is rare but deliberate —
+  it is how a site keeps a bounded record's UNBOUNDED prose off the
+  production axis while still using the union-record shape.
+
+  `:rf.error/malformed-schema` is the whole of it, at two sites, and NEITHER
+  reaches production:
+
+    * `core/router.cljc` — the candidate-transition validator's catch, whose
+      `dispatch-error-record!` is directly wrapped in
+      `(when rf.interop/debug-enabled? …)` because its `:reason` interpolates
+      the boundary name.
+    * `schemas/validate.cljc` — `emit-malformed-schema-rejection-record!`,
+      called only from `validate-app-schema!`, whose OUTERMOST form is
+      `(if rf.interop/debug-enabled? … true)`. The gate is in a DIFFERENT fn
+      from the call, which is exactly why no backwards text scan can find it.
+
+  Kept honest by `dev-gated-record-list-stays-honest` below: if a listed
+  category stops being harvested by the record scan, or becomes catalogued
+  `always-on`, the entry must be dropped in the same commit. That stops the
+  set rotting into a blanket suppression of the very drift this gate exists
+  to catch."
+  #{:rf.error/malformed-schema})
+
 (defn- always-on-mechanism-categories
-  "The SET of categories passed as a LITERAL first arg to `emit-error-both!`
-  / `dispatch-on-error!` anywhere in non-test runtime source — the categories
-  the code fans onto the always-on axis regardless of their catalogue Channel
-  cell (rf2-h4f0n)."
+  "The SET of categories the code fans onto the always-on axis regardless of
+  their catalogue Channel cell — the union of the POSITIONAL chokepoints
+  (`emit-error-both!` / `dispatch-on-error!`, rf2-h4f0n) and the
+  RECORD-shaped one (`dispatch-error-record!`, rf2-tildz), less the
+  `dev-gated-record-categories` whose only record sites are debug-gated.
+
+  Passing a category literally to any of these reaches off-box shippers from
+  an `:advanced` + `goog.DEBUG=false` build, whatever the catalogue says."
+  []
+  (let [scan (fn [re]
+               (->> (rf.impl-source-corpus/non-test-source-files)
+                    (mapcat (fn [f] (map second (re-seq re (slurp f)))))
+                    (map (fn [s] (keyword (subs s 1))))
+                    set))]
+    (set/difference (set/union (scan always-on-mechanism-re)
+                               (scan always-on-record-mechanism-re))
+                    dev-gated-record-categories)))
+
+(defn- always-on-record-mechanism-categories
+  "The record-scan arm alone, unfiltered — what
+  `dev-gated-record-list-stays-honest` grades its entries against."
   []
   (->> (rf.impl-source-corpus/non-test-source-files)
-       (mapcat (fn [f] (map second (re-seq always-on-mechanism-re (slurp f)))))
+       (mapcat (fn [f] (map second (re-seq always-on-record-mechanism-re (slurp f)))))
        (map (fn [s] (keyword (subs s 1))))
        set))
 
@@ -802,13 +894,43 @@
                               (remove #(= "always-on" (channel-by-cat %)))
                               sort)]
       (is (empty? not-always-on)
-          (str "categories emitted through the always-on mechanism "
-               "(emit-error-both! / dispatch-on-error!) whose Spec 009 "
-               "catalogue row is NOT `always-on` (rf2-h4f0n): "
+          (str "categories emitted through an always-on mechanism "
+               "(emit-error-both! / dispatch-on-error! / "
+               "dispatch-error-record!) whose Spec 009 "
+               "catalogue row is NOT `always-on` (rf2-h4f0n, rf2-tildz): "
                (pr-str (mapv (juxt identity channel-by-cat) not-always-on))
                " — either graduate the row to `always-on` (and add the "
                "category to the exercise literal in the same commit) or "
-               "demote the emission to the trace-only fns.")))))
+               "demote the emission to the trace-only fns. If the site is "
+               "deliberately wrapped in a `debug-enabled?` gate, it belongs "
+               "in `dev-gated-record-categories` with its rationale.")))))
+
+(deftest dev-gated-record-list-stays-honest
+  (testing "Per rf2-tildz: every entry in `dev-gated-record-categories` must
+            STILL be harvested by the record scan AND must STILL be absent
+            from the catalogue's always-on set. The set suppresses a real
+            always-on MECHANISM on the grounds that its only sites are
+            debug-gated, so it is exactly the shape that rots into a blanket
+            suppression of the drift this gate exists to catch. Both drifts
+            fail here, forcing the co-edit: a category that stopped being
+            emitted through the record mechanism no longer needs the
+            exemption, and one that has since been graduated to `always-on`
+            must be governed by the check rather than hidden from it."
+    (let [harvested  (always-on-record-mechanism-categories)
+          always-on  (->> (parse-catalogue)
+                          (filter #(= "always-on" (:channel %)))
+                          (map :category)
+                          set)
+          stale      (set/difference dev-gated-record-categories harvested)
+          graduated  (set/intersection dev-gated-record-categories always-on)]
+      (is (empty? stale)
+          (str "dev-gated-record-categories entries no longer emitted through "
+               "`dispatch-error-record!` at all — drop them (rf2-tildz): "
+               (pr-str (sort stale))))
+      (is (empty? graduated)
+          (str "dev-gated-record-categories entries whose catalogue row is NOW "
+               "`always-on` — drop them so the mechanism check governs them "
+               "(rf2-tildz): " (pr-str (sort graduated)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The TAGS-COLUMN arm (rf2-6tags) — the catalogue's sixth column against the
