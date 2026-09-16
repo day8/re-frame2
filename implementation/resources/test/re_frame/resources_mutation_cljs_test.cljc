@@ -559,9 +559,12 @@
                 the active-owner article resource was refetched (a new managed
                 GET lowered, the entry back in flight)"
         (let [e (entry rkey)]
-          ;; the active-owner entry refetched: it is in flight again
-          ;; (:invalidated-at was cleared by the refetch's start-load), and a
-          ;; fresh managed-HTTP GET was lowered.
+          ;; the active-owner entry refetched: it is in flight again, and a
+          ;; fresh managed-HTTP GET was lowered. rf2-ifzg4 — :invalidated-at
+          ;; is NOT cleared by the refetch's start-load; it stands until a
+          ;; SUCCESSFUL settle satisfies it, so this entry reads stale while
+          ;; the refetch is in flight (stale-while-revalidate, Spec 016
+          ;; §Status semantics) and would survive a refetch that 5xx'd.
           (is (contains? #{:loading :fetching} (:status e)) "entry refetching")
           (is (some? @last-managed-args) "a refetch GET was lowered")
           (is (= {:method :get :url "/a/w"} (:request @last-managed-args))))))))
@@ -834,8 +837,10 @@
     (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
     ;; ensure WITHOUT an owner so the invalidation leaves the matched entry
     ;; stale (an ownerless entry is left stale / GC-eligible, NOT refetched —
-    ;; so :invalidated-at stays observable rather than being cleared by a
-    ;; refetch's start-load).
+    ;; so the :invalidated-at fact is observed with no refetch in play at all).
+    ;; rf2-ifzg4 — a refetch would no longer clear it at start-load either;
+    ;; only a SUCCESSFUL settle satisfies an invalidation. The ownerless setup
+    ;; is kept because it isolates the timing fact under test.
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"}}])

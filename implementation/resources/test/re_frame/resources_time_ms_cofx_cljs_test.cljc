@@ -160,9 +160,15 @@
   (testing "rf2-601ife: the invalidate-tags handler reads the DELIVERED FLAT
             `:rf/time-ms` for the durable :invalidated-at. An OWNERLESS entry
             is left-stale (an active-owner entry would refetch, transitioning
-            to :fetching and clearing :invalidated-at — correct framework
-            behaviour, not the fact under test), so the durable :invalidated-at
-            persists and pins the causal time."
+            to :fetching — correct framework behaviour, not the fact under
+            test), so the durable :invalidated-at persists and pins the causal
+            time.
+
+            rf2-ifzg4: that refetch no longer CLEARS :invalidated-at when it
+            starts — only a SUCCESSFUL settle does, so a failed or aborted
+            refetch leaves the invalidation standing. The ownerless setup is
+            kept because it pins the causal time with no settle in play at
+            all."
     (rf/reg-resource :tm/inv (article-spec) article-spec-request)
     (let [scoped-key     (rf.resources.state/scoped-resource-key :rf.scope/global :tm/inv {:slug "w"})
           loaded-at      1781000000000
