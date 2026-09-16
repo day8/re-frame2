@@ -63,6 +63,61 @@
           (str "Fixture literals must be pairwise distinct — got "
                (pr-str literals))))))
 
+;; ---- host-divergent printer cases (rf2-k0hqk) -----------------------------
+;;
+;; The `whole-number-double` fixture rides in `all-fixtures` above, so
+;; the cross-host literal is asserted by
+;; `cljs-digest-matches-canonical-literal`. THAT assertion is the whole
+;; parity claim for the double case: the JVM pins the same string over a
+;; genuine `1.0`, so a green here and a green there together say the two
+;; hosts agree. This host cannot assert the fixture still carries a
+;; double — it has one numeric type and the reader collapsed `1.0` to 1
+;; before the fixture was built — so the precondition that keeps the
+;; input honest is the JVM-side `float?` check, deliberately not
+;; duplicated here where it could only ever be vacuous.
+
+(deftest cljs-whole-number-double-fixture-is-integer-valued
+  (testing "rf2-k0hqk — what this host CAN check: the fixture's `:min`
+            still denotes the whole number the shared literal was pinned
+            over. On CLJS `1.0` and `1` are one value, which is exactly
+            why the JVM's `1.0` had to be normalised towards the integer
+            rather than the other way about."
+    (let [m (rf.schemas.digest-parity-fixtures/whole-number-double-min)]
+      (is (number? m))
+      (is (== 1 m))
+      (is (integer? m)
+          "CLJS reads the fixture's `1.0` source literal as an integer —
+           the divergence itself, stated as an assertion"))))
+
+(deftest cljs-fn-bearing-schema-digest-is-process-stable
+  (testing "rf2-k0hqk — a schema carrying a bare predicate must serialise
+            to a name-derived token rather than the host's `#object[…]`
+            print. The properties asserted here are the same ones the JVM
+            side asserts, over the same fixture, computed in the shared
+            fixtures namespace — but NOT the same bytes: this host names
+            the function `cljs$core$pos_int_QMARK_` where the JVM names it
+            `clojure.core$pos_int_QMARK_`, and `:advanced` munges it again.
+            So a fn-bearing schema is process-stable per host and is NOT
+            cross-runtime reproducible, which is why no shared literal is
+            pinned for it and why Spec 010 §Digest algorithm says so in
+            normative prose."
+    (is (rf.schemas.digest-parity-fixtures/fn-bearing-carries-fn?)
+        "precondition: the fixture schema must still carry a function")
+    (let [{:keys [bytes other-predicate-bytes address-free? object-print-free?
+                  carries-fn-token? stable-across-reads? discriminates-predicates?]}
+          (rf.schemas.digest-parity-fixtures/fn-bearing-observations)]
+      (is address-free?
+          (str "no per-process address may ride in the digest bytes — got " (pr-str bytes)))
+      (is object-print-free?
+          (str "the canonicaliser, not `pr-str`, must produce these bytes — got " (pr-str bytes)))
+      (is carries-fn-token?
+          (str "a function must canonicalise to its `#fn[…]` token — got " (pr-str bytes)))
+      (is stable-across-reads?
+          "the bytes must not move between serialisations of the same schema")
+      (is discriminates-predicates?
+          (str "two different predicates must still digest differently — "
+               (pr-str bytes) " vs " (pr-str other-predicate-bytes))))))
+
 ;; ---- ambient printer limits (rf2-gwye.14) ---------------------------------
 
 (deftest cljs-printer-limits-never-reach-digest-bytes

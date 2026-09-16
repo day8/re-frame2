@@ -32,7 +32,8 @@
   were repinned when the path-key encoding moved to `canonical-bytes`; the
   empty-set literal (`sha256:e3b0c44298fc1c14`) is unchanged because the
   empty schema set emits no path-key line."
-  (:require [re-frame.schemas.digest]
+  (:require [clojure.string :as str]
+            [re-frame.schemas.digest]
             [re-frame.schemas.validator]))
 
 ;; ---- the parity test entry point ------------------------------------------
@@ -129,6 +130,121 @@
               `not= digest` invariant for the keyword-primitive
               surface."})
 
+;; ---- host-divergent PRINTER cases (rf2-k0hqk) -----------------------------
+;;
+;; Two scalar kinds did not survive `pr-str` deterministically, and both
+;; faked the SSR hydrate handshake's `:rf.ssr/schema-digest-mismatch`
+;; warning ("Deploy drift … Hydrating anyway") against byte-identical
+;; code:
+;;
+;;   * a FUNCTION — `[:map [:n pos-int?]]`, the idiom Spec 010's how-to
+;;     recommends — printed on the JVM as `#object[clojure.core$pos_int_
+;;     QMARK_ 0x3aefae67 "…@3aefae67"]`, and that address is
+;;     `System/identityHashCode`, a fresh value in every process. The
+;;     digest therefore moved on every server restart.
+;;   * a WHOLE-NUMBER DOUBLE — `{:min 1.0}` — printed `1.0` on the JVM
+;;     and `1` on CLJS, which has one numeric type and cannot tell the
+;;     two apart.
+;;
+;; THE TWO ARE NOT THE SAME KIND OF DEFECT, and the fixtures below are
+;; shaped by that difference rather than by symmetry.
+;;
+;; The double case is a genuine cross-runtime disagreement that the
+;; printer fix REMOVES — after it the two hosts agree — so it earns a
+;; shared pinned literal in `all-fixtures` beside every other cross-host
+;; vector.
+;;
+;; The fn case cannot have one. The token is derived from the HOST's own
+;; name for the function (`clojure.core$pos_int_QMARK_` on the JVM,
+;; `cljs$core$pos_int_QMARK_` on CLJS, munged again to something
+;; build-specific under `:advanced`), so the fix buys per-host PROCESS
+;; STABILITY and not cross-runtime identity. A shared literal for it
+;; would be a fixture that cannot pass on both hosts. What IS assertable
+;; on both — and is what `fn-bearing-observations` reports — is that the
+;; bytes carry a name-derived token rather than an address, are stable
+;; across serialisations, and still tell two different predicates apart.
+;; Spec 010 §Digest algorithm carries the same split as normative prose.
+
+(def whole-number-double
+  {:label     "whole-number-double"
+   :input     {[:n] [:int {:min 1.0 :max 10.0}]}
+   :expected  "sha256:256998dfe0d8dc71"
+   :rationale "rf2-k0hqk — whole-number doubles in a schema props map.
+              `pr-str` of `1.0` is \"1.0\" on the JVM and \"1\" on CLJS,
+              so this ordinary Malli prop digested differently on the two
+              hosts and faked Deploy drift. The canonical form emits the
+              integer the value denotes — the only direction that can
+              agree, since CLJS cannot spell a `.0` suffix for a value it
+              does not distinguish from an integer — so this literal is
+              reachable from both runtimes. The CLJS reader collapses the
+              `1.0` source literal to 1 before the fixture is even built;
+              that IS the divergence, not a weakness of the fixture, and
+              the JVM-side precondition (`whole-number-double-min` read
+              back through `float?`) is what keeps this input honest
+              about the kind it carries."})
+
+(defn whole-number-double-min
+  "The `:min` prop of `whole-number-double`'s schema, read back OUT of
+  the fixture rather than restated, so a precondition assertion cannot
+  drift from the input it guards. The JVM test asserts this is really a
+  floating-point value — without that, editing the fixture's `1.0` to `1`
+  would leave a green test exercising nothing."
+  []
+  (-> (:input whole-number-double) (get [:n]) (nth 1) :min))
+
+(def fn-bearing-schema
+  "A schema carrying a bare predicate FUNCTION — the idiom Spec 010's
+  how-to recommends, and the shape whose digest was not process-stable
+  at all before rf2-k0hqk."
+  [:map [:n pos-int?]])
+
+(def fn-bearing-other-schema
+  "The same shape under a DIFFERENT predicate. Pinning that these two
+  digest differently is what stops the fn defect being 'fixed' by
+  collapsing every function to one constant token: that would make the
+  hosts agree, and would silently stop the digest detecting a predicate
+  swap — which is the drift detection the surface exists for."
+  [:map [:n neg-int?]])
+
+(defn fn-bearing-carries-fn?
+  "Precondition — true iff `fn-bearing-schema` still holds a FUNCTION
+  where the fixture expects one. `fn?` rather than `ifn?` on purpose:
+  CLJS keywords and collections are all `ifn?`, so `ifn?` would answer
+  true for a fixture that had drifted to `[:map [:n :int]]` and had
+  stopped exercising this defect entirely."
+  []
+  (fn? (nth (nth fn-bearing-schema 1) 1)))
+
+(defn fn-bearing-observations
+  "Printer bytes and derived properties for the fn-bearing fixtures.
+
+  Every read clears the process-wide print memo first, so a cached
+  string cannot answer for a fresh serialisation — without that,
+  `:stable-across-reads?` would be pinning the memo rather than the
+  canonicaliser. Leaves the memo empty.
+
+  The booleans are computed here rather than in the two test files so
+  both runtimes assert the SAME properties against the same bytes."
+  []
+  (let [read! (fn [schema]
+                (re-frame.schemas.validator/clear-edn-print-cache!)
+                (re-frame.schemas.validator/run-printer schema))
+        bytes (read! fn-bearing-schema)
+        again (read! fn-bearing-schema)
+        other (read! fn-bearing-other-schema)]
+    (re-frame.schemas.validator/clear-edn-print-cache!)
+    {:bytes                     bytes
+     :other-predicate-bytes     other
+     ;; The token is name-derived, so no per-process address rides in it.
+     :address-free?             (nil? (re-find #"0x[0-9a-f]+" bytes))
+     ;; `#object[…]` is the pre-fix host print — its absence is the
+     ;; legible statement that the canonicaliser, not `pr-str`, produced
+     ;; these bytes.
+     :object-print-free?        (not (str/includes? bytes "#object"))
+     :carries-fn-token?         (str/includes? bytes "#fn")
+     :stable-across-reads?      (= bytes again)
+     :discriminates-predicates? (not= bytes other)}))
+
 (def all-fixtures
   "All canonical fixtures in label-order. Test files iterate this list
   so adding a fixture requires no edits to the per-runtime test code."
@@ -138,7 +254,8 @@
    multi-schema
    nested-paths
    with-props
-   primitive-bool])
+   primitive-bool
+   whole-number-double])
 
 ;; ---- invariant fixtures (input pairs that MUST hash identically) ---------
 ;;
