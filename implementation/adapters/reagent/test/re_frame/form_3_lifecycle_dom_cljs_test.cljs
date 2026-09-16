@@ -122,12 +122,23 @@
          ;; only when Reagent really destroys the owner. In particular, it
          ;; does NOT release during StrictMode's transient class
          ;; will-unmount/did-mount replay.
+         ;;
+         ;; NO HAND RELEASE HERE, SINCE rf2-ty246 — and the absence is the
+         ;; point of the recipe, not an omission. This acquisition happens in
+         ;; the RENDER PHASE, so the adapter holds one reference per (owning
+         ;; reaction, slot) and releases it when this render owner disposes.
+         ;; The `(rf/unsubscribe frame render-query)` that used to sit in this
+         ;; `finally` was a SECOND release of that one reference: invisible
+         ;; while a single owner held the slot, and a premature disposal as
+         ;; soon as a sibling held the same query — which is exactly the
+         ;; two-owner shape this very test mounts. The `:render-release`
+         ;; marker stays, because the assertions below count render-owner
+         ;; teardowns and that has not changed.
          (r/with-let [render-reaction (subscribe render-query)]
            (let [value @render-reaction]
              (record! :render {:value value})
              [:div {:data-form-3-instance (name instance-id)} (str value)])
            (finally
-             (rf/unsubscribe frame render-query)
              (record! :render-release {}))))
 
        :component-did-mount
@@ -714,3 +725,89 @@
                   (.catch report!)
                   ;; The single `done`, with nothing after it.
                   (.then (fn [_] (done!)))))))))))
+
+;; ===========================================================================
+;; rf2-ty246 — the interval between two owners of one shared slot
+;; ===========================================================================
+;;
+;; WHY A SEPARATE DEFTEST. `outer-capture-is-instance-and-frame-exact` above
+;; already mounts TWO A instances over ONE shared `render-query` — but it
+;; unmounts them together and samples the cache only after both are gone, so
+;; the interval in which one owner has departed and the other is still reading
+;; is never observed. That interval is the whole of where a double release is
+;; visible: a hand release paired with the render owner's own release walks the
+;; shared slot 2 -> 1 -> 0 and disposes it underneath the surviving sibling,
+;; while a test that samples only after both owners die reads `{}` either way
+;; and passes. The property was named by that test and guarded by neither.
+;;
+;; It is not folded into that scenario because dropping and restoring a sibling
+;; mints extra lifecycle events, and that scenario counts `:will-unmount`
+;; events exactly (`(= 2 (count a-unmounts))`). Keeping the sample separate
+;; leaves its bookkeeping untouched.
+
+(deftest surviving-sibling-keeps-the-shared-slot-when-the-other-owner-goes
+  (testing "rf2-ty246: with two render owners over one shared query, the
+            departure of ONE leaves the slot live and singly-held — the
+            interval the sibling scenario never samples"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test exercises the assertions")
+      (async done
+        (let [act-fn (get-act)]
+          (if-not (fn? act-fn)
+            (do (is true "React act() unavailable in this runner") (done))
+            (let [events  (atom [])
+                  done?   (atom false)
+                  done!   (fn [] (when (compare-and-set! done? false true) (done)))
+                  view-id ::shared-slot-interval
+                  _       (setup-frames-and-subs!)
+                  _       (register-form-3-fixture! view-id events)
+                  view    (rf/view view-id)
+                  root    (rdc/create-root (.createElement js/document "div"))]
+              ;; EVERY SAMPLE IS TAKEN AFTER A SETTLE, deliberately. Stock
+              ;; Reagent defers real render-reaction disposal to a microtask so
+              ;; a StrictMode remount can cancel it, which is why the sibling
+              ;; scenario above can assert that A's render owners "survive until
+              ;; Reagent's real-unmount cleanup" immediately after `unmount`.
+              ;; Sampling the cache synchronously after dropping a child would
+              ;; therefore read the PRE-teardown count and fail for a reason
+              ;; that has nothing to do with the property under test.
+              (-> (js/Promise.resolve
+                    (act-fn #(rdc/render root (sibling-tree frame-a view [:a-one :a-two]))))
+                  (.then (fn [_] (settle-macrotasks 3)))
+                  (.then
+                    (fn [_]
+                      (let [both (cache-state frame-a)]
+                        (is (some? (get both render-query))
+                            (str "precondition: the shared slot exists with both owners "
+                                 "mounted — without it every assertion below would read "
+                                 "nil and pass vacuously; cache: " (pr-str (keys both))))
+                        (is (= 2 (ref-count both render-query))
+                            (str "precondition: two render owners hold two references; got "
+                                 (ref-count both render-query))))
+                      ;; Drop ONE owner: React destroys the :a-one child by key
+                      ;; and leaves :a-two mounted and still reading.
+                      (act-fn #(rdc/render root (sibling-tree frame-a view [:a-two])))
+                      (settle-macrotasks 3)))
+                  (.then
+                    (fn [_]
+                      (let [survivor (cache-state frame-a)]
+                        (is (some? (get survivor render-query))
+                            (str "the shared slot SURVIVES one owner's departure — a nil "
+                                 "here is the departing owner having disposed a slot the "
+                                 "sibling is still reading; cache: "
+                                 (pr-str (keys survivor))))
+                        (is (= 1 (ref-count survivor render-query))
+                            (str "exactly one reference remains, the surviving sibling's; "
+                                 "got " (ref-count survivor render-query))))
+                      (act-fn #(rdc/unmount root))
+                      (settle-macrotasks 3)))
+                  (.then
+                    (fn [_]
+                      (is (nil? (get (cache-state frame-a) render-query))
+                          "the last owner's departure evicts the shared slot")
+                      (done!)))
+                  (.catch
+                    (fn [e]
+                      (is false (str "shared-slot interval scenario rejected: " (pr-str e)))
+                      (try (act-fn #(rdc/unmount root)) (catch :default _ nil))
+                      (done!)))))))))))
