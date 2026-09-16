@@ -43,6 +43,15 @@
       (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "unknown operator shape must fail closed: " (pr-str s))))))
 
+(deftest cljs-local-registry-forms-fail-closed
+  (testing "rf2-amgtr — a Malli local `{:registry ...}` hides its referenced
+            shapes (and their per-slot flags) behind keyword references the
+            walk resolves nowhere, so it fails closed (true) on CLJS too —
+            same classification as the JVM half"
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/local-registry-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
+          (str "local-registry form must fail closed: " (pr-str s))))))
+
 ;; ---- always-on redact-validation-tags (host-agnostic egress parity) -------
 
 (deftest cljs-redact-validation-tags-non-sensitive-literal-rides-verbatim

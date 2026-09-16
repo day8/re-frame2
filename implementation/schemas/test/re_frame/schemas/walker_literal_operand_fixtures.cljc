@@ -74,3 +74,22 @@
   posture for genuinely unknown/unclassifiable operators."
   [[:my/custom-op [:string]]
    [:acme.registry/thing 1 2 3]])
+
+(def local-registry-forms
+  "Schemas carrying a Malli LOCAL `{:registry ...}` on their own props
+  (rf2-amgtr). Every one is walkable at its root and reaches its referenced
+  shapes only through keyword references the pure-data walk resolves nowhere,
+  so each MUST fail CLOSED (true) — pre-fix they all walked to `{}` for both
+  flags and classified NOT opaque, while Malli honoured the `:sensitive?`
+  declared inside the registry.
+
+  The `:registry` key is op-INDEPENDENT (Malli honours it on any vector form),
+  so the classification keys on the PROPS rather than on the op — the `:map`
+  and `:and` entries here are caught by the same branch as the `:schema` one,
+  and the last entry pins that it also fails closed NESTED at depth."
+  [[:schema {:registry {:fixture/user [:map [:pw {:sensitive? true} :string]]}}
+    :fixture/user]
+   [:map {:registry {:fixture/pw [:string {:sensitive? true}]}} [:pw :fixture/pw]]
+   [:and {:registry {:fixture/pw [:string {:sensitive? true}]}} :fixture/pw]
+   [:map [:auth [:schema {:registry {:fixture/user [:map [:pw {:sensitive? true} :string]]}}
+                 :fixture/user]]]])
