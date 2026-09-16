@@ -338,8 +338,12 @@
        reg-flow        rf.core-flows/reg-flow)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Register a route: `(reg-route id
+  `:rf.provenance/ns` — selectable only by the DEFAULT image). DO NOT STAMP
+  `:ns` HERE: routing runs its own authoring guard over bare route-metadata
+  keys and `:ns` is not in the reserved set, so the call is REJECTED loudly
+  with `:rf.error/route-bad-metadata` and nothing is registered. Use the
+  `reg-route` MACRO, whose source-coord capture supplies the provenance,
+  when the route must be image-selectable. Register a route: `(reg-route id
   metadata path)` — `metadata` is the MIDDLE registration-metadata map
   (`:doc`, `:params`, `:on-match`, …); the `path` pattern is the THIRD value
   slot (rf2-wvh95f F1), merged onto the stored route-meta so downstream
@@ -349,8 +353,13 @@
        reg-route       rf.core-routing/reg-route)
      (def ^{:doc "Fn-alias of the `reg-resource` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Register a resource — a named,
+  `:rf.provenance/ns` — selectable only by the DEFAULT image). STAMPING
+  `:ns` DOES NOT HELP HERE: this registration does not forward the caller's
+  metadata map — it builds its own registrar metadata from the canonical
+  spec (`:doc`, `:rf/resource`, `:handler-fn`), so a caller-supplied `:ns`
+  is dropped before the source store sees it and the descriptor is recorded
+  under nil provenance. Use the `reg-resource` MACRO when the registration
+  must be image-selectable. Register a resource — a named,
   cached read of remote/external state: `(reg-resource resource-id metadata
   request-fn)` — `metadata` is the MIDDLE registration-metadata map carrying
   the REQUIRED fail-closed `:scope` policy plus `:params-schema` (and `:doc`,
@@ -362,8 +371,12 @@
        reg-resource    rf.core-resources/reg-resource)
      (def ^{:doc "Fn-alias of the `reg-mutation` macro for HoF / programmatic
   registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Register a mutation — a named,
+  `:rf.provenance/ns` — selectable only by the DEFAULT image). STAMPING
+  `:ns` DOES NOT HELP HERE, as for `reg-resource`: this registration builds
+  its own registrar metadata from the canonical spec (`:doc`,
+  `:rf/mutation`, `:handler-fn`), so a caller-supplied `:ns` is dropped
+  before the source store sees it. Use the `reg-mutation` MACRO when the
+  registration must be image-selectable. Register a mutation — a named,
   causal WRITE to remote state that, on success, invalidates / patches /
   populates cached resource reads: `(reg-mutation mutation-id metadata
   request-fn)` — the `:request` write fn (a Spec 014 managed-HTTP args map)
@@ -447,9 +460,12 @@
   `re-frame.core-ssr/-reg-head` and Spec 011 §Head/meta contract."}
        reg-head        rf.core-ssr/-reg-head)
      (def ^{:doc "Fn-alias of the `reg-http-interceptor` macro for HoF /
-  programmatic registration (no source-coord capture, so no
-  `:rf.provenance/ns` — selectable only by the DEFAULT image
-  unless the metadata stamps `:ns`). Register an HTTP
+  programmatic registration (no source-coord capture). FRAME-OWNED, not
+  image-selected: this writes only the http artefact's own per-frame
+  middleware store, never a registrar entry or a source-store descriptor,
+  so there is nothing for `:select-ns` to match and stamping `:ns` cannot
+  move it into an explicit image — its target is the frame (the `:frame`
+  override below). Register an HTTP
   interceptor on a frame's `:rf.http/managed` middleware chain:
   `(reg-http-interceptor id interceptor-map)` — per rf2-uheqq the surface
   mirrors the event-interceptor `{:id :before :after}` shape, so the single
@@ -955,8 +971,19 @@
      Nothing reports this — the zero-match guard fires per PATTERN, not per
      descriptor, so a glob that matches some other namespace stays silent
      while the programmatic registration is quietly absent from the image.
-     Stamp `:ns` in the registration metadata to make it selectable (`:ns` is
-     an accepted bare key on every kind).
+     Stamping `:ns` in the registration metadata restores selectability ONLY
+     where the registration forwards the caller's metadata map through to the
+     store. That is most kinds, but not all, and the exceptions fail in three
+     different ways: the FRAME-OWNED registrations write no source-store
+     descriptor at all, so there is nothing to select; the resource-family
+     registrations build their own registrar metadata and SILENTLY DROP a
+     caller's `:ns`; and `reg-route` REJECTS it loudly
+     (`:rf.error/route-bad-metadata`), `:ns` not being a reserved
+     route-metadata key. Each `reg-*` fn-alias docstring says which of these
+     it is. Where `:ns` does not work, use the corresponding MACRO, whose
+     source-coord capture supplies the provenance. (`:ns` is in the shared
+     registration-metadata vocabulary for every kind — a statement about key
+     VALIDATION, not about the key reaching the store.)
 
      A MACRO (not a plain fn) purely to elide production bytes at the authoring
      seam (rf2-v2j8e): `rf/image` is value-oriented, but a LITERAL inline
