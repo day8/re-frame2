@@ -1893,12 +1893,14 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
         r        (ratom/make-reaction
                    (fn []
                      (let [body-arg (case (:input-kind meta)
-                                      :db         (adapter/read-container (frame-app-db frame))
-                                      :parametric (mapv deref inputs)
-                                      :static     (case (count inputs)
-                                                    0 nil
-                                                    1 @(first inputs)
-                                                    (mapv deref inputs)))]
+                                      :db (adapter/read-container (frame-app-db frame))
+                                      ;; Declared dependencies — a literal `:inputs`
+                                      ;; vector or a producer fn — arrive as a VECTOR
+                                      ;; at every count, per the delivery rule above.
+                                      ;; Zero inputs deliver `[]`, one delivers `[v0]`
+                                      ;; — never the bare value — so both kinds of
+                                      ;; declared dependency take the SAME arm.
+                                      (:parametric :static) (mapv deref inputs))]
                        (body-fn body-arg query-v)))))]
     ;; Store the realized input QUERY-VECTORS (not the containers) so disposal,
     ;; trace, and Xray can read this entry's realized parametric edges.
