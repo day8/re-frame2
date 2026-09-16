@@ -508,12 +508,17 @@
   cache `runtime-db` at execute time (phase 1.5, EP-0019 Decisions 1/2). For each
   key: SNAPSHOT the entry before (`rf.resources.mutation-runtime/snapshot-entry` — the truthful inverse),
   record `{:resource/key :revision :before :forward}` (`rf.resources.mutation-runtime/record-optimistic-
-  entry`), then either DISSOC the entry (a nil patch-fn = optimistic remove) or
-  apply the forward patch + bump revision (`rf.resources.mutation-runtime/apply-optimistic-patch`). A
+  entry`), then either TOMBSTONE the entry in place (a nil patch-fn = optimistic
+  remove — `rf.resources.mutation-runtime/apply-optimistic-remove`) or apply the
+  forward patch + bump revision (`rf.resources.mutation-runtime/apply-optimistic-patch`). A
   remove of an absent key records the `:absent` inverse and no-ops the cache.
   Returns `[runtime-db' affected-keys inverse-vec]` — `inverse-vec` is the
   recorded `:rollback` slot the instance row carries (in apply order). Indexes are
-  recomputed by the caller (a seed may create entries / tags)."
+  recomputed by the caller (a seed may create entries / tags).
+
+  EVERY FORM NOW LEAVES A CONCRETE REVISION BEHIND (rf2-pkkft), which is what
+  lets `rf.resources.mutation-runtime/optimistic-conflict?` be one uniform
+  comparison rather than a numeric rule beside a remove-shaped sentinel."
   [runtime-db target-map clock-ms]
   (reduce-kv
     (fn [[db' ks inverses] scoped-key patch-fn]
@@ -522,8 +527,21 @@
             fwd    (forward-summary patch-fn before)
             inverse (rf.resources.mutation-runtime/record-optimistic-entry scoped-key before fwd)
             db''   (if (nil? patch-fn)
-                     ;; optimistic REMOVE — dissoc by the byte key-id
-                     (update-in db' (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id scoped-key))
+                     ;; optimistic REMOVE — a TOMBSTONE written IN PLACE
+                     ;; (`:data nil`, `:status :idle`), keeping the entry's
+                     ;; owners, live read-work, tags and index membership
+                     ;; (rf2-pkkft). It is NOT a dissoc: an entry that leaves the
+                     ;; cache takes with it the very facts the settle protocol
+                     ;; needs to notice an owner releasing mid-flight, and a
+                     ;; failed reply then resurrects the departed owner onto the
+                     ;; restored entry, pinning it for the frame's life.
+                     ;; A remove of an ABSENT key has nothing to tombstone and
+                     ;; leaves the cache untouched (the recorded `:absent`
+                     ;; inverse still rolls back correctly).
+                     (if (some? entry)
+                       (assoc-in db' (rf.resources.state/entry-path scoped-key)
+                                 (rf.resources.mutation-runtime/apply-optimistic-remove entry))
+                       db')
                      (let [[_scope resource-id _p] scoped-key
                            rspec    (rf.resources.registry/resource-meta resource-id)
                            stale-at (rf.resources.state/stale-at-for rspec clock-ms)
@@ -1826,9 +1844,15 @@
             ;; else in the system will ever visit that key. So arm it here, from
             ;; the SAME `timer-delays` policy a fetched entry would get.
             ;;
-            ;; Only `:seed` qualifies. A `:patch` forward means the entry already
-            ;; EXISTED, so the read path that created it armed its timers; a
-            ;; `:remove` forward dissoc'd the entry, so there is nothing to reap.
+            ;; Only `:seed` qualifies, and for ONE reason that covers the other
+            ;; two forms: an entry that already EXISTED was created by the read
+            ;; path, which armed its timers. A `:patch` forward patches such an
+            ;; entry; a `:remove` forward now TOMBSTONES one in place (rf2-pkkft)
+            ;; rather than dissoc'ing it, so it is reaped by the very timers that
+            ;; entry has carried all along — the owner-free `:idle` tombstone is
+            ;; GC-eligible on the ordinary structural gate, and `gc-fired` takes
+            ;; its ledger rows and index bucket with it. Only a seed conjures a
+            ;; key no read path ever visited, so only a seed needs arming here.
             ;; This is the mutation-side peer of rf2-ar9pcx / rf2-kz5op1, which
             ;; closed the same owner-free-entry-never-reaped leak on the resource
             ;; read path's first-load `:error` and abort settles.
