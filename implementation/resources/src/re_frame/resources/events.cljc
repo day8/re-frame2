@@ -740,8 +740,8 @@
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
                            (cond->
                              superseding?
-                             (rf.resources.work-ledger/update-record
-                               prior-work rf.resources.work-ledger/mark-terminal
+                             (rf.resources.work-ledger/settle-terminal
+                               prior-work
                                :suppressed {:reason :superseded :by work-id}))
                            (rf.resources.work-ledger/put-record work-id record)
                            (cond->
@@ -2131,6 +2131,18 @@
                                             :cancelled {:reason :clear-scope
                                                         :completed-at time-ms}))
                                         db in-flight))
+                       ;; rf2-6gzdb — the cleared entries are LEAVING the cache,
+                       ;; so each one's whole ledger holding goes with it (every
+                       ;; row for the key plus its inverse-index bucket), not just
+                       ;; a bounded terminal tail. A tail is Xray's recent-races
+                       ;; view of a key that still exists; a cleared key has none
+                       ;; to serve. This is the unbounded arm that bites hardest —
+                       ;; a logout / tenant-switch clears a whole scope, and every
+                       ;; key it drops would otherwise leave an orphaned bucket
+                       ;; behind for the frame's life. Spec 016 §Ledger row
+                       ;; retention and identity.
+                       (as-> db (reduce rf.resources.work-ledger/drop-rows-for-key
+                                        db in-scope))
                        (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                entries in-scope-ids))]
     (rf.trace/emit! :rf.event :rf.resource/removed
@@ -2226,8 +2238,28 @@
                                      wid rf.resources.work-ledger/mark-terminal
                                      ;; rf2-x76af2.14 — carry the causal
                                      ;; `:completed-at` onto the cancelled work
-                                     ;; row (a cancellation completes).
+                                     ;; row (a cancellation completes). The settle
+                                     ;; stands even though the drop below removes
+                                     ;; the row: settling an attempt and RETAINING
+                                     ;; its row are separate decisions, and the
+                                     ;; order matters — the drop finds rows via the
+                                     ;; inverse index, so a row that index somehow
+                                     ;; missed is left TERMINAL here rather than
+                                     ;; surviving as falsely in-flight, which is
+                                     ;; the one state that would ride the epoch
+                                     ;; snapshot and be dangled on restore.
                                      :cancelled {:reason :remove :completed-at time-ms}))
+                       ;; rf2-6gzdb — the entry is LEAVING the cache, so its whole
+                       ;; ledger holding goes with it: every row for the key plus
+                       ;; its inverse-index bucket. A bounded terminal TAIL is
+                       ;; Xray's recent-races view of a key that still exists; a
+                       ;; REMOVED key has no such view to serve (nothing can join
+                       ;; those rows to an entry again), so a retained tail and its
+                       ;; orphaned bucket are pure growth — one per removed key,
+                       ;; for the frame's life. Correctness of a late reply rests
+                       ;; on ENTRY-keyed stale suppression, never on the row
+                       ;; surviving. Spec 016 §Ledger row retention and identity.
+                       (rf.resources.work-ledger/drop-rows-for-key scoped-key)
                        (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                old-entries [(rf.resources.state/key-id scoped-key)]))]
     (rf.trace/emit! :rf.event :rf.resource/removed
@@ -2424,8 +2456,8 @@
         (emit-resource-stale-suppressed!
           frame-id resource-key work-id generation :success stale)
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/update-record
-                          runtime-db work-id rf.resources.work-ledger/mark-terminal
+        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
+                          runtime-db work-id
                           :suppressed {:reason :stale-reply :outcome :success})})
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
             ;; the durable entry stores the canonical reply's `:value` under
@@ -2475,10 +2507,9 @@
             old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb'      (-> runtime-db
                           (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                          (rf.resources.work-ledger/update-record
-                            work-id rf.resources.work-ledger/mark-terminal
+                          (rf.resources.work-ledger/settle-terminal
+                            work-id
                             :completed {:loaded-at loaded-at})
-                          (rf.resources.work-ledger/prune-terminal-for-key resource-key)
                           (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                   old-entries [(rf.resources.state/key-id resource-key)])
                           ;; route blocking: a route-owned blocking resource
@@ -2639,8 +2670,8 @@
           frame-id resource-key work-id generation
           (if aborted? :aborted :failure) stale)
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/update-record
-                          runtime-db work-id rf.resources.work-ledger/mark-terminal
+        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
+                          runtime-db work-id
                           :suppressed
                           ;; rf2-rl27r2: the terminal outcome summary records
                           ;; the causal completion time (the reply token's
@@ -2665,8 +2696,8 @@
             spec      (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/update-record
-                         work-id rf.resources.work-ledger/mark-terminal
+                       (rf.resources.work-ledger/settle-terminal
+                         work-id
                          ;; rf2-rl27r2: a cancellation is a completion — its
                          ;; terminal outcome carries the reply token's causal
                          ;; `:completed-at`.
@@ -2731,8 +2762,8 @@
             ;; host handle is cleared (the attempt settled).
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/update-record
-                         work-id rf.resources.work-ledger/mark-terminal
+                       (rf.resources.work-ledger/settle-terminal
+                         work-id
                          ;; rf2-rl27r2: the failed terminal outcome carries the
                          ;; reply token's causal `:completed-at` alongside the
                          ;; error envelope (the summary represents the completion).
@@ -2866,8 +2897,8 @@
         (emit-resource-stale-suppressed!
           frame-id resource-key work-id generation :page-success stale)
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/update-record
-                          runtime-db work-id rf.resources.work-ledger/mark-terminal
+        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
+                          runtime-db work-id
                           :suppressed {:reason :stale-reply :outcome :page-success})})
       (let [spec      (rf.resources.registry/resource-meta (:resource/id entry))
             decoded   (:value reply)
@@ -2915,10 +2946,9 @@
                             (rf.resources.state/positive-or-nil (:poll-interval-ms spec)))
             rdb'      (-> runtime-db
                           (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                          (rf.resources.work-ledger/update-record
-                            work-id rf.resources.work-ledger/mark-terminal
+                          (rf.resources.work-ledger/settle-terminal
+                            work-id
                             :completed {:loaded-at loaded-at :page-index page-index})
-                          (rf.resources.work-ledger/prune-terminal-for-key resource-key)
                           ;; rf2-gwye.16 — replace this key's tag-index members
                           ;; with the tags just produced (old ones removed), as
                           ;; the scalar success does (rf2-2c2mkh incremental).
@@ -3061,8 +3091,8 @@
           frame-id resource-key work-id generation
           (if aborted? :aborted :page-failure) stale)
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/update-record
-                          runtime-db work-id rf.resources.work-ledger/mark-terminal
+        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
+                          runtime-db work-id
                           :suppressed {:reason :stale-reply
                                        :outcome (if aborted? :aborted :page-failure)
                                        :completed-at completed-at})})
@@ -3090,8 +3120,8 @@
             spec   (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/update-record
-                         work-id rf.resources.work-ledger/mark-terminal
+                       (rf.resources.work-ledger/settle-terminal
+                         work-id
                          :cancelled {:reason :aborted :completed-at completed-at})
                        (rf.resources.route/reconcile-readiness))
             stale-delay-ms (rf.resources.state/positive-or-nil (:stale-after-ms spec))
@@ -3140,8 +3170,8 @@
                        rf.resources.state/bump-revision)
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/update-record
-                         work-id rf.resources.work-ledger/mark-terminal
+                       (rf.resources.work-ledger/settle-terminal
+                         work-id
                          :cancelled {:reason :aborted :completed-at completed-at})
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
@@ -3168,8 +3198,8 @@
             spec   (rf.resources.registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/update-record
-                         work-id rf.resources.work-ledger/mark-terminal
+                       (rf.resources.work-ledger/settle-terminal
+                         work-id
                          :failed {:error error :completed-at completed-at})
                        (rf.resources.route/reconcile-readiness))
             ;; rf2-s54uzc — mirrors rf2-ar9pcx's scalar first-load `:error`
@@ -3224,8 +3254,8 @@
                        rf.resources.state/clear-refetch-sweep)
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/update-record
-                         work-id rf.resources.work-ledger/mark-terminal
+                       (rf.resources.work-ledger/settle-terminal
+                         work-id
                          :failed {:error error :completed-at completed-at})
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
@@ -3255,8 +3285,8 @@
                        rf.resources.state/clear-refetch-sweep)
             rdb'   (-> runtime-db
                        (assoc-in (rf.resources.state/entry-path resource-key) entry')
-                       (rf.resources.work-ledger/update-record
-                         work-id rf.resources.work-ledger/mark-terminal
+                       (rf.resources.work-ledger/settle-terminal
+                         work-id
                          :failed {:error error :completed-at completed-at})
                        (rf.resources.route/reconcile-readiness))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
@@ -3382,6 +3412,18 @@
       (let [old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb' (-> runtime-db
                      (update-in (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id resource-key))
+                     ;; rf2-6gzdb — GC collected the entry, so its whole ledger
+                     ;; holding goes with it (every row for the key plus its
+                     ;; inverse-index bucket). This is the arm that would
+                     ;; otherwise defeat GC's own purpose: the collector exists to
+                     ;; stop an owner-free entry lingering for the frame's life,
+                     ;; and leaving that entry's terminal tail + bucket behind
+                     ;; would keep a per-key residue in every epoch snapshot for
+                     ;; exactly as long. The row is terminal by construction here —
+                     ;; the gate above requires `:current-work` nil — so nothing
+                     ;; in flight is discarded. Spec 016 §Ledger row retention and
+                     ;; identity.
+                     (rf.resources.work-ledger/drop-rows-for-key resource-key)
                      (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                              old-entries [(rf.resources.state/key-id resource-key)]))]
         (rf.trace/emit! :rf.event :rf.resource/gc-fired

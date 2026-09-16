@@ -593,6 +593,14 @@
                                      d wid rf.resources.work-ledger/mark-terminal
                                      :suppressed {:reason :clear-resource}))
                                  db in-flight))
+                ;; rf2-6gzdb — the disposed entries are LEAVING the cache, so
+                ;; each one's whole ledger holding goes with it (every row for
+                ;; the key plus its inverse-index bucket) rather than a bounded
+                ;; terminal tail: `clear-resource` deregisters the resource, so
+                ;; nothing can ever join those rows to an entry again. Spec 016
+                ;; §Ledger row retention and identity.
+                (as-> db (reduce rf.resources.work-ledger/drop-rows-for-key
+                                 db keys'))
                 (update rf.resources.state/resources-key rf.resources.state/recompute-indexes))))
         ;; host-side disposal — release advisory timers + opportunistically
         ;; abort each in-flight attempt. Correctness rests on the removed

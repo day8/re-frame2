@@ -270,7 +270,7 @@
   `remove` does) and `removed-keys` are the scoped-key VECTORS removed (for
   `:affected-keys` + the trace). A remove of a key with no entry is a no-op. Per
   EP-0003 §Mutations / Spec 016 §Map-form exact resource targets."
-  [runtime-db removes-fn params result mut-scope db where]
+  [runtime-db removes-fn params result clock-ms mut-scope db where]
   (let [targets (when removes-fn
                   (let [raw (removes-fn params result)]
                     ;; accept a single map-form target or a collection thereof;
@@ -298,7 +298,21 @@
                      (update-in (rf.resources.state/entries-path) dissoc k-id)
                      (cond-> wid (rf.resources.work-ledger/update-record
                                    wid rf.resources.work-ledger/mark-terminal
-                                   :cancelled {:reason :mutation-remove})))
+                                   ;; rf2-pk4i6.1#6 — a cancellation is a
+                                   ;; COMPLETION, so it carries the reply token's
+                                   ;; causal `:completed-at`, symmetric with
+                                   ;; `:rf.resource/remove` / clear-scope
+                                   ;; (rf2-x76af2.14) and every reply-driven
+                                   ;; cancellation (rf2-rl27r2). The clock is the
+                                   ;; settling reply's, never an ambient read.
+                                   :cancelled {:reason :mutation-remove
+                                               :completed-at clock-ms}))
+                     ;; rf2-6gzdb — the removed entry is LEAVING the cache, so its
+                     ;; whole ledger holding goes with it (every row for the key
+                     ;; plus its inverse-index bucket), exactly as
+                     ;; `:rf.resource/remove` does. Spec 016 §Ledger row retention
+                     ;; and identity.
+                     (rf.resources.work-ledger/drop-rows-for-key scoped-key))
                  (conj ks scoped-key)
                  (cond-> work wid (conj [wid transport]))
                  nils sk])
@@ -1471,8 +1485,11 @@
   (opportunistic; stale suppression by work-id + generation protects
   correctness — the instance a late reply would write into is gone, so the
   reply handler's existence check suppresses it). Marks the in-flight work
-  row terminal `:cancelled`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [instance mutation]}]]
+  row terminal `:cancelled` (carrying the event's causal `:completed-at` —
+  rf2-pk4i6.1#6) and DROPS every cleared instance's ledger rows, the instance
+  having left the runtime (rf2-6gzdb)."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
+   [_event-id {:keys [instance mutation]}]]
   (let [runtime-db (or rt {})
         instances  (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
         ;; rf2-8iciw8 — the `:rf.runtime/mutations` map is keyed on the CEDN-1
@@ -1497,21 +1514,50 @@
                                    (when wid
                                      [wid (:transport (rf.resources.work-ledger/get-record runtime-db wid))]))))
                          target-kids)
+        ;; surface the kind-preserving `:instance/id` values in the trace (the
+        ;; byte key-ids are an opaque storage detail), read off the rows BEFORE
+        ;; they were dissoc'd.
+        cleared-ids (mapv #(:instance/id (get instances %)) target-kids)
         rdb'       (-> runtime-db
                        (update-in (rf.resources.mutation-runtime/instances-path)
                                   (fn [m] (reduce dissoc m target-kids)))
                        (as-> db (reduce (fn [d [wid _]]
                                           (rf.resources.work-ledger/update-record
                                             d wid rf.resources.work-ledger/mark-terminal
-                                            :cancelled {:reason :mutation-clear}))
-                                        db in-flight)))
-        ;; surface the kind-preserving `:instance/id` values in the trace (the
-        ;; byte key-ids are an opaque storage detail), read off the rows BEFORE
-        ;; they were dissoc'd.
-        cleared-ids (mapv #(:instance/id (get instances %)) target-kids)]
+                                            ;; rf2-pk4i6.1#6 — a cancellation is a
+                                            ;; COMPLETION, so it carries the event's
+                                            ;; causal `:completed-at` (`time-ms`, the
+                                            ;; declared-flat `:rf/time-ms`),
+                                            ;; symmetric with clear-scope
+                                            ;; (rf2-x76af2.14) and every
+                                            ;; reply-driven cancellation
+                                            ;; (rf2-rl27r2).
+                                            :cancelled {:reason :mutation-clear
+                                                        :completed-at time-ms}))
+                                        db in-flight))
+                       ;; rf2-6gzdb — a cleared instance LEAVES the runtime, so its
+                       ;; whole ledger holding goes with it: mutation work rows are
+                       ;; keyed `[:rf.mutation <instance-id>]`, so the same per-key
+                       ;; dropper bounds them PER INSTANCE. Note this covers every
+                       ;; cleared instance, not only the in-flight ones above — an
+                       ;; instance with no attempt running still carries the
+                       ;; terminal rows of every attempt it ever made, and those
+                       ;; are precisely the rows nothing else in the system ever
+                       ;; pruned. Spec 016 §Ledger row retention and identity.
+                       (as-> db (reduce (fn [d iid]
+                                          (rf.resources.work-ledger/drop-rows-for-key
+                                            d [:rf.mutation iid]))
+                                        db cleared-ids)))]
     (rf.trace/emit! :rf.event :rf.mutation/cleared
+                 ;; rf2-pk4i6.1#6 — the causal `:completed-at` rides the trace as
+                 ;; well as the cancelled rows, symmetric with
+                 ;; `:rf.resource/removed` (rf2-x76af2.14). The rows themselves
+                 ;; are dropped with the cleared instances (rf2-6gzdb), so the
+                 ;; trace is where epoch / tooling correlation of a mutation
+                 ;; cancellation reads its completion time.
                  {:rf.frame/id frame-id :cleared cleared-ids
-                  :aborted (mapv first in-flight)})
+                  :aborted (mapv first in-flight)
+                  :completed-at time-ms})
     {:rf.db/runtime rdb'
      ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the token the
      ;; lower registered); the bare work-id would miss the in-flight request.
@@ -1672,8 +1718,8 @@
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :success stale)
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/update-record
-                          runtime-db work-id rf.resources.work-ledger/mark-terminal
+        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
+                          runtime-db work-id
                           :suppressed {:reason :stale-reply :outcome :success})})
       (let [spec        (rf.resources.mutation-registry/mutation-meta mutation-id)
             params      (:params inst)
@@ -1704,7 +1750,7 @@
             ;; in-flight work settled `:cancelled` (mirroring
             ;; `:rf.resource/remove`). Applied BEFORE the invalidation match so
             ;; a removed key is never ALSO reported stale (it is gone).
-            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2 (:removes spec) params result scope app-db where)
+            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2 (:removes spec) params result clock-ms scope app-db where)
             timer-policies      (merge patch-policies populate-policies)
             target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
             ;; rf2-1vpbld — the RECOVERABLE post-write targets the relaxed
@@ -1766,6 +1812,43 @@
             opt-keys     (when opt-applied?
                            (set (map :resource/key (:rollback opt-summary))))
             authoritative-keys (set/union patched-ks populated-ks (set removed-ks))
+            ;; rf2-6gzdb — an optimistic SEED (`:forward :seed`, a patch over an
+            ;; ABSENT entry) created a brand-new cache entry back at execute time
+            ;; (phase 1.5). No read path ever touched that key, so nothing ever
+            ;; armed its advisory stale / GC timers, and the entry is OWNERLESS
+            ;; (a mutation seeded it; no view ensured it). If this reply's
+            ;; authoritative `:patches` / `:populates` / `:removes` then cover the
+            ;; key, the arming below already reaches it through `timer-policies`.
+            ;; If they DO NOT — the common shape for a create-mutation that seeds
+            ;; a detail key the server response does not echo back — the entry
+            ;; settles owner-free carrying a durable `:stale-at` / `:gc-after-ms`
+            ;; policy and NO armed reaper, and is collected only by luck: nothing
+            ;; else in the system will ever visit that key. So arm it here, from
+            ;; the SAME `timer-delays` policy a fetched entry would get.
+            ;;
+            ;; Only `:seed` qualifies. A `:patch` forward means the entry already
+            ;; EXISTED, so the read path that created it armed its timers; a
+            ;; `:remove` forward dissoc'd the entry, so there is nothing to reap.
+            ;; This is the mutation-side peer of rf2-ar9pcx / rf2-kz5op1, which
+            ;; closed the same owner-free-entry-never-reaped leak on the resource
+            ;; read path's first-load `:error` and abort settles.
+            seeded-orphan-policies
+            (when opt-applied?
+              (into {}
+                    (keep (fn [{scoped-key :resource/key forward :forward}]
+                            (when (and (= :seed forward)
+                                       (not (contains? authoritative-keys scoped-key)))
+                              (when-let [policy (timer-delays
+                                                  (rf.resources.registry/resource-meta
+                                                    (nth scoped-key 1)))]
+                                [scoped-key policy]))))
+                    (:rollback opt-summary)))
+            ;; the arming set: the authoritative patch / populate policies PLUS
+            ;; the seeded orphans above. An authoritative policy WINS on a key in
+            ;; both (it is the later, server-authoritative write) — but the two
+            ;; sets are disjoint by construction, since a seeded orphan is by
+            ;; definition a key no authoritative arm touched.
+            timer-policies (merge seeded-orphan-policies timer-policies)
             ;; the optimistic keys an authoritative populate/patch/remove owned
             ;; (the commit overwrote the optimistic value with the server's).
             committed-keys     (when opt-applied?
@@ -1816,8 +1899,8 @@
             old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb'        (-> rdb3
                             (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) inst')
-                            (rf.resources.work-ledger/update-record
-                              work-id rf.resources.work-ledger/mark-terminal
+                            (rf.resources.work-ledger/settle-terminal
+                              work-id
                               :completed {:settled-at clock-ms})
                             (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                     old-entries
@@ -2013,8 +2096,8 @@
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :failure stale)
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (rf.resources.work-ledger/update-record
-                          runtime-db work-id rf.resources.work-ledger/mark-terminal
+        {:rf.db/runtime (rf.resources.work-ledger/settle-terminal
+                          runtime-db work-id
                           :suppressed {:reason :stale-reply :outcome :failure})})
       (let [spec     (rf.resources.mutation-registry/mutation-meta mutation-id)
             params   (:params inst)
@@ -2102,8 +2185,8 @@
                          ;; an abort is not a user-visible failure) so the
                          ;; ledger status and the canonical reply `:rf.reply/work-status`
                          ;; agree (Managed-Effects §Status taxonomy).
-                         (rf.resources.work-ledger/update-record
-                           work-id rf.resources.work-ledger/mark-terminal
+                         (rf.resources.work-ledger/settle-terminal
+                           work-id
                            (:rf.reply/work-status reply)
                            (if aborted?
                              {:reason :aborted :completed-at completed-at}

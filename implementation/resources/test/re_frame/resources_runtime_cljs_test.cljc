@@ -1238,6 +1238,16 @@
     (is (seq (get-in (runtime-db) (rf.resources.state/tag-index-path))) "tag index populated")
     (is (seq (get-in (runtime-db) (rf.resources.state/owner-index-path))) "owner index populated")
     (let [inflight-wid (:current-work (entry inflight-key))]
+      ;; PRECONDITION for the ledger claim below (rf2-6gzdb): the row must
+      ;; genuinely be present and NON-terminal before the clear, or "the row is
+      ;; gone afterwards" is satisfied by a ledger that never held it. This is
+      ;; the same anti-vacuity concern EP-0012 raised here, asserted on the
+      ;; INPUT side now that the contract is removal rather than settlement.
+      (is (some? (rf.resources.work-ledger/get-record (runtime-db) inflight-wid))
+          "precondition: the in-flight row is readable through its byte-keyed address")
+      (is (not (rf.resources.work-ledger/terminal?
+                 (:status (rf.resources.work-ledger/get-record (runtime-db) inflight-wid))))
+          "precondition: it is in-flight, not already terminal")
       ;; CLEAR the resource (registration-lifecycle + runtime disposal)
       (rf.resources.registry/clear-resource :cr/article)
       (testing "rf2-m9h5iq — clear-resource removes the registrar entry"
@@ -1249,22 +1259,36 @@
       (testing "rf2-m9h5iq — reverse indexes are recomputed/pruned"
         (is (empty? (get-in (runtime-db) (rf.resources.state/tag-index-path))))
         (is (empty? (get-in (runtime-db) (rf.resources.state/owner-index-path)))))
-      (testing "rf2-m9h5iq — the in-flight work record is settled terminal
-                (:suppressed) so the ledger row is not left in-flight"
+      (testing "rf2-m9h5iq / rf2-6gzdb — the disposed entries' ledger rows are
+                DROPPED, and no row is ever left in-flight"
         ;; Read through the byte-keyed work-ledger API (rf2-hgy5kf): the row is
-        ;; addressed by `rf.resources.work-ledger/work-id-id`, NOT the stale vector key. The
-        ;; assertion is NON-vacuous — a present post-clear row MUST be terminal
-        ;; (`:suppressed`), and a present-but-NON-terminal row FAILS the test
-        ;; (the exact drift EP-0012 closes; the old `(when rec …)` made it pass
-        ;; silently when the byte-keyed row was read through a dead address).
-        (let [rec (rf.resources.work-ledger/get-record (runtime-db) inflight-wid)]
-          (is (some? rec)
-              "the post-clear work record MUST be readable through the byte-keyed
-               address — a nil here means the contract is asserted against a dead
-               address, the exact vacuity EP-0012 closes")
-          (is (rf.resources.work-ledger/terminal? (:status rec))
-              "a present post-clear work record must be terminal, never in-flight")
-          (is (= :suppressed (:status rec)))))
+        ;; addressed by `rf.resources.work-ledger/work-id-id`, NOT the stale
+        ;; vector key.
+        ;;
+        ;; rf2-6gzdb CHANGED THIS CONTRACT from "settled terminal :suppressed"
+        ;; to "dropped": `clear-resource` deregisters the resource, so nothing
+        ;; can ever join those rows to an entry again and a retained terminal
+        ;; tail (plus its inverse-index bucket) is pure unbounded growth in
+        ;; serializable frame-state. The handler still marks the row terminal
+        ;; BEFORE dropping it, so the invariant EP-0012 cared about — a row is
+        ;; never left readable-and-in-flight — holds either way, and is
+        ;; asserted directly below rather than inferred from the status.
+        (is (nil? (rf.resources.work-ledger/get-record (runtime-db) inflight-wid))
+            "the disposed entry's row is dropped with it")
+        (is (empty? (into {} (filter (fn [[_wid-id r]]
+                                       (contains? #{loaded-key inflight-key}
+                                                  (:resource/key r))))
+                          (get-in (runtime-db) [:rf.runtime/work-ledger])))
+            "no row for either disposed key survives a full ledger scan")
+        (is (nil? (get-in (runtime-db)
+                          [rf.resources.work-ledger/work-ledger-by-key-key
+                           (rf.resources.state/key-id inflight-key)]))
+            "and the key's inverse-index bucket goes with them")
+        (is (not-any? (fn [[_wid-id r]]
+                        (and (contains? #{loaded-key inflight-key} (:resource/key r))
+                             (not (rf.resources.work-ledger/terminal? (:status r)))))
+                      (get-in (runtime-db) [:rf.runtime/work-ledger]))
+            "and nothing for a disposed key is left readable-and-in-flight"))
       (testing "rf2-m9h5iq — a LATE reply for a cleared in-flight entry cannot
                 recreate it (its existence check finds the entry gone)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
