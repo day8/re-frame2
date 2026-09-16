@@ -15,10 +15,16 @@
   silent because the framework cannot distinguish them from primitive keyword
   schemas without violating the opaque-schema boundary.
 
-  Register vector-form EDN when per-slot flags must be visible. Compiled and
-  nested opaque schemas fail closed in validation redaction; keyword registry
-  references remain flag-invisible and therefore require the vector form for
-  precise privacy declarations.
+  A LOCAL `{:registry ...}` on a schema's own props is the one registry shape
+  the walk CAN see and therefore must fail closed on (rf2-amgtr): the props map
+  names the referenced shapes outright, so — unlike a bare keyword reference —
+  there is no ambiguity with a primitive to trade against. Its values are still
+  not walked; the form classifies opaque and registration nudges once.
+
+  Register vector-form EDN when per-slot flags must be visible. Compiled,
+  nested opaque and local-registry schemas fail closed in validation redaction;
+  keyword registry references remain flag-invisible and therefore require the
+  vector form for precise privacy declarations.
   The traversal is parameterized by flag key so both supported flags share the
   same operator and path semantics."
   (:require [re-frame.schemas.cache :as rf.schemas.cache]))
@@ -524,6 +530,25 @@
     :any :boolean :double :float :int :keyword :nil
     :qualified-keyword :qualified-symbol :some :string :symbol :uuid})
 
+(defn schema-local-registry?
+  "True when a vector-form schema's own props carry a Malli LOCAL `:registry`
+  (`[:schema {:registry {::user [...]}} ::user]`, or the same props map on any
+  other op). Malli resolves the form's keyword references against that map, so
+  the referenced shapes — and every per-slot `:sensitive?` / `:large?` flag
+  inside them — live in a position the pure-data walk never descends: the props
+  map is metadata to the walk, and the child is a bare keyword the walker
+  deliberately treats as a flag-free primitive (see `schema-opaque?`).
+
+  Registry VALUES are deliberately NOT walked (rf2-amgtr). Walking them would
+  mean resolving references, which is schema interpretation — the job Spec 010
+  §The `:schema` value is opaque to re-frame reserves for the registered
+  validator. Fail-closed over-redaction is the documented direction: the whole
+  failure redacts and registration nudges once toward the walkable shape.
+
+  Returns boolean. Pure."
+  [schema]
+  (contains? (schema-properties schema) :registry))
+
 (defn- entry-child-schema
   "Return the child SCHEMA of a Malli entry `[head props? schema]` (a `:map`
   key entry or a `:multi` / `:orn` / `:altn` / `:andn` / `:catn` branch). The
@@ -541,12 +566,18 @@
   "Operator-aware projection of the child SCHEMAS a vector-form schema exposes
   to the opacity walk (see the operator-classification note above). Returns a
   sequence of child schemas for a known structural op, an empty sequence for a
-  known literal / scalar op (its tail is data), or `::opaque` for an
-  unclassified op — the walk cannot prove that op's tail is not a
-  schema-bearing position, so it fails closed."
+  known literal / scalar op (its tail is data), or `::opaque` for a schema
+  carrying a local `:registry` or for an unclassified op — in both cases the
+  walk cannot prove the schema's flags are reachable, so it fails closed."
   [schema]
   (let [op (nth schema 0)]
     (cond
+      ;; rf2-amgtr — a local `:registry` puts the referenced shapes (and their
+      ;; per-slot flags) behind keyword references the walk resolves nowhere.
+      ;; Checked BEFORE the op dispatch: the props map is op-independent, and
+      ;; the ops it lands on are the walkable ones (`:schema` / `:map` / …)
+      ;; whose classification would otherwise report a clean, flag-free walk.
+      (schema-local-registry? schema)     ::opaque
       (contains? opacity-literal-ops op) []
       (contains? opacity-bare-ops op)    (schema-children schema)
       (contains? opacity-entry-ops op)
@@ -593,7 +624,8 @@
   NOT opaque. An actual compiled value in a real schema position (a `:map`
   slot's tail, a container element, a `:map-of` key/value, a `:cat`/`:tuple`
   element, a `:multi`/`:orn` branch, …) still fails closed, as does a genuinely
-  unknown operator shape.
+  unknown operator shape, as does a local `:registry` at any depth
+  (`schema-local-registry?`, rf2-amgtr).
 
   Root functions and symbols are opaque and fail closed (via `schema-opaque?`).
   The same values used as nested schema tails are considered flag-free because

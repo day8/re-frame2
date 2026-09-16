@@ -116,6 +116,41 @@
             "a nested opaque child triggers the warning exactly once")
         (is (= [:token] (-> warns first :tags :path)))))))
 
+(deftest warning-fires-when-schema-carries-a-local-registry
+  (testing "rf2-amgtr — a VECTOR-FORM schema carrying a Malli LOCAL
+            `{:registry ...}` warns, with :schema-kind :local-registry. The
+            form is walkable at its root and its child is a bare keyword the
+            walker treats as a flag-free primitive, so pre-fix the whole shape
+            classified introspectable and stayed SILENT while every
+            `:sensitive?` declared inside the registry was invisible"
+    (with-trace-recorder! [recorded]
+      (rf/reg-app-schema [:auth]
+                         [:schema {:registry {::user [:map [:pw {:sensitive? true} :string]]}}
+                          ::user])
+      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
+        (is (= 1 (count warns))
+            "a local-registry schema triggers the warning exactly once")
+        (is (= :local-registry (-> warns first :tags :schema-kind))
+            ":schema-kind names the local registry, not the compiled-object
+             or :unknown arm")
+        (is (= [:auth] (-> warns first :tags :path)))
+        (is (re-find #":registry" (-> warns first :tags :reason))
+            ":reason names the local registry so the nudge is actionable")))
+    ;; The `:registry` props key is op-INDEPENDENT — Malli honours it on any
+    ;; vector form — so a `:map` carrying one hides its referenced shapes
+    ;; exactly as `:schema` does. The classification keys on the PROPS rather
+    ;; than on the op, so the same check catches both.
+    (rf.schemas/clear-walker-opaque-warned!)
+    (with-trace-recorder! [recorded]
+      (rf/reg-app-schema [:creds]
+                         [:map {:registry {::pw [:string {:sensitive? true}]}}
+                          [:pw ::pw]])
+      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
+        (is (= 1 (count warns))
+            "a :map-borne local registry warns too — the check is on the
+             props, not the op")
+        (is (= :local-registry (-> warns first :tags :schema-kind)))))))
+
 ;; ---- negative paths (no warning) ------------------------------------------
 
 (deftest warning-suppressed-when-schema-is-vector-form

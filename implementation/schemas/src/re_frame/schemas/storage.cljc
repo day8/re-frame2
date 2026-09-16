@@ -400,15 +400,25 @@
       (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
         (emit! :warning :rf.warning/schema-walker-opaque
                {:path path
-                :schema-kind (if (map? schema)
-                               :compiled-schema-object
-                               :unknown)
+                ;; Root-shape classification, same reach as the
+                ;; `:compiled-schema-object` arm beside it: a NESTED opaque
+                ;; value or a nested local registry leaves the root a plain
+                ;; vector form and so reports `:unknown`, which is what the
+                ;; nested-compiled case has always reported.
+                :schema-kind (cond
+                               (map? schema) :compiled-schema-object
+                               ;; rf2-amgtr
+                               (rf.schemas.walker/schema-local-registry? schema)
+                               :local-registry
+                               :else :unknown)
                 :reason
                 (str "reg-app-schema was called with a schema that is"
                      " opaque — either the registered value ITSELF is a"
                      " compiled / opaque form (a non-vector, non-keyword"
                      " value such as a compiled m/schema object), or a"
-                     " vector-form schema embeds one as a NESTED child."
+                     " vector-form schema embeds one as a NESTED child,"
+                     " or it carries a local `{:registry ...}` whose"
+                     " referenced shapes the walk resolves nowhere."
                      " The schema-walker (used for per-slot"
                      " `:sensitive?` / `:large?` extraction) can only"
                      " introspect vector-form Malli EDN — per-slot flags"

@@ -2049,6 +2049,98 @@
       (is (not (str/includes? (pr-str out) secret))
           "the secret survives nowhere through the nested-opaque seam"))))
 
+;; ---- rf2-amgtr — Malli LOCAL :registry fails closed -----------------------
+;;
+;; `[:schema {:registry {::user [:map [:pw {:sensitive? true} :string]]}} ::user]`
+;; is walkable at its root (`:schema` is a transparent combinator) and its only
+;; child is the bare keyword `::user`, which the walker deliberately treats as a
+;; flag-free primitive rather than failing closed (`schema-opaque?` — the
+;; keyword exception exists so every plain scalar failure is not over-redacted).
+;; So the whole form walked to {} for BOTH flags and classified NOT opaque,
+;; while Malli DID honour the `:sensitive?` inside the registry — every :value /
+;; :explain slot of a real failure at [:pw] shipped the secret verbatim, with no
+;; stamp and no registration nudge. Per Spec 010 §The `:schema` value is opaque
+;; to re-frame, an unrecognised shape fails CLOSED; the local registry is the
+;; one registry shape whose presence the walk can see, so it does.
+
+(def ^:private local-registry-schema
+  [:schema {:registry {::user [:map [:pw {:sensitive? true} :string]]}} ::user])
+
+(deftest walker-local-registry-classified-opaque-and-values-not-walked
+  (testing "rf2-amgtr — a local `:registry` classifies the form opaque, and the
+            registry VALUES are deliberately left unwalked"
+    (is (true? (rf.schemas.walker/schema-local-registry? local-registry-schema))
+        "the predicate sees a :registry on the form's own props")
+    (is (true? (rf.schemas.walker/schema-local-registry?
+                 [:map {:registry {::pw [:string {:sensitive? true}]}} [:pw ::pw]]))
+        "the check is on the PROPS, so it is op-independent — a :map-borne
+         local registry is caught by the same branch as a :schema-borne one")
+    (is (false? (rf.schemas.walker/schema-local-registry?
+                  [:map [:pw {:sensitive? true} :string]]))
+        "an ordinary vector form carries no :registry and is untouched")
+    (is (true? (rf.schemas/schema-has-opaque-child? local-registry-schema))
+        "the local-registry form fails closed")
+    (is (true? (rf.schemas/schema-has-opaque-child?
+                 [:map [:auth local-registry-schema]]))
+        "and it fails closed NESTED at depth, like any other opaque child")
+    ;; The scope limit, pinned: resolving registry references is schema
+    ;; INTERPRETATION, which Spec 010 reserves for the registered validator.
+    ;; Over-redaction is the documented direction — the flags stay invisible
+    ;; and the whole failure redacts instead.
+    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema
+                local-registry-schema []))
+        "the registry's :sensitive? slot is NOT walked into — no declaration
+         is synthesised for it")
+    (is (= {} (rf.schemas/extract-large-paths-from-schema
+                local-registry-schema []))
+        "nor is :large? — both flags stay unwalked")
+    ;; The over-redaction is BOUNDED to the registry shape: the same schema
+    ;; written inline is still precisely walked, so ordinary schemas keep
+    ;; their per-slot precision.
+    (is (false? (rf.schemas/schema-has-opaque-child?
+                  [:map [:pw {:sensitive? true} :string]]))
+        "the equivalent INLINE form is unaffected — this fails closed on the
+         registry shape only, not on schemas generally")))
+
+(deftest app-db-validation-local-registry-schema-fails-closed
+  (testing "rf2-amgtr — a real app-db validation failure at [:pw], where the
+            failing slot's `:sensitive?` is declared inside a LOCAL registry,
+            redacts fail-closed. Pre-fix this trace shipped the secret in
+            :value and :explain with no :sensitive? stamp"
+    (let [secret "LOCAL-REGISTRY-APPDB-SECRET-amgtr"]
+      (rf/reg-app-schema [:auth] local-registry-schema)
+      (with-trace-recorder! [traces]
+        ;; :pw is a VECTOR where the registry's ::user requires a :string ->
+        ;; a genuine failure at [:pw], the slot the registry marks sensitive.
+        (rf.schemas/validate-app-schema! {:auth {:pw [secret]}} :auth/bad)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a validation-failure trace fired")
+          (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
+          (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+          (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+          (is (not (str/includes? (pr-str v) secret))
+              "the secret survives nowhere in the local-registry failure trace"))))))
+
+(deftest redact-validation-tags-local-registry-schema-fails-closed
+  (testing "rf2-amgtr — the off-namespace redact-validation-tags seam
+            (machine-data / sub-override / flow-output / boundary) fails closed
+            on a local-registry schema too. This is the seam a Malli user is
+            most likely to reach it through: a machine data-schema written with
+            a local registry"
+    (let [secret "LOCAL-REGISTRY-SEAM-SECRET-amgtr"
+          tags   {:where    :machine-data
+                  :value    {:pw secret}
+                  :received {:pw secret}
+                  :explain  {:value {:pw secret}}}
+          out    (rf.schemas/redact-validation-tags local-registry-schema tags)]
+      (is (true? (:sensitive? out)) "fail-closed: :sensitive? stamped")
+      (is (= :rf/redacted (:value out)) ":value redacted")
+      (is (= :rf/redacted (:received out)) ":received redacted")
+      (is (= :rf/redacted (:explain out)) ":explain redacted")
+      (is (not (str/includes? (pr-str out) secret))
+          "the secret survives nowhere through the local-registry seam"))))
+
 ;; ---- rf2-vmhu4i — :large? value-bearing slot elision ----------------------
 ;;
 ;; The validation-failure redaction path consulted only schema-has-sensitive?;
