@@ -152,10 +152,15 @@
 ;; sibling `form_3_lifecycle_dom_cljs_test`) — NOT a new runtime and NOT a
 ;; shared framework; the frame-teardown runtime is unchanged, only awaited.
 
-(defn- settle-macrotasks
+(defn settle-macrotasks
   "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
   disposal (which fires `:rf.view/unmounted` on a real unmount) has settled
-  before the test completes."
+  before the test completes.
+
+  PUBLIC alongside `await-teardown!` below (rf2-ty246): an `act`-driven
+  StrictMode teardown cannot go through `await-teardown!`'s `flushSync`, so a
+  sibling reuses this settle step directly rather than re-deriving the turn
+  count."
   [n]
   (js/Promise.
     (fn [resolve _]
@@ -165,12 +170,18 @@
                   (js/setTimeout #(step (dec remaining)) 4)))]
         (step n)))))
 
-(defn- await-teardown!
+(defn await-teardown!
   "Unmount `root` through the real host teardown path under `flushSync` (so the
   unmount commits synchronously), then await Reagent's deferred reaction
   disposal so the `:rf.view/unmounted` marker fires WITHIN the caller's window
   rather than leaking into the shared runner after the test ends. Returns a
-  Promise; settle-count 3 matches the proven machines-artefact idiom."
+  Promise; settle-count 3 matches the proven machines-artefact idiom.
+
+  PUBLIC so a sibling DOM test namespace can reuse this ONE proven teardown
+  idiom instead of minting a fourth private copy of it (rf2-ty246). Stock
+  Reagent test tree only — the reagent-slim tree cannot require this ns without
+  dragging stock `reagent.*` across its bundle-isolation boundary, so slim keeps
+  its own equivalent."
   [root]
   (try (react-dom/flushSync (fn [] (rdc/unmount root))) (catch :default _ nil))
   (settle-macrotasks 3))
