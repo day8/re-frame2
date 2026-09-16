@@ -100,6 +100,15 @@
     :rf.error/frame-destroyed
     :rf.error/write-after-destroy
     :rf.error/flow-eval-exception
+    ;; rf2-1eng8: the managed-HTTP REPLY-TAIL / completion boundary graduated
+    ;; `always-on` in the Spec 009 catalogue. Spec 014 §Failure mode promises a
+    ;; response-side throw is surfaced "observably", and the emit was dev-gated
+    ;; — so in a production CLJS bundle, the one place a throwing `:after`
+    ;; cannot be caught by running the tests, the reply vanished silently. It
+    ;; now rides the always-on axis via `http.transport/emit-reply-tail-error!`
+    ;; → the `:error-emit/emit-error-both` hook → `dispatch-on-error!`, which is
+    ;; the `:else` per-event axis this literal drives it through below.
+    :rf.error/http-reply-tail-failed
     ;; The two-arg report fn (not dispatch-on-error!) carries this row —
     ;; the bounded single-report idiom (Spec 009 §Channel-promotion
     ;; catalogue rows). Exercised through its own report path below.
