@@ -954,9 +954,32 @@
   `:loading` when it has no usable data (first load), `:fetching` when it
   does (refresh / stale-while-revalidate). Bumps `:generation` and
   `:attempt`, records the `:current-work` pointer + `:request-id`, and
-  attaches `owner` to `:active-owners`. Clears `:invalidated-at` (the load
-  satisfies any pending invalidation). Per Spec 016 §Status semantics /
-  §Lifecycle is an FSM / §Frame work ledger."
+  attaches `owner` to `:active-owners`. Per Spec 016 §Status semantics /
+  §Lifecycle is an FSM / §Frame work ledger.
+
+  DOES NOT TOUCH `:invalidated-at` (rf2-ifzg4). A durable invalidation is a
+  FRESHNESS FACT, and Spec 016 §Totality rules those facts ORTHOGONAL to load
+  status — a start-load is a status transition, so it has no business clearing
+  one. Only a SETTLE that actually produced authoritative data clears it
+  (`entry-succeeded`, `entry-append-page`, `entry-replace-page`, and the
+  mutation-success writers); an attempt that has merely STARTED has satisfied
+  nothing yet. Clearing it up front erased the invalidation on any attempt that
+  did NOT succeed: neither `entry-failed` nor `entry-abort-settled` restores it,
+  so a single 5xx — or one release-mid-refetch abort — left the entry reading
+  FRESH while holding PRE-MUTATION data, after which the fresh-skip `ensure`
+  gate and the focus/reconnect active-stale scan both skipped it for the rest of
+  the session (no `:stale-after-ms` ⇒ `:invalidated-at` is the entry's ONLY path
+  to `:stale?`, Spec 016 §Freshness clock contract).
+
+  The accepted consequence is that `:stale?` reads TRUE while a refetch is in
+  flight. That is stale-while-revalidate as Spec 016 describes it (§Status
+  semantics: `:fetching` means work is in flight WHILE PRIOR DATA STAYS
+  VISIBLE), not a regression — the entry genuinely still holds pre-mutation
+  data until the refetch settles. It causes no refetch churn: the fresh-skip
+  gate is guarded by `(not in-flight?)` and falls through to the in-flight
+  dedupe join, and the focus/reconnect scan is guarded by
+  `entry-revalidation-in-flight?`, so neither can start a second attempt over a
+  live one."
   [entry {:keys [generation work-id request-id owner]}]
   (let [had-data? (has-data? entry)]
     (cond-> (assoc entry
@@ -968,8 +991,7 @@
                    ;; a fresh first load clears a prior first-load error; a
                    ;; refresh keeps prior data + clears stale refresh-error
                    ;; lazily on success (Spec 016 §Status semantics)
-                   :error          (if had-data? (:error entry) nil)
-                   :invalidated-at nil)
+                   :error          (if had-data? (:error entry) nil))
       owner (update :active-owners (fnil conj #{}) owner))))
 
 (defn entry-succeeded
