@@ -545,7 +545,11 @@
       (is (= :idle (:status e)))))
 
   ;; MID-FLIGHT owner release — the route left before the reply settled.
-  (let [before-release (:revision (entry article-key))]
+  ;; `entry-revision` rather than `:revision` deliberately: it reads 0 for an
+  ;; absent entry, so against a dissoc'ing tree this pin reports a clean FAILURE
+  ;; and CARRIES ON to the resurrection assertions below, instead of dying on
+  ;; `(inc nil)` and never reaching the thing it exists to show.
+  (let [before-release (rf.resources.state/entry-revision (entry article-key))]
     (rf/dispatch-sync [:rf.resource/release-owner {:owner route-owner}])
     (testing "PRECONDITION — the owner REALLY DID release, and the release was an
               authoritative write the conflict check can SEE"
