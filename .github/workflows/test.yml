@@ -3454,10 +3454,31 @@ jobs:
       - name: Fresco invariants gate
         run: npm run test:fresco-invariants
 
-      - name: Compile and run node-test build (core + reagent)
-        run: |
-          npx shadow-cljs compile node-test
-          node out/node-test.js
+      # THE WRAPPER, NOT A BARE `npx shadow-cljs compile` (rf2-m3iin). This step
+      # ran the bare two-line form until then, and the difference is not
+      # cosmetic: `implementation/scripts/compile-node-test.cjs` is the ONLY
+      # thing that reads shadow's own `Build completed. (… N warnings …)` tally
+      # and reds on it, so bare, the warnings-fatal gate built for this lane
+      # (rf2-4a6ei) NEVER RAN ON THE PR LANE. The defect it exists to catch
+      # merges green: a bare `"` inside a deftest docstring closes the string
+      # early, the words after it become bare symbols, and in JavaScript those
+      # compile to `undefined` and evaluate harmlessly — so the namespace stays
+      # in the build, the suite prints IDENTICAL test and assertion counts, and
+      # the run exits 0. The only number that moves is the warning tally.
+      #
+      # The local spine (scripts/test-fast-pr.sh) has always run `npm run
+      # test:cljs`, so the two lanes disagreed about the same tree: the spine
+      # refused what this job merged. That is also why `scripts/check_fast_pr_gap.py`'s
+      # `cljs-node-test` lane is anchored on THIS command — it claims the spine
+      # runs what CI runs, and the claim is only true while both spell it the
+      # same way.
+      #
+      # It also unlinks out/node-test.js before compiling (rf2-6t03c), so an
+      # aborted compile leaves NO bundle rather than the previous one for the
+      # two isolation steps below — which deliberately do not recompile — to
+      # re-run as though it were fresh.
+      - name: Compile and run node-test build (core + every adapter + every feature artefact + the tools CLJS test trees)
+        run: npm run test:cljs
 
       # Per-namespace test-isolation gate (rf2-32siq3.44). The consolidated
       # node-test bundle shares ONE runtime, so a test ns whose fixture forgets
