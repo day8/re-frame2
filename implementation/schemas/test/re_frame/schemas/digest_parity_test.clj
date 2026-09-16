@@ -26,7 +26,8 @@
   `compute-digest`, so per-fixture assertions are runtime-agnostic."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.schemas.digest]
-            [re-frame.schemas.digest-parity-fixtures :as rf.schemas.digest-parity-fixtures]))
+            [re-frame.schemas.digest-parity-fixtures :as rf.schemas.digest-parity-fixtures]
+            [re-frame.schemas.validator :as rf.schemas.validator]))
 
 ;; ---- pinned-literal vectors -----------------------------------------------
 ;;
@@ -128,6 +129,78 @@
       (is (= (Integer/signum (compare-utf8-bytes a b))
              (Integer/signum (compare a b)))
           (str "ASCII order coincides for " (pr-str [a b]))))))
+
+;; ---- host-divergent printer cases (rf2-k0hqk) -----------------------------
+;;
+;; The `whole-number-double` fixture rides in `all-fixtures` above, so
+;; its cross-host literal is already asserted by
+;; `jvm-digest-matches-canonical-literal`. What that assertion cannot
+;; check is that the fixture still CARRIES a double — on the JVM it does,
+;; and this is the side that can tell, so the precondition lives here.
+
+(deftest jvm-whole-number-double-fixture-really-carries-a-double
+  (testing "rf2-k0hqk precondition — the `whole-number-double` fixture's
+            `:min` prop is genuinely a floating-point value on this host.
+            Without this, editing the fixture's `1.0` to `1` would leave
+            `jvm-digest-matches-canonical-literal` green while exercising
+            none of the divergence the fixture exists for: the JVM would
+            print `1` either way. CLJS cannot make this assertion — it
+            has one numeric type and the reader has already collapsed the
+            literal — which is why the guard is JVM-side only."
+    (let [m (rf.schemas.digest-parity-fixtures/whole-number-double-min)]
+      (is (float? m)
+          (str "the fixture's :min must still be a double, got "
+               (pr-str m) " of type " (pr-str (type m))))
+      (is (== 1 m)
+          "and must still denote the whole number the pinned literal was taken over"))))
+
+(deftest jvm-whole-number-double-agrees-with-its-integer-spelling
+  (testing "rf2-k0hqk — `{:min 1.0}` and `{:min 1}` are indistinguishable
+            on CLJS, so the only cross-runtime-reproducible digest is one
+            that treats them as the same schema. Pinning the equality on
+            the JVM is what pins the normalisation direction: normalising
+            towards the JVM's `1.0` spelling instead would have kept the
+            hosts divergent, because CLJS cannot print a `.0` suffix for a
+            value it does not distinguish from an integer."
+    (is (= (rf.schemas.digest-parity-fixtures/compute-digest {[:n] [:int {:min 1.0 :max 10.0}]})
+           (rf.schemas.digest-parity-fixtures/compute-digest {[:n] [:int {:min 1 :max 10}]}))
+        "whole-number double and integer spellings must digest identically")))
+
+(deftest jvm-fn-bearing-schema-digest-is-process-stable
+  (testing "rf2-k0hqk — a schema carrying a bare predicate must serialise
+            to a NAME-derived token, not to the host's `#object[… 0x… ]`
+            print. That address is `System/identityHashCode`, fresh in
+            every process, so before this fix a JVM server and a client
+            disagreed on every hydrate and the SSR handshake reported
+            `:rf.ssr/schema-digest-mismatch` — 'Deploy drift' — against
+            byte-identical code."
+    (is (rf.schemas.digest-parity-fixtures/fn-bearing-carries-fn?)
+        "precondition: the fixture schema must still carry a function")
+    (let [{:keys [bytes other-predicate-bytes address-free? object-print-free?
+                  carries-fn-token? stable-across-reads? discriminates-predicates?]}
+          (rf.schemas.digest-parity-fixtures/fn-bearing-observations)]
+      (is address-free?
+          (str "no per-process identity hash may ride in the digest bytes — got " (pr-str bytes)))
+      (is object-print-free?
+          (str "the canonicaliser, not `pr-str`, must produce these bytes — got " (pr-str bytes)))
+      (is carries-fn-token?
+          (str "a function must canonicalise to its `#fn[…]` token — got " (pr-str bytes)))
+      (is stable-across-reads?
+          "the bytes must not move between serialisations of the same schema")
+      (is discriminates-predicates?
+          (str "two different predicates must still digest differently — "
+               (pr-str bytes) " vs " (pr-str other-predicate-bytes))))))
+
+(deftest jvm-fn-token-is-the-class-name
+  (testing "rf2-k0hqk — the JVM token is the function's class name, which
+            is fixed by the compiled artefact rather than by the process.
+            Pinning the exact bytes here is the strongest available
+            statement that no address survives; the CLJS side cannot pin
+            its counterpart, because `:advanced` munges the name, and that
+            asymmetry IS the finding recorded in Spec 010 §Digest
+            algorithm."
+    (is (= "[:map [:n \"#fn[clojure.core$pos_int_QMARK_]\"]]"
+           (rf.schemas.validator/run-printer rf.schemas.digest-parity-fixtures/fn-bearing-schema)))))
 
 ;; ---- ambient printer limits (rf2-gwye.14) ---------------------------------
 

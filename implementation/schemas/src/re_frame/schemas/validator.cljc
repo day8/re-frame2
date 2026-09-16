@@ -79,13 +79,94 @@
   [a b]
   (compare (pr-str a) (pr-str b)))
 
+(defn- fn-token
+  "Per Spec 010 §Digest algorithm step 1 — the canonical stand-in for a
+  FUNCTION appearing inside a schema form (rf2-k0hqk).
+
+  A bare predicate is the idiom the how-to recommends — `[:map [:n
+  pos-int?]]` — and `pr-str` over a function is the one place the digest
+  pipeline was not deterministic at all. On the JVM a function prints as
+  `#object[clojure.core$pos_int_QMARK_ 0x3aefae67 \"…@3aefae67\"]`, and
+  that `0x3aefae67` is `System/identityHashCode` — a fresh value in every
+  process. So a fn-bearing schema digested differently on every server
+  restart, and the SSR hydrate handshake reported
+  `:rf.ssr/schema-digest-mismatch` (\"Deploy drift\") against a client
+  running byte-identical code.
+
+  The token is derived from the host's own NAME for the function — the
+  class name on the JVM, `.-name` on CLJS — which carries no address, so
+  the digest is a pure function of the schema value and stable for the
+  process lifetime. `\"#fn\"` is the fallback where the host offers no
+  name (a JS anonymous function reports `\"\"`).
+
+  Deriving from the name keeps the digest DISCRIMINATING — swapping
+  `pos-int?` for `neg-int?` still moves the digest, which a constant token
+  would have silently stopped detecting, and drift detection is the whole
+  point of the surface.
+
+  What this deliberately does NOT do is make two HOSTS agree. The JVM
+  answers `clojure.core$pos_int_QMARK_` where CLJS answers
+  `cljs$core$pos_int_QMARK_`, and `:advanced` munges the CLJS name again
+  to something build-specific. A fn-bearing schema therefore has a
+  per-host stable digest, not a cross-runtime reproducible one — see
+  Spec 010 §Digest algorithm. Normalising the two spellings into one was
+  considered and rejected: it would work in development and stop working
+  under `:advanced` with nothing on screen to say so, which is the same
+  lying-gate failure this fix exists to remove."
+  [f]
+  (let [nm #?(:clj  (.getName (class f))
+              :cljs (.-name f))]
+    (if (and (string? nm) (seq nm))
+      (str "#fn[" nm "]")
+      "#fn")))
+
+(defn- whole-number-double?
+  "True for a JVM floating-point value that denotes a whole number inside
+  the ECMAScript safe-integer range (rf2-k0hqk).
+
+  This is the second host-divergent printer case. `pr-str` of `1.0` is
+  `\"1.0\"` on the JVM and `\"1\"` on CLJS, which has a single numeric type
+  and cannot tell the two apart — so the perfectly ordinary schema prop
+  `[:int {:min 1.0}]` digested differently on the two hosts and faked the
+  same \"Deploy drift\" warning. Emitting the integer form is the only
+  direction that can agree: CLJS is physically unable to print a `.0`
+  suffix for a value it does not distinguish from an integer, so
+  normalising towards the JVM spelling would merely move the divergence.
+
+  The safe-integer bound is what makes the conversion total. Outside it a
+  double is not exactly representable as an integer on either host
+  (`1e21` prints `\"1.0E21\"` on the JVM and `\"1e+21\"` on CLJS), and
+  `(long 1e21)` overflows, so such a value is left alone and stays
+  host-divergent — recorded in Spec 010 §Digest algorithm rather than
+  papered over. NaN and the infinities fall out through the same range
+  test, every comparison against them being false.
+
+  CLJS answers false throughout: `1.0` already prints as `1` there, so
+  there is nothing to normalise, and CLJS's `float?` is true of every
+  number, which would send integers through a pointless conversion."
+  [x]
+  #?(:clj  (and (float? x)
+                (let [d (double x)]
+                  (and (<= -9007199254740991.0 d 9007199254740991.0)
+                       (== d (Math/rint d)))))
+     :cljs false))
+
 (defn- canonicalise-schema-form
   "Per Spec 010 §Digest algorithm step 1 — normalise a schema EDN form for
   stable byte serialisation: metadata is stripped, and map keys are
   emitted in `(compare (pr-str a) (pr-str b))` order via sorted-maps /
   sorted-sets so insertion order does not bleed into the printed bytes.
-  Sequences and vectors recurse element-wise. Non-collection values
-  pass through unchanged."
+  Sequences and vectors recurse element-wise.
+
+  Two scalar kinds do NOT survive `pr-str` deterministically and are
+  normalised here instead (rf2-k0hqk): a function becomes its `fn-token`
+  (its host print carries a per-process identity hash), and a
+  whole-number double becomes the integer it denotes (the JVM prints the
+  `.0` suffix CLJS cannot). Every other value passes through unchanged.
+
+  `fn?` is deliberate where `ifn?` would be wrong: CLJS keywords, maps
+  and vectors are all `ifn?`, and tokenising those would destroy the
+  schema form."
   [form]
   (cond
     (map? form)    (into (sorted-map-by compare-by-pr-str)
@@ -98,6 +179,8 @@
                          (map canonicalise-schema-form)
                          form)
     (seq? form)    (doall (map canonicalise-schema-form form))
+    (fn? form)             (fn-token form)
+    (whole-number-double? form) (long form)
     :else          form))
 
 (defn- compute-edn-print
