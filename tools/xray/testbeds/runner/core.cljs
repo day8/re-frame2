@@ -148,6 +148,34 @@
     (xray-focus/focus! host-frame {:frame    host-frame
                                    :epoch-id epoch-id})))
 
+(defn- latest-epoch?
+  "True when `epoch-id` is still the NEWEST settled epoch in
+  `host-frame`'s ring — i.e. pinning it would land on head and leave the
+  spine LIVE.
+
+  The `:epoch` listener is called once per DEQUEUED EVENT, not once per
+  epoch, so it re-delivers the same in-flight record many times and — for
+  a step whose event cascades — delivers a PARENT record again after the
+  child's record has already arrived. Measured on the routes-epochs
+  ladder's rung #3, one press produced twelve firings: epoch 6
+  (`:routes-epochs/go`) seven times, then epoch 7 (`:rf.route/navigate`)
+  once, then epoch 6 TWICE MORE with the ring's last already 7. Pinning
+  on that trailing stale record put the spine into RETRO on the parent
+  epoch, whose bundle carries no routing traces — so the Routing panel's
+  NAVIGATION THIS EPOCH section read 'No route activity in this epoch'
+  while CURRENT ROUTE still showed the arrived route.
+
+  This guard is what makes the ns docstring's 'each step re-focuses head
+  and the spine never pins into RETRO' true of the code rather than only
+  of the intent (rf2-6nxq8).
+
+  A nil ring means the epoch artefact is absent, in which case the
+  listener would not have registered at all; the `some?` arm keeps the
+  predicate honest rather than silently disabling focus-pinning."
+  [host-frame epoch-id]
+  (let [latest (:epoch-id (peek (rf/epoch-history host-frame)))]
+    (or (nil? latest) (= epoch-id latest))))
+
 (defn register-focus-listener!
   "Register (or replace) the per-host-frame epoch listener that pins
   Xray focus on each step's CHILD epoch. Keyed by `[::focus host-frame
@@ -161,7 +189,11 @@
   app-db delta is the `:step` write) by matching the record's
   `:trigger-event` id against the deck's run-step `id` — so focus lands
   on the real step event's CHILD epoch, which settles AFTER the parent
-  via the run-step handler's async `:dispatch` fx. `(rf/register-listener!
+  via the run-step handler's async `:dispatch` fx. It ALSO skips a record
+  that is no longer the newest epoch in the frame's ring
+  (`latest-epoch?`) — the listener re-delivers a parent record after its
+  child's has landed, and pinning that trailing stale record is what put
+  the spine into RETRO on the parent (rf2-6nxq8). `(rf/register-listener!
   :epoch …)` returns nil when the epoch artefact is absent, in which
   case focus-pinning silently degrades to a no-op (no epoch ring to
   focus against) — the testbed still steps."
@@ -170,7 +202,8 @@
     [::focus host-frame id]
     (fn focus-listener [record]
       (when (and (= host-frame (:frame record))
-                 (not= id (first (:trigger-event record))))
+                 (not= id (first (:trigger-event record)))
+                 (latest-epoch? host-frame (:epoch-id record)))
         (focus-epoch! host-frame (:epoch-id record))))))
 
 ;; ============================================================================
