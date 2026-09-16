@@ -351,6 +351,74 @@
         (is (:gc-eligible? orphan))
         (is (= 1 (:owner-count owned)))))))
 
+;; ---- (4b) staleness derivation — divergence pin (rf2-vyvo8) -------------
+;;
+;; `resources-helpers/derive-stale?` is a SECOND implementation of the
+;; framework's `rf.resources.state/entry-stale?` (Spec 016 §Stale and GC
+;; scheduling names "the single shared derivation"). The copy is DELIBERATE:
+;; the panel's read path stays free of a `re-frame.resources.*` require edge
+;; so an app that omits the optional Resources artefact still renders the
+;; panel (`tools/xray/spec/024-Resources-Panel.md` §Decoupled reads, and this
+;; ns's own docstring). Nothing forces it — `tools/README.md` permits
+;; tool → implementation requires — so it is a posture, and a posture needs a
+;; tripwire rather than trust.
+;;
+;; THIS IS THAT TRIPWIRE. It holds the two derivations to the same answer
+;; across the reachable domain, so the next change to staleness cannot move
+;; one copy without turning this red. The require edge lives in TEST code
+;; only (`re-frame.resources.state` is already required at the top of this
+;; ns), so the pin costs the panel's production surface nothing and leaves
+;; bundle isolation exactly where it was.
+;;
+;; AND NOTE THE ONE DELIBERATE DIFFERENCE, pinned separately below: the
+;; framework predicate is NOT nil-clock safe — `(>= nil stale-at)` throws on
+;; the JVM — while the panel guards `now-ms`, because `project-instances`'
+;; 1-arity passes it as nil. Replacing the panel's copy with a delegation to
+;; the framework fn would therefore be a REGRESSION, not a tidy-up, and the
+;; nil-clock pin goes red if anyone tries it.
+
+(def ^:private stale-pin-entries
+  "Entry shapes spanning both arms of the predicate (explicit invalidation,
+  elapsed time policy) and the boundaries of each."
+  {:no-policy       {:status :loaded :data 1}
+   :invalidated     {:status :loaded :invalidated-at 500}
+   :stale-at-future {:status :loaded :stale-at (+ now 50000)}
+   :stale-at-past   {:status :loaded :stale-at (- now 1)}
+   :stale-at-equal  {:status :loaded :stale-at now}
+   :stale-at-zero   {:status :loaded :stale-at 0}
+   :both-arms       {:status :loaded :invalidated-at 1 :stale-at (+ now 50000)}
+   :explicit-nils   {:status :loaded :invalidated-at nil :stale-at nil}})
+
+(deftest stale-derivation-agrees-with-framework-pin
+  (testing "the panel's derived :stale? equals rf.resources.state/entry-stale? on every reachable clock"
+    (let [clocks        [0 1 (- now 1) now (+ now 50000)]
+          disagreements (vec
+                          (for [[label entry] stale-pin-entries
+                                clock          clocks
+                                :let  [projected (:stale? (h/instance-row [(str "k-" (name label)) entry] clock))
+                                       canonical (rf.resources.state/entry-stale? entry clock)]
+                                :when (not= projected canonical)]
+                            {:entry label :clock clock :panel projected :framework canonical}))]
+      (is (= [] disagreements)
+          (str "derive-stale? has drifted from rf.resources.state/entry-stale? — "
+               "the two staleness derivations disagree on: " (pr-str disagreements))))))
+
+(deftest stale-derivation-nil-clock-guard-pin
+  (testing "the panel nil-guards now-ms (project-instances' 1-arity passes nil) where the framework predicate throws"
+    (let [time-policy (h/project-instances
+                        (byte-keyed {[session-scope :article/by-slug {:slug "welcome"}]
+                                     {:resource/id :article/by-slug :status :loaded
+                                      :stale-at (- now 1)}}))
+          invalidated (h/project-instances
+                        (byte-keyed {[session-scope :article/by-slug {:slug "gone"}]
+                                     {:resource/id :article/by-slug :status :loaded
+                                      :invalidated-at 5}}))]
+      (is (= 1 (count time-policy)))
+      (is (false? (:stale? (first time-policy)))
+          "a time-policy entry with NO clock reads not-stale rather than throwing")
+      (is (true? (:stale? (first invalidated)))
+          "the invalidation arm still answers with no clock"))))
+
 ;; ---- (5) project-work-ledger -------------------------------------------
 
 (defn- byte-keyed-ledger
