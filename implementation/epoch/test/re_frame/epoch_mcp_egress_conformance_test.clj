@@ -1433,6 +1433,125 @@
           (is (not (contains-secret? (:trace-events proj)))
               "so no trace event carries the fx-arg secret under include-sensitive"))))))
 
+(defn- drive-malformed-fx-head!
+  "Fire one cascade whose `:fx` mixes a WELL-FORMED keyword-headed entry with
+  three MALFORMED entries whose head is PAYLOAD rather than an fx-id — a map,
+  a vector and a string, each carrying the secret — plus the legal `nil`
+  conditional-fx no-op.
+
+  `re-frame.fx/fx-entry-ok?` REJECTS all three malformed entries (a vector
+  with a non-keyword head is a documented shape violation: it would be
+  mis-reported as an unknown fx-id) and drops them from the WALK, so only
+  `:fxp/login` ever runs. But rejection drops an entry from the walk, NOT
+  from the trace: the terminal `:rf.fx/do-fx` marker stamps `:rf.event/fx`
+  from the RAW `(:fx effects)` map, so every rejected entry still reaches
+  this carrier verbatim. That is what makes the head a leak rather than a
+  curiosity, and it is why the pin below drives a real cascade instead of
+  handing the redactor a literal.
+
+  Writes no `:db`, so the app-db classification axis cannot be what any scan
+  here catches — the only route the secret has to the wire is the carrier.
+  Returns the raw epoch record."
+  [frame-id creds]
+  (rf/reg-fx :fxp/login (fn [_ _] nil))
+  (rf/reg-event :do-malformed-fx
+                (fn [_ [_ c]]
+                  {:fx [[:fxp/login c]
+                        [{:password (:password c)} {:arg 1}]
+                        [[:login (:password c)] {:arg 2}]
+                        [(:password c) {:arg 3}]
+                        nil]}))
+  (rf/dispatch-sync [:do-malformed-fx creds] {:frame frame-id})
+  (last (rf/epoch-history frame-id)))
+
+(deftest forwarder-malformed-fx-head-redacts-whole
+  (testing "rf2-75yrq — the per-entry `:rf.event/fx` projection may keep an
+            entry's HEAD only when that head is a STRUCTURAL fx-id, i.e. a
+            KEYWORD. rf2-79fvm made this carrier fail closed by keeping
+            `(first entry)` for any nonempty sequential entry, on the
+            reasonable-looking premise that the head of an `:fx` entry is an
+            fx-id keyword. For a MALFORMED entry it is not: the head can be
+            the payload itself, and an `[{:password …} {:arg 1}]` entry
+            egressed that map verbatim in the head slot — the secret leaving
+            the process through the carrier rf2-79fvm had just protected, on
+            a record the `:effects` row below shows was REJECTED as an
+            effect. `keyword?` is the same predicate `re-frame.fx/fx-entry-ok?`
+            already applies before it will walk an entry, so this tightens the
+            redactor to core's existing notion of a structural fx-id rather
+            than inventing a second one."
+    (rf/make-frame {:id :test/mcp})
+    (install-mcp-style-schemas! :test/mcp)
+    (let [creds {:password secret-password :token "tok-abc"}
+          raw   (drive-malformed-fx-head! :test/mcp creds)
+          proj  (rf/project-egress raw)]
+
+      (testing "PRECONDITION — the malformed entries REACHED the carrier.
+                Without this the assertions below pass just as happily
+                against a path that dropped the entry upstream, which is the
+                case that was never broken (and the vacuous-pass shape
+                rf2-79fvm shipped in this very file)"
+        (is (= [[:fxp/login creds]
+                [{:password secret-password} {:arg 1}]
+                [[:login secret-password] {:arg 2}]
+                [secret-password {:arg 3}]
+                nil]
+               (:rf.event/fx (do-fx-tags raw)))
+            "the RAW carrier holds all five entries verbatim, malformed heads
+             included — `do-fx` stamps the tag from the returned `:fx` map")
+        (is (= [{:fx-id :fxp/login :args :rf/redacted :outcome :ok}]
+               (:effects proj))
+            "and only the well-formed entry was WALKED — the other three were
+             rejected by `fx-entry-ok?` and executed nothing, so the trace is
+             carrying bytes the effect pipeline itself refused"))
+
+      (testing "every non-keyword head redacts WHOLE, while the keyword-headed
+                control keeps its head and the `nil` no-op rides through"
+        (is (= [[:fxp/login :rf/redacted]
+                :rf/redacted
+                :rf/redacted
+                :rf/redacted
+                nil]
+               (:rf.event/fx (do-fx-tags proj)))
+            "a map, vector or string head has no structural fx-id to keep, so
+             the whole entry becomes the sentinel; `:fxp/login` still keeps
+             its head beside them, and `nil` still carries nothing to leak"))
+
+      (testing "so no leaf of the carrier names the secret — reported BY PATH,
+                because this leak hides four levels down inside a trace tag"
+        (is (= [] (secret-leak-paths (do-fx-tags proj)))
+            "no slot of the `:rf.fx/do-fx` row's tags carries the secret"))
+
+      (testing "and the projection stays idempotent over the new shape — a
+                forwarder that double-projects must not drift the wire shape"
+        (is (= (:rf.event/fx (do-fx-tags proj))
+               (:rf.event/fx (do-fx-tags (rf/project-egress proj))))
+            "re-projecting is structurally identical"))
+
+      (testing "the trusted-local opt-in posture is UNCHANGED — this is a
+                tightening of the fail-closed default, not a new refusal"
+        (is (= [[:fxp/login creds]
+                [{:password secret-password} {:arg 1}]
+                [[:login secret-password] {:arg 2}]
+                [secret-password {:arg 3}]
+                nil]
+               (:rf.event/fx
+                 (do-fx-tags (rf/project-egress
+                               raw {:rf.egress/include-fx-args? true}))))
+            "`:rf.egress/include-fx-args? true` still hands back every entry
+             verbatim, malformed ones included")))))
+
+;; rf2-75yrq, REPORTED NOT TAKEN — a DISTINCT carrier of these same bytes
+;; survives the test above, deliberately unasserted here. `fx-entry-ok?`'s
+;; `:rf.error/effect-map-shape` trace stamps the offending entry on `:value`
+;; AND interpolates `(pr-str pair)` into the human-facing `:reason` string, and
+;; no projection arm in `tool_pair.cljc` reaches either slot — so the cascade
+;; above egresses the secret six more times on three error rows. That is the
+;; error-trace carrier, not the `:rf.event/fx` one this bead owns, and its emit
+;; site is in core (`implementation/core/src/re_frame/fx.cljc`); folding it in
+;; here would be a second place deciding what an effect may disclose. It is
+;; filed rather than pinned, because pinning a leak as expected behaviour is
+;; what left this file's :1715-1720 assertions encoding the rf2-79fvm leak.
+
 (deftest include-sensitive-keeps-runtime-db-partition-redacted
   (testing "rf2-m9duxl — `{:rf.egress/include-sensitive? true}` keeps the
             `:rf.db/runtime` frame-state partition REDACTED. The runtime-db
