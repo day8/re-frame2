@@ -16,7 +16,10 @@
   Args shape: `{:rf/machine-id <id> :rf/patch {<snapshot-keys> ...}}`.
   `:rf/machine-id` names the actor whose snapshot at
   `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is the map merged onto
-  that snapshot. Only the spec-permitted top-level snapshot keys flow
+  that snapshot, and its `:data` leg MERGES exactly as an action's `{:data ...}`
+  return does rather than replacing the map (rf2-0hi3x — a replace silently
+  dropped the reserved `:rf/*` runtime slots that live under `:data`; see
+  `apply-patch`). Only the spec-permitted top-level snapshot keys flow
   through (`:state` / `:meta` / `:data`); any other key is ignored (the
   escape hatch can't graft arbitrary slots onto a snapshot). User
   error/status state is user-domain working memory and lives under
@@ -35,6 +38,35 @@
 ;; (Spec 005:463 hard-disallow). User error/status state belongs under
 ;; `:data` (schema-covered), not as bare snapshot-root keys.
 (def ^:private permitted-patch-keys #{:state :meta :data})
+
+(defn- apply-patch
+  "Merge `clean-patch` onto `snapshot`, with the `:data` leg MERGING rather
+  than REPLACING — the same rule an action's `{:data ...}` return already
+  obeys (`transition`'s
+  `(cond-> before-data (contains? r :data) (merge (:data r)))`). Before
+  rf2-0hi3x the two paths wrote the same shape and disagreed about it.
+
+  Why `:data` must merge. It is not only user working memory: the runtime
+  keeps framework-owned reserved `:rf/*` slots in there that the programmer
+  never sees and cannot be expected to carry forward by hand — the
+  `:after`-timer epoch map (`:rf/after-epoch` /
+  `:rf/after-epoch-by-region`), a spawned actor's
+  `:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id` / `:rf/join-child`
+  lineage, and the `:rf/spawned` invoke-id capture. A wholesale replace
+  dropped them SILENTLY, so the documented idiom
+  `{:rf/patch {:data {:status :degraded}}}` stale-suppressed every live
+  `:after` timer of the actor (`node-epoch` falls back to 0, so an in-flight
+  timer armed at a non-zero epoch never matches and simply never arrives)
+  and made a spawned child finalize as a singleton (`finalize` reads
+  `:rf/parent-id` off `:data` to decide whether anyone is waiting on it).
+
+  `:state` / `:meta` still REPLACE: those the caller names outright, and
+  neither holds hidden runtime slots. The `contains?` guard is what keeps a
+  patch that doesn't mention `:data` from installing a nil one."
+  [snapshot clean-patch]
+  (cond-> (merge snapshot clean-patch)
+    (contains? clean-patch :data)
+    (assoc :data (merge (:data snapshot) (:data clean-patch)))))
 
 (defn update-snapshot-fx
   "fx handler for `:rf.machine/update-snapshot`. Merges the spec-permitted
@@ -145,7 +177,7 @@
             (let [snapshots (get-in (rf.frame/frame-runtime-db-value frame-id)
                                     (rf.machines.paths/snapshot-path))]
               (when (contains? snapshots machine-id)
-                (let [merged (merge (get snapshots machine-id) clean-patch)]
+                (let [merged (apply-patch (get snapshots machine-id) clean-patch)]
                   (when (rf.machines.data-validation/validate-update-snapshot-data!
                           machine-id merged)
                     ;; rf2-vxgfnd.22 — route the store-write through the EXACT
@@ -162,7 +194,7 @@
                             ;; a snapshot for an actor torn down between the read
                             ;; and the write.
                             (if (contains? (get-in runtime-db (rf.machines.paths/snapshot-path)) machine-id)
-                              (update-in runtime-db (rf.machines.paths/snapshot-path machine-id) merge clean-patch)
+                              (update-in runtime-db (rf.machines.paths/snapshot-path machine-id) apply-patch clean-patch)
                               runtime-db))]
                       (if owner-token
                         (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
