@@ -932,3 +932,109 @@
       (is (nil? (entry k)) "instance removed")
       (is (not (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
           "its GC timer cancelled"))))
+
+;; ===========================================================================
+;; 6. An invalidation SURVIVES a refetch that did not succeed (rf2-ifzg4)
+;; ===========================================================================
+;;
+;; The durable `:invalidated-at` is a FRESHNESS FACT, and Spec 016 §Totality
+;; rules those facts ORTHOGONAL to load status — so only a settle that actually
+;; produced authoritative data may clear one. `entry-start-load` used to clear
+;; it at load START, which meant an invalidation-driven refetch that FAILED or
+;; was ABORTED erased the very invalidation that caused it: neither
+;; `entry-failed` nor `entry-abort-settled` restores the fact. The entry then
+;; read FRESH while still holding PRE-MUTATION data, and — with no
+;; `:stale-after-ms`, where `:invalidated-at` is the entry's ONLY path to
+;; `:stale?` (Spec 016 §Freshness clock contract) — the fresh-skip `ensure`
+;; gate and the focus/reconnect active-stale scan both skipped it for the rest
+;; of the session. One 5xx was enough.
+;;
+;; These two pins are the two distinct non-success settles. They assert the
+;; DURABLE fact, the shared `entry-stale?` derivation every freshness reader
+;; consults, AND the user-visible consequence (the next `ensure` must refetch
+;; rather than fresh-skip a cache hit) — the last is what actually bites.
+
+(deftest invalidation-survives-a-failed-refetch
+  ;; rf2-ifzg4 — FAILURE-after-invalidation. An owned entry is invalidated (so
+  ;; the invalidation refetches it), the refetch 5xxs, and the invalidation must
+  ;; still stand: the entry is holding pre-mutation data and nothing has
+  ;; re-read authoritative state.
+  (rf/reg-resource :ifz/article (article-spec) article-spec-request)
+  (let [scope {:user "u"}
+        k     (rf.resources.state/scoped-resource-key scope :ifz/article {:slug "w"})
+        owner [:app :ifz 1]]
+    (ensure! :ifz/article scope "w" owner)
+    (succeed! k {:title "pre-mutation"})
+    (is (nil? (:invalidated-at (entry k))) "control: loaded entry is not invalidated")
+    ;; the entry keeps its ACTIVE OWNER, so the invalidation refetches it
+    ;; rather than leaving it stale-in-place.
+    (rf/dispatch-sync [:rf.resource/invalidate-tags
+                       {:scope scope :tags #{[:article "w"]}}])
+    (is (some? (:current-work (entry k)))
+        "control: the active-owner invalidation started a refetch")
+    (testing "rf2-ifzg4 — a start-load does NOT clear the durable
+              :invalidated-at, so a refetch that FAILS leaves the invalidation
+              standing (Spec 016 §Totality — freshness facts are orthogonal to
+              load status; only a SUCCESSFUL settle satisfies an invalidation)"
+      (fail! k :boom)
+      (let [e (entry k)]
+        (is (= :loaded (:status e))
+            "a background-refresh failure returns to :loaded (last-known-good preserved)")
+        (is (= {:title "pre-mutation"} (:data e))
+            "the entry is still holding PRE-MUTATION data — the harm the fact records")
+        (is (some? (:refresh-error e)) "the refresh failure was recorded")
+        (is (some? (:invalidated-at e))
+            "the durable invalidation SURVIVED the failed refetch")
+        ;; `:stale-after-ms` is undeclared, so `:stale-at` is nil and
+        ;; `:invalidated-at` is the ONLY path to stale — the clock is
+        ;; immaterial, which is exactly the default this bug was worst under.
+        (is (nil? (:stale-at e)) "control: no time-staleness in play")
+        (is (rf.resources.state/entry-stale? e 0)
+            "the shared freshness derivation every reader consults still reads STALE")))
+    (testing "rf2-ifzg4 — and the consequence that bites: the next ensure
+              REFETCHES rather than serving a fresh-skip cache hit, so the
+              mutation's effect is eventually seen"
+      (ensure! :ifz/article scope "w" owner)
+      (is (some? (:current-work (entry k)))
+          "the stale entry started a new attempt (no fresh-skip)"))))
+
+(deftest invalidation-survives-an-aborted-refetch
+  ;; rf2-ifzg4 — RELEASE-MID-REFETCH abort, the sibling case and the one that
+  ;; would regress silently. The last owner releases while the invalidation's
+  ;; refetch is in flight; the orphaned attempt is aborted, and
+  ;; `entry-abort-settled` deliberately writes NO error facts — so nothing
+  ;; whatsoever marks the entry as needing a re-read except the invalidation
+  ;; itself, which must therefore survive.
+  (rf/reg-resource :ifza/article (article-spec) article-spec-request)
+  (let [scope {:user "u"}
+        k     (rf.resources.state/scoped-resource-key scope :ifza/article {:slug "w"})
+        owner [:app :ifza 1]]
+    (ensure! :ifza/article scope "w" owner)
+    (succeed! k {:title "pre-mutation"})
+    (rf/dispatch-sync [:rf.resource/invalidate-tags
+                       {:scope scope :tags #{[:article "w"]}}])
+    (is (some? (:current-work (entry k)))
+        "control: the active-owner invalidation started a refetch")
+    ;; the last owner goes away mid-flight — the attempt is orphaned and
+    ;; opportunistically aborted (Spec 016 §Race).
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner owner}])
+    (testing "rf2-ifzg4 — an ABORTED refetch settles with no error facts at
+              all, so erasing :invalidated-at at start-load left NOTHING marking
+              the entry for re-read; the invalidation must survive the abort"
+      (abort! k)
+      (let [e (entry k)]
+        (is (= :loaded (:status e))
+            "a refresh abort returns to :loaded (a cancellation is not a failure)")
+        (is (= {:title "pre-mutation"} (:data e))
+            "the entry is still holding PRE-MUTATION data")
+        (is (nil? (:error e)) "control: an abort writes no :error")
+        (is (nil? (:refresh-error e)) "control: an abort writes no :refresh-error")
+        (is (some? (:invalidated-at e))
+            "the durable invalidation SURVIVED the aborted refetch")
+        (is (rf.resources.state/entry-stale? e 0)
+            "the shared freshness derivation still reads STALE")))
+    (testing "rf2-ifzg4 — so a later ensure (a re-entered route re-owning the
+              entry) refetches instead of fresh-skipping the pre-mutation value"
+      (ensure! :ifza/article scope "w" [:app :ifza 2])
+      (is (some? (:current-work (entry k)))
+          "the stale entry started a new attempt (no fresh-skip)"))))
