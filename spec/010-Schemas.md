@@ -138,7 +138,7 @@ Open vs closed map semantics is the team's choice; every schema language re-fram
 
 ### Multiple schemas at the same path
 
-Re-registering a schema at a path replaces the previous one (last-write-wins, same as handler re-registration). Tooling warns when the new source coords differ from the previous registration — a same-form re-register (hot reload) is benign; a different-source re-register at the same path is probably a bug.
+Re-registering a schema at a path replaces the previous one (last-write-wins, same as handler re-registration). A same-form re-register (hot reload) is benign; a different-source re-register at the same path is probably a bug, but nothing detects it today — the schema-registration path emits no replacement trace and does not compare the new registration's source coords against the previous one.
 
 ## Validation timing
 
