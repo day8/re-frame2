@@ -386,7 +386,46 @@
           h (lowered (dispatching (recorder)) :on-key-down
                      {"Enter" (fn [_e] (reset! !called true))})]
       (h (ev {:key "Enter"}))
-      (is (true? @!called)))))
+      (is (true? @!called))))
+  (testing "and the CALLBACK form in a branch keeps the contract its own
+            docstring promises at every event position: the vector it returns
+            is DISPATCHED. `callback?` is `fn?` plus a marker read, so a
+            classification that asks `fn?` first takes the plain-function arm
+            and the intent is swallowed — no error, no dispatch, nothing on
+            the console. The order of the two arms IS the contract here."
+    (let [!seen (recorder)
+          !ran  (atom 0)
+          h     (lowered (dispatching !seen) :on-key-down
+                         {"Enter" (rf.fresco.impl.intent/callback
+                                    (fn [e]
+                                      (swap! !ran inc)
+                                      [:form/commit (.. e -target -value)]))})]
+      (h (ev {:key "Enter" :value "milk"}))
+      (is (= 1 @!ran)
+          "the body ran — the plain-function arm gets this far too, which is
+           why the swallowed intent is invisible without this second check")
+      (is (= [[:form/commit "milk"]] @!seen)
+          "and the intent it returned reached the frame")))
+  (testing "a callback branch is lowered by the same `event-callback` as a
+            bare event position, not by a second rule: a non-vector return is
+            ignored there too"
+    (let [!seen (recorder)
+          h     (lowered (dispatching !seen) :on-key-down
+                         {"Enter" (rf.fresco.impl.intent/callback
+                                    (fn [_e] :not-an-intent))})]
+      (h (ev {:key "Enter"}))
+      (is (= [] @!seen))))
+  (testing "and the composition gate still governs a callback branch — it is
+            centralised over the whole map, so it cannot be reached around by
+            changing what a branch lowers to"
+    (let [!seen (recorder)
+          h     (lowered (dispatching !seen) :on-key-down
+                         {"Enter" (rf.fresco.impl.intent/callback
+                                    (fn [_e] [:form/commit]))})]
+      (h (ev {:key "Enter" :composing? true}))
+      (is (= [] @!seen) "an IME commit is not a form commit")
+      (h (ev {:key "Enter" :composing? false}))
+      (is (= [[:form/commit]] @!seen)))))
 
 (deftest the-composition-predicate-reads-both-signals
   (is (true? (rf.fresco.impl.intent/composing? (ev {:composing? true}))))
