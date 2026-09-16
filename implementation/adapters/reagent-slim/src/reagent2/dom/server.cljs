@@ -34,18 +34,34 @@
     | :>             | React component interop                     |
     | :r>            | raw React.createElement passthrough         |
     | :f>            | function-component dispatch                 |
+    | …context Provider under any of those three heads:             |
+    |                | walk its children (rf2-iyz6j)               |
     | DOM tag        | parse-tag + DOM element                     |
     | reagent class  | Form-3: render :reagent-render via fn path  |
     | user fn        | invoke fn-with-args (Form-1/Form-2); recurse|
 
   React-component heads (`:>`, `:r>`, `:f>`) emit a placeholder HTML
   comment (`<!--reagent-react-component-->`) and don't walk into the
-  component. This matches `react-dom/server.renderToStaticMarkup`'s
-  behaviour for non-static content (per §8.1 — `react-dom/server`
-  treats foreign-component subtrees as opaque under static markup).
+  component. THIS IS NOT REACT-DOM PARITY, and the claim that it was
+  is what let rf2-iyz6j sit unnoticed: real
+  `react-dom/server.renderToStaticMarkup` RENDERS foreign components.
+  The placeholder is a deliberate limitation of a serializer that ships
+  no React — nothing here can know what a foreign component renders
+  without running it — so read it as a marker that content was SKIPPED,
+  not as a statement about what React would have produced.
   Stage 4 picks the user-fn-call path for plain-fn heads to match
   stock Reagent's `render-to-static-markup` behaviour and preserve
   Dash8/rf8 HTML-export compatibility.
+
+  CONTEXT PROVIDERS ARE THE EXCEPTION (rf2-iyz6j). A Provider is the one
+  React head whose output IS knowable without React: it renders nothing
+  of its own and its output is exactly its children, so the walker walks
+  THROUGH it. Before rf2-iyz6j it did not, and the canonical slim mount
+  `[rf/frame-provider {:frame f} [app]]` — which expands to an `:r>` head
+  carrying the shared frame Context Provider — serialised to the
+  placeholder comment and NOTHING ELSE. An empty document, no error, on
+  the HTML-export path the guides teach. See `emit-react-interop` for the
+  detection and for why both React `$$typeof` shapes are accepted.
 
   COMPONENT-SHAPE PARITY (rf2-o3hqr). The static path must render the
   same Form-1/Form-2/Form-3 view shapes the live renderer does — a
@@ -886,8 +902,10 @@
 (declare emit-element)
 
 (defn- emit-react-component-placeholder
-  "Placeholder for foreign React-component subtrees — matches
-  react-dom/server's opaque treatment under static markup."
+  "Placeholder for foreign React-component subtrees. NOT react-dom parity
+  (see the ns docstring): `react-dom/server` renders foreign components,
+  and this serializer ships no React, so it marks the skipped content
+  rather than pretending to have rendered it."
   [^StringBuffer sb]
   (.append sb "<!--reagent-react-component-->"))
 
@@ -895,6 +913,79 @@
   [^StringBuffer sb children]
   (doseq [c children]
     (emit-element sb c)))
+
+;; ---------------------------------------------------------------------------
+;; React context Providers (rf2-iyz6j)
+;;
+;; The ONE React head whose rendered output is knowable without running
+;; React: a Provider renders nothing of its own and its output IS its
+;; children. Detection is by `$$typeof`, and BOTH React shapes are
+;; accepted because which one a host uses is a version fact:
+;;
+;;   React 19 (this tree's pin, 19.3.0) — `createContext` sets
+;;     `ctx.Provider = ctx`, so the Provider IS the context object and
+;;     carries `Symbol.for("react.context")`. `Symbol.for("react.provider")`
+;;     does not exist in 19.3.0 at all.
+;;   React <=18 — `ctx.Provider` is a DISTINCT object carrying
+;;     `Symbol.for("react.provider")`.
+;;
+;; A context CONSUMER (`Symbol.for("react.consumer")`) is deliberately NOT
+;; matched: its child is a render FN, not elements, so walking it would be
+;; wrong. It stays opaque like any other foreign component.
+;;
+;; `Symbol.for` is idempotent and interns on demand, so naming a symbol the
+;; host React never uses costs nothing and matches nothing.
+;; ---------------------------------------------------------------------------
+
+(def ^:private react-context-type (js/Symbol.for "react.context"))
+(def ^:private react-provider-type (js/Symbol.for "react.provider"))
+
+(defn- ^boolean context-provider?
+  "True when `x` is a React context Provider under either React shape.
+
+  Reads `$$typeof` through `unchecked-get` — a STRING-keyed access, so
+  Closure `:advanced` cannot rename the property out from under it. That
+  is not fussiness: a renamed property would make this predicate return
+  false in release bundles only, silently restoring the dropped-subtree
+  bug in exactly the artefact users ship, where the unit tests (dev
+  build) would still be green. `reagent2.impl.template` reads its own
+  hot-path caches the same way, and `re-frame.substrate.spine` likewise
+  spells this very property as a string."
+  [x]
+  (and (some? x)
+       (let [t (unchecked-get x "$$typeof")]
+         (or (identical? t react-context-type)
+             (identical? t react-provider-type)))))
+
+(defn- emit-react-interop
+  "Emit a React-interop head (`:>`, `:r>`, `:f>`).
+
+  A context Provider is walked through — it contributes no markup of its
+  own, so its children are emitted as if the Provider were not there,
+  which is exactly what `react-dom/server` produces for a Provider.
+  Every other component stays opaque: with no React there is no way to
+  know what it renders.
+
+  Child slots mirror the live renderer (`reagent2.impl.template`): `:r>`
+  takes raw js-props at index 2 UNCONDITIONALLY, so its children start at
+  3 (`raw-element` passes `3` to `make-element`); `:>` and `:f>` use the
+  conventional `props-slot?` test at index 2.
+
+  Frame scoping is NOT reimplemented here. The Provider's `:value` is a
+  React-runtime concern; under the static walker a descendant resolves
+  its frame through the ambient `with-frame` / `*current-frame*` binding,
+  exactly as it did before this branch existed."
+  [^StringBuffer sb argv]
+  (let [head      (nth argv 0 nil)
+        component (nth argv 1 nil)]
+    (if-not (context-provider? component)
+      (emit-react-component-placeholder sb)
+      (let [children-pos (if (= :r> head)
+                           3
+                           (if (template/props-slot? (nth argv 2 nil)) 3 2))
+            n            (count argv)]
+        (when (< children-pos n)
+          (emit-children sb (subvec argv children-pos)))))))
 
 (defn- emit-dom-element
   "Emit a hiccup vector whose head is a DOM-tag keyword/symbol/string."
@@ -1026,7 +1117,7 @@
       (= :<> head)                (emit-fragment sb argv)
       (or (= :> head)
           (= :r> head)
-          (= :f> head))           (emit-react-component-placeholder sb)
+          (= :f> head))           (emit-react-interop sb argv)
       (or (keyword? head)
           (symbol? head)
           (string? head))         (emit-dom-element sb argv)

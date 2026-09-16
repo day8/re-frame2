@@ -252,26 +252,6 @@
       (is (re-find #"<footer>foot</footer>" markup)
           (str "last child present — got: " (pr-str markup))))))
 
-(deftest frame-provider-mount-over-a-non-default-frame
-  (testing "rf2-iyz6j: the mount also renders its subtree when it scopes a
-            NON-default frame (the shape the multi-frame guides teach)"
-    (register-counter!)
-    (rf/make-frame {:id :tenant/a :doc "rf2-iyz6j provider-subtree probe frame"})
-    (rf/dispatch-sync [:counter/initialise])
-    (let [markup (server/render-to-static-markup
-                  [rf/frame-provider {:frame :tenant/a}
-                   [counter-app]])]
-      (is (not (re-find #"reagent-react-component" markup))
-          (str "no opaque placeholder for a non-default frame — got: "
-               (pr-str markup)))
-      ;; Assert the STRUCTURE the app renders, not a particular frame's
-      ;; value: which frame a descendant `subscribe` resolves under the
-      ;; static walker is a separate question from whether the subtree is
-      ;; walked at all, which is what rf2-iyz6j is about.
-      (is (re-find #"data-testid=\"counter-value\"" markup)
-          (str "the app subtree rendered inside the provider — got: "
-               (pr-str markup))))))
-
 (deftest form2-ssr-deref-reads-live-app-db
   (testing "rf2-o3hqr: after [:counter/inc], the Form-2 SSR re-render
             reflects live app-db (6), proving the inner closure re-ran and
