@@ -403,8 +403,9 @@ before reporting done.**
 
 ## Pasting a block
 
-Three blocks below travel **verbatim**: the **common preamble** into every dispatch, the **worktree
-boundary block** and the **gate-mechanics block** into every editing one. Get them there by **extracting
+Four blocks below travel **verbatim**: the **common preamble** into every dispatch, one of the two
+boundary blocks — **worktree** or **no-worktree** — into every dispatch according to its shape, and the
+**gate-mechanics block** into every editing one. Get them there by **extracting
 mechanically, then pasting the result into the prompt.** Both halves are mandatory and close different
 failures — the extraction makes paraphrase impossible, and the paste makes non-receipt impossible.
 
@@ -426,9 +427,10 @@ failures — the extraction makes paraphrase impossible, and the paste makes non
   as the largest: **if you are weighing which parts this worker needs, you have stopped extracting and
   started paraphrasing.**
 - **"Verbatim" forbids WEAKENING a block, not adding to it — and the paragraphs addressed to YOU are not
-  part of what travels.** Where the payload is FENCED, the fence settles it. Two of the three here are
+  part of what travels.** Where the payload is FENCED, the fence settles it. Three of the four here are
   fenced and their mayor-facing prose sits on opposite sides of the payload, so a habit about which end
-  is wrong half the time. **Only the third, unfenced, opens by naming itself and saying where it stops**
+  is wrong half the time. **Only the gate-mechanics block, unfenced, opens by naming itself and saying
+  where it stops**
   — paste that frame untouched and the worker receives instructions about pasting blocks into dispatches
   it will never make. Drop the frame; add whatever caution the lane needs. **The test is whether the
   block still refuses everything it refused before you touched it.**
@@ -518,6 +520,88 @@ own completion notification after the work has landed, costing a turn apiece.
 
 A project may add a **mayor-side commit guard** — a pre-commit hook in the mayor checkout refusing
 commits that touch worker-owned surfaces — so a bypassed edit-guard is caught from the other side.
+
+---
+
+## The no-worktree boundary block
+
+**The concept.** Not every dispatch edits. A research or verification dispatch takes no worktree, opens
+no change and touches no tracked file, and the block above has no words for it — so every one of them
+gets hand-written, which is the paraphrase mechanical extraction exists to prevent. This is the worktree
+block's counterpart rather than a shortened copy of it: the two differ in what the worker must not do, in
+where its output goes, and above all in what stands in for a gate result, because the evidence an editing
+dispatch is believed on does not exist here.
+
+**Select it INSTEAD of the worktree boundary block, never alongside.** The two contradict each other by
+design, and a worker handed both follows the more familiar one and goes looking for a worktree it has
+just been told it does not have.
+
+Paste this verbatim into every non-editing dispatch. Adapt only the placeholder.
+
+```text
+NO-WORKTREE BOUNDARY — MANDATORY
+This dispatch has NO worktree, NO branch and NO change. You are reading and
+reporting, not editing.
+
+There is no worktree guard to run, and that is a hazard rather than a
+convenience: the guard's whole job was to refuse the shared checkout, so with no
+worktree to be inside, the only thing between a stray write and <MAYOR_CHECKOUT>
+is that you do not write. Treat every tracked path as READ-ONLY. A slip here does
+not land in a private tree somebody can discard; it lands in the tree every other
+worker is reading.
+
+Before you report done, ask version control whether <MAYOR_CHECKOUT> is clean and
+say so. If anything is modified, STOP and report it — do not repair, revert,
+commit or stash. A change you did not make is somebody else's, and a stash is
+repository-global: it surfaces in every other worker's worktree.
+
+Your output goes to the item, and while you work, to the version-ignored working
+tree. Commit nothing, open no change, and never link an ignored file from a
+tracked one. Before you finish the verdict must stand on its own on the item: a
+fresh maintainer must never need your scratch files or this transcript.
+
+WHAT REPLACES THE USUAL EVIDENCE. An editing dispatch is believed because a gate
+went red on a planted fault and green once the file was restored. You have no
+diff and usually no gate, so the evidence is the QUERY: quote each command you
+ran, its own captured exit code, and enough output to check the claim it
+supports. A confident sentence with no command behind it is not a finding.
+
+The planted fault has an exact analogue here, and it is not optional either. A
+search that returns ZERO is not a check that passed — it is also what a broken
+instrument returns, and a misused one raises no error, so its all-clear is
+complete and plausible. Run every load-bearing query once against something it
+MUST find, take that control FROM the material you are searching rather than
+splicing in a literal of your own, and report it beside the answer. An answer
+with no control is an opinion.
+
+Say which of two things a negative is: "I looked and it is not there", or "I
+could not look". They read identically in a summary and mean opposite things.
+
+A refutation is a complete deliverable. If the premise does not hold, the work is
+already done, or the question cannot be answered with the instruments you have,
+report that with the evidence rather than looking for adjacent work to justify
+the dispatch.
+
+DONE is a verdict recorded on the item in its own words; the queries, counts and
+controls that support it; whatever you did NOT settle, under its own heading; and
+any follow-on items filed one at a time, each naming the item that owns it.
+Change no other tracker state.
+
+Concurrent workers SHARE one scratch directory keyed to the SESSION, not to you.
+Name every scratch file for this dispatch and for the attempt that wrote it, and
+bump that number on every re-run. A generic name is silently overwritten by a
+peer: nothing errors, and the loser can read the survivor and take a result with
+plausible structure and the wrong subject for its own.
+
+Never write a machine-specific absolute path into tracker text or any committed
+file. And kill any poll loops you armed before you report done — each survivor
+fires its own completion notification after the work has landed, costing a turn
+apiece.
+```
+
+**A guard that refuses to build the wrong brief is not a substitute for this block.** Making the wrong
+shape loud is worth doing and settles nothing: a mayor with no block to paste writes one from memory,
+which is the failure the extraction rule closes. Only the block gives the shape words.
 
 ---
 
