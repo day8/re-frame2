@@ -414,7 +414,43 @@
      ;; byte-identical — `tools/xray/spec` needed no edit for that reason. No
      ;; exception residual (a rejected candidate is a validator verdict, not a
      ;; throw).
-     re-frame.machines.data-validation})
+     re-frame.machines.data-validation
+
+     ;; rf2-tildz — `re-frame.ssr.streaming.client`'s
+     ;; `always-on-boundary-failure!` ships `:rf.ssr/suspense-boundary-failed`
+     ;; on the always-on axis, so a streaming-SSR boundary that fails in a
+     ;; PRODUCTION browser is not absorbed in silence. Before it, all three
+     ;; fail-closed arms reported through `trace/emit-error!` alone, which is
+     ;; DCE'd under `:advanced` + `goog.DEBUG=false`: the delta was skipped,
+     ;; quarantined or replaced by its fallback and nothing said so.
+     ;;
+     ;; VETTED structural-only, and the key set is CLOSED and literal:
+     ;; `:error`, `:frame`, `:where` (a quoted symbol), `:recovery` (one of
+     ;; three framework keywords — `:skipped-delta` / `:quarantined-delta` /
+     ;; `:inline-fallback`, which is the whole of the arm discrimination),
+     ;; `:time`, and `:id`.
+     ;;
+     ;; `:id` is the boundary id THE HICCUP AUTHOR WROTE, parsed back by
+     ;; `read-boundary-id` from the attribute the server stamped — a
+     ;; structural locator, the same class as `re-frame.ssr.boot`'s
+     ;; `:element-id` above, not app data.
+     ;;
+     ;; Deliberately OMITTED, and this is the point of the entry rather than a
+     ;; detail: THE DELTA NEVER RIDES. The delta IS an app-db fragment, and it
+     ;; is exactly what every one of these three failures is about, so the
+     ;; record names the failure and carries none of it. With it go the
+     ;; branch-specific `:reason` (the quarantine arm's interpolates the raw
+     ;; `wire-id-string` — the `ssr/hydrate` prose hazard), the reader
+     ;; `:exception` and `:malformed-value-type` (both derived from UNTRUSTED
+     ;; wire bytes). All stay on the DCE'd dev trace, which this change leaves
+     ;; byte-identical. No exception residual.
+     ;;
+     ;; It sits on THIS list rather than the routing arm because
+     ;; `project-egress` has nothing to project: it projects tree slots against
+     ;; the frame's classification registry, and no slot here is lifted out of
+     ;; the delta or an app-db slice — the closed literal key set above is the
+     ;; stronger guarantee, as it is for the two URL-carrier entries.
+     re-frame.ssr.streaming.client})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
