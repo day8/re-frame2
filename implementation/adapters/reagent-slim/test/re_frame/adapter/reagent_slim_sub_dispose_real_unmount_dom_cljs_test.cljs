@@ -293,4 +293,4 @@
                                     (finish)))))))
                 (.catch (fn [e]
                           (is false (str "slim StrictMode scenario rejected: " (pr-str e)))
-                          (finish)))))))))
+                          (finish))))))))))
