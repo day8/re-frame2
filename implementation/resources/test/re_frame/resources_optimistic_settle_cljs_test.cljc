@@ -488,6 +488,117 @@
     (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :first]))
                    (rf.resources.state/key-id article-key)))))
 
+(def ^:private delete-plan
+  {:scope :rf.scope/global
+   :params-schema [:map [:slug :string]]
+   ;; a nil patch-fn is an optimistic REMOVE (EP-0019 Open Issue 6) — the card
+   ;; disappears on click, restored if the DELETE fails.
+   :optimistic (fn [{:keys [slug]}]
+                 {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} nil})})
+
+(def ^:private delete-plan-request
+  (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
+
+(defn- ledger-rows-for
+  "Count the work-ledger rows linked to `scoped-key`, read straight off the
+  durable slot — deliberately NOT through the ledger's own index or its
+  `drop-rows-for-key`, so the count cannot be answered by the machinery under
+  test (rf2-6gzdb's bounded-ledger surface)."
+  [scoped-key]
+  (->> (:rf.runtime/work-ledger (runtime-db))
+       vals
+       (filter #(= scoped-key (:resource/key %)))
+       count))
+
+(deftest remove-mid-flight-release-does-not-resurrect-the-owner-on-rollback
+  ;; THE REMOVE-FORM TWIN of release-mid-flight-does-not-resurrect-the-owner-on-
+  ;; rollback above (rf2-pkkft) — identical shape, identical leak. It survived
+  ;; the rf2-cxwuhl fix for one reason: that fix works by making `detach-owner`
+  ;; BUMP `:revision`, and an optimistic REMOVE had DISSOC'd the entry, so there
+  ;; was no entry to bump. `detach-owner` is a documented no-op on a nil entry —
+  ;; the release wrote nothing, moved nothing, and the revision-keyed conflict
+  ;; check was blind to it.
+  ;;
+  ;; Delete a card; navigate away before the DELETE reply; the reply FAILS. The
+  ;; rollback restored the full pre-apply entry INCLUDING a route owner that had
+  ;; already released. The entry could then never GC (`gc-fired` reads
+  ;; `:has-owner`), refetched on every focus and reconnect, and polled for the
+  ;; frame's life.
+  (stub-lifecycle-fx!)
+  (reg-article-resource!)
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
+                :owner route-owner}
+               {:article {:slug "w" :title "Doomed"}})
+  (is (contains? (:active-owners (entry article-key)) route-owner)
+      "precondition: the route owns the entry")
+  (rf/reg-mutation :m/delete delete-plan delete-plan-request)  ;; :on-conflict defaults :invalidate
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete :params {:slug "w"} :instance :d1}])
+
+  (testing "the optimistic remove TOMBSTONES rather than dissocs (the in-flight window is open)"
+    (let [e (entry article-key)]
+      (is (some? e)
+          "the entry survives as a tombstone. THIS ASSERTION IS LOAD-BEARING FOR
+           EVERY OWNER CHECK BELOW: against a dissoc'ing tree the entry is nil,
+           and `(:active-owners nil)` is nil — so `empty?` and `not contains?`
+           both read GREEN however thoroughly the rollback resurrected the owner")
+      (is (nil? (:data e)) "the card is gone from the view")
+      (is (= :idle (:status e)))))
+
+  ;; MID-FLIGHT owner release — the route left before the reply settled.
+  (let [before-release (:revision (entry article-key))]
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner route-owner}])
+    (testing "PRECONDITION — the owner REALLY DID release, and the release was an
+              authoritative write the conflict check can SEE"
+      ;; The discriminating half of this pin. A departed owner can only be
+      ;; RESURRECTED if it genuinely left first, so without this the test would
+      ;; also pass against a path where the owner never released — the case that
+      ;; was never broken. Against the dissoc'ing tree both halves fail: there is
+      ;; no entry for `detach-owner` to write, and `entry-revision` reads 0 on
+      ;; both sides of the release.
+      (let [e (entry article-key)]
+        (is (some? e) "there is a live entry for the release to act on")
+        (is (not (contains? (:active-owners e) route-owner))
+            "the release dropped the owner from the LIVE entry")
+        (is (= (inc before-release) (:revision e))
+            "detach-owner bumped :revision — the release is an authoritative
+             durable write, so the settle can see it (rf2-cxwuhl)"))))
+
+  ;; the reply FAILS → conflict-aware rollback runs.
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500})
+
+  (testing "the departed owner is NOT resurrected onto the entry"
+    (let [e (entry article-key)]
+      (is (some? e) "the rollback left an entry to inspect")
+      (is (not (contains? (:active-owners e) route-owner))
+          "the pre-release snapshot's owner set did NOT clobber the current one")
+      (is (empty? (:active-owners e)) "the entry is still owner-free after the rollback")))
+  (testing "the derived owner-index carries no phantom membership for the departed owner"
+    (is (nil? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) route-owner)))
+        "reindex did not re-add a phantom owner from a resurrected :active-owners"))
+  (testing "the now-owner-free, idle tombstone is GC-eligible and gc-fired COLLECTS it"
+    (let [e (entry article-key)]
+      (is (empty? (:active-owners e)) "no owner pins it")
+      (is (nil? (:current-work e)) "no in-flight work pins it"))
+    (is (pos? (ledger-rows-for article-key))
+        "precondition for the rider below: the load that seated this entry left
+         work-ledger rows behind, so a drop is observable")
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key article-key}])
+    (is (nil? (entry article-key))
+        "GC collected the tombstone — the owner leak is fixed (was pinned
+         :has-owner for the frame's life)"))
+  (testing "rf2-6gzdb RIDER — the collected tombstone takes its ledger rows with it"
+    ;; The tombstone does not re-open the bounded-ledger axis #9895 closed; it is
+    ;; what finally puts the optimistic remove INSIDE it. A dissoc'ing optimistic
+    ;; remove called no `drop-rows-for-key` — the only production droppers are
+    ;; `:rf.resource/remove`, clear-scope, `clear-resource`, GC, a mutation
+    ;; `:removes` target and `:rf.mutation/clear` — so it orphaned the key's rows
+    ;; and its inverse-index bucket for good: nothing can ever join them to an
+    ;; entry again, and `prune-terminal-for-key` only ever runs for a key whose
+    ;; own work settles. Tombstoned, the entry is collected by the ordinary GC,
+    ;; which DOES drop them.
+    (is (zero? (ledger-rows-for article-key))
+        "gc-fired dropped every work row linked to the collected key")))
+
 ;; ===========================================================================
 ;; 7. EXACT-KEY CONFLICT RECOVERY (rf2-wcdj4) — rollback recovery is keyed by
 ;;    the carried exact :resource/key, NEVER rediscovered through the entry's
