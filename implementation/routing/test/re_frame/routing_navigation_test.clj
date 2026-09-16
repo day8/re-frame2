@@ -1233,6 +1233,58 @@
                     "error tags :where :event (event-boundary path)")))))
         (finally (restore))))))
 
+;; ---- rf2-17bbi: the `{:url}` door on a matched-but-INVALID URL --------
+;;
+;; Spec 012 §Target form sells `{:url s}` as the escape hatch "for dynamic
+;; or user-supplied URLs the app didn't build itself". Two different kinds
+;; of bad URL take two different exits, and only one of them was pinned:
+;;
+;;   * a URL matching NO route resolves to `:rf.route/not-found`, commits
+;;     the not-found slice and pushes the REQUESTED url (the 404 view);
+;;   * a URL that MATCHES a route but fails that route's `:params` schema
+;;     is REJECTED outright — no slice write, no push.
+;;
+;; The asymmetry is deliberate and the door's own comment calls it
+;; ratified (navigate.cljc — the programmatic door takes `(:route-id
+;; match)` rather than normalising to not-found, so a caller bug rejects
+;; through `route-url` instead of rendering a 404). The URL-DRIVEN door
+;; (`:rf.route/handle-url-change`) sends the identical string to the 404
+;; view with `:reason :validation`. Both sides of that asymmetry were
+;; pinned EXCEPT this one, so this deftest is the missing half.
+
+(deftest url-form-navigate-on-validation-failing-match-rejects
+  (testing "rf2-17bbi / Spec 012 §Target form: [:rf.route/navigate {:url ...}]
+            on a URL that MATCHES a route but fails its :params schema is
+            REJECTED — slice unchanged, no URL pushed — where the same URL
+            through the URL-driven door lands on the 404 view"
+    (let [restore (rf.routing-test-support/with-stub-validator)
+          pushed  (atom [])]
+      (try
+        (rf/reg-route :route/home {} "/")
+        (rf/reg-route :route/article
+                      {:params (fn [{:keys [id]}]
+                                 (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
+        (rf.fx/reg-fx :rf.nav/push-url
+                   {:platforms #{:server :client}}
+                   (fn [_ url] (swap! pushed conj url)))
+        ;; Land somewhere valid first, so the slice has a known state that a
+        ;; rejected navigation can be shown to have left alone.
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "aardvark"}}])
+        (reset! pushed [])
+        (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                             [:rf.runtime/routing :current])]
+          ;; "/articles/zoo" MATCHES /articles/:id, then fails the schema.
+          (rf/dispatch-sync [:rf.route/navigate {:url "/articles/zoo"}])
+          (let [after (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                              [:rf.runtime/routing :current])]
+            (is (= before after)
+                "a matched-but-invalid {:url} leaves the :rf/route slice UNCHANGED")
+            (is (= :route/article (:route-id after))
+                "slice still on the previously-valid route, not desynced")
+            (is (empty? @pushed)
+                "a matched-but-invalid {:url} pushes NO URL — it does not degrade to the 404 view")))
+        (finally (restore))))))
+
 ;; ---- T8: :fragment in slice after URL-driven nav -----------------------
 
 (deftest fragment-in-slice-after-url-driven-nav
