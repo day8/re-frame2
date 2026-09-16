@@ -206,6 +206,7 @@ Examples from the guide:
 | `:rf.error/fresco-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
 | `:rf.error/fresco-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
 | `:rf.warning/fresco-entity-key` | A boundary-headed sequence child's `:key` is a map, collection, date or other entity value React would coerce by content | Key on a stable primitive identifier |
+| `:rf.warning/fresco-missing-key` | A boundary-headed sequence child carries no `:key` at all. The crossing flattens the seq into separate arguments, which React marks validated, so React's own missing-key check never runs and the list reconciles by index in silence | Key on a stable identifier |
 | `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
 
 Follow the named recovery before changing unrelated code.
