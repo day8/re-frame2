@@ -4321,6 +4321,15 @@
                             dispose hook
       :dispose!           — (fn [a]) → dispose a substrate reaction
       :reactive?          — (fn []) → boolean
+      :reactive-owner     — (fn []) → the reaction currently capturing
+                            derefs (the substrate's `*ratom-context*`), or
+                            nil outside a reactive context. The IDENTITY
+                            behind `:reactive?`'s boolean, which
+                            `re-frame.subs` needs in order to hold ONE
+                            reference per (owner, slot) and release it on
+                            that owner's dispose (rf2-ty246). Ratom family
+                            only — the React-hook spine owns its
+                            references through its own commit cleanup.
       :after-render       — (fn [f]) → schedule post-render callback
 
   Builds the 9-key adapter map, wires the chained SSR emitter install, and
@@ -4339,7 +4348,8 @@
   [spine-fns {:keys [kind register-context-provider
                      current-frame current-component as-element atom ratom? make-reaction
                      activate-reaction!
-                     disposable? add-on-dispose! dispose! reactive? after-render]}]
+                     disposable? add-on-dispose! dispose! reactive? reactive-owner
+                     after-render]}]
   (let [dispose-dispatch (make-ratom-dispose-dispatch disposable? dispose!)
         adapter {:kind                      kind
                  :make-state-container      (:make-state-container spine-fns)
@@ -4450,6 +4460,16 @@
     (rf.substrate.adapter/route-hook! adapter :adapter/reactive?
       reactive?
       (constantly false))
+    ;; rf2-ty246 — the IDENTITY behind `:adapter/reactive?`'s boolean.
+    ;; `re-frame.subs` holds ONE reference per (owning reaction, slot) and
+    ;; releases it on that owner's dispose, so it needs the owner itself, not
+    ;; merely the fact that there is one. Chain-bottom nil: an adapter that
+    ;; publishes no owner (UIx, plain-atom, test-react) leaves the whole
+    ;; render-owned path unreached, which is correct — those substrates own
+    ;; their references through their own commit cleanup.
+    (rf.substrate.adapter/route-hook! adapter :adapter/reactive-owner
+      reactive-owner
+      (constantly nil))
     (rf.substrate.adapter/route-hook! adapter :adapter/after-render
       after-render)
     ;; rf2-8wrzz.3 — the derived-container discriminator the core's

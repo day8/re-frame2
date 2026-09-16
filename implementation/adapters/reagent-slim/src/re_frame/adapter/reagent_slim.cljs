@@ -145,6 +145,9 @@
      :add-on-dispose!   ratom/add-on-dispose!
      :dispose!          ratom/dispose!
      :reactive?         ratom/reactive?
+     ;; rf2-ty246 — twin of the stock adapter's entry; see it for why this is a
+     ;; call-time lambda over the dynamic var rather than the Var value.
+     :reactive-owner    (fn [] ratom/*ratom-context*)
      :after-render      r/after-render}))
 
 ;; ---- warn-once cache reset wiring -----------------------------------------

@@ -1478,10 +1478,33 @@
             ;; immediately below.
             (doseq [[input-q input-r] (map vector input-signals inputs)]
               (release-input-ref! frame-id input-q input-r :on-dispose))
-            (swap! cache (fn [m]
-                           (if (identical? reaction (:reaction (get m k)))
-                             (dissoc m k)
-                             m)))))
+            ;; rf2-ty246 — EMIT AT THE EVICTION SITE WHEN THE EVICTION IS OURS.
+            ;;
+            ;; This removal used to be a bare `swap!` and therefore SILENT, and
+            ;; on the ratom family it is the removal that a real view unmount
+            ;; actually takes: the render Reaction drops its watch, the sub
+            ;; Reaction auto-disposes (last watcher gone, no `auto-run`), and
+            ;; this callback clears the slot. Spec 006 §Reference counting and
+            ;; disposal promises a `:rf.sub/dispose` `:no-more-derefers` at the
+            ;; eviction site, and §`unsubscribe` says the automatic case fires
+            ;; the underlying release from exactly this hook — so a view unmount
+            ;; emitting nothing was a contract violation, not a design choice.
+            ;;
+            ;; Read from the `swap-vals!` snapshots rather than from a flag set
+            ;; inside the swap-fn, the same CAS-after-snapshot discipline the
+            ;; rest of this namespace uses: the swap-fn stays PURE, so a JVM
+            ;; retry cannot fire a spurious emit. And the emit is gated on THIS
+            ;; call having removed the slot, which is what makes a double emit
+            ;; impossible — every cache-driven eviction path dissocs before it
+            ;; disposes, so the identity guard below finds nothing and this
+            ;; stays quiet on those paths (see `emit-no-more-derefers!`).
+            (let [[before after]
+                  (swap-vals! cache (fn [m]
+                                      (if (identical? reaction (:reaction (get m k)))
+                                        (dissoc m k)
+                                        m)))]
+              (when (and (contains? before k) (not (contains? after k)))
+                (rf.subs.cache/emit-no-more-derefers! frame-id k)))))
         (let [installed (swap! cache (fn [m]
                                        (if (contains? m k)
                                          m
@@ -1621,6 +1644,107 @@
                sub-meta (rf.registrar/lookup :sub (first query-v))
                v*       (rf.subs.override-schema/validate-sub-override! v query-v sub-meta frame-id)]
            (rf.substrate.adapter/make-derived-value [] (constantly v*)))))))
+
+;; ---- render-owned references on the ratom family (rf2-ty246) --------------
+;;
+;; THE DEFECT THIS CLOSES. A Reagent / reagent-slim view reads a subscription
+;; as `@(subscribe q)` inside its render, and `subscribe` bumps `:ref-count`
+;; EVERY TIME. Nothing paired those bumps, because on the ratom family nothing
+;; calls `unsubscribe`: the slot was removed by the substrate instead, when the
+;; component's render Reaction dropped its watch and the sub Reaction
+;; auto-disposed. So `:ref-count` counted RENDERS, not readers — it rose
+;; monotonically while a component re-rendered and never reached the 1 → 0 edge
+;; Spec 006 describes — while `re-frame.subs.tooling` documents it, and Xray
+;; displays it, as the live consumer count. The React-hook spine never had this
+;; problem: `use-subscribe`'s commit takes ONE durable reference and releases it
+;; from its own cleanup, identity-guarded.
+;;
+;; WHAT THIS IS. The same mechanism, extended to the ratom path: ONE reference
+;; per (owning reaction, slot), taken the first time an owner reads that slot
+;; and released on that owner's dispose. A re-render by the same owner over the
+;; same slot releases its duplicate bump immediately, so the steady state is one
+;; counted reference per live reader, which is what the number claims to be.
+;;
+;; WHY THE RELEASE IS NOT ALSO THE EMIT, which is the thing a reader will ask.
+;; A Reaction's `dispose!` removes its upstream watches BEFORE it fires its own
+;; on-dispose callbacks (stock `reagent.ratom` and `reagent2.ratom` both). So on
+;; unmount the sub Reaction has usually already auto-disposed — taking its slot
+;; with it — by the time the release below runs, and the release correctly
+;; no-ops through its identity guard. That is why the eviction site itself
+;; emits (see the on-dispose callback in `build-and-cache!*`): this half makes
+;; the NUMBER honest, that half makes the EVENT fire. Neither substitutes for
+;; the other.
+;;
+;; TOTAL AND OPT-IN. `:adapter/reactive-owner` is published by the ratom family
+;; alone. UIx, plain-atom and test-react publish nothing, the hook resolves nil,
+;; and every line below is skipped — their paths are byte-identical to before.
+
+(def ^:dynamic ^:no-doc *render-owned-acquisition?*
+  "False while a subscribe is one half of a balanced pair that releases its own
+  reference — today, `subscribe-once`.
+
+  Without this, a `subscribe-once` evaluated inside a render would have its
+  reference claimed by the in-flight owner AND released by `subscribe-once`
+  itself, so the owner's dispose would later release a reference it no longer
+  held. Guarded, that second release could drive a slot another reader still
+  owns to 0 and dispose it underneath them. The owner-attribution below is for
+  UNPAIRED reads — the ones nothing else will ever release."
+  true)
+
+#?(:cljs
+   (defn- reactive-owner
+     "The substrate reaction currently capturing derefs — a component's render
+     Reaction, or a sub's own reaction while its body runs — or nil outside any
+     reactive context.
+
+     `get-fn-cached` rather than `get-fn`: this runs on every cache hit of every
+     render, which is the hottest read in the artefact."
+     []
+     (when-let [hook (rf.late-bind/get-fn-cached :adapter/reactive-owner)]
+       (hook))))
+
+#?(:cljs
+   (defn- claim-render-owned-ref!
+     "Make this subscribe ONE reference held by the in-flight reactive owner.
+
+     First read of `k` by this owner: keep the bump `subscribe` just took, record
+     it, and register the release on the owner's dispose. Any later read of the
+     SAME slot by the SAME owner: release the duplicate bump immediately, so a
+     re-rendering component holds exactly one reference no matter how many times
+     it renders. The release order is bump-then-release throughout, so the count
+     never crosses the disposal edge on a re-render.
+
+     Skipped during declared-input resolution. `*subs-under-construction*` is
+     non-empty exactly while `build-and-cache!*` is resolving a sub's declared
+     inputs, and those references are already owned — the parent's on-dispose
+     walk releases them through `release-input-ref!`. Attributing them to the
+     ambient owner as well would release each input twice for one bump.
+
+     The per-owner record lives on the owner object itself, beside the other
+     per-instance state the views layer keeps there. It is keyed by cache-key
+     and holds the REACTION, so a slot rebuilt under the same key (hot reload,
+     `clear-sub-cache!`, a frame generation change) is seen as a different
+     holding and re-registered; the stale release then no-ops on its identity
+     guard rather than decrementing the successor.
+
+     Returns nil."
+     [frame-id k query-v reaction]
+     (when (and *render-owned-acquisition?*
+                (some? reaction)
+                (empty? *subs-under-construction*))
+       (when-let [owner (reactive-owner)]
+         (let [cell (or (.-rfSubRefs ^js owner)
+                        (let [c (volatile! {})]
+                          (set! (.-rfSubRefs ^js owner) c)
+                          c))]
+           (if (identical? reaction (get @cell k))
+             (unsubscribe-if-reaction frame-id query-v reaction)
+             (do
+               (vswap! cell assoc k reaction)
+               (rf.interop/add-on-dispose! owner
+                 (fn release-render-owned-ref [_]
+                   (unsubscribe-if-reaction frame-id query-v reaction))))))))
+     nil))
 
 (defn- subscribe-in-frame
   "INTERNAL worker for `subscribe` (and the layer-2+ recursive input
@@ -1795,25 +1919,32 @@
 
          :else
          (let [cache (:sub-cache frame-record)
-               k     (cache-key query-v)]
-           (if-let [entry (get @cache k)]
-             ;; Hit. Bump ref-count under the CAS-after-snapshot discipline
-             ;; `bump-ref-count-fn` carries: reading `[old new]` from the
-             ;; snapshot pair tells us whether the bump landed. If the slot was
-             ;; concurrently evicted (or rebuilt under a different reaction),
-             ;; fall through to a fresh build — the same discipline
-             ;; `re-frame.subs.cache` uses.
-             (let [reaction (:reaction entry)
-                   [_old new]
-                   (swap-vals! cache (bump-ref-count-fn k reaction))]
-               (if (identical? reaction (:reaction (get new k)))
-                 reaction
-                 ;; rf2-7w1im: the hit's concurrent-eviction rebuild carries the
-                 ;; captured token so the rebuild is fenced to the SAME
-                 ;; incarnation (never a bare-id retarget to a same-id successor).
-                 (compute-and-cache! frame-id query-v expected-incarnation)))
-             ;; Miss: the durable build carries the captured token (rf2-7w1im).
-             (compute-and-cache! frame-id query-v expected-incarnation))))))))))) ;; close or + let[frame-record superseded?] + fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
+               k     (cache-key query-v)
+               reaction
+               (if-let [entry (get @cache k)]
+                 ;; Hit. Bump ref-count under the CAS-after-snapshot discipline
+                 ;; `bump-ref-count-fn` carries: reading `[old new]` from the
+                 ;; snapshot pair tells us whether the bump landed. If the slot was
+                 ;; concurrently evicted (or rebuilt under a different reaction),
+                 ;; fall through to a fresh build — the same discipline
+                 ;; `re-frame.subs.cache` uses.
+                 (let [reaction (:reaction entry)
+                       [_old new]
+                       (swap-vals! cache (bump-ref-count-fn k reaction))]
+                   (if (identical? reaction (:reaction (get new k)))
+                     reaction
+                     ;; rf2-7w1im: the hit's concurrent-eviction rebuild carries the
+                     ;; captured token so the rebuild is fenced to the SAME
+                     ;; incarnation (never a bare-id retarget to a same-id successor).
+                     (compute-and-cache! frame-id query-v expected-incarnation)))
+                 ;; Miss: the durable build carries the captured token (rf2-7w1im).
+                 (compute-and-cache! frame-id query-v expected-incarnation))]
+           ;; rf2-ty246 — turn a ratom render's bump into ONE reference owned by
+           ;; the in-flight reaction and released on its dispose, so `:ref-count`
+           ;; is the live reader count Spec 006 says it is rather than a render
+           ;; tally. No-op off the ratom family, and off the render path.
+           #?(:cljs (claim-render-owned-ref! frame-id k query-v reaction))
+           reaction))))))))) ;; close or + let[frame-record superseded?] + fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
 
 (declare subscribe)
 
@@ -1931,11 +2062,17 @@
   release would decrement, and dispose, the successor under its owner. A nil
   `reaction` (missing-frame recovery) acquired nothing and releases nothing."
   [target query-v]
-  (let [reaction (subscribe-in-frame target query-v)
-        v        (when reaction @reaction)]
-    (when reaction
-      (unsubscribe-if-reaction target query-v reaction))
-    v))
+  ;; rf2-ty246: this read releases its OWN reference, so the in-flight reactive
+  ;; owner must not also claim it. Were it claimed, the owner's dispose would
+  ;; later release a reference `subscribe-once` had already given back — and on
+  ;; a slot another reader still holds, that second release drives it to 0 and
+  ;; disposes it underneath them.
+  (binding [*render-owned-acquisition?* false]
+    (let [reaction (subscribe-in-frame target query-v)
+          v        (when reaction @reaction)]
+      (when reaction
+        (unsubscribe-if-reaction target query-v reaction))
+      v)))
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then
