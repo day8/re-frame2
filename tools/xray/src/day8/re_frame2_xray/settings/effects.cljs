@@ -128,17 +128,31 @@
 (defn- shell-root-element
   "Resolve the `#rf-xray-root` element if Xray is mounted. Returns
   nil otherwise — every effect that touches the shell root must
-  no-op on nil so pre-mount calls remain harmless."
+  no-op on nil so pre-mount calls remain harmless.
+
+  A PARTIAL `js/document` counts as 'otherwise' (rf2-y8doi.17). A
+  document object that exists but carries no `getElementById` — a test
+  harness's listener-only stub, an SSR shim — throws a `TypeError`
+  rather than answering nil, which is not a distinction any caller here
+  wants to make: there is no shell root either way. Same defensive
+  posture `mount-fn` and `apply-use-system-colors!` already take."
   []
-  (when (exists? js/document)
-    (.getElementById js/document "rf-xray-root")))
+  (try
+    (when (and (exists? js/document)
+               (fn? (.-getElementById js/document)))
+      (.getElementById js/document "rf-xray-root"))
+    (catch :default _ nil)))
 
 (defn- html-root-element
   "The `<html>` element. Always present in a real browser; nil under
-  Node test runtimes that don't simulate a document."
+  Node test runtimes that don't simulate a document, and nil for a
+  partial document stub that carries no `documentElement` — see
+  `shell-root-element` for why that case is folded in here."
   []
-  (when (exists? js/document)
-    (.-documentElement js/document)))
+  (try
+    (when (exists? js/document)
+      (.-documentElement js/document))
+    (catch :default _ nil)))
 
 ;; ---- text-size ----------------------------------------------------------
 
