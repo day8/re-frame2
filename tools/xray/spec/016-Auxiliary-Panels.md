@@ -17,19 +17,23 @@ The per-tab content this doc covers:
 | Routing tab content (6th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
 | Flows (lives in Views tab "Re-rendered" group) | `flows` | Phase 5 (rf2-83irn); see §Flows content below |
 
-## 12-panel inventory (rf2-crhr8 + rf2-3r3ao; rf2-gbz39)
+## 11-panel inventory (rf2-crhr8 + rf2-3r3ao; rf2-gbz39; rf2-y8doi.29)
 
 Every Xray panel is independently mountable per
 [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract. The
-4-tier surface inventory totals 12 panels — 10 independently
+4-tier surface inventory totals 11 panels — 9 independently
 mountable, 2 internal sub-components. (The Issues tab + its
 `issues-ribbon/Panel` were removed per rf2-gbz39 Option (c) — Mike
 RULED the dedicated aggregate tab away; issues surface inline in the
 Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon
 signal. The underlying `:rf.xray/issues-ribbon` projection survives in
 `registry.cljs` as the ribbon signal's data source but no longer backs
-a mountable panel.) The canonical Panel-component mount paths and
-L3-tab backing (when applicable) are:
+a mountable panel. The `app-db-segment-inspector/Popup` overlay was
+deleted unreached under rf2-y8doi.29, 2026-09-17 — nothing in the tree
+ever dispatched its open, and zoom is now the App-db panel's only path
+gesture per [`004-App-DB-Diff.md`](./004-App-DB-Diff.md) §Path
+interaction: zoom into a node.) The canonical Panel-component
+mount paths and L3-tab backing (when applicable) are:
 
 | # | Tier | Panel | Mount path (`day8.re-frame2-xray.panels.*`) | Backs L3 tab |
 |---|---|---|---|---|
@@ -39,12 +43,11 @@ L3-tab backing (when applicable) are:
 | 4  | 1 | Trace tab            | `trace/Panel`                       | Trace |
 | 5  | 1 | Machines tab         | `machine-inspector/Panel`           | Machines |
 | 6  | 1 | Routing tab          | `routing/Panel`                     | Routing |
-| 7  | 2 | App-DB segment-inspector popup    | `app-db-segment-inspector/Popup`        | — (overlay) |
-| 8  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
-| 9  | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
-| 10 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount — no current panel embeds it (rf2-5gl5r retired the Event/Handler tab that originally hosted it). Consumers mount directly per the embedding contract ([`008-Embedding-Contract.md`](008-Embedding-Contract.md)). |
-| 11 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
-| 12 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
+| 7  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
+| 8  | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
+| 9  | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount — no current panel embeds it (rf2-5gl5r retired the Event/Handler tab that originally hosted it). Consumers mount directly per the embedding contract ([`008-Embedding-Contract.md`](008-Embedding-Contract.md)). |
+| 10 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
+| 11 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
 
 Panel-by-panel detail (subs / events / interactions) lives in the
 sections below. Tier 4 sub-components are geometry-coupled to
