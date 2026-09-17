@@ -9,19 +9,28 @@ These are downstream of the framework's [Principles](../../../spec/Principles.md
 they are *Xray-specific*. Where they overlap the framework's
 principles, this doc cites instead of repeating.
 
-## Read-only by default, mutate by confirmation
+## Read-only by default, mutate by explicit action
 
-Xray observes the runtime. The runtime is the source of truth. Pokes
-into `app-db`, dispatches, rewinds, schema substitutions — all of
-these require a **user-confirmed action** before they happen.
+Xray observes the runtime. The runtime is the source of truth.
+Exactly **one** Xray affordance writes to the host's `app-db`, and it
+is reached only by a deliberate click.
 
 The mechanism:
 
 - The app-db panel is read-only forever (lock #3).
-- The scrubber rebases panels *passively*; rewinds require the
-  explicit `Rewind here` button or `r` keypress.
-- Re-dispatch is a right-click context-menu action, never a single
-  click.
+- The scrubber rebases panels *passively*. The one rewind is the tab
+  bar's far-right **`Reset`** button: it dispatches
+  `:rf.xray/reset-to-epoch` against the *observed* frame and the
+  focused epoch, restoring that frame's live `app-db` to the epoch's
+  `:db-after`. There is no dialog and no confirmation step — what
+  makes it deliberate is that the button is disabled, and visibly
+  dimmed, until an epoch is focused.
+- Right-click on an event row opens a context menu, but it carries
+  **filter** actions only (`Mute <event-id>`, `Always hide this
+  event-type…`) — both reversible, neither touching the host.
+- There is **no re-dispatch affordance**, no way to poke a value into
+  `app-db`, and no schema substitution. The Static Schemas panel's
+  registry override is a declared test-only seam, not a user surface.
 - MCP-driven mutations are tagged `:origin :re-frame2-pair-mcp` and
   surface in the trace stream as distinguishable from app-issued
   mutations. They arrive through `tools/re-frame2-pair-mcp/` and its
@@ -91,8 +100,17 @@ Trace tab tags.
 
 ## Ephemeral by default
 
-Pins are session-local. Settings persist (theme, density); content
-does not.
+Settings persist (theme, density); captured content does not. What
+Xray writes to `localStorage` is *view state* — the frame-switcher
+selection, column widths, command-palette recents, the spine mute
+set, filter pills, the Static mode flag and a couple of
+selection/collapse maps — never a value it observed. The trace
+buffer and the epoch history are session-only and are never written
+out.
+
+(Pins are gone. The pinned-watches strip and its `pin-slice` /
+`unpin-slice` events were removed under rf2-e9tb0, superseded by
+path-segment click-to-inspect; nothing in Xray pins today.)
 
 The privacy bet beats the utility bet. The user's runtime may
 contain sensitive data; Xray stores nothing it doesn't need to.
@@ -104,20 +122,28 @@ pretend to control something that does not exist.)
 
 ## Animation communicates, not decorates
 
-Three durations: quick (100ms — hover, focus), standard (200–250ms —
-panel switches, scrubber snap), slow (400–600ms — diff flashes, error
-pulses, slide-in).
+Two canonical durations, and they are catalogued as data rather than
+scattered through the views — the `motion` map in
+`theme/tokens.cljc` carries `:flash-duration-ms` (400ms, the diff
+flash) and `:fade-duration-ms` (180ms, the tab cross-fade). A surface
+that needs a duration reads the token instead of forking the number.
 
 No looping animations except the machine-active state pulse (1.2s
 heartbeat — only on the active machine's node in the machine chart;
 the only continuous animation in Xray).
 
-Every animation respects `prefers-reduced-motion`. Reduced motion
-clamps durations to 0 except a 1-frame opacity tween where layout
-needs to settle.
+Every animation respects `prefers-reduced-motion`, and through **one
+seam** rather than per-component branching: every duration is built
+as `calc(<ms>ms * var(--rf-xray-motion-scale, 1))` (the
+`duration-css` helper), and a single `prefers-reduced-motion: reduce`
+media rule drops that one custom property to a vanishingly small
+value — 0.001 rather than 0, because some browsers read a `0s`
+duration as *no animation at all* and skip the end state instead of
+snapping to it. The user can also override the OS preference from
+Settings, in both directions.
 
-The error pulse is single — one 600ms expand-fade on entry, then
-done. No "look at me I'm an error" continuous strobe.
+Errors do not strobe. No "look at me I'm an error" continuous
+animation.
 
 ## Colour is never alone
 
@@ -184,7 +210,10 @@ surfaces inert, and Xray's own bytes would still be in the bundle.
 
 ## Restraint over completeness
 
-16 panels is already a lot. The temptation to add more — DOM
+Fifteen panels — 10 Dynamic tabs and 5 Static — is already a lot. The
+inventory is not a list kept here: each panel declares itself with one
+`reg-l4-tab!` call in its own `install!`, so the registry is the
+count. The temptation to add more — DOM
 mutation recording, video replay, AI-generates-tests, code
 generation, marketplace plugins, session export — is real and
 should be resisted.
@@ -209,9 +238,15 @@ apps. Xray is built frame-first; single-frame apps degrade to
 ## No AI in the panel surface
 
 Xray is the human surface only. AI integration lives in the
-separate `tools/re-frame2-pair-mcp/` jar. The Issues ribbon and the
-schema-violation timeline are *passive* surfaces — they surface
-anomalies without an in-panel narrator. The previous AI co-pilot
+separate `tools/re-frame2-pair-mcp/` jar. The surfaces that carry
+anomalies are *passive* — the always-on Issues ribbon signal, the L2
+event-row pink-wash, and the per-step pass/fail detail inside the
+Epoch panel surface what went wrong without an in-panel narrator.
+(The dedicated Issues tab and its session-wide triage list were
+dropped under rf2-gbz39; the issue projection they were built on
+survives and feeds the two live surfaces above. There is no
+schema-violation timeline — schema failures ride the same
+projection.) The previous AI co-pilot
 rail was removed under bead rf2-s3vx5; the cost / privacy / UX
 trade-offs that earlier locks debated now route through the MCP
 integration instead.
