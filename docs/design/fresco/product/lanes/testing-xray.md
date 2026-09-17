@@ -37,9 +37,9 @@ Every witness names the equality it proves. Authored-data equality, semantic ass
 
 ## Evidence contract
 
-Xray and the AI pair consume the same versioned projection. Every envelope states schema, producer, read operation, scope, basis, completeness, and loss. Unknown is never encoded as an empty collection.
+Xray and the AI pair consume the same versioned projection. Every envelope states schema, producer, read operation, completeness, and loss. Unknown is never encoded as an empty collection.
 
-Useful basis/loss states include:
+Useful loss states include:
 
 - `:opaque` for facts an interpreted body cannot enumerate ahead of execution;
 - `:host-opaque` for raw React internals;
