@@ -22,6 +22,10 @@
        through behaviour.
     5. `trace-collector/reset-for-test!` resets the counter alongside the
        buffer.
+    6. The two INGEST gates rf2-y8doi.13 closed — Xray's `:epoch-history`
+       slot (epoch records carry `:trace-events` verbatim) and
+       `panels.fresco-reads/trace-windows` (Xray's second, seam-side
+       reader of the framework rings).
 
   Pure-data + JVM-runnable so the algebra runs under the JVM target;
   CLJC keeps the file shadow's `:node-test` target as well."
@@ -29,8 +33,14 @@
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             [day8.re-frame2-xray.config :as config]
             [re-frame.privacy :as rf.privacy]
+            #?(:cljs [re-frame.core :as rf])
             #?(:cljs [re-frame.frame :as rf.frame])
             #?(:cljs [re-frame.trace :as rf.trace])
+            #?(:cljs [re-frame.epoch.assembly :as rf.epoch.assembly])
+            #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
+            #?(:cljs [re-frame.test-support :as rf.test-support])
+            #?(:cljs [day8.re-frame2-xray.epoch :as xray-epoch])
+            #?(:cljs [day8.re-frame2-xray.panels.fresco-reads :as fresco-reads])
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -476,3 +486,206 @@
                   sensitive frame-bound event in the snapshot")
              (is (some :sensitive? buf)
                  "the sensitive event passes through under the opt-in")))))))
+
+;; ---- (8) the two INGEST gates (rf2-y8doi.13) -----------------------------
+;;
+;; §(7) above pins the FLAT read (`snapshot-from-rings` → `:trace-buffer`).
+;; Two other paths carried the same retained-but-sensitive events into
+;; Xray's surfaces without passing any gate, and this section pins both.
+;;
+;;   (a) `:epoch-history`. The framework's per-frame EPOCH ring retains RAW
+;;       records by design ("redaction happens at off-box egress" —
+;;       `re-frame.epoch.assembly`), and every record carries
+;;       `:trace-events` verbatim. Xray copied the ring into its app-db
+;;       unfiltered, so the Epoch panel, Issues ribbon, Reactive panel,
+;;       Machine Inspector and Trace feed — all of which read
+;;       `:trace-events` off the focused record — saw a sensitive cascade
+;;       the whole trace side was hiding. `epoch/redact-history` is now the
+;;       one gate every write to the slot passes through.
+;;
+;;   (b) `panels.fresco-reads/trace-windows`. Xray's SECOND, seam-side
+;;       reader of the framework rings: it called
+;;       `re-frame.trace.tooling/trace-buffer` bare, so the same events
+;;       reached the Fresco advisor's ranking and the causal slice. It now
+;;       reads `trace-collector/bundles-for-frame`, the gated
+;;       bundle-shaped sibling of `snapshot-from-rings`.
+;;
+;; THE FIXTURES ARE PRODUCER-DERIVED, not hand-written maps: the trace
+;; events are the ones `rf.trace/emit!` actually pushed into the per-frame
+;; ring (read back through the public `rf/trace-buffer` door), and the
+;; epoch record is assembled by the producer's own
+;; `re-frame.epoch.assembly/build-record` over them — so `:trace-events`,
+;; the `:rf.epoch/sensitive?` rollup and the structured projections are
+;; exactly the shapes the runtime retains.
+
+#?(:cljs
+   (defn- ring-events
+     "The REAL trace events `emit-frame-bound!` pushed into `host-frame`'s
+     per-frame ring, oldest-first, read back through the public flat door.
+     The `:sensitive?` stamp, the `:id` and the `:tags` are the runtime's."
+     []
+     (vec (rf/trace-buffer host-frame {:flat true}))))
+
+#?(:cljs
+   (defn- producer-record
+     "ONE epoch record assembled by the PRODUCER over those events. The
+     `{}` frame states and the `0` `:committed-at` are the only synthetic
+     parts and neither is read by the gate."
+     []
+     (rf.epoch.assembly/build-record host-frame {} {} (ring-events) 0)))
+
+#?(:cljs
+   (defn- sensitive-event-id
+     "The `:id` the runtime minted for the sensitive emit — the id the
+     assertions below chase through the ingest paths."
+     [record]
+     (:id (first (filter :sensitive? (:trace-events record))))))
+
+#?(:cljs
+   (def ^:private with-runtime
+     ;; The core fn-form runtime fixture, INVOKED DIRECTLY around the
+     ;; end-to-end bodies rather than registered with `use-fixtures`: this
+     ;; file's algebra is deliberately adapter-less and JVM-runnable, and a
+     ;; file-wide runtime fixture would change what every test above
+     ;; exercises. `:ambient-frame nil` because these bodies make their own
+     ;; top-level frame (per the option's own docstring).
+     (rf.test-support/make-reset-runtime-fixture
+       {:adapter       rf.substrate.plain-atom/adapter
+        :ambient-frame nil})))
+
+#?(:cljs
+   (defn- seed-and-read-history!
+     "The `:epoch-history` ingest path end to end: register Xray's epoch
+     surface, seat a bare `:rf/xray` frame, seed `history` through the real
+     `:rf.xray/sync-epoch-history` event, and read the slot back through
+     its own sub — no hand-reached-into db, no reducer called directly."
+     [history]
+     (xray-epoch/install!)
+     (rf/make-frame {:id :rf/xray})
+     (rf/with-frame :rf/xray
+       (rf/dispatch-sync [:rf.xray/sync-epoch-history history])
+       @(rf/subscribe [:rf.xray/epoch-history]))))
+
+#?(:cljs
+   (deftest epoch-history-ingest-drops-the-sensitive-record
+     (with-runtime
+       (fn []
+         (with-host-frame
+           (fn []
+             (testing "a record whose `:rf.epoch/sensitive?` rollup is true is
+                       dropped WHOLE on its way into `:epoch-history` while the
+                       profile redacts — the envelope leaks too (Spec 009
+                       §Privacy), and the record is the unit the panels key on"
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 true)
+               (let [record (producer-record)
+                     ev-id  (sensitive-event-id record)]
+                 (is (true? (:rf.epoch/sensitive? record))
+                     "precondition: the PRODUCER's own rollup reads the
+                      sensitive event — the fixture is not hand-stamped")
+                 (is (= 2 (count (:trace-events record)))
+                     "precondition: both cascades are in the record")
+                 (is (some? ev-id)
+                     "precondition: the runtime minted an :id for the
+                      sensitive emit")
+                 (let [history (seed-and-read-history! [record])]
+                   (is (= [] (vec history))
+                       "the sensitive record must NOT reach `:epoch-history`
+                        under the `:rf.egress/local-redacted` default")
+                   (is (not-any? #(= ev-id (:id %))
+                                 (mapcat :trace-events history))
+                       "and no event with that id survives anywhere in the
+                        slot"))))))))))
+
+#?(:cljs
+   (deftest epoch-history-ingest-scrubs-events-on-a-record-carrying-no-rollup
+     (with-runtime
+       (fn []
+         (with-host-frame
+           (fn []
+             (testing "the event-grain half: a record with NO rollup — a
+                       synthetic history seed, or one assembled before the
+                       rollup shipped — keeps the record and loses the
+                       sensitive EVENT"
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 true)
+               (let [full   (producer-record)
+                     ev-id  (sensitive-event-id full)
+                     record (dissoc full :rf.epoch/sensitive?)]
+                 (let [history (seed-and-read-history! [record])]
+                   (is (= 1 (count history))
+                       "no rollup to drop the record on, so the record stands")
+                   (is (= 1 (count (:trace-events (first history))))
+                       "but its `:trace-events` is scrubbed to the
+                        non-sensitive cascade")
+                   (is (not-any? #(= ev-id (:id %))
+                                 (mapcat :trace-events history))
+                       "no event with that id survives"))))))))))
+
+#?(:cljs
+   (deftest epoch-history-ingest-passes-everything-when-opted-in
+     (with-runtime
+       (fn []
+         (with-host-frame
+           (fn []
+             (testing "CONTROL — under the trusted-local `:rf.egress/local-raw`
+                       opt-in the gate is the identity: the same record and the
+                       same two events land in the slot"
+               (config/set-egress-profile! :rf.egress/local-raw)
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 true)
+               (let [record  (producer-record)
+                     ev-id   (sensitive-event-id record)
+                     history (seed-and-read-history! [record])]
+                 (is (= 1 (count history))
+                     "the opted-in operator keeps the record")
+                 (is (= 2 (count (:trace-events (first history))))
+                     "and both of its cascades")
+                 (is (some #(= ev-id (:id %))
+                           (mapcat :trace-events history))
+                     "including the sensitive one, verbatim")))))))))
+
+#?(:cljs
+   (defn- window-bundles
+     "`trace-windows` for `host-frame`, driven through the same
+     `[:explain-render :window :frames]` envelope slot the Fresco panel
+     reads. `trace-windows` is `soft`-wrapped, so a nil answer means it
+     THREW — asserted separately rather than folded into a count."
+     []
+     (let [w (fresco-reads/trace-windows
+               {:explain-render {:window {:frames [host-frame]}}})]
+       (is (map? w) "trace-windows answered a window map (it did not throw)")
+       (get w host-frame))))
+
+#?(:cljs
+   (deftest trace-windows-drops-the-sensitive-cascade-by-default
+     (with-host-frame
+       (fn []
+         (testing "the Fresco advisor's window must not carry a cascade the
+                   whole trace side is hiding (rf2-y8doi.13 — the second,
+                   seam-side reader of the framework rings)"
+           (emit-frame-bound! 1 false)
+           (emit-frame-bound! 2 true)
+           (let [bundles (window-bundles)]
+             (is (= 1 (count bundles))
+                 "only the non-sensitive cascade reaches the window under the
+                  `:rf.egress/local-redacted` default")
+             (is (= [1] (mapv :dispatch-id bundles))
+                 "and it is cascade #1, the non-sensitive one")
+             (is (not-any? #(some :sensitive? (:trace-events %)) bundles)
+                 "no sensitive event survives in any surviving bundle")))))))
+
+#?(:cljs
+   (deftest trace-windows-passes-the-sensitive-cascade-when-opted-in
+     (with-host-frame
+       (fn []
+         (testing "CONTROL — the gate is profile-conditional, not a blanket
+                   drop: `:rf.egress/local-raw` restores the verbatim window"
+           (config/set-egress-profile! :rf.egress/local-raw)
+           (emit-frame-bound! 1 false)
+           (emit-frame-bound! 2 true)
+           (let [bundles (window-bundles)]
+             (is (= 2 (count bundles))
+                 "both cascades reach the opted-in window")
+             (is (some #(some :sensitive? (:trace-events %)) bundles)
+                 "including the sensitive one")))))))
