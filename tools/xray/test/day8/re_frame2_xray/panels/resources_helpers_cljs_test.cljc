@@ -33,7 +33,7 @@
        with its terminal `:reconciled` / `:rolled-back` settle by
        `:snapshot-id` (or `:pending` when unsettled);
        `optimistic-force-clobbers` projects the `:force`-clobber warnings.
-    8. **lints** — global-scope audit, suspicious-global, scope-mismatch,
+    8. **lints** — global-scope audit, suspicious-global,
        orphaned-owner.
     9. **on-box sensitive-resource redaction (rf2-y8doi.15)** — a
        trace-borne row naming a `:sensitive?` resource redacts its
@@ -1185,23 +1185,6 @@
     (testing "suspicious-global flags a /me-ish explicit-global"
       (let [warns (h/suspicious-global-warnings registry-rows)]
         (is (= [:me/profile] (mapv :resource-id warns)))))
-    (testing "scope-mismatch lint flags a sub reading a different scope"
-      ;; a sub reads :article/by-slug {:slug "welcome"} under GLOBAL scope
-      ;; while the entry is cached under the SESSION scope → mismatch.
-      (let [mismatches (h/scope-mismatch-lint
-                         instance-rows
-                         [{:resource-id :article/by-slug
-                           :params {:slug "welcome"}
-                           :scope  global-scope}])]
-        (is (= 1 (count mismatches)))
-        (is (= :article/by-slug (:resource-id (first mismatches))))
-        ;; surfaced scopes are summarized (PRIVACY)
-        (is (map? (:sub-scope (first mismatches)))))
-      ;; a sub reading the SAME scope as the entry → no mismatch
-      (is (empty? (h/scope-mismatch-lint
-                    instance-rows
-                    [{:resource-id :article/by-slug
-                      :params {:slug "welcome"} :scope session-scope}]))))
     (testing "orphaned-owner lint flags an app-kind owner with no release"
       ;; add an entry pinned by an app-minted [:dashboard/opened …] owner with no
       ;; owner-released event in the trace
@@ -1216,80 +1199,6 @@
       (testing "a route/machine/ssr owner is framework-released — not linted"
         (is (empty? (h/orphaned-owner-lint instance-rows trace-buffer))
             "the route-owned fresh entry is not an app-kind owner")))))
-
-;; ---- (8b) scope-mismatch lint compares CANONICAL identities (rf2-hbq635) ----
-;;
-;; The lint must index + compare the RAW canonical [resource-id params] +
-;; scope values, NOT the summarized display previews. Previews are pr-str
-;; truncated at the 120-char budget and collapse every redacted value to the
-;; same `[redacted]` sentinel, so the preview-keyed impl false-tripped /
-;; missed on long-or-colliding params and on redacted scopes.
-
-(deftest scope-mismatch-canonical-identity
-  (testing "two DIFFERENT long params whose first 120 chars COINCIDE do not
-            collide — the lint keys on the canonical params, not the
-            truncated preview (rf2-hbq635)"
-    ;; Both params share a >120-char common prefix; they differ only in the
-    ;; tail, so their pr-str previews (budget 120) are identical while the
-    ;; canonical values are distinct.
-    (let [prefix     (apply str (repeat 200 "x"))
-          params-a   {:q (str prefix "-AAA")}
-          params-b   {:q (str prefix "-BBB")}
-          entries*   (byte-keyed
-                       {[session-scope :search/run params-a]
-                        {:resource/id :search/run :status :loaded :data {}
-                         :active-owners #{} :generation 1}})
-          rows       (h/project-instances entries* now)]
-      ;; sanity: the two params DO summarize to the same truncated preview
-      (is (= (:preview (h/summarize params-a)) (:preview (h/summarize params-b)))
-          "the two long params share a truncated preview (the collision the old impl tripped on)")
-      ;; A sub reading params-b under a DIFFERENT scope: there is NO entry
-      ;; for params-b (only params-a is cached), so canonically there is NO
-      ;; mismatch — the preview-keyed impl would have FALSE-matched it to the
-      ;; params-a entry because the previews collide.
-      (is (empty? (h/scope-mismatch-lint
-                    rows
-                    [{:resource-id :search/run :params params-b :scope global-scope}]))
-          "no entry exists for params-b → no mismatch (preview collision is NOT a match)")
-      ;; A sub reading params-a (the actually-cached params) under a different
-      ;; scope IS a real mismatch.
-      (is (= 1 (count (h/scope-mismatch-lint
-                        rows
-                        [{:resource-id :search/run :params params-a :scope global-scope}])))
-          "the real params-a entry under a different scope is a true mismatch")))
-
-  (testing "distinct REDACTED scopes do not false-match — the lint compares
-            the canonical scope, not the lossy [redacted] preview (rf2-hbq635)"
-    ;; Two entries cached under DIFFERENT sensitive scopes that both
-    ;; summarize to the [redacted] preview. A sub reading the SAME params
-    ;; under one of those exact scopes must NOT mismatch (the scope IS in the
-    ;; canonical set), while a sub under a THIRD distinct scope must mismatch.
-    (let [scope-1   :rf/redacted                  ; an upstream-redacted scope
-          scope-2   [:rf.scope/session {:tenant "t-1"}]
-          scope-3   [:rf.scope/session {:tenant "t-9"}]
-          entries*  (byte-keyed
-                      {[scope-2 :doc/get {:id 1}]
-                       {:resource/id :doc/get :status :loaded :data {}
-                        :active-owners #{} :generation 1}})
-          rows      (h/project-instances entries* now)]
-      ;; A sub reading the SAME canonical scope as the entry → NO mismatch,
-      ;; even though scope-2 summarizes to a redaction-aware preview.
-      (is (empty? (h/scope-mismatch-lint
-                    rows
-                    [{:resource-id :doc/get :params {:id 1} :scope scope-2}]))
-          "the sub's scope canonically EQUALS the entry scope → no false mismatch")
-      ;; A sub reading a DIFFERENT scope (third tenant) → real mismatch.
-      (is (= 1 (count (h/scope-mismatch-lint
-                        rows
-                        [{:resource-id :doc/get :params {:id 1} :scope scope-3}])))
-          "a canonically-different scope is a true mismatch")
-      ;; A sub reading the upstream-redacted scope while the entry is under
-      ;; scope-2 → mismatch (the canonical :rf/redacted ≠ scope-2; the old
-      ;; preview-keyed impl could mis-compare a [redacted] preview).
-      (is (= 1 (count (h/scope-mismatch-lint
-                        rows
-                        [{:resource-id :doc/get :params {:id 1} :scope scope-1}])))
-          "a redacted sub-scope is compared canonically, not as the [redacted] preview"))))
 
 ;; ---- (5c) rf2-o5iv — an EMPTY infinite feed is NOT has-data ---------------
 ;;
