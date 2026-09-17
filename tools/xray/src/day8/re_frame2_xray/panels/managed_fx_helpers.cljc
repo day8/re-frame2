@@ -225,17 +225,40 @@
   IN THE ISSUING EVENT-BUNDLE THIS FILTER IS ALL BUT EMPTY, AND THAT IS
   THE RUNTIME'S SHAPE RATHER THAN A GAP. `re-frame.trace/emit!` and
   `emit-error!` take the dispatch-id from the dynamic `*handler-scope*`,
-  and every HTTP row after issuance is emitted either from a transport
+  and most HTTP rows after issuance are emitted either from a transport
   callback (no scope at all — the grouper files it under
   `[nil :ungrouped]`) or inside a DIFFERENT run's drain (the aborting or
-  destroying event's). So the completion, the retries, the aborts and the
+  destroying event's). So the completion, the retries and the
   stale-suppressions can none of them reach the bundle that issued the
   request.
 
-  The ONE exception is a SYNCHRONOUS request-body-prep failure: a
-  throwing `:body` thunk or an unencodable body fails inside the fx
-  handler's own stack, so its `:rf.http/transport` row is emitted while
-  the issuing drain is still live and lands in this bundle.
+  TWO THINGS DO REACH IT, because both run inside the issuing fx handler's
+  own stack and so inherit the issuing scope's dispatch-id:
+
+  1. A SYNCHRONOUS request-body-prep failure: a throwing `:body` thunk or
+     an unencodable body fails inside the fx handler's stack, so its
+     `:rf.http/transport` row is emitted while the issuing drain is still
+     live. This is THIS attempt's own outcome and is attributed.
+
+  2. The `:rf.http/aborted` an issuance FIRES AT THE ATTEMPT IT REPLACES
+     (rf2-n3sx9). `managed-handler` calls `registry/supersede!`
+     synchronously while issuing the new request; `supersede!` calls the
+     evicted handle's abort-fn with `:request-id-superseded`, which
+     reaches `dispatch-aborted!` and emits the row — with the issuing
+     scope still on the stack and the SAME `:request-id`, because sharing
+     the id is what supersession IS. That row belongs to the PRIOR
+     attempt, and `http-row-for-this-record?` excludes it.
+
+  THIS DOCSTRING USED TO SAY THE BODY-PREP FAILURE WAS THE ONE EXCEPTION.
+  It was wrong about (2), and the cost was real: every debounced search
+  request after the first read `ERROR · cancel: :request-id-superseded`
+  while being perfectly healthy.
+
+  A cancellation can also arrive from a NON-HTTP effect in the same drain
+  — an actor destroy walking its in-flight handles — naming a request this
+  bundle never issued. That row is real and correctly collected here; what
+  it is not is any particular record's, which is again
+  `http-row-for-this-record?`'s call.
 
   `:rf.http/handled` and `:rf.http/managed-issued` USED TO BE LISTED HERE
   AND ARE NOT EMITTED ANYWHERE (rf2-y8doi.18). They were the collector's
@@ -379,6 +402,35 @@
                                                   :user)
             nil))
         (or surface-events [])))
+
+(defn- cancellation-row?
+  "Is this surface row a CANCELLATION rather than a failure?
+
+  Single-sourced off `surface-events->cancel-cause` — the one reader that
+  already knows which operations are cancellations — so the two cannot
+  drift. A one-row call returns that row's cause, or nil when the row is
+  not a cancellation at all."
+  [ev]
+  (some? (surface-events->cancel-cause [ev])))
+
+(defn- supersede-of-the-attempt-we-replaced?
+  "Is this cancellation the one THIS issuance fired at the attempt it
+  replaced?
+
+  `re-frame.http.registry/supersede!` is the only site in the tree that
+  passes `:request-id-superseded` to an abort-fn, and it passes it to the
+  handle it has just evicted — so the reason names a PRIOR attempt by
+  construction, never the one being issued.
+
+  It has to be read off the REASON, because the superseded attempt and its
+  replacement share the `:request-id`: that sharing is what supersession
+  IS, so no id comparison can separate them. The work-ids do differ (the
+  issuance number discriminates them), but the `:rf.fx/handled` row carries
+  only the caller's own fx-args, which have no issuance in them — there is
+  nothing on this side to compare against."
+  [ev]
+  (and (= :rf.http/aborted (:operation ev))
+       (= :request-id-superseded (get-in ev [:tags :reason]))))
 
 (defn- surface-events->phase
   "Project the most-advanced phase observed in the surface-events bag.
@@ -552,11 +604,45 @@
   real key to match on. `:request-id` is OPTIONAL per Spec 014, and when
   the record has none the only sound attribution left is arithmetic: if
   this is the bundle's SOLE HTTP effect, an HTTP row in the bundle can
-  have come from nothing else."
+  have come from nothing else.
+
+  TWO EXCLUSIONS, BOTH FOR CANCELLATION ROWS (rf2-n3sx9). A cancellation
+  is not like a failure here, because it terminates a request that was
+  ALREADY IN FLIGHT — issued in an EARLIER bundle — so neither of the two
+  tests above is sound evidence about it on its own:
+
+  1. A `:request-id-superseded` abort shares this record's `:request-id`,
+     so the id match cannot reject it, and it is fired BY this very
+     issuance — see `supersede-of-the-attempt-we-replaced?`. Without this
+     exclusion every debounced search request after the first reads
+     `ERROR · cancel: :request-id-superseded` while being perfectly
+     healthy, which is the same class of untruth as the `OK · completed`
+     this record was narrowed to escape.
+
+  2. The arithmetic does not extend to a cancellation. It is sound for a
+     body-prep failure, which ONLY this bundle's own HTTP effects can
+     produce — so counting those effects really does account for every
+     candidate. A cancellation can be fired by something that is not an
+     HTTP effect at all (an actor destroy walking its in-flight handles, a
+     frame teardown, an epoch restore) landing in the same drain, so the
+     count says nothing about where the row came from. A record with no
+     `:request-id` therefore takes no cancellation.
+
+  What survives is the one cancellation the issuing bundle genuinely
+  witnesses about its own attempt: on CLJS an already-aborted external
+  `:abort-signal` fires this handle's abort-fn synchronously inside
+  `run-attempt!` (`transport-cljs/bind-external-abort!`), reason `:user`
+  and this record's own `:request-id`."
   [record-request-id sole-http-fx? ev]
-  (if (some? record-request-id)
-    (= record-request-id (get-in ev [:tags :request-id]))
-    (boolean sole-http-fx?)))
+  (let [cancel? (cancellation-row? ev)]
+    (and
+      ;; Exclusion 1 — a supersede is the PRIOR attempt's, never ours.
+      (not (and cancel? (supersede-of-the-attempt-we-replaced? ev)))
+      (if (some? record-request-id)
+        (= record-request-id (get-in ev [:tags :request-id]))
+        ;; Exclusion 2 — the arithmetic stands in for an id only for a row
+        ;; this bundle's own HTTP effects could have produced.
+        (and (not cancel?) (boolean sole-http-fx?))))))
 
 (defn http-adapter
   "HTTP surface adapter — the record is narrowed to ISSUANCE.
@@ -577,14 +663,23 @@
   other four surfaces DO get their end events in-bundle, so `:ok` keeps
   its meaning for them.
 
-  The one outcome this bundle CAN witness is a synchronous
-  request-body-prep failure, which runs inside the fx handler's own
-  stack; it is attributed per `http-row-for-this-record?` and reddens the
-  record to `:error` through `common-record`. `opts` carries
-  `:sole-http-fx?` — whether this is the bundle's only HTTP effect, which
-  the walker knows and the adapter cannot. The 2-arity assumes it is,
-  which is both the common case and what a direct single-record caller
-  means."
+  The outcomes this bundle CAN witness about THIS attempt are the ones
+  that run inside the fx handler's own stack: a synchronous
+  request-body-prep failure, and — on CLJS — an already-aborted external
+  `:abort-signal` firing this handle's own abort-fn during
+  `run-attempt!`. Both are attributed per `http-row-for-this-record?` and
+  redden the record to `:error` through `common-record`.
+
+  What that predicate must NOT let through is the `:rf.http/aborted` this
+  issuance fired at the attempt it SUPERSEDED, which shares this record's
+  `:request-id` and lands in this same bundle (rf2-n3sx9), or a
+  cancellation an unrelated same-drain effect fired at a stranger's
+  request.
+
+  `opts` carries `:sole-http-fx?` — whether this is the bundle's only HTTP
+  effect, which the walker knows and the adapter cannot. The 2-arity
+  assumes it is, which is both the common case and what a direct
+  single-record caller means."
   ([fx-ev event-bundle-other]
    (http-adapter fx-ev event-bundle-other {:sole-http-fx? true}))
   ([fx-ev event-bundle-other {:keys [sole-http-fx?] :or {sole-http-fx? true}}]
