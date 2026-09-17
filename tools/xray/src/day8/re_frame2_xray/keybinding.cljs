@@ -324,6 +324,22 @@
         (and (not shift?) (or (= "s" k) (= "KeyS" code)))
         :rf.xray/settings-toggle))))
 
+(defn- space-key?
+  "True when `event` is the Space keydown — the ONE spine binding a
+  focused native control also claims for itself.
+
+  Mirrors the shape of `spine-key-id`'s Space arm (key `\" \"`, code
+  `\"Space\"`, and the legacy `\"Spacebar\"` key spelling) so the
+  activatable-target exemption tracks exactly the key that needs it,
+  the same way `step-key?` below mirrors the j / k arms. Modifier
+  state is deliberately not read: a modified Space is not a spine
+  binding at all (`spine-key-id` returns nil for it), so the exemption
+  has nothing to decide there."
+  [^js event]
+  (let [k    (.-key event)
+        code (.-code event)]
+    (or (= " " k) (= "Space" code) (= "Spacebar" k))))
+
 (defn- step-key?
   "True when `event` is one of the repeat-friendly spine STEP bindings —
   unmodified `j` / `k` (spec/018 §3 event-feed stepping). Held-key OS
@@ -489,7 +505,21 @@
                ;; rf2-d716o9 — yield to a focused activatable control
                ;; (button / summary / [role=button]) so Space activates
                ;; the control instead of being hijacked as live-pause.
-               (not (target-activatable? event))
+               ;;
+               ;; rf2-y8doi.20 — SCOPED TO SPACE. The exemption used to
+               ;; sit bare in front of the whole roster, so the natural
+               ;; gesture in the tool — clicking an L2 row (`role=
+               ;; "button"`, `tab-index "0"`) or a `‹` / `›` chevron
+               ;; (`<button>`) — left DOM focus on an activatable
+               ;; control and j / k / L / Shift+G / `,` / s all went
+               ;; dead until the user clicked somewhere inert. Space
+               ;; (and Enter, which is not a spine key) is the whole of
+               ;; what a native control claims; the row's own
+               ;; `:on-key-down` handles Enter / Space / ContextMenu /
+               ;; Shift+F10 and nothing else, so the step keys reached
+               ;; no handler at all.
+               (not (and (target-activatable? event)
+                         (space-key? event)))
                (not (target-inside-modal? event)))
       (when-let [event-id (spine-key-id event)]
         (.preventDefault event)

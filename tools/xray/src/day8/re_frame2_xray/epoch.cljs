@@ -192,13 +192,57 @@
   ;; `:rf.trace/no-emit? true` — the dispatch must not itself emit a
   ;; trace event (the listener is part of Xray's instrumentation loop;
   ;; a self-emit would re-enter the listener).
+  ;;
+  ;; rf2-y8doi.20 — COLD-START ADOPTION. When the target is still
+  ;; UNSELECTED the comparison below can never match: `target` is nil
+  ;; and every real recording frame differs from it, so `:epoch-history`
+  ;; stayed empty for as long as nobody clicked. That is the state Xray
+  ;; mounts in whenever it comes up BEFORE the host's first cascade
+  ;; (the preload's `boot-on-runtime-ready!`, or any app whose first
+  ;; dispatch is user-driven): `focusable-head-frame-id` has no
+  ;; pre-mount cascade to resolve, so the mount seed leaves the slot
+  ;; nil, `compose-focus` yields `:epoch-id nil`, and the L4 Epoch panel
+  ;; rendered "No event focused" while the L2 list filled and
+  ;; auto-follow highlighted its head row.
+  ;;
+  ;; So an ingest onto an unselected target ADOPTS the recording frame,
+  ;; aligning both axes exactly as `:rf.xray/set-target-frame` does.
+  ;; This is NOT the `:rf/default` synthesis EP-0002 (rf2-bd4div)
+  ;; forbids — the adopted frame is the one that actually RECORDED, so
+  ;; it is unique resolution from observed evidence, the same tier as
+  ;; the mount-time discovery policy and the same "first gesture out of
+  ;; the unselected state selects a target" move
+  ;; `spine/reseed-epoch-history-for-frame` already makes on the click
+  ;; path. It fires only while the slot is unselected, so an explicit
+  ;; host-config or picker choice always outranks it.
+  ;;
+  ;; Xray's OWN frame is excluded. The epoch listener is registered
+  ;; process-wide and `:rf/xray` records epochs like any other frame —
+  ;; and at cold start, with the host quiet, Xray's own chrome events
+  ;; are the likeliest first settle of all. Adopting `:rf/xray` would
+  ;; point the inspector at itself, which is strictly worse than the
+  ;; unselected state this repairs. (`frame_switcher/internal-frames`
+  ;; carries the wider picker-exclusion set; reaching it from here
+  ;; would be a view→plumbing edge, so only the own-frame id — already
+  ;; in scope via `defaults` — is filtered.)
   (rf/reg-event :rf.xray/epoch-recorded
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ frame-id]]
-      {:db (let [target (get db :target-frame defaults/default-target-frame)]
-        (if (= frame-id target)
+      {:db (let [target (get db :target-frame defaults/default-target-frame)
+                 adopt? (and (nil? target)
+                             (some? frame-id)
+                             (not= frame-id defaults/default-frame-id))]
+        (cond
+          adopt?
+          (-> db
+              (assoc :target-frame frame-id)
+              (assoc-in [:focus :frame] frame-id)
+              (assoc :epoch-history (redact-history (rf/epoch-history frame-id))))
+
+          (= frame-id target)
           (assoc db :epoch-history (redact-history (rf/epoch-history target)))
-          db))}))
+
+          :else db))}))
 
   ;; `:rf.xray/sync-epoch-history` — wholesale overwrite of the
   ;; `:epoch-history` slot. Dispatched from `mount.cljs/open!` on first

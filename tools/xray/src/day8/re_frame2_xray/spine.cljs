@@ -1156,10 +1156,25 @@
           ;; No matching dispatch-id (the epoch's trace was elided or
           ;; the record lacks the slot) — still pin epoch-id so panels
           ;; pivoting on `:rf.xray/focus :epoch-id` (App-db diff, Views,
-          ;; machine-inspector) follow the navigation. The event-bundle list
-          ;; will refresh and `compose-focus` will recover the dispatch-id
-          ;; on the next live tick.
+          ;; machine-inspector) follow the navigation.
+          ;;
+          ;; rf2-y8doi.20 — and CLEAR `:dispatch-id` while doing it.
+          ;; Leaving the stored id alone pinned the spine in RETRO on
+          ;; whatever row happened to be focused before the navigation:
+          ;; the epoch-keyed panels pivoted on this epoch while the L2
+          ;; highlight named an unrelated event, and the two axes stayed
+          ;; that way indefinitely — this branch sets `:mode :retro`
+          ;; itself, so the "recover on the next live tick" the comment
+          ;; used to promise could never happen (`follow-head` clears
+          ;; `:epoch-id` rather than reconciling). A nil `:dispatch-id`
+          ;; is not pinnable, so `compose-focus`'s snap-to-head branch —
+          ;; which fires REGARDLESS of mode — resolves the effective id
+          ;; to head, the position the row highlight already renders for
+          ;; "nothing pinned", and it keeps tracking head as the buffer
+          ;; grows. The requested `:epoch-id` survives untouched: the
+          ;; RETRO arm of `eff-epoch-id` honours the stored slot.
           (cond-> (update db :focus (fnil assoc {})
+                          :dispatch-id nil
                           :epoch-id   epoch-id
                           :mode       :retro
                           :previewing? false)
