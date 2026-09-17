@@ -104,6 +104,26 @@ its non-vacuity control.
 | **read-churn** | reads, read ORDERS | the census's `:reads` and `:read-orders` |
 | **fan-out** | reader slots | the cell table's `:fan-out`, summed over the boundary's edges |
 
+**Those two "edges" are not the same identity, and that is deliberate.** The
+time axis joins onto Spec 009's ring, which tags `:rf.sub/id` and carries no
+query, so its edges are REGISTRATIONS — `[frame-id sub-id]`. Fan-out joins onto
+the cell table, where `edge-row` carries `:query` on every edge and `read-row`
+on every read, so its edges are CELLS — `[frame-id sub-id query]`. Both
+derivations are taken DISTINCT, and each join takes the finest identity its own
+producer publishes; keying both on the coarser of the two throws one away, and
+did, in both directions at once (rf2-y8doi.26). On the fan-out side a boundary
+reading `[:todo/by-id 1]` was charged the reader population of every other row
+on the page — not an inflated number but a fabricated one, printed as *fan-out
+N* on the row `docs/core/fresco/16-diagnostics.md` teaches a reader to hunt. On
+the time side two cells of one registration collapsed to one timing key and the
+digest entry was looked up once per read, doubling `:runs` and `:elapsed-ms` —
+**the axis the roster SORTS by**.
+
+The residual on the time side is stated rather than hidden: the ring's digest
+cannot split a registration's time per cell, so a boundary reading one of two
+cells is still charged for both. That is the ring's own grain, and pricing it
+once is the most this join can honestly say.
+
 There is deliberately **no composite score**. Weighting milliseconds against
 dispatch counts against read orders against reader slots would make the weights
 the ranking — invented here, and unfalsifiable. Each axis is reported in its own
@@ -132,7 +152,7 @@ already scopes its leads against (audit #7789).
 | `:owner` | `:basis` | `:observed` | Means |
 |---|---|---|---|
 | `:computation` | `:observation` | `:recomputes` | one read holds ≥ `dominance` of a total ≥ `computation-floor-ms` |
-| `:read-topology` | `:derivation` | any | the read set oscillates (`:read-orders` > 1), or it re-runs ≥ `repeat-floor` times for measured work below the floor. Oscillation is read off the entry cache rather than off the ring, so it holds at any `:observed` |
+| `:read-topology` | `:derivation` | any | the entry cache folded more than one entry onto this boundary's key (`:read-orders` > 1), or it re-runs ≥ `repeat-floor` times for measured work below the floor. The fold is read off the entry cache rather than off the ring, so it holds at any `:observed`. It is the one finding here that carries a loss on a row whose basis is sound — `:uncorrelated`, because a fold count cannot say which of three situations produced it |
 | `:unattributed` | `:host-opaque` | `:recomputes` | the window was searched, recomputes happened, and the measured half does not explain them |
 | `:unattributed` | `:host-opaque` | `:memo-hits-only` | the window retained this boundary's reads being CONSIDERED and the memo answered every one — nothing recomputed |
 | `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all, so no search happened |
@@ -144,6 +164,32 @@ say *the answer is real and lives in another tool* — a change of instrument. O
 sentence covering all three would send two thirds of its readers to the wrong
 place, so they are three sentences under two loss chips, and exactly one of them
 names the retention knob.
+
+#### `:read-orders` is a FOLD COUNT, and the arm says so
+
+The producer's own contract for `:read-orders` is *how many entries folded onto
+this projected key*, not *how many orders of one read set were seen*. Entries
+whose key arrays differ only in order fold, and so do entries an egress policy
+elided onto one projected key. So `> 1` is at least three different situations —
+a read set that really oscillates, two declared views each holding their own
+order of the same set, or an elided-argument projection collapsing distinct raw
+sets — and only the first is what rung 2 was named for. This arm used to state
+the first as fact and route there, which is topology surgery recommended on a
+signal the producer documents as ambiguous.
+
+The arm **keeps rung 2** and stamps `:loss {:reason :uncorrelated}` beside it,
+naming all three candidates in the sentence it renders. Keeping the arm is the
+honest call rather than a hedge: the remedy for all three is to go and look at
+the read SET, and every other classification this window could fall to is
+strictly worse advice. What it must not do is claim the first. The panel already
+renders a classification's loss as a chip next to its sentence, so the
+qualification reaches the page and not only the data, and `:loss` is a field
+every classification already carries — this cost no schema bump.
+
+The field keeps the name `:read-orders`, deliberately: it is the producer's own
+spelling and it selects the arm. The ambiguity is stated where the finding is
+WORDED, which is where a reader meets it — which is why the axis table above
+still reports the unit under the producer's name.
 
 #### `:rf.sub/skip` means one thing, and both views say it
 
@@ -171,11 +217,29 @@ An advisor that sends a reader to the retention knob when the evidence was
 already retained is worse than no advisor: it sends them to fix the instrument
 instead of the code.
 
-The repair is **one predicate**, `fresco-helpers/sub-recompute?`
-(`#{:rf.sub/run :rf.sub/create}`) with `sub-skip?` beside it, in the shared
-algebra both derivations already consume — two definitions of *did work happen*
-is what produced the disagreement, and a third would have been worse. The
-advisor's private `sub-run?` is gone.
+The repair is **one predicate**, `fresco-helpers/sub-recompute?` (`#{:rf.sub/run}`)
+with `sub-skip?` beside it, in the shared algebra both derivations already
+consume — two definitions of *did work happen* is what produced the
+disagreement, and a third would have been worse. The advisor's private
+`sub-run?` is gone.
+
+**A create is a REGISTRATION, not a run.** `:rf.sub/create` was in that set and
+left it (rf2-y8doi.26). Spec 009 is explicit twice over: it is emitted *at
+registration time, not first reference*, fired by `reg-sub` / `reg-runtime-sub`
+/ `reg-frame-state-sub` immediately after the registrar write and explicitly NOT
+a first-deref signal — first materialisation lives in `:rf.sub/run`'s
+`:rf.sub/first-run?` tag instead. No body ran, so there is no
+`:rf.sub/elapsed-ms` to carry, and inside the work set a create therefore landed
+as an UNTIMED RUN: a `reg-sub` evaluated inside a handler scope pushed an
+otherwise quiet boundary to `:unattributed` / `:host-opaque` — *recomputes
+happened and the measured half does not account for them* — whose remedy is *go
+and measure this in React DevTools*. A registration sent the reader to another
+tool. It joins `:rf.sub/dispose` rather than `:rf.sub/skip`, because a skip is
+the cell being CONSIDERED and answering without running, which is positive
+evidence about the read, while a create and an eviction say nothing about
+whether this window searched anything. Neither is counted anywhere, and that
+absence is the point: a counter for them would be a number with no decision
+attached to it.
 
 `classify` now asks two questions rather than one: `searched?` is about
 recomputes and `considered?` is about activity of any kind. A skip-only window is
@@ -209,9 +273,9 @@ each:
 
 | Operation | With an `:rf.sub/id` | Without one |
 |---|---|---|
-| `:rf.sub/run` / `:rf.sub/create` | priced on `[frame-id sub-id]` | `:unnamed-runs` — uncorrelated WORK |
+| `:rf.sub/run` | priced on `[frame-id sub-id]` | `:unnamed-runs` — uncorrelated WORK |
 | `:rf.sub/skip` | `:memo-hits` on that read edge | `:unnamed-skips` — an uncorrelated OBSERVATION |
-| `:rf.sub/dispose` | dropped: an eviction is not work | dropped, for the same reason |
+| `:rf.sub/create` / `:rf.sub/dispose` | dropped: a registration and an eviction are each not work | dropped, for the same reason |
 
 `:unnamed-skips` is a second window-level field rather than a second number
 inside `:unnamed-runs`, and it carries its own `:unnamed-skip-loss`
@@ -255,8 +319,25 @@ settles each — never Xray, which is asserted.
 
 ## The causal slice
 
-Drawn for the boundary the advisor ranked **first** and the newest dispatch the
-ring still holds, so the two views are one workflow rather than two lookups.
+Drawn for the boundary the advisor ranked **first** and the dispatch the SPINE
+is focused on, so the two views are one workflow rather than two lookups — the
+chain is about the boundary the roster just pointed at, walked on the event the
+reader selected.
+
+`causal/walked-dispatch` answers the focused dispatch when the ring still holds
+it, and the newest retained one otherwise. Retention is checked through the same
+`bundle-for` the slice reads, so *the ring holds this dispatch* has one
+definition: a focus pinned to a dispatch since evicted falls back rather than
+drawing a slice whose every link is capped. A focus is a selection, not a claim
+about the window, and this is the one place the two meet. It was the newest
+dispatch unconditionally, which is `(peek history)` under another name — so the
+one view whose job is *one dispatch, walked* re-pointed itself under the reader
+on every application dispatch, and a developer who clicked an event on the spine
+and opened Causal got whatever had happened since. Spec 018 §6 is the ruling and
+needed no new one: `:rf.xray/focus` is its single selection axis, its per-layer
+table binds L4 detail content to the spine's `:dispatch-id`, and its atomicity
+contract already says no panel maintains its own selection state and no panel
+reads `(peek history)`.
 
 | # | Link | Seam | Basis |
 |---|---|---|---|
@@ -282,6 +363,21 @@ than implied away by the arrow between two green links. The 1→2 join, by
 contrast, IS evidenced — the ring GROUPS by dispatch-id, so that join is the
 storage rather than an inference.
 
+Link 3's own sentence does count how many of its moved reads name a subscription
+link 2 says this dispatch recomputed, and it calls that an **OVERLAP and never a
+join** in the same breath. Two grains meet there and neither converts to the
+other: link 2 names REGISTRATIONS, because Spec 009's ring tags `:rf.sub/id` and
+carries no query, while link 3 names CELLS. So a read whose registration ran need
+not be the cell that ran, and the count is an upper bound on an association with
+no id behind it in either direction — which is the 2→3 join, restated where a
+reader meets the number. It earns its place because a slice whose recompute
+roster and whose moved reads share nothing at all is a different situation from
+one where they coincide exactly, and before it the reader had two adjacent lists
+and no statement about their relationship either way. Link 2 is built first and
+link 3 reads its roster, so the sentence quotes the roster this slice actually
+renders rather than re-deriving one beside it — a second derivation is how link 2
+and the advisor came to give one window two public answers in the first place.
+
 Link 2's roster is **recomputes only**, and the memo hits ride a separate
 `:skipped` field on the same link — reported rather than discarded, because a
 skip is the informative half of a dispatch that recomputed nothing. An empty
@@ -295,6 +391,18 @@ Link 4 is derived even when green. The reader array is what `collector/notify!`
 walks, so the notified set follows from it — but the notify CALL is not recorded,
 and the array is read at ASK time rather than at commit time, so a boundary that
 unmounted in between is absent from a set it was in. The link says so on the page.
+
+Its join onto the cell table is keyed on the **CELL** — `[frame-id sub-id
+query]`, arguments projected, which is the finest identity the egress policy
+allows — and not on the registration. Keyed on the registration, as it was, one
+moved cell matched every parameterization of its sub and the link named all of
+their readers as notified: on a list of `[:todo/by-id n]` rows, every row on the
+page reported as notified by a commit that touched one of them. This is the
+reverse edge, the one link here that answers *who re-runs because of this*, so
+that fabrication landed on the question the slice exists to answer. The finer key
+needed no new field — `edge-row` carries `:query` on every edge and
+`explanation`'s `:latest-reads` carries it on every moved read, for exactly this
+reason (rf2-y8doi.26).
 
 Links 5, 6 and 7 are three different absences with three different authorities,
 not three phrasings of one. React DevTools answers the first two; the browser's
@@ -396,12 +504,28 @@ panel budget applies through `common-helpers/cap-rows` as elsewhere.
 ## Read-only, dev-only, bundle-isolated
 
 `fresco-reads/trace-windows` is the only new live read. It calls
-`re-frame.trace.tooling/trace-buffer` for the frames `explain-render`'s `:window
+`trace-collector/bundles-for-frame` for the frames `explain-render`'s `:window
 :frames` already names — the union of the frames the runtime dispatches through
 and any frame a boundary reads from, computed by the producer for exactly the
-reason a per-boundary window is scoped that way. Reading every frame in the
-process instead would let an unrelated application's activity inflate this one's
-ranking.
+reason a per-boundary window is scoped that way. Where `explain-render` names
+none it falls back to the `:intents` envelope's own `:frames`, and to no frame at
+all when neither answers. Reading every frame in the process instead would let an
+unrelated application's activity inflate this one's ranking.
+
+**The ring is read through Xray's OWN gate, never bare** (rf2-y8doi.13). The call
+was `re-frame.trace.tooling/trace-buffer` straight, which made this Xray's
+second, seam-side reader of the framework rings — and those rings retain every
+emitted event with no `:sensitive?` check, by design — so under the fail-closed
+`:rf.egress/local-redacted` default a sensitive cascade that every trace-side
+surface hid still reached the advisor's ranking and the causal slice through
+here. `bundles-for-frame` applies the collector's gate, one policy for all three
+ingress paths, dropping WHOLE any bundle carrying a suppressed event rather than
+scrubbing it down to its survivors — a bundle is one dequeued event's cascade,
+and a surviving recompute in the same run can structurally reveal what the
+sensitive event carried. It is a no-op under the trusted-local
+`:rf.egress/local-raw` opt-in. The four Fresco envelopes are untouched by this:
+their seam is the door's own, and what is gated here is Spec 009's ring, which
+is Xray's surface to gate rather than Fresco's.
 
 It is a **second producer**, not a fifth Fresco read, and it is stamped as one:
 `fresco-advisor/sub-timing` carries `:day8.re-frame2-xray.fresco-advisor.timing/v1`
@@ -449,8 +573,15 @@ non-work was what it got wrong. A table over four operations by tagged/untagged
 cannot leave a cell to nobody's row. Both assertions per cell are load-bearing —
 the absolute expectation alone is escapable by two views drifting together, and
 the cross-view agreement alone by both drifting the same way — and the untagged
-run and create rows are the controls that stop the table being satisfied by
-*everything untagged is zero*. Its red demonstration is the `(nil? sid)` branch
+RUN row is the control that stops the table being satisfied by *everything
+untagged is zero*. It is the only one left. The untagged create row was a second
+such control until `:rf.sub/create` left `sub-recompute-operations`, and both
+create rows now read all zeros like the dispose rows (rf2-y8doi.26). That is a
+real loss of redundancy, recorded here rather than left for a reader to notice:
+the single surviving untagged control is load-bearing, and deleting it would make
+the whole table satisfiable by a fold that counted nothing at all.
+
+Its red demonstration is the `(nil? sid)` branch
 restored to the head of the `cond`: **11 failures at exit 1**, four of them the
 matrix's two untagged non-work cells, over the same 1320 tests and 6246
 assertions the green run reports — so the plant stopped no namespace. Every
