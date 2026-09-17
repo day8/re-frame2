@@ -1719,6 +1719,48 @@
         (is (not (nav-head-disabled? tree))
             "⏭ stays enabled in RETRO — it's the way back to head")))))
 
+(deftest ribbon-nav-boundaries-come-from-the-spine-not-the-rendered-rows
+  (testing "rf2-cqpj4 — `nav-boundary-state`'s domain is the SPINE's
+            focusable vector, never the filtered rows L2 renders. A mute
+            that hides EVERY row empties the rendered vector while the
+            spine still carries three steppable events; deriving the
+            boundary from the rendered vector made `(empty? ids)` true
+            and disabled BOTH chevrons.
+
+            The last assertion is the measurement that settles it: the
+            step the disabled `›` refused really does move focus, because
+            `spine/focus-step-reducer` walks the RAW projection
+            (`db->event-bundles`). So the buttons contradicted the
+            keyboard `j` / `k` bound to the very same events — one
+            affordance inert, the other live."
+    (xray-setup!)
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:noisy/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:noisy/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noisy/event]))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event 2]))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/mute-event-id :noisy/event]))
+    (rf/with-frame :rf/xray
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
+        (is (empty? @(rf/subscribe [:rf.xray/filtered-event-bundles]))
+            "CONTROL — the mute really does empty the rendered vector")
+        (is (= 3 (count @(rf/subscribe [:rf.xray/event-bundles])))
+            "CONTROL — and the spine still carries all three")
+        (is (= 2 (:dispatch-id @(rf/subscribe [:rf.xray/focus])))
+            "CONTROL — focus is still pinned mid-list")
+        (is (some? (find-by-testid tree "rf-xray-ribbon-nav"))
+            "CONTROL — the nav cluster is in the walked tree")
+        (is (not (nav-next-disabled? tree))
+            "› stays ENABLED — id 3 is newer on the spine")
+        (is (not (nav-prev-disabled? tree))
+            "‹ stays ENABLED — id 1 is older on the spine")))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event-next]))
+    (rf/with-frame :rf/xray
+      (is (= 3 (:dispatch-id @(rf/subscribe [:rf.xray/focus])))
+          "the step `›` refused is live — it lands on id 3"))))
+
 (deftest ribbon-nav-head-enabled-when-paused-at-head
   (testing "rf2-x5tro nuance — at head but PAUSED (frozen inspection):
             `live?` is false, so ⏭ stays ENABLED. Pressing it resumes
@@ -2039,6 +2081,39 @@
       (is (str/includes? (text-nodes marker) "2 newer events")
           "N is the spine's count, which index arithmetic over the
            rendered vector would have read as zero"))))
+
+(deftest newer-events-marker-survives-a-filter-that-hides-every-row
+  (testing "rf2-cqpj4 — the raw-nonempty / rendered-empty case. PRESENCE
+            has the same domain as the count: a pill or a mute that hides
+            EVERY row empties the rendered vector while the spine still
+            carries newer events, and telling the user so is the whole
+            job of this marker. Gating presence on `(seq event-bundles)`
+            — the locally rebound FILTERED vector — suppressed it exactly
+            there. The row above pins the count against a rendered vector
+            of one; this one empties it."
+    (let [spine  [{:dispatch-id 1 :frame :rf/default :event [:first/event]}
+                  {:dispatch-id 2 :frame :rf/default :event [:second/event]}
+                  {:dispatch-id 3 :frame :rf/default :event [:third/event]}]
+          tree   (shell/event-list-tree
+                   (fn [_ev])
+                   {:col-widths          {:source 52 :timestamp 60 :duration 52}
+                    :list-height-px      200
+                    ;; every row hidden by a pill / mute / view scope
+                    :event-bundles       []
+                    :spine-event-bundles spine
+                    :focus               {:dispatch-id 1 :frame :rf/default
+                                          :mode :retro :head? false}
+                    :show-ungrouped?     false
+                    :now-ms              0})
+          marker (newer-events-marker-in tree)]
+      (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
+          "CONTROL — with no visible rows the list paints its empty state")
+      (is (nil? (find-by-testid tree "rf-xray-event-row-1"))
+          "CONTROL — not even the focused row is rendered")
+      (is (some? marker)
+          "the marker paints: the READ is stale whatever the filters show")
+      (is (str/includes? (str (when marker (text-nodes marker))) "2 newer events")
+          "and N is still the spine's count"))))
 
 (deftest newer-events-marker-drops-the-digit-for-an-evicted-pin
   (testing "rf2-y8doi.30 — a RETRO pin whose bundle has aged out of the
