@@ -319,8 +319,30 @@
         "Static tab landed independently")))
 
 ;; -------------------------------------------------------------------------
-;; (6) Mode-signal mechanism — stripe colour helper
+;; (6) Mode-signal mechanism — the Static ribbon carries NO left-edge stripe
 ;; -------------------------------------------------------------------------
+
+(deftest static-ribbon-has-no-left-edge-stripe
+  (testing "rf2-y8doi.30 — the Static ribbon must NOT paint a left-edge
+            accent stripe. Mike removed the identical 2-px blue
+            `border-left` from the DYNAMIC ribbon on sight (rf2-4yemd,
+            'not in the Figma authority'; pinned by
+            `chrome-ribbon-has-no-left-edge-stripe` in the Dynamic shell
+            suite), and the Static ribbon mirrors that ribbon — so the
+            two surfaces must agree. This is the Static mirror of that
+            pin."
+    (xray-setup!)
+    (rf/with-frame :rf/xray
+      (let [tree   (static-shell-tree/surface-tree)
+            ribbon (rf.test-helpers/find-by-testid tree "rf-xray-static-ribbon")
+            style  (:style (second ribbon))]
+        (is (some? ribbon)
+            "CONTROL — the Static ribbon root is in the walked tree")
+        (is (some? (:border-bottom style))
+            "CONTROL — the ribbon's OTHER border is present, so a nil
+             :border-left is an absence and not an unread style map")
+        (is (nil? (:border-left style))
+            "Static ribbon root has no :border-left in its inline style")))))
 
 (deftest stripe-token-single-blue-accent-both-modes
   (testing "mode-signal mechanism #2 — 2-px left-edge stripe is the
