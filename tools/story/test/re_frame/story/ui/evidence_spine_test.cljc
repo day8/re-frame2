@@ -192,11 +192,14 @@
 (deftest build-focus-command-shape
   (testing "a beat with an epoch-id pins the epoch + carries opaque source"
     (let [src (rf.story.ui.evidence-spine/focus-source :story/evidence-beat :story.cp/basic {:beat-idx 0 :span-idx 1})
-          cmd (rf.story.ui.evidence-spine/build-focus-command :app-db {:epoch-id 42 :dispatch-id 7} src [:checkout :state])]
+          cmd (rf.story.ui.evidence-spine/build-focus-command :app-db {:epoch-id 42 :dispatch-id 7} src)]
       (is (= :app-db (:panel cmd)))
       (is (= 42 (:epoch-id cmd)))
       (is (= 7 (:dispatch-id cmd)))
-      (is (= [:checkout :state] (:path cmd)))
+      ;; rf2-y8doi.29 — Xray retired `:path` as a focus field, so the
+      ;; builder no longer emits one. The three asserts above are the
+      ;; control that the command is populated at all.
+      (is (not (contains? cmd :path)))
       (is (= :story/evidence-beat (:kind (:source cmd))))
       (is (= :story.cp/basic (:variant/id (:source cmd))))))
   (testing "an empty-coords command is a well-formed panel-only focus"

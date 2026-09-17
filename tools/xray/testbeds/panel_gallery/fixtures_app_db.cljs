@@ -6,8 +6,6 @@
     - `:epoch-history`         — vector of `:rf/epoch-record` maps
     - `:focus`                 — drives the focused epoch (its `:db-after`
                                  is what the panel body shows)
-    - `:focused-slice-path`    — optional, drives 'Show me when this
-                                 changed' result
 
   The atomic `:rf.xray/app-db-current+diff` sub resolves the focused
   epoch's `:value` (`:db-after`) + `:before` (`:db-before`), and

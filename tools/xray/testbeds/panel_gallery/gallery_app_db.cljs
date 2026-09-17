@@ -2,22 +2,24 @@
   "Story coverage for the **app-db tab** of the Xray 4-layer chrome
   (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
 
-  The App-db tab body is the `app-db-diff/Panel` view: the changed-
-  slices + reserved-keys group + 'Show me when this changed' walker.
-  Each variant seeds its frame's `:epoch-history` via REAL Xray init
-  events fired into the variant frame.
+  The App-db tab body is the `app-db-diff/Panel` view: the current-state
+  section model over the observed frame's app-db. Each variant seeds its
+  frame's `:epoch-history` via REAL Xray init events fired into the
+  variant frame.
 
   rf2-e9tb0 — the pinned-watches strip was dropped in favour of the
   segment-inspector popup; the gallery's variants no longer touch
-  `:pinned-slices-store`.
+  `:pinned-slices-store`. rf2-y8doi.29 then retired that popup, the
+  'Show me when this changed' walker and the slice-focus event
+  unreached, so no variant seeds a focused path either.
 
   ## Frame isolation
 
   The Story canvas wraps each variant in `[frame-provider {:frame
   variant-id}]`. Subscriptions inside the rendered tree resolve to
   the variant frame; `:rf.xray/app-db-state` (← `:rf.xray/app-db-
-  current+diff`) reads the seeded `:epoch-history` + `:focus` (and any
-  `:focused-slice-path`). Each variant therefore observes its own
+  current+diff`) reads the seeded `:epoch-history` + `:focus`.
+  Each variant therefore observes its own
   bespoke history in isolation; no two variants share state."
   (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-app-db :as fixtures]
@@ -100,12 +102,10 @@
   ;; ----- 6. watched-keys diff highlighting ---------------------------
   (rf.story/reg-variant :story.xray.app-db/watched-keys
     {:doc        "Three epochs in series mutating `:counter`,
-                 `:user/profile`, and `:cart`. Selecting any epoch +
-                 focusing a path exercises the cross-epoch 'Show me
-                 when this changed' walker per spec/004 §Show me when
-                 this changed."
-     :setup     [[:rf.xray/sync-epoch-history (fixtures/watched-keys-buffer)]
-                  [:rf.xray/focus-slice-path [:user/profile]]]
+                 `:user/profile`, and `:cart`. Selecting any epoch
+                 re-roots the section model on that epoch's image;
+                 double-click / Enter zooms into a node."
+     :setup     [[:rf.xray/sync-epoch-history (fixtures/watched-keys-buffer)]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
