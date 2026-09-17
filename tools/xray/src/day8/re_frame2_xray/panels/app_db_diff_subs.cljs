@@ -18,9 +18,6 @@
                                          :epoch-id :redacted-modified}`
                                          the panel body derives from
     - `:rf.xray/app-db-state`          — the section model the body renders
-    - `:rf.xray/focused-slice-path` /
-      `:rf.xray/show-me-when-this-changed-result` — the cross-epoch
-                                         'show me when this changed' walker
 
   ## rf2-p53m2 — dead diff-sub family pruned
 
@@ -136,17 +133,6 @@
       (when selected-id
         (find-epoch-in-history history selected-id))))
 
-  (rf/reg-sub :rf.xray/focused-slice-path
-    (fn [db _query]
-      (get db :focused-slice-path)))
-
-  (rf/reg-sub :rf.xray/show-me-when-this-changed-result
-    {:inputs [[:rf.xray/focused-slice-path] [:rf.xray/epoch-history]]}
-    (fn [[focused-path history] _query]
-      (if focused-path
-        (h/epochs-touching-path history focused-path)
-        [])))
-
   ;; ---- rf2-02j4r — PER-EPOCH-DELTA current-state + before-image -------
   ;;
   ;; The app-db tab shows the SELECTED epoch's OWN delta — what THIS
@@ -199,10 +185,6 @@
   ;; record, not value-from-live + before-from-record). (Note: `(peek
   ;; history)` is NOT a fallback here — the App-DB diff follows the
   ;; FOCUSED epoch.)
-  ;;
-  ;; rf2-jmucu — the App-DB segment-inspector popup ALSO reads `:value`
-  ;; (via `:rf.xray/segment-inspector-value`) so the popup and the panel
-  ;; body show the identical focused-epoch image at every scrub position.
   ;;
   ;; ATOMICITY INVARIANT (asserted by the deterministic unit test):
   ;;   for any returned map with a focused epoch, `:value` =

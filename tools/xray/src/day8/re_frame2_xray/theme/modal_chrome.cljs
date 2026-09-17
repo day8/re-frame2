@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.theme.modal-chrome
   "Shared modal-chrome scaffold.
 
-  ALL EIGHT of Xray's modal surfaces — Settings, Filter edit-popup,
-  Share, Mute manager, App-DB segment-inspector, EDN-inspector popup,
+  ALL SEVEN of Xray's modal surfaces — Settings, Filter edit-popup,
+  Share, Mute manager, EDN-inspector popup,
   the Cancellation-cascade popover and the Command palette — render
   the SAME two-`:div` scaffold:
 

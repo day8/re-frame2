@@ -695,10 +695,6 @@
                           inline `animation-duration` `calc(...)`
                           expressions so the seam stays one
                           identifier.
-  - `:flash-duration-ms` — the canonical 400ms diff-flash duration
-                          (rf2-5kfxe.2). Catalogued here so the
-                          renderer can read it without forking the
-                          number.
   - `:fade-duration-ms`  — the canonical 180ms tab cross-fade
                           duration (rf2-5kfxe.3).
 
@@ -706,7 +702,6 @@
   css`; this map is the symbolic surface for consumers that need to
   reason about durations / the seam variable in cljs-land."
   {:scale-var-name    "--rf-xray-motion-scale"
-   :flash-duration-ms 400
    :fade-duration-ms  180})
 
 (defn duration-css

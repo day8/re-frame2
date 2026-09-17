@@ -5,8 +5,8 @@
 
   The panel view in `app_db_diff.cljs` touches DOM event handlers
   (right-click affordances, pin buttons). The *logic* — the
-  structural-sharing diff, the reserved-keys partitioning, the pin-
-  store transitions, the 'Show me when this changed' walker — is
+  structural-sharing diff, the reserved-namespace filter, the
+  current-state section model — is
   pure data → data. Splitting that logic into `.cljc` so it runs
   under the JVM unit-test target (`clojure -M:test`) is required by
   the standing rule `feedback_jvm_interop_must_work.md`.
@@ -29,15 +29,14 @@
   share structure with their predecessors — every untouched sub-map
   is `identical?` to the predecessor's sub-map at the same path.
 
-  ## Reserved-keys partition — `partition-reserved`
+  ## Reserved keys — `runtime-areas` / `reserved-summary`
 
   EP-0001 (rf2-vzld77 / rf2-tj6w9l): the runtime subsystems (machines /
   routing / elision) moved out of app-db's `:rf/runtime` into a SEPARATE
   runtime-db partition (`:rf.runtime/*`). The `[runtime]` group is built
-  from that partition via the `runtime-areas` table + `reserved-summary`;
-  `partition-reserved` / `reserved-path?` now key on the reserved `:rf*`
-  NAMESPACE family (a framework-internal slot a host might stash at the
-  app-db root) — a normal app-db diff triple is never reserved.
+  from that partition via the `runtime-areas` table + `reserved-summary`,
+  and `user-domain-db` hides any framework-internal `:rf*`-namespaced slot
+  a host stashes at the app-db root, via `reserved-namespace-key?`.
 
   ## rf2-e9tb0 — pin-store helpers dropped
 
@@ -48,12 +47,14 @@
   were pulled in lockstep from `app_db_diff_subs.cljs` and
   `app_db_diff_events.cljs`.
 
-  ## 'Show me when this changed' — `epochs-touching-path`
+  ## rf2-y8doi.29 — 'Show me when this changed' walker dropped
 
-  Walks the epoch-history, diffing each epoch's `:db-before` and
-  `:db-after` and filtering to those that touched the focused path.
-  Pure data → vector of hit maps. Per spec §'Show me when this
-  changed'."
+  `path-touched?` / `path-exists?` / `op-at-path` / `event-of-epoch` /
+  `epochs-touching-path`, and the `partition-reserved` / `reserved-path?`
+  / `triple-path` / `reserved-app-db-keys` cluster, were removed when the
+  unreachable path-click mechanisms were retired (rf2-y8doi.29,
+  2026-09-17). Zoom into a node is the path interaction; nothing
+  subscribed the walker's sub."
   (:require [clojure.string :as str]))
 
 ;; ---- reserved keys --------------------------------------------------------
@@ -71,38 +72,6 @@
       (let [ns (namespace k)]
         (or (= ns "rf")
             (str/starts-with? ns "rf."))))))
-
-(def reserved-app-db-keys
-  "EP-0001 (rf2-vzld77 / rf2-tj6w9l): the framework's durable subsystem
-  state — machine snapshots, the route slice, the spawn registry, the
-  elision registry — moved OUT of app-db's `:rf/runtime` container into a
-  SEPARATE runtime-db partition (the reserved `:rf.runtime/*` roots). So
-  app-db no longer carries a `:rf/runtime` slot, and a normal user-domain
-  app-db roots NO key in the reserved `:rf*` namespace family. This set is
-  kept EMPTY: the App-DB panel sources its reserved AREAS from the
-  runtime-db partition (the `runtime-areas` table below + the
-  `:rf.xray/target-frame-runtime-db` sub), not from app-db diff triples,
-  so nothing in an app-db diff is runtime-owned.
-
-  The broader reserved-NAMESPACE family (`reserved-namespace-key?` —
-  `:rf/*` / `:rf.<subns>/*`) is still used by `user-domain-db` to hide any
-  framework-internal slot a host might stash at the app-db root; that is a
-  separate, namespace-level filter from this (now-empty) root-key set."
-  #{})
-
-(defn reserved-path?
-  "True when `path`'s root key is in the reserved-NAMESPACE family
-  (`:rf/*` / `:rf.<subns>/*`, per `reserved-namespace-key?`) — i.e. a
-  framework-internal slot the user-domain TOP section must not surface as
-  a slice mini-panel. EP-0001 (rf2-tj6w9l): the runtime subsystems
-  (machines / routing / elision) no longer live in app-db, so a normal
-  app-db diff triple is never reserved; this predicate now catches only a
-  framework-internal `:rf*`-namespaced root a host might stash in app-db.
-  Pure data → bool."
-  [path]
-  (boolean (and (sequential? path)
-                (seq path)
-                (reserved-namespace-key? (first path)))))
 
 ;; ---- diff algorithm -------------------------------------------------------
 
@@ -223,39 +192,6 @@
      ;; Both non-map, not identical — :modified leaf.
      :else
      [{:op :modified :path path :before before :after after}])))
-
-;; ---- reserved-keys partition --------------------------------------------
-
-(defn- triple-path
-  "Project the `:path` off a diff row. Polymorphic — supports both the
-  legacy map shape `{:op :path :before :after}` (still produced by
-  `diff-paths` for the trace panel) AND the universal 4-tuple shape
-  `[path before after op]` (produced by the migrated App-DB + HANDLER
-  `:db` paths post-rf2-xuyac, derived from
-  `day8.re-frame2-xray.diff.engine/project`'s `:flat-rows`). Pure data."
-  [row]
-  (cond
-    (map? row)        (:path row)
-    (sequential? row) (first row)
-    :else             nil))
-
-(defn partition-reserved
-  "Split a vector of diff rows into two groups:
-
-      {:reserved     [rows-whose-path-roots-in-reserved-key]
-       :non-reserved [the-rest]}
-
-  Accepts either the map shape (`{:op :path :before :after}`) or the
-  4-tuple shape (`[path before after op]`) — `triple-path` projects the
-  path uniformly. Pure data → data. Used by the view to render the
-  changed-slice stack + the `[runtime]` group separately per spec
-  §Reserved-keys group."
-  [triples]
-  (let [{:keys [reserved non-reserved]}
-        (group-by (fn [t] (if (reserved-path? (triple-path t)) :reserved :non-reserved))
-                  triples)]
-    {:reserved     (vec reserved)
-     :non-reserved (vec non-reserved)}))
 
 ;; ---- runtime subsystem area table ---------------------------------------
 ;;
@@ -596,91 +532,3 @@
                      ;; only always-rendered slot.
                      :when (not (:empty? entry))]
                  entry))})))
-
-;; ---- 'Show me when this changed' walker ---------------------------------
-
-(defn path-touched?
-  "True when the diff between `db-before` and `db-after` produces a
-  triple at `path` (or anywhere beneath `path`). Pure data → bool.
-
-  Uses pointer-equality for the prefix walk so unchanged subtrees
-  short-circuit without recursion. When we reach the end of `path`
-  we compare leaves directly — a leaf change registers as 'touched'.
-
-  This is the per-epoch test the 'Show me when this changed' walker
-  applies across epoch-history."
-  [db-before db-after path]
-  (loop [bv db-before
-         av db-after
-         path path]
-    (cond
-      (identical? bv av) false
-      (empty? path) (not (identical? bv av))
-      :else
-      (recur (when (map-like? bv) (get bv (first path)))
-             (when (map-like? av) (get av (first path)))
-             (rest path)))))
-
-(defn- path-exists?
-  "True when `path` resolves to an existing slot in `db` (the final
-  key is `contains?`-true in its parent map). Pure data → bool.
-
-  Distinguishes 'key absent' from 'key present with nil value' — the
-  diff classifier needs that distinction to label `:removed` (key
-  gone) vs `:modified` (key now nil)."
-  [db path]
-  (cond
-    (empty? path) (some? db)
-    (not (map-like? db)) false
-    (not (contains? db (first path))) false
-    :else (recur (get db (first path)) (rest path))))
-
-(defn op-at-path
-  "Classify the change at `path` between `db-before` and `db-after`.
-  Returns one of `:added` / `:removed` / `:modified` / nil (when the
-  path is untouched). Pure data → keyword or nil."
-  [db-before db-after path]
-  (when (path-touched? db-before db-after path)
-    (let [had? (path-exists? db-before path)
-          has? (path-exists? db-after  path)]
-      (cond
-        (and (not had?) has?) :added
-        (and had? (not has?)) :removed
-        :else                 :modified))))
-
-(defn- event-of-epoch
-  "Extract the dispatched event-vector off an epoch-record, for the
-  hit-row label. Mirrors `time-travel-helpers/dispatch-id-from-epoch`
-  in shape but returns the event vector, not the id."
-  [epoch-record]
-  (or (:trigger-event epoch-record)
-      (some (fn [ev]
-              (when (and (= :rf.event (:op-type ev))
-                         (= :rf.event/dispatched (:operation ev)))
-                (get-in ev [:tags :rf.event/v])))
-            (:trace-events epoch-record))))
-
-(defn epochs-touching-path
-  "Walk `history` and return a vector of hit maps for epochs that
-  touched `path`:
-
-      [{:epoch-id <id> :event <vec> :op :added|:removed|:modified
-        :before  <prior-value-at-path>
-        :after   <new-value-at-path>}
-       ...]
-
-  Newest-first order so the list reads as a reverse chronological
-  audit. Pure data → data. Per spec §'Show me when this changed'.
-
-  Used by the `:rf.xray/show-me-when-this-changed-result` sub."
-  [history path]
-  (vec
-    (reverse
-      (keep (fn [{:keys [epoch-id db-before db-after] :as record}]
-              (when-let [op (op-at-path db-before db-after path)]
-                {:epoch-id epoch-id
-                 :event    (event-of-epoch record)
-                 :op       op
-                 :before   (get-in db-before path)
-                 :after    (get-in db-after  path)}))
-            history))))

@@ -132,10 +132,9 @@
    ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
    ;; content starts immediately under the tab bar.
    [:div {:style panel-body-host-style}
-    ;; rf2-5kfxe.2 / rf2-yng0y — key the state body by the focused
+    ;; rf2-yng0y — key the state body by the focused
     ;; epoch-id so each epoch navigation forces a clean React re-mount
-    ;; per event-bundle (replaying the diff-flash CSS animation as
-    ;; originally intended, and flushing any per-mount carryover). This
+    ;; per event-bundle (flushing any per-mount carryover). This
     ;; is a COMPLEMENT to the atomic sub above, not a substitute: a
     ;; remount alone does not fix a sub-level stale-`before` (a fresh
     ;; mount would still receive whatever `before` the sub hands it) —

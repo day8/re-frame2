@@ -351,22 +351,13 @@
   [doc]
   (inject-style-node! doc grain-style-id grain-css))
 
-;; ---- motion keyframes (rf2-5kfxe.2 + rf2-5kfxe.3) ----------------------
+;; ---- motion keyframes (rf2-5kfxe.3) ------------------------------------
 ;;
-;; Both motion surfaces share one injected `<style>` block — the
-;; diff-flash for App-db section changes (rf2-5kfxe.2) and the L4 tab
-;; cross-fade (rf2-5kfxe.3, lands in the next commit). Co-locating
-;; them keeps the global CSS surface one node instead of two.
-;;
-;; The diff-flash keyframes are designed so the wash holds at full
-;; alpha for ~12% of the run before easing out. This is the standard
-;; "snap then settle" curve — the eye locks onto the bright start
-;; before the wash decays. Pure linear interpolation reads as a soft,
-;; aimless fade; the brief plateau gives the motion a beat.
-;;
-;; Yellow ~20% alpha (#FBBF2433) is loud enough that the eye notices on
-;; quick cascades but muted enough that a long burst of consecutive
-;; cascades doesn't strobe.
+;; One injected `<style>` block carries the L4 tab cross-fade
+;; (rf2-5kfxe.3). The App-db diff-flash that shared it (rf2-5kfxe.2)
+;; was declared but never applied to any element, and went with the
+;; rest of the unreachable path-click machinery under rf2-y8doi.29
+;; (2026-09-17).
 
 (def ^:private motion-style-id
   "rf-xray-motion-keyframes")
@@ -392,7 +383,7 @@
   'never animate' AND 'never apply fill-mode forwards' — the element
   is stuck at the `from` state. A vanishingly small duration runs
   the keyframes to completion within a single frame, so the end
-  state (transparent flash; opacity-1 tab) is reached immediately
+  state (the opacity-1 tab) is reached immediately
   and the user perceives an instant resolve. That is the spirit of
   `prefers-reduced-motion: reduce` — eliminate motion but keep the
   end-state legible."
@@ -438,15 +429,6 @@
     ".rf-xray-motion-override-never:where(html, body), \n"
     ":where(html, body).rf-xray-motion-override-never {\n"
     "  --rf-xray-motion-scale: 1;\n"
-    "}\n"
-    ;; rf2-5kfxe.2 — diff-flash. Yellow tint at ~20% alpha (hex32 ≈ 20%)
-    ;; holds for the first 12% of the run so the eye locks on, then
-    ;; eases to transparent. The downstream `:animation-fill-mode:
-    ;; forwards` on the section element pins the end state.
-    "@keyframes rf-xray-diff-flash {\n"
-    "  0%   { background-color: rgba(251, 191, 36, 0.20); }\n"
-    "  12%  { background-color: rgba(251, 191, 36, 0.20); }\n"
-    "  100% { background-color: rgba(251, 191, 36, 0); }\n"
     "}\n"
     ;; rf2-5kfxe.3 — L4 tab cross-fade. Opacity 0 → 1 with a 2px
     ;; translateY (the new tab rises *into* place rather than appearing

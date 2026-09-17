@@ -44,7 +44,6 @@
       (mount-event-spine! mount-point opts) → unmount-fn
 
       ;; Overlay / popup surfaces — same contract.
-      (mount-segment-inspector! mount-point opts) → unmount-fn
       (mount-cancellation-cascade-side-panel! mount-point opts) → unmount-fn
       (mount-cancellation-cascade-popover!    mount-point opts) → unmount-fn
 
@@ -105,13 +104,12 @@
   | Panel | Reads | Writes (via dispatch) |
   |---|---|---|
   | **epoch-panel** | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` |
-  | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area) | `:rf.xray/open-segment-inspector` |
+  | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area) | `:rf.xray.edn-inspector/zoom-to` (the shared EDN widget's double-click / Enter zoom) |
   | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused event-bundle's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
   | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into a flat list of rows, each with a stage column + colour-coded left edge, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
   | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-event` |
   | **routing** | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
   | **resources** | `:rf.xray/resources-tab-data` (composite over `:rf.xray/registered-resources` · `:rf.xray/resource-entries` · `:rf.xray/resource-work-ledger` · the route registry · the trace buffer) | (read-only — no dispatch; observing pins no resource) |
-  | **segment-inspector** | `:rf.xray/segment-inspector-open?` · `:rf.xray/segment-inspector-value` | `:rf.xray/close-segment-inspector` |
   | **cancellation-cascade** (side-panel + popover) | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |
   | **managed-fx** | `:rf.xray/managed-fx-for-focused-event` | `:rf.xray/focus-event` |
 
@@ -197,7 +195,6 @@
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-xray.panels.app-db-segment-inspector :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
@@ -297,8 +294,8 @@
     `[panel-view props]`. The caller decides, because only the caller
     knows whether its panel's view takes props at all — and what a stray
     map COSTS depends on the shape behind the name. A zero-arity
-    `rf/reg-view` head takes an ARITY ERROR rather than an ignored map
-    (`segment-inspector/Popup` today); a Fresco boundary takes the single
+    `rf/reg-view` head takes an ARITY ERROR rather than an ignored map;
+    a Fresco boundary takes the single
     props map every `defview` takes and destructures away what it does
     not read (`epoch-panel/Panel` today — this sentence cited
     `trace/Panel` as the arity-error example until rf2-fcy5 migrated it,
@@ -568,16 +565,6 @@
 ;; the always-on issues ribbon signal — the `:rf.xray/issues-ribbon`
 ;; composite (registered in `registry.cljs`) is the auto-open-on-error
 ;; signal source.
-
-(defn mount-segment-inspector!
-  "Mount the App-DB segment-inspector popup in isolation at
-  `mount-point`. Self-gating — renders nil when no segment is open;
-  short-circuits on `:rf.xray/segment-inspector-open?`."
-  ([mount-point]      (mount-segment-inspector! mount-point nil))
-  ;; rf2-k97c.3 — `Popup-bridge`, not `Popup`, for the reason
-  ;; `mount-event-spine!` records above: the bridge is what frees this
-  ;; panel to migrate inside its own file.
-  ([mount-point opts] (render-panel! segment-inspector/Popup-bridge mount-point opts)))
 
 (defn mount-cancellation-cascade-side-panel!
   "Mount the cancellation-cascade side-panel in isolation at

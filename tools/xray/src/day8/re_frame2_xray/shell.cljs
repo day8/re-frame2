@@ -167,8 +167,6 @@
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.common-helpers :as common]
-            [day8.re-frame2-xray.panels.app-db-segment-inspector
-             :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             ;; Panel views (Event / App DB / Views / Trace / Machines /
             ;; Routing / Issues) are pulled in via the L4 tab registry —
@@ -3341,13 +3339,6 @@
     ;; so the menu floats above the L2 list's overflow:hidden
     ;; clipping. Closed-state cost is one subscribe + a when-gate.
     (spine-filters/RowContextMenu)
-    ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
-    ;; path-segment in the App-DB Diff breadcrumb is clicked. Same
-    ;; mount discipline as the other modals: shell-root mount so the
-    ;; popup's subscribes resolve through the shell's `:rf/xray`
-    ;; frame-provider; closed-state cost is one subscribe + a when-
-    ;; gate.
-    (app-db-segment-inspector/Popup)
     ;; Data-display popup stack (rf2-l4625) — overlay surface for the
     ;; "open in popup" affordance on per-panel `[ei/edn-inspector]`
     ;; mounts. Reads `:rf.xray.edn-inspector-popup/stack` + `/entries`;

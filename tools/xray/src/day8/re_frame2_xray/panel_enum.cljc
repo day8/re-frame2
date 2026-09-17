@@ -102,7 +102,6 @@
    ;; The embeddable L2 event spine (008 §Embeddable event spine).
    {:id :event-spine       :mount "mount-event-spine!"      :view "shell/event-list"       :tier :spine}
    ;; Tier 2 — overlay / popup surfaces.
-   {:id :segment-inspector :mount "mount-segment-inspector!" :view "app-db-segment-inspector/Popup" :tier :overlay}
    {:id :cancellation-cascade-side-panel
     :mount "mount-cancellation-cascade-side-panel!"
     :view "cancellation-cascade/SidePanel" :tier :overlay}

@@ -2,9 +2,9 @@
   "Host-facing focus API for an already-mounted Xray surface.
 
   A host supplies a small data command naming an observed frame, panel,
-  epoch or event bundle, app-db path, and optional opaque provenance.
+  epoch or event bundle, and optional opaque provenance.
   The host owns the intent; Xray owns how that intent maps onto its frame,
-  spine, tab, and path events.
+  spine and tab events.
 
   No second Xray runtime model is introduced. Every field in the
   command maps to an EXISTING canonical write surface:
@@ -15,7 +15,13 @@
   | `:panel`       | `:rf.xray/select-tab <tab-id>`     | `registry.cljs` |
   | `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | `spine.cljs` |
   | `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | `spine.cljs` |
-  | `:path`        | `:rf.xray/focus-slice-path <path>` | `app_db_diff_events.cljs` |
+
+  `:path` was a focus field until 2026-09-17 (rf2-y8doi.29), mapping to
+  `:rf.xray/focus-slice-path`. Nothing ever rendered the slot that event
+  wrote, so it was retired with the rest of the unreachable App-DB
+  path-click machinery; zoom into a node is the path interaction. A
+  command still carrying `:path` is IGNORED like any other unknown key —
+  `focus!` stays permissive.
 
   This namespace only composes those events. It adds no app-db slots,
   spine model, or panel state.
@@ -34,7 +40,6 @@
        :epoch-id    <epoch-id>   ; settling epoch to pin the spine to
        :dispatch-id <id>         ; event-bundle root to pin the spine to
                                  ;   (alternative to :epoch-id; both is fine)
-       :path        [<k> ...]    ; app-db path to highlight in the App-db panel
        :source      {...}}       ; OPAQUE provenance — Story's intent context;
                                  ;   Xray does NOT interpret it, only echoes it
                                  ;   back for diagnostics / round-trip tests.
@@ -68,7 +73,7 @@
   lands; `:rf.xray/set-frame` clears the pinned `:dispatch-id` and
   re-seeds `:epoch-history`, so a later `:focus-epoch` resolves against
   the correct frame's ring), THEN `:dispatch-id` / `:epoch-id` (the
-  spine pin), THEN `:panel` (the tab) and `:path` (the app-db slice).
+  spine pin), THEN `:panel` (the tab).
   Reversing frame and epoch would let the epoch pin resolve against the
   wrong frame's ring.
 
@@ -178,7 +183,6 @@
        :panel :app-db
        :epoch-id 42
        :dispatch-id 17
-       :path [:checkout :state]
        :source {...}}
 
   Returns a vector of event vectors. Ordering (see ns docstring):
@@ -197,8 +201,6 @@
        panel id is normalised through `panel-aliases` first
        (`:routes` → `:routing`) so a host-friendly display-noun alias
        lands the real live tab, not the unknown-tab stub.
-    5. `[:rf.xray/focus-slice-path <path>]` — when `:path` present
-       (App-db panel slice highlight).
 
   `:source` produces NO dispatch — it is opaque provenance Xray echoes
   back via `focus!`'s return map; it never mutates Xray state.
@@ -208,15 +210,14 @@
   `:rf.xray/select-tab` id is always a live registry id). Validation is
   `focus!`'s job (it owns the diagnostic return shape); a caller wanting
   the raw translation can pass any panel keyword here."
-  [{:keys [frame panel epoch-id dispatch-id path] :as _command}]
+  [{:keys [frame panel epoch-id dispatch-id] :as _command}]
   (cond-> []
     (some? frame)       (conj [:rf.xray/select-frame frame])
     (some? dispatch-id) (conj [:rf.xray/focus-event dispatch-id frame])
     (and (some? epoch-id)
          (nil? dispatch-id))
     (conj [:rf.xray/focus-epoch epoch-id])
-    (some? panel)       (conj [:rf.xray/select-tab (normalize-panel panel)])
-    (some? path)        (conj [:rf.xray/focus-slice-path path])))
+    (some? panel)       (conj [:rf.xray/select-tab (normalize-panel panel)])))
 
 ;; ---------------------------------------------------------------------------
 ;; The one sequencing event (rf2-2qtgt)

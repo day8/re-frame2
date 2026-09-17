@@ -89,7 +89,7 @@
 
   The popup paints **above the active Xray panel** but below any
   app-modal (palette / settings) — z-index `2147483640` (one tier
-  below the segment-inspector at 2147483645, palette at 2147483646,
+  below the settings editor-hint at 2147483645, palette at 2147483646,
   settings at 2147483646, edit-popup at 2147483647). Stacking
   popups within this surface use sequential z-indexes derived from
   the stack position, so the topmost popup wins click + focus."
@@ -156,7 +156,7 @@
 
 (defn z-index-for
   "Compose the per-popup z-index. Base layer (`2147483640`) is just
-  below the segment-inspector's `2147483645`; per-stack-position
+  below the settings editor-hint's `2147483645`; per-stack-position
   offset is `+ position` so deeper popups paint above earlier ones.
 
   Returns a number; the inline-style consumer stringifies via the
@@ -206,7 +206,7 @@
   "Register the popup's open / close / clear events. Every dispatch
   carries the `{:frame :rf/xray}` envelope at call time so React's
   click/keydown context pop doesn't leak the event to `:rf/default`
-  (same fix as the App-DB segment-inspector + settings popup)."
+  (same fix as the settings popup)."
   []
   (rf/reg-event :rf.xray.edn-inspector-popup/open
     (fn [{:keys [db]} [_ mount-id payload]]
@@ -258,8 +258,8 @@
   the other Xray modals do — `:absolute` confines the overlay to the
   parent cell (Story testbed mode); `:fixed` (default) spans the
   viewport in production. The backdrop is a click-trap (clicking it
-  closes the topmost popup, mirroring the segment-inspector's
-  click-outside-closes contract); the dialog stops propagation."
+  closes the topmost popup, per the shared click-outside-closes
+  modal contract); the dialog stops propagation."
   [positioning]
   (let [absolute? (= positioning :absolute)]
     {:position         (if absolute? "absolute" "fixed")
