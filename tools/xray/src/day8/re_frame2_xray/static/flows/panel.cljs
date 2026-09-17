@@ -396,9 +396,11 @@
 ;; api-manifest rows for `static.flows.panel/Panel` valid without touching
 ;; either file.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When the Static shell is itself
-;; a Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and
-;; both defs below are deleted.
+;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
+;; The Static shell is a Fresco tree now and both defs stayed anyway: it
+;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; callable `:panel`.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
@@ -530,7 +532,11 @@
      ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
      ;; component (a Fresco boundary) and the Static shell mounts `:panel`
      ;; as a Reagent hiccup head; the bridge is the one line between them
-     ;; and goes when the shell is a Fresco tree.
+     ;; and STAYS (rf2-lect, ruled option 2). The Static shell is a Fresco
+     ;; tree now and the bridge stayed anyway: it still reaches the panel
+     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent hiccup
+     ;; vector and `reg-l4-tab!`'s `:pre` still requires a callable
+     ;; `:panel`.
      :panel Panel-bridge})
 
   nil)

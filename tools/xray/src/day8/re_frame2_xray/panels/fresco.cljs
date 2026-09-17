@@ -746,9 +746,11 @@
 ;; So there is no second root here, no adapter-kind branch, and no props
 ;; ABI.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
-;; Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and both
-;; defs below are deleted. Nothing else in the tree references them.
+;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
+;; The shell is a Fresco tree now and both defs stayed anyway: the shell
+;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; callable `:panel`. Nothing else in the tree references them.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.

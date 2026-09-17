@@ -39,10 +39,12 @@
                      `tools/xray/spec/008-Embedding-Contract.md`); since
                      rf2-k97c.3 an `rf.fresco/defview` BOUNDARY — a real
                      React function component, not a `reg-view`.
-  - `Panel-bridge` — the callable a still-`reg-view` shell (and the
-                     standalone `panels/mount-reactive-panel!` embed)
-                     mounts. Scaffolding with a defined end: it goes in
-                     step 3's commit, when `Panel` takes the slot directly.
+  - `Panel-bridge` — the callable the L4 registry (and the standalone
+                     `panels/mount-reactive-panel!` embed) mounts. NOT
+                     scaffolding: it STAYS (rf2-lect, ruled option 2),
+                     because the shell still reaches the panel across an
+                     `as-child` seam and `reg-l4-tab!`'s `:pre` still
+                     requires a callable `:panel`.
   - `install!`     — idempotent install for `:rf.xray/reactive-data` +
                      the panel-local toggle + the L4 tab registration."
   (:require [re-frame.core :as rf]
@@ -147,6 +149,10 @@
      ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
      ;; component (a Fresco boundary) and the shell mounts `:panel` as a
      ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; goes when the shell is a Fresco tree.
+     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
+     ;; and the bridge stayed anyway: the shell still reaches the panel
+     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
+     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+     ;; callable `:panel`.
      :panel Panel-bridge})
   nil)

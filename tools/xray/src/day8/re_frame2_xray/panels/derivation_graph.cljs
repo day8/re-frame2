@@ -459,9 +459,11 @@
 ;; Both defs are PRIVATE here, unlike the Views and app-db panels': this
 ;; tab is an L4-registry surface only, with no standalone `mount-*!` facade
 ;; and no name taken from outside this file — the same shape `module_view`
-;; has. THIS IS SCAFFOLDING WITH A DEFINED END: when the shell is itself a
-;; Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and both
-;; defs are deleted.
+;; has. THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option
+;; 2). The shell is a Fresco tree now and both defs stayed anyway: the
+;; shell still reaches the panel across an `as-child` seam, so
+;; `[(:panel tab)]` is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre`
+;; still requires a callable `:panel`.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
@@ -560,7 +562,11 @@
      ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
      ;; component (a Fresco boundary) and the shell mounts `:panel` as a
      ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; goes when the shell is a Fresco tree.
+     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
+     ;; and the bridge stayed anyway: the shell still reaches the panel
+     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
+     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+     ;; callable `:panel`.
      :panel Panel-bridge})
 
   nil)

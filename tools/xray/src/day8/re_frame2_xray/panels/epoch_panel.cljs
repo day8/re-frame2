@@ -453,5 +453,6 @@
      ;; `:panel` to be CALLABLE and `shell/detail-panel` mounts it as a
      ;; Reagent hiccup head `[(:panel tab)]`, neither of which a React
      ;; component satisfies. The bridge is the one line between them and
-     ;; goes when the shell itself is a Fresco tree.
+     ;; STAYS (rf2-lect, ruled option 2): the shell is a Fresco tree now
+     ;; and neither of those two requirements changed with it.
      :panel Panel-bridge}))

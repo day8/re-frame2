@@ -104,9 +104,11 @@
   So the assignment is inverted rather than the mechanism: [[Panel]]
   stays the public callable every one of those sites already holds, and
   it is the `rf.fresco/as-component` bridge; the boundary is the private
-  [[PanelView]] behind it. Same one door (`as-component`), same defined
-  end — when the shell is itself a Fresco tree the bridge collapses and
-  `PanelView` takes the name.
+  [[PanelView]] behind it. Same one door (`as-component`), and the pair
+  STAYS (rf2-lect, ruled option 2): the shell is a Fresco tree now and
+  the bridge did not collapse, because the shell still reaches the panel
+  across an `as-child` seam and `reg-l4-tab!`'s `:pre` still requires a
+  callable `:panel`.
 
   ## Helpers
 
