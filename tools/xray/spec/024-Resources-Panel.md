@@ -135,10 +135,10 @@ Two elision layers compose:
 
    The **raw scoped key is the row identity** (never egressed in place)
    so two entries whose scope/params redact to the same sentinel cannot
-   collapse into one. Row selection scans `:entries` and matches each
-   candidate's `:resource/key` stamp (see the byte-key-id paragraph
-   below), never a direct map-key lookup on the scoped-key vector
-   (rf2-497rv7).
+   collapse into one. That key is read off each entry's own
+   `:resource/key` stamp (see the byte-key-id paragraph below), never off
+   the `:entries` map key, which is the opaque byte `key-id` and carries
+   no scope, resource-id or params at all (rf2-497rv7).
 
    The per-slot declaration match happens at the entry's ABSOLUTE
    runtime-db coordinate, rooted at the entry's `key-id` (rf2-aw9cfs):
@@ -173,11 +173,35 @@ Two elision layers compose:
    on the redacted path (the same "redacted summary still exposes
    metadata" contract as the live-cache projection).
 
+   That `egress-fn` is the OFF-BOX seam and the on-box render leaves it
+   `nil`. **The on-box gate for the trace-borne sections is a separate,
+   ROW-level one** (rf2-y8doi.15, extending rf2-9zix0u's instance-row
+   gate): a trace row carries no runtime-db path, so the instance gate
+   cannot be reused — what it does carry is a **resource-id**, and the
+   static registry carries that resource's coarse root `:sensitive?`
+   declaration. The composite builds `sensitive-resource-ids` from the
+   projected registry rows and threads the set into
+   `lifecycle-timeline`, `invalidation-graph`,
+   `mutation-invalidation-evidence`, `optimistic-lifecycle`,
+   `optimistic-force-clobbers` and `optimistic-reach-lint`; a row naming
+   a `:sensitive?` resource collapses **every** value-bearing slot on
+   that row to the `:rf/redacted` sentinel before `summarize`, so it
+   renders `[redacted]` exactly as its instance row already did. The rule
+   is deliberately row-level rather than slot-level — a row's scope,
+   params, cause and matched keys are all identity-bearing evidence about
+   the same read, so redacting some and printing the rest is the same
+   leak in a different shape. Metadata is untouched either way, so a
+   redacted row still shows its whole lifecycle shape. It is **not**
+   applied to `scope-resolutions` (§6b): those rows' `:resource-id` tag
+   carries the RESOLVER id, not a resource-id, so a resource-id-keyed set
+   cannot decide them and gating that surface on it would be dead code.
+
 The same `instance-row` per-slot egress seam carries the EP-0015 **on-box
 local-render** default (`:rf.egress/local-redacted`, Spec 015 §Projection
 profiles + §The graduation gate; `panels/local-render`). When a panel routes
 the payload values (scope / params / `:data` / `:error`) through
-`local-render-value` keyed on the **observed frame** before `summarize`, the
+`local-render-value-at` — the path-aware arity, keyed on the **observed
+frame** and on the slot's absolute runtime-db coordinate — before `summarize`, the
 frame's declared `:sensitive` LEAVES become `:rf/redacted` in place (the local
 operator still sees large values — the `include-large?` overlay) while the
 metadata projects from the raw entry; an **unreachable observed frame fails
@@ -186,7 +210,16 @@ rather than ship raw under no policy. Pinned by
 `resources_local_render_cljs_test` — the Resources-arm complement to the
 App-DB arm's `local_render_cljs_test` (rf2-t55hxg.15).
 
-Resource **history is bounded** (`lifecycle-timeline`'s `:limit`, default 50).
+Every trace-derived list is **bounded at RENDER, not in the projection**
+(rf2-y8doi.15). The projections are unbounded pure functions; each
+section body caps at the shared 200-row panel budget
+(`common-helpers/cap-rows`, [`007-UX-IA.md`](./007-UX-IA.md)
+§Performance budget) and appends the shared overflow row naming the
+hidden count — the work ledger, lifecycle timeline, invalidation graph,
+scope resolutions, mutation invalidations, continuations, optimistic
+mutations, force clobbers and the optimistic-reach lint. So one
+invalidation storm or one busy epoch cannot mount thousands of nodes,
+and no section truncates silently.
 
 ## Panel sections (top → bottom)
 
@@ -194,7 +227,7 @@ The Resources tab is a Dynamic L3 tab (`:rf.xray/selected-tab`
 `:resources`, mnemonic `s`, order 7 — after Routing). The view
 (`panels/resources.cljs`) is pure hiccup over the single composite sub
 `:rf.xray/resources-tab-data`; the projection algebra is pure data in
-`panels/resources_helpers.cljc` (JVM-portable, unit-tested). Thirteen
+`panels/resources_helpers.cljc` (JVM-portable, unit-tested). Fourteen
 stacked sections:
 
 1. **Static resource registry** — per registered resource: id, source
@@ -282,17 +315,28 @@ stacked sections:
    reference; never a function, rf2-kuky.83) — is read verbatim. The graph is **live, not just static** (rf2-m5u3gt): it joins
    the static route plan against the live instance rows, work ledger, and
    routing slice — each resource node carries a `:live` freshness rollup
-   (`:fresh` / `:stale` / `:loading` / `:idle` / `:none`, plus the active
-   work count) over its cache entries, and the **currently-active route** is
+   (`:fresh` / `:stale` / `:loading` / `:error` / `:idle` / `:none`, plus
+   the active work count) over its cache entries — `:error` is tested
+   BEFORE `:stale`, so a blocking SSR wait point whose first load FAILED
+   (no data, no live work) reads `:error` rather than falling through to
+   `:idle` and painting a failed wait point as if nothing had been asked
+   of it (rf2-y8doi.15) — and the **currently-active route** is
    flagged `:current?` with its live `:nav-token` and `:blocking-live` (the
    declared blocking resources whose scoped keys are still in the
    per-nav-token unsettled-blocking set — the SSR/route wait points that
    have not yet settled). The bare static projection (no live inputs)
    remains available for the SSR/JVM path.
 5. **Lifecycle timeline** — the ordered `:rf.resource/*` trace rows
-   (oldest-first), each carrying op label + semantic class colour,
-   resource id, summarized resource key, generation, owner, summarized
-   cause, and status before/after. **The infinite-feed page evidence
+   (oldest-first). The PROJECTION carries op label + semantic class
+   colour, resource id, summarized resource key, generation, work id,
+   owner, summarized cause, and status before/after; the RENDERED row
+   shows the label in its class colour, the resource id, the scoped key's
+   summarized **params**, the generation, and the `before → after` status
+   transition (rf2-y8doi.15 added the last two — without them a timeline
+   over several params-keyed entries of one resource could not say which
+   instance a row was about, nor what the event did to its status).
+   `:owner` and `:cause` are projected but not rendered today. **The
+   infinite-feed page evidence
    (EP-0021):** the four load-more family ops (`:rf.resource/load-more` /
    `page-appended` / `page-failed` / `load-more-skipped`) additionally
    carry a `:page` detail map with the op-specific facts the generic row
@@ -311,8 +355,10 @@ stacked sections:
    `:page` slot.
 6. **Invalidation / mutation graph** — the `:rf.resource/invalidated`
    rows: summarized scope, the invalidated tags, summarized cause, the
-   matched scoped keys, the match count (distinguishes a broad-tag storm
-   and a zero-match "no match in this scope"), and the refetch count.
+   matched scoped keys (the first six render as chips and the remainder
+   as a `+N more` count), the match count — always the FULL count, so a
+   broad-tag storm is never understated by the chip cap, and a zero-match
+   "no match in this scope" stays visible — and the refetch count.
 6b. **Scope resolution timeline** (EP-0016 D3) — the
    `:rf.resource/scope-resolved` rows: which named resolver ran, its
    declared input names, the resolved scope (summarized — a scope carries
@@ -362,12 +408,18 @@ stacked sections:
    phase 1.5) is **paired by `:snapshot-id`** with its terminal settle and
    rendered as one row carrying the bug-class answer "I saw an optimistic
    apply — did it COMMIT or ROLL BACK, and was there a conflict?":
-   - the **`:outcome` chip** — `:pending` (still in flight; the optimistic
-     value is live on the cache), `:reconciled` (the mutation SUCCEEDED and
-     the authoritative `:populates` / `:patches` COMMITTED over the
-     optimistic value — the recorded inverse was discarded), or
-     `:rolled-back` (the mutation FAILED / was cancelled / restore-dangled
-     and the recorded inverse was replayed, conflict-aware);
+   - the **`:outcome` chip**, one of FOUR — `:pending` (still in flight;
+     the optimistic value is live on the cache), `:reconciled` (the
+     mutation SUCCEEDED and the authoritative `:populates` / `:patches`
+     COMMITTED over the optimistic value — the recorded inverse was
+     discarded), `:rolled-back` (the mutation FAILED / was cancelled /
+     restore-dangled and the recorded inverse was replayed,
+     conflict-aware), or `:superseded` (the reply arrived for an already-
+     stale generation, so the runtime suppressed it and emitted NO settle
+     op at all — the inverse was discarded rather than replayed, and the
+     optimistic value is left sitting on the cache). `:superseded` is
+     rf2-y8doi.15's fourth outcome: before it, a superseded apply read
+     `:pending` for ever, claiming a settled request was still in flight;
    - the apply facts — the mutation id, instance, work id, generation, the
      **snapshot id**, the optimistically-patched **affected keys**
      (summarized — scope/params carry PII), the `:optimistic-tags`
@@ -391,7 +443,14 @@ stacked sections:
    visible (the forced keys + the recovery hint `:review-on-conflict`). A
    STALE / superseded mutation reply produces NEITHER op (the inverse is
    discarded, never replayed — it appears as `:rf.mutation/stale-suppressed`
-   instead), so an apply with no terminal settle stays `:pending`. The
+   instead), and that suppression row is what the `:superseded` outcome
+   reads off: the apply is joined to it on the mutation WORK identity —
+   the suppression row's `:rf.reply/work-id` against the apply's
+   `:work/id`, falling back to `[instance generation]` when one identity is
+   missing, never on instance alone, since a second apply for the same
+   instance genuinely in flight would then be mislabelled. An apply with
+   no terminal settle AND no suppression row is the one that stays
+   `:pending`. The
    distinction mirrors slice-4a's `:optimistic?` derived sub at the lifecycle
    level (Spec 016 §Optimistic mutations / §Surfacing to tooling).
 7. **Cache growth** — per-resource aggregate of entry count, owned
@@ -407,7 +466,11 @@ stacked sections:
    read off each row's raw `:scoped-key`, NOT the truncated/redacted display
    previews, so long-or-colliding params and distinct redacted scopes
    cannot false-trip or be missed; the surfaced output is summarized for
-   privacy), the **orphaned-owner lint** (an app-minted `[:dashboard/opened …]`
+   privacy — but **DORMANT in production**: its only feed is
+   `:rf.xray/resource-sub-reads`, whose production registration is the
+   constant `[]`, so the lint is exercised today only through its test
+   override and fires for a host solely once something populates observed
+   subscription reads), the **orphaned-owner lint** (an app-minted `[:dashboard/opened …]`
    (or other app-kind) owner pinning an entry with no observed release; route /
    machine / ssr owners are framework-released and not linted), and the
    **optimistic-reach lint** (informational — a settled optimistic mutation
@@ -423,8 +486,8 @@ stacked sections:
    deliberate; a key in the scope the `:rf.warning/mutation-scope-mismatch`
    tripwire already named for that mutation gets no second row).
 
-When the host has **no resources registered AND no live instances**, the
-panel renders the silent-by-default caption.
+When the host has **no resources registered, no named scope resolvers,
+AND no live instances**, the panel renders the silent-by-default caption.
 
 ## The `:rf.resource/*` trace family
 
@@ -438,9 +501,14 @@ group, and filter resource rows without re-deriving the vocabulary. Any
 keyword in the reserved `rf.resource` namespace is recognised as a family
 member even before the enum is extended.
 
-The operation set + semantic class (lifecycle order; this is the closed
-enumeration — every op listed is EMITTED by the runtime, cross-checked
-against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentation.md#where-trace-emission-lives)):
+The operation set + semantic class (lifecycle order). Every op listed is
+EMITTED by the runtime, cross-checked against [Spec 009 §Where trace
+emission lives](../../../spec/009-Instrumentation.md#where-trace-emission-lives).
+Every row but one is also enumerated in `trace-ops`; the exception is
+`:rf.resource/replied`, which the runtime emits but the enum does not yet
+name, so it reaches the panel through `resource-trace-op?`'s
+reserved-namespace fallback — recognised as a family member, classed
+`:lifecycle` and labelled from its bare op name. Its Class cell says so:
 
 | Operation | Class | Emit site |
 |---|---|---|
@@ -454,6 +522,7 @@ against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentatio
 | `:rf.resource/work-abort-requested` | lifecycle | `events.cljc` (abort/cancel of in-flight work) |
 | `:rf.resource/work-completed` | success | `events.cljc` (work row settled terminal) |
 | `:rf.resource/succeeded` | success | `events.cljc` (reply landed, entry `:loaded`) |
+| `:rf.resource/replied` | lifecycle (namespace fallback — not in `trace-ops`) | `events.cljc` (EP-0016 D1 extension, rf2-p1yri7 — a call-site `:reply-to` READ-completion continuation was dispatched for an ACCEPTED terminal reply, the read mirror of `:rf.mutation/replied`; carries `:targets` (a read fans out to every joined target), `:work/id`, `:resource/key`, `:status` and `:cache-hit?` (true only for the fresh-skip immediate dispatch); never emitted for a stale/suppressed reply, nor when the read carried no `:reply-to`) |
 | `:rf.resource/failed` | failure | `events.cljc` (first-load failure → `:error`) |
 | `:rf.resource/refresh-failed` | failure | `events.cljc` (background-refresh failure, data kept) |
 | `:rf.resource/load-more` | lifecycle | `events.cljc` (EP-0021 — a load-more issued the next-page fetch; an APPEND at a positive page index; carries `:page-param` `:page-index` `:page-count`) |
@@ -528,7 +597,9 @@ pairs each `:applied` with its terminal settle by `:snapshot-id` to drive the
 §6d **Optimistic mutations** section above. The settle is keyed on the
 recorded `:revision` + the work-id/generation acceptance verdict, never a
 wall-clock race; a STALE / superseded reply emits NEITHER terminal op (the
-inverse is discarded, the apply row stays `:pending`).
+inverse is discarded), and the apply row is instead paired with that
+mutation's `:rf.mutation/stale-suppressed` row on the work identity and
+reads the fourth outcome `:superseded` (rf2-y8doi.15).
 
 `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/remove` /
 `:rf.resource/window-focused` / `:rf.resource/network-reconnected` /
@@ -570,21 +641,28 @@ re-rooting each slot to the same absolute runtime-db coordinate
 (`h/resource-payload-path-suffix`) so the registry's lowered
 `:sensitive?` / `:large?` declarations match.
 
-The key-axis filter semantics that governed those accessors still govern
-the panel's own selection: `:scope` / `:resource-id` / `:params` match
-against the raw cache key **before** projection, **by presence**
-(rf2-7iw0bw) — an OMITTED axis is a wildcard, while an axis supplied
-with an explicit **nil** is an EXACT match against a nil-valued key part,
-never widened.
+The key-axis filter helpers that served those accessors went too
+(rf2-y8doi.15): `scoped-key-matches?`, `filter-instance-rows`,
+`select-raw-entries`, `filter-work-rows` and `filter-history-rows` were
+deleted once no source caller remained. **The panel selects nothing** —
+`project-instances` projects the WHOLE `:entries` map of the observed
+frame, `project-work-ledger` the whole ledger, and the operator narrows
+by reading the rendered table. So the by-presence axis semantics those
+helpers carried (rf2-7iw0bw — an OMITTED axis a wildcard, an explicit
+**nil** an EXACT match against a nil-valued key part) govern nothing in
+this panel today; they survive only in the git history of
+`panels/resources_helpers.cljc`.
 
 The live `:rf.runtime/resources :entries` map is keyed on the **opaque
 CEDN-1 byte `key-id` string** (rf2-9e0tyq), with the kind-preserving
 `[scope resource-id params]` scoped-key vector carried on each entry as
-`:resource/key`. The key filter therefore matches against the entry's
-**`:resource/key` stamp** (falling back to the map key only for a legacy
-entry that lacks it) — never the byte map-key, which would match nothing
-for live runtime data. The selected map preserves its byte map-keys as
-the row identity. Symmetrically, the work-ledger projection reads each
+`:resource/key`. `instance-row` therefore reads scope / resource-id /
+params off the entry's **`:resource/key` stamp** (falling back to the map
+key only for a legacy entry that lacks it) — never off the byte map-key,
+which carries none of the three. The byte map-key is not discarded: it is
+threaded to the egress fn as the entry's `key-id`, which is what lets
+each payload slot re-root at its absolute runtime-db coordinate.
+Symmetrically, the work-ledger projection reads each
 row's kind-preserving `:work/id` vector from the record, not its byte
 `work-id-id` map-key.
 
@@ -610,7 +688,7 @@ override input layered on top; see §Events below.
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db` | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
 | `:rf.xray/resource-sub-reads` | (none) | observed live subscription reads backing the scope-mismatch lint (empty by default). |
 | `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db` | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
-| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :optimistic-mutations :optimistic-force-clobbers :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1); `:optimistic-mutations` is the EP-0019 optimistic-mutation lifecycle (each `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its terminal `:reconciled` / `:rolled-back` settle, carrying the per-key restored-vs-conflict disposition); `:optimistic-force-clobbers` is the `:rf.warning/optimistic-force-clobber` rows (a `:force` rollback over a concurrent write). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
+| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + `:rf.xray/observed-frame` (rf2-9zix0u — the frame whose `:sensitive` / `:large` classification governs the on-box payload egress; already an upstream dep transitively, named directly so the entries project under THEIR frame). The route registry is NOT an input: it is read inside the computation via `(rf/registrations {:source :store :kind :route})` | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :optimistic-mutations :optimistic-force-clobbers :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1); `:optimistic-mutations` is the EP-0019 optimistic-mutation lifecycle (each `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its terminal `:reconciled` / `:rolled-back` settle, carrying the per-key restored-vs-conflict disposition); `:optimistic-force-clobbers` is the `:rf.warning/optimistic-force-clobber` rows (a `:force` rollback over a concurrent write). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
 
 ### Events (test-only override seam — rf2-e8330v / xxo3zz F3)
 
