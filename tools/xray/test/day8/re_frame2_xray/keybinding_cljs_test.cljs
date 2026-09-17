@@ -989,51 +989,61 @@
    {:key "," :code "Comma"               :expect :rf.xray/settings-toggle}
    {:key "s" :code "KeyS"                :expect :rf.xray/settings-toggle}])
 
+(defn- xray-queued-events
+  "The event vectors sitting UNDRAINED in `:rf/xray`'s router queue — i.e.
+  what the keydown handler just dispatched.
+
+  Observed at the queue rather than through a `with-redefs` on
+  `rf/dispatch`: measured under `:node-test`, that redef does not reach
+  the compiled call site in `keybinding.cljs` and the spy reads `[]` on a
+  dispatch that demonstrably happened (18 assertions, all of them the
+  spy, beside green preventDefault rows on the same events). The queue is
+  the seam `epoch_pump_coalescing_cljs_test` already reads for its
+  coalescing counts, and it observes the real envelope."
+  []
+  (mapv :event (:queue @(:router (rf.frame/frame :rf/xray)))))
+
 (deftest spine-roster-survives-focus-on-an-activatable-target
   (testing "rf2-y8doi.20 — with focus on a shell <button> / <summary> /
             [role=button], every spine key EXCEPT Space still fires: the
-            keystroke is consumed and the roster's own event is dispatched"
+            keystroke is consumed and the roster's own event is queued"
     (setup-xray-runtime!)
-    (let [dispatched (atom [])]
-      (with-redefs [mount/visible? (constantly true)
-                    rf/dispatch    (fn [v] (swap! dispatched conj v) nil)]
-        (doseq [target-spec [{:tag "BUTTON"}
-                             {:tag "SUMMARY"}
-                             {:tag "DIV" :role "button"}]
-                {:keys [key code shift? expect]} spine-roster-minus-space]
-          (reset! dispatched [])
-          (let [{:keys [event prevented stopped]}
-                (mk-shell-target-key-event
-                  (assoc target-spec :key key :code code :shift? (boolean shift?)))]
-            (handle-keydown event)
-            (is (true? @prevented)
-                (str key " on a focused " target-spec
-                     " must be consumed by the spine (preventDefault)"))
-            (is (true? @stopped)
-                (str key " on a focused " target-spec " must stopPropagation"))
-            (is (= [[expect]] @dispatched)
-                (str key " on a focused " target-spec " dispatches " expect))))))))
+    (with-redefs [mount/visible? (constantly true)]
+      (doseq [target-spec [{:tag "BUTTON"}
+                           {:tag "SUMMARY"}
+                           {:tag "DIV" :role "button"}]
+              {:keys [key code shift? expect]} spine-roster-minus-space]
+        (let [before (count (xray-queued-events))
+              {:keys [event prevented stopped]}
+              (mk-shell-target-key-event
+                (assoc target-spec :key key :code code :shift? (boolean shift?)))]
+          (handle-keydown event)
+          (is (true? @prevented)
+              (str key " on a focused " target-spec
+                   " must be consumed by the spine (preventDefault)"))
+          (is (true? @stopped)
+              (str key " on a focused " target-spec " must stopPropagation"))
+          (is (= [[expect]] (vec (drop before (xray-queued-events))))
+              (str key " on a focused " target-spec " dispatches " expect)))))))
 
 (deftest space-stays-exempt-on-an-activatable-target
   (testing "rf2-y8doi.20 — narrowing the guard to Space must not un-fix
             rf2-d716o9: Space on the SAME targets is still yielded, with no
-            preventDefault and no live-pause dispatch. This is the control
-            that says the narrowing is surgical rather than a removal."
+            preventDefault and nothing queued. This is the control that says
+            the narrowing is surgical rather than a removal."
     (setup-xray-runtime!)
-    (let [dispatched (atom [])]
-      (with-redefs [mount/visible? (constantly true)
-                    rf/dispatch    (fn [v] (swap! dispatched conj v) nil)]
-        (doseq [target-spec [{:tag "BUTTON"}
-                             {:tag "SUMMARY"}
-                             {:tag "DIV" :role "button"}]]
-          (reset! dispatched [])
-          (let [{:keys [event prevented]} (mk-shell-target-key-event target-spec)]
-            (handle-keydown event)
-            (is (false? @prevented)
-                (str "Space on a focused " target-spec " is still the control's"))
-            (is (= [] @dispatched)
-                (str "Space on a focused " target-spec
-                     " dispatches nothing — the native activation wins"))))))))
+    (with-redefs [mount/visible? (constantly true)]
+      (doseq [target-spec [{:tag "BUTTON"}
+                           {:tag "SUMMARY"}
+                           {:tag "DIV" :role "button"}]]
+        (let [before (count (xray-queued-events))
+              {:keys [event prevented]} (mk-shell-target-key-event target-spec)]
+          (handle-keydown event)
+          (is (false? @prevented)
+              (str "Space on a focused " target-spec " is still the control's"))
+          (is (= [] (vec (drop before (xray-queued-events))))
+              (str "Space on a focused " target-spec
+                   " queues nothing — the native activation wins")))))))
 
 ;; ---- (10) the pop-out document's own listener (rf2-61i5) -----------------
 ;;
