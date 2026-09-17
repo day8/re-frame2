@@ -39,17 +39,19 @@
   The Sim sub-mode keeps per-machine state on Xray's frame app-db at
   `[:sim/by-machine <machine-id>]`. Each slot is:
 
-      {:active?         <bool>   ;; sub-mode toggled on?
-       :definition      <map>    ;; the cloned machine definition
-       :snapshot        <map>    ;; current {:state :data ...}
-       :audit-trail     <vec>    ;; [{:from :to :event :guard?} ...]
-       :last-error      <map>    ;; nil or {:event :info :reason}
-       :pending-event   <str>    ;; the event-id text the user is typing
-       :pending-data    <str>}   ;; EDN payload (optional)
+      {:active?          <bool>  ;; sub-mode toggled on?
+       :definition       <map>   ;; the cloned machine definition
+       :initial-snapshot <map>   ;; the seed, for an exact Reset
+       :snapshot         <map>   ;; current {:state :data ...}
+       :audit-trail      <vec>   ;; [{:from :to :event :guard?} ...]
+       :last-error       <map>   ;; nil or {:event :info :reason}
+       :pending-event    <str>   ;; the event-id text the user is typing
+       :pending-data     <str>}  ;; EDN payload (optional)
 
   ## What this ns exposes
 
-    1. `initial-snapshot`          — definition → seed `{:state :data}`
+    1. `initial-snapshot`          — definition (+ the engine's own
+                                     seeder) → seed `{:state :data}`
     2. `available-transitions`     — definition + snapshot → seq of
                                      {:event :target :guard} maps
     3. `event-id-suggestions`      — definition → distinct sorted
@@ -169,49 +171,89 @@
 ;; ---- initial snapshot ---------------------------------------------------
 
 (defn initial-snapshot
-  "Build the seed sim snapshot for `definition`. Shape:
+  "Build the seed sim snapshot for `definition`.
 
-      {:state <keyword-or-vector>  ;; the declared :initial leaf
-       :data  <map>}               ;; the declared :data initial map
+  `seed-fn`, when supplied, is `(fn [definition] snapshot)` — the
+  ENGINE's own initial-snapshot builder, threaded in by the CLJS
+  wrapper exactly as `step-sim` takes its `runtime-fn`. Use it: the
+  shallow read below is right only for a FLAT machine.
 
-  The initial-state cascade stays simple (the `:initial` slot is
-  shallow-read) — the runtime's own `apply-initial-entry-cascade` would
-  fire `:entry` actions, which sim deliberately skips at bootstrap (we
-  want a pure, hermetic step machine the user drives). The first
-  user-fired event runs `re-frame.machines/machine-transition` which
-  DOES execute entry / exit / action cascades — so action evaluation
-  kicks in from step 1 onwards, not from initial bootstrap.
+    - a COMPOUND root's `:initial` names a state the machine cannot
+      rest in, so the shallow read leaves the sim parked on the
+      compound node and every later step records a phantom
+      `:auth -> :auth`;
+    - a `:type :parallel` root has no `:initial` AT ALL (it declares
+      `:regions`), so the shallow read returns nil outright.
 
-  Returns nil when `definition` is nil or has no `:initial`."
-  [definition]
-  (when (and (map? definition) (some? (:initial definition)))
-    {:state (:initial definition)
-     :data  (or (:data definition) {})}))
+  The engine already computes both — the leaf path for a compound
+  root, the region->state map for a parallel one — and its snapshot
+  carries the slots the runtime expects (`:rf/spawn-counter`, `:meta`,
+  the initial tag union guards read). Re-deriving that here would be a
+  second copy of the initial cascade to keep in step; asking the engine
+  is the point of rf2-y8doi.21.
+
+  Without a `seed-fn` this stays the pure `:initial` read, so the JVM
+  unit-test target drives it with no machines artefact at all. Shape:
+
+      {:state <keyword | path vector | region map>
+       :data  <map>}
+
+  ENTRY ACTIONS ARE STILL NOT RUN. Seeding through the engine's
+  `build-initial-snapshot` computes the initial STATE; it is not
+  `apply-initial-entry-cascade`, which is the separate phase that fires
+  `:entry` actions. Sim deliberately skips that at bootstrap (a pure,
+  hermetic step machine the user drives), and the rail says so. Action
+  evaluation kicks in from step 1 onwards.
+
+  Returns nil when `definition` is not a map, or when no `seed-fn` is
+  supplied and it has no `:initial`."
+  ([definition] (initial-snapshot definition nil))
+  ([definition seed-fn]
+   (when (map? definition)
+     (or (when seed-fn
+           (let [seeded (seed-fn definition)]
+             (when (map? seeded) seeded)))
+         (when (some? (:initial definition))
+           {:state (:initial definition)
+            :data  (or (:data definition) {})})))))
 
 ;; ---- sim-state lifecycle ------------------------------------------------
 
 (defn make-sim-state
   "Build a fresh sim-state map for `machine-id` + `definition`. Called
   when the user toggles Sim on for a machine. The `:active?` flag stays
-  true until `dispose-sim-state` zeros the slot."
-  [machine-id definition]
-  {:machine-id     machine-id
-   :active?        true
-   :definition     definition
-   :snapshot       (initial-snapshot definition)
-   :audit-trail    []
-   :last-error     nil
-   :pending-event  ""
-   :pending-data   ""})
+  true until `dispose-sim-state` zeros the slot.
+
+  `seed-fn` is `initial-snapshot`'s engine seeder (see there). The seed
+  is ALSO kept at `:initial-snapshot` so `reset-sim-state` rewinds to
+  exactly what the slot opened with — without that, a reset would have
+  to re-derive the seed and a seeded sim would silently fall back to
+  the shallow read."
+  ([machine-id definition] (make-sim-state machine-id definition nil))
+  ([machine-id definition seed-fn]
+   (let [seed (initial-snapshot definition seed-fn)]
+     {:machine-id       machine-id
+      :active?          true
+      :definition       definition
+      :initial-snapshot seed
+      :snapshot         seed
+      :audit-trail      []
+      :last-error       nil
+      :pending-event    ""
+      :pending-data     ""})))
 
 (defn reset-sim-state
   "Return `sim-state` reset to its initial snapshot, audit trail
   cleared, error cleared. Preserves `:definition` + `:active?` so the
   user stays in sim mode after a reset. Pending input is preserved (the
-  user likely wants to re-fire what they were sketching)."
+  user likely wants to re-fire what they were sketching).
+
+  Rewinds to the `:initial-snapshot` the slot was SEEDED with, falling
+  back to the shallow read only for a slot built without one."
   [sim-state]
   (assoc sim-state
-    :snapshot    (initial-snapshot (:definition sim-state))
+    :snapshot    (or (:initial-snapshot sim-state)
+                     (initial-snapshot (:definition sim-state)))
     :audit-trail []
     :last-error  nil))
 
@@ -294,7 +336,27 @@
   trail entry, or with `:last-error` populated.
 
   Per the UC1 design (§4 Guards) failed-guard transitions surface
-  inline; sim does NOT mutate the snapshot on fail."
+  inline; sim does NOT mutate the snapshot on fail.
+
+  ## `:ok` is not the same as \"a transition happened\" (rf2-y8doi.21)
+
+  The engine returns `:status :ok` with the snapshot UNCHANGED and
+  `:fx []` for three benign outcomes — a stale `:after`, a candidate
+  whose every guard declined, and an event no transition matched
+  (`machines.cljc`: \"An event no transition matched is `:status :ok`
+  with the snapshot unchanged and `:fx []`\"; Spec 005 §Transition
+  resolution makes the unhandled case an xstate-parity no-op, not an
+  error). Folding those as transitions invented a `#N :open -> :open`
+  audit row and animated a from=to edge for a step the framework never
+  took. So a step that moved NOTHING appends no row.
+
+  WHAT THIS CAN AND CANNOT TELL APART, because the diagnostic must not
+  overclaim: the public Level 1 map carries `:status` / `:snapshot` /
+  `:fx` and no handled flag, so an unchanged snapshot with no effects is
+  ALSO what a genuine self-transition declared with no action produces
+  (measured: a `{:on {:ping :open}}` self-loop in `:open` is
+  byte-identical to the guard-blocked result). The rejection therefore
+  names the three possibilities rather than asserting one."
   [sim-state event runtime-fn]
   (let [{:keys [snapshot]} sim-state
         prior-state        (:state snapshot)
@@ -305,15 +367,20 @@
 
       :ok
       (let [new-snap (:snapshot result)]
-        (-> sim-state
-            clear-error
-            (assoc :snapshot new-snap)
-            (append-audit-row
-              {:from   prior-state
-               :to     (:state new-snap)
-               :event  event
-               :data   (:data new-snap)
-               :fx     (:fx result)})))
+        (if (and (= new-snap snapshot) (empty? (:fx result)))
+          (record-error sim-state event
+            {:kind :rf.xray.static.machines.sim/no-change}
+            (str "no change — no transition matched, a guard declined, "
+                 "or the matched transition was a no-op"))
+          (-> sim-state
+              clear-error
+              (assoc :snapshot new-snap)
+              (append-audit-row
+                {:from   prior-state
+                 :to     (:state new-snap)
+                 :event  event
+                 :data   (:data new-snap)
+                 :fx     (:fx result)}))))
 
       (record-error sim-state event nil "engine returned a non-result value"))))
 
