@@ -250,11 +250,17 @@ The filter system lives in this cluster — see §7 for full IN/OUT pill semanti
 
 The Dynamic/Static **mode dropdown** (above) is one axis; LIVE /
 LIVE-paused / RETRO is a separate SPINE state communicated by the L2
-event list itself (the head row's pulse cue indicates LIVE; a pinned row
-indicates RETRO). LIVE/RETRO transitions ride the `Space` / `L` keys +
-the `⏭` ribbon button + ordinary row clicks (clicking any non-head row
-flips LIVE→RETRO). The spine sub carries `:mode :live | :retro` for
-downstream consumers; there is no separate LIVE/RETRO pill widget.
+event list itself — by the **newer-events marker** (`shell.cljs`'s
+`newer-events-marker`, rf2-y8doi.30), a sticky one-line strip at the
+bottom edge of the L2 scroll box that paints ONLY while the list is
+showing an older epoch with newer events waiting, and nothing at all
+while the spine is following. No head-row pulse cue was ever built
+(rf2-pjjwh removed the gutter glyph that would have carried one) and
+the continuous pulse was refused (rf2-2sez0). LIVE/RETRO transitions
+ride the `Space` / `L` keys + the `⏭` ribbon button + ordinary row
+clicks (clicking any non-head row flips LIVE→RETRO). The spine sub
+carries `:mode :live | :retro` for downstream consumers; there is no
+separate LIVE/RETRO pill widget.
 
 ### Right-icon behaviour
 
@@ -409,9 +415,10 @@ glyph-free post-rf2-pjjwh).
 - **Composes, does not clobber:** the wash is painted as a flat
   `background-image` gradient layer over the row's `background-color`, so it
   coexists with the selected/focused-row highlight (an issue row reads pink
-  whether focused or not, with the focus state intact underneath), the LIVE
-  head-pulse, and any cross-epoch perf-budget chrome. A clean (non-issue)
-  row carries no wash.
+  whether focused or not, with the focus state intact underneath) and any
+  cross-epoch perf-budget chrome. A clean (non-issue) row carries no wash.
+  (There is no LIVE head-pulse for it to compose with: none was ever built
+  — rf2-pjjwh removed the carrier, rf2-2sez0 refused the continuous pulse.)
 
 #### Selected-row visibility (rf2-hga49)
 
@@ -1174,7 +1181,7 @@ The scoping + filtering happens at the data layer (`:rf.xray/filtered-event-bund
 | LIVE | LIVE (paused) | `Space` key |
 | LIVE (paused) | LIVE | `Space` key · `L` key (snap-LIVE implies resume) |
 
-The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky-on-older + the head-row pulse cue. (The dedicated Mode pill widget that earlier drafts placed in the ribbon was dropped — the spine cue in L2 is the only mode surface.)
+The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky-on-older + the newer-events marker (`shell.cljs`'s `newer-events-marker`, rf2-y8doi.30), which paints only while the list is showing an older epoch with newer events waiting and nothing at all while the spine is following. There is no head-row pulse cue — none was ever built (rf2-pjjwh removed the gutter glyph that would have carried one; rf2-2sez0 refused the continuous pulse). (The dedicated `● LIVE` / `◐ RETRO` Mode pill widget that earlier drafts placed in the ribbon was dropped — rf2-g9pee. That is a different control from the Dynamic/Static mode dropdown at chrome-ribbon-left, which ships.)
 
 **Every head-aware mode selector must agree on what "head" means
 (rf2-pqt7cb).** `focus-event-bundle-reducer`'s LIVE/RETRO pivot is `(=
