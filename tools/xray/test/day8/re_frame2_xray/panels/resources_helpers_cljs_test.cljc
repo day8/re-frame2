@@ -1599,3 +1599,153 @@
       (is (re-find #"article/by-slug" (:hint gated)))
       (is (nil? (re-find #"u-42" (:hint gated)))
           "no scope or params value has ever appeared in the hint"))))
+
+;; ---- (14) rf2-qqi7u — the optimistic joins are FRAME-SCOPED ---------------
+;;
+;; Every identity these joins key on is FRAME-LOCAL, and the runtime says so
+;; itself: a resource work-id "carries no frame identity, so two frames issuing
+;; the same resource at the same generation mint the SAME work-id"; a mutation
+;; instance id is the caller's own value (a form keyed by a row id) or one
+;; derived from the mutation id + the frame's monotone generation; and the
+;; `:snapshot-id` is derived from that instance id plus that same generation,
+;; so it INHERITS the collision rather than escaping it.
+;;
+;; The panel feeds every trace-borne projection ONE buffer and that buffer is
+;; deliberately cross-frame. So on a multi-frame host frame B's terminal could
+;; settle frame A's apply: A read `:superseded`, or `:reconciled` wearing B's
+;; `:committed` keys, while it was still genuinely in flight — precisely the
+;; false "it finished" a network inspector exists to disprove.
+;;
+;; Every producer op in these joins stamps `:rf.frame/id`, so the fix is for
+;; the join to USE it. These tests pin BOTH directions, because only the pair
+;; discriminates: a FOREIGN frame must not settle, and the SAME frame must
+;; still settle exactly as it did before.
+
+(def ^:private frame-a :rf/default)
+(def ^:private frame-b :rf/other-frame)
+
+(defn- in-frame
+  "Stamp a producer-shaped fixture for `frame`. The frame is the ONLY thing
+  that differs between the two sides of every case below."
+  [ev frame]
+  (assoc-in ev [:tags :rf.frame/id] frame))
+
+(deftest optimistic-supersession-is-frame-scoped-rf2-qqi7u
+  (testing "CONTROL — the two frames' rows are otherwise IDENTICAL: equal
+            instance, equal work-id, equal generation"
+    (let [a (in-frame opt-apply-ev frame-a)
+          b (in-frame opt-suppressed-ev frame-b)]
+      (is (= (:instance (:tags a)) (:instance (:tags b))))
+      (is (= (:work/id (:tags a)) (:rf.reply/work-id (:tags b))))
+      (is (= (:generation (:tags a)) (:generation (:tags b))))
+      (is (not= (:rf.frame/id (:tags a)) (:rf.frame/id (:tags b)))
+          "the frame is the only discriminator in play")))
+  (testing "a suppression in ANOTHER frame must not settle this apply"
+    (let [row (first (h/optimistic-lifecycle
+                       [(in-frame opt-apply-ev frame-a)
+                        (in-frame opt-suppressed-ev frame-b)]))]
+      (is (= :pending (:outcome row)))
+      (is (nil? (:settled-id row)))))
+  (testing "the :generation fallback is frame-scoped too — a foreign-frame
+            suppression carrying no work-id must not settle it either"
+    (let [b   (-> opt-suppressed-ev
+                  (update :tags dissoc :rf.reply/work-id)
+                  (in-frame frame-b))
+          row (first (h/optimistic-lifecycle
+                       [(in-frame opt-apply-ev frame-a) b]))]
+      (is (= :pending (:outcome row)))))
+  (testing "SAME-frame supersession is unchanged — the behaviour this
+            correction had to keep"
+    (let [row (first (h/optimistic-lifecycle
+                       [(in-frame opt-apply-ev frame-a)
+                        (in-frame opt-suppressed-ev frame-a)]))]
+      (is (= :superseded (:outcome row)))
+      (is (= 11 (:settled-id row)))))
+  (testing "both frames in ONE buffer — the panel's real shape: A's own
+            suppression settles A and leaves B's identical apply pending"
+    (let [rows (h/optimistic-lifecycle
+                 [(in-frame opt-apply-ev frame-a)
+                  (assoc (in-frame opt-apply-ev frame-b) :id 20)
+                  (in-frame opt-suppressed-ev frame-a)])]
+      (is (= 2 (count rows)))
+      (is (= [10 20] (mapv :id rows)) "apply order preserved, oldest first")
+      (is (= :superseded (:outcome (first rows))) "A's own suppression settles A")
+      (is (= 11 (:settled-id (first rows))))
+      (is (= :pending (:outcome (second rows)))
+          "B is still in flight — A's suppression says nothing about it"))))
+
+(deftest optimistic-settlement-is-frame-scoped-rf2-qqi7u
+  (let [reconciled {:id 12 :operation :rf.mutation/optimistic-reconciled
+                    :tags {:snapshot-id "snap-7"
+                           :instance    opt-instance
+                           :committed   [opt-affected]
+                           :reconciliation-refetches []}}
+        rolled     {:id 13 :operation :rf.mutation/optimistic-rolled-back
+                    :tags {:snapshot-id  "snap-7"
+                           :instance     opt-instance
+                           :on-conflict  :invalidate
+                           :restored     [opt-affected]
+                           :conflicted   []
+                           :refetched    []
+                           :dispositions []}}]
+    (testing "a reconcile in ANOTHER frame must not settle this apply, and must
+              not lend it :committed keys that were never its own"
+      (let [row (first (h/optimistic-lifecycle
+                         [(in-frame opt-apply-ev frame-a)
+                          (in-frame reconciled frame-b)]))]
+        (is (= :pending (:outcome row)))
+        (is (nil? (:settled-id row)))
+        (is (not (contains? row :committed))
+            "the settle FACETS are read off the same index — they must not leak either")))
+    (testing "SAME-frame reconcile settles exactly as before"
+      (let [row (first (h/optimistic-lifecycle
+                         [(in-frame opt-apply-ev frame-a)
+                          (in-frame reconciled frame-a)]))]
+        (is (= :reconciled (:outcome row)))
+        (is (= 12 (:settled-id row)))
+        (is (= 1 (count (:committed row))))))
+    (testing "a foreign-frame ROLLBACK likewise leaves the apply pending"
+      (let [row (first (h/optimistic-lifecycle
+                         [(in-frame opt-apply-ev frame-a)
+                          (in-frame rolled frame-b)]))]
+        (is (= :pending (:outcome row)))
+        (is (not (contains? row :restored)))))
+    (testing "SAME-frame rollback settles exactly as before"
+      (let [row (first (h/optimistic-lifecycle
+                         [(in-frame opt-apply-ev frame-a)
+                          (in-frame rolled frame-a)]))]
+        (is (= :rolled-back (:outcome row)))
+        (is (= 13 (:settled-id row)))
+        (is (= :invalidate (:on-conflict row)))))))
+
+(deftest optimistic-reach-lint-is-frame-scoped-rf2-qqi7u
+  ;; The reach lint unions the `:affected-keys` of the `:rf.mutation/succeeded`
+  ;; settlement keyed by `[instance work-id]` — both frame-local, so frame B's
+  ;; settlement could answer for frame A's and the finding simply vanished.
+  ;; That is the REASSURING direction: a lint reporting nothing reads as a
+  ;; clean panel, so nothing on screen says the answer came from another frame.
+  (let [reconciled {:id 40 :operation :rf.mutation/optimistic-reconciled
+                    :tags {:mutation                 :article/favorite
+                           :instance                 opt-instance
+                           :work/id                  opt-work-id
+                           :optimistic-keys          [opt-affected]
+                           :committed                []
+                           :reconciliation-refetches []}}
+        succeeded  {:id 41 :operation :rf.mutation/succeeded
+                    :tags {:mutation      :article/favorite
+                           :instance      opt-instance
+                           :work/id       opt-work-id
+                           :affected-keys [opt-affected]}}]
+    (testing "CONTROL — the SAME frame's settlement DOES reach the key, so
+              there is no finding to report"
+      (is (empty? (h/optimistic-reach-lint
+                    [(in-frame reconciled frame-a)
+                     (in-frame succeeded frame-a)]))))
+    (testing "a settlement in ANOTHER frame must not answer for this one"
+      (let [rows (h/optimistic-reach-lint
+                   [(in-frame reconciled frame-a)
+                    (in-frame succeeded frame-b)])
+            row  (first rows)]
+        (is (= 1 (count rows)) "the unreached key is still a finding")
+        (is (= 1 (count (:missing-keys row))))
+        (is (= :article/favorite (:mutation row)))))))
