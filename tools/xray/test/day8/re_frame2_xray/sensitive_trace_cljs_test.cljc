@@ -31,6 +31,7 @@
   CLJC keeps the file shadow's `:node-test` target as well."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
+            #?(:cljs [clojure.string :as str])
             [day8.re-frame2-xray.config :as config]
             [re-frame.privacy :as rf.privacy]
             #?(:cljs [re-frame.core :as rf])
@@ -541,6 +542,59 @@
      [record]
      (:id (first (filter :sensitive? (:trace-events record))))))
 
+;; ---- the missing-rollup fallback (rf2-vaont) -----------------------------
+;;
+;; The record-level rollup and the event-level stamp are two signals, and
+;; the gate used to answer them at two GRAINS: drop the record on the
+;; rollup, but merely scrub `:trace-events` when only the stamp was there.
+;; `build-record` assembles `:trigger-event`, `:db-before` / `:db-after`,
+;; `:sub-runs`, `:renders` and `:effects` in the SAME map as
+;; `:trace-events` (`re-frame.epoch.assembly`), so the event-grain scrub
+;; left every one of those siblings holding the cascade it had just
+;; removed. `trace-collector/bundles-for-frame` had already settled the
+;; question for the bundle read — drop whole, because the sibling slots
+;; are projections of the same events and "a slot added upstream would
+;; silently re-open the leak" — and the record is the same shape.
+;;
+;; The fixtures below put the secret in `:trigger-event` SPECIFICALLY, a
+;; slot the old event-grain scrub never reached. That is what makes the
+;; regression discriminating rather than a restatement of the tests
+;; above: chasing the event `:id` through `:trace-events` alone passes
+;; under BOTH the old gate and the new one.
+
+#?(:cljs
+   (def ^:private secret-payload
+     "A token that occurs nowhere else in this file or the runtime, so a
+     whole-slot search for it cannot match incidental fixture data."
+     "vaont-trigger-secret-1f3c"))
+
+#?(:cljs
+   (defn- emit-sensitive-trigger!
+     "Drive a REAL `:rf.event/run-start` whose event VECTOR carries the
+     secret. `find-trigger-event` reads `:rf.event/v` off the first
+     run-start and `build-record` pins it as `:trigger-event`, so the
+     payload lands in a SIBLING of `:trace-events` exactly as it does at
+     runtime — no hand-built record, no hand-placed slot."
+     [dispatch-id]
+     (rf.trace/emit! :rf.event :rf.event/run-start
+                     {:frame                host-frame
+                      :rf.trace/dispatch-id dispatch-id
+                      :rf.trace/event-id    :user/login
+                      :rf.event/v           [:user/login secret-payload]
+                      :sensitive?           true})))
+
+#?(:cljs
+   (defn- slot-mentions-secret?
+     "Does the secret survive ANYWHERE in the slot, at any depth?
+
+     The bead's acceptance is \"no record/payload survives anywhere\", and
+     enumerating the slots to check is precisely the maintenance burden
+     this fix exists to retire — a list of payload slots goes stale the
+     moment the producer gains one. So the probe is the printed structure,
+     which cannot miss a slot it does not know about."
+     [history]
+     (str/includes? (pr-str history) secret-payload)))
+
 #?(:cljs
    (def ^:private with-runtime
      ;; The core fn-form runtime fixture, INVOKED DIRECTLY around the
@@ -598,29 +652,99 @@
                         slot"))))))))))
 
 #?(:cljs
-   (deftest epoch-history-ingest-scrubs-events-on-a-record-carrying-no-rollup
+   (deftest epoch-history-ingest-drops-a-record-whose-rollup-is-missing
      (with-runtime
        (fn []
          (with-host-frame
            (fn []
-             (testing "the event-grain half: a record with NO rollup — a
-                       synthetic history seed, or one assembled before the
-                       rollup shipped — keeps the record and loses the
-                       sensitive EVENT"
+             (testing "rf2-vaont — a record with NO rollup but a sensitive
+                       event is dropped WHOLE, at the same grain the rollup
+                       gets. Scrubbing `:trace-events` and keeping the record
+                       left the cascade's payload standing in the sibling
+                       slots `build-record` derived from those same events"
                (emit-frame-bound! 1 false)
-               (emit-frame-bound! 2 true)
+               (emit-sensitive-trigger! 2)
                (let [full   (producer-record)
                      ev-id  (sensitive-event-id full)
                      record (dissoc full :rf.epoch/sensitive?)]
+                 (is (true? (:rf.epoch/sensitive? full))
+                     "precondition: the PRODUCER's own rollup reads the
+                      sensitive event, so the fixture is a real record with
+                      its rollup REMOVED — not a shape the runtime never
+                      makes")
+                 (is (some? ev-id)
+                     "precondition: the runtime minted an :id for the
+                      sensitive emit")
+                 (is (= [:user/login secret-payload] (:trigger-event record))
+                     "precondition, and the whole point of this test: the
+                      producer lifted the secret into `:trigger-event`, a
+                      SIBLING of `:trace-events`. The old event-grain scrub
+                      never reached this slot, so this is the assertion that
+                      discriminates — chasing the event :id through
+                      `:trace-events` alone passes either way")
                  (let [history (seed-and-read-history! [record])]
-                   (is (= 1 (count history))
-                       "no rollup to drop the record on, so the record stands")
-                   (is (= 1 (count (:trace-events (first history))))
-                       "but its `:trace-events` is scrubbed to the
-                        non-sensitive cascade")
+                   (is (= [] (vec history))
+                       "the record must NOT reach `:epoch-history`: the
+                        absent rollup is not a licence to keep it")
+                   (is (not (slot-mentions-secret? history))
+                       "and the payload survives NOWHERE in the slot — the
+                        bead's acceptance, probed over the whole printed
+                        structure rather than a list of slots")
                    (is (not-any? #(= ev-id (:id %))
                                  (mapcat :trace-events history))
-                       "no event with that id survives"))))))))))
+                       "no event with that id survives either"))))))))))
+
+#?(:cljs
+   (deftest epoch-history-ingest-keeps-an-ordinary-rollup-less-record
+     (with-runtime
+       (fn []
+         (with-host-frame
+           (fn []
+             (testing "CONTROL against OVER-redaction, the failure direction
+                       that is a visible bug rather than a leak: the same
+                       rollup-less shape with NO sensitive event is kept
+                       VERBATIM. A gate that dropped on the absence of the
+                       rollup, or on any event at all, would redden here"
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 false)
+               (let [full   (producer-record)
+                     record (dissoc full :rf.epoch/sensitive?)]
+                 (is (false? (:rf.epoch/sensitive? full))
+                     "precondition: the producer's rollup reads no sensitive
+                      event in this cascade")
+                 (let [history (seed-and-read-history! [record])]
+                   (is (= 1 (count history))
+                       "an ordinary record is untouched by this gate")
+                   (is (= record (first history))
+                       "and it arrives VERBATIM — not merely present, but
+                        unscrubbed, which is what a whole-record grain must
+                        not cost the innocent case")
+                   (is (= 2 (count (:trace-events (first history))))
+                       "both of its cascades survive"))))))))))
+
+#?(:cljs
+   (deftest epoch-history-ingest-passes-the-rollup-less-record-when-opted-in
+     (with-runtime
+       (fn []
+         (with-host-frame
+           (fn []
+             (testing "CONTROL — the trusted-local `:rf.egress/local-raw`
+                       opt-in is still the identity for the rollup-less
+                       shape too: the whole-record drop is profile-
+                       conditional, never a blanket refusal"
+               (config/set-egress-profile! :rf.egress/local-raw)
+               (emit-frame-bound! 1 false)
+               (emit-sensitive-trigger! 2)
+               (let [full    (producer-record)
+                     record  (dissoc full :rf.epoch/sensitive?)
+                     history (seed-and-read-history! [record])]
+                 (is (= 1 (count history))
+                     "the opted-in operator keeps the record")
+                 (is (slot-mentions-secret? history)
+                     "including its payload, verbatim — the same probe that
+                      must read false under the default profile")
+                 (is (= 2 (count (:trace-events (first history))))
+                     "and both of its cascades")))))))))
 
 #?(:cljs
    (deftest epoch-history-ingest-passes-everything-when-opted-in
