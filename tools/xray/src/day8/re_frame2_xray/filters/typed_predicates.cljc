@@ -26,10 +26,14 @@
     `:tags :machine-id` equal to `<params :machine-id>`. The right-
     click affordance on the Machines panel rows fires
     `:rf.xray/filter-by-machine` which appends this kind.
-  - `:http-correlation` — match event-bundles whose trace-events include a
-    `:tags :correlation-id` equal to `<params :correlation-id>`. The
-    right-click affordance on managed-fx HTTP records fires
-    `:rf.xray/filter-by-http-correlation`.
+  - `:http-correlation` — match the event-bundles of ONE managed-fx
+    exchange: the ISSUING bundle (a trace-event whose `:tags
+    :rf.fx/args` carries the caller's id) and the REPLY-DISPATCH
+    bundle (whose dispatched event vector carries a reply map with
+    `:correlation`). The right-click affordance on managed-fx records
+    fires `:rf.xray/filter-by-http-correlation`. See the matcher for
+    what the exchange can and cannot reach — notably NOT the
+    ungrouped completion row.
   - `:fx` — match event-bundles that triggered the fx with this `fx-id`.
     Walks the trace-events for any event whose `:tags :rf.fx/id` equals
     `<params :fx-id>`. The right-click affordance on managed-fx
@@ -193,19 +197,84 @@
                 (= target (tag-of ev :machine-id)))
               (event-bundle-trace-events event-bundle))))))
 
+;; ---- :http-correlation — the producer keys --------------------------------
+
+(def ^:private correlation-arg-keys
+  "The caller-supplied id keys a managed-fx record's correlation pill is
+  built from, read off the issuing effect's `:tags :rf.fx/args`.
+
+  This is the same key set `panels/managed_fx_helpers.cljc`'s private
+  `args-correlation-id` reads when it derives a record's
+  `:correlation-id` — `:request-id` for `:http` and `:ssr-fx`,
+  `:socket-id` for `:websocket`, `:fixed-actor-id` / `:machine-id` /
+  `:id` for `:machine-invoke`, `:flow-id` for `:flow`. The pill's value
+  IS that derived field, so matching on this set is matching back
+  exactly what the pill was made from.
+
+  Duplicated rather than shared because `args-correlation-id` is
+  private to the helpers namespace; if a surface's id key changes
+  there, change it here too."
+  [:request-id :socket-id :fixed-actor-id :machine-id :id :flow-id])
+
+(defn- issuing-effect-correlation?
+  "Does this trace event's `:rf.fx/args` carry `target` at one of the
+  caller-id keys? True on the `:rf.fx/handled` row the issuing
+  event-bundle's `:effects` carry."
+  [ev target]
+  (let [args (tag-of ev :rf.fx/args)]
+    (boolean
+      (when (map? args)
+        (some (fn [k] (= target (get args k))) correlation-arg-keys)))))
+
+(defn- reply-dispatch-correlation?
+  "Does this event-bundle's dispatched event vector carry a reply map
+  correlated with `target`?
+
+  The managed-fx families append their canonical reply map to the
+  reply-target event vector, and that map carries a `:correlation`
+  sub-map — `{:request-id <id>}` for HTTP, `{:actor-id <id> …}` for
+  machines. Matching on the sub-map's VALUES keeps this one expression
+  correct for every family without a second roster to drift."
+  [event-bundle target]
+  (boolean
+    (some (fn [el]
+            (let [corr (when (map? el) (:correlation el))]
+              (when (map? corr)
+                (some (fn [v] (= target v)) (vals corr)))))
+          (:event event-bundle))))
+
 (defmethod event-bundle-matches-by-kind? :http-correlation
-  ;; True iff any trace event in the event-bundle carries a `:tags
-  ;; :correlation-id` equal to the pill's `:correlation-id`. HTTP /
-  ;; WebSocket / managed-fx surfaces stamp this tag on the issuing
-  ;; effect + every downstream response/abort event so a single
-  ;; correlation pill captures the whole exchange's events.
+  ;; True iff this event-bundle belongs to the managed-fx exchange the
+  ;; pill names. "The exchange" is the set of event-bundles that can be
+  ;; identified FROM PRODUCER DATA, which is two of them:
+  ;;
+  ;;   - the ISSUING bundle — its `:effects` carry the `:rf.fx/handled`
+  ;;     row whose `:tags :rf.fx/args` hold the caller's id
+  ;;     (`re-frame.fx/emit-handled!` stamps the caller's args map
+  ;;     verbatim); and
+  ;;   - the REPLY-DISPATCH bundle — the run of the reply-target event,
+  ;;     whose event vector carries the canonical reply map and its
+  ;;     `:correlation` sub-map.
+  ;;
+  ;; NOT the completion row (`:rf.http/replied`). It is emitted from the
+  ;; transport callback outside any handler scope, so it carries no
+  ;; `:rf.trace/dispatch-id` and the projection buckets it into the
+  ;; shared `:ungrouped` pseudo-bundle — a catch-all holding unrelated
+  ;; exchanges' rows, so keeping it would show bundles that are not this
+  ;; exchange's. It falls out here for free: `:ungrouped` has no
+  ;; `:event` vector and no `:rf.fx/args`, so neither arm reaches it.
+  ;;
+  ;; There is deliberately NO flat `:correlation-id` tag arm. No producer
+  ;; stamps one — measured by driving a real `:rf.http/managed` request
+  ;; end to end (rf2-st7j0) — and the arm that read it matched nothing but
+  ;; its own fixtures, which is why the pill filtered the list to empty.
   [event-bundle {:keys [params]}]
   (let [target (:correlation-id params)]
     (boolean
       (when (some? target)
-        (some (fn [ev]
-                (= target (tag-of ev :correlation-id)))
-              (event-bundle-trace-events event-bundle))))))
+        (or (some (fn [ev] (issuing-effect-correlation? ev target))
+                  (event-bundle-trace-events event-bundle))
+            (reply-dispatch-correlation? event-bundle target))))))
 
 (defmethod event-bundle-matches-by-kind? :fx
   ;; True iff any trace event in the event-bundle carries a `:tags :rf.fx/id`

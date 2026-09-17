@@ -132,9 +132,18 @@
 (defn- correlation-pill
   "Render the correlation-id pill. Right-click fires
   `:rf.xray/filter-by-http-correlation` to drop a typed
-  `:http-correlation` IN pill in the ribbon (rf2-piye4) — narrows
-  the L2 event list to event-bundles that touched this exchange (issuing
-  effect, retries, response, downstream handler)."
+  `:http-correlation` IN pill in the ribbon (rf2-piye4) — narrows the
+  L2 event list to the event-bundles of this exchange that the trace
+  can actually identify: the ISSUING event (which carries the caller's
+  id on the effect's args) and the REPLY-DISPATCH event (which carries
+  the reply's `:correlation`), plus their spawning ancestors.
+
+  It does NOT list the completion row itself. That row is emitted from
+  the transport callback outside any handler scope, so it belongs to no
+  event-bundle and an event-bundle filter cannot show it (rf2-st7j0).
+  The tooltip says `issue + reply` rather than `exchange` for that
+  reason — the earlier wording promised every downstream response and
+  abort event, which no producer data supports."
   [dispatch correlation-id]
   (when correlation-id
     [:span {:data-testid "rf-xray-managed-fx-correlation"
@@ -142,7 +151,7 @@
                                (.preventDefault e)
                                (dispatch
                                  [:rf.xray/filter-by-http-correlation correlation-id]))
-            :title "Right-click to filter the event list to this HTTP exchange"
+            :title "Right-click to filter the event list to this exchange's issue + reply events"
             :style {:padding       "1px 6px"
                     :margin-left   "8px"
                     :border-radius "3px"

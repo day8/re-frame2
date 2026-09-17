@@ -151,30 +151,96 @@
 
 ;; ---- :http-correlation kind ---------------------------------------------
 
-(deftest http-correlation-matches-issuing-effect
-  (let [cascade (mk-cascade {:event   [:user/load]
-                             :effects [(tagged {:rf.fx/id          :rf.http/managed
-                                                :correlation-id "abc-123"})]})
-        pill    {:kind :http-correlation
-                 :params {:correlation-id "abc-123"}}]
-    (is (typed/event-bundle-matches-pill? cascade pill))))
+;; The fixtures below are PRODUCER SHAPES, taken from a driven
+;; `:rf.http/managed` request (rf2-st7j0): a real trace listener over a
+;; real dispatch, projected by `re-frame.trace.projection/group-by-event`.
+;; The issuing `:rf.fx/handled` row really does carry
+;; `[:tags :rf.fx/args :request-id]`, and the reply-target run's event
+;; vector really does carry the canonical reply map's `:correlation`.
+;;
+;; They replace fixtures that asserted a FLAT `:correlation-id` tag. No
+;; producer stamps one — measured 0 across every trace event of that
+;; driven run — so those fixtures pinned a shape the runtime never
+;; produces and the pill filtered the L2 list to nothing.
 
-(deftest http-correlation-matches-response-event
-  (testing "the same correlation-id stamps both issuing fx and response
-            trace events — a single pill captures the whole exchange"
-    (let [cascade (mk-cascade {:event [:rf.http/response]
-                               :other [(tagged {:operation      :rf.http/received
-                                                :correlation-id "abc-123"})]})
+(defn- issuing-fx-row
+  "The `:rf.fx/handled` row an issuing event-bundle's `:effects` carry,
+  in the shape `re-frame.fx/emit-handled!` emits."
+  [args]
+  (tagged {:rf.fx/id   :rf.http/managed
+           :rf.fx/args args
+           :frame      :rf/default}))
+
+(deftest http-correlation-matches-issuing-effect
+  (testing "the issuing bundle matches on the caller's :request-id, read
+            off the :rf.fx/handled row's :tags :rf.fx/args (rf2-st7j0)"
+    (let [cascade (mk-cascade
+                    {:event   [:article/load {:slug "hello"}]
+                     :effects [(issuing-fx-row {:request-id "abc-123"
+                                                :decode     :json
+                                                :reply-to   [:article/load {:slug "hello"}]
+                                                :request    {:url "/articles/hello"}})]})
           pill    {:kind :http-correlation
                    :params {:correlation-id "abc-123"}}]
       (is (typed/event-bundle-matches-pill? cascade pill)))))
 
+(deftest http-correlation-matches-reply-dispatch-bundle
+  (testing "the reply-target run matches on the canonical reply map's
+            :correlation, carried on the dispatched event vector"
+    (let [cascade (mk-cascade
+                    {:event [:article/load {:slug "hello"}
+                             {:status             :ok
+                              :value              {:article {:title "hello"}}
+                              :correlation        {:request-id "abc-123"}
+                              :rf.reply/work-id   [:rf.work/http "abc-123" 1 1]
+                              :rf.reply/work-kind :http}]})
+          pill    {:kind :http-correlation
+                   :params {:correlation-id "abc-123"}}]
+      (is (typed/event-bundle-matches-pill? cascade pill)))))
+
+(deftest http-correlation-matches-non-http-surface-args
+  (testing "the pill is built from whichever caller-id key the record's
+            surface uses, so the matcher reads the same set — a websocket
+            record's :socket-id here"
+    (let [cascade (mk-cascade
+                    {:event   [:socket/open]
+                     :effects [(issuing-fx-row {:socket-id :sock-1})]})
+          pill    {:kind :http-correlation
+                   :params {:correlation-id :sock-1}}]
+      (is (typed/event-bundle-matches-pill? cascade pill)))))
+
 (deftest http-correlation-no-match
-  (let [cascade (mk-cascade {:event   [:user/load]
-                             :effects [(tagged {:correlation-id "different"})]})
-        pill    {:kind :http-correlation
-                 :params {:correlation-id "abc-123"}}]
-    (is (not (typed/event-bundle-matches-pill? cascade pill)))))
+  (testing "a DIFFERENT :request-id in the same producer shape does not match"
+    (let [cascade (mk-cascade
+                    {:event   [:article/load]
+                     :effects [(issuing-fx-row {:request-id "different"})]})
+          pill    {:kind :http-correlation
+                   :params {:correlation-id "abc-123"}}]
+      (is (not (typed/event-bundle-matches-pill? cascade pill))))))
+
+(deftest http-correlation-ignores-the-invented-flat-tag
+  (testing "rf2-st7j0 — a flat :correlation-id TAG is not a producer shape;
+            nothing stamps one, so the matcher must not answer to it. This
+            pins the retired fixture shape OUT, so it cannot creep back."
+    (let [cascade (mk-cascade {:event   [:article/load]
+                               :effects [(tagged {:correlation-id "abc-123"})]})
+          pill    {:kind :http-correlation
+                   :params {:correlation-id "abc-123"}}]
+      (is (not (typed/event-bundle-matches-pill? cascade pill))))))
+
+(deftest http-correlation-ignores-the-ungrouped-completion-row
+  (testing "rf2-st7j0 — the `:rf.http/replied` completion row is emitted
+            outside any handler scope, so the projection buckets it into the
+            shared :ungrouped pseudo-bundle. That bundle holds unrelated
+            exchanges' rows, so it is deliberately NOT this exchange's."
+    (let [ungrouped (mk-cascade
+                      {:other [(tagged {:rf.reply/work-id   [:rf.work/http "abc-123" 1 1]
+                                        :rf.reply/work-kind :http
+                                        :correlation        {:request-id "abc-123"}
+                                        :status             :ok})]})
+          pill      {:kind :http-correlation
+                     :params {:correlation-id "abc-123"}}]
+      (is (not (typed/event-bundle-matches-pill? ungrouped pill))))))
 
 ;; ---- :fx kind -----------------------------------------------------------
 
@@ -203,8 +269,7 @@
     (let [cascade-a (mk-cascade {:event   [:user/click]
                                  :effects [(tagged {:machine-id :form})]})
           cascade-b (mk-cascade {:event   [:user/load]
-                                 :effects [(tagged {:rf.fx/id :rf.http/managed
-                                                    :correlation-id "abc"})]})
+                                 :effects [(issuing-fx-row {:request-id "abc"})]})
           filters   {:in [{:kind :machine :params {:machine-id :form}}
                           {:kind :http-correlation :params {:correlation-id "abc"}}]
                      :out []}]
@@ -301,8 +366,9 @@
                                      :event       [:user/load-page]})
           child   (mk-child-cascade {:dispatch-id        200
                                      :parent-dispatch-id 100
-                                     :event             [:rf.http/response]
-                                     :other             [(tagged {:correlation-id "abc-123"})]})
+                                     :event             [:article/load {}
+                                                         {:status      :ok
+                                                          :correlation {:request-id "abc-123"}}]})
           other   (mk-child-cascade {:dispatch-id 300
                                      :event       [:other/thing]})
           filters {:in  [{:kind :http-correlation
