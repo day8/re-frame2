@@ -695,9 +695,36 @@ Erlang-Observer-for-managed-effects.
 #### F.3 — "This request retried 5 times and finally failed. What was the backoff?"
 
 **Bug class:** Silent retry chain. `:retry {:on ... :max-attempts 5 :backoff
-{:initial 100 :max 5000}}` retried at growing intervals. Each attempt emits
-its own `:rf.http/retry-attempt` trace; the terminal reply is one
-`:rf.http/replied`. User wants a timeline of attempts with timing.
+{:base-ms 100 :factor 2 :max-ms 5000}}` retried at growing intervals; the
+runtime emits `:rf.http/retry-attempt` info traces along the way, and the
+terminal reply is one `:rf.http/replied`. User wants a timeline of attempts
+with timing.
+
+**Two shapes, not one marker per attempt.** `:rf.http/retry-attempt` has two
+arms, told apart by `:recovery` — hoisted to the top level of the `:info`
+event — or equivalently by `:next-backoff-ms` under `:tags`:
+
+- **Retry handoff** — `:recovery :retried`, `:next-backoff-ms` non-nil.
+  Emitted only once the backoff has elapsed, the successor attempt is
+  registered and the request is confirmed still uncancelled, so it means the
+  next attempt is about to issue rather than merely that one was scheduled.
+  Its `:next-backoff-ms` is the delay just served, not one still to come.
+- **Terminal stop** — `:recovery :no-recovery`, `:next-backoff-ms` nil. The
+  sequence ended and **nothing further is scheduled** — either the attempt
+  budget was spent, or a later attempt failed with a category outside
+  `:retry :on`. It is not another request.
+
+**Both arms carry the `:attempt` that just FAILED**, never the one about to
+run. An exhausted three-attempt sequence reads `:attempt` 1, 2, 3 — two
+handoffs, into attempts 2 and 3, then a stop.
+
+**And a marker is not a network attempt.** Issuing a request emits no marker, so
+one that succeeds first time emits none at all; a cancellation during a
+backoff window emits no phantom `:retried` for a retry that never happened; and
+a terminal failure that never retried and was not retry-eligible emits no stop
+marker either. So a timeline reads a handoff as "the next attempt starts here",
+a stop as the end of the sequence, and the single `:rf.http/replied` as the
+outcome.
 
 **Insight Xray provides:** A **retry timeline** under the fx row:
 
