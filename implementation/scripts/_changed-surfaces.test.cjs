@@ -2143,18 +2143,39 @@ test('implementation/epoch is NOT in the scaffold — does NOT arm template_expe
 });
 
 test('Other per-feature artefacts (machines/flows/ssr) do NOT arm mcp_live — no live MCP dep (rf2-ribu5a scope)', () => {
+  // The mcp_live half is this test's subject and is UNCHANGED: epoch's live
+  // fixture :local/root is epoch's alone, and none of these three has one.
   for (const file of [
     'implementation/machines/src/re_frame/machines.cljc',
     'implementation/flows/src/re_frame/flows.cljc',
     'implementation/ssr/src/re_frame/ssr.cljc',
   ]) {
-    const result = classify(file);
     assert.equal(
-      result.mcp_live,
+      classify(file).mcp_live,
       'false',
       `${file} has no live MCP fixture dependency; it must NOT arm mcp_live`,
     );
-    assert.equal(result.mcp_conformance, 'false', `${file} must NOT arm mcp_conformance`);
+  }
+
+  // rf2-17a0v — the mcp_conformance half now runs over flows and ssr ONLY, and
+  // machines has left the list on evidence rather than convenience. When this
+  // was written no per-feature artefact was read by any conformance suite, so
+  // one sample stood for the whole class. That is no longer true: the
+  // wire-vocab suites read FIVE files under implementation/machines/src as
+  // text, so machines/src arms mcp_conformance deliberately and the row above
+  // would have been pinning the very hole rf2-17a0v closed. flows and ssr are
+  // still read by no conformance suite and still carry the scope statement —
+  // which is the assertion that would catch these arms widening into the
+  // generic per-feature bucket.
+  for (const file of [
+    'implementation/flows/src/re_frame/flows.cljc',
+    'implementation/ssr/src/re_frame/ssr.cljc',
+  ]) {
+    assert.equal(
+      classify(file).mcp_conformance,
+      'false',
+      `${file} is read by no conformance suite; it must NOT arm mcp_conformance`,
+    );
   }
 });
 
@@ -2287,6 +2308,185 @@ test('mcp-conformance-wire-vocab is job-level gated on mcp_conformance (rf2-01di
     block,
     /if: needs\.detect_changed_surfaces\.outputs\.mcp_conformance == 'true'/,
   );
+});
+
+// rf2-17a0v — THE REMAINDER OF THE WIRE-VOCAB HOLE, DECIDED PER TREE.
+//
+// The suites' roster is TWELVE implementation files, not the two rf2-01dix
+// closed. The same `read-source` slurp reaches five under
+// implementation/machines/src and four under implementation/resources/src, and
+// two of the resources entries arrive through a THIRD suite the rf2-01dix work
+// never saw — infinite_trace_ops_test.clj, which pins the four EP-0021
+// `:rf.resource/*` ops and the loud-merge error as DATA.
+//
+// The roster below was NOT read off the suites' source. It is the union of a
+// dynamic recording: the whole wire-vocab suite run under a JVM open-audit
+// (a permissive SecurityManager plus wrappers over slurp / io reader /
+// io input-stream), filtered to repo-rooted paths. That is what a file the
+// suite OPENS looks like, as against one it merely names.
+//
+// WHY MACHINES AND RESOURCES ARE ARMED AND ROUTING IS NOT is a measurement,
+// and the pins below carry both halves so neither can be widened by reflex.
+// Each tree got the same treatment: plant the regression the wire-vocab suite
+// exists to catch, then run the artefact's OWN already-armed JVM suite against
+// the same plant.
+//
+//   machines  — a bare `:work/id` beside `:rf.reply/work-id` in one emitter
+//               map. wire-vocab RED; the machines artefact suite GREEN, with
+//               test and assertion counts identical to its baseline.
+//   resources — a snake_case rename of `:rf.resource/page-appended`.
+//               wire-vocab RED twice over (the per-file emit pin AND the
+//               near-miss anti-pin); the resources artefact suite GREEN, again
+//               on identical counts.
+//   routing   — the wire-vocab positive pin is `some` ACROSS four emit
+//               sources, so a routing-confined RENAME ran GREEN. The only
+//               assertion a routing-only diff can red is the per-file
+//               near-miss anti-pin — and
+//               implementation/routing/test/re_frame/routing_nav_token_test.clj
+//               reds on that same plant, inside implementation_jvm, which a
+//               routing/src diff already arms. Confirmed on the weakest key
+//               too. So the four MCP jobs would buy no discrimination the
+//               armed lane lacks.
+//
+// Both rosters go through `pinnedRoster` deliberately, and that is not
+// bookkeeping: the arm is a DIRECTORY prefix, so a phantom path under it
+// classifies `true` byte-identically to the real file beside it and a positive
+// pin on one passes VACUOUSLY. rf2-01dix observed exactly that live. The
+// existence guard is what makes each row below able to fail.
+
+const MACHINES_WIRE_VOCAB_EMIT_SOURCES = pinnedRoster('MACHINES_WIRE_VOCAB_EMIT_SOURCES', [
+  'implementation/machines/src/re_frame/machines/lifecycle_fx/finalize.cljc',
+  'implementation/machines/src/re_frame/machines/lifecycle_fx/join.cljc',
+  'implementation/machines/src/re_frame/machines/lifecycle_fx/traces.cljc',
+  'implementation/machines/src/re_frame/machines/timer.cljc',
+  'implementation/machines/src/re_frame/machines/transition.cljc',
+]);
+
+const RESOURCES_WIRE_VOCAB_EMIT_SOURCES = pinnedRoster('RESOURCES_WIRE_VOCAB_EMIT_SOURCES', [
+  'implementation/resources/src/re_frame/resources/events.cljc',
+  'implementation/resources/src/re_frame/resources/mutation_events.cljc',
+  'implementation/resources/src/re_frame/resources/reply_handlers.cljc',
+  'implementation/resources/src/re_frame/resources/state.cljc',
+]);
+
+for (const file of [...MACHINES_WIRE_VOCAB_EMIT_SOURCES, ...RESOURCES_WIRE_VOCAB_EMIT_SOURCES]) {
+  test(`${file} arms mcp_conformance — the wire-vocab suites read it (rf2-17a0v)`, () => {
+    assert.equal(
+      classify(file).mcp_conformance,
+      'true',
+      `${file} is read as text by the wire-vocab conformance suites; a change to it must ` +
+        'schedule mcp-conformance-wire-vocab, the only job that runs them',
+    );
+  });
+}
+
+test('a NON-rostered machines/resources source file arms mcp_conformance too — the arm is the directory (rf2-17a0v)', () => {
+  // The same deliberate over-arm rf2-01dix took for HTTP, and here it is not
+  // hypothetical: BOTH of these carry more `:rf.reply/*` occurrences than any
+  // file the suites actually roster in their tree. The suites' roster already
+  // trails the emitters, so an enumeration in the classifier would drift in
+  // the reassuring direction — the missing row being a skipped gate.
+  assert.equal(
+    classify('implementation/machines/src/re_frame/machines/reply.cljc').mcp_conformance,
+    'true',
+  );
+  assert.equal(
+    classify('implementation/resources/src/re_frame/resources/reply.cljc').mcp_conformance,
+    'true',
+  );
+});
+
+test('machines and resources source keep their whole generic per-feature fan-out (regression) (rf2-17a0v)', () => {
+  // The edit adds one output inside the existing per-feature arm; this is what
+  // would silently go if it were ever refactored into a case of its own.
+  // machines carries the widest fan-out of the two, so it is pinned in full.
+  const machines = classify('implementation/machines/src/re_frame/machines/transition.cljc');
+  for (const key of [
+    'implementation_jvm',
+    'cljs_node_test',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'examples_compile',
+    'tools_jvm_machines_viz',
+    'tools_cljs_machines_viz',
+    'playground',
+  ]) {
+    assert.equal(machines[key], 'true', `machines source must retain ${key}`);
+  }
+
+  const resources = classify('implementation/resources/src/re_frame/resources/events.cljc');
+  for (const key of [
+    'implementation_jvm',
+    'cljs_node_test',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'examples_compile',
+  ]) {
+    assert.equal(resources[key], 'true', `resources source must retain ${key}`);
+  }
+});
+
+test('machines and resources source do NOT arm mcp_live (rf2-17a0v)', () => {
+  // mcp_live is epoch's (rf2-ribu5a): the re-frame2-pair live fixture resolves
+  // day8/re-frame2-epoch as a :local/root. Nothing resolves these two, and the
+  // wire-vocab suites need no classpath edge at all — they read text.
+  assert.equal(
+    classify('implementation/machines/src/re_frame/machines/transition.cljc').mcp_live,
+    'false',
+  );
+  assert.equal(
+    classify('implementation/resources/src/re_frame/resources/events.cljc').mcp_live,
+    'false',
+  );
+});
+
+test('machines and resources test/ and deps.edn stay OFF mcp_conformance — the suites read src text only (rf2-17a0v)', () => {
+  // The `src/*` half of the scope discipline, and the assertion that
+  // discriminates these arms from whole-tree ones. Between them these test
+  // trees carry the bulk of both artefacts' files and no conformance suite
+  // reads one, so a test-only diff must not queue four MCP jobs to grade
+  // nothing.
+  for (const file of [
+    'implementation/machines/test/re_frame/spawn_all_test.clj',
+    'implementation/machines/deps.edn',
+    'implementation/resources/test/re_frame/resources_work_ledger_cljs_test.cljc',
+    'implementation/resources/deps.edn',
+  ]) {
+    assert.equal(
+      classify(file).mcp_conformance,
+      'false',
+      `${file} is not read by any wire-vocab suite; it must not arm mcp_conformance`,
+    );
+  }
+});
+
+test('routing source is DELIBERATELY not armed for mcp_conformance (rf2-17a0v)', () => {
+  // NOT an oversight, and not the hole rf2-01dix found: this one was measured
+  // and declined. reply_envelope_test.clj does roster
+  // implementation/routing/src/re_frame/routing/nav_token.cljc, but its
+  // positive pin is `some` across four emit sources, so a routing-confined
+  // rename cannot red it. The one assertion that can — the per-file near-miss
+  // anti-pin — is matched by
+  // implementation/routing/test/re_frame/routing_nav_token_test.clj, which
+  // reds on the same plant inside implementation_jvm, a lane a routing/src
+  // diff ALREADY arms. Arming here would add four MCP jobs and no
+  // discrimination.
+  //
+  // Widen this only on new evidence: a second reply-envelope emitter landing
+  // under implementation/routing/src, or routing_nav_token_test.clj ceasing to
+  // assert these keys. Change this row and the classifier together.
+  assert.equal(
+    classify('implementation/routing/src/re_frame/routing/nav_token.cljc').mcp_conformance,
+    'false',
+  );
+  // …while keeping every lane that DOES grade it, so the decline cannot be
+  // mistaken for the tree classifying to nothing.
+  const routing = classify('implementation/routing/src/re_frame/routing/nav_token.cljc');
+  for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod']) {
+    assert.equal(routing[key], 'true', `routing source must retain ${key}`);
+  }
 });
 
 test('tools/template change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
