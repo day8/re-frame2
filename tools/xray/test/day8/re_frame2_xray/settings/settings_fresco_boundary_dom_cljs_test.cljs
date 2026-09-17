@@ -15,14 +15,20 @@
   committed DOM can answer those, and this file is the settings sibling
   of `shell_fresco_boundary_dom_cljs_test`.
 
-  ## The mount is the PRODUCTION crossing
+  ## The mount is the PRODUCTION crossing, under a REAGENT parent
 
-  `shell.cljs`'s `shell-view` is still an `rf/reg-view` — severing that
-  is the parent epic's coupling (1) and a later slice — and it mounts
-  these two modals as the Reagent hiccup heads `[settings-popup/Modal]`
-  and `[editor-hint/Toast]`, inside its own `[rf/frame-provider …]`.
-  [[mount-modal!]] reproduces exactly that two-level form and nothing
-  else. The shell's surrounding chrome is
+  `shell.cljs`'s `shell-view` is NOT an `rf/reg-view` — it is a plain
+  `defn` lowering `shell/ShellView`, a Fresco boundary — and the parent
+  epic's coupling (1) is SEVERED rather than a later slice: `mount.cljs`
+  owns a Fresco client root and never calls the installed adapter's
+  `:render`. Production mounts these two modals by CALLING
+  `(settings-popup/Modal)` and `(editor-hint/Toast)` inside `ShellView`'s
+  body, under its own `[rf.fresco/frame-provider …]`.
+  [[mount-modal!]] reproduces that provider-over-modal form and nothing
+  else, and supplies the one thing production no longer does — a REAGENT
+  parent, which is the harder crossing and the one the `as-component`
+  bridge is kept for (`settings/popup.cljs`'s NOT SCAFFOLDING note,
+  rf2-lect). The shell's surrounding chrome is
   `shell_fresco_boundary_dom_cljs_test`'s subject, not this file's; what
   is under test here is the crossing — Reagent parent → plain-fn bridge →
   `[:>]` → Fresco boundary → React context frame → `rf.fresco/sub`.
@@ -168,8 +174,8 @@
   nil)
 
 (defn- mount-modal!
-  "Mount one shell-root modal the way `shell.cljs` mounts it — the
-  enclosing `frame-provider` included:
+  "Mount one shell-root modal under a REAGENT parent — the enclosing
+  `frame-provider` `shell.cljs` puts above it included:
 
       [rf/frame-provider {:frame …} [settings-popup/Modal]]
 

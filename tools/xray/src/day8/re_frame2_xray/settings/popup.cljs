@@ -130,12 +130,17 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; `shell.cljs`'s `shell-view` is STILL an `rf/reg-view` — it is the Reagent
-;; root `mount.cljs` renders through the installed adapter's `:render`, and
-;; severing that is the parent epic's coupling (1), a later slice — and it
-;; mounts this modal as the Reagent hiccup head `[settings-popup/Modal]`.
-;; A React component is not a legal Reagent head, so the name that file
-;; reaches for has to stay a callable answering Reagent-shaped hiccup.
+;; `shell.cljs`'s `shell-view` is NOT an `rf/reg-view` — it is a plain
+;; `defn` lowering `shell/ShellView`, a Fresco boundary — and the parent
+;; epic's coupling (1) is SEVERED rather than a later slice: `mount.cljs`
+;; owns a Fresco client root and never calls the installed adapter's
+;; `:render` at all. Production therefore reaches this modal by CALLING
+;; `(settings-popup/Modal)` inside `ShellView`'s body, under that view's
+;; own `rf.fresco/frame-provider`.
+;;
+;; THE NAME STILL HAS TO BE A REAGENT-SHAPED CALLABLE, because a React
+;; component is not a legal Reagent head and a caller that heads this
+;; name from a REAGENT tree still ships — see NOT SCAFFOLDING below.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
 ;; it answers a real React component for a boundary, which a React parent

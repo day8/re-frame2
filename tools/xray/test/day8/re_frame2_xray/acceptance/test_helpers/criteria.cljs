@@ -58,10 +58,12 @@
   installed adapter's `:render`, the epic's coupling (1) — so the Static
   ribbon was the only piece of Xray whose mount was adapter-INDEPENDENT.
   THAT IS NO LONGER TRUE. rf2-k97c.3 (PR #9708) made the shell a Fresco
-  boundary Xray paints through its own root, and the only surviving
-  `rf/reg-view` under `tools/xray/src` is `shell/event-list`, which
-  cannot migrate because `panel-registry/reg-l4-tab!` carries
-  `:pre [(fn? panel)]`.
+  boundary Xray paints through its own root, so the shipped shell is a
+  legal subject here. `rf/reg-view`s do survive elsewhere under
+  `tools/xray/src`, `shell/event-list` among them, and each one's own
+  registration site carries the account of what its migration waits on —
+  no count of them belongs in this docstring, because a count is the
+  thing that goes stale.
 
   THAT PARAGRAPH PROMISED THE WIDENING WOULD COST ONE LINE — *the vector
   [[mount-xray!]] renders* — AND IT COST TWO, which is worth recording
