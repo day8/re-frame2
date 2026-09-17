@@ -504,7 +504,14 @@
   ([top before] (top-section top before nil))
   ([top before instance-id] (top-section top before instance-id nil))
   ([top before instance-id redacted-modified]
-   (let [title  [:span "app-db" (redacted-modified-chip redacted-modified)]
+   (let [;; `conj` only when there IS a chip, rather than letting a nil
+         ;; child ride: with no count this title is the `[:span "app-db"]`
+         ;; it has always been, byte for byte. The header crosses a Fresco
+         ;; boundary as a prop, and "identical when the feature is off" is
+         ;; worth more there than the one-liner.
+         chip   (redacted-modified-chip redacted-modified)
+         title  (cond-> [:span "app-db"]
+                  (some? chip) (conj chip))
          empty? (and (map? top) (empty? top))]
      (section-shell
        {:testid       "rf-xray-app-db-state-top"
