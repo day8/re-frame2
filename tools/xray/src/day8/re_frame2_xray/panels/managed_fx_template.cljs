@@ -39,12 +39,19 @@
   └────────────────────────────────────────────────────────────────┘
   ```
 
-  The issuing event-bundle holds exactly one HTTP fact — the request went
-  out — because every row the runtime emits afterwards is emitted from a
-  transport callback with no handler scope, or inside a different run's
-  drain. So there is no phase, no wire timing, no response and no
-  app-db slice to draw, and the record says `ISSUED` rather than `OK`.
-  See `managed-fx-helpers/http-adapter`.
+  The issuing event-bundle holds essentially one HTTP fact — the request
+  went out — because almost every row the runtime emits afterwards is
+  emitted from a transport callback with no handler scope, or inside a
+  different run's drain. So there is no phase, no wire timing, no response
+  and no app-db slice to draw, and the record says `ISSUED` rather than
+  `OK`.
+
+  Two rows DO reach the issuing bundle, because both run inside the issuing
+  fx handler's own stack: a synchronous request-body-prep failure, and the
+  `:rf.http/aborted` an issuance fires at the attempt it SUPERSEDES
+  (rf2-n3sx9). Which of them belongs to which record is
+  `managed-fx-helpers/http-row-for-this-record?`'s call, not this ns's —
+  see `managed-fx-helpers/http-adapter`.
 
   ## Five surfaces, one template
 
@@ -623,10 +630,11 @@
    (panel-header dispatch record)
    ;; WHICH SECTIONS AN HTTP RECORD DRAWS IS NARROWER THAN THE OTHER
    ;; FOUR SURFACES', and that is the shape of the trace rather than a
-   ;; feature gap. The issuing event-bundle holds exactly one HTTP fact —
-   ;; that the request went out — because every later row is emitted
-   ;; without a handler scope or inside another run's drain (see
-   ;; `managed-fx-helpers/http-trace-operations`). So WIRE TIMING,
+   ;; feature gap. The issuing event-bundle holds essentially one HTTP
+   ;; fact — that the request went out — because almost every later row is
+   ;; emitted without a handler scope or inside another run's drain (see
+   ;; `managed-fx-helpers/http-trace-operations` for the two that are not,
+   ;; and which record each belongs to). So WIRE TIMING,
    ;; RESPONSE and APP-DB SLICE have nothing to read for HTTP, and a
    ;; section drawn over nothing is not neutral: the old RESPONSE row
    ;; read "(no response payload yet)", which says a reply is still
