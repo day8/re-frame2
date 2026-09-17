@@ -56,7 +56,6 @@ model (§8):
 │ ▼ FRAMES  (N)                                                   │
 │   :counter/main                                                 │
 │     image     12 descriptors · 6 kinds  :docs.counter/v2        │
-│     caps      :rf.capability/http                               │
 │     resolves  this frame resolves (kind id) through its image   │
 │       event :counter/inc    docs.counter.v2                     │
 │       sub   :counter/value  docs.counter.v2                     │
@@ -115,12 +114,12 @@ Cmd-K palette picks it up automatically (the palette reads
   **Read-only** — enumerating image-loaded frames and reading sealed
   generations pins nothing and dispatches nothing.
 - The surface carries frame/image **ids and structural descriptors** — frame
-  ids, image ids, `[kind id]` pairs, provenance namespace strings / inline
-  coordinates, and capability keywords. These are **structural descriptors**,
-  not app-db values. No handler values or app-db data egress through this
-  surface (frame STATE — app-db / runtime-db — is the App-db tab's concern;
-  this tab shows the IMAGE, the instruction set). Should a future slice surface
-  value-bearing metadata, the off-box egress posture — the
+  ids, image ids, `[kind id]` pairs, and provenance namespace strings / inline
+  coordinates. These are **structural descriptors**, not app-db values. No
+  handler values or app-db data egress through this surface (frame STATE —
+  app-db / runtime-db — is the App-db tab's concern; this tab shows the IMAGE,
+  the instruction set). Should a future slice surface value-bearing metadata,
+  the off-box egress posture — the
   [`025`](025-Derivation-Graph-Panel.md) §egress redaction pattern — would
   apply to it.
 
@@ -138,20 +137,20 @@ presents the three load-bearing nouns
 
 - **image** — the selected registration-set VALUE a frame resolves against.
   The inspectable, sealed form is the *resolved image generation*: a
-  `{[kind id] descriptor}` resolver plus the union capability requirements and
-  the kinds present. An image is presented AS THAT SET OF `[kind id]`
-  descriptors — *"which registrations are visible to this frame?"*. Each
-  descriptor carries its **provenance**: a source namespace (`:rf.provenance/ns`
-  string), an inline coordinate (`:rf.provenance/image` / `:rf.provenance/inline`),
-  or the framework-standard marker (`:standard true`). An image is data, not
-  state, and not the running object (EP-0023 §Image).
+  `{[kind id] descriptor}` resolver plus the kinds present (EP-0026,
+  rf2-dlvmpc: the generation no longer carries a `:rf.gen/requires` capability
+  set — image-declared host capabilities are removed). An image is presented AS
+  THAT SET OF `[kind id]` descriptors — *"which registrations are visible to
+  this frame?"*. Each descriptor carries its **provenance**: a source namespace
+  (`:rf.provenance/ns` string), an inline coordinate (`:rf.provenance/image` /
+  `:rf.provenance/inline`), or the framework-standard marker (`:standard true`).
+  An image is data, not state, and not the running object (EP-0023 §Image).
 - **frame** — the live EXECUTION CONTEXT that POINTS AT the ONE resolved image
   generation it runs (EP-0023 §Frame). Presented as a frame-row: the frame id
   (or `<anonymous>` for a direct, no-id frame object), the image summary
-  (`N descriptors · K kinds`), the host capability keys, the active-substrate
-  adapter binding presence, and the resolved descriptor set. The frame is
-  *"what has happened in this run?"*; the image is *"what can this frame
-  run?"* (EP-0023 §Two Boundaries).
+  (`N descriptors · K kinds`), the active-substrate adapter binding presence,
+  and the resolved descriptor set. The frame is *"what has happened in this
+  run?"*; the image is *"what can this frame run?"* (EP-0023 §Two Boundaries).
 - **frame-derived RESOLUTION** — the lookup path
   `target frame -> resolved image generation -> registration resolution`
   (EP-0023 §Specification). The SAME `(kind, id)` resolves to DIFFERENT
@@ -194,24 +193,25 @@ re-create, re-asserting only the gate.
 
 **The test-namespace collision and its fix (rf2-rjml45).** Flipping the singleton
 exposed a selector-grain blocker: `xray-image`'s `day8.re-frame2-xray.**`
-`:include-ns` glob sweeps in Xray's OWN `*-cljs-test` + `test-helpers.**`
-namespaces in any dev/test build that loads them, and those co-register the same
-`:rf.xray/*` ids the production sources do (e.g. `[:fx :rf.xray.fx/open-in-editor]` from both
-`open-in-editor` and `open-in-editor-cljs-test`) — so assembling the image failed
-loud (`:rf.error/image-duplicate-id`) under the node-test build. The fix is an
-EP-0023 `:exclude-ns` SELECTOR (added to the framework image API) that subtracts
-those namespaces from the production image: `xray-image` declares
-`:exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
-"day8.re-frame2-xray.test-helpers.**"]`. `:exclude-ns` is a subtractive narrowing
-knob over `:include-ns` (matched by provenance namespace, NOT zero-match
-fail-loud — a defensive guard); the `*-cljs-test` form relies on the EP-0023
-intra-segment `*` wildcard (each `*` matches zero-or-more chars within one
-segment, never crossing a `.`), so the trailing `*-cljs-test` matches a leaf
-segment suffix at any depth via `**`. Production builds never load the excluded
-namespaces, so the exclude is a no-op there. With the test registrations
-subtracted, the production image assembles WITHOUT a collision (the node-test
-suite is green with the flip applied), and `xray-image` ships this `:exclude-ns`
-today.
+`:select-ns :include` glob sweeps in Xray's OWN `*-cljs-test` +
+`test-helpers.**` namespaces in any dev/test build that loads them, and those
+co-register the same `:rf.xray/*` ids the production sources do
+(e.g. `[:fx :rf.xray.fx/open-in-editor]` from both `open-in-editor` and
+`open-in-editor-cljs-test`) — so assembling the image failed loud
+(`:rf.error/image-duplicate-id`) under the node-test build. The fix is the
+subtractive `:select-ns :exclude` selector (EP-0026 §Namespace Selection) that
+subtracts those namespaces from the production image: `xray-image` declares
+`:select-ns {:include ["day8.re-frame2-xray.**"] :exclude
+["day8.re-frame2-xray.**.*-cljs-test" "day8.re-frame2-xray.test-helpers.**"]}`.
+The `:exclude` half is a subtractive narrowing knob over `:include` (matched by
+provenance namespace, NOT zero-match fail-loud — a defensive guard); the
+`*-cljs-test` form relies on the EP-0023 intra-segment `*` wildcard (each `*`
+matches zero-or-more chars within one segment, never crossing a `.`), so the
+trailing `*-cljs-test` matches a leaf segment suffix at any depth via `**`.
+Production builds never load the excluded namespaces, so the exclude is a no-op
+there. With the test registrations subtracted, the production image assembles
+WITHOUT a collision (the node-test suite is green with the flip applied), and
+`xray-image` ships this `:select-ns :exclude` today.
 
 **Host-registry reads under image-loaded seating (the second flip blocker, now
 fixed).** Flipping the singleton onto `seat-xray-frame!` surfaced a second blocker
@@ -282,11 +282,12 @@ Comparing the full keysets would therefore report a false-positive overlap on
 the shared standard; `application_resolver_keyset` filters the `:standard true`
 descriptors out before the comparison, so the predicate measures the genuine
 application-registration leak. This is stronger than comparing the
-`:rf.image/include-ns` selector STRINGS (the prior proxy): different globs
-can select OVERLAPPING namespaces, and inline `:registrations` carry no
-`:include-ns` selector at all, yet either can introduce a shared `[kind id]` —
-the keyset comparison catches both, the string comparison neither. The
-predicate is fail-soft: a throw during assembly (a zero-match `:include-ns`, a
+`:rf.image/include-ns` selector STRINGS (the prior proxy — the normalized
+internal slot the selector still lowers to): different globs can select
+OVERLAPPING namespaces, and inline `:registrations` carry no `:select-ns`
+selector at all, yet either can introduce a shared `[kind id]` — the keyset
+comparison catches both, the string comparison neither. The predicate is
+fail-soft: a throw during assembly (a zero-match `:select-ns :include`, a
 collision, an old core) means isolation could not be assembled and proven, so it
 is CONSERVATIVE and returns `false` (not-proven-isolated) rather than a
 false-positive `true`. It offers a live-store arity (assemble both against the
@@ -322,11 +323,11 @@ does not flip `:images?` (there is no image content to show).
   image-loaded frames and reading sealed generations pins nothing and dispatches
   nothing (a sealed generation is an immutable VALUE, not a routing path).
 - The surface carries frame/image **ids and structural descriptors** — frame
-  ids, image ids, `[kind id]` pairs, provenance namespace strings / inline
-  coordinates, and capability keywords. These are **structural descriptors**,
-  not app-db values. No handler values or app-db data egress through this
-  surface (frame STATE — app-db / runtime-db — is the App-db tab's concern; this
-  tab shows the IMAGE, the instruction set).
+  ids, image ids, `[kind id]` pairs, and provenance namespace strings / inline
+  coordinates. These are **structural descriptors**, not app-db values. No
+  handler values or app-db data egress through this surface (frame STATE —
+  app-db / runtime-db — is the App-db tab's concern; this tab shows the IMAGE,
+  the instruction set).
 
 ### §8.4 Implementation & tests
 
@@ -373,9 +374,10 @@ does not flip `:images?` (there is no image content to show).
   `image_view_reads_cljs_test` (seats against an explicit pool; asserts the
   seated frame resolves ONLY Xray's app-owned ids, the trace-no-emit gate is
   set, and re-seat is idempotent — no duplicate-`:id` throw). The `xray-image`
-  `:exclude-ns` is covered by `xray-image-excludes-its-own-test-registrations`
-  (a pool carrying a production id and its `*-cljs-test` sibling selects ONLY the
-  production descriptor and assembles without a dup-id).
+  `:select-ns :exclude` is covered by
+  `xray-image-excludes-its-own-test-registrations` (a pool carrying a production
+  id and its `*-cljs-test` sibling selects ONLY the production descriptor and
+  assembles without a dup-id).
 - The `{:source :store …}` query form — the host-app registry read that
   survives Xray running in its OWN image-loaded frame.
   `(rf/registrations {:source :store :kind k})` and
@@ -393,11 +395,11 @@ does not flip `:images?` (there is no image content to show).
 - `mount.cljs/ensure-xray-frame!` — seats the production singleton in its OWN
   image-loaded frame via `image_view_reads/seat-xray-frame!` (`seat-xray-frame!
   :rf/xray` → `rf/make-frame {:id :rf/xray :images [(xray-image)]}`). The dup-id
-  blocker is resolved by the `:exclude-ns` selector on `xray-image` (§8.1), and
-  the host-registry read regression under image-loaded seating is resolved by
-  the `{:source :store …}` query form (the source-store reads above);
-  both node-test and the `routes-epochs` nightly xray-feature-gate are green with
-  the flip. The runtime-reset test fixture
+  blocker is resolved by the `:select-ns :exclude` globs on `xray-image`
+  (§8.1), and the host-registry read regression under image-loaded seating is
+  resolved by the `{:source :store …}` query form (the source-store reads
+  above); both node-test and the `routes-epochs` nightly xray-feature-gate are
+  green with the flip. The runtime-reset test fixture
   (`re-frame.test-support/make-reset-runtime-fixture`) clears the ONE
   `frame/frames` registry (EP-0024, rf2-tu2vr7 — the live-frame registry
   dissolved into it; an image-loaded frame is a record carrying a `:generation`),
