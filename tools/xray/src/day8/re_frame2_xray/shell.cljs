@@ -2870,11 +2870,11 @@
   boundary, which answers a React element — a legal child anywhere per
   Fresco's component ABI.
 
-  MIGRATION SCAFFOLDING WITH A DEFINED END: when every Dynamic panel is
-  a boundary the registry takes them directly, the `[:>]` bridges go, and
-  this seam goes with them. That end is NOT reachable from this slice —
-  `panels/epoch/view.cljs` is held by another worker and three more
-  panels are unmigrated."
+  THE SEAM STAYS — IT IS NOT SCAFFOLDING AWAITING A DELETION (rf2-lect,
+  ruled option 2; the same promise was cleared from all fifteen panel
+  files by rf2-4dwxg). Every Dynamic panel is a boundary already and the
+  `[:>]` bridges stayed anyway, so the island is the standing shape and
+  not a stage on the way out of one."
   [selected tab as-child]
   [:div {:data-testid (str "rf-xray-detail-panel-" (name selected))
          ;; rf2-plajx — L4 closes the tab/tabpanel loop. The L3
