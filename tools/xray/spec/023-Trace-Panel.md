@@ -202,16 +202,32 @@ The `:rf.event/db-changed` trace event carries only `:event` + `:frame` — **no
 ### §10.2 Privacy — what reaches this panel, and what is withheld
 
 This panel prints raw application values: event vectors, effect arguments, subscription `old → new` pairs and
-app-db per-path diffs. Three gates stand between an application's declared-sensitive data and those cells, and
-they act at **different** points, so none of them makes the others redundant.
+app-db per-path diffs. Every one of them is projected from the focused **epoch record**, so the gate standing
+in front of *these cells* is the **At history read** one below. The two gates before it act earlier and at a
+different grain, on paths this panel does not print from; they are listed because they share one predicate with
+it, and because a section naming only the nearest gate would invite the reader to assume the rest of the
+pipeline is ungated. [`013` §One policy](./013-Trace-Consumer.md#one-policy-three-ingress-paths-rf2-y8doi13)
+owns the ingress contract; this section says only which of those gates reaches this panel.
 
-- **At ingest — dropped, not scrubbed.** `trace_collector.cljs` gates every incoming trace event on the
-  substrate's `:sensitive?` flag before any ring push or mirror dispatch. Under the default
-  `:rf.egress/local-redacted` egress profile a sensitive event is **dropped**, and the collector bumps a
-  per-frame suppressed counter that the shell's bottom rail surfaces as `[● REDACTED N]` — so suppression is
-  visible rather than silent. An event **bundle** carrying any suppressed event is dropped **whole**: scrubbing
-  the one row is unsafe, because a non-sensitive sub recompute or view render in the same cascade can
-  structurally reveal the value. The full contract is [`013` §Privacy gate](./013-Trace-Consumer.md#privacy-gate).
+- **At ingest — one EVENT, dropped not scrubbed.** `trace_collector.cljs`'s listener gates every incoming
+  trace event with `config/suppress-sensitive?` — the substrate's `:sensitive?` flag read against the current
+  egress profile. Under the default `:rf.egress/local-redacted` profile a sensitive event is **dropped**
+  before Xray's own frameless secondary-ring push and before the
+  coalesced mirror-sync request, and the collector bumps a per-frame suppressed counter that the shell's **L1
+  chrome ribbon** surfaces as `[● REDACTED N]` — so suppression is visible rather than silent. **This gate
+  reaches neither the framework's per-frame rings, which retain every emitted event, nor the framework's epoch
+  records, whose `:trace-events` ride verbatim.** That is why the two gates below are load-bearing rather than
+  belt-and-braces. The full contract is [`013` §Privacy gate](./013-Trace-Consumer.md#privacy-gate); the
+  indicator's surface is owned by [`007`](./007-UX-IA.md) — there is no bottom rail to carry it.
+- **At the ring read — the same predicate, at two grains.** Because the framework's rings retain what the
+  listener declined to push, the read side re-applies `config/suppress-sensitive?`. `snapshot-from-rings`
+  applies it per **event** to the merged per-frame + frameless vector that becomes `:rf.xray/trace-buffer`, and
+  so `:rf.xray/event-bundles`. `bundles-for-frame` applies it per **bundle**: a bundle carrying any suppressed
+  event is dropped **whole**, because scrubbing the one row is unsafe — a non-sensitive sub recompute or view
+  render in the same cascade can structurally reveal the value, and the bundle's `:subs` / `:renders` /
+  `:effects` slots are projections of the very events a scrub would remove. **Neither read feeds the rows this
+  panel prints.** The bundle read serves the Fresco advisor and its causal slice; this panel's only use of the
+  event-bundle path is §2's 3px status stripe, which carries a lifecycle colour and no text.
 - **At history read — dropped whole, not scrubbed.** `epoch/redact-history` drops an epoch record when
   **either** signal fires: the framework-stamped `:rf.epoch/sensitive?` rollup, or a suppressed event in the
   record's own `:trace-events` — the same `config/suppress-sensitive?` predicate the ingest gate applies, here
@@ -230,9 +246,10 @@ they act at **different** points, so none of them makes the others redundant.
   row.
 
 **The render-side projection covers the db rows and only those.** The other cells — the event vector, the fx
-argument, the sub `old → new` — are protected by the two ingest gates, which remove the whole event or record
-rather than projecting it. That asymmetry is deliberate: a db diff is derived from slots the record must retain
-for replay, so it cannot be dropped at ingest without losing the epoch.
+argument, the sub `old → new` — ride the record's `:trace-events` verbatim, so what protects them is the
+history-read gate, which removes the whole record rather than projecting it. That asymmetry is deliberate: a db
+diff is derived from slots the record must retain for replay, so it cannot be dropped on its own without losing
+the epoch.
 
 ## §11 Implementation dependencies
 
