@@ -1749,3 +1749,109 @@
         (is (= 1 (count rows)) "the unreached key is still a finding")
         (is (= 1 (count (:missing-keys row))))
         (is (= :article/favorite (:mutation row)))))))
+
+;; ---- (15) rf2-389dv — the reach lint's last two FRAME-LESS identities ----
+;;
+;; rf2-qqi7u frame-scoped this lint's `affected-by-work` join. TWO identities
+;; INSIDE THE SAME FN stayed frame-less, on the same deliberately cross-frame
+;; buffer:
+;;
+;;   - the `warned-scopes` suppression set, keyed `[mutation other-scope]`, so
+;;     a scope-mismatch warning emitted in ANOTHER frame erased a local reach
+;;     finding outright; and
+;;   - the candidate dedupe key, keyed `[mutation instance missing]`, so two
+;;     genuinely independent findings — one per frame — collapsed into one.
+;;
+;; Both fail in the REASSURING direction, which is why neither was noticed:
+;; FEWER findings reads as a cleaner panel, and nothing on screen says the
+;; answer came from another frame.
+;;
+;; These cases run the buffer through the PRODUCTION family filter
+;; (`resource-projection-rows`) rather than straight into the lint, because
+;; the suppression arm only means anything if that filter RETAINS the warning
+;; — a test handing the lint a hand-built buffer cannot tell a working
+;; suppression from a warning the panel never sees at all.
+
+(def ^:private reach-reconciled
+  "An optimistic reconcile whose single optimistic key NOTHING reaches: no
+  `:committed`, no `:reconciliation-refetches`, and no `:rf.mutation/succeeded`
+  settlement anywhere in the buffer. On its own it is exactly one finding."
+  {:id 50 :operation :rf.mutation/optimistic-reconciled
+   :tags {:mutation                 :article/favorite
+          :instance                 opt-instance
+          :work/id                  opt-work-id
+          :optimistic-keys          [opt-affected]
+          :committed                []
+          :reconciliation-refetches []}})
+
+(def ^:private reach-scope-warning
+  "The write-side scope-mismatch tripwire, naming `opt-affected`'s OWN scope as
+  the scope that does hold a matching entry. Its `[mutation other-scope]` pair
+  is what the lint suppresses a candidate on."
+  {:id 51 :operation :rf.warning/mutation-scope-mismatch
+   :tags {:mutation         :article/favorite
+          :instance         opt-instance
+          :descriptor-scope :rf.scope/global
+          :mutation-scope   :rf.scope/global
+          :other-scope      session-scope
+          :tags             [:article]
+          :recovery         :fix-scope}})
+
+(defn- reach-lint
+  "The lint as the panel actually runs it — through the production family
+  filter, never straight off a hand-built buffer."
+  [evs]
+  (h/optimistic-reach-lint (h/resource-projection-rows evs)))
+
+(deftest optimistic-reach-lint-dedupe-is-frame-scoped-rf2-389dv
+  (testing "CONTROL — the production filter RETAINS both producer ops, so no
+            result below can be the filter's doing"
+    (is (= 2 (count (h/resource-projection-rows
+                      [(in-frame reach-reconciled frame-a)
+                       (in-frame reach-scope-warning frame-b)])))))
+  (testing "CONTROL — frame A's unreached reconcile alone is ONE finding"
+    (is (= 1 (count (reach-lint [(in-frame reach-reconciled frame-a)])))))
+  (testing "CONTROL — the identical reconcile in frame B alone is ONE finding"
+    (is (= 1 (count (reach-lint [(in-frame reach-reconciled frame-b)])))))
+  (testing "both frames in ONE buffer are TWO independent findings — neither
+            frame's reconcile is the other's duplicate"
+    (let [rows (reach-lint [(in-frame reach-reconciled frame-a)
+                            (assoc (in-frame reach-reconciled frame-b) :id 60)])]
+      (is (= 2 (count rows)))
+      (is (= [50 60] (mapv :id rows)) "buffer order preserved, oldest first")))
+  (testing "SAME-FRAME duplicate collapsing is UNCHANGED — the behaviour this
+            correction had to keep, and the reason the fix is not just a
+            disabled dedupe"
+    (let [rows (reach-lint [(in-frame reach-reconciled frame-a)
+                            (assoc (in-frame reach-reconciled frame-a) :id 61)])]
+      (is (= 1 (count rows)))
+      (is (= 50 (:id (first rows))) "the first row wins, exactly as before")))
+  (testing "the dedupe key never leaks onto a result row"
+    (is (every? #(not (contains? % :dedupe-key))
+                (reach-lint [(in-frame reach-reconciled frame-a)
+                             (assoc (in-frame reach-reconciled frame-b) :id 60)])))))
+
+(deftest optimistic-reach-lint-warning-suppression-is-frame-scoped-rf2-389dv
+  (testing "CONTROL — with no warning in the buffer at all, frame A's reconcile
+            is ONE finding"
+    (is (= 1 (count (reach-lint [(in-frame reach-reconciled frame-a)])))))
+  (testing "SAME-FRAME suppression is UNCHANGED — a wrong-scope descriptor
+            still gets one diagnostic, not two"
+    (is (empty? (reach-lint [(in-frame reach-reconciled frame-a)
+                             (in-frame reach-scope-warning frame-a)]))))
+  (testing "a warning emitted in ANOTHER frame must not erase this frame's
+            finding"
+    (let [rows (reach-lint [(in-frame reach-reconciled frame-a)
+                            (in-frame reach-scope-warning frame-b)])
+          row  (first rows)]
+      (is (= 1 (count rows)) "the unreached key is still a finding")
+      (is (= 1 (count (:missing-keys row))))
+      (is (= :article/favorite (:mutation row)))
+      (is (= opt-instance (:instance row)))))
+  (testing "CONTROL — the FRAME really is the only discriminator in play: the
+            two warnings agree on every other field the suppression keys on"
+    (let [a (in-frame reach-scope-warning frame-a)
+          b (in-frame reach-scope-warning frame-b)]
+      (is (= (:mutation (:tags a)) (:mutation (:tags b))))
+      (is (= (:other-scope (:tags a)) (:other-scope (:tags b))))
+      (is (not= (:rf.frame/id (:tags a)) (:rf.frame/id (:tags b)))))))
