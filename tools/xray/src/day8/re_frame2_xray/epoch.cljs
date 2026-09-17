@@ -33,7 +33,67 @@
   the slot is `:rf/xray`-frame state shared across every panel that
   cares about time, not Time Travel's private surface."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]))
+
+;; ---- the `:epoch-history` ingest gate (rf2-y8doi.13) ---------------------
+;;
+;; The framework's per-frame epoch ring retains RAW records — redaction
+;; happens at off-box egress (`epoch/assembly.cljc`: "the ring and
+;; listeners retain raw replay material"), which is right for the ring
+;; and wrong for Xray's app-db. Every record carries `:trace-events`
+;; verbatim, so a `:sensitive? true` cascade that `collect-trace!` and
+;; `snapshot-from-rings` both drop from `:trace-buffer` still reached the
+;; Epoch panel, the Issues ribbon, the Reactive panel, the Machine
+;; Inspector and the Trace feed through THIS slot — they all read
+;; `:trace-events` off the focused record.
+;;
+;; So the same Spec 009 §Privacy gate the trace side applies twice now
+;; also guards the one seam every `:epoch-history` write passes through.
+;; Two grains, because the record carries two signals:
+;;
+;;   1. `:rf.epoch/sensitive?` — the framework's own record-level rollup
+;;      (`epoch/assembly.cljc/sensitive-rollup`), true when a stamped
+;;      trace event OR a frame-declared sensitive app-db path with a
+;;      non-nil leaf is in the record. Drop the WHOLE record: per the
+;;      Spec 009 rationale the envelope alone (`:event-id`, `:outcome`,
+;;      timings, `:db-*` shape) leaks, and a record is exactly the unit
+;;      the panels key on.
+;;   2. `:trace-events` — scrubbed per event, which is what catches a
+;;      record carrying NO rollup (synthetic history seeded through
+;;      `:rf.xray/sync-epoch-history`, or a record assembled before the
+;;      rollup shipped). Belt-and-braces against the rollup's absence,
+;;      not a second policy.
+;;
+;; NO COUNTER BUMP. `config/note-suppressed!` counts what the LISTENER
+;; dropped; the same events were already counted there on their way past
+;; `collect-trace!`, so bumping here would double-count the `[● REDACTED
+;; N]` indicator against one cascade.
+
+(defn redact-history
+  "Gate `records` — a framework per-frame epoch ring, oldest-first — on
+  its way into Xray's `:epoch-history` slot.
+
+  Under a sensitive-revealing profile (`:rf.egress/local-raw`, the
+  trusted-local opt-in) this is the identity: every record passes
+  verbatim. Otherwise records whose `:rf.epoch/sensitive?` rollup is
+  true are dropped whole, and each survivor's `:trace-events` has
+  `config/suppress-sensitive?` applied — the same predicate
+  `collect-trace!` and `snapshot-from-rings` gate on, so the three
+  ingress paths share ONE policy rather than three.
+
+  Pure. Returns a vector — every caller writes the slot with one."
+  [records]
+  (if (config/include-sensitive?)
+    (vec records)
+    (into []
+          (comp (remove :rf.epoch/sensitive?)
+                (map (fn [record]
+                       (if-some [events (:trace-events record)]
+                         (assoc record :trace-events
+                                (into [] (remove config/suppress-sensitive?) events))
+                         record))))
+          records)))
 
 (defn install!
   "Install the cross-cutting epoch subs + events."
@@ -110,7 +170,7 @@
   (rf/reg-event :rf.xray/set-target-frame
     (fn [{:keys [db]} [_ frame-id]]
       {:db (let [target (or frame-id defaults/default-target-frame)]
-        (cond-> (assoc db :epoch-history (vec (rf/epoch-history target)))
+        (cond-> (assoc db :epoch-history (redact-history (rf/epoch-history target)))
           (nil? frame-id)  (dissoc :target-frame)
           (nil? frame-id)  (update :focus (fnil dissoc {}) :frame)
           (some? frame-id) (assoc :target-frame frame-id)
@@ -137,7 +197,7 @@
     (fn [{:keys [db]} [_ frame-id]]
       {:db (let [target (get db :target-frame defaults/default-target-frame)]
         (if (= frame-id target)
-          (assoc db :epoch-history (vec (rf/epoch-history target)))
+          (assoc db :epoch-history (redact-history (rf/epoch-history target)))
           db))}))
 
   ;; `:rf.xray/sync-epoch-history` — wholesale overwrite of the
@@ -168,6 +228,12 @@
   ;; the focus-resolver's rf2-h0120 head-fallback encodes). An empty
   ;; history clears focus so a no-epoch seed renders its empty-state.
   ;;
+  ;; rf2-y8doi.13 — `peek` runs over the GATED history, so when the
+  ;; newest record is a redacted one the focus lands on the newest
+  ;; SURVIVING record rather than on a record no panel can render. A
+  ;; seed of nothing but redacted records clears focus, which is the
+  ;; same empty-state an empty seed gets.
+  ;;
   ;; When a live trace buffer IS also seeded (the chrome story seeds
   ;; both via `:rf.xray/sync-trace-buffer`), `compose-focus`'s LIVE
   ;; auto-follow re-derives `:epoch-id` from the head event-bundle — that
@@ -176,7 +242,7 @@
   (rf/reg-event :rf.xray/sync-epoch-history
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ history]]
-      {:db (let [history    (vec history)
+      {:db (let [history    (redact-history history)
             latest-id  (:epoch-id (peek history))]
         (cond-> (assoc db :epoch-history history)
           (some? latest-id) (assoc-in [:focus :epoch-id] latest-id)
