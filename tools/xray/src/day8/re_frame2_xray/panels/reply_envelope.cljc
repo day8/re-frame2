@@ -10,7 +10,7 @@
   private vocabulary: the resources panel reads `:rf.resource/work-*`
   ops, the cancellation-cascade visualiser reads
   `:rf.http/aborted-on-actor-destroy` + `:rf.machine.timer/cancelled`,
-  the managed-fx panel reads `:rf.http/handled` /
+  the managed-fx panel reads `:rf.http/transport` /
   `:rf.machine.lifecycle/spawned`. That is N vocabularies for one
   concept — \"this async work was issued, ran, retried, was cancelled,
   completed with a status, was suppressed as stale, and either
