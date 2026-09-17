@@ -696,7 +696,7 @@ Related: [Diagnostics](16-diagnostics.md),
 Explicit labels for incomplete evidence:
 
 - `:unknown`;
-- `:opaque` / `:no-static-analysis`;
+- `:opaque`;
 - `:host-opaque`;
 - `:cap`;
 - `:uncorrelated`.
