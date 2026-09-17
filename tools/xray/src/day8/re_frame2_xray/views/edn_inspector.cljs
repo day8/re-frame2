@@ -4089,7 +4089,7 @@
 ;; =========================================================================
 ;;
 ;; One renderer, two heads, because the tree has two kinds of parent in it
-;; at once and will have until the shell itself is a Fresco tree.
+;; at once, and still does now that the shell itself is a Fresco tree.
 ;;
 ;; `edn-inspector` is the REAGENT head and its public hiccup shape is
 ;; unchanged: every `[ei/edn-inspector value opts]` call site in the tree

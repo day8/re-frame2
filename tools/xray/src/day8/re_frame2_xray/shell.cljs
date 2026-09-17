@@ -2860,10 +2860,10 @@
 
   THE MOUNT IS AN ISLAND, and for the Dynamic registry it stays one for
   a while yet. `reg-l4-tab!`'s `:pre` requires `:panel` to be CALLABLE,
-  and the ten Dynamic entries are MIXED at this tip: five register an
-  `as-component` BRIDGE (a plain fn answering `[:> Component {}]`) while
-  `epoch-panel/Panel`, `trace/Panel`, `machine-inspector/Panel` and
-  `fresco/Panel` are still `rf/reg-view`s. Both grade `:invalid` as a
+  and at this tip all ten Dynamic entries register a BRIDGE, not the
+  boundary behind it: a plain fn answering `[:> Component {}]`, named
+  `Panel-bridge` in nine of them and `Panel` in `panels/routing.cljs`,
+  whose boundary stays private. Every one of them grades `:invalid` as a
   Fresco head, down the same arm. `as-child` is `identity` for a hiccup
   caller and the node lane, which leaves `[(:panel tab)]` exactly the
   vector it has always been, and `substrate/as-element` for the
