@@ -208,7 +208,6 @@ panel/beat/path is [the new surface]."
  :panel       <tab-id>     ; which L4 tab to surface (one of the 10 below)
  :epoch-id    <epoch-id>   ; settling epoch to pin the spine to
  :dispatch-id <id>         ; cascade root to pin the spine to
- :path        [<k> ...]    ; app-db path to highlight in the App-db panel
  :source      {...}        ; OPAQUE provenance — Xray echoes it back, never reads it
  :sync?       <bool>}      ; control: dispatch-sync (test rigs / same-tick flows)
 ```
@@ -256,12 +255,19 @@ Story.
 | `:panel`       | `:rf.xray/select-tab <tab-id>`     | spine tab slot |
 | `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
 | `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
-| `:path`        | `:rf.xray/focus-slice-path <path>` | App-db panel slice focus |
+
+`:path` was a focus field until 2026-09-17 (rf2-y8doi.29), mapping to
+`:rf.xray/focus-slice-path`. Nothing rendered the slot that event wrote,
+so it was retired with the rest of the unreachable App-db path-click
+machinery; double-click / `Enter` zoom with the breadcrumb is the path
+interaction ([`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
+§10.5). A command still carrying `:path` is ignored like any unknown
+key — `focus!` stays permissive.
 
 Dispatch order is **frame-first** so the per-frame epoch ring re-seeds
 (`:rf.xray/set-frame` clears the pinned dispatch-id + re-seeds
 `:epoch-history`) before any epoch / cascade pin resolves; then the
-spine pin, then the tab + path. When BOTH `:dispatch-id` and
+spine pin, then the tab. When BOTH `:dispatch-id` and
 `:epoch-id` are supplied the cascade pin wins (it carries the frame and
 the spine derives the settling epoch from it); `:epoch-id` alone is the
 lighter selector for callers that only have an epoch.

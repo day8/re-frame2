@@ -119,7 +119,7 @@ string literals.
 
 `init!` and the mount verbs get Xray *visible*. `focus!` is the separate
 verb that says **where to look** — deep-link an already-mounted Xray to a
-tab, an epoch, an event bundle, or an app-db path from code (a Story
+tab, an epoch, or an event bundle from code (a Story
 narrative beat, a failed assertion, a docs link, your own REPL).
 
 **It navigates; it does not install or mount.** `focus!` assumes a host
@@ -132,8 +132,7 @@ hidden shell. Reach it after the preload (or `init!`) plus a mount verb.
 (xray/focus! {:panel :trace})              ; just flip the tab
 (xray/focus! {:frame    :app/checkout      ; observe this host frame
               :panel    :app-db            ; surface this L4 tab
-              :epoch-id 42                 ; pin the spine to this epoch
-              :path     [:checkout :state]}) ; highlight this app-db path
+              :epoch-id 42})               ; pin the spine to this epoch
 ```
 
 Every field is optional — an empty command `{}` is a well-formed no-op.
@@ -146,7 +145,6 @@ The command keys, per
 | `:panel` | Which Dynamic L4 tab to surface (one of the ten ids below). |
 | `:epoch-id` | Settling epoch to pin the spine to. |
 | `:dispatch-id` | Event-bundle root to pin the spine to — an alternative to `:epoch-id`; passing both is fine. |
-| `:path` | app-db path to highlight in the app-db panel. |
 | `:source` | **Opaque** provenance echoed back in the result. Xray never reads into it — it is the host's own intent context. |
 | `:sync?` | Control key, never translated to a dispatch: fires `dispatch-sync` instead of `dispatch` (test rigs, same-tick host flows). |
 
@@ -169,7 +167,13 @@ Two arities, per the `focus!` docstring:
 
 The translated events fire in a fixed order — `:frame` first (so the
 per-frame epoch ring is re-seeded before any epoch pin lands), then
-`:dispatch-id` / `:epoch-id`, then `:panel` and `:path`.
+`:dispatch-id` / `:epoch-id`, then `:panel`.
+
+> `:path` was a focus field until 2026-09-17 (rf2-y8doi.29). Nothing
+> rendered the app-db slice it highlighted, so it was retired; a command
+> still carrying it is ignored like any unknown key. To inspect app-db at
+> a prefix, double-click (or press `Enter` on) a container in the App-db
+> tab — the inspector re-roots onto it and a breadcrumb zooms back.
 
 `focus!` returns a data-shaped result rather than throwing:
 

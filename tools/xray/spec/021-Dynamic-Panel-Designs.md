@@ -429,7 +429,7 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 | SIDE EFFECTS `:fx` row fx-id ↗ (rf2-g1mfc) | Open-in-editor at the `reg-fx` registration file:line (shared `coord-chip`, parity with the HANDLER verb + SUBSCRIPTIONS / VIEWS rows; sources the absolute coord off `(rf/handler-meta {:source :store :kind :fx :id <fx-id>})`) |
 | FX row | Switch to **Trace** panel, scrolled to the `:rf.fx/do-fx` / `:rf.fx/handled` op for that fx; if `:http/managed`, the badge offers the wire-trace popover |
 | FLOWS row | Switch to **App-db** panel, scrolled to the path that flow wrote |
-| Click any path segment in a COEFFECTS / DB CHANGES value | Cross-panel propagation per §10.5 (App-db ↔ View); no other value interactions |
+| Double-click / `Enter` on a container in a COEFFECTS / DB CHANGES value | Zooms into that node (§10.0.11); breadcrumb crumbs zoom back. No other value interactions |
 
 ### §2.5 Film-strip back/forward
 
@@ -912,7 +912,7 @@ SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same e
 |---|---|
 | Sub row | Switch to **App-db**, scrolled + highlighted to that sub's input path |
 | View row | Open-in-editor at view file:line |
-| `caused-by ← sub ← path` chip | Each chip is clickable; "path" jumps to App-db panel at that path (cross-panel propagation per §10.5) |
+| `caused-by ← sub ← path` chip | **Not built** — no chip ships, and no cross-panel propagation ships to jump to (§10.5, retired unbuilt under rf2-y8doi.29) |
 
 ### §3.7 Film-strip — RETIRED 2026-09-03 (rf2-6r9j.16)
 
@@ -1127,7 +1127,7 @@ went with it — the panel reads neither.)
 
 | Click | Navigates to |
 |---|---|
-| Changed-path row | Cross-panel propagation per §10.5: switches to **Reactive** and highlights subs + views downstream of that path. Same gesture as clicking any path segment in the renderer. |
+| Changed-path row | **No cross-panel propagation ships** (§10.5, retired unbuilt under rf2-y8doi.29). The renderer's only path gesture is double-click / `Enter` zoom. |
 
 (The `Hover overlay ⤴` row went with the §4.4 overlay.)
 
@@ -4417,13 +4417,13 @@ Close affordances (per the bead's scope):
 1. **Esc** — handled by the popup's `:on-key-down`; dispatches
    `:rf.xray.edn-inspector-popup/close-top` so layered popups
    close one at a time.
-2. **Click backdrop** — closes that specific popup (matches the
-   segment-inspector's click-outside-closes contract).
+2. **Click backdrop** — closes that specific popup (click-outside-closes,
+   the shared modal contract).
 3. **✕ button** — explicit close in the dialog header.
 
 Z-index layering: the popup paints **above the active Xray
 panel** but below app-modals (palette / settings). Base layer
-`2147483640` (one tier below the segment-inspector at
+`2147483640` (one tier below the settings editor-hint at
 `2147483645`); stacking popups within this surface get
 sequential z-indexes derived from their stack position so the
 topmost popup wins click + focus.
@@ -4440,8 +4440,8 @@ chrome, so a future inline door would compose the same shape.
 ##### §10.0.7.1 Shell mount (rf2-l4625)
 
 The `edn-inspector-popup-stack` view mounts **once** at the Xray
-shell root, alongside the other modal stacks (palette, settings,
-segment-inspector, …). The stack view reads
+shell root, alongside the other modal stacks (palette, settings, …).
+The stack view reads
 `:rf.xray.edn-inspector-popup/stack` + `:rf.xray.edn-inspector-popup/entries`
 and renders the popup chrome for every active mount-id in z-index
 order; it short-circuits to `nil` when the stack is empty (closed-
@@ -4454,8 +4454,8 @@ Registration is a single line in `registry.cljs`:
 ```
 
 …idempotent per the orchestrator's `compare-and-set!` sentinel.
-The shell-side mount sits alongside `[app-db-segment-inspector/Popup]`
-in `shell.cljs`'s overlay block, INSIDE the `rf/frame-provider
+The shell-side mount sits in `shell.cljs`'s overlay block,
+INSIDE the `rf/frame-provider
 {:frame :rf/xray}` wrapper so subscribes resolve to Xray's frame.
 
 ##### §10.0.7.2 Per-panel "open in popup" affordance (rf2-l4625 · rf2-7sdja)
@@ -4989,7 +4989,7 @@ signal to render plainly. None set any mode flag:
 |--------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
 | Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (effective post-handler db `:db-post-handler` = t1, else `db-before` when no-`:db`-with-flow, else fallback `:db-after`; `:before db-before` · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
 | Epoch FLOW step `:db`                | `panels/epoch/view.cljs` — `render-flow-step` (path-scoped pre→post diff `:db-pre-flow` (effective post-handler db) → `:db-post-flow` (t2) · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-flow-db-diff-<name>"`                           |
-| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body` (one mount; `:before` via `cond->` for a real pre-image; `:added? true` via `cond->` for a slice absent in the focused epoch's pre-image, i.e. the `h/added` sentinel — rf2-227cz §4.3) | App-DB panel-gallery story fixtures + segment-inspector tests               |
+| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body` (one mount; `:before` via `cond->` for a real pre-image; `:added? true` via `cond->` for a slice absent in the focused epoch's pre-image, i.e. the `h/added` sentinel — rf2-227cz §4.3) | App-DB panel-gallery story fixtures + `app_db_diff` tests                   |
 | ~~Machine Inspector snapshot drill-in~~ (REMOVED — rf2-g2axio) | ~~`panels/machine_inspector.cljs` — `snapshot-block`~~ — the Machine tab's snapshot drill-in was removed when the tab was reduced to Prev/Next + the SHARED EVENT HANDLER mini-pipeline + the chart (see [`003-Machine-Inspector.md` §Post-collapse Dynamic panel shape](003-Machine-Inspector.md#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k)). `:data` mutations now read off the mini-pipeline cascade rows' inline data-writes. | — |
 | Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` container branch (`:before` / `:added?`)      | `data-testid="rf-xray-epoch-sub-row-*"` mount                               |
 
@@ -5058,14 +5058,16 @@ and carries no `before`. Test surface:
    (the only colored type). Strings / numbers / nil / booleans render
    mono. Aids EDN-shape recognition without color-noise.
 
-4. **Clickable paths** — every key/path-segment is a click target.
-   **The only interaction on a clickable path is cross-panel propagation
-   (App-db ↔ Reactive).** Clicking a path in App-db highlights the
-   downstream subs + views in Reactive; clicking a `caused-by ← sub ← path`
-   chip in Reactive jumps to that path in App-db. **No** blame popover, **no**
-   "show epoch that last changed this path," **no** copy-path, **no**
-   copy-value. These were considered and explicitly stripped — they
-   create more noise than value (per the polished super-prompt B.9).
+4. **Paths** — key/path segments are **not** single-click targets.
+   **The only path interaction is zoom:** double-click or `Enter` on a
+   non-root container re-roots the inspector onto it (§10.0.11), the
+   breadcrumb zooms back, `Esc` zooms up. Cross-panel propagation
+   (App-db ↔ Reactive) was specified here and never built; its B.9 lock
+   was reopened and retired by the rf2-y8doi.29 ruling (2026-09-17).
+   **No** blame popover, **no** "show epoch that last changed this path,"
+   **no** copy-path, **no** copy-value. These were considered and
+   explicitly stripped — they create more noise than value (per the
+   polished super-prompt B.9).
 
 ### §10.2 Visual language (mockup)
 
@@ -5169,10 +5171,10 @@ menus are explicitly OUT. Operator learns one gesture; applies it everywhere.
 | Gesture | Effect |
 |---|---|
 | **Click node header** (▸ / ▾) | Toggle expand/collapse (lazy disclosure only — not navigation) |
-| **Click path segment** | Cross-panel propagation: in App-db → switch to Reactive and highlight subs + views downstream of that path. In Reactive (`caused-by ← sub ← path` chip) → switch to App-db and scroll to that path. **This is the only path-click semantic.** |
+| **Double-click / `Enter` on a container** | Zoom into that node (§10.0.11): the inspector re-roots onto it, a breadcrumb appears and each crumb zooms back, `Esc` zooms up. **This is the only path interaction — a single click on a key segment does nothing.** |
 | **Hover changed-row** | Subtle background shift only (no popover). The annotation `← was <prior>` is already rendered inline; hover does not reveal additional metadata. |
 | **Keyboard `Space`** on focused row | Toggle expand/collapse (same as click on node header) |
-| **Keyboard `Enter`** on focused row whose value is a path | Cross-panel propagation (same as click on path segment) |
+| **Keyboard `Enter`** on a focused non-root container | Zoom in (same as double-click) |
 
 **Explicitly NOT supported (per locked decision):**
 
@@ -5184,6 +5186,8 @@ menus are explicitly OUT. Operator learns one gesture; applies it everywhere.
 
 These were on earlier drafts and have been removed. Future beads that
 re-propose them must re-open the B.9 lock with the mayor first.
+Cross-panel propagation itself was retired unbuilt under rf2-y8doi.29
+(2026-09-17); re-proposing it reopens B.9 the same way.
 
 ### §10.6 Cross-panel edn-inspector consistency
 
@@ -5748,7 +5752,6 @@ swapped.
 |---|---|---|
 | Interaction feedback (hover, focus, press) | **≤ 200ms** (typical 120-180ms) | `ease-out` |
 | Panel switch / tab transition | ≤ 400ms — currently 180ms cross-fade (`theme/motion :fade-duration-ms`) | `ease-in-out` |
-| Diff flash on changed value | 400ms (`theme/motion :flash-duration-ms`) | `ease-out` |
 | xyflow edge "fired this epoch" animation | xyflow built-in (≈ 1s loop) | xyflow default |
 
 All durations multiply through `var(--rf-xray-motion-scale, 1)` so
@@ -5993,8 +5996,8 @@ already drafted in §13.
   + inline diff + keyword accent + clickable paths.* New ns
   `tools/xray/src/day8/re_frame2_xray/edn_inspector/render.cljs` per
   §10 + §17.1.3 palette mapping + §17.2 interaction-state matrix. The
-  only path-interaction is cross-panel propagation (§10.5). Gates: all
-  Dynamic panels.
+  only path-interaction is cross-panel propagation (§10.5) (retired
+  unbuilt, rf2-y8doi.29). Gates: all Dynamic panels.
 
 - **rf2-?????** — *Xray: apply forced-colors palette token coverage to
   all L4 panel borders + accents.* (The "+ film-strip chevrons" clause is

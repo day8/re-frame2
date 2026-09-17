@@ -301,7 +301,6 @@
   {:namespace "day8.re-frame2-xray.panels" :var "mount-reactive-panel!"                 :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-resources!"                      :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-routing!"                        :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels" :var "mount-segment-inspector!"             :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-shell!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-trace!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; The seven Dynamic-mode Panel reg-views + the five Static-mode panel

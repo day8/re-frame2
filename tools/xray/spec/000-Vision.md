@@ -334,11 +334,13 @@ panel + the L2 event-row pink-wash + the always-on issues ribbon signal (see
 (`:rf.xray/issues-ribbon`) survives as the ribbon signal's data source.
 
 **Popovers** are transient overlays: they float over whichever tab is
-open and anchor on `:rf.xray/focus` like everything else. Three overlay
-surfaces ship today — the App-db segment-inspector popup, and the
-cancellation-cascade side-panel and popover — catalogued as the overlay
-tier in [`007-UX-IA.md`](007-UX-IA.md) §Mountable surface inventory. Two
-more are designed and **neither is built**:
+open and anchor on `:rf.xray/focus` like everything else. Two overlay
+surfaces ship today — the cancellation-cascade side-panel and popover —
+catalogued as the overlay tier in [`007-UX-IA.md`](007-UX-IA.md)
+§Mountable surface inventory. (A third, the App-db segment-inspector
+popup, was retired unreached under rf2-y8doi.29 on 2026-09-17: no
+shipped gesture ever opened it.) Two more are designed and **neither is
+built**:
 
 | Popover | Content |
 |---|---|
