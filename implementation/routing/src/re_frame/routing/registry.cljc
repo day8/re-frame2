@@ -1029,8 +1029,12 @@
   %-encoding fail-closed are unchanged — this only fixes the surviving map's
   key ORDER, never its membership or values."
   [query]
-  (into (array-map)
-        (sort-by (comp rf.identity/canonical-bytes key) query)))
+  ;; `apply array-map`, NOT `(into (array-map) …)`: `into` promotes to a hash map
+  ;; at the 9th entry, and the sorted order it was seeded with is lost past 8
+  ;; query keys (rf2-c5cub). `(apply array-map nil)` is `{}`, so an empty query
+  ;; is unchanged.
+  (apply array-map
+         (mapcat identity (sort-by (comp rf.identity/canonical-bytes key) query))))
 
 ;; ---- `:query-defaults`: the ONE fill rule and its emission inverse ---------
 ;;
@@ -1110,9 +1114,15 @@
   (let [defaults (:query-defaults route-meta)]
     (if (empty? defaults)
       query
-      (into (array-map)
-            (remove (fn [[k v]] (and (contains? defaults k) (= v (get defaults k)))))
-            query))))
+      ;; `apply array-map`, NOT `(into (array-map) …)`: `into` promotes to a hash
+      ;; map at the 9th entry. This site does not SORT — it REBUILDS the already-
+      ;; canonical `emitted-query` while dropping keys at their default — so with
+      ;; `into` it re-scrambled past 8 surviving keys the very order the sort had
+      ;; just established (rf2-c5cub).
+      (apply array-map
+             (mapcat identity
+                     (remove (fn [[k v]] (and (contains? defaults k) (= v (get defaults k))))
+                             query))))))
 
 (defn- coerce-path
   "Coerce a `{keyword-key string-value}` PATH-capture map against the
@@ -1844,12 +1854,17 @@
          ;; array-map per href. The empty case short-circuits to the empty map
          ;; it would have produced; every query-bearing address takes the
          ;; identical sorted path it always did.
+         ;;
+         ;; `apply array-map`, NOT `(into (array-map) …)`: `into` promotes to a
+         ;; hash map at the 9th entry, and the sorted order above is lost past 8
+         ;; query keys (rf2-c5cub).
          emitted-query (if (empty? query-params)
                          query-params
-                         (into (array-map)
-                               (sort-by (comp rf.identity/canonical-bytes key)
-                                        (remove (fn [[_ v]] (nil? v))
-                                                query-params))))
+                         (apply array-map
+                                (mapcat identity
+                                        (sort-by (comp rf.identity/canonical-bytes key)
+                                                 (remove (fn [[_ v]] (nil? v))
+                                                         query-params)))))
          route-meta   (rf.registrar/lookup :route route-id)
          pattern      (:path route-meta)
          ;; The same precompiled coercion tables `match-url` uses let the
