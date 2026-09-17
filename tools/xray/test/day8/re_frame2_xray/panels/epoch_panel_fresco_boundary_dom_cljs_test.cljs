@@ -32,15 +32,27 @@
 
   ## THREE READS, AND WHY THE COUNT IS THE POINT
 
-  The boundary reads `:rf.xray/epoch-pipeline`, `:rf.xray/selected-epoch-
-  record` and `:rf.xray.epoch/subs-filter-mode`. The last two used to be
-  performed by helpers deep in the cascade; rf2-k97c.3 hoisted them into the
-  body so the helpers stay pure functions the node lane can drive. W1 and W3
-  therefore assert on ALL THREE cache entries rather than on one: a hoist
-  that half-landed would leave a read stranded in a helper, where it would
-  raise `:rf.error/fresco-sub-outside-render` on the first render — loudly,
-  which is why W1 asserting the panel painted at all is already most of that
-  claim.
+  The boundary reads `:rf.xray/epoch-pipeline`,
+  `:rf.xray.epoch/parent-epoch-index` and `:rf.xray.epoch/subs-filter-mode`.
+  The filter-mode read used to be performed by a helper deep in the cascade;
+  rf2-k97c.3 hoisted it into the body so the helpers stay pure functions the
+  node lane can drive. W1 and W3 therefore assert on ALL THREE cache entries
+  rather than on one: a hoist that half-landed would leave a read stranded in
+  a helper, where it would raise `:rf.error/fresco-sub-outside-render` on the
+  first render — loudly, which is why W1 asserting the panel painted at all
+  is already most of that claim.
+
+  rf2-y8doi.19 SUBSTITUTED the second read, and the count is why that costs
+  this file only one line. It was `:rf.xray/selected-epoch-record` — a second
+  read of the RAW epoch record, which routed around the redaction seam the
+  pipeline sub applies to that record's `:db-before` / `:db-after`, and which
+  disagreed with the pipeline besides (it is deliberately head-fallback-free,
+  so under head-fallback the cascade rendered the head epoch while the `:db`
+  diff beside it got nil). The cascade now takes its record from the
+  pipeline's own `:record`, and the parent-epoch link — the one thing left
+  here that genuinely needs the epoch ring — gets its own narrow sub. Three
+  reads before, three after; the rf2-k97c.3 claim this file guards is about
+  reads not being stranded in helpers, and it survives the swap intact.
 
   ## The mount is the SHELL's mount, taken from the registry
 
@@ -96,12 +108,20 @@
   cache key."
   [:rf.xray/epoch-pipeline])
 
-(def ^:private record-q  [:rf.xray/selected-epoch-record])
+;; rf2-y8doi.19 — THE ARGUMENT IS PART OF THE KEY, so it is spelled here.
+;; The sub cache is keyed by the whole query vector (spec/006 §Host value
+;; model), and the boundary issues this one with the dispatch ids THIS
+;; cascade carries. The fixture's cascade has no parent dispatch, so
+;; `projection/parent-dispatch-ids` answers `[]` and the live key is
+;; `[:rf.xray.epoch/parent-epoch-index []]`. Writing the bare id here
+;; would name a vector nothing holds, and every ref-count below would
+;; read 0 — a vacuous pass for W3's release rows and a false red for W1.
+(def ^:private parent-q  [:rf.xray.epoch/parent-epoch-index []])
 (def ^:private filter-q  [:rf.xray.epoch/subs-filter-mode])
 
 (def ^:private boundary-reads
   "Every query the boundary issues, in the order the body issues them."
-  [pipeline-q record-q filter-q])
+  [pipeline-q parent-q filter-q])
 
 ;; W2's DEAF lever. It writes a key on Xray's own app-db that NO sub in the
 ;; panel's read set consults, so the world moves and nothing the panel
