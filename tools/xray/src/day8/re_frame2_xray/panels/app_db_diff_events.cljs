@@ -7,7 +7,10 @@
   `:rf.xray/reorder-pinned-slices` events were removed when the
   pinned-watches strip was superseded by the path-segment inspector
   popup (Mike 2026-05-19 Q13). The matching `pin-path` / `unpin-path`
-  / `reorder-paths` helpers were pulled in lockstep.
+  / `reorder-paths` helpers were pulled in lockstep. That popup was
+  itself retired unreached under rf2-y8doi.29 (2026-09-17), along with
+  this ns's `:rf.xray/focus-slice-path` / `:rf.xray/clear-slice-focus`
+  events — zoom into a node is the path interaction.
 
   ## rf2-6r9j.24 — the two copy EVENTS dropped; the fx stays
 
@@ -27,14 +30,6 @@
 (defn install!
   "Install the App-DB Diff events and effects."
   []
-  (rf/reg-event :rf.xray/focus-slice-path
-    (fn [{:keys [db]} [_ path]]
-      {:db (assoc db :focused-slice-path path)}))
-
-  (rf/reg-event :rf.xray/clear-slice-focus
-    (fn [{:keys [db]} _event]
-      {:db (dissoc db :focused-slice-path)}))
-
   ;; ---- App-DB panel diff-mode toggle — RETIRED 2026-05-29 (rf2-vv3m6) -----
   ;;
   ;; The `[diff][full][full+diff]` toggle retired alongside its sibling

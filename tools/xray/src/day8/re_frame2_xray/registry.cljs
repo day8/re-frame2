@@ -79,8 +79,6 @@
             [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-xray.panels.app-db-segment-inspector
-             :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.fresco :as fresco]
@@ -1267,14 +1265,6 @@
     ;; frame-switcher events above, so it installs after both.
     (focus/install!)
     (app-db-diff/install!)
-    ;; App-DB segment-inspector popup — opens when any
-    ;; path-segment in the App-DB Diff breadcrumb is clicked. Installs
-    ;; after `app-db-diff` so the segment-inspector's
-    ;; `:rf.xray/segment-inspector-value` sub can chain off
-    ;; `:rf.xray/target-frame-db` (registered by app-db-diff's subs).
-    ;; Registration order is cosmetic — re-frame resolves declared `:inputs` lazily;
-    ;; the top-down dependency reading is the rationale.
-    (app-db-segment-inspector/install!)
     ;; Cancellation-cascade visualiser — installs the
     ;; subs + events for the Machines tab side-panel + the trace-row
     ;; popover. The view-side `reg-view`s are picked up at ns-load.

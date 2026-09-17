@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.theme.a11y
   "Shared accessibility helpers.
 
-  Xray ships six modal surfaces (Settings, Share, Spine-filter mute
-  manager, Filter edit-popup, Cancellation-cascade popover, App-DB
-  segment-inspector popover). Each carries the WAI-ARIA modal contract
+  Xray ships five modal surfaces (Settings, Share, Spine-filter mute
+  manager, Filter edit-popup, Cancellation-cascade popover). Each
+  carries the WAI-ARIA modal contract
   end-to-end — `role=\"dialog\"` + `aria-modal=\"true\"` + an accessible
   name + focus capture on open.
 
   Rather than copy that contract into every modal (drift risk — each
   modal would slide away from a coherent ARIA story), this ns is the
-  single source of truth the six call sites share.
+  single source of truth the five call sites share.
 
   ## What lives here
 
