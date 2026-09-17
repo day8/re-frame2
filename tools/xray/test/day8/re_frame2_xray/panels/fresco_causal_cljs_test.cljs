@@ -52,8 +52,17 @@
 
 (rf/reg-sub :hcaus/left  (fn [db _] (:left db)))
 (rf/reg-sub :hcaus/right (fn [db _] (:right db)))
+;; PARAMETERIZED, which is the whole point of it: `[:hcaus/item 1]` and
+;; `[:hcaus/item 2]` are two CELLS of ONE registration, and the shape every
+;; per-cell claim below needs. The cell table keys on the raw sub-key, so
+;; the runtime really builds two — the rows assert that rather than assume
+;; it, because a fixture that built one cell would satisfy a per-cell
+;; assertion vacuously.
+(rf/reg-sub :hcaus/item  (fn [db [_ n]] (get-in db [:items n])))
 (rf/reg-event :hcaus/seed (fn [_ [_ db]] {:db db}))
 (rf/reg-event :hcaus/bump (fn [{:keys [db]} _] {:db (update db :left inc)}))
+(rf/reg-event :hcaus/bump-item
+  (fn [{:keys [db]} [_ n]] {:db (update-in db [:items n] inc)}))
 
 ;; See `fresco_cljs_test`'s fixture note: the UIx adapter is required
 ;; because Fresco's cell wiring calls `add-watch` on the substrate's
@@ -105,7 +114,7 @@
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id app-frame})
   (rf/with-frame app-frame
-    (rf/dispatch-sync [:hcaus/seed {:left 1 :right 2}]))
+    (rf/dispatch-sync [:hcaus/seed {:left 1 :right 2 :items {1 10 2 20}}]))
   nil)
 
 (defn- mount!
@@ -128,15 +137,38 @@
   (or (reads/trace-windows envelopes) {}))
 
 (defn- slice!
-  "The slice for the FIRST mounted boundary, on the newest retained
-  dispatch — exactly what the panel draws."
+  "The slice for the FIRST mounted boundary, on the dispatch the spine is
+  focused on — exactly what the panel draws. With no `:focus` that is the
+  newest retained dispatch, as it was before rf2-y8doi.26."
   ([] (slice! {}))
-  ([{:keys [envelopes windows boundary-key]}]
+  ([{:keys [envelopes windows boundary-key focus]}]
    (let [e  (or envelopes (evidence!))
          w  (or windows (windows! e))
          bk (or boundary-key
                 (get-in e [:mounted-boundaries :boundaries 0 :boundary :key]))]
-     (causal/slice {:envelopes e :windows w :boundary-key bk}))))
+     (causal/slice {:envelopes e :windows w :boundary-key bk :focus focus}))))
+
+(defn- retained-dispatch-ids
+  "Every numeric `:dispatch-id` the windows hold, ascending and distinct.
+  Non-numeric ids are the producer's unjoinable sentinel and cannot
+  anchor a slice, so `newest-dispatch` skips them and so does this."
+  [windows]
+  (vec (sort (distinct (filter number? (map :dispatch-id (mapcat val windows)))))))
+
+(defn- boundary-keys
+  [envelopes]
+  (mapv #(get-in % [:boundary :key])
+        (get-in envelopes [:mounted-boundaries :boundaries])))
+
+(defn- key-reading
+  "The mounted boundary key whose SOLE read is the cell `query` names.
+
+  A boundary key is a vector of `[frame-id sub-id projected-query]`
+  triples, so this is an exact match on a one-element key — which is what
+  makes the per-cell rows below about a boundary that genuinely reads one
+  cell and nothing else."
+  [keys* query]
+  (first (filter #(and (= 1 (count %)) (= query (nth (first %) 2))) keys*)))
 
 (defn- link [s id]
   (first (filter #(= id (:id %)) (:links s))))
@@ -369,6 +401,185 @@
         (is (seq (get-in e [:mounted-boundaries :boundaries]))
             (str "the substitution was AVAILABLE and was not taken — which is "
                  "what makes this row a finding rather than an accident"))))
+    (release)))
+
+;; ---------------------------------------------------------------------------
+;; LINK 4 IS KEYED ON THE CELL (rf2-y8doi.26)
+;; ---------------------------------------------------------------------------
+
+(deftest one-cells-readers-are-notified-and-never-its-SIBLING-CELLS-readers
+  ;; Link 4 keyed its reverse-edge lookup on `[frame-id sub-id]`, so one
+  ;; moved cell matched EVERY parameterization of its registration and the
+  ;; link named all of their readers. On a list of `[:todo/by-id n]` rows
+  ;; that is every row on the page reported as notified by a commit that
+  ;; touched one of them — and `docs/core/fresco/16-diagnostics.md` teaches
+  ;; a reader to hunt exactly that signature, so the defect FABRICATED the
+  ;; evidence rather than merely inflating a count.
+  ;;
+  ;; Two boundaries, one registration, two cells. Boundary A reads cell 1
+  ;; and nothing else, so its `:latest-reads` names cell 1 and can name
+  ;; nothing else — which is what makes this a claim about the KEY rather
+  ;; than about which cell happened to move.
+  (setup!)
+  (let [a     (mount! (fn [_] (rf.fresco/sub [:hcaus/item 1]) nil))
+        b     (mount! (fn [_] (rf.fresco/sub [:hcaus/item 2]) nil))
+        _     (interact!)
+        e     (evidence!)
+        w     (windows! e)
+        keys* (boundary-keys e)
+        key-1 (key-reading keys* [:hcaus/item 1])
+        key-2 (key-reading keys* [:hcaus/item 2])
+        cells (filterv #(= :hcaus/item (:sub-id %))
+                       (get-in e [:read-attribution :edges]))]
+
+    (testing "NON-VACUITY — the runtime really built TWO cells of ONE registration"
+      (is (= 2 (count cells))
+          (str "one registration, two queries, two cells in the table. With "
+               "one cell the per-cell assertion below would pass on the "
+               "defective key too, which is the whole failure mode of the "
+               "fixture this row replaces"))
+      (is (= #{:hcaus/item} (into #{} (map :sub-id) cells))
+          "and both really are the SAME registration")
+      (is (some? key-1) "boundary A is in the census, reading cell 1 alone")
+      (is (some? key-2) "boundary B is in the census, reading cell 2 alone")
+      (is (not= key-1 key-2)
+          (str "and the two boundaries are distinct — if the egress policy "
+               "had elided the argument both would project to one key and "
+               "there would be nothing here to keep apart"))
+      (is (= 2 (count (into #{} (map :query) cells)))
+          "the two cells carry two distinct projected queries"))
+
+    (let [l (link (slice! {:envelopes e :windows w :boundary-key key-1})
+                  :boundaries-notified)]
+      (is (true? (:evidenced? l))
+          "POSITIVE CONTROL — the link is green, so the counts below are a real set")
+      (is (= [[:hcaus/item 1]] (mapv :query (:cells (:holds l))))
+          (str "ONE cell matched: the one this boundary's moved read names. "
+               "Both cells would be the registration-keyed answer"))
+      (is (= [key-1] (mapv :key (:readers (:holds l))))
+          (str "so boundary B — which reads a cell this commit did not move "
+               "— is NOT reported as notified. It was the reverse edge's "
+               "answer under the old key, printed under the name of the one "
+               "link that says who re-runs because of this"))
+      (is (= [:frame-id :sub-id :query] (get-in l [:joins :on]))
+          "and the link states the CELL as what it joined on")
+      (is (= :evidenced (get-in l [:joins :status]))))
+
+    (testing "and boundary B's own slice names B, symmetrically"
+      (let [l (link (slice! {:envelopes e :windows w :boundary-key key-2})
+                    :boundaries-notified)]
+        (is (= [key-2] (mapv :key (:readers (:holds l))))
+            (str "the mirror row: an implementation that simply narrowed to "
+                 "the FIRST matching cell would pass the row above and fail "
+                 "this one"))))
+    (a)
+    (b)))
+
+;; ---------------------------------------------------------------------------
+;; THE WALKED DISPATCH IS THE SPINE'S (Spec 018 §6, rf2-y8doi.26)
+;; ---------------------------------------------------------------------------
+
+(deftest the-walked-dispatch-is-the-SPINE-S-focus-when-the-ring-holds-it
+  ;; Spec 018 §6's atomicity contract: *No panel maintains its own
+  ;; selection state; no panel reads `(peek history)`.* `newest-dispatch`
+  ;; is `(peek ring)` under another name, so the ONE view whose job is
+  ;; "one dispatch, walked" re-pointed itself on every application
+  ;; dispatch while the reader was reading it.
+  (setup!)
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
+        _       (interact!)
+        _       (interact!)
+        e       (evidence!)
+        w       (windows! e)
+        ids     (retained-dispatch-ids w)
+        oldest  (first ids)
+        newest  (last ids)]
+    (testing "NON-VACUITY — the ring holds more than one dispatch to choose between"
+      (is (<= 2 (count ids))
+          (str "with one retained dispatch every branch below answers the "
+               "same id and the test would pass without discriminating"))
+      (is (not= oldest newest)))
+
+    (is (= newest (get-in (slice! {:envelopes e :windows w}) [:scope :dispatch-id]))
+        "with no focus, the newest retained dispatch — unchanged behaviour")
+
+    (is (= oldest (get-in (slice! {:envelopes e :windows w :focus {:dispatch-id oldest}})
+                          [:scope :dispatch-id]))
+        (str "with the spine pinned to the older dispatch, THAT is the one "
+             "walked — the reader clicked it and this is the view whose "
+             "whole subject is one dispatch"))
+
+    (testing "and a focus the ring has EVICTED falls back rather than drawing an all-capped slice"
+      (let [evicted (inc (reduce max ids))
+            s       (slice! {:envelopes e :windows w :focus {:dispatch-id evicted}})]
+        (is (= newest (get-in s [:scope :dispatch-id])))
+        (is (true? (:evidenced? (link s :event)))
+            (str "a focus is a selection, not a claim about the window — "
+                 "honouring a pin the ring cannot serve would show seven "
+                 "capped links and blame the instrument"))))
+
+    (testing "and `walked-dispatch` says the same thing on its own"
+      (is (= newest (causal/walked-dispatch w nil)))
+      (is (= newest (causal/walked-dispatch w {})))
+      (is (= oldest (causal/walked-dispatch w {:dispatch-id oldest :mode :retro}))))
+    (release)))
+
+;; ---------------------------------------------------------------------------
+;; LINK 3 STATES ITS OVERLAP WITH LINK 2 — AND STILL REFUSES THE JOIN
+;; ---------------------------------------------------------------------------
+
+(deftest link-3-counts-its-overlap-with-link-2-without-claiming-a-join
+  ;; Two solid adjacent facts with nothing linking them is this
+  ;; namespace's finding, and it stays the finding. What was missing is
+  ;; any statement of how the two rosters RELATE — the reader had two
+  ;; lists and no way to tell "these coincide exactly" from "these share
+  ;; nothing", which are very different situations.
+  (setup!)
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
+        _       (interact!)
+        s       (slice!)
+        l3      (link s :values-changed)]
+    (is (true? (:evidenced? l3)) "POSITIVE CONTROL")
+    (is (string/includes? (:says l3) "an OVERLAP and not a join")
+        (str "the sentence has to disown the join in its own words — a bare "
+             "count beside two rosters reads as the link the 2→3 join "
+             "explicitly does not have"))
+    (is (string/includes? (:says l3) "CELLS")
+        (str "and name the grain mismatch: link 2 names registrations "
+             "because Spec 009's ring tags `:rf.sub/id` and no query, so a "
+             "read whose registration ran need not be the cell that ran"))
+
+    (testing "and the join itself is untouched — still uncorrelated, still its own row"
+      (is (= :uncorrelated (get-in l3 [:joins :status])))
+      (is (string/includes? (get-in l3 [:joins :says]) "CANNOT be joined")))
+
+    (testing "the count is a MEASUREMENT — it moves when the rosters disagree"
+      (let [e       (evidence!)
+            w       (windows! e)
+            ;; The runtime's own window with link 2's roster renamed to a
+            ;; registration this boundary does not read. Link 3's moved
+            ;; reads are untouched, so only the overlap may move.
+            renamed (into {}
+                          (map (fn [[fid bundles]]
+                                 [fid (mapv (fn [b]
+                                              (update b :subs
+                                                      (fn [evs]
+                                                        (mapv #(assoc-in % [:tags :rf.sub/id]
+                                                                         :entirely/unrelated)
+                                                              evs))))
+                                            bundles)]))
+                          w)
+            hit       (slice! {:envelopes e :windows w})
+            says-hit  (:says (link hit :values-changed))
+            says-miss (:says (link (slice! {:envelopes e :windows renamed}) :values-changed))]
+        (is (some #{:hcaus/left} (:holds (link hit :subs-recomputed)))
+            (str "NON-VACUITY: link 2 really names this boundary's own "
+                 "registration on the unmodified window, so the two sentences "
+                 "below are 1-of-1 against 0-of-1 and not 0 against 0"))
+        (is (not= says-hit says-miss)
+            (str "a count that reads the same whether or not the two rosters "
+                 "share anything is not a measurement — and this is the "
+                 "exact shape of assertion that would have caught it"))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
