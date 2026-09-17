@@ -489,8 +489,8 @@
 ;; but the tail is a child SCHEMA only for STRUCTURAL ops. For LITERAL / config
 ;; ops the tail is DATA — `[:= 42]` holds the value `42`, `[:enum 1 2]` the
 ;; members, `[:> 10]` a comparator bound, `[:re "x"]` a pattern — and the
-;; scalar primitives (`:int`, `:string`, …) carry no
-;; child schema at all. Recursing into those data operands is the rf2-3fc89f.12
+;; scalar primitives (`:int`, `:string`, …) carry no child schema at all.
+;; Recursing into those data operands is the rf2-3fc89f.12
 ;; bug: an ordinary literal (`42`, `"x"`) reaches the opaque `:else` and the
 ;; whole schema is false-flagged as carrying an opaque child. So the walk
 ;; projects the true child schemas per operator instead of treating every tail
@@ -583,8 +583,8 @@
   sequence of child schemas for a known structural op, an empty sequence for a
   known literal / scalar op (its tail is data), or `::opaque` for a schema
   carrying a local `:registry`, for an explicit `[:ref …]` reference form
-  (rf2-3aafh), or for an unclassified op — in every case the
-  walk cannot prove the schema's flags are reachable, so it fails closed."
+  (rf2-3aafh), or for an unclassified op — in every case the walk cannot
+  prove the schema's flags are reachable, so it fails closed."
   [schema]
   (let [op (nth schema 0)]
     (cond
@@ -617,12 +617,12 @@
   primitive schema or a predicate shorthand that provably carries no per-slot
   props (the enclosing entry is the only place a flag could live, and the walk
   inspects that entry before its tail). Literal / config operands (`:=` value,
-  `:enum` members, comparator bounds, `:re` pattern) are DATA,
-  not child schemas, so the projection never descends into them. An explicit
-  `[:ref …]` is data-tailed too, but classifies `::opaque` rather than walkable
+  `:enum` members, comparator bounds, `:re` pattern) are DATA, not child
+  schemas, so the projection never descends into them. An explicit `[:ref …]`
+  is data-tailed too, but classifies `::opaque` rather than walkable
   (rf2-3aafh): the shape it names carries the per-slot flags, and the walk
-  resolves it nowhere. Only ever
-  called on a descended value, never on the caller's original root argument —
+  resolves it nowhere. Only ever called on a descended value, never on the
+  caller's original root argument —
   see `schema-has-opaque-child?` for the root/nested split."
   [schema]
   (cond
@@ -645,8 +645,8 @@
   The recursion is OPERATOR-AWARE (rf2-3fc89f.12): it descends only the true
   child-schema positions of each Malli operator. Literal / config operands
   (`:=` value, `:enum` members, `:re` pattern, comparator bounds, scalar
-  primitives) are DATA, not child schemas, so they are NOT
-  recursed into — an ordinary `[:= 42]` / `[:enum 1 2]` is fully walkable and
+  primitives) are DATA, not child schemas, so they are NOT recursed into —
+  an ordinary `[:= 42]` / `[:enum 1 2]` is fully walkable and
   NOT opaque. An explicit `[:ref …]` is the exception (rf2-3aafh): its tail is
   data as well, but the shape it references holds the per-slot flags and the
   pure-data walk resolves it nowhere, so it fails CLOSED like a local
