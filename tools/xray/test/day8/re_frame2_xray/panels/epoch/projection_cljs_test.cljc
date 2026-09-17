@@ -3429,23 +3429,74 @@
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
       (is (= 10 (count proj/badge-set))
-          "rf2-sc3r1 7 + rf2-xgeag (SCHEMA-HOT-RELOAD, renamed from
-           SCHEMA-VIOLATIONS) + rf2-yz57h (INTERCEPTOR) = 9 badges, +
-           rf2-9fyn40 (RECORDABLE-COFX, EP-0010 causal provenance, renamed
-           from WORLD-INPUTS by EP-0017 §9) = 10.
-           rf2-btt0s deleted :CHILD-DISPATCHES + :APP-DB-DIFF (retired
-           steps the projection can no longer emit).")
+          "rf2-sc3r1 7 + rf2-yz57h (INTERCEPTOR) + rf2-9fyn40
+           (RECORDABLE-COFX, EP-0010 causal provenance, renamed from
+           WORLD-INPUTS by EP-0017 §9) + rf2-se9a9t (INTERCEPTORS, the
+           PLURAL authored-chain step) = 10.
+           rf2-btt0s deleted :CHILD-DISPATCHES + :APP-DB-DIFF and
+           rf2-y8doi.19 deleted :SCHEMA-HOT-RELOAD (retired steps the
+           projection can no longer emit).
+           THE COUNT IS NOT THE GUARD. rf2-y8doi.19 swapped one badge in
+           and one out, so this number did not move across the very drift
+           it is here to catch; the authored-interceptor arm below is what
+           catches it.")
       (is (contains? proj/badge-set :RECORDABLE-COFX)
           "rf2-9fyn40 · EP-0017 — RECORDABLE-COFX badge is in the inventory")
       ;; rf2-btt0s — guard against step-level drift: badge-set must NOT
       ;; advertise a badge no step can produce. The conditional steps
-      ;; (FLOW / SIDE-EFFECTS / SCHEMA-HOT-RELOAD / INTERCEPTOR) are
-      ;; covered by their own dedicated projection tests; here we pin the
-      ;; two RETIRED badges are gone so the dead-badge class is CI-visible.
+      ;; (FLOW / SIDE-EFFECTS / INTERCEPTOR) are covered by their own
+      ;; dedicated projection tests; here we pin the RETIRED badges are
+      ;; gone so the dead-badge class is CI-visible.
       (is (not (contains? proj/badge-set :CHILD-DISPATCHES))
           "retired CHILD-DISPATCHES badge removed from badge-set")
       (is (not (contains? proj/badge-set :APP-DB-DIFF))
-          "retired APP-DB-DIFF badge removed from badge-set"))))
+          "retired APP-DB-DIFF badge removed from badge-set")
+      ;; rf2-y8doi.19 — the SCHEMA HOT-RELOAD pipeline step retired with
+      ;; rf2-7gf7v (hot-reload drift surfaces in the Issues panel, never
+      ;; as a cascade step). `hot-reload-violation-no-tail-step-test`
+      ;; already pins that the STEP is not appended; this pins that the
+      ;; inventory stopped advertising its BADGE.
+      (is (not (contains? proj/badge-set :SCHEMA-HOT-RELOAD))
+          "retired SCHEMA-HOT-RELOAD badge removed from badge-set")))
+
+  ;; rf2-y8doi.19 — THE ARM THE OLD FIXTURE COULD NOT REACH.
+  ;;
+  ;; `every? valid-badge?` above is only as wide as the steps the fixture
+  ;; projects, and the fixture declared no authored interceptors — so the
+  ;; INTERCEPTORS step (`authored-interceptors-step`, rf2-se9a9t) was never
+  ;; among them and its badge's absence from `badge-set` was invisible for
+  ;; as long as it stood. The resolver opts are the only way to reach that
+  ;; step; this arm threads them.
+  (testing "rf2-y8doi.19 — a cascade carrying an AUTHORED interceptor chain
+            projects the INTERCEPTORS step, and its badge is in badge-set"
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)]
+                        :cart/add)
+          opts  {:resolve-event-interceptors
+                 (fn [event-id]
+                   (when (= event-id :cart/add)
+                     {:entries         [:auth/required
+                                        {:id :rf/event-handler :rf/default? true}]
+                      :resolve-meta-fn (fn [_id]
+                                         {:rf/interceptor-descriptor
+                                          {:before identity}})}))}
+          steps (proj/project rec opts)
+          istep (some #(when (= :interceptors (:step %)) %) steps)]
+      ;; The control: without this the arm would pass vacuously on a
+      ;; cascade that projected no INTERCEPTORS step at all, which is
+      ;; exactly how the drift survived.
+      (is (some? istep)
+          "the fixture really did project an INTERCEPTORS step — without
+           this the badge assertion below passes on an empty search")
+      (is (= :INTERCEPTORS (:badge istep))
+          "the step's badge is the PLURAL :INTERCEPTORS")
+      (is (proj/valid-badge? (:badge istep))
+          "rf2-y8doi.19 — :INTERCEPTORS is in the public badge-set. It was
+           NOT until this bead: the projection emitted it at two sites
+           while the inventory omitted it.")
+      (is (every? proj/valid-badge? (map :badge steps))
+          "every badge in an authored-chain cascade is in the inventory"))))
 
 ;; ---- formatting helpers --------------------------------------------------
 

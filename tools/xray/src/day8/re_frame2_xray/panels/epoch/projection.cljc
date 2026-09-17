@@ -47,7 +47,9 @@
 
   ## Pure-data + JVM-portable
 
-  `tools/xray/spec/Conventions.md` §Pure-data helpers as `.cljc` — the
+  `tools/xray/spec/016-Auxiliary-Panels.md` carries the rule — pure-data
+  helpers live beside their panel as a `.cljc` sibling so the algebra
+  runs under the JVM unit-test target, and view files only render. The
   projection is data-in / data-out and runs under both targets.
   `feedback_jvm_interop_must_work.md` is binding."
   (:require [day8.re-frame2-xray.panels.common-helpers :as common]
@@ -4192,8 +4194,11 @@
 
 (def badge-set
   "The badge inventory produced by the projection — every projected
-  step's `:badge` is a member of this set. Catalogued separately so
-  tests + the view's colour resolver have one authoritative inventory.
+  step's `:badge` is a member of this set, and every member is a badge
+  some step can actually emit. It is the PRODUCER's inventory; the
+  view's colour + label resolver is `panels.epoch.badge`'s own table,
+  which the two kept in step by hand until they forked (see the
+  rf2-y8doi.19 entry below).
 
   - Original 7 (rf2-sc3r1): DISPATCH · COEFFECT · HANDLER · FLOW · FX ·
     SUBSCRIPTIONS · VIEWS.
@@ -4215,12 +4220,25 @@
   - rf2-g7tf6c (EP-0017 §9): WORLD-INPUTS → RECORDABLE-COFX — the
     `:rf.world/inputs` vocabulary fracture is closed; the surface shows the
     handler's DECLARED RECORDABLE LEAVES off the flat `:rf.cofx` map.
+  - rf2-y8doi.19: + INTERCEPTORS (PLURAL — the AUTHORED chain step
+    `authored-interceptors-step` emits, rf2-se9a9t / EP-0022 §11;
+    distinct from the singular exception-only INTERCEPTOR above), and
+    − SCHEMA-HOT-RELOAD, whose step rf2-7gf7v retired: nothing has
+    emitted that badge since, so the set was advertising a dead badge
+    and omitting a live one. Neither drift was visible, because
+    `badge-set-test`'s fixture declared no authored interceptors, so
+    the INTERCEPTORS step it should have caught was never projected.
 
-  The view's badge resolver bails to `:text-tertiary` on an unknown
-  badge, so adding to this set is purely additive."
-  #{:DISPATCH :RECORDABLE-COFX :COEFFECT :INTERCEPTOR :HANDLER :FLOW
-    :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS
-    :SCHEMA-HOT-RELOAD})
+  The count is 10 either way — one badge in, one out — so a count pin
+  alone cannot see this class; the fixture is what catches it.
+
+  The view never paints a badge whose keyword is not in
+  `panels.epoch.badge`'s tables, and those tables resolve unknown
+  badges to `:text-tertiary` + `(name badge)` rather than nil, so a
+  badge missing HERE was never a blank pill — it was a producer the
+  authoritative inventory did not admit."
+  #{:DISPATCH :RECORDABLE-COFX :COEFFECT :INTERCEPTORS :INTERCEPTOR
+    :HANDLER :FLOW :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS})
 
 (defn valid-badge?
   "Predicate — `:badge` keyword is a member of `badge-set`."
