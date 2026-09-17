@@ -349,8 +349,11 @@ suspiciously-long state occupancy. Filters out other instances' chatter.
 ### §2.2 Routes
 
 (Full per-feature spec ships in [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md)
-§Route content + [`018-Event-Spine.md`](018-Event-Spine.md) §Nav-token
-popover; this section catalogues the bug classes.)
+§Routes — two verbs, two homes + §Dynamic Routing, and in
+[`018-Event-Spine.md`](018-Event-Spine.md) §5.6 Routing tab. The nav-token
+timeline popover is designed in [§4](#4-surface-placement--which-tab-grows-which-feature)
+below and is not built, so no chapter carries a section for it. This
+section catalogues the bug classes.)
 
 #### R.1 — "Stale data clobbered my new route."
 
@@ -445,7 +448,8 @@ runtime area, at `[:rf.runtime/routing :current]` in runtime-db) → rank-explai
 - **R.7** URL vs slice drift watchdog (R-C8 — ambitious).
 - **R.8** Route-chain visualiser (`:parent` → child chain) (R-C9).
 - **R.9** Open-redirect security advisory (R-C10).
-- **R.10** Routing badge `🧭` on Event-list rows (R-C1).
+- **R.10** Routing badge `🧭` on Event-list rows (R-C1) — **superseded**;
+  018 retired L2 row badges under rf2-pjjwh (see [§4](#4-surface-placement--which-tab-grows-which-feature)).
 - **R.11** current-route slice (the `:rf/route` runtime area, at
   `[:rf.runtime/routing :current]` in runtime-db) always-visible in App-db tab (R-C2).
 
@@ -737,7 +741,9 @@ removed) — flow cascade-halt alarm (F-C8).
 - **F.9** Per-fx args + handler source-coord chip — every fx-row carries
   the registered fx's source coord (F-C6).
 - **F.10** Expanded badge taxonomy — `🌐 🔌 📄 🌊 🤖` for HTTP /
-  WebSocket / SSR / Flow / Machine `:spawn` (F-C1).
+  WebSocket / SSR / Flow / Machine `:spawn` (F-C1) — **superseded** on the
+  L2 row; 018 retired row badges under rf2-pjjwh (see
+  [§4](#4-surface-placement--which-tab-grows-which-feature)).
 - **F.11** Cross-surface stale-suppression badge — unified `STALE`
   rendering across all four surfaces (F-C5).
 
@@ -787,7 +793,7 @@ separate axis — see §0). The placement is uniform across areas:
 |---|---|
 | **Active-managed-effects chip** | `⧖ 3 HTTP · 1 WS · 2 actors` — F-C4 entry. |
 | **SSR indicator chip** | `📄 SSR @ <hash>` — S-C1 entry. |
-| **Expanded event-list badge taxonomy** | On L2 rows: `🌐 🔌 📄 🌊 🤖 🧭` (F-C1, R-C1, S-C1). |
+| **Expanded event-list badge taxonomy** | **Superseded on the L2 row.** [`018-Event-Spine.md`](018-Event-Spine.md) §Gutter glyphs / row badges / redaction marker retired the row badges outright under rf2-pjjwh — the Figma EventList carries none. HTTP / machine / error / redaction context surfaces in the L4 Epoch + Trace panels and the L2 event-row pink-wash instead (F-C1, R-C1). |
 
 ---
 
@@ -822,8 +828,12 @@ sequenced so authors see compounding improvement week over week.
 
 ### Phase 1 — Quick wins compound (4 PRs)
 
-1. **Badge expansion + routing badge** (F-C1, R-C1, S-C1) — add `🔌 📄 🌊
-   🧭` to L2 event-list row badges; add SSR indicator to ribbon.
+1. **SSR ribbon indicator** (S-C1) — add the SSR indicator chip to the
+   ribbon. The L2 row-badge half of this item (F-C1, R-C1) is
+   **superseded**: [`018-Event-Spine.md`](018-Event-Spine.md) §Gutter
+   glyphs / row badges / redaction marker retired L2 row badges under
+   rf2-pjjwh, so that context surfaces in the L4 Epoch + Trace panels and
+   the L2 event-row pink-wash instead.
 2. **Current-route slice always-visible + per-event route-chain + match-rank
    tooltip** (R-C2, R-C5, R-C9) — the `:rf/route` runtime area
    (`[:rf.runtime/routing :current]` in runtime-db) pinned in the App-db tab; route-chain
@@ -879,15 +889,21 @@ Each is a small PR (<300 LoC); each lights up a meaningful workflow.
 These are the locked-but-iterable decisions where Mike may want to push
 back after reading the spec as the destination:
 
-1. **Hydration tab vs popover vs Issues-inline.** The bisector (S-C2)
-   deserves more than a row. Options:
-   - **(a)** Add Hydration as a **conditional 8th tab** (visible only
-     when SSR is detected for the session). Tab count goes from 7 → 7-or-8.
-   - **(b)** Promote it to an inline panel inside the Issues tab. Stays
-     at 7.
-   - **(c)** Make it a `h`-keyboard popover (consistent with Nav-token
-     `r`).
-   - **Lean: (c).** Keeps the chrome at 7 tabs; joins the popover
+1. **Hydration tab vs popover vs Epoch-inline.** The bisector (S-C2)
+   deserves more than a row. The chrome now ships **10** Dynamic tabs
+   (Epoch · App-db · Views · Trace · Machines · Routing · Resources ·
+   Graph · Frames · Fresco), so the options and their tab arithmetic are:
+   - **(a)** Add Hydration as a **conditional 11th tab** (visible only
+     when SSR is detected for the session). Tab count goes from 10 → 10-or-11.
+   - **(b)** Promote it to an inline panel in the Epoch panel's issue
+     surfacing (rf2-gbz39 Option (c) — the Issues tab was removed, so
+     there is no Issues tab to promote it into). Stays at 10.
+   - **(c)** Make it a keyboard popover. Note `h` is taken — it is the
+     Fresco tab's mnemonic — and `r` is Routing's, so the popover key an
+     earlier draft borrowed from the nav-token timeline is unavailable
+     too; how an unbuilt popover is invoked is undecided (see
+     [§4](#4-surface-placement--which-tab-grows-which-feature)).
+   - **Lean: (c).** Keeps the tab count where it is; joins the popover
      pattern. But "always visible when relevant" is a strong (a) argument.
 
 2. **Active managed-effects dashboard placement.**
@@ -901,8 +917,9 @@ back after reading the spec as the destination:
 3. **Security advisor voice (open-redirect, trusted-shell, payload
    leak).**
    - **(a)** Quiet, surface-only. Show the warning if asked; don't push.
-   - **(b)** Loud, push to Issues tab. Make security mistakes a
-     first-class issue.
+   - **(b)** Loud — push to the Epoch panel's issue surfacing and the
+     always-on issues ribbon signal (the Issues tab was removed per
+     rf2-gbz39 Option (c)). Make security mistakes a first-class issue.
    - **(c)** Configurable via Settings. Default to (a); power-users opt
      into (b).
    - **Lean: (a) for v1; (c) when patterns stabilise.** Xray is a
@@ -971,25 +988,31 @@ clause), the findings carry the discussion that locked the opinion.
   contract; the spine sub; the 10-tab Dynamic inventory (Routing added per
   rf2-nrbs9; Resources / Graph / Frames added per EP-0016 / EP-0014 /
   EP-0013; Fresco added per rf2-hic-023; Issues tab removed per
-  rf2-gbz39 Option (c)); the popover
-  invocation contract.
+  rf2-gbz39 Option (c)); the L2 row anatomy, including the row badges
+  retired under rf2-pjjwh.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — the Machines
   tab's full feature spec; this doc's §2.1 catalogues the bug classes
   that motivate each feature there.
 - [`006-Hydration-Debugger.md`](006-Hydration-Debugger.md) — the SSR
   hydration mismatch bisector spec; this doc's §2.3 catalogues the bug
   classes.
-- [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) — the Event-tab,
-  Issues-tab, Routes-content, Flows-content per-tab contracts; the
-  wire-boundary diff, server error projection, head model inspector,
-  retry timeline, on-match chain, pending-navigation card, and route-chain
-  visualiser all land here.
+- [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) — the per-panel
+  contracts, including the Static Routes / Dynamic Routing and Flows
+  content (its Event-detail panel is retired per rf2-5gl5r and its Issues
+  tab removed per rf2-gbz39); the wire-boundary diff, server error
+  projection, head model inspector, retry timeline, on-match chain,
+  pending-navigation card, and route-chain visualiser all land here.
 - [`013-Trace-Consumer.md`](013-Trace-Consumer.md) — the trace fattening contract
   that enables context-at-position (Phase 5 prereq for per-instance
   replay).
-- [`015-Configuration.md`](015-Configuration.md) — the `configure!` keys
-  including `:filters/auto-hide-events`, `:buffer/retained-epochs`,
-  `:theme`, `:keybinding/bindings`.
+- [`015-Configuration.md`](015-Configuration.md) — the `configure!` keys.
+  The canonical v1 shape is flat and hyphenated under one reserved
+  namespace — `:rf.xray/editor`, `:rf.xray/filters`,
+  `:rf.xray/filters-storage-key`, `:rf.xray/keybinding-enabled?`,
+  `:rf.xray/settings` (which carries the `:theme`, `:general`, `:buffer`
+  and `:diff` slots) — not the `:<cluster>/<knob>` spelling an earlier
+  draft of this list used. The sub-namespaced `:rf.xray.<cluster>/<knob>`
+  form is reserved for a later graduation and is not v1.
 - [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) — the
   eight-property contract uniformly satisfied across HTTP, WebSocket,
   `:spawn`, `:rf.server/*`, flows. This doc's wire-boundary diff (F-C2)
