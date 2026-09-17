@@ -76,11 +76,18 @@
   ;; The frame-picker writes `[:focus :frame]` via `:rf.xray/set-frame`,
   ;; and `compose-focus` also derives `:frame` from the focused event-bundle.
   ;; Without this seam the App-db panel previously read only the legacy
-  ;; `:target-frame` slot (which `:rf.xray/set-frame` does NOT touch),
+  ;; `:target-frame` slot, which `:rf.xray/set-frame` did NOT then touch,
   ;; so it stayed hardcoded to `:rf/default` no matter what the user
-  ;; picked. The legacy slot survives as the fallback when no focus has
-  ;; resolved a frame yet (cold start, no focusable event-bundles) — keeps
-  ;; the boot-time empty-state useful.
+  ;; picked. It touches it now — `set-frame-reducer` writes `:target-frame`
+  ;; and re-seeds `:epoch-history` (rf2-ug1r6 + rf2-thodq) — so the two
+  ;; axes no longer diverge at the writer; the seam stays because focus,
+  ;; not the slot, is the axis this panel follows.
+  ;;
+  ;; The legacy slot survives as the `or` fallback below when no focus has
+  ;; resolved a frame yet, but what it falls back TO has changed: EP-0002
+  ;; (rf2-bd4div) made an unselected target `nil` rather than `:rf/default`,
+  ;; so a cold start with no focusable event-bundles now yields nil and the
+  ;; panel renders its unselected-target state instead of a boot frame.
   (rf/reg-sub :rf.xray/observed-frame
     {:inputs [[:rf.xray/focus] [:rf.xray/target-frame]]}
     (fn [[focus target] _query]

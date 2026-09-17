@@ -260,12 +260,19 @@
   scrubber / app-db / machine-inspector panels are observing — or
   **`nil` when UNSELECTED**.
 
-  The inspected target starts unselected and is
-  selected by host config (`init! {:target-frame …}` / `set-target-
-  frame!`), the frame picker, or the mount-time discovery policy. It is
-  NOT defaulted to `:rf/default`: `:rf/default` is an ordinary id, never
-  an absence-repair fallback (Spec 002 §Frame target resolution). A `nil`
-  return means 'no host frame selected yet' — the picker prompts a choice.
+  The inspected target starts UNSELECTED. What takes it out of that
+  state is a RULE, not a list of sources: a selected target is either an
+  EXPLICIT CHOICE — host config (`init! {:target-frame …}` /
+  `set-target-frame!`), the frame picker, an operator focus gesture — or
+  a frame RESOLVED FROM OBSERVED EVIDENCE (the mount-time discovery
+  policy, epoch-ingest adoption), never a synthesised one. Those call
+  sites are illustration, not a closed list; `defaults/default-target-
+  frame` carries the rule in full, with the tier precedence and the spec
+  cite (this docstring's earlier three-source enumeration was false —
+  rf2-y3keu). It is NOT defaulted to `:rf/default`: `:rf/default` is an
+  ordinary id, never an absence-repair fallback (Spec 002 §Frame target
+  resolution). A `nil` return means 'no host frame selected yet' — the
+  picker prompts a choice.
 
   One-shot read; does NOT register the caller for reactive re-render.
   Reactive consumers subscribe to `:rf.xray/target-frame` directly.
