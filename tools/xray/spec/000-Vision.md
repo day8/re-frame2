@@ -181,15 +181,18 @@ different families of question against the same registries; the
   tab bar · detail — no L2 spine, because Static doesn't pin to an
   event). Answers a peer family: *what's registered? · what would
   `/orders/42?tab=ship` simulate? · what's still mapped?* Browses the
-  machine registry, the route registry, the schema registry, the view
-  registry, the event-handler registry — the things that EXIST in the
-  app, not the things that just HAPPENED. Five Static sub-tabs
-  (Machines · Routes · Schemas · Views · Events); Static Machines is
-  the default landing.
+  machine registry, the route registry, the schema registry, the flow
+  registry, and the interceptor chains surfaced through registered
+  events — the things that EXIST in the app, not the things that just
+  HAPPENED. Five Static sub-tabs (Machines · Routes · Schemas · Flows ·
+  Interceptors); Static Machines is the default landing. There are no
+  standalone Views or Events sub-tabs — what those would surface
+  already lives in the source code.
 
-Mode is toggled by the **mode pill** at ribbon-left (a two-segment
-radio that lives in both modes — it's the toggle, not the indicator)
-or by the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord. The mode
+Mode is toggled by the **mode pill** at ribbon-left (a compact
+single-select `<select>` that lives in both modes — it's the toggle,
+not the indicator; the mode SIGNAL is the ribbon's left-edge accent
+stripe) or by the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord. The mode
 choice persists to localStorage under `xray.mode` and survives
 reload. Static mode is unconditionally available (per rf2-8l3uk —
 the prior `:rf.xray/static-mode?` feature gate was removed).
@@ -229,8 +232,13 @@ browse + 4-mode sub-strip + JUMP-to-Dynamic semantics).
   (lock #4). The recorder → `:script` export pipeline is a Story
   integration (see [`018-Event-Spine.md`](018-Event-Spine.md) §Recorder /
   Story integration); the running Xray session does not persist.
-- **Not a mobile surface.** Desktop only; viewports below 600px refuse to
-  mount (lock #5).
+- **Not a mobile surface.** Desktop only (lock #5) — and enforced by not
+  building mobile support rather than by an active viewport guard. The
+  sub-900px full-width takeover and the sub-600px "refuses to mount"
+  guard were **never implemented**, and were trimmed under rf2-f7748x
+  (Mike ruled Option B, 2026-07-03); there is no `matchMedia` breakpoint
+  or mount guard in the code. See
+  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) lock #5.
 - **Not a Chrome extension.** In-app DOM injection plus a same-browser
   pop-out via `window.opener`. Remote-attach lives over re-frame2-pair-mcp (lock #9).
 - **Not part of any production bundle — by build placement.** Per the
@@ -254,7 +262,7 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 | re-frame2 capability | Xray surface |
 |---|---|
 | **Multi-frame** (Spec 002) | Per-frame inspection; single-select frame picker in ribbon. |
-| **Machines** (Spec 005) | Stately-quality state-chart per machine in an **event-driven Dynamic panel** (rf2-y9xmf) — BLANK when the focused event has no machine activity; per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. Cross-cutting Xray surfaces: **`:after`-timer countdown rings** with scrubber-aware retro-replay; **`:spawn-all` parallel-child viz + join inspector**; **cancellation-cascade visualiser**; **per-instance "why am I stuck" trace**; XState-parity supervision tree. The ELK+SVG chart primitive lives in `tools/machines-viz/` (its own tool jar, per rf2-o9arp); Xray re-exports the public chart API via thin shims. (UC1 interactive simulation + UC2 multi-instance Mode A/B/C are deferred to the Static re-host — rf2-r4nao.) |
+| **Machines** (Spec 005) | Stately-quality state-chart per machine in an **event-driven Dynamic panel** (rf2-y9xmf) — BLANK when the focused event has no machine activity; per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. Cross-cutting Xray surfaces: **`:after`-timer countdown rings** with scrubber-aware retro-replay; **`:spawn-all` parallel-child viz + join inspector**; **cancellation-cascade visualiser**; **per-instance "why am I stuck" trace**; XState-parity supervision tree. The chart primitive lives in `tools/machines-viz/` (its own tool jar, per rf2-o9arp; xyflow + elkjs since the rf2-gpzb4 migration); Xray depends on its public chart API directly. (UC1 interactive simulation + UC2 multi-instance Mode A/B/C are deferred to the Static re-host — rf2-r4nao.) |
 | **Flows** (Spec 013) | Surfaced in Views tab when a flow's downstream sub recomputed; **cascade-halt alarm** surfaces inline in the Epoch panel + via the issues ribbon signal (rf2-gbz39 removed the Issues tab per Option (c)) — names the downstream flows that did NOT run when an upstream flow's `:output` threw. |
 | **Source-coord stamping** (Spec 001 + 006) | Click-to-source on every node, view, machine guard, transition, fx-handler, schema declaration. |
 | **Trace bus** (Spec 009) | The substrate of everything. Xray does not invent its own trace shape. **Trace fattening** (carrying context-at-position on each event) enables the per-instance scrubber's Phase-5 replay-from-arbitrary-position affordance. |
@@ -308,7 +316,7 @@ cohesive sub-domains earn their own lens tab rather than overloading App-db.
 | 2 | **App-db** | `a` | Complete focused-epoch post-state, sectioned by application/framework area, with inline `:db-before` → `:db-after` annotations in the lazy inspector. With no focused epoch, live state without an invented pre-image. Branch-aware and cross-frame comparison remain future work. | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §4 |
 | 3 | **Views** | `v` | Left-to-right reactive-flow graph: app-db → Level-1 subs → derived subs → views, with changed/short-circuit and render-cause evidence. Followed by unmounted views, destroyed subscriptions and unchanged-sub disclosure. No cumulative mounted census or nested per-view value inventory. | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.2; [`012-Views.md`](012-Views.md) is historical. |
 | 4 | **Trace** | `t` | Every retained op of the focused epoch in fire order: Δt, stage, area, verb, detail and duration. Flat rows, no phase nesting or panel-local filter bar; raw-map disclosure on click. The wall-clock axis remains a labelled future direction in 013. | [`023-Trace-Panel.md`](023-Trace-Panel.md) + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
-| 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it did. Cross-cutting Xray surfaces: **`:after`-timer countdown rings**; **cancellation-cascade visualiser**; **`:spawn-all` join inspector**; **per-instance "why am I stuck" trace strip**; supervision tree. UC1 Sim engine + UC2 Mode A/B/C dynamic-instance UI deferred to Static re-host (rf2-r4nao). MachineChart lives in `tools/machines-viz/` (rf2-o9arp); Xray re-exports the public chart API via thin shims — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Architectural posture. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
+| 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it did. Cross-cutting Xray surfaces: **`:after`-timer countdown rings**; **cancellation-cascade visualiser**; **`:spawn-all` join inspector**; **per-instance "why am I stuck" trace strip**; supervision tree. UC1 Sim engine + UC2 Mode A/B/C dynamic-instance UI deferred to Static re-host (rf2-r4nao). MachineChart lives in `tools/machines-viz/` (rf2-o9arp); Xray `:require`s its public chart API directly — the Xray-side re-export shims were removed with the rf2-gpzb4 xyflow migration — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Architectural posture. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
 | 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef) — current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline. Per-focused-event glyphs: **`◆ HERE`** on the current matched route · **`◆ FROM` / `◆ TO`** when the focused cascade caused navigation. Silent when no routes registered. | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab + [`018-Event-Spine.md`](018-Event-Spine.md) §5.6 |
 | 7 | **Resources** | `s` | The declarative-server-state lens (Spec 016 §Xray + AI tooling) — for the focused event: the resource registry · live instances · in-flight work · invalidations · the route→resource graph. The cohesive-sub-domain L4 tab for managed server state (EP-0016). Read-only. | [`024-Resources-Panel.md`](024-Resources-Panel.md) + framework [`spec/016-Resources.md`](../../../spec/016-Resources.md) |
 | 8 | **Graph** | `g` | The unified derivation / process graph across every algebra-view family for the focused cascade (EP-0014, rf2-9ett2d). An **L4-only registry tab** — `reg-l4-tab!` only, no standalone `mount-*!` facade (it is shell-internal, focusable but not independently mountable). | [`025-Derivation-Graph-Panel.md`](025-Derivation-Graph-Panel.md) |
@@ -437,7 +445,7 @@ in Xray's panel chrome. Story → Xray → `implementation/` at the
 whole-tool level; Story → `tools/machines-viz/` directly when it
 embeds the chart. No cycles, no shared registries, no parent/child
 relationships among the tools. See [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
-§Architectural posture for the re-export shim contract.
+§Architectural posture for the direct-import contract.
 
 ## Status
 
