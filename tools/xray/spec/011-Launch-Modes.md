@@ -419,9 +419,18 @@ rather than a require: `keybinding` already requires `mount` (for
 `visible?` / `toggle!`), so the hook is pushed down at load time
 instead of pulled up, which would be a cycle. An unregistered slot
 degrades to the pre-`rf2-61i5` behaviour — a pop-out with no keyboard —
-and the installer re-reads `:rf.xray/keybinding-enabled?` at install
-time, so an embed host that suppressed Xray's global keyboard gets no
-pop-out listener either.
+and the listener the installer puts on that document reads
+`:rf.xray/keybinding-enabled?` on every keystroke rather than once at
+install time, so an embed host that suppressed Xray's global keyboard is
+undisturbed in the pop-out too — the listener is present and declines
+(no `preventDefault`, no `stopPropagation`, no dispatch), which neither
+the host nor the browser can tell from absence. Reading it per keystroke
+is what makes the slot answer a flip landing AFTER the window was
+opened, in both directions. The opener expresses the same switch through
+the listener's PRESENCE instead, `attach!` / `detach!` adding and
+removing it; a pop-out cannot be driven through that pair, because its
+listener's lifetime belongs to `popout!` and `teardown-popout-state!`
+(rf2-d6gna).
 
 **Pop-out REFLECTS the opener's already-running instance; it must not
 RESET it (rf2-n4p5it).** `popout!` calls `mount/ensure-xray-frame!`
