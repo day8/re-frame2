@@ -821,7 +821,7 @@
 
 ;; ---- *suppressed-counters* (UI redaction indicator) ---------------------
 ;;
-;; The shell's bottom rail renders a `[● REDACTED N]` hint when sensitive
+;; The shell's L1 chrome ribbon renders a `[● REDACTED N]` hint when sensitive
 ;; events were suppressed. The hint tells the user "you're seeing fewer
 ;; events than the runtime emitted because the privacy gate is on" —
 ;; useful when a sensitive event-bundle would otherwise vanish silently.
@@ -897,7 +897,7 @@
      `defaults/default-frame-id` Var, never a bare frame-map literal. This
      is a trace-collector infra seam, not a per-instance render affordance:
      the trace bus has no surrounding render/event frame, and the
-     bottom-rail's `[● REDACTED N]` indicator lives on the single in-app
+     L1 chrome ribbon's `[● REDACTED N]` indicator lives on the single in-app
      shell. It is the legitimate production-singleton seam, consistent with
      `spine-filters/hydrate!`.
 
@@ -929,7 +929,7 @@
 
   In CLJS it also adds the bump to the pending per-task counts and, unless
   a drain is already queued, schedules `drain-suppressed-counts!` on the
-  next task. The bottom-rail's `[● REDACTED N]` indicator therefore updates
+  next task. The L1 chrome ribbon's `[● REDACTED N]` indicator therefore updates
   through the reactive sub-graph within one task (the event handler adds
   to Xray's app-db `:suppressed-counters` slot; the
   `:rf.xray/suppressed-sensitive-count` sub reads off the same db). One
@@ -952,7 +952,7 @@
   "Return the count of sensitive trace events that have been
   suppressed for `frame-id`. Zero if no events have been suppressed
   for that frame. With no arg, returns the *total* across every
-  bucket — the bottom-rail indicator uses the total because the
+  bucket — the chrome-ribbon indicator uses the total because the
   user cares about 'is the gate hiding things from me right now',
   not per-frame breakdown."
   ([]
@@ -1807,7 +1807,7 @@
        `:rf.egress/*` enum (`re-frame.projection/profiles`); for the
        on-box dev surface the relevant pair is `:rf.egress/local-redacted`
        (the fail-closed default — suppress `:sensitive? true` display; the
-       shell's bottom rail surfaces a `[● REDACTED N]` hint) and
+       shell's L1 chrome ribbon surfaces a `[● REDACTED N]` hint) and
        `:rf.egress/local-raw` (the trusted-local operator opt-in — reveal
        sensitive AND large values verbatim on your own machine). An unknown
        profile raises `:rf.error/unknown-egress-profile`. `nil` resets to
