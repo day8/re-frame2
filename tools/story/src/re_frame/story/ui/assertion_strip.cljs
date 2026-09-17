@@ -14,11 +14,12 @@
 
   Five patterns from the Storybook addon-tests interactions panel:
 
-  1. **Structured row** — status glyph (✓/✗/⊘) + assertion label +
+  1. **Structured row** — status glyph (✓/✗/✖/⊘) + assertion label +
      one-line summary, not raw EDN.
-  2. **Auto-collapse pass · auto-expand fail** — failed assertions
-     surface their full detail; passed ones stay collapsed (the user
-     drills only when something demands attention). A click toggles.
+  2. **Auto-collapse pass · auto-expand fail** — failed and errored
+     assertions surface their full detail; passed ones stay collapsed
+     (the user drills only when something demands attention). A click
+     toggles.
   3. **Token-coloured left border** — green / red / grey by status.
   4. **Truncate long values** — the inline summary clamps to one line
      with ellipsis; the expanded panel renders the full content, but a
@@ -118,13 +119,17 @@
   Pure data → string. Empty string when no useful summary is present.
 
   For failures: surfaces `:reason`, else a compact `expected vs actual`.
+  For errors: surfaces the captured error's `:message` — the one sentence
+  saying what went wrong (a setup that threw, or an event nobody
+  registered) — falling back to `:reason`, then to a bare `\"error\"`. It
+  is never blank: a silent errored row was the rf2-uky0n defect.
   For passes: leaves blank — the label already names the assertion.
   For skips: surfaces `:reason` when present.
 
   Always truncated to `truncate-len` characters."
   [row]
   (let [{:keys [status detail]} row
-        {:keys [reason expected actual]} detail]
+        {:keys [reason expected actual error]} detail]
     (truncate
       (case status
         :fail (cond
@@ -133,6 +138,14 @@
                 (or (some? expected) (some? actual))  (str "expected " (pr-str expected)
                                                            " · actual " (pr-str actual))
                 :else                                 "")
+        ;; An `:rf.error/exception` record carries its detail in the
+        ;; `:error` map, not in `:reason` (which is nil on the captured
+        ;; shape). Prefer the message — it is the more specific of the two.
+        :error (cond
+                 (string? (:message error))            (:message error)
+                 (and (some? reason) (string? reason)) reason
+                 (some? reason)                        (pr-str reason)
+                 :else                                 "error")
         :skip (cond
                 (string? reason) reason
                 (some? reason)   (pr-str reason)
@@ -259,20 +272,39 @@
                   :cursor       "pointer"
                   :text-decoration "underline"}})
 
+;; `:error` reuses the danger token rather than introducing a colour of
+;; its own. That mirrors the test-mode pane's precedent
+;; (`ui/test_mode/view.cljs` gives :fail and :error the same
+;; `:status-fail` colour and tells them apart by GLYPH), and satisfies
+;; spec/018 §12.6 — "fail" and "error" MUST remain distinguishable — by
+;; icon and summary text without inventing a theme token.
 (def ^:private status->row-style
-  {:pass (:row-pass styles)
-   :fail (:row-fail styles)
-   :skip (:row-skip styles)})
+  {:pass  (:row-pass styles)
+   :fail  (:row-fail styles)
+   :error (:row-fail styles)
+   :skip  (:row-skip styles)})
 
 (def ^:private status->glyph-style
-  {:pass (:glyph-pass styles)
-   :fail (:glyph-fail styles)
-   :skip (:glyph-skip styles)})
+  {:pass  (:glyph-pass styles)
+   :fail  (:glyph-fail styles)
+   :error (:glyph-fail styles)
+   :skip  (:glyph-skip styles)})
 
 (def status-glyph
-  "Status-glyph map — the shared assertion-outcome vocabulary
-  (`predicates/assertion-glyph`). Public so tests can pin the shape."
-  rf.story.predicates/assertion-glyph)
+  "Status-glyph map for the strip. The three assertion verdicts come from
+  the shared vocabulary (`predicates/assertion-glyph`); `:error` is the
+  strip's own extension over it.
+
+  `assertion-glyph` is deliberately three-valued — it is the ASSERTION
+  vocabulary, shared with the test-mode result table and the scrubber,
+  and its docstring says consumers supply their own fallback. So the
+  `:error` entry is assoc'd on HERE rather than widened there. `✖` (not a
+  second `✗`) matches the pane's own error glyph, keeping an errored row
+  distinguishable from a failed one at a glance even though both carry
+  the red band.
+
+  Public so tests can pin the shape."
+  (assoc rf.story.predicates/assertion-glyph :error "✖"))
 
 ;; ---- rendering ------------------------------------------------------------
 
@@ -309,22 +341,34 @@
             (if @revealed? "less" "reveal")])]))))
 
 (defn- row-detail
-  "Render the expanded detail for one row. Surfaces `:reason` /
+  "Render the expanded detail for one row. Surfaces `:reason` / `:error` /
   `:expected` / `:actual` / `:event` / `:phase` / `:predicate` and the
   source-coord stamp. Mirrors the test-mode pane's `row-detail` but
   inline-sized (no headings; one line per key).
 
-  `:expected` / `:actual` route through `detail-value` so a large map
-  (the densest realistic case) renders clamped with a click-to-reveal
-  chord rather than blowing the panel into the canvas height."
+  `:expected` / `:actual` — and a captured error's `:data` — route through
+  `detail-value` so a large map (the densest realistic case) renders
+  clamped with a click-to-reveal chord rather than blowing the panel into
+  the canvas height.
+
+  `:stack` is deliberately NOT rendered here: the strip is inline-sized,
+  and the test-mode pane already renders the stack for tested variants."
   [detail]
-  (let [{:keys [reason expected actual event phase predicate source]} detail]
+  (let [{:keys [reason error expected actual event phase predicate source]} detail]
     [:div {:style     (:detail styles)
            :data-test "story-canvas-assertion-detail"}
      (when (some? reason)
        [:div {:style (:detail-line styles)}
         [:span {:style (:detail-key styles)} "reason:"]
         (if (string? reason) reason (pr-str reason))])
+     ;; The captured `:rf.error/exception` record's message — the one
+     ;; sentence that says what went wrong. Mirrors the test-mode pane.
+     (when (map? error)
+       [:div {:style (:detail-line styles)}
+        [:span {:style (:detail-key styles)} "error:"]
+        (str (:message error))])
+     (when (some? (:data error))
+       [detail-value "error data" (:data error)])
      (when (or (some? expected) (false? expected))
        [detail-value "expected" expected])
      (when (or (some? actual) (false? actual))
@@ -356,9 +400,9 @@
   `cljs.test`'s shape assertions running under CLJS.
 
   Per pattern #2 the click toggles the detail visibility for ANY row
-  (pass / fail / skip); per pattern #2's default-arm, `open?` starts as
-  `(= :fail status)` so failures land already-open and passes stay
-  collapsed."
+  (pass / fail / error / skip); per pattern #2's default-arm the caller
+  starts `open?` true for failures AND errors, so both land already-open
+  while passes stay collapsed."
   [row open? on-toggle]
   (let [{:keys [status label]} row
         glyph       (get status-glyph status "·")
@@ -367,7 +411,11 @@
         glyph-style (merge (:glyph styles)
                            (get status->glyph-style status))
         summary     (summary-line row)
-        fail?       (= :fail status)]
+        ;; Drives the danger-coloured summary text. An errored row is a
+        ;; failing one for colour purposes; the glyph is what separates
+        ;; them. `:data-status` and the aria-label already read "error"
+        ;; for free, since both project `(name status)`.
+        fail?       (contains? #{:fail :error} status)]
     [:div {:data-test     "story-canvas-assertion-row"
            :data-status   (name status)
            :data-row-key  (:row-key row)}
@@ -426,25 +474,27 @@
 
   Renders nothing when `assertions` is empty. Otherwise renders one
   group per dispatching `:event`, with one row per assertion under the
-  group. Failed rows auto-expand; passed/skipped rows stay collapsed.
-  Clicking any row toggles its detail panel.
+  group. Failed and errored rows auto-expand; passed/skipped rows stay
+  collapsed. Clicking any row toggles its detail panel.
 
   Local-state: a per-mount `r/atom` carries the expanded-row-keys set.
-  Failed rows are seeded into the set on first render so the user lands
-  on already-disclosed failures."
+  Failed and errored rows are seeded into the set on first render so the
+  user lands on already-disclosed problems."
   [_assertions]
   (let [expanded (r/atom nil)]            ;; nil until first render seeds
     (fn [assertions]
       (when (seq assertions)
         (let [rows    (mapv rf.story.ui.test-mode.pure/assertion-row assertions)
-              ;; Seed the expanded set on first render: every failed
-              ;; row's :row-key lands open so the user doesn't have to
-              ;; click to disclose. After first render the atom is the
-              ;; canonical state.
+              ;; Seed the expanded set on first render: every failed OR
+              ;; ERRORED row's :row-key lands open so the user doesn't
+              ;; have to click to disclose. Errors belong here for the
+              ;; same reason failures do — and more so, since a failed
+              ;; setup is often the reason nothing else ran. After first
+              ;; render the atom is the canonical state.
               _seed   (when (nil? @expanded)
                         (reset! expanded
                                 (into #{}
-                                      (comp (filter #(= :fail (:status %)))
+                                      (comp (filter #(contains? #{:fail :error} (:status %)))
                                             (map :row-key))
                                       rows)))
               ;; Re-projection: group the original records (carrying
