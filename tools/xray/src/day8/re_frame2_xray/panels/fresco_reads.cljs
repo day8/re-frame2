@@ -42,7 +42,7 @@
   contract pins that `implementation/` never requires Xray, not that a
   host's release bundle is free of it."
   (:require [re-frame.fresco.tool :as rf.fresco.tool]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (defn- soft
   "Call `f`, answering nil on any throw.
@@ -121,11 +121,28 @@
 
   Answers `{}` when Fresco is absent, which is the same shape an idle
   runtime gives — and the advisor renders that as a capped window rather
-  than as a quiet application."
+  than as a quiet application.
+
+  ## The ring is read through Xray's OWN gate, not bare (rf2-y8doi.13)
+
+  The window comes from `trace-collector/bundles-for-frame`, not from
+  `re-frame.trace.tooling/trace-buffer`. The bare call was Xray's second,
+  seam-side reader of the framework rings — and the rings retain every
+  emitted event with no `:sensitive?` check, by design — so under the
+  fail-closed `:rf.egress/local-redacted` default a sensitive cascade
+  that every trace-side surface hid still reached the advisor's ranking
+  and the causal slice through here. The gate is the collector's, one
+  policy for all three ingress paths, and it is a no-op under the
+  trusted-local `:rf.egress/local-raw` opt-in.
+
+  This does NOT touch the byte-for-byte contract above: that contract is
+  the FOUR Fresco envelopes, whose seam is pinned `identical?` to the
+  door's. This read is a second producer over Spec 009's ring, which is
+  Xray's own surface to gate."
   [envelopes]
   (soft
     (fn []
       (let [frames (or (get-in envelopes [:explain-render :window :frames])
                        (get-in envelopes [:intents :frames])
                        [])]
-        (into {} (map (fn [fid] [fid (rf.trace.tooling/trace-buffer fid)])) frames)))))
+        (into {} (map (fn [fid] [fid (trace-collector/bundles-for-frame fid)])) frames)))))

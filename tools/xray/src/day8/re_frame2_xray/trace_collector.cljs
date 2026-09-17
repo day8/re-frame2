@@ -16,7 +16,8 @@
   trace store.
 
   Narrowing the egress profile also scrubs the framework rings, frameless
-  ring, and app-db mirror before another read can expose old raw values.
+  ring, and both app-db mirrors (`:trace-buffer` and `:epoch-history`)
+  before another read can expose old raw values.
 
   ## Production posture
 
@@ -230,6 +231,47 @@
           (sort-by (fn [ev] (or (:id ev) js/Number.MAX_SAFE_INTEGER))
                    all))))
 
+(defn bundles-for-frame
+  "The gated per-frame EVENT-BUNDLE read (rf2-y8doi.13) — one bundle per
+  dequeued event, oldest-first, exactly the shape
+  `rf/trace-buffer` answers, with the Spec 009 §Privacy gate applied.
+
+  `snapshot-from-rings` above is the gated FLAT read; this is its
+  bundle-shaped sibling, and it exists because Xray had a second,
+  UNGATED reader of the framework rings — `panels.fresco-reads/trace-
+  windows` called `re-frame.trace.tooling/trace-buffer` straight, so a
+  sensitive cascade the spine and every trace panel hid still reached the
+  Fresco advisor and the causal slice. Spec 013 §Read-side gate says
+  \"Xray has no second, seam-side trace reader\"; this is what makes that
+  sentence true again.
+
+  ## The grain is the BUNDLE, not the event
+
+  A bundle carrying ANY suppressed event is dropped WHOLE — not scrubbed
+  down to its surviving events. Two reasons, and the first is the
+  load-bearing one:
+
+    - A bundle is ONE dequeued event's cascade, and Spec 009
+      §Retroactive-scrub already rules that selective scrubbing inside a
+      cascade is unsafe: a non-sensitive sub recompute or render in the
+      same run can structurally reveal the value the sensitive event
+      carried. The whole-cascade drop is the same \"simplest correct
+      semantic\" that scrub applies wholesale.
+    - The bundle's `:subs` / `:renders` / `:effects` / `:dispatched` /
+      `:handler` / `:fx` / `:other` slots are PROJECTIONS of the same
+      `:trace-events`, so a per-event scrub would have to reach seven
+      more slots to be honest, and a slot added upstream would silently
+      re-open the leak.
+
+  No-op under the trusted-local `:rf.egress/local-raw` opt-in, and `[]`
+  in production / for a destroyed frame (both inherited from
+  `rf/trace-buffer`)."
+  [frame-id]
+  (into []
+        (remove (fn [bundle]
+                  (boolean (some config/suppress-sensitive? (:trace-events bundle)))))
+        (rf/trace-buffer frame-id)))
+
 (defn refresh-trace-rings!
   "Synchronously snapshot every per-frame ring + the frameless secondary
   ring into Xray's app-db's `:trace-buffer` slot.
@@ -352,15 +394,23 @@
 ;; trapdoor — a sensitive event-bundle buffered while the raw profile was active
 ;; would otherwise remain visible after the user expected privacy restored.
 ;;
-;; Three places hold trace data post-rf2-43koh:
+;; Four places hold trace data post-rf2-43koh:
 ;;   1. The framework's per-frame rings — clear via
 ;;      `(rf/clear-trace-buffer!)`.
 ;;   2. The Xray secondary frameless ring — clear via
 ;;      `(clear-frameless-ring!)`.
 ;;   3. Xray's app-db `:trace-buffer` slot — clear via
 ;;      `:rf.xray/clear-trace-buffer` (registered in `registry.cljs`).
+;;   4. Xray's app-db `:epoch-history` slot (rf2-y8doi.13) — each record
+;;      carries `:trace-events` VERBATIM, so records ingested while the
+;;      raw profile was active hold sensitive events the narrowing must
+;;      reach. Cleared via `:rf.xray/sync-epoch-history` with an empty
+;;      history — the slot's own wholesale-overwrite event (registered in
+;;      `epoch.cljs`), which also clears `[:focus :epoch-id]` so no panel
+;;      is left following a record that no longer exists. No new event id:
+;;      the clear IS a sync to nothing.
 ;;
-;; All three are dropped together. The suppressed-counters reset moves
+;; All four are dropped together. The suppressed-counters reset moves
 ;; alongside so the `[● REDACTED N]` indicator disappears in lockstep
 ;; (clearing the buffer is the natural moment to drop the
 ;; \"you missed N events\" overhang).
@@ -375,9 +425,9 @@
 
 (defn retroactive-scrub!
   "Wholesale clear: per-frame rings + frameless secondary ring + Xray's
-  app-db slot + the suppressed-counters. Called from the
-  toggle-off-callback registered below, AND from the Settings popup's
-  \"Clear buffer now\" affordance.
+  `:trace-buffer` AND `:epoch-history` app-db slots + the
+  suppressed-counters. Called from the toggle-off-callback registered
+  below, AND from the Settings popup's \"Clear buffer now\" affordance.
 
   Retention policy survives: the framework clear is the 0-arity data
   clear, so the user's configured `:events-retained` and every per-frame
@@ -391,7 +441,8 @@
     (clear-frameless-ring!)
     (when (some? (rf.frame/frame defaults/default-frame-id))
       (rf/with-frame defaults/default-frame-id
-        (rf/dispatch [:rf.xray/clear-trace-buffer])))
+        (rf/dispatch [:rf.xray/clear-trace-buffer])
+        (rf/dispatch [:rf.xray/sync-epoch-history []])))
     (config/reset-suppressed-count!))
   nil)
 
