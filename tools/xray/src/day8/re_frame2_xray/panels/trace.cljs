@@ -67,6 +67,7 @@
 
     :no-events     -> 'No events.' (focused epoch carries no trace events)
     :no-focus      -> 'Select an event to see its trace arc.' (spec/023 §14)
+    :no-epoch      -> the SELECTED event bundle settled no epoch (rf2-c4abp)
     :epoch-evicted -> the focused epoch aged out of the ring buffer.
 
   ## Pure hiccup
@@ -903,6 +904,21 @@
   ;; spec/023 §14 — "Select an event to see its trace arc."
   (empty-state-message :no-focus "Select an event to see its trace arc."))
 
+(defn- empty-state-no-epoch []
+  ;; rf2-c4abp / rf2-y8doi.19 — the operator SELECTED an event bundle that
+  ;; settled no epoch. Distinct from `:no-focus` (nothing selected at all)
+  ;; and from `:no-events` (a real epoch that emitted nothing).
+  ;;
+  ;; The copy is deliberately CAUSE-NEUTRAL and is the SAME line the Epoch
+  ;; panel renders for this status, so the two tabs cannot contradict each
+  ;; other about one selection. At least four things produce `:no-epoch`
+  ;; and the shared resolver can tell none of them apart from focus alone —
+  ;; a dispatch refused before any handler ran, a bundle still mid-build, a
+  ;; bundle whose epoch aged out of the ring, and a focus pinning
+  ;; `:ungrouped` — so naming the refusal would read as fact and be a fresh
+  ;; falsehood on the other three.
+  (empty-state-message :no-epoch "The selected event settled no epoch."))
+
 (defn- empty-state-epoch-evicted []
   (empty-state-message
     :epoch-evicted
@@ -966,6 +982,7 @@
       (case empty-kind
         :no-events     (empty-state-no-events)
         :no-focus      (empty-state-no-focus)
+        :no-epoch      (empty-state-no-epoch)
         :epoch-evicted (empty-state-epoch-evicted)
         nil
         ;; The feed container keeps the `rf-xray-trace-feed` testid as the
@@ -1197,12 +1214,12 @@
   ;; per-frame settling epoch record's raw trace slice, which folds the
   ;; complete domino trail for one event (the synchronous event-side
   ;; dispatch-id-N rows AND the async nil-dispatch-id reactive rows).
-  ;; The focused epoch record is resolved exactly as the Issues / App-DB
-  ;; Diff panels resolve theirs: join `:rf.xray/focus` (carrying
-  ;; `:epoch-id`) + `:rf.xray/epoch-history`, then run the shared
+  ;; The focused epoch record is resolved exactly as the Epoch panel
+  ;; resolves its own: join `:rf.xray/focus` (carrying `:epoch-id` AND the
+  ;; pinned `:dispatch-id`) + `:rf.xray/epoch-history`, then run the shared
   ;; `panels.shared.focus-resolver` — which classifies the focus status
-  ;; (`:no-focus` / `:focused` / `:epoch-evicted`) and looks up the
-  ;; record. `h/project-feed-from-epoch` projects that record's
+  ;; (`:no-focus` / `:no-epoch` / `:focused` / `:epoch-evicted`) and looks
+  ;; up the record. `h/project-feed-from-epoch` projects that record's
   ;; `:trace-events` into the feed shape. The flat panel (rf2-aqusw)
   ;; reads only `:rows` + `:empty-kind`; the `:envelope` / `:bands` /
   ;; `:outcome` slots are RETAINED for cross-panel consumers + the
@@ -1218,7 +1235,30 @@
   ;;      :total      <int>         ;; the epoch's trace-event count
   ;;      :rendered   <int>         ;; same as :total (no filtering)
   ;;      :epoch-id   <int-or-nil>  ;; the focused epoch's id
-  ;;      :empty-kind <:no-events / :no-focus / :epoch-evicted / nil>}
+  ;;      :empty-kind <:no-events / :no-focus / :no-epoch / :epoch-evicted / nil>}
+  ;;
+  ;; rf2-c4abp — THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
+  ;; second data axis. A focus the operator SET to an event bundle that
+  ;; settled no epoch carries a nil `:epoch-id`
+  ;; (`spine/epoch-id-for-event-bundle` answers nil for a refused dispatch,
+  ;; a bundle still mid-build, a bundle whose epoch aged out, and an
+  ;; `:ungrouped` pin alike), which is SHAPE-IDENTICAL to the cold-start
+  ;; UNSET focus that rf2-h0120's head-fallback exists to serve. So the
+  ;; 2-arities could not tell the two apart and answered the HEAD for both:
+  ;; this tab painted a complete, plausible domino trail belonging to a
+  ;; DIFFERENT event underneath the operator's selection. Passing the
+  ;; pinned `:dispatch-id` into the 3-arities (what rf2-y8doi.19 landed for
+  ;; the Epoch panel) is what separates them.
+  ;;
+  ;; The `:empty-kind` override below is deliberate and is the ONE place
+  ;; this panel decides its own empty-state vocabulary rather than taking
+  ;; it from the projector. `project-feed-from-epoch` maps `:no-focus` and
+  ;; `:epoch-evicted` through and falls any other non-`:focused` status to
+  ;; `:no-events` — which for this status would assert that a focused epoch
+  ;; ran and emitted nothing, when in truth no epoch was resolved at all.
+  ;; The projector is the natural long-term home for the mapping; it was
+  ;; left alone here because `trace_helpers.cljc` is outside this change's
+  ;; fence, and moving it there is a pure lift with no behaviour change.
   ;;
   ;; rf2-y8doi.14 — THE THIRD INPUT IS THE REDACTION SEAM, not a data axis.
   ;; `:rf.xray/observed-frame` names the frame whose `:sensitive` policy
@@ -1240,12 +1280,16 @@
               [:rf.xray/epoch-history]
               [:rf.xray/observed-frame]]}
     (fn [[focus epoch-history observed-frame] _query]
-      (let [focus-epoch-id (:epoch-id focus)
-            focus-status   (focus/resolve-focus-status focus-epoch-id
-                                                       epoch-history)
-            record         (focus/find-epoch-record focus-epoch-id
-                                                    epoch-history)]
-        (h/project-feed-from-epoch record focus-status observed-frame))))
+      (let [focus-epoch-id    (:epoch-id focus)
+            focus-dispatch-id (:dispatch-id focus)
+            focus-status      (focus/resolve-focus-status focus-epoch-id
+                                                          focus-dispatch-id
+                                                          epoch-history)
+            record            (focus/find-epoch-record focus-epoch-id
+                                                       focus-dispatch-id
+                                                       epoch-history)]
+        (cond-> (h/project-feed-from-epoch record focus-status observed-frame)
+          (= :no-epoch focus-status) (assoc :empty-kind :no-epoch)))))
 
   ;; ---- focused event-bundle (rf2-wcfsy) -----------------------------------
   ;;
