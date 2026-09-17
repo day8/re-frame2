@@ -8,6 +8,12 @@ main read.
 
 ## Files
 
+Gaps in the numbering are historical, not missing chapters: 001 (Causality
+graph), 009 (AI co-pilot) and 010 (MCP server) were real chapters of the
+pre-rename `tools/causa/spec/` tree, deleted along with the surfaces they
+specified (rf2-y0z5b, rf2-s3vx5, rf2-bu21t) before the rename from Causa to
+Xray. The numbers have not been reused — there is nothing to hunt for.
+
 ### Read these first (the architectural spine)
 
 - [000-Vision.md](000-Vision.md) — the claim. Xray shows you what
@@ -93,6 +99,23 @@ main read.
 - [017-Test-Coverage-Matrix.md](017-Test-Coverage-Matrix.md) —
   browser-feature coverage matrix. Future: bug-class coverage column
   ensures every bug-class in spec has at least one test-row.
+- [020-Filter-Predicates.md](020-Filter-Predicates.md) — the normative
+  contract for the filter-pill record shape: the keyword-pattern pill and
+  the typed `{:kind :params}` predicates, how the matcher canonicalises one
+  into the other on hydration, and the event-id-only scope. Supersedes the
+  v1-shape note in [018 §7](018-Event-Spine.md).
+- [021-Dynamic-Panel-Designs.md](021-Dynamic-Panel-Designs.md) — the
+  per-panel content layout for the Dynamic L4 redesign: the shared
+  edn-inspector renderer, the locked decisions, and the substrate gaps the
+  redesign implies. Normative for the Views panel
+  ([§3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8),
+  which supersedes 012); its §5 Trace layout is in turn superseded by
+  [023](023-Trace-Panel.md) as the direction-setter.
+- [022-Design-Tokens.md](022-Design-Tokens.md) — the visual-design
+  foundation those per-panel designs reference: the single GitHub-style
+  blue accent (no per-mode colour swap), the type scale, and the
+  visual-encoding rules every panel obeys. Downstream of the Figma export,
+  which wins on anything visible.
 - [023-Trace-Panel.md](023-Trace-Panel.md) — the Trace tab's
   dedicated redesign spec and Figma-handoff target: the complete
   trace arc of one epoch as a chronological flat list with stage labels
@@ -196,9 +219,17 @@ main read.
 3. Read [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)
    third for the matrix of features across the 4 cross-cutting areas
    (SSR · Machines · Routes · Managed-Fx).
-4. Then per-tab specs (003 Machines, 004 App-db, 006 Hydration, 012
-   Views, 013 Trace, 016 Auxiliary panels) for the specific surfaces. Each
-   is independent of the others bar explicit cross-references.
+4. Then the per-tab specs for the surfaces you care about:
+   [003](003-Machine-Inspector.md) Machines,
+   [004](004-App-DB-Diff.md) App-db,
+   [016](016-Auxiliary-Panels.md) Epoch · Routes · Flows,
+   [021 §3](021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8) Views,
+   [023](023-Trace-Panel.md) Trace,
+   [024](024-Resources-Panel.md) Resources,
+   [025](025-Derivation-Graph-Panel.md) Derivation graph,
+   [026](026-Module-View-Panel.md) Module view, and
+   [027](027-Fresco-Evidence.md) · [028](028-Fresco-Advisor.md) Fresco.
+   Each is independent of the others bar explicit cross-references.
 
 Where v1's
 shipping surface and the spec's destination differ, the spec wins as the
