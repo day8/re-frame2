@@ -512,6 +512,16 @@
 ;; triples to every `:rf.event/db-changed` row's `:db-diff` slot so the
 ;; view stays dumb-and-pure.
 ;;
+;; rf2-y8doi.14 — and the values in those triples are ALREADY PROJECTED.
+;; `:rf.xray/trace-feed` runs the record's `:db-before` / `:db-after`
+;; through the on-box local-render egress seam under the observed frame's
+;; policy BEFORE `diff-paths` sees them, so a slot the frame declared
+;; `:sensitive` is equal on both sides and emits NO triple — the renderers
+;; below cannot print it. They stay dumb: handed projected values, never
+;; deciding policy. `trace_helpers/redact-epoch-db` carries why the row is
+;; ABSENT rather than shown as `:rf/redacted`, and which chip carries the
+;; suppressed signal.
+;;
 ;; The row idiom (spec/021 §2.2 step 6 mockup):
 ;;
 ;;     + [:path] new            (added — green)
@@ -1203,15 +1213,33 @@
   ;;      :rendered   <int>         ;; same as :total (no filtering)
   ;;      :epoch-id   <int-or-nil>  ;; the focused epoch's id
   ;;      :empty-kind <:no-events / :no-focus / :epoch-evicted / nil>}
+  ;;
+  ;; rf2-y8doi.14 — THE THIRD INPUT IS THE REDACTION SEAM, not a data axis.
+  ;; `:rf.xray/observed-frame` names the frame whose `:sensitive` policy
+  ;; governs the record's `:db-before` / `:db-after`, and the 3-arity of
+  ;; `project-feed-from-epoch` projects both through the SAME
+  ;; `local-render/local-render-value` the App-DB tab applies at
+  ;; `app_db_diff_subs/:rf.xray/app-db-state` before deriving the per-path
+  ;; diff. Without it this sub handed `db-diff-row` the raw values and the
+  ;; panel printed a declared-sensitive slot the App-DB tab redacts for the
+  ;; identical record.
+  ;;
+  ;; It is the seam the App-DB tab already uses, which is the point: one
+  ;; policy resolved once, so the two tabs cannot disagree about what a
+  ;; frame declared. It costs one extra input signal; `observed-frame`
+  ;; itself derives from `:rf.xray/focus` + `:rf.xray/target-frame`, so
+  ;; nothing the row-expand set writes can invalidate the feed through it.
   (rf/reg-sub :rf.xray/trace-feed
-    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
-    (fn [[focus epoch-history] _query]
+    {:inputs [[:rf.xray/focus]
+              [:rf.xray/epoch-history]
+              [:rf.xray/observed-frame]]}
+    (fn [[focus epoch-history observed-frame] _query]
       (let [focus-epoch-id (:epoch-id focus)
             focus-status   (focus/resolve-focus-status focus-epoch-id
                                                        epoch-history)
             record         (focus/find-epoch-record focus-epoch-id
                                                     epoch-history)]
-        (h/project-feed-from-epoch record focus-status))))
+        (h/project-feed-from-epoch record focus-status observed-frame))))
 
   ;; ---- focused event-bundle (rf2-wcfsy) -----------------------------------
   ;;
