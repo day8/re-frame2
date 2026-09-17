@@ -431,15 +431,20 @@
                 :says        "recomputes of this boundary's reads in the retained window, and the memo hits beside them"}
    :read-churn {:reads       (count (:reads row))
                 :read-orders (:read-orders row)
-                ;; `:read-orders` > 1 means the entry cache holds more than
-                ;; one ORDER for this edge set — an oscillating read set,
-                ;; which `lanes/hot-path-architecture.md` §Read-topology
-                ;; names as suspect because whole-set reconciliation can
-                ;; become proportional to the current read count.
+                ;; `:read-orders` > 1 means the entry cache folded more than
+                ;; one entry onto this boundary's projected key — an
+                ;; oscillating read set, which
+                ;; `lanes/hot-path-architecture.md` §Read-topology names as
+                ;; suspect because whole-set reconciliation can become
+                ;; proportional to the current read count, OR two views'
+                ;; orders of one set, OR an egress policy eliding a query.
+                ;; The key name is kept for the arm it selects; the
+                ;; ambiguity is stated where the finding is worded, in
+                ;; [[classify]], which is where a reader meets it.
                 :oscillating? (and (number? (:read-orders row))
                                    (> (:read-orders row) 1))
                 :basis        :observation
-                :says         "how many reads this boundary holds, and how many distinct read ORDERS folded into it"}
+                :says         "how many reads this boundary holds, and how many entries the cache folded onto its key"}
    :fan-out    {:total     fan-out
                 :instances (:instances row)
                 :basis     :observation
@@ -493,7 +498,7 @@
   | `:owner` | `:basis` | `:observed` | Means |
   |---|---|---|---|
   | `:computation` | `:observation` | `:recomputes` | one read's measured recompute time dominates, above the clock's floor |
-  | `:read-topology` | `:derivation` | any | the read set is the problem: it oscillates, or it re-runs repeatedly for little measured work. Oscillation is read off the entry cache rather than off the ring, so it holds at any `:observed` — including `:nothing` |
+  | `:read-topology` | `:derivation` | any | the read set is the problem: the entry cache folded several entries onto its key, or it re-runs repeatedly for little measured work. The fold is read off the entry cache rather than off the ring, so it holds at any `:observed` — including `:nothing`. It is the one finding here that carries a loss on a `nil`-loss row's terms: a fold count cannot say WHICH of three situations produced it, so the arm stands and the `:uncorrelated` chip stands beside it |
   | `:unattributed` | `:host-opaque` | `:recomputes` | the window WAS searched, recomputes happened, and the measured half does not explain them — so the owner is one of the three unmeasured classes, and this door cannot say which |
   | `:unattributed` | `:host-opaque` | `:memo-hits-only` | the window retained this boundary's reads being CONSIDERED and the memo answered every one. Nothing recomputed, so computation owns none of it |
   | `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all; this is an absence of evidence, not evidence of absence |
@@ -547,18 +552,40 @@
                    (:runs frequency) " recompute"
                    (when (not= 1 (:runs frequency)) "s") ".")}
 
-      ;; DERIVED. An oscillating read set is a topology fact on its own,
-      ;; independent of any clock — the entry cache holds more than one
-      ;; read ORDER for this boundary.
+      ;; DERIVED, AND UNCORRELATED. The entry cache holds more than one
+      ;; entry folded onto this boundary's projected key — which is a
+      ;; topology fact on its own, independent of any clock, and is NOT
+      ;; the same fact as an oscillating read set.
+      ;;
+      ;; `:read-orders` is a FOLD COUNT, and the producer says so: entries
+      ;; whose key arrays differ only in order, AND entries an egress
+      ;; policy folded onto one projected key, are one row, and
+      ;; `:read-orders` counts how many folded in. So `> 1` is at least
+      ;; three different situations — a set that really oscillates, two
+      ;; declared views holding their own orders of the same set, or an
+      ;; elided-argument projection collapsing distinct raw sets — and
+      ;; only the first is what rung 2 addresses. This arm used to state
+      ;; the first as fact and route there, which is a recommendation of
+      ;; topology surgery on a signal the producer documents as ambiguous.
+      ;;
+      ;; It keeps the arm and keeps rung 2 — the remedy for all three is to
+      ;; look at the read set, and the other candidates for this window are
+      ;; strictly worse advice — but it stamps the `:uncorrelated` loss and
+      ;; names the three. The panel already renders a classification's loss
+      ;; as a chip beside the sentence, so the qualification reaches the
+      ;; page rather than only the data. No schema bump: `:loss` is a field
+      ;; every classification already carries (rf2-y8doi.26, option B).
       (:oscillating? read-churn)
       {:owner :read-topology
        :basis :derivation
        :observed observed
-       :loss  nil
-       :says  (str "the entry cache holds " (:read-orders read-churn)
-                   " distinct read orders for this boundary — an oscillating "
-                   "read set, whose whole-set reconciliation can become "
-                   "proportional to the current read count.")}
+       :loss  {:reason :uncorrelated :dropped hh/unknown}
+       :says  (str (:read-orders read-churn) " entries folded onto this key: "
+                   "an oscillating read set, two views' orders, or an "
+                   "elided-argument fold — the entry cache does not say "
+                   "which. Whichever it is, the read SET is where to look: "
+                   "whole-set reconciliation can become proportional to the "
+                   "current read count.")}
 
       ;; DERIVED. It re-runs repeatedly and the measured work does not
       ;; account for it, so the read set is bringing it back, not the

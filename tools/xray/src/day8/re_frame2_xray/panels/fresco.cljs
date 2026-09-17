@@ -560,14 +560,31 @@
         (:says j)])]))
 
 (defn- causal-view
-  [{:keys [slice]}]
+  "The slice, or the honest empty — through [[presence-note]] like the
+  other five views, and not through a hardcoded `:idle`.
+
+  IT TAKES THE ENVELOPE (rf2-y8doi.26). It did not, so `(nil? slice)` was
+  the whole of its state model and every empty answered `:idle`: on a host
+  not running Fresco at all — where the door answers nil and the other
+  five views say *No Fresco evidence on this host* — this tab said *the
+  advisor named no boundary to trace*, which describes a Fresco
+  application with nothing mounted. A reader on a Reagent app was sent to
+  look for boundaries that could not exist, and the one thing this panel
+  exists to distinguish — not running Fresco from running it with nothing
+  mounted — was collapsed in the one view that had no way to tell.
+
+  `(nil? slice)` stays, as the ROWS-EMPTY argument it always was: the
+  slice is drawn for the advisor's top-ranked boundary, so no slice means
+  no boundary to trace, which is exactly `hh/empty-copy`'s `:causal`
+  sentence — now reached only when there IS a supported envelope to be
+  empty of."
+  [{:keys [envelope slice]}]
   [:div {:data-testid (str "rf-xray-" panel-id "-causal")}
-   (if (nil? slice)
-     (presence-note :idle :causal)
-     (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
-           ;; Keys live in each link's own `:li` props — see [[advice-row]]
-           ;; for why rf2-a38l's wrapping fragment went with the head.
-           (map causal-link (:links slice))))])
+   (or (presence-note (hh/presence envelope (nil? slice)) :causal)
+       (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
+             ;; Keys live in each link's own `:li` props — see [[advice-row]]
+             ;; for why rf2-a38l's wrapping fragment went with the head.
+             (map causal-link (:links slice))))])
 
 ;; ---- the sub-strip and the panel -----------------------------------------
 
@@ -672,7 +689,7 @@
           :intents     (intents-view     {:envelope envelope :rows (:intents data)})
           :explain     (explain-view     {:envelope envelope :rows (:explain data)})
           :advisor     (advisor-view     {:envelope envelope :advice (:advice data)})
-          :causal      (causal-view      {:slice (:slice data)})))]]))
+          :causal      (causal-view      {:envelope envelope :slice (:slice data)})))]]))
 
 ;; ---- the boundary --------------------------------------------------------
 
@@ -787,9 +804,22 @@
   ;; from; see `Panel`'s docstring. A caller that passes none (the
   ;; byte-claim rows, which are about the door rather than about a shell)
   ;; gets the singleton alone, which is what this filter did before.
+  ;; `:rf.xray/focus` is Spec 018 §6's SINGLE SELECTION AXIS, and the
+  ;; Causal view is an L4 detail surface like any other — §6's per-layer
+  ;; table binds L4 detail content to the spine's `:dispatch-id`, and its
+  ;; atomicity contract says no panel maintains its own selection state and
+  ;; no panel reads `(peek history)`. Causal did: `causal/newest-dispatch`
+  ;; is `(peek ring)` under another name, so the one view whose job is *one
+  ;; dispatch, walked* re-pointed itself on every application dispatch
+  ;; while the reader was reading it (rf2-y8doi.26). The resolution — the
+  ;; focused dispatch when the ring still holds it, else the newest — is
+  ;; `causal/walked-dispatch`, in the pure CLJC namespace beside
+  ;; `newest-dispatch` rather than here, so it is answerable under the JVM
+  ;; target.
   (rf/reg-sub :rf.xray.fresco/data
-    {:inputs [[:rf.xray/trace-buffer]]}
-    (fn [[_tick] [_ instance-frame]]
+    {:inputs [[:rf.xray/trace-buffer]
+              [:rf.xray/focus]]}
+    (fn [[_tick focus] [_ instance-frame]]
       ;; rf2-k97c.3 — `hh/without-own-frame` drops Xray's OWN boundaries
       ;; before anything downstream sees them. Xray's panels are Fresco
       ;; boundaries now and Fresco's census has no frame filter, so this
@@ -816,12 +846,16 @@
          :explain     (hh/explain-rows     (:explain-render envelopes))
          :advice      advice
          ;; The slice is drawn for the boundary the advisor ranked FIRST
-         ;; and the newest dispatch the ring still holds — so the two views
-         ;; are one workflow rather than two lookups, and the causal chain
-         ;; is about the boundary the roster just pointed at.
+         ;; and the dispatch the SPINE is focused on — so the two views are
+         ;; one workflow rather than two lookups, and the causal chain is
+         ;; about the boundary the roster just pointed at, walked on the
+         ;; event the reader selected. With no focus pinned, or one the
+         ;; ring has evicted, `walked-dispatch` answers the newest retained
+         ;; dispatch as this did before.
          :slice       (when-some [top (first (:rows advice))]
                         (causal/slice {:envelopes    envelopes
                                        :windows      windows
+                                       :focus        focus
                                        :boundary-key (:key (:boundary top))}))})))
 
   (panel-registry/reg-l4-tab!
