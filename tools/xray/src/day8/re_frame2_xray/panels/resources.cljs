@@ -35,10 +35,15 @@
   carry user/tenant/locale/impersonation ids and are summarized exactly
   like data.
 
-  ## Decoupled from the resources artefact (bundle isolation)
+  ## This panel's decoupled read path
 
-  Xray does NOT `:require` `re-frame.resources.*` — resources is a
-  post-v1 OPTIONAL artefact and not a hard Xray dep. The panel reads
+  THIS ns and its projection sibling `:require` no `re-frame.resources.*`
+  namespace. That is a fact about the PANEL's read path, NOT about the
+  Xray package: `tools/xray/deps.edn` declares `day8/re-frame2-resources`
+  at top level, and the Derivation-Graph tab — a SEPARATE surface —
+  `:require`s `re-frame.resources.tooling` (rf2-1fc459).
+  `tools/xray/spec/024-Resources-Panel.md` §Decoupling keeps the two
+  apart; do not collapse them. The panel reads
   decoupled: the static registry via `(rf/registrations {:source :store :kind :resource})`, the
   live cache/ledger from the runtime-db partition slice the spine already
   publishes (`:rf.xray/target-frame-runtime-db`), and the trace family
