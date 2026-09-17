@@ -404,7 +404,7 @@ They describe **shape**, not durable egress policy — for `app-db` or for anyth
   ```clojure
   (schema-opaque? schema) → boolean
   ```
-- **Description**: `true` when `schema` is a compiled / opaque value the pure-data walker cannot introspect for per-slot flags. That means any non-vector, non-keyword form: a compiled `malli.core/schema` object, a map, a fn. A bare keyword (`:int`, `:string`, a registry ref) is NOT opaque. The redaction path fails closed on an opaque schema — it redacts as if sensitive, since Malli may honour a `:sensitive?` slot the walker cannot see. The supported way to make per-slot flags visible is registering the vector form.
+- **Description**: `true` when `schema` is a compiled / opaque value the pure-data walker cannot introspect for per-slot flags. That means any non-vector, non-keyword form: a compiled `malli.core/schema` object, a map, a fn. A bare keyword (`:int`, `:string`, a registry ref) is NOT opaque. An explicit `[:ref …]` form IS treated as opaque by `schema-has-opaque-child?` (rf2-3aafh). The redaction path fails closed on an opaque schema — it redacts as if sensitive, since Malli may honour a `:sensitive?` slot the walker cannot see. The supported way to make per-slot flags visible is registering the vector form.
 
 ## Test-support
 
