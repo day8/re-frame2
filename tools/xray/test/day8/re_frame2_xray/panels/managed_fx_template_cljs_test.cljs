@@ -66,21 +66,53 @@
 ;; ---- per-surface smoke render ------------------------------------------
 
 (deftest record-panel-http-smoke
-  (let [r   (record {:surface :http :fx-id :rf.http/managed
-                     :status :ok :http-status 200
-                     :handler [:user/loaded]
-                     :paths [[:users 42]]})
-        out (template/record-panel r)
-        ids (set (testids out))]
-    (is (contains? ids "rf-xray-managed-fx-record-http-99"))
-    (is (contains? ids "rf-xray-managed-fx-header-http"))
-    (is (contains? ids "rf-xray-managed-fx-surface-http"))
-    (is (contains? ids "rf-xray-managed-fx-status-ok"))
-    (is (contains? ids "rf-xray-managed-fx-section-request"))
-    (is (contains? ids "rf-xray-managed-fx-section-wire"))
-    (is (contains? ids "rf-xray-managed-fx-section-response"))
-    (is (contains? ids "rf-xray-managed-fx-section-handler"))
-    (is (contains? ids "rf-xray-managed-fx-section-app-db"))))
+  (testing "An HTTP record draws REQUEST and REPLY TARGET, and NOTHING that
+            would describe an outcome. WIRE TIMING, RESPONSE and APP-DB SLICE
+            are absent rather than empty: the issuing event-bundle carries one
+            HTTP fact — the request went out — so a section drawn over nothing
+            could only mislead. The old RESPONSE row read '(no response payload
+            yet)', which promises a reply that will never arrive here."
+    (let [r   (record {:surface :http :fx-id :rf.http/managed
+                       :status :issued
+                       :handler [:user/loaded]})
+          out (template/record-panel r)
+          ids (set (testids out))]
+      (is (contains? ids "rf-xray-managed-fx-record-http-99"))
+      (is (contains? ids "rf-xray-managed-fx-header-http"))
+      (is (contains? ids "rf-xray-managed-fx-surface-http"))
+      (is (contains? ids "rf-xray-managed-fx-status-issued"))
+      (is (contains? ids "rf-xray-managed-fx-section-request"))
+      (is (contains? ids "rf-xray-managed-fx-section-handler"))
+      (is (not (contains? ids "rf-xray-managed-fx-section-wire")))
+      (is (not (contains? ids "rf-xray-managed-fx-section-response")))
+      (is (not (contains? ids "rf-xray-managed-fx-section-app-db")))))
+
+  (testing "CONTROL — a NON-HTTP record still draws all five sections, so the
+            absences above are a statement about the HTTP surface and not about
+            the renderer having lost three sections"
+    (let [ids (set (testids (template/record-panel
+                              (record {:surface :websocket :fx-id :rf.ws/connect
+                                       :status :ok}))))]
+      (doseq [s ["request" "wire" "response" "handler" "app-db"]]
+        (is (contains? ids (str "rf-xray-managed-fx-section-" s))
+            (str "the websocket record keeps its " s " section"))))))
+
+(deftest record-panel-http-with-a-same-bundle-failure-draws-response
+  (testing "The one outcome an HTTP record CAN witness is a synchronous
+            request-body-prep failure, which runs inside the fx handler's own
+            stack. When one is attributed to the record, RESPONSE comes back —
+            it is the section that carries the failure tags."
+    (let [r   (assoc (record {:surface :http :fx-id :rf.http/managed
+                              :status :error})
+                     :failure {:kind :rf.http/transport
+                               :tags {:stage :request-prep :request-id :req-2}})
+          ids (set (testids (template/record-panel r)))]
+      (is (contains? ids "rf-xray-managed-fx-section-response")
+          "a failure brings RESPONSE back for HTTP")
+      (is (contains? ids "rf-xray-managed-fx-status-error"))
+      (is (not (contains? ids "rf-xray-managed-fx-section-wire"))
+          "but a failure says nothing about wire timing")
+      (is (not (contains? ids "rf-xray-managed-fx-section-app-db"))))))
 
 (deftest record-panel-machine-invoke-smoke
   (let [r   (record {:surface :machine-invoke :fx-id :rf.machine/spawn
@@ -120,12 +152,13 @@
 
 ;; ---- cross-link wiring -------------------------------------------------
 ;;
-;; HANDLER DISPATCHED is collapsed by default; the focus button lives
-;; inside the section body. The tests assert the structural surface
-;; (section header is always rendered; body shows up once the section
-;; is expanded). The button visibility itself rides on the panel's
-;; default-collapse state and is exercised by the gallery
-;; (panel-gallery isn't in scope for rf2-uyp86).
+;; REPLY TARGET is collapsed by default. The tests assert the structural
+;; surface (section header is always rendered; body shows up once the
+;; section is expanded).
+;;
+;; There is no cross-link here any more (rf2-y8doi.18): the section shows
+;; the reply target the caller CONFIGURED, and the panel observes no
+;; delivery, so there is nowhere for it to pivot to.
 
 (deftest handler-section-header-present-when-handler-present
   (let [r   (record {:surface :http :fx-id :rf.http/managed
@@ -334,18 +367,46 @@
     (walk node)
     (str/join " " @acc)))
 
-(deftest app-db-section-flags-empty-slice-on-ok-status
-  (testing "When status is :ok but paths-touched is empty, the panel
-            renders the 'app-db wasn't updated' warning instead of the
-            bare '(no changes)' caption."
-    (let [r        (record {:surface :http :fx-id :rf.http/managed
-                            :status :ok :http-status 200
-                            :paths []})
-          combined (visible-text (template/record-panel r))]
-      (is (str/includes? combined "app-db wasn't updated"))
+(deftest app-db-section-never-warns
+  (testing "The amber 'app-db wasn't updated' warning is GONE, on every surface
+            and in every state. It fired whenever the status was :ok and the
+            path list was empty — and because production wires no diff feed the
+            list was empty on every record, so it fired on every successful one,
+            told the author their handler was broken, and guessed at the cause.
+            Even a genuinely unchanged app-db is frequently correct."
+    (let [measured-empty (record {:surface :websocket :fx-id :rf.ws/connect
+                                  :status :ok :paths []})
+          combined       (visible-text (template/record-panel measured-empty))]
+      (is (not (str/includes? combined "app-db wasn't updated")))
+      (is (not (str/includes? combined "Likely a")))
+      (is (str/includes? combined "no app-db changes in this event-bundle")
+          "measured-and-empty still says so, plainly")
       ;; silent-by-default: no internal F-code in user-visible prose
       (is (not (re-find #"F\.\d" combined))
-          "user-visible warning text leaks an internal F-code"))))
+          "user-visible text leaks an internal F-code")))
+
+  (testing "An UNTRACKED record — `:paths-touched` nil, which is what the
+            production 1-arity produces — says it is untracked rather than
+            claiming nothing changed. The two are different facts and the
+            warning conflated them."
+    (let [untracked (assoc (record {:surface :websocket :fx-id :rf.ws/connect
+                                    :status :ok})
+                           :paths-touched nil)
+          combined  (visible-text (template/record-panel untracked))]
+      (is (str/includes? combined "not tracked"))
+      (is (not (str/includes? combined "app-db wasn't updated")))
+      (is (not (str/includes? combined "no app-db changes in this event-bundle"))
+          "untracked must not read as measured-and-empty")))
+
+  (testing "CONTROL — a record with real paths still lists them, so the
+            assertions above are about the warning and not about the section
+            having gone blank"
+    (let [combined (visible-text
+                     (template/record-panel
+                       (record {:surface :websocket :fx-id :rf.ws/connect
+                                :status :ok :paths [[:users 42]]})))]
+      (is (str/includes? combined ":users"))
+      (is (not (str/includes? combined "app-db wasn't updated"))))))
 
 ;; ---- chrome leak guard: no bead IDs / spec citations in user-facing text ----
 ;;
@@ -371,14 +432,21 @@
 ;; ---- section disclosure (rf2-s6m6) ---------------------------------------
 ;;
 ;; The defect: all five `:expanded?` values were LITERALS, so REQUEST,
-;; RESPONSE and HANDLER DISPATCHED drew a `▶` that nothing could operate and
+;; RESPONSE and REPLY TARGET drew a `▶` that nothing could operate and
 ;; their payloads never reached a rendered tree. `theme/section/section-row`
 ;; is not at fault and is unchanged — it is non-interactive by design and
 ;; shared with two other panels — so the state and the click are the panel's.
 
 (def ^:private disclosure-record
-  (record {:surface :http :fx-id :rf.http/managed
-           :status  :ok   :http-status 200
+  "A WEBSOCKET record, deliberately, because the disclosure machinery is
+  surface-independent and every row below needs all FIVE sections to exist.
+
+  It was an HTTP record until rf2-y8doi.18 narrowed that surface to issuance —
+  an HTTP record now draws two sections, so using one here would have quietly
+  converted these rows from 'the toggle works' into 'HTTP draws three fewer
+  sections', which is `record-panel-http-smoke`'s job and not theirs."
+  (record {:surface :websocket :fx-id :rf.ws/connect
+           :status  :ok
            :handler [:user/loaded {:id 1}]
            :paths   [[:users 42]]}))
 
@@ -428,7 +496,7 @@
 
 (deftest sections-paint-at-their-documented-defaults
   (testing "`record-panel`'s docstring promises WIRE + APP-DB SLICE TOUCHED
-            open and REQUEST + RESPONSE + HANDLER DISPATCHED shut on first
+            open and REQUEST + RESPONSE + REPLY TARGET shut on first
             paint. A nil override map is that first-paint state.
 
             This row is a FLOOR for the defaults, not a gate for the repair —
@@ -471,22 +539,65 @@
       (is (not (body-shown? opened :handler))))))
 
 (deftest opening-response-and-handler-puts-their-payloads-in-the-tree
-  (testing "The other two sections the defect hid. HANDLER DISPATCHED also
-            carries the '→ focus event ↗' cross-link button, which was
-            unreachable for the same reason."
-    (let [rk     (h/record-key disclosure-record)
-          opened (template/record-panel noop-dispatch (open-all disclosure-record)
+  (testing "The other two sections the defect hid."
+    (let [opened (template/record-panel noop-dispatch (open-all disclosure-record)
                                         disclosure-record)
           shut   (template/record-panel noop-dispatch nil disclosure-record)]
       (is (some #{{:ok true}} (tree-nodes opened))
           "the response payload reaches the tree")
       (is (not (some #{{:ok true}} (tree-nodes shut))))
       (is (some #{[:user/loaded {:id 1}]} (tree-nodes opened))
-          "the dispatched handler vector reaches the tree")
-      (is (not (some #{[:user/loaded {:id 1}]} (tree-nodes shut))))
-      (is (contains? (set (testids opened)) "rf-xray-managed-fx-focus-handler")
-          "the cross-link button is reachable once HANDLER DISPATCHED opens")
-      (is (not (contains? (set (testids shut)) "rf-xray-managed-fx-focus-handler"))))))
+          "the configured reply target reaches the tree")
+      (is (not (some #{[:user/loaded {:id 1}]} (tree-nodes shut)))))))
+
+(deftest the-reply-target-section-carries-no-focus-affordance
+  (testing "The '→ focus event ↗' button is GONE, open or shut (rf2-y8doi.18).
+            It dispatched `:rf.xray/focus-event` with the ISSUING record's own
+            dispatch-id and frame — the event-bundle already in focus — so it
+            advertised a pivot to where the response landed and re-focused the
+            panel you were looking at."
+    (let [opened (template/record-panel noop-dispatch (open-all disclosure-record)
+                                        disclosure-record)
+          shut   (template/record-panel noop-dispatch nil disclosure-record)]
+      (is (not (contains? (set (testids opened)) "rf-xray-managed-fx-focus-handler")))
+      (is (not (contains? (set (testids shut)) "rf-xray-managed-fx-focus-handler")))
+      ;; Control, taken from the target: the section itself is still there and
+      ;; still opens, so the absence above is the button's and not the whole
+      ;; section having vanished.
+      (is (contains? (set (testids opened)) "rf-xray-managed-fx-section-handler-body")
+          "control: the section still opens")))
+
+  (testing "and opening it dispatches nothing of its own — the only dispatch a
+            reply-target section can make is its own disclosure toggle"
+    (let [seen (atom [])
+          tree (template/record-panel #(swap! seen conj %) (open-all disclosure-record)
+                                      disclosure-record)]
+      (is (some? tree))
+      (is (empty? @seen)
+          (str "rendering dispatches nothing — " (pr-str @seen))))))
+
+(deftest reply-target-renders-the-unified-reply-to-key
+  (testing "`:reply-to` is the app-facing unified reply-target key, and a
+            request written that way must not read as having no reply target.
+            The record's `:handler` is whatever `args-handler-event` resolved,
+            so this row grades the RENDERING of a resolved target; the
+            resolution itself is graded in the helpers test."
+    (let [r   (record {:surface :http :fx-id :rf.http/managed
+                       :status :issued
+                       :handler [:checkout/reply]})
+          ids (set (testids (template/record-panel noop-dispatch (open-all r) r)))
+          txt (visible-text (template/record-panel noop-dispatch (open-all r) r))]
+      (is (contains? ids "rf-xray-managed-fx-section-handler"))
+      (is (not (str/includes? txt "no reply target configured")))))
+
+  (testing "and a record with NO configured target says so, naming the keys
+            that would have supplied one"
+    (let [r   (record {:surface :http :fx-id :rf.http/managed
+                       :status :issued})
+          txt (visible-text (template/record-panel noop-dispatch (open-all r) r))]
+      (is (str/includes? txt "no reply target configured"))
+      (is (str/includes? txt ":reply-to")
+          "the unified key is named first, not only the routing sugar"))))
 
 (deftest opening-response-on-a-failure-record-surfaces-the-failure-tags
   (testing "The failure branch of RESPONSE is a distinct unreachable payload —
@@ -555,7 +666,7 @@
             `section-row` renders its own header and there is no inner header
             node to hang the handler on. Without a stop on the body, every
             click inside an opened payload — the edn-inspector's chevrons,
-            the '→ focus event ↗' button — would bubble to the wrapper and
+            the edn-inspector's chevrons among them — would bubble to the wrapper and
             shut the section the operator just opened."
     (let [tree  (template/record-panel noop-dispatch (open-all disclosure-record)
                                        disclosure-record)
@@ -709,8 +820,11 @@
             the only spelling Fresco reads. Reverting it to reader meta makes
             `:key` absent from the attrs and the codec's key nil, and both
             halves below go red."
-    (let [r   (record {:surface :http :fx-id :rf.http/managed
-                       :status :ok :http-status 200
+    ;; A WEBSOCKET record: the path rows live in the APP-DB SLICE section, and
+    ;; since rf2-y8doi.18 an HTTP record does not draw one. The `:key` contract
+    ;; under test is surface-independent.
+    (let [r   (record {:surface :websocket :fx-id :rf.ws/connect
+                       :status :ok
                        :paths [[:users 42] [:users 43] [:session :token]]})
           lis (->> (tree-nodes (template/record-panel r))
                    (filter #(and (vector? %) (= :li (first %))))
@@ -732,8 +846,12 @@
                        :status :ok :http-status 200
                        :handler [:user/loaded] :paths [[:users 42]]})
               (record {:surface :http :fx-id :rf.http/managed
-                       :status :ok :http-status 200
-                       :paths []})   ;; app-db-wasn't-updated warning path
+                       :status :issued})          ;; the narrowed HTTP record
+              (record {:surface :websocket :fx-id :rf.ws/connect
+                       :status :ok :paths []})    ;; measured-and-empty app-db slice
+              (assoc (record {:surface :websocket :fx-id :rf.ws/connect
+                              :status :ok})
+                     :paths-touched nil)          ;; untracked app-db slice
               (assoc (record {:surface :http :fx-id :rf.http/managed
                               :status :error :http-status 500})
                      :failure {:kind :rf.http/http-5xx

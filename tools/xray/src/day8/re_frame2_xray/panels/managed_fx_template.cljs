@@ -9,13 +9,13 @@
   as a uniform UI:
 
   ```
-  ┌─ MANAGED FX [HTTP] · :user/load-profile · 250ms ──────────────┐
-  │ STATUS: ✓ 200 OK · correlation: c-abc12 · phase: completed     │
+  ┌─ MANAGED FX [WS] · :chat/connect · 250ms ─────────────────────┐
+  │ STATUS: ✓ OK · correlation: sock-1 · phase: completed          │
   │                                                                │
   │ ▶ REQUEST                                                      │
   │ ▼ WIRE TIMING                                                  │
   │ ▶ RESPONSE                                                     │
-  │ ▶ HANDLER DISPATCHED                                           │
+  │ ▶ REPLY TARGET                                                 │
   │ ▼ APP-DB SLICE TOUCHED                                         │
   └────────────────────────────────────────────────────────────────┘
   ```
@@ -24,6 +24,27 @@
   first-paint state is `managed-fx-helpers/section-defaults` (three shut,
   two open, as drawn above); the operator's overrides live in app-db,
   keyed per record so sibling panels open independently.
+
+  ## The HTTP record is narrower, and says so
+
+  An HTTP record draws REQUEST and REPLY TARGET only, plus RESPONSE when
+  a failure landed in this very bundle:
+
+  ```
+  ┌─ MANAGED FX [HTTP] · :rf.http/managed ────────────────────────┐
+  │ STATUS: ◦ ISSUED · correlation: :checkout                      │
+  │                                                                │
+  │ ▶ REQUEST                                                      │
+  │ ▶ REPLY TARGET                                                 │
+  └────────────────────────────────────────────────────────────────┘
+  ```
+
+  The issuing event-bundle holds exactly one HTTP fact — the request went
+  out — because every row the runtime emits afterwards is emitted from a
+  transport callback with no handler scope, or inside a different run's
+  drain. So there is no phase, no wire timing, no response and no
+  app-db slice to draw, and the record says `ISSUED` rather than `OK`.
+  See `managed-fx-helpers/http-adapter`.
 
   ## Five surfaces, one template
 
@@ -43,13 +64,18 @@
   tag or the `edn-inspector-view` boundary, both of which Fresco's codec
   accepts and Reagent renders unchanged.
 
-  ## Cross-link
+  ## No cross-link from the reply target
 
-  The HANDLER DISPATCHED row uses `:rf.xray/focus-event` to pivot the
-  spine to the child event-bundle — clicking '→ jump to handler' moves
-  focus to wherever the response landed, so the user can follow the
-  event-bundle chain hop-by-hop. Cross-link wiring lives in
-  `panels/managed_fx_subs/install!` so the panel view stays thin."
+  The REPLY TARGET row shows the event vector the CALLER CONFIGURED for
+  the reply; it does not observe a delivery and offers no pivot to one.
+
+  It used to carry a '→ focus event ↗' button, removed here. That button
+  dispatched `:rf.xray/focus-event` with the ISSUING record's own
+  dispatch-id and frame, so it re-focused the event-bundle already in
+  focus — it read as 'jump to where the response landed' and did
+  nothing. Reaching the reply really does need the completion row, which
+  lives in another bundle entirely and is a deferred feature, so the
+  honest affordance for now is no affordance."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
             [day8.re-frame2-xray.chart.timing-waterfall :as waterfall]
@@ -399,50 +425,42 @@
     (edn/inspect-view res (node-key instance record "res"))))
 
 (defn- handler-section
-  "Renders the dispatched handler event vector + a click-to-focus
-  affordance that pivots the spine to that child event-bundle. Anchors the
-  F.3 'failed response handler' diagnostic."
-  [dispatch instance {:keys [handler frame dispatch-id] :as record}]
+  "Renders the CONFIGURED reply target — the event vector the caller named
+  for the reply to be dispatched to.
+
+  This is configuration, not an observation. Nothing in this panel watches
+  a reply being delivered: the reply arrives as its own later dispatch
+  with its own id, in its own event-bundle, so what the record holds is
+  what the caller wrote and no more.
+
+  The '→ focus event ↗' button that used to sit here is GONE. It
+  dispatched `[:rf.xray/focus-event dispatch-id frame]` with the ISSUING
+  record's own dispatch-id and frame — the event-bundle already in focus —
+  so it advertised a pivot to the reply and delivered a no-op."
+  [instance {:keys [handler] :as record}]
   (if (and (vector? handler) (seq handler))
-    [:div {:style {:display "flex"
-                   :align-items "center"
-                   :gap "12px"
-                   :flex-wrap "wrap"}}
-     [:div {:style {:flex 1 :min-width 0}}
-      (edn/inspect-view handler (node-key instance record "handler"))]
-     [:button {:data-testid "rf-xray-managed-fx-focus-handler"
-               :on-click    #(dispatch [:rf.xray/focus-event dispatch-id frame])
-               :style       {:background  "transparent"
-                             :border      (str "1px solid " (:border-default tokens))
-                             :color       (:accent tokens)
-                             :font-family mono-stack
-                             :font-size   "10px"
-                             :padding     "2px 8px"
-                             :border-radius "3px"
-                             :cursor      "pointer"
-                             :flex-shrink 0}}
-      "→ focus event ↗"]]
+    [:div {:style {:flex 1 :min-width 0}}
+     (edn/inspect-view handler (node-key instance record "handler"))]
     [:span {:style {:color (:text-tertiary tokens)}}
-     "(no handler dispatched — this fx had no :on-success / :on-failure / :on-done)"]))
+     "(no reply target configured — this fx named no :reply-to, :on-success, :on-failure or :on-done)"]))
 
 (defn- app-db-slice-section
-  "Per spec/019 §2.4 F.4 — 'app-db wasn't updated' lights up when the
-  status is OK but the slice paths-touched list is empty. The renderer
-  highlights the empty-paths case with an amber hint so the bug class
-  is immediately legible."
-  [{:keys [paths-touched status]}]
+  "Which app-db paths this record's event-bundle changed, when that is
+  known at all.
+
+  `nil` means UNTRACKED — no diff feed is wired into the record today, so
+  nothing has been measured. `[]` means measured, and nothing changed.
+  Keeping those apart is the whole of this section: an amber warning used
+  to fire whenever the status was `:ok` and the list was empty, telling
+  the author their handler had failed to write a slice and guessing at
+  the cause. Because production supplies no feed the list was empty on
+  every record, so the warning fired on every successful one — and even a
+  genuinely unchanged app-db is frequently correct."
+  [{:keys [paths-touched]}]
   (cond
-    (and (= status :ok) (empty? paths-touched))
-    [:div
-     [:div {:style {:color (:yellow tokens)
-                    :font-weight 600
-                    :font-family mono-stack
-                    :font-size "11px"
-                    :margin-bottom "4px"}}
-      "⚠ STATUS :ok but no app-db paths changed — app-db wasn't updated"]
-     [:div {:style {:color (:text-tertiary tokens) :font-style "italic"}}
-      "The handler dispatched but did not write a slice. Likely a "
-      "missing :db assoc or a guard that no-op'd."]]
+    (nil? paths-touched)
+    [:span {:style {:color (:text-tertiary tokens)}}
+     "(app-db paths not tracked for this record)"]
 
     (empty? paths-touched)
     [:span {:style {:color (:text-tertiary tokens)}}
@@ -483,8 +501,8 @@
 ;;   - The BODY stops propagation. The wrapper has to enclose the whole
 ;;     section (the primitive renders its own header, so there is no inner
 ;;     header node to hang the handler on), which would otherwise make every
-;;     click inside an opened payload collapse it again — including the
-;;     '→ focus event ↗' button and the edn-inspector's own expand chevrons.
+;;     click inside an opened payload collapse it again — the
+;;     edn-inspector's own expand chevrons among them.
 ;;   - `:expanded?` is passed THROUGH to the primitive, so the glyph and the
 ;;     body agree by construction. The primitive stays the single source of
 ;;     truth for the visual state; this wrapper only decides what that state is.
@@ -525,7 +543,7 @@
   Section default-expanded state per the bead's contract:
 
     - STATUS + WIRE + APP-DB SLICE TOUCHED expanded by default
-    - REQUEST + RESPONSE + HANDLER DISPATCHED collapsed by default
+    - REQUEST + RESPONSE + REPLY TARGET collapsed by default
       (one click reveals the payload — keeps the panel scannable on
       first paint).
 
@@ -534,7 +552,11 @@
   and each header toggles it. Before rf2-s6m6 the five `:expanded?` values
   were literals, so the three collapsed sections drew a `▶` nothing could
   operate and their payloads — request, response (and the failure tags),
-  and the dispatched handler vector — were unreachable in the UI.
+  and the configured reply target — were unreachable in the UI.
+
+  An `:http` record draws a SUBSET of those sections (see the ns
+  docstring); the defaults map is unchanged, and an unrendered section
+  simply has no row.
 
   `expanded` is the per-section override map (the value of
   `managed-fx-helpers/expansion-slot`), read at the panel's reactive
@@ -599,17 +621,43 @@
                            :border-radius "4px"
                            :background    (:bg-2 tokens)}}
    (panel-header dispatch record)
-   [:div {:style {:padding "8px 12px"}}
-    (section :request  "REQUEST"
-             "rf-xray-managed-fx-section-request"  (request-section instance record))
-    (section :wire     "WIRE TIMING"
-             "rf-xray-managed-fx-section-wire"     (wire-section record))
-    (section :response "RESPONSE"
-             "rf-xray-managed-fx-section-response" (response-section instance record))
-    (section :handler  "HANDLER DISPATCHED"
-             "rf-xray-managed-fx-section-handler"  (handler-section dispatch instance record))
-    (section :app-db   "APP-DB SLICE TOUCHED"
-             "rf-xray-managed-fx-section-app-db"   (app-db-slice-section record))]])))
+   ;; WHICH SECTIONS AN HTTP RECORD DRAWS IS NARROWER THAN THE OTHER
+   ;; FOUR SURFACES', and that is the shape of the trace rather than a
+   ;; feature gap. The issuing event-bundle holds exactly one HTTP fact —
+   ;; that the request went out — because every later row is emitted
+   ;; without a handler scope or inside another run's drain (see
+   ;; `managed-fx-helpers/http-trace-operations`). So WIRE TIMING,
+   ;; RESPONSE and APP-DB SLICE have nothing to read for HTTP, and a
+   ;; section drawn over nothing is not neutral: the old RESPONSE row
+   ;; read "(no response payload yet)", which says a reply is still
+   ;; coming, and the old WIRE row read "this surface does not emit
+   ;; per-phase wire timing today", which says the runtime is at fault.
+   ;; Both are false. The four surfaces whose end events DO land
+   ;; in-bundle keep all five sections and are untouched here.
+   ;;
+   ;; The section-ids are unchanged, so `section-defaults` and
+   ;; `resolve-expanded?` need no change — an unrendered section simply
+   ;; has no row, and its stored override (if the operator ever set one
+   ;; on another surface) is inert rather than wrong.
+   (let [http?    (= :http (:surface record))
+         failure? (some? (:failure record))]
+     [:div {:style {:padding "8px 12px"}}
+      (section :request  "REQUEST"
+               "rf-xray-managed-fx-section-request"  (request-section instance record))
+      (when-not http?
+        (section :wire     "WIRE TIMING"
+                 "rf-xray-managed-fx-section-wire"     (wire-section record)))
+      ;; For HTTP the only thing RESPONSE can ever carry is the one
+      ;; failure that lands in this bundle — a synchronous body-prep
+      ;; failure — so the section appears exactly when there is one.
+      (when (or (not http?) failure?)
+        (section :response "RESPONSE"
+                 "rf-xray-managed-fx-section-response" (response-section instance record)))
+      (section :handler  "REPLY TARGET"
+               "rf-xray-managed-fx-section-handler"  (handler-section instance record))
+      (when-not http?
+        (section :app-db   "APP-DB SLICE TOUCHED"
+                 "rf-xray-managed-fx-section-app-db"   (app-db-slice-section record)))])])))
 
 ;; ---- list panel --------------------------------------------------------
 

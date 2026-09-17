@@ -25,13 +25,21 @@
   state is the caller's; it is held per `[record-key section-id]` pair so
   one record's REQUEST opens independently of its siblings'.
 
-  ## Cross-link
+  ## No cross-link from the reply target
 
-  Records carry `:origin-event-id` so the panel's HANDLER DISPATCHED
-  row can wire `:on-click` to the spine's canonical `:rf.xray/focus-event`
-  — clicking pivots the spine to the child event the response handler
-  kicks off. The panel reuses the spine event directly, so views stay
-  thin and there is one focus write path."
+  The panel's REPLY TARGET row shows the event vector the CALLER
+  CONFIGURED for the reply. It is configuration, not an observation:
+  nothing here watches a reply being delivered, and for HTTP the reply
+  arrives as its own later dispatch, in its own event-bundle, with its
+  own id.
+
+  The row used to carry a focus button, removed with rf2-y8doi.18. It
+  dispatched the spine's `:rf.xray/focus-event` with the ISSUING record's
+  own `:dispatch-id` and `:frame` — the event-bundle already in focus —
+  so it advertised a pivot to where the response landed and re-focused
+  the panel the operator was already looking at. Records still carry
+  `:origin-event-id` and `:dispatch-id`; no panel-local focus event was
+  ever registered here, and none is now."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
             [day8.re-frame2-xray.spine :as spine]))
@@ -40,10 +48,9 @@
 
 (defn install!
   "Idempotent install — register `:rf.xray/managed-fx-for-focused-event`.
-  The panel's HANDLER DISPATCHED row cross-links via the spine's
-  canonical `:rf.xray/focus-event`, so no panel-local focus event is
-  registered here. Called from `registry.cljs`'s
-  `register-xray-handlers!` fan-out."
+  No panel-local focus event is registered here, and the panel wires no
+  cross-link of its own (see the ns docstring). Called from
+  `registry.cljs`'s `register-xray-handlers!` fan-out."
   []
 
   ;; Composite sub — produces the records vector for the focused
@@ -100,10 +107,17 @@
 
   nil)
 
-;; The HANDLER DISPATCHED row's `:on-click` dispatches the spine's
-;; canonical `:rf.xray/focus-event` directly (managed_fx_template.cljs)
-;; — 'focus this event' reads as the panel-side concept and IS the
-;; spine focus write. No panel-local duplicate is registered: one id,
-;; one write path (rf2-fsqlgz collapsed the former thin wrapper onto
-;; the spine event when the pipeline-vocab rename made both ids
-;; `:rf.xray/focus-event`).
+;; The REPLY TARGET row carries no `:on-click` at all since rf2-y8doi.18
+;; (managed_fx_template.cljs). When it did, it dispatched the spine's
+;; canonical `:rf.xray/focus-event` directly — 'focus this event' reads
+;; as the panel-side concept and IS the spine focus write, so no
+;; panel-local duplicate was registered: one id, one write path
+;; (rf2-fsqlgz collapsed the former thin wrapper onto the spine event
+;; when the pipeline-vocab rename made both ids `:rf.xray/focus-event`).
+;;
+;; That reasoning still stands and is why nothing is registered here; it
+;; is recorded because the NEXT panel-side cross-link should reuse the
+;; spine event the same way rather than mint an id. What the removed
+;; button got wrong was its ARGUMENT, not its target: it passed the
+;; issuing record's own dispatch-id, so it re-focused the bundle already
+;; in focus.
