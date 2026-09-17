@@ -504,6 +504,42 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 registry browse + 3-layer chrome).** Chrome silhouette is the
 mode signal; the mode pill is the toggle.
 
+> **Updated 2026-09-18 (rf2-y8doi.57).** The lock holds; **two of the
+> four stacked mode signals catalogued below do not exist**, and the
+> list is retained as the 2026-05-19 lock text rather than rewritten.
+> What ships:
+>
+> - **Mode selector** — a compact native `<select>` at ribbon-left
+>   (`tools/xray/src/day8/re_frame2_xray/static/mode_pill.cljs`,
+>   rf2-4vp5j), carrying the live value on `data-active-mode`. It is
+>   the toggle in BOTH modes, as locked — but it is not a two-segment
+>   radio, there is no 200ms cross-fade, and it does not change colour
+>   by mode.
+> - **Chrome silhouette** — 4-layer Dynamic vs 3-layer Static. This is
+>   the mode signal, exactly as the lock reasons.
+>
+> What does not, each removed or refused rather than merely unbuilt:
+>
+> - **The 2-px left-edge ribbon stripe is gone in both modes.**
+>   rf2-4yemd removed it from the Dynamic ribbon on 2026-05-24, Mike
+>   having reported the blue left edge as absent from the Figma
+>   authority; rf2-y8doi.30 removed the Static mirror. Both absences
+>   are pinned by tests. There are no `:accent-violet` or `:cyan`
+>   tokens to paint it with: rf2-ad7zx.13 collapsed the palette to a
+>   single `:accent`, after which both stripe helpers answered the
+>   same colour in both modes.
+> - **No LIVE pulse was ever built** — rf2-pjjwh removed the head
+>   row's gutter glyph that would have carried one — and Mike
+>   **refused** the continuous machine-active pulse (rf2-2sez0). What
+>   Static genuinely dampens is the 180ms L4 tab fade, which collapses
+>   to 0ms so cluster swaps land without motion.
+>
+> Staleness is no longer signalled by chrome that paints while nothing
+> is wrong. What tells the operator the Dynamic spine has stopped
+> following is the **L2 newer-events marker** built under rf2-y8doi.30,
+> which renders `↓ N newer events — » to follow` and paints only while
+> the panel is reporting a stale epoch as current.
+
 ### Question
 
 Xray needs to answer two distinct bug-classes — the event-coupled
