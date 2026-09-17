@@ -526,7 +526,7 @@ reference:
 | `(rf/trace-buffer frame-id)` / `(rf/trace-buffer frame-id opts)` | Spec 009 | The named frame's bounded trace ring (default 50 retained events, per-frame override via `:rf.trace/events-retained`). `opts` is the Spec 009 filter map; `{:flat true}` yields raw trace events instead of event bundles. |
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |
-| `(rf/replace-frame-state! frame-id {:rf.db/app value})` | Tool-Pair | Used for "try anyway" recovery. |
+| `(rf/replace-frame-state! frame-id {:rf.db/app value})` | Tool-Pair | The partition-write surface (a partial frame-state map). **Not consumed by shipped Xray code — there is no call site under `tools/xray/src`.** Xray's only epoch write is the confirmed rewind `(rf/restore-epoch! …)` above; a rewind that fails leaves the frame unchanged and raises the inline `:rf.xray/reset-flash` notice, never a "try anyway" override — that modal-confirmation flow died with the deleted Time Travel panel (rf2-yhl5v), see [`018-Event-Spine.md`](./018-Event-Spine.md) §Tab-ribbon chrome and [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md). Xray's own test fixtures call it to seed a frame's app-db. |
 | `(rf/app-db-value frame-id)` | Spec 002 | The app-db panel's live read (returns the app-db VALUE). |
 | `(rf/compute-sub query-v db)` | Spec 008 | The sub-graph panel's value display. |
 | `(rf/registrations {:source :store :kind kind})` / `(rf/handler-meta {:source :store :kind kind :id id})` | Spec 001 | Registry-browser metadata. |
