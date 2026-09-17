@@ -380,6 +380,13 @@
       scope-id
       (rf.source-coords/merge-coords
         (merge {:doc (:doc spec)}
+               ;; rf2-nrc93 — forward the caller's image-selection stamp, as
+               ;; `reg-resource` does. Select from `metadata`, NOT from `spec`:
+               ;; `canonical-spec` builds a fresh {:inputs :resolve :whole-db?
+               ;; :doc} map that never carried the key, so the stamp would
+               ;; otherwise be dropped before the source store sees it (Spec 001
+               ;; §Production elision contract).
+               (select-keys metadata [:ns :rf.provenance/ns])
                {:rf/resource-scope spec
                 :handler-fn        (:resolve spec)})))
     (when (nil? previous)

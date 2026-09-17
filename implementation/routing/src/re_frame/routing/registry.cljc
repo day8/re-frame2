@@ -143,7 +143,14 @@
   head to use via `:head` route metadata\"); Spec 012 itself lists it as
   a valid route-metadata key alongside the routing-owned set (Spec 012
   §Route-not-found). Cross-feature reserved keys are enumerated here so
-  the authoring guard does not false-flag a legitimate SSR route."
+  the authoring guard does not false-flag a legitimate SSR route.
+
+  `:ns` is a CROSS-KIND key rather than a routing one (rf2-nrc93): it is
+  the `:rf/registration-metadata` source-coord key naming the
+  registration's provenance namespace for image selection (Spec 001
+  §Production elision contract), accepted bare here so a PROGRAMMATIC
+  `reg-route` can stamp it and be `:select-ns`-selectable. Only `:ns` —
+  `:file` / `:line` / `:column` are not accepted bare."
   #{;; routing-owned (Spec 012 §Reserved route-metadata keys)
     :doc :path :params :query :query-defaults
     ;; EP-0037 R5: route `:query-retain` is RETIRED with no alias — a route
@@ -164,7 +171,15 @@
     ;; `:large`, lowered into the per-frame elision registry at activation).
     :sensitive :large
     ;; cross-feature: SSR head selection (Spec 011 §Head/meta contract)
-    :head})
+    :head
+    ;; cross-KIND: the `:rf/registration-metadata` source-coord key `:ns`
+    ;; (rf2-nrc93). NOT a routing key — it names the registration's provenance
+    ;; namespace for image selection (Spec 001 §Production elision contract;
+    ;; `reg_meta.cljc` base-bare-keys), and is what a PROGRAMMATIC `reg-route`
+    ;; stamps to be `:select-ns`-selectable. `:ns` ONLY: `:file` / `:line` /
+    ;; `:column` stay out, so the typo message's "Reserved keys:" list carries
+    ;; no coord noise for the one question it answers.
+    :ns})
 
 (defn- accepted-route-keys
   "The full set of accepted bare route-metadata keys: the routing-owned
@@ -422,7 +437,9 @@
   `metadata` carries the route's reflection / lifecycle / shape keys (`:doc`,
   `:params`, `:query`, `:query-defaults`, `:tags`, `:parent`,
   `:on-match`, `:scroll`, `:can-leave`, `:can-enter`, plus the cross-feature
-  `:head` / `:resources`); see Spec 012. The `:path` is merged onto the stored
+  `:head` / `:resources` and the cross-kind provenance key `:ns`, which names
+  the registration's namespace for image selection rather than anything about
+  the route); see Spec 012. The `:path` is merged onto the stored
   route-meta internally, so every downstream reader (`route-meta`, `match-url`,
   ranking) keeps reading `:path` off the stored map unchanged.
 

@@ -40,7 +40,8 @@
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.routing.match :as rf.routing.match]
-            [re-frame.routing.registry :as rf.routing.registry]))
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.source-store :as rf.source-store]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
@@ -2624,6 +2625,66 @@
         "a route with every reserved key + namespaced extension keys registers")
     (is (some? (rf/handler-meta {:source :store :kind :route :id :route/ok}))
         "the route is queryable via handler-meta after a clean registration")))
+
+;; ---- rf2-nrc93: the :ns image-selection stamp on reg-route ---------------
+;;
+;; Spec 001 §Production elision contract: a PROGRAMMATIC registration leaves
+;; the macro's source-coord capture unbound, so its descriptor carries no
+;; `:rf.provenance/ns` and `:select-ns` cannot see it. Stamping `:ns` in the
+;; registration metadata is the documented remedy on every registrar-backed
+;; kind — and `reg-route` is one, so `:ns` is accepted BARE on top of the
+;; twelve routing-owned keys (Spec 012 §Reserved route-metadata keys). It is
+;; not a routing key: it names the registration's provenance namespace for
+;; image selection, exactly as on `reg-event`.
+;;
+;; Read the STORE, not a rendering: `source-store/descriptors-for` returns the
+;; `provenance-ns-string → descriptor` map for `(kind, id)`, and a key of
+;; "probe.ns" IS `:select-ns` selectability.
+
+(deftest reg-route-accepts-and-honours-the-ns-provenance-stamp
+  (testing "rf2-nrc93 (a): a bare `:ns` registers and reaches the source store.
+            RED before rf2-nrc93 — `:ns` was outside `reserved-route-keys`, so
+            the authoring guard threw :rf.error/route-bad-metadata naming it
+            and NOTHING was registered. Note `rf/reg-route` here is the MACRO
+            (this is a .clj namespace), which binds *pending-coords* to THIS
+            test ns — the guard runs on the user map BEFORE merge-coords, so it
+            threw under the macro too. The store reading \"probe.ns\" rather
+            than \"re-frame.routing-registry-test\" therefore proves BOTH that
+            the key is accepted AND that a user `:ns` overrides the captured
+            one, per merge-coords' user-overrides-captured rule."
+    (is (= :route/with-ns
+           (rf/reg-route :route/with-ns {:ns 'probe.ns :doc "stamped"} "/with-ns"))
+        "reg-route accepts a bare :ns and returns the route id")
+    (is (= ["probe.ns"]
+           (vec (keys (rf.source-store/descriptors-for :route :route/with-ns))))
+        "the stamped :ns is the route descriptor's provenance — :select-ns-selectable"))
+
+  (testing "rf2-nrc93 (b): the typo guard still bites, and its printed
+            vocabulary now offers :ns"
+    (let [ex (try
+               (rf/reg-route :route/still-typo {:on-matched [[:load]]} "/still-typo")
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/route-bad-metadata (:rf.error/id (ex-data ex)))
+          "an unknown bare key is still rejected — widening the set by one did not open it")
+      (is (= [:on-matched] (:keys (ex-data ex)))
+          ":keys still names exactly the offending key")
+      (is (contains? (set (:reserved (ex-data ex))) :ns)
+          ":ns is in the reserved vocabulary the error prints")
+      (is (not-any? (set (:reserved (ex-data ex))) [:file :line :column])
+          "and ONLY :ns — :file / :line / :column stay out of the bare-key set (rf2-nrc93)")))
+
+  (testing "rf2-nrc93 (c) CONTROL: the QUALIFIED spelling registered and was
+            honoured BEFORE this change and still is — qualified keys are never
+            checked by the guard. It pins that the routing half of rf2-nrc93
+            bought CONSISTENCY, not a new capability."
+    (is (= :route/qualified-ns
+           (rf/reg-route :route/qualified-ns
+                         {:rf.provenance/ns "probe.qualified"} "/qualified-ns"))
+        "a qualified :rf.provenance/ns always passed the bare-key guard")
+    (is (= ["probe.qualified"]
+           (vec (keys (rf.source-store/descriptors-for :route :route/qualified-ns))))
+        "and always reached the store")))
 
 (deftest reg-route-rejects-non-map-metadata
   (testing "rf2-45b95: non-map metadata is rejected at the authoring

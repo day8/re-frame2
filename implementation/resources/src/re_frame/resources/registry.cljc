@@ -518,6 +518,16 @@
       resource-id
       (rf.source-coords/merge-coords
         (merge {:doc (:doc resource-spec)}
+               ;; rf2-nrc93 — forward the caller's image-selection stamp. The
+               ;; registrar map above is this kind's OWN shape, built from the
+               ;; canonical spec, so a `:ns` / `:rf.provenance/ns` the caller
+               ;; supplied would otherwise be dropped before the source store
+               ;; sees it and the descriptor recorded under nil provenance. Both
+               ;; keys are in the shared `:rf/registration-metadata` vocabulary
+               ;; (Spec 001 §Production elision contract) and are what makes a
+               ;; PROGRAMMATIC registration `:select-ns`-selectable. Select the
+               ;; two the store reads — not the whole caller map.
+               (select-keys metadata [:ns :rf.provenance/ns])
                {:rf/resource resource-spec
                 :handler-fn  (:request resource-spec)})))
     ;; `:rf.resource/registered` fires on FIRST-TIME registration so tools
