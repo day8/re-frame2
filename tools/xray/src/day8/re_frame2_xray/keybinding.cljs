@@ -595,8 +595,7 @@
 (defn install-popout-keydown!
   "Install ONE capture-phase `keydown` listener on pop-out document `doc`
   and return a zero-arg disposer that removes exactly that listener.
-  Returns nil — installing nothing — when there is no document, or when
-  the host has cleared `:rf.xray/keybinding-enabled?`.
+  Returns nil — installing nothing — when there is no document.
 
   Called by `mount/popout!` through the installer slot this namespace
   registers below; the disposer is stored in `popout-state` and invoked
@@ -611,14 +610,45 @@
   listener rather than accumulating handlers, and a reload cannot leave a
   stale one behind that a reference comparison would miss.
 
-  The config slot is read at install time, matching `attach!`'s posture:
-  an embed host that suppressed Xray's global keyboard gets no pop-out
-  listener either."
+  ## `:rf.xray/keybinding-enabled?` is read PER KEYSTROKE (rf2-d6gna)
+
+  This is the one place the pop-out's posture differs from `attach!`'s,
+  and the difference is forced by the lifetimes rather than chosen.
+
+  The slot used to gate INSTALLATION here, mirroring `attach!`. That made
+  the switch one-way and one-shot for a pop-out, because the two surfaces
+  express \"enabled\" through different mechanisms and only the opener's
+  is re-assertable. On the opener the listener's PRESENCE is the switch:
+  `attach!` / `detach!` add and remove it, and the watch at the foot of
+  this namespace drives that pair on every flip. That watch cannot reach a
+  pop-out listener — its lifetime belongs to `popout!` and
+  `teardown-popout-state!` — so a pop-out opened while the slot was true
+  went on consuming `Cmd/Ctrl+K` and the spine after the host cleared it,
+  and a pop-out opened while it was false stayed inert for the whole life
+  of the window after the host restored it.
+
+  Reading the slot in the HANDLER makes both directions fall out of one
+  line, with no second lifecycle to keep in step: the listener is always
+  installed for the window's lifetime and answers to the flag as it
+  stands at the moment the key is pressed. Nothing is swallowed while the
+  flag is false — no `preventDefault`, no `stopPropagation`, no dispatch
+  — so what a host observes is unchanged.
+
+  The install-time read was never load-bearing in THIS document anyway.
+  The slot exists so that an embed host's own global bindings survive
+  Xray's capture-phase listener; a pop-out is a window Xray opened and
+  renders alone, so there is no host listener in it to protect.
+
+  `detach!` remains the opener's public escape hatch and is deliberately
+  NOT extended to reach here: it removes what `attach!` installed on the
+  opener document, and a pop-out's listener is mount's to dispose. A host
+  that wants both surfaces quiet clears the slot, which is the documented
+  route and now means the same thing in both windows."
   [^js doc]
-  (when (and (some? doc)
-             (config/keybinding-attach-enabled?))
+  (when (some? doc)
     (let [f (fn popout-keydown [^js e]
-              (handle-keydown-on popout-surface e))]
+              (when (config/keybinding-attach-enabled?)
+                (handle-keydown-on popout-surface e)))]
       (.addEventListener doc "keydown" f true)
       (fn dispose-popout-keydown! []
         (.removeEventListener doc "keydown" f true)
@@ -627,8 +657,10 @@
 ;; The injection that closes the mount <-> keybinding cycle. This namespace
 ;; already requires mount (for `visible?` / `toggle!`), so the hook is pushed
 ;; DOWN rather than pulled up. Registration is inert on its own: nothing
-;; installs until `popout!` calls the installer, and the installer re-reads
-;; the config slot then.
+;; installs until `popout!` calls the installer, and the handler the installer
+;; puts on that document re-reads the config slot per keystroke (rf2-d6gna —
+;; see `install-popout-keydown!` for why the pop-out reads it there rather
+;; than at install time).
 (mount/register-popout-keydown-installer! install-popout-keydown!)
 
 ;; ---- reactive `:rf.xray/keybinding-enabled?` (rf2-y8doi.17) --------------
@@ -647,6 +679,11 @@
 ;; `attached-state` CAS makes a redundant attach / detach a no-op — and the
 ;; watch only fires on a genuine change, so re-asserting the current value
 ;; costs nothing.
+;;
+;; This watch drives the OPENER document's listener and only that one. A
+;; pop-out listener's lifetime belongs to `popout!` / `teardown-popout-state!`,
+;; out of this watch's reach, so it answers the same slot by its own route —
+;; `install-popout-keydown!` above is the single authority for that half.
 ;;
 ;; `keybinding/detach!` stays public and stays documented: a host that wants
 ;; the listener gone WITHOUT declaring the slot (or that must remove it from a
