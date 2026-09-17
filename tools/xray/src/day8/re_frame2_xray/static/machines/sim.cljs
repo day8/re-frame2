@@ -310,7 +310,17 @@
 ;; ---- view: side rail --------------------------------------------------
 
 (defn- sim-banner
-  "Tinted banner above the side rail — fixed text per design §5."
+  "Tinted banner above the side rail — the fixed SIMULATING line per
+  design §5, plus the bootstrap disclosure (rf2-00126).
+
+  The second line is the VISIBLE half of the hermetic-seed contract.
+  build-sim-seed seeds through the engine's initial-snapshot builder,
+  which computes the initial STATE only and never runs the
+  initial-entry cascade. A machine whose entry action normally
+  initialises its data therefore opens here WITHOUT it, and a
+  simulated guard can then decline for that reason alone — a
+  difference from running the machine the user cannot otherwise see.
+  A source docstring saying so is not a disclosure; the rail is."
   []
   [:div {:data-testid "rf-xray-static-machines-sim-banner"
          :style       {:padding "8px 12px"
@@ -322,7 +332,11 @@
                        :font-size "11px"
                        :font-weight 600
                        :margin-bottom "8px"}}
-   "SIMULATING — hermetic 'what-if' (no live data)"])
+   [:div "SIMULATING — hermetic 'what-if' (no live data)"]
+   [:div {:data-testid "rf-xray-static-machines-sim-entry-notice"
+          :style       {:font-weight 400
+                        :margin-top  "3px"}}
+    "Initial :entry actions were not run — the sim seeds state only; actions evaluate from step 1."]])
 
 (defn- sim-current-state-row
   [sim]
