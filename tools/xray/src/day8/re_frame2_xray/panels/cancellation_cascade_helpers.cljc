@@ -77,10 +77,23 @@
   available and default to `:actor-destroyed` for
   `:rf.http/aborted-on-actor-destroy` events (the canonical case).
 
+  ## Frame scoping (rf2-y8doi.15)
+
+  Xray's trace buffer is every host frame's ring MERGED, and a
+  `:rf.trace/dispatch-id` is unique only WITHIN a frame (Spec 002 §Frame
+  isolation). So both correlation paths above — the dispatch-id match and the
+  wall-clock window — could reach into a foreign frame, and on a multi-frame
+  host frame B's aborts folded into frame A's cascade. `extract-cascade` now
+  takes an optional `:frame` on its focus map and scopes anchor, aborts,
+  teardowns and the decision row to it; see `in-frame?` for the two escapes
+  (no frame named, and an event carrying no frame tag at all). This is the
+  frame-strict keying rf2-bz7flo gave the managed-fx and routing panels.
+
   ## What this does NOT do
 
     - Rendering — the view ns does the SVG/hiccup work.
-    - Cross-frame causality — single-cascade-anchor scope only.
+    - Cross-frame causality — single-cascade-anchor scope only, and now
+      enforced rather than merely documented when the focus names a frame.
     - Multi-anchor merging — each call returns ONE cascade. The subs
       pick which anchor to focus (focused-machine or focused-event)."
   (:require [clojure.string :as str]
@@ -316,6 +329,35 @@
 
 ;; ---- cascade extraction -------------------------------------------------
 
+(defn in-frame?
+  "Is `ev` in scope for a cascade being extracted under `frame` (rf2-y8doi.15)?
+
+  Dispatch ids are unique only WITHIN a frame (Spec 002 §Frame isolation; the
+  trace projection groups event-bundles by `[frame dispatch-id]` and emits two
+  records for a cross-frame id collision), and Xray's trace buffer is every
+  host frame's ring MERGED. So on a multi-frame host the dispatch-id match and
+  the 100 ms wall-clock window below both reached into a FOREIGN frame: frame
+  B's aborts folded into frame A's cascade, or the popover anchored on the
+  wrong frame's destroy. This is the frame-strict keying rf2-bz7flo applied to
+  the managed-fx and routing panels, which the cascade never got.
+
+  Two deliberate escapes, both nil:
+
+    - a nil `frame` means the CALLER named none (no focus, a machine-id
+      focus, a pre-frame-set focus) — every event is in scope, i.e. exactly
+      the behaviour before this gate;
+    - an event carrying no `[:tags :frame]` is UNATTRIBUTABLE, not foreign.
+      `[:tags :frame]` is the single canonical raw-event frame path and the
+      key the framework's own ring routing uses, but a frameless emit reaches
+      Xray through the listener path and never carried one. Dropping those
+      would delete rows that belong to no frame at all — and the actor-destroy
+      abort the wall-clock fallback exists FOR is precisely the emit that
+      fires outside the originating drain."
+  [frame ev]
+  (or (nil? frame)
+      (let [f (get-in ev [:tags :frame])]
+        (or (nil? f) (= frame f)))))
+
 (defn- find-anchor
   "Locate the cascade anchor in `trace-buffer`. The anchor is either:
 
@@ -326,9 +368,11 @@
     3. The most-recent cancellation-anchor in the buffer (when
        `focus-kind` = nil — the 'just show me the latest cascade' path).
 
-  Returns the trace event map, or nil when no anchor can be found."
-  [trace-buffer focus-kind focus-id]
-  (let [evs (or trace-buffer [])]
+  Candidates are restricted to `frame` when the focus names one — see
+  `in-frame?`. Returns the trace event map, or nil when no anchor can be
+  found."
+  [trace-buffer focus-kind focus-id frame]
+  (let [evs (filter #(in-frame? frame %) (or trace-buffer []))]
     (case focus-kind
       :machine-id
       (->> evs
@@ -364,9 +408,11 @@
        for when the actor-destroy abort fires outside the originating
        drain and so carries no `:dispatch-id` link.
 
+  Restricted to `frame` when the focus names one (`in-frame?`).
+
   Sorted oldest-first by `:time`."
-  [trace-buffer anchor]
-  (let [evs           (or trace-buffer [])
+  [trace-buffer anchor frame]
+  (let [evs           (filter #(in-frame? frame %) (or trace-buffer []))
         anchor-t      (:time anchor)
         anchor-disp   (get-in anchor [:tags :rf.trace/dispatch-id])
         anchor-actor  (or (get-in anchor [:tags :actor-id])
@@ -420,9 +466,11 @@
   carries `:inflight-count` derived from the aborts that target the
   same actor.
 
+  Restricted to `frame` when the focus names one (`in-frame?`).
+
   Sorted oldest-first by `:time`."
-  [trace-buffer anchor aborts]
-  (let [evs           (or trace-buffer [])
+  [trace-buffer anchor aborts frame]
+  (let [evs           (filter #(in-frame? frame %) (or trace-buffer []))
         anchor-t      (:time anchor)
         anchor-disp   (get-in anchor [:tags :rf.trace/dispatch-id])
         window        default-actor-destroy-window-ms
@@ -477,9 +525,10 @@
   "Locate the parent decision — the most-recent `:rf.event/dispatched`
   trace event within the cascade defined by the anchor's
   `:rf.trace/dispatch-id`. Falls back to the most-recent dispatched event
-  before the anchor's `:time` when the anchor has no `:rf.trace/dispatch-id`."
-  [trace-buffer anchor]
-  (let [evs         (or trace-buffer [])
+  before the anchor's `:time` when the anchor has no `:rf.trace/dispatch-id`.
+  Restricted to `frame` when the focus names one (`in-frame?`)."
+  [trace-buffer anchor frame]
+  (let [evs         (filter #(in-frame? frame %) (or trace-buffer []))
         anchor-t    (:time anchor)
         anchor-disp (get-in anchor [:tags :rf.trace/dispatch-id])
         by-dispatch (when anchor-disp
@@ -505,8 +554,9 @@
   Inputs:
     `trace-buffer` — vector of trace events (Xray's mirror slot or
       a fixture). nil-safe.
-    `focus`        — `{:kind <:machine-id | :dispatch-id | nil>
-                       :id   <value-or-nil>}` or nil.
+    `focus`        — `{:kind  <:machine-id | :dispatch-id | nil>
+                       :id    <value-or-nil>
+                       :frame <frame-id-or-nil>}` or nil.
 
       `:kind :machine-id`  → anchor is the latest cancellation-destroy
                              for that machine-id.
@@ -515,22 +565,29 @@
       `:kind nil` (or focus nil) → most-recent cancellation-destroy
                                    in the buffer.
 
+      `:frame` (rf2-y8doi.15) scopes the WHOLE extraction — anchor,
+      aborts, teardowns and the decision row — to one host frame. Xray's
+      buffer is every frame's ring merged and a dispatch-id is unique only
+      within a frame, so without it frame B's aborts folded into frame A's
+      cascade. Omit it and nothing is scoped, which is the behaviour every
+      caller had before. See `in-frame?` for the two nil escapes.
+
   Returns the cascade record described in the ns docstring, or a
   shaped empty-state record when no anchor / aborts are present."
   ([trace-buffer]
    (extract-cascade trace-buffer nil))
   ([trace-buffer focus]
-   (let [{:keys [kind id]} (or focus {})
-         anchor   (find-anchor trace-buffer kind id)]
+   (let [{:keys [kind id frame]} (or focus {})
+         anchor   (find-anchor trace-buffer kind id frame)]
      (if (nil? anchor)
        {:parent-decision  nil
         :child-teardowns  []
         :effect-aborts    []
         :total-elapsed-ms nil
         :empty-kind       :no-trigger}
-       (let [aborts        (gather-related-aborts trace-buffer anchor)
-             teardowns     (gather-related-teardowns trace-buffer anchor aborts)
-             decision-ev   (find-decision trace-buffer anchor)
+       (let [aborts        (gather-related-aborts trace-buffer anchor frame)
+             teardowns     (gather-related-teardowns trace-buffer anchor aborts frame)
+             decision-ev   (find-decision trace-buffer anchor frame)
              decision      (decision-row decision-ev)
              abort-rows    (mapv abort-row aborts)
              ;; Total elapsed: earliest event-time (decision when
@@ -580,13 +637,6 @@
                          (str aborts " " (common/pluralize aborts "effect")
                               " aborted")]
                   elapsed-s (conj (str elapsed-s " elapsed")))))))
-
-(defn group-by-cancel-cause
-  "Group `:effect-aborts` by `:cancel-cause`. Returns a map
-  cause → vector-of-rows. Order within a group is input order."
-  [cascade]
-  (->> (:effect-aborts cascade)
-       (group-by :cancel-cause)))
 
 (def ^:const default-collapse-threshold
   "Per the bead's contract — collapse aborts by default when there are

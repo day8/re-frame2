@@ -15,7 +15,9 @@
     2. extract-cascade: six core fixtures (single abort, many aborts,
        no aborts, nested destroys, mixed cancel-causes, correlation-id
        pairing) plus the empty-state branches.
-    3. cascade-summary / group-by-cancel-cause / should-collapse?
+    3. cascade-summary / should-collapse?
+    5. frame scoping (rf2-y8doi.15) - the extraction is restricted to the
+       focused host frame, so a peer frame's aborts no longer fold in.
     4. Formatters."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -46,7 +48,7 @@
   the runtime cannot emit. `lifecycle-destroy-ev` below builds the
   registrar pair; `impossible-destroy-ev` deliberately builds tuples
   that violate the matrix."
-  [{:keys [machine-id reason dispatch-id time id op spawned-id parent-id]
+  [{:keys [machine-id reason dispatch-id time id op spawned-id parent-id frame]
     :or {reason       :explicit
          dispatch-id  1
          time         1010
@@ -60,7 +62,11 @@
                        :reason      reason
                        :rf.trace/dispatch-id dispatch-id}
                 spawned-id (assoc :spawned-id spawned-id)
-                parent-id  (assoc :parent-id parent-id))})
+                parent-id  (assoc :parent-id parent-id)
+                ;; rf2-y8doi.15 - the canonical raw-event frame tag. Opt-in:
+                ;; a fixture that names no frame carries none, exactly as an
+                ;; unattributable (frameless) emit does.
+                frame      (assoc :frame frame))})
 
 (defn- lifecycle-destroy-ev
   "The REGISTRAR-substrate destroy — the frame-exit reap. This channel
@@ -79,7 +85,7 @@
   (destroy-ev {:machine-id :x :op op :reason reason}))
 
 (defn- http-abort-ev
-  [{:keys [request-id url actor-id dispatch-id time id sensitive?]
+  [{:keys [request-id url actor-id dispatch-id time id sensitive? frame]
     :or {request-id  :req-1
          url         "/api/foo"
          actor-id    :user-session
@@ -95,7 +101,8 @@
    :tags       (cond-> {:request-id  request-id
                         :url         url
                         :actor-id    actor-id}
-                 dispatch-id (assoc :rf.trace/dispatch-id dispatch-id))})
+                 dispatch-id (assoc :rf.trace/dispatch-id dispatch-id)
+                 frame       (assoc :frame frame))})
 
 (defn- ws-abort-ev
   [{:keys [event actor-id dispatch-id time id]
@@ -410,10 +417,9 @@
                (-> (http-abort-ev {:dispatch-id 1 :time 1011 :id 3})
                    (assoc-in [:tags :cancel-cause] :timeout))]
           c   (h/extract-cascade buf)
-          grouped (h/group-by-cancel-cause c)]
-      (is (= 2 (count grouped)))
-      (is (contains? grouped :user-clicked-cancel))
-      (is (contains? grouped :timeout)))))
+          causes (set (map :cancel-cause (:effect-aborts c)))]
+      (is (= 2 (count (:effect-aborts c))))
+      (is (= #{:user-clicked-cancel :timeout} causes)))))
 
 ;; ---- (2) extract-cascade: correlation-id pairing -----------------------
 
@@ -497,9 +503,96 @@
     (is (true?  (h/should-collapse? big)))
     (is (true?  (h/should-collapse? tiny 2)))))
 
-(deftest group-by-cancel-cause-empty-cascade
-  (let [c (h/extract-cascade [])]
-    (is (= {} (h/group-by-cancel-cause c)))))
+;; ---- (5) frame scoping (rf2-y8doi.15) ----------------------------------
+;;
+;; Xray's trace buffer is EVERY host frame's ring merged, and a
+;; `:rf.trace/dispatch-id` is unique only WITHIN a frame (Spec 002 §Frame
+;; isolation). Both correlation paths — the dispatch-id match and the 100 ms
+;; wall-clock window — could therefore reach into a foreign frame.
+;;
+;; Every assertion below runs BOTH ways on the SAME buffer: unscoped (the
+;; behaviour before the gate, which is what a caller naming no frame still
+;; gets) and scoped. A test that only asserted the scoped count would pass
+;; against a projection that had simply stopped gathering aborts.
+
+(deftest in-frame?-escapes
+  (testing "a nil frame scopes nothing — every event is in scope"
+    (is (true? (h/in-frame? nil {:tags {:frame :frame/a}})))
+    (is (true? (h/in-frame? nil {:tags {}}))))
+  (testing "an event carrying NO frame tag is unattributable, not foreign"
+    (is (true? (h/in-frame? :frame/a {:tags {}})))
+    (is (true? (h/in-frame? :frame/a {}))))
+  (testing "a DIFFERENT frame is out of scope"
+    (is (true?  (h/in-frame? :frame/a {:tags {:frame :frame/a}})))
+    (is (false? (h/in-frame? :frame/a {:tags {:frame :frame/b}})))))
+
+(deftest extract-cascade-does-not-fold-a-peer-frames-abort
+  ;; The bug: frame A tears an actor down; 15 ms later frame B aborts an
+  ;; in-flight request of its own. Frame A's cascade claimed B's abort,
+  ;; because the wall-clock fallback folds in ANY actor-destroy-shaped abort
+  ;; inside the window.
+  (let [buf [(destroy-ev {:machine-id :user-session :dispatch-id 1
+                          :time 1000 :id 1 :frame :frame/a})
+             (http-abort-ev {:request-id :b-1 :actor-id :cart
+                             :dispatch-id 2
+                             :time 1015 :id 2 :frame :frame/b})]]
+    (testing "UNSCOPED, frame B's abort folds into frame A's cascade"
+      (let [c (h/extract-cascade buf {:kind :machine-id :id :user-session})]
+        (is (= 1 (count (:effect-aborts c)))
+            "the pre-gate behaviour, kept for a caller that names no frame")
+        (is (nil? (:empty-kind c)))))
+    (testing "SCOPED to frame A, the cascade truthfully has no aborts"
+      (let [c (h/extract-cascade buf {:kind :machine-id :id :user-session
+                                      :frame :frame/a})]
+        (is (= 0 (count (:effect-aborts c))))
+        (is (= :no-aborts (:empty-kind c)))
+        (is (= [:user-session] (mapv :child-id (:child-teardowns c))))))))
+
+(deftest extract-cascade-keeps-its-own-frames-rows
+  ;; Both frames are live and both reuse dispatch-id 1 — legal, because
+  ;; dispatch ids are unique only within a frame. Each frame's cascade must
+  ;; carry its own rows and only its own.
+  (let [buf [(dispatched-ev [:auth/logout] {:dispatch-id 1 :time 1000 :id 1
+                                            :frame :frame/a})
+             (destroy-ev {:machine-id :user-session :dispatch-id 1
+                          :time 1010 :id 2 :frame :frame/a})
+             (http-abort-ev {:request-id :a-1 :actor-id :user-session
+                             :dispatch-id 1 :time 1020 :id 3 :frame :frame/a})
+             (dispatched-ev [:cart/clear] {:dispatch-id 1 :time 1005 :id 4
+                                           :frame :frame/b})
+             (destroy-ev {:machine-id :cart :dispatch-id 1
+                          :time 1015 :id 5 :frame :frame/b})
+             (http-abort-ev {:request-id :b-1 :actor-id :cart
+                             :dispatch-id 1 :time 1025 :id 6 :frame :frame/b})]]
+    (testing "UNSCOPED, the same-dispatch-id match merges both frames"
+      (let [c (h/extract-cascade buf {:kind :dispatch-id :id 1})]
+        (is (= 2 (count (:effect-aborts c))))
+        (is (= 2 (count (:child-teardowns c))))))
+    (testing "SCOPED to frame A: A's abort, A's teardown, A's decision"
+      (let [c (h/extract-cascade buf {:kind :dispatch-id :id 1 :frame :frame/a})]
+        (is (= [:a-1] (mapv :request-id (:effect-aborts c))))
+        (is (= [:user-session] (mapv :child-id (:child-teardowns c))))
+        (is (= [:auth/logout] (-> c :parent-decision :event-vec)))))
+    (testing "SCOPED to frame B: B's abort, B's teardown, B's decision"
+      (let [c (h/extract-cascade buf {:kind :dispatch-id :id 1 :frame :frame/b})]
+        (is (= [:b-1] (mapv :request-id (:effect-aborts c))))
+        (is (= [:cart] (mapv :child-id (:child-teardowns c))))
+        (is (= [:cart/clear] (-> c :parent-decision :event-vec)))))))
+
+(deftest extract-cascade-keeps-frameless-rows-under-a-frame-scope
+  ;; The wall-clock fallback exists FOR the actor-destroy abort that fires
+  ;; outside the originating drain — and such an emit can reach Xray with no
+  ;; frame tag at all. Dropping it would delete exactly the row the fallback
+  ;; was built for, so an untagged event stays in scope.
+  (let [buf [(destroy-ev {:machine-id :user-session :dispatch-id 1
+                          :time 1000 :id 1 :frame :frame/a})
+             (-> (http-abort-ev {:request-id :r1 :actor-id :user-session
+                                 :time 1015 :id 2})
+                 (update :tags dissoc :rf.trace/dispatch-id))]
+        c   (h/extract-cascade buf {:kind :machine-id :id :user-session
+                                    :frame :frame/a})]
+    (is (= 1 (count (:effect-aborts c))))
+    (is (= :r1 (-> c :effect-aborts first :request-id)))))
 
 ;; ---- (4) formatters ----------------------------------------------------
 
