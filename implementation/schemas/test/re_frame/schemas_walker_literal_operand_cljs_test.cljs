@@ -52,6 +52,24 @@
       (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "local-registry form must fail closed: " (pr-str s))))))
 
+(deftest cljs-registry-ref-forms-fail-closed
+  (testing "rf2-3aafh — an EXPLICIT `[:ref ...]` reference form names a schema
+            the pure-data walk resolves nowhere, so it fails closed (true) on
+            CLJS too — the SAME shared corpus the JVM half asserts, so the
+            classification cannot diverge by host. This is the parity anchor
+            for the ruling"
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/registry-ref-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
+          (str "explicit [:ref ...] form must fail closed: " (pr-str s))))))
+
+(deftest cljs-bare-keyword-reference-stays-walkable
+  (testing "rf2-3aafh — the carve-out the ruling relies on, pinned on CLJS: a
+            BARE keyword stays walkable because a registry reference cannot be
+            told from a primitive. Only the explicit vector form fails closed"
+    (doseq [s [:string :int :keyword :fixture/user :my/user-schema]]
+      (is (false? (rf.schemas/schema-has-opaque-child? s))
+          (str "bare keyword must stay walkable: " (pr-str s))))))
+
 ;; ---- always-on redact-validation-tags (host-agnostic egress parity) -------
 
 (deftest cljs-redact-validation-tags-non-sensitive-literal-rides-verbatim
@@ -83,3 +101,27 @@
               (str "sensitive/opaque schema value redacted: " (pr-str schema)))
           (is (not (str/includes? (pr-str out) "99"))
               (str "no raw value survives redaction for: " (pr-str schema))))))))
+
+(deftest cljs-redact-validation-tags-registry-ref-redacts-and-stamps
+  (testing "rf2-3aafh — the always-on boundary redactor fails CLOSED for an
+            explicit `[:ref ...]` on CLJS too: value-bearing slots scrub to
+            :rf/redacted and :sensitive? is stamped, matching the JVM half"
+    (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}]
+      (doseq [schema rf.schemas.walker-literal-operand-fixtures/registry-ref-forms]
+        (let [out (rf.schemas/redact-validation-tags schema tags)]
+          (is (true? (:sensitive? out))
+              (str "[:ref ...] form is stamped sensitive: " (pr-str schema)))
+          (is (= :rf/redacted (:value out))
+              (str "[:ref ...] form's :value is redacted: " (pr-str schema)))
+          (is (not (str/includes? (pr-str out) "99"))
+              (str "no raw value survives for: " (pr-str schema))))))))
+
+(deftest cljs-redact-validation-tags-map-entry-keyed-ref-rides-verbatim
+  (testing "rf2-3aafh — the CONTROL on CLJS: a `:map` entry whose KEY is
+            `:ref` is ordinary walkable data, so its tags ride verbatim with
+            no stamp, before and after the walker change"
+    (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}
+          out  (rf.schemas/redact-validation-tags
+                 [:map [:ref {:optional true} :string]] tags)]
+      (is (= tags out) "map entry keyed :ref rides verbatim")
+      (is (not (contains? out :sensitive?)) "no :sensitive? stamp"))))

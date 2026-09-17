@@ -45,7 +45,12 @@
    [:string] [:int {:min 0}]
    [:vector :string] [:tuple :int :string]
    [:and :int [:> 0]] [:or :int :string]
-   [:maybe [:enum :a :b]]])
+   [:maybe [:enum :a :b]]
+   ;; rf2-3aafh — a `:map` ENTRY whose KEY is the keyword `:ref`. An entry
+   ;; head is DATA (a map key), never an operator, so this must stay walkable
+   ;; even though the explicit reference FORM `[:ref ::k]` now fails closed.
+   ;; The shape is real: implementation/routing carries it in its own tests.
+   [:map [:ref {:optional true} :string]]])
 
 (def opaque-forms
   "Schemas that nest a GENUINELY opaque (compiled `m/schema`) value in a REAL
@@ -93,3 +98,33 @@
    [:and {:registry {:fixture/pw [:string {:sensitive? true}]}} :fixture/pw]
    [:map [:auth [:schema {:registry {:fixture/user [:map [:pw {:sensitive? true} :string]]}}
                  :fixture/user]]]])
+
+(def registry-ref-forms
+  "Schemas carrying an EXPLICIT `[:ref …]` reference form (rf2-3aafh). A `:ref`
+  names a schema held in some registry the pure-data walk never consults, so
+  every per-slot `:sensitive?` / `:large?` flag on the referenced shape lives
+  where the walk cannot reach it — exactly the `local-registry-forms` blind
+  spot (rf2-amgtr) reached through the OTHER keyword-reference spelling. Each
+  MUST fail CLOSED (true).
+
+  Pre-fix, `:ref` sat in the walker's `opacity-literal-ops`, so every form here
+  classified walkable-and-flag-free and its validation failure shipped the
+  value VERBATIM — including on the always-on `:rf.error/cofx-value-invalid`
+  production surface.
+
+  The reference keywords resolve NOWHERE on purpose: the walker never looks
+  them up, and the classification must not depend on whether they would
+  resolve. That is the whole point — a reference the walk cannot follow is
+  opaque whether or not its target exists.
+
+  NOTE the contrast with the bare-keyword carve-out, which is untouched: a
+  bare `::user` stays walkable because a registry reference cannot be told
+  from a primitive (`:int` / `:string`). An explicit `[:ref …]` CAN be told,
+  so it gets no such carve-out."
+  [[:ref :fixture/user]                                  ;; root reference
+   [:ref {:sensitive? true} :fixture/user]               ;; props on the ref
+   [:map [:home [:ref :fixture/user]]]                   ;; :map slot tail
+   [:vector [:ref :fixture/node]]                        ;; container element
+   [:map [:billing [:ref :fixture/address]]
+         [:shipping [:ref :fixture/address]]]            ;; twice, two slots
+   [:cat [:= :demo/e] [:ref :fixture/user]]])            ;; event-vector tail
