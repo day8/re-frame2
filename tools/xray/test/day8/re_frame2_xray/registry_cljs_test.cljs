@@ -199,6 +199,20 @@
    ;; rows) + per-row expansion-set sub.
    :rf.xray/epoch-pipeline
    :rf.xray.epoch/expanded-rows
+   ;; rf2-y8doi.19 — the Epoch panel's pipeline sub was LAYERED, so a
+   ;; settled host event no longer re-projects the 6k-line cascade while
+   ;; the operator is pinned to an older epoch. The history-dependent
+   ;; half is `:rf.xray/focused-epoch-record` (focus + ring → the record;
+   ;; it must still recompute per settle because it is what watches the
+   ;; ring, but its VALUE is `=`-equal across settles while pinned, so
+   ;; the substrate's propagation collapse stops there). The parent-epoch
+   ;; link is the one thing left that genuinely needs the ring, and it
+   ;; gets its own narrow sub keyed on the dispatch ids THIS cascade
+   ;; carries — rather than riding along as the whole `:epoch-history`
+   ;; vector inside the pipeline's value, which is what guaranteed a
+   ;; fresh value on every settle.
+   :rf.xray/focused-epoch-record
+   :rf.xray.epoch/parent-epoch-index
    ;; rf2-tzmmf — Epoch panel SUBSCRIPTIONS filter-mode sub
    ;; (`[all][changed][unchanged]` button-bar; supersedes
    ;; rf2-kfh1v's boolean `subs-show-unchanged?`).
