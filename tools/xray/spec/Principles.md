@@ -167,7 +167,7 @@ loads the namespace. The preload wraps its boot block in
 `(when rf.interop/debug-enabled? …)`, which Closure folds away under
 `:advanced` + `goog.DEBUG=false`; that is a second line of defence for
 that path only. The trace and epoch collectors gate their own entry
-points the same way (`trace_collector.cljs`, `drop_in.cljc`).
+points the same way (`trace_collector.cljs`).
 
 **2. The manual `init!` / mount path carries no `goog.DEBUG` gate.**
 `init!` registers the `:rf.xray/*` handlers, the trace and epoch
