@@ -122,11 +122,13 @@ pretend to control something that does not exist.)
 
 ## Animation communicates, not decorates
 
-Two canonical durations, and they are catalogued as data rather than
-scattered through the views — the `motion` map in
-`theme/tokens.cljc` carries `:flash-duration-ms` (400ms, the diff
-flash) and `:fade-duration-ms` (180ms, the tab cross-fade). A surface
-that needs a duration reads the token instead of forking the number.
+The canonical duration is catalogued as data rather than scattered
+through the views — the `motion` map in `theme/tokens.cljc` carries
+`:fade-duration-ms` (180ms, the tab cross-fade). A surface that needs a
+duration reads the token instead of forking the number. (It carried a
+second, `:flash-duration-ms`, for a diff flash whose keyframes were
+declared but never applied to any element; both went under rf2-y8doi.29
+on 2026-09-17.)
 
 No looping animations except the machine-active state pulse (1.2s
 heartbeat — only on the active machine's node in the machine chart;

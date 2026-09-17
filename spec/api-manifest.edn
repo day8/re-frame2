@@ -53,7 +53,6 @@
   {:namespace "day8.re-frame2-xray.panels", :var "mount-reactive-panel!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels", :var "mount-resources!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels", :var "mount-routing!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels", :var "mount-segment-inspector!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels", :var "mount-shell!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels", :var "mount-trace!", :tier :internal-public, :kind :fn, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels.app-db-diff", :var "Panel", :tier :implementation, :kind :var, :owner "tools/xray", :status "post-v1 lib", :facade? false, :runtime-verified? true}
