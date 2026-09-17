@@ -74,6 +74,31 @@
       (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "local-registry form must fail closed: " (pr-str s))))))
 
+(deftest registry-ref-forms-fail-closed
+  (testing "rf2-3aafh — an EXPLICIT `[:ref ...]` names a schema held in a
+            registry the pure-data walk never consults, so the referenced
+            shape's per-slot `:sensitive?` flags live where the walk cannot
+            reach them. It fails closed (true), exactly as a local
+            `{:registry ...}` does. Pre-fix `:ref` sat in
+            `opacity-literal-ops`, so every form here classified
+            walkable-and-flag-free and shipped its failing value VERBATIM.
+            The CLJS half asserts the SAME corpus, so the classification
+            cannot diverge by host"
+    (doseq [s rf.schemas.walker-literal-operand-fixtures/registry-ref-forms]
+      (is (true? (rf.schemas/schema-has-opaque-child? s))
+          (str "explicit [:ref ...] form must fail closed: " (pr-str s))))))
+
+(deftest bare-keyword-reference-stays-walkable
+  (testing "rf2-3aafh — the carve-out the ruling RELIES ON is untouched: a
+            BARE keyword schema stays walkable, because a registry reference
+            (`::user`) cannot be told from a primitive (`:string`) without a
+            Malli-registry consult. Only the EXPLICIT `[:ref ...]` vector form
+            — which CAN be told — fails closed. Red here means the fix
+            over-reached into the keyword case"
+    (doseq [s [:string :int :keyword :fixture/user :my/user-schema]]
+      (is (false? (rf.schemas/schema-has-opaque-child? s))
+          (str "bare keyword must stay walkable: " (pr-str s))))))
+
 ;; ---- registration warning (ACCEPTANCE #2) ---------------------------------
 
 (deftest literal-vector-forms-do-not-warn-walker-opaque
@@ -97,6 +122,44 @@
                          [:map [:secret (m/schema [:string {:sensitive? true}])]])
       (is (= 1 (count (warnings-of recorded :rf.warning/schema-walker-opaque)))
           "a nested compiled child still triggers the walker-opaque warning"))))
+
+(deftest root-registry-ref-warns-walker-opaque-as-unknown
+  (testing "rf2-3aafh — registering a ROOT `[:ref ...]` emits the opaque
+            nudge once. `:schema-kind` stays `:unknown` — no new kind was
+            added for the ref shape; the `:reason` string is what names it"
+    (with-trace-recorder! [recorded]
+      (rf/reg-app-schema [:home] [:ref :fixture/user])
+      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
+        (is (= 1 (count warns))
+            "a root [:ref ...] triggers the walker-opaque warning exactly once")
+        (is (= :unknown (-> warns first :tags :schema-kind))
+            ":schema-kind is :unknown — NOT a new :registry-ref kind")
+        (is (= [:home] (-> warns first :tags :path)))
+        (is (str/includes? (-> warns first :tags :reason) ":ref")
+            "the :reason string names the [:ref ...] shape — it carries the
+             explanation the :schema-kind roster deliberately does not")))))
+
+(deftest nested-registry-ref-warns-walker-opaque-as-unknown
+  (testing "rf2-3aafh — a NESTED `[:ref ...]` leaves the root a plain vector
+            form, so it warns with `:schema-kind :unknown`, exactly as the
+            nested-compiled and nested-local-registry cases do"
+    (with-trace-recorder! [recorded]
+      (rf/reg-app-schema [:account] [:map [:home [:ref :fixture/user]]])
+      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
+        (is (= 1 (count warns))
+            "a nested [:ref ...] triggers the walker-opaque warning once")
+        (is (= :unknown (-> warns first :tags :schema-kind))
+            "a nested ref leaves the ROOT a plain vector form → :unknown")))))
+
+(deftest map-entry-keyed-ref-does-not-warn-walker-opaque
+  (testing "rf2-3aafh — the CONTROL for the two tests above. A `:map` entry
+            whose KEY is the keyword `:ref` is ordinary walkable data, not the
+            reference FORM, so it must emit NO warning. Red here means the fix
+            keyed on the keyword rather than on the operator position"
+    (with-trace-recorder! [recorded]
+      (rf/reg-app-schema [:opts] [:map [:ref {:optional true} :string]])
+      (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
+          "an entry KEY spelled :ref is data — no opaque nudge"))))
 
 ;; ---- validation egress: dev validate path (ACCEPTANCE #3) -----------------
 
@@ -178,3 +241,46 @@
               (str "sensitive/opaque schema value redacted: " (pr-str schema)))
           (is (not (str/includes? (pr-str out) "99"))
               (str "no raw value survives redaction for: " (pr-str schema))))))))
+
+;; ---- rf2-3aafh: the always-on seam for the explicit reference form --------
+;;
+;; WHY THERE IS NO dev-validate (`validate-event!`) CASE FOR `[:ref ...]`.
+;; A `[:ref :fixture/user]` naming an UNREGISTERED target makes real Malli
+;; THROW (`:malli.core/invalid-ref`) at schema-compilation time, and
+;; `re-frame.schemas.validate/run-validation` routes a throwing validator to a
+;; `:rf.error/malformed-schema` trace — a DIFFERENT category from
+;; `:rf.error/schema-validation-failure`. So the dev event path cannot produce
+;; a validation-failure trace for this shape at all, and registering the target
+;; in Malli's DEFAULT registry to make it resolve is forbidden here (a shared
+;; test process). The redaction seam itself is what matters and it is pinned
+;; directly below; the always-on PRODUCTION surface — the reason this bead was
+;; ruled the way it was — is pinned in
+;; `re-frame.always-on-validation-production-test`, where the cofx path fails
+;; CLOSED on the very same validator throw and so reaches the emit.
+
+(deftest redact-validation-tags-registry-ref-redacts-and-stamps
+  (testing "rf2-3aafh — the always-on boundary redactor fails CLOSED for an
+            explicit `[:ref ...]`: the value-bearing slots scrub to
+            :rf/redacted and :sensitive? is stamped, because the referenced
+            shape may declare a sensitive slot the walk cannot see. Pre-fix
+            EVERY assertion here failed — the tags rode verbatim"
+    (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}]
+      (doseq [schema rf.schemas.walker-literal-operand-fixtures/registry-ref-forms]
+        (let [out (rf.schemas/redact-validation-tags schema tags)]
+          (is (true? (:sensitive? out))
+              (str "[:ref ...] form is stamped sensitive: " (pr-str schema)))
+          (is (= :rf/redacted (:value out))
+              (str "[:ref ...] form's :value is redacted: " (pr-str schema)))
+          (is (not (str/includes? (pr-str out) "99"))
+              (str "no raw value survives for: " (pr-str schema))))))))
+
+(deftest redact-validation-tags-map-entry-keyed-ref-rides-verbatim
+  (testing "rf2-3aafh — the CONTROL: a `:map` entry whose KEY is `:ref` is
+            ordinary walkable data, so its tags ride verbatim with no stamp.
+            This is green BEFORE and AFTER the walker change — it is what
+            proves the fix keyed on the operator position, not the keyword"
+    (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}
+          out  (rf.schemas/redact-validation-tags
+                 [:map [:ref {:optional true} :string]] tags)]
+      (is (= tags out) "map entry keyed :ref rides verbatim")
+      (is (not (contains? out :sensitive?)) "no :sensitive? stamp"))))
