@@ -113,9 +113,9 @@
   grades `:invalid` as a head down the same arm a `reg-view` goes, so
   the island stands until the registry can take a boundary directly.
 
-  It is MIGRATION SCAFFOLDING WITH A DEFINED END: the L4 seam goes when
-  `reg-l4-tab!` stores boundaries directly — the deletion each panel's
-  own bridge comment already promises.
+  THE SEAM STAYS — IT IS NOT SCAFFOLDING AWAITING A DELETION (rf2-lect,
+  ruled option 2; rf2-4dwxg cleared the same promise from all five
+  Static panel files). The `:pre` named above is what holds it.
 
   THE L1 RIBBON'S TWO ISLANDS ARE GONE (rf2-k97c.3). The ribbon reached
   `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` across
@@ -519,10 +519,10 @@
   component ABI, and the crossing every Static panel's own bridge
   comment already describes.
 
-  MIGRATION SCAFFOLDING WITH A DEFINED END: when `reg-l4-tab!` stores
-  boundaries directly the `[:>]` bridges go, and this seam goes with
-  them. Widening that `:pre` is a registry change with both shells'
-  panels behind it, so it is not this slice's."
+  THE SEAM STAYS — IT IS NOT SCAFFOLDING AWAITING A DELETION (rf2-lect,
+  ruled option 2): the `[:>]` bridges are ruled to stay, so this seam
+  stays with them. Widening that `:pre` is a registry change with both
+  shells' panels behind it, so it is not this slice's."
   [selected tab as-child]
   [:div {:data-testid (str "rf-xray-static-detail-panel-" (name selected))
            ;; Static L4 closes the tab/tabpanel loop.
@@ -603,8 +603,9 @@
   "The full Static surface — 3 stacked layers (ribbon · tab bar ·
   detail panel), and a FRESCO BOUNDARY (rf2-k97c.3) rather than an
   `rf/reg-view`. The Static surface plugs into the Dynamic shell's
-  outer envelope (`shell.cljs/shell-view`) which owns the
-  frame-provider + global-styles install + modal mounts; this surface
+  outer envelope — `shell.cljs`'s `shell-view-tree`, which owns the
+  frame-provider and the shell-root modal mounts, inside the
+  `ShellView` that installs the global styles; this surface
   just renders the chrome that swaps in when Static mode is active.
 
   IT READS NOTHING, and it is still a boundary for the two reasons the
