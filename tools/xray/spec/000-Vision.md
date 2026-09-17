@@ -192,10 +192,11 @@ different families of question against the same registries; the
 Mode is toggled by the **mode pill** at ribbon-left (a compact
 single-select `<select>` that lives in both modes — it's the toggle,
 not the indicator; the mode SIGNAL is the ribbon's left-edge accent
-stripe) or by the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord. The mode
-choice persists to localStorage under `xray.mode` and survives
-reload. Static mode is unconditionally available (per rf2-8l3uk —
-the prior `:rf.xray/static-mode?` feature gate was removed).
+stripe) or by the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord.
+The mode choice persists to localStorage under `xray.mode` and
+survives reload. Static mode is unconditionally available (per
+rf2-8l3uk — the prior `:rf.xray/static-mode?` feature gate was
+removed).
 
 The five canonical questions remain the Dynamic bar. Static carries
 its own posture — registry browse — and earns space alongside
