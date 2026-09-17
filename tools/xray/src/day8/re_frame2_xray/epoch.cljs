@@ -50,7 +50,7 @@
 ;;
 ;; So the same Spec 009 §Privacy gate the trace side applies twice now
 ;; also guards the one seam every `:epoch-history` write passes through.
-;; Two grains, because the record carries two signals:
+;; TWO SIGNALS, ONE GRAIN — the record:
 ;;
 ;;   1. `:rf.epoch/sensitive?` — the framework's own record-level rollup
 ;;      (`epoch/assembly.cljc/sensitive-rollup`), true when a stamped
@@ -59,11 +59,13 @@
 ;;      Spec 009 rationale the envelope alone (`:event-id`, `:outcome`,
 ;;      timings, `:db-*` shape) leaks, and a record is exactly the unit
 ;;      the panels key on.
-;;   2. `:trace-events` — scrubbed per event, which is what catches a
-;;      record carrying NO rollup (synthetic history seeded through
-;;      `:rf.xray/sync-epoch-history`, or a record assembled before the
-;;      rollup shipped). Belt-and-braces against the rollup's absence,
-;;      not a second policy.
+;;   2. A `config/suppress-sensitive?` event in `:trace-events` — which
+;;      is what catches a record carrying NO rollup (synthetic history
+;;      seeded through `:rf.xray/sync-epoch-history`, or a record
+;;      assembled before the rollup shipped). Belt-and-braces against
+;;      the rollup's absence, not a second policy — and it drops the
+;;      record at the SAME grain rather than editing one slot of it
+;;      (rf2-vaont; the reasoning is in `redact-history`'s docstring).
 ;;
 ;; NO COUNTER BUMP. `config/note-suppressed!` counts what the LISTENER
 ;; dropped; the same events were already counted there on their way past
@@ -76,23 +78,49 @@
 
   Under a sensitive-revealing profile (`:rf.egress/local-raw`, the
   trusted-local opt-in) this is the identity: every record passes
-  verbatim. Otherwise records whose `:rf.epoch/sensitive?` rollup is
-  true are dropped whole, and each survivor's `:trace-events` has
-  `config/suppress-sensitive?` applied — the same predicate
-  `collect-trace!` and `snapshot-from-rings` gate on, so the three
-  ingress paths share ONE policy rather than three.
+  verbatim. Otherwise a record is dropped WHOLE when EITHER signal
+  fires — the framework's `:rf.epoch/sensitive?` rollup, or a
+  `config/suppress-sensitive?` event in its own `:trace-events`. That
+  is the same predicate `collect-trace!` and `snapshot-from-rings` gate
+  on, so the three ingress paths share ONE policy rather than three.
+
+  ## The grain is the RECORD, not the event (rf2-vaont)
+
+  The second signal used to be answered at EVENT grain: keep the record,
+  remove the offending events from `:trace-events`. That left the
+  cascade standing in every sibling slot, because `build-record`
+  derives those slots from the very events being removed —
+  `:sub-runs`, `:renders` and `:effects` are projections of
+  `:trace-events`, `:trigger-event` is lifted out of the run-start's
+  event vector, and `:db-before` / `:db-after` / `:frame-state-*` ride
+  in the same map. So the Reactive panel still read `:sub-runs` and
+  `:renders`, the App-DB projection still read `:db-after`, and the
+  payload the scrub had just removed was still on the record under
+  another key. The scrub moved the leak; it did not close it.
+
+  `trace-collector/bundles-for-frame` had already settled this question
+  for the BUNDLE read, and the reasoning transfers unchanged: a
+  per-event scrub would have to reach every sibling slot to be honest,
+  and a slot added upstream would silently re-open the leak. A record is
+  the same shape, so it gets the same answer — one grain, not two.
+
+  This costs the rollup-less record that carried a sensitive event, and
+  that is the intended price: an absent rollup is not evidence of
+  innocence. A rollup-less record with NO sensitive event is untouched,
+  so an ordinary synthetic seed through `:rf.xray/sync-epoch-history`
+  still arrives verbatim — and the render-side projections remain the
+  only guard for the declared-sensitive app-db values such a record
+  carries, since this gate cannot see them.
 
   Pure. Returns a vector — every caller writes the slot with one."
   [records]
   (if (config/include-sensitive?)
     (vec records)
     (into []
-          (comp (remove :rf.epoch/sensitive?)
-                (map (fn [record]
-                       (if-some [events (:trace-events record)]
-                         (assoc record :trace-events
-                                (into [] (remove config/suppress-sensitive?) events))
-                         record))))
+          (remove (fn [record]
+                    (or (boolean (:rf.epoch/sensitive? record))
+                        (boolean (some config/suppress-sensitive?
+                                       (:trace-events record))))))
           records)))
 
 (defn install!

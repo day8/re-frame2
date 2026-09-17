@@ -227,13 +227,23 @@ rather than each carrying its own policy:
 3. **The epoch path** — `epoch/redact-history` gates every framework
    epoch record on its way into Xray's `:epoch-history` slot. The same
    trace events ride each `:rf/epoch-record`'s `:trace-events`, so a
-   gate on the trace path alone would leave them readable there. A
-   record whose `:rf.epoch/sensitive?` rollup is true is dropped whole;
-   each survivor's `:trace-events` has the same predicate applied, which
-   catches a record carrying no rollup. This path deliberately does NOT
-   bump the counter — `collect-trace!` already counted those events on
-   their way past the listener, and a second bump would double-count one
-   cascade against the `[● REDACTED N]` indicator.
+   gate on the trace path alone would leave them readable there. **The
+   grain is the RECORD**, and two signals reach it: the record is
+   dropped whole when its `:rf.epoch/sensitive?` rollup is true, and
+   equally when the rollup is ABSENT but a suppressed event rides its
+   `:trace-events` — a synthetic history seed, or a record assembled
+   before the rollup shipped. Scrubbing the events and keeping such a
+   record is not enough, for the same reason the BUNDLE grain below
+   gives: `:sub-runs`, `:renders`, `:effects` and `:trigger-event` are
+   derived from those very events and `:db-before` / `:db-after` ride in
+   the same map, so the payload survives in a sibling slot while
+   `:trace-events` reads clean (rf2-vaont). A rollup-less record with no
+   suppressed event is untouched — this gate cannot see declared-
+   sensitive app-db values, which stay the render-side projections'
+   business. This path deliberately does NOT bump the counter —
+   `collect-trace!` already counted those events on their way past the
+   listener, and a second bump would double-count one cascade against
+   the `[● REDACTED N]` indicator.
 
 `trace-collector/bundles-for-frame` applies the same gate at BUNDLE
 grain — the per-frame event-bundle read the Fresco advisor and its
