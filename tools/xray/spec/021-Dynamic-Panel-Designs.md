@@ -1728,6 +1728,23 @@ empty-state line. This matches the §2.2 dynamic-numbering contract
 from the Event lens — both panels share the same "absence is
 silence" rhythm.
 
+**Whole-cascade absence is the one exception, and it is not silence
+(rf2-y8doi.19).** The rhythm above governs STEPS within a cascade; when
+there is no cascade to render at all, the panel renders a single
+empty-state line, because silence there cannot be told apart from a panel
+that failed to paint. The status naming that case is **`:no-epoch`** — the
+operator pinned an event bundle that settled no epoch, so focus carries a
+`:dispatch-id` beside a nil `:epoch-id`. That shape was previously
+indistinguishable from unset focus, and the resolver's head-fallback
+answered it with the HEAD epoch's cascade: a complete, plausible pipeline
+for a DIFFERENT event, which is worse than an empty pane. The copy is
+deliberately CAUSE-NEUTRAL — "The selected event settled no epoch." —
+because at least four things produce the status (a dispatch refused before
+any handler ran; a bundle still mid-build; a bundle whose epoch aged out
+of the ring; a focus pinning `:ungrouped`), and focus alone tells them
+apart from none, so naming any one of them would read as fact and be false
+on the other three.
+
 ### §9.1.4 Badge taxonomy (the badge inventory)
 
 Each step renders a uppercase badge pill at its numbered circle:
@@ -3166,7 +3183,7 @@ presentation boundary reads as one named ns the view imports.
 
 | Sub | Reads | Yields |
 |-----|-------|--------|
-| `:rf.xray/epoch-pipeline` | `:rf.xray/focus` · `:rf.xray/epoch-history` (via the shared `panels.shared.focus-resolver`) | `{:status :no-focus ｜ :focused ｜ :epoch-evicted, :epoch-id, :record, :steps, :outcome :ok｜:error}` — `:outcome` is the rf2-ahhgn tool-side outcome (`projection/epoch-outcome`; `:error` when any step carries an exception or violation), NOT the framework epoch-record slot (§9.1.10.5) |
+| `:rf.xray/epoch-pipeline` | `:rf.xray/focused-epoch-record` · `:rf.xray/observed-frame` (rf2-y8doi.19 — LAYERED. The history-dependent half is now `:rf.xray/focused-epoch-record`, which resolves `:rf.xray/focus` against `:rf.xray/epoch-history` through the shared `panels.shared.focus-resolver`; it still recomputes per settle, but its value is `=`-equal across settles while pinned, so the propagation collapse stops there and the expensive projection below does not re-run. `:rf.xray/observed-frame` is the REDACTION seam, not a data axis: it names the frame whose `:sensitive` policy governs the record's app-db snapshots, and it derives from focus + target-frame, so nothing in the settle path invalidates the pipeline through it) | `{:status :no-focus ｜ :no-epoch ｜ :focused ｜ :epoch-evicted, :epoch-id, :record, :steps, :outcome :ok｜:error}` — `:record`'s `:db-before` / `:db-after` are EGRESS-PROJECTED here (rf2-y8doi.19), so no consumer of this sub can render a declared-sensitive value the App-DB tab redacts. `:outcome` is the rf2-ahhgn tool-side outcome (`projection/epoch-outcome`; `:error` when any step carries an exception or violation), NOT the framework epoch-record slot (§9.1.10.5) |
 | `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
 | `:rf.xray.epoch/subs-filter-mode` | `:epoch-panel-subs-filter-mode` slot | keyword `:all / :changed / :unchanged` (rf2-tzmmf — SUBSCRIPTIONS step's `[all][changed][unchanged]` button-bar; supersedes rf2-kfh1v's boolean `subs-show-unchanged?`. Default `:changed` preserves the rf2-kfh1v hide-unchanged-by-default rationale) |
 
