@@ -398,7 +398,7 @@ relevant pair is:
 
 | Value | Meaning |
 |---|---|
-| `:rf.egress/local-redacted` | Default (fail-closed). Xray's trace collector MUST drop events whose top-level `:sensitive?` field is `true` before any buffer push, and MUST bump the suppressed-events counter (see [§App-db slots](#app-db-slots) below) so the shell's bottom rail can surface a `[● REDACTED N]` indicator. |
+| `:rf.egress/local-redacted` | Default (fail-closed). Xray's trace collector MUST drop events whose top-level `:sensitive?` field is `true` before Xray's own frameless secondary-ring push and before the coalesced mirror-sync request, and MUST bump the suppressed-events counter (see [§App-db slots](#app-db-slots) below) so the shell's **L1 chrome ribbon** can surface a `[● REDACTED N]` indicator. This ingest gate reaches neither the framework's per-frame rings, which retain every emitted event, nor the framework's epoch records — the read-side gates covering those are owned by [`013-Trace-Consumer.md` §One policy](./013-Trace-Consumer.md#one-policy-three-ingress-paths-rf2-y8doi13). |
 | `:rf.egress/local-raw` | The trusted-local operator opt-in. The collector receives every event unchanged; `:sensitive? true` events flow through to every consumer. Includes large values too (the profile's `:rf.egress/include-large?`). |
 | `nil` | Resets to the default (`:rf.egress/local-redacted`). |
 | unknown | `configure!` rejects with `:rf.error/unknown-egress-profile` (the enum is closed). |
@@ -786,7 +786,7 @@ and test fixtures.
 
 The `:rf.xray/suppressed-sensitive-count` subscription reads this
 slot and returns the total across every bucket; the
-`[● REDACTED N]` bottom-rail indicator binds to that sub so the count
+`[● REDACTED N]` L1 chrome-ribbon indicator binds to that sub so the count
 updates on the standard reactive write path within one task of the
 collector's bumps, with no dependency on sibling subs recomputing
 (rf2-0vxdn PR #681).
