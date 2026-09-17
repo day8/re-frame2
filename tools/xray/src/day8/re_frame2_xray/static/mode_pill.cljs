@@ -82,9 +82,11 @@
   frame-bound `dispatch` and the resolved `:rf.xray/mode` — a compact
   single-select `<select>` toggling Dynamic ↔ Static. Shares the frame
   picker's control style (`bg-2`, `border-default`, 4px radius) so the
-  two chrome-left selectors read as one stratum. The mode SIGNAL is the
-  ribbon's left-edge accent stripe, not this control — the dropdown is
-  deliberately understated for an occasional-use toggle.
+  two chrome-left selectors read as one stratum. The dropdown is
+  deliberately understated for an occasional-use toggle; its active
+  option + `data-active-mode` carry the mode state. There is no
+  left-edge ribbon stripe — rf2-4yemd removed the Dynamic one and
+  rf2-y8doi.30 the Static mirror.
 
   Selecting an option dispatches `:rf.xray/set-mode <mode>` against the
   `:rf/xray` frame so the slot lands on Xray's app-db (the same

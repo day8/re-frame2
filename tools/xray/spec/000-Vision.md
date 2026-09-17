@@ -190,9 +190,10 @@ different families of question against the same registries; the
   already lives in the source code.
 
 Mode is toggled by the **mode pill** at ribbon-left (a compact
-single-select `<select>` that lives in both modes — it's the toggle,
-not the indicator; the mode SIGNAL is the ribbon's left-edge accent
-stripe) or by the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord.
+single-select `<select>` that lives in both modes — understated
+chrome, with its selected Dynamic/Static option and the
+`data-active-mode` it carries showing which mode is active) or by
+the **`Cmd-Shift-M` / `Ctrl+Shift+M`** global chord.
 The mode choice persists to localStorage under `xray.mode` and
 survives reload. Static mode is unconditionally available (per
 rf2-8l3uk — the prior `:rf.xray/static-mode?` feature gate was
