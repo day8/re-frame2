@@ -172,7 +172,6 @@
                :rf.xray/registered-scope-resolvers
                :rf.xray/resource-entries
                :rf.xray/resource-work-ledger
-               :rf.xray/resource-sub-reads
                :rf.xray/resource-routing-slice
                :rf.xray/resources-tab-data]]
       (is (some? (rf.registrar/handler :sub s)) (str s " sub registered"))))
@@ -183,7 +182,6 @@
                :rf.xray/registered-scope-resolvers-override
                :rf.xray/resource-entries-override
                :rf.xray/resource-work-ledger-override
-               :rf.xray/resource-sub-reads-override
                :rf.xray/resource-routing-slice-override]]
       (is (nil? (rf.registrar/handler :sub s))
           (str s " override sub NOT installed by production registration")))
@@ -191,7 +189,6 @@
                :rf.xray/set-registered-scope-resolvers-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
-               :rf.xray/set-resource-sub-reads-override-for-test
                :rf.xray/set-resource-routing-slice-override-for-test]]
       (is (nil? (rf.registrar/handler :event e))
           (str e " NOT installed by production registration")))
@@ -200,14 +197,12 @@
                :rf.xray/registered-scope-resolvers-override
                :rf.xray/resource-entries-override
                :rf.xray/resource-work-ledger-override
-               :rf.xray/resource-sub-reads-override
                :rf.xray/resource-routing-slice-override]]
       (is (some? (rf.registrar/handler :sub s)) (str s " override sub registered by seam")))
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
                :rf.xray/set-registered-scope-resolvers-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
-               :rf.xray/set-resource-sub-reads-override-for-test
                :rf.xray/set-resource-routing-slice-override-for-test]]
       (is (some? (rf.registrar/handler :event e)) (str e " event registered by seam")))))
 
@@ -226,7 +221,6 @@
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
-               :rf.xray/set-resource-sub-reads-override-for-test
                :rf.xray/set-resource-routing-slice-override-for-test]]
       (is (some? (rf.registrar/handler :event e))
           (str e " is registered under the :rf.xray*/ prefix"))

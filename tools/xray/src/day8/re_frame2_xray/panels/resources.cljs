@@ -1119,7 +1119,7 @@
 
 ;; ---- §8 SCOPE AUDIT + LINTS --------------------------------------------
 
-(defn- audit-section [{:keys [global-audit suspicious mismatches orphans optimistic-reach]}]
+(defn- audit-section [{:keys [global-audit suspicious orphans optimistic-reach]}]
   (section
     {:first? false :testid "rf-xray-resources-audit"}
     (section-caption "Scope audit + lints" "rf-xray-resources-audit-caption")
@@ -1140,16 +1140,6 @@
                [:div {:key   (str (:resource-id w))
                       :style {:color (:warning tokens)}}
                 "⚠ " (str (:resource-id w)) " — " (:hint w)])))
-     ;; scope-mismatch lint
-     (when (seq mismatches)
-       (into [:div {:data-testid "rf-xray-resources-audit-mismatch"
-                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (for [m mismatches]
-               [:div {:key   (str (:resource-id m) (get-in m [:sub-scope :preview]))
-                      :style {:color (:error tokens)}}
-                "scope mismatch on " (str (:resource-id m))
-                " — sub scope " (get-in m [:sub-scope :preview])
-                " ≠ entry scope " (get-in m [:entry-scope :preview])])))
      ;; orphaned-owner lint
      (when (seq orphans)
        (into [:div {:data-testid "rf-xray-resources-audit-orphan"
@@ -1426,10 +1416,6 @@
       `:rf.xray/target-frame-runtime-db`. Test override.
     - `:rf.xray/resource-work-ledger` — the live work-ledger map from
       `[:rf.runtime/work-ledger]`. Test override.
-    - `:rf.xray/resource-sub-reads` — observed live subscription reads
-      (`[{:resource-id :params :scope} …]`) backing the scope-mismatch
-      lint. Empty by default; the host/runtime populates it (test
-      override slot).
     - `:rf.xray/resource-routing-slice` — the live routing-runtime subtree
       (`[:rf.runtime/routing]`) from `:rf.xray/target-frame-runtime-db`,
       backing the LIVE route/resource graph (current route + nav-token +
@@ -1441,7 +1427,7 @@
       slice (per-resource freshness rollup, the active route flagged
       `:current?` with its live `:blocking-live` wait points).
 
-  The test-only override seam (six `:rf.xray/set-*-override-for-test`
+  The test-only override seam (five `:rf.xray/set-*-override-for-test`
   events + companion `*-override` subs) is NOT installed here —
   production registration carries no `-for-test` ids. Tests opt into it
   via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
@@ -1475,13 +1461,6 @@
     (fn [[target-runtime-db] _]
       (resource-work-ledger-value target-runtime-db)))
 
-  (rf/reg-sub :rf.xray/resource-sub-reads
-    (fn [_db _]
-      ;; Empty by default; the host/runtime never populates app-db with
-      ;; observed sub-reads, so the production value is the empty vector.
-      ;; The test seam supplies fixtures via the override slot.
-      []))
-
   ;; The routing-runtime slice backing the LIVE route/resource graph
   ;; (rf2-m5u3gt). Reads `[:rf.runtime/routing]` off the target frame's
   ;; runtime-db (decoupled, like the Routing tab's current-route sub) and
@@ -1499,7 +1478,6 @@
               [:rf.xray/resource-entries]
               [:rf.xray/resource-work-ledger]
               [:rf.xray/trace-buffer]
-              [:rf.xray/resource-sub-reads]
               [:rf.xray/resource-routing-slice]
               [:rf.xray/registered-scope-resolvers]
               ;; rf2-9zix0u — the OBSERVED frame whose `:sensitive` / `:large`
@@ -1508,7 +1486,7 @@
               ;; `:rf.xray/resource-entries` → `:rf.xray/target-frame-runtime-db`); named
               ;; directly here so the egress projects the entries under THEIR frame.
               [:rf.xray/observed-frame]]}
-    (fn [[registrations entries ledger trace-buffer sub-reads routing-slice
+    (fn [[registrations entries ledger trace-buffer routing-slice
           scope-resolvers observed-frame] _]
       (let [now-ms        (.now js/Date)
             routes-map    (rf/registrations {:source :store :kind :route})
@@ -1604,7 +1582,6 @@
          :cache-growth  (h/cache-growth instance-rows work-rows)
          :audit         {:global-audit (h/global-scope-audit registry-rows)
                          :suspicious   (h/suspicious-global-warnings registry-rows)
-                         :mismatches   (h/scope-mismatch-lint instance-rows sub-reads)
                          :orphans      (h/orphaned-owner-lint instance-rows family-rows)
                          ;; rf2-ynkzj — optimistic keys the settlement never reached
                          :optimistic-reach (h/optimistic-reach-lint family-rows sensitive-rids)}})))
@@ -1632,7 +1609,7 @@
 ;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
 
 (defn install-test-overrides!
-  "Install the Resources panel's test-only override seam — the six
+  "Install the Resources panel's test-only override seam — the five
   `:rf.xray/set-*-override-for-test` events + companion `*-override`
   subs, then RE-register the production data subs to layer each override
   read on top (`(or override (real …))`). Tests opt in by calling this
@@ -1668,13 +1645,6 @@
   (rf/reg-sub :rf.xray/resource-work-ledger-override
     (fn [db _] (get db :resource-work-ledger-override)))
 
-  (rf/reg-event :rf.xray/set-resource-sub-reads-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :resource-sub-reads-override)
-          (assoc db :resource-sub-reads-override ov))}))
-  (rf/reg-sub :rf.xray/resource-sub-reads-override
-    (fn [db _] (get db :resource-sub-reads-override)))
-
   (rf/reg-event :rf.xray/set-resource-routing-slice-override-for-test
     (fn [{:keys [db]} [_ ov]]
       {:db (if (nil? ov) (dissoc db :resource-routing-slice-override)
@@ -1702,10 +1672,6 @@
     {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/resource-work-ledger-override]]}
     (fn [[target-runtime-db override] _]
       (if (some? override) override (resource-work-ledger-value target-runtime-db))))
-
-  (rf/reg-sub :rf.xray/resource-sub-reads
-    {:inputs [[:rf.xray/resource-sub-reads-override]]}
-    (fn [[override] _] (or override [])))
 
   (rf/reg-sub :rf.xray/resource-routing-slice
     {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/resource-routing-slice-override]]}

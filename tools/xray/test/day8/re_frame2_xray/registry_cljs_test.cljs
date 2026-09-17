@@ -297,16 +297,14 @@
    :rf.xray/routing-tab-data
    ;; Spec 016 §Xray and AI tooling — Resources tab (8th L3 tab) sub
    ;; family. The static registry + the live runtime-db cache/ledger
-   ;; slices + the view-facing composite + the scope-mismatch-lint
-   ;; sub-reads slot. (The per-kind `*-override` subs split out behind
-   ;; `install-test-overrides!` — rf2-e8330v.)
+   ;; slices + the view-facing composite. (The per-kind `*-override`
+   ;; subs split out behind `install-test-overrides!` — rf2-e8330v.)
    :rf.xray/registered-resources
    ;; rf2-hls77w (EP-0016 D3) — named resource-scope resolver registry
    ;; (the third resources kind).
    :rf.xray/registered-scope-resolvers
    :rf.xray/resource-entries
    :rf.xray/resource-work-ledger
-   :rf.xray/resource-sub-reads
    ;; rf2-m5u3gt — the live route/resource graph reads the routing slice.
    :rf.xray/resource-routing-slice
    :rf.xray/resources-tab-data
@@ -913,7 +911,6 @@
    :rf.xray/registered-scope-resolvers-override
    :rf.xray/resource-entries-override
    :rf.xray/resource-work-ledger-override
-   :rf.xray/resource-sub-reads-override
    :rf.xray/resource-routing-slice-override
    :rf.xray/derivation-graph-override
    :rf.xray/machine-snapshots-override
@@ -932,7 +929,6 @@
    :rf.xray/set-registered-scope-resolvers-override-for-test
    :rf.xray/set-resource-entries-override-for-test
    :rf.xray/set-resource-work-ledger-override-for-test
-   :rf.xray/set-resource-sub-reads-override-for-test
    :rf.xray/set-resource-routing-slice-override-for-test
    :rf.xray/set-derivation-graph-override-for-test
    :rf.xray/set-now-ms-override-for-test

@@ -1318,8 +1318,8 @@
     (routing/install!)
     ;; Resources tab (Spec 016 §Xray and AI tooling) — Dynamic L3 tab
     ;; for declarative server-state. Installs the registered-resources /
-    ;; resource-entries / resource-work-ledger / resource-sub-reads subs
-    ;; + the `:rf.xray/resources-tab-data` composite + test-only
+    ;; resource-entries / resource-work-ledger / resource-routing-slice
+    ;; subs + the `:rf.xray/resources-tab-data` composite + test-only
     ;; overrides. Reads the static registry via `(rf/registrations
     ;; :resource)` and the live cache/ledger off
     ;; `:rf.xray/target-frame-runtime-db` (registered by
