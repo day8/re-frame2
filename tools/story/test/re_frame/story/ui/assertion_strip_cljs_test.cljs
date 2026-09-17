@@ -14,15 +14,16 @@
   - `value-display`   — clamp a detail :expected / :actual value with a
                         :long? flag for the click-to-reveal chord
   - `summary-line`    — fail → reason/expected vs actual; pass → blank;
-                        skip → reason
+                        skip → reason; error → the captured error's
+                        :message (rf2-uky0n)
   - `group-by-event`  — cluster records by dispatching :event, preserve
                         insertion order, nil-event records cluster under
                         a leading group
   - `assertion-strip` rendered hiccup shape — wrap div with the canonical
                         data-test, one row per record, group head only
-                        appears when there are >1 groups, failed rows
-                        seed the expanded set so the detail panel
-                        renders on first paint
+                        appears when there are >1 groups, failed AND
+                        errored rows seed the expanded set so the detail
+                        panel renders on first paint
   - `render-row`      — status / label / glyph wiring; click toggles
                         through the `on-toggle` callback"
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -88,6 +89,65 @@
       (is (re-find #"…$" out)
           "truncated output ends in an ellipsis"))))
 
+(deftest summary-line-error-message
+  (testing "an errored row surfaces the captured error's :message — the
+            one sentence saying what went wrong. This is the setup-failure
+            case: a :setup that throws, or (rf2-0ae7o.13) one dispatching
+            an event nobody registered, lands an :rf.error/exception record
+            whose :error map carries the message and whose :reason is nil"
+    (let [row {:status :error
+               :detail {:reason nil
+                        :error  {:message "no handler registered for :your/setup-event"
+                                 :stack   nil
+                                 :data    nil}}}]
+      (is (= "no handler registered for :your/setup-event"
+             (rf.story.ui.assertion-strip/summary-line row))))))
+
+(deftest summary-line-error-falls-back-to-reason
+  (testing "an errored row with no :error :message falls back to :reason,
+            then to a bare \"error\" placeholder — the summary is never
+            blank for an error, because a blank summary is exactly the
+            defect (a silent grey row saying nothing)"
+    (is (= "setup blew up"
+           (rf.story.ui.assertion-strip/summary-line
+             {:status :error :detail {:reason "setup blew up"}}))
+        "string :reason reads as-is")
+    (is (= "{:code 42}"
+           (rf.story.ui.assertion-strip/summary-line
+             {:status :error :detail {:reason {:code 42}}}))
+        "non-string :reason renders through pr-str")
+    (is (= "error"
+           (rf.story.ui.assertion-strip/summary-line
+             {:status :error :detail {}}))
+        "neither message nor reason → the 'error' placeholder")
+    (is (= "error"
+           (rf.story.ui.assertion-strip/summary-line
+             {:status :error :detail {:error {:message nil}}}))
+        "a non-string :message does not answer for the summary")))
+
+(deftest summary-line-error-prefers-message-over-reason
+  (testing "when both are present the error's :message wins — it is the
+            more specific of the two"
+    (let [row {:status :error
+               :detail {:reason "generic"
+                        :error  {:message "specific boom"}}}]
+      (is (= "specific boom" (rf.story.ui.assertion-strip/summary-line row))))))
+
+(deftest summary-line-non-error-ignores-error-key
+  (testing "CONTROL — the :error arm must not leak into the other statuses.
+            A :pass row still reads blank and a :fail row still reads its
+            :reason even when an :error map is present in the detail"
+    (is (= "" (rf.story.ui.assertion-strip/summary-line
+                {:status :pass
+                 :detail {:expected 1 :actual 1
+                          :error {:message "should not be read"}}}))
+        ":pass stays blank — the label already names the assertion")
+    (is (= "values differ" (rf.story.ui.assertion-strip/summary-line
+                             {:status :fail
+                              :detail {:reason "values differ"
+                                       :error {:message "should not be read"}}}))
+        ":fail still prefers its own :reason")))
+
 ;; ---- pure: group-by-event ------------------------------------------------
 
 (deftest group-by-event-clusters
@@ -134,12 +194,20 @@
 ;; ---- pure: status-glyph map ----------------------------------------------
 
 (deftest status-glyph-shape
-  (testing "the three status glyphs (Storybook-inspired pattern #1)
-            are exposed publicly so tests + downstream consumers can
-            pin them"
+  (testing "the status glyphs (Storybook-inspired pattern #1) are exposed
+            publicly so tests + downstream consumers can pin them. The
+            first three are the SHARED assertion vocabulary
+            (`predicates/assertion-glyph`); `:error` is the strip's own
+            extension over it — a run-level verdict the shared
+            three-valued map deliberately does not carry."
     (is (= "✓" (:pass rf.story.ui.assertion-strip/status-glyph)))
     (is (= "✗" (:fail rf.story.ui.assertion-strip/status-glyph)))
-    (is (= "⊘" (:skip rf.story.ui.assertion-strip/status-glyph)))))
+    (is (= "⊘" (:skip rf.story.ui.assertion-strip/status-glyph)))
+    (is (= "✖" (:error rf.story.ui.assertion-strip/status-glyph))
+        ":error carries its OWN glyph so an errored row stays
+         distinguishable from a failed one (spec/018 §12.6) — it shares
+         the red band, and the glyph is what tells them apart, mirroring
+         the test-mode pane's own precedent")))
 
 ;; ---- rendered: render-row ------------------------------------------------
 
@@ -159,6 +227,22 @@
                 (some walk node)
                 :else nil))]
       (walk hiccup))))
+
+(defn- find-string
+  "Walk `hiccup` and return the first STRING node containing `s`, or nil.
+
+  `find-prop` above finds prop MAPS only, so it cannot see a bare string
+  child — which is exactly how the detail panel renders an error message
+  (`(str (:message error))` sits as a direct child of the line div). This
+  sibling walker covers that case."
+  [hiccup s]
+  (letfn [(walk [node]
+            (cond
+              (string? node)  (when (not= -1 (.indexOf node s)) node)
+              (vector? node)  (some walk node)
+              (seq? node)     (some walk node)
+              :else           nil))]
+    (walk hiccup)))
 
 (deftest render-row-pass-shape
   (testing "a passing row carries the data-test stamps the chrome-level
@@ -190,6 +274,93 @@
           "inline summary span renders when status is :fail with a :reason")
       (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
           "open? true → the detail panel renders inline"))))
+
+(deftest render-row-error-shape-summary-on-message
+  (testing "an ERRORED row is not a failed row. It carries its own
+            :data-status, surfaces the captured error's :message as the
+            inline summary, and its expanded detail renders that message —
+            the one sentence that says what went wrong. Before rf2-uky0n
+            the strip had no :error arm at all, so this row painted as a
+            grey `·` with no summary and a detail panel that never read
+            :error"
+    (let [row    {:status  :error
+                  :label   ":rf.error/exception"
+                  :row-key ":rf.error/exception"
+                  :detail  {:event  [:your/setup-event {}]
+                            :phase  :phase-2-events
+                            :reason nil
+                            :error  {:message "no handler registered for :your/setup-event"
+                                     :stack   nil
+                                     :data    nil}}}
+          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))
+          wrap   (find-prop hiccup :data-test "story-canvas-assertion-row")
+          summ   (find-prop hiccup :data-test "story-canvas-assertion-summary")]
+      (is (= "error" (:data-status wrap))
+          ":data-status reads 'error', NOT 'fail' — the canvas surface
+           tells the two apart")
+      (is (some? summ)
+          "the inline summary span renders — an errored row must never be
+           a silent glyph with no text")
+      (is (= "no handler registered for :your/setup-event" (:title summ))
+          "the summary's :title carries the untruncated message")
+      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
+          "open? true → the detail panel renders inline")
+      (is (some? (find-string hiccup "no handler registered for :your/setup-event"))
+          "the error message itself appears inside the rendered hiccup —
+           this is the assertion the pre-fix renderer fails, because
+           row-detail never destructured :error"))))
+
+(defn- find-detail-value-element
+  "Walk `hiccup` and return the first `[detail-value <label> <v>]` component
+  VECTOR whose label is `label`, or nil.
+
+  `detail-value` is a Reagent component, so `row-detail` emits it as an
+  un-expanded component vector — its inner `:data-test` prop map does not
+  exist until Reagent invokes it. `find-prop` therefore cannot see it; this
+  walker matches on the component fn in head position instead."
+  [hiccup label]
+  (letfn [(match? [x]
+            (and (vector? x)
+                 (= rf.story.ui.assertion-strip/detail-value (first x))
+                 (= label (second x))))
+          (walk [node]
+            (cond
+              (match? node)  node
+              (vector? node) (some walk node)
+              (seq? node)    (some walk node)
+              :else          nil))]
+    (walk hiccup)))
+
+(deftest render-row-error-detail-renders-error-data
+  (testing "a captured error carrying :data gets a second detail line
+            through `detail-value`, so a large map clamps rather than
+            blowing the panel into the canvas height"
+    (let [row    {:status  :error
+                  :label   ":rf.error/exception"
+                  :row-key ":rf.error/exception"
+                  :detail  {:reason nil
+                            :error  {:message "kaboom"
+                                     :data    {:cause :network}}}}
+          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))
+          el     (find-detail-value-element hiccup "error data")]
+      (is (some? (find-string hiccup "kaboom"))
+          "the message line renders")
+      (is (some? el)
+          ":data routes through detail-value, which carries the clamping
+           + click-to-reveal chord")
+      (is (= {:cause :network} (nth el 2))
+          "the error's :data map is what gets handed to detail-value")))
+  (testing "CONTROL — an error with no :data adds no value line, and the
+            walker itself is exercised in the negative direction"
+    (let [row    {:status  :error
+                  :label   ":rf.error/exception"
+                  :row-key ":rf.error/exception"
+                  :detail  {:reason nil :error {:message "kaboom" :data nil}}}
+          hiccup (rf.story.ui.assertion-strip/render-row row true (fn [_]))]
+      (is (some? (find-string hiccup "kaboom"))
+          "the message line still renders — only the :data line is absent")
+      (is (nil? (find-detail-value-element hiccup "error data"))
+          "no error :data → no 'error data' value line"))))
 
 (deftest render-row-skip-shape-no-detail-when-collapsed
   (testing "a skipped row stays collapsed by default — detail panel
@@ -273,7 +444,19 @@
                        :passed? false :payload [[:c] 2] :expected 2 :actual 0
                        :reason "values differ"}
                       {:assertion :rf.assert/skipped
-                       :passed? false :reason "feature gated"}]
+                       :passed? false :reason "feature gated"}
+                      ;; The captured setup-failure record, verbatim: NO
+                      ;; :status key, :passed? false, an :error map. The
+                      ;; projection reaches :error through its
+                      ;; `(or (:error rec) (:exception rec))` arm.
+                      {:assertion :rf.error/exception
+                       :passed?   false
+                       :event     [:your/setup-event {}]
+                       :phase     :phase-2-events
+                       :reason    nil
+                       :error     {:message "no handler registered for :your/setup-event"
+                                   :stack   nil
+                                   :data    nil}}]
           hiccup     (render-strip-expanded assertions)
           rows       (atom [])]
       (letfn [(walk [node]
@@ -283,9 +466,12 @@
                   (vector? node) (run! walk node)
                   (seq? node)    (run! walk node)))]
         (walk hiccup))
-      (is (= 3 (count @rows)))
-      (is (= #{"pass" "fail" "skip"}
-             (into #{} (map :data-status @rows)))))))
+      (is (= 4 (count @rows)))
+      (is (= #{"pass" "fail" "skip" "error"}
+             (into #{} (map :data-status @rows)))
+          "all four verdicts the projection can produce reach the strip as
+           distinct :data-status values — an errored row is not a failed
+           one"))))
 
 (deftest assertion-strip-fail-auto-expands
   (testing "pattern #2 — failed assertions land already-open; the
@@ -298,6 +484,72 @@
           hiccup     (render-strip-expanded assertions)]
       (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
           "the failing row's detail panel is open on first render"))))
+
+(deftest assertion-strip-error-auto-expands
+  (testing "pattern #2 extends to ERRORS — a variant whose :setup failed
+            lands its captured :rf.error/exception record already-open, so
+            the author reads what went wrong without a click.
+
+            The fixture is the REAL captured record shape (rf2-uky0n): NO
+            :status key, :passed? false, an :error map. That matters — with
+            :status omitted the projection reaches its
+            `(or (:error rec) (:exception rec))` arm, which is the arm real
+            captured records take. A fixture that stamped :status would
+            exercise a different arm and could pass while the real thing
+            stayed broken"
+    (let [assertions [{:assertion :rf.error/exception
+                       :passed?   false
+                       :event     [:your/setup-event {}]
+                       :phase     :phase-2-events
+                       :reason    nil
+                       :error     {:message "no handler registered for :your/setup-event"
+                                   :stack   nil
+                                   :data    nil}}]
+          hiccup     (render-strip-expanded assertions)
+          wrap       (find-prop hiccup :data-test "story-canvas-assertion-row")]
+      (is (= "error" (:data-status wrap))
+          "the unstamped record projects to :error, not :fail")
+      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
+          "the errored row's detail panel is open on first render — the
+           seed-open set must include :error, not just :fail")
+      (is (some? (find-string hiccup "no handler registered for :your/setup-event"))
+          "and the message is actually rendered in it"))))
+
+(deftest assertion-strip-error-stamped-status-reads-the-same
+  (testing "CONTROL for the stamped form — a record carrying an explicit
+            :status :error takes the projection's earlier `verdict/statuses`
+            arm, and must render identically to the unstamped one above.
+            Both arms, one rendering"
+    (let [assertions [{:assertion :rf.error/exception
+                       :status    :error
+                       :passed?   false
+                       :event     [:your/setup-event {}]
+                       :phase     :phase-2-events
+                       :error     {:message "no handler registered for :your/setup-event"}}]
+          hiccup     (render-strip-expanded assertions)
+          wrap       (find-prop hiccup :data-test "story-canvas-assertion-row")]
+      (is (= "error" (:data-status wrap)))
+      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
+          "stamped :error auto-expands too")
+      (is (some? (find-string hiccup "no handler registered for :your/setup-event"))))))
+
+(deftest assertion-strip-throwing-setup-reads-the-same
+  (testing "CONTROL for the other producer — a setup handler that THROWS
+            lands the same record shape with the throwable's message, and
+            must read identically to the no-handler refusal"
+    (let [assertions [{:assertion :rf.error/exception
+                       :passed?   false
+                       :event     [:your/setup-event {}]
+                       :phase     :phase-0-setup
+                       :reason    nil
+                       :error     {:message "kaboom" :stack nil :data nil}}]
+          hiccup     (render-strip-expanded assertions)
+          wrap       (find-prop hiccup :data-test "story-canvas-assertion-row")]
+      (is (= "error" (:data-status wrap)))
+      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
+          "a throwing setup auto-expands on the same path")
+      (is (some? (find-string hiccup "kaboom"))
+          "the throwable's message reaches the detail panel"))))
 
 (deftest assertion-strip-pass-stays-collapsed
   (testing "pattern #2 — passing assertions stay collapsed by default;
