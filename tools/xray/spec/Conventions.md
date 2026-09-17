@@ -29,27 +29,46 @@ top-level prefix per
 
 When a panel is split into focused leaves under
 `tools/xray/src/day8/re_frame2_xray/panels/`, the split MUST follow the
-shape below. Three panels (`app_db_diff`, `subscriptions`,
-`mcp_server`) shipped to this convention via the rf2-nb8if remediation
-PR; `time_travel` predates it and matches by independent design.
+shape below.
 
-The canonical exemplar is `app_db_diff.cljs` — a small facade body, the
-panel's `reg-view` lives in the facade, leaves expose plain functions
-plus `install!`. Where the facade view body would be too large to read at
-a glance, the facade `reg-view` delegates to a plain Reagent fn from
-`<panel>-views.cljs` (as `subscriptions.cljs` does — see "View body
-delegation" below).
+**The panel's root view is an `rf.fresco/defview` BOUNDARY, not an
+`rf/reg-view` (rf2-k97c.3).** Every shipped panel root is one — the
+dynamic facades and the five Static sub-tab panels alike — so read every
+rule below in `defview` terms. The SPLIT itself did not change with that
+migration: the facade still owns the declaration and leaves still expose
+plain functions. What changed is that a boundary is a React function
+component rather than a callable, so a facade a Reagent parent mounts
+declares an `rf.fresco/as-component` bridge beside the boundary —
+`app_db_diff.cljs` and `reactive_panel.cljs` name theirs `Panel-bridge`;
+`routing.cljs` keeps the public name `Panel` for the bridge and marks the
+boundary `PanelView` private.
+
+The canonical exemplar is `app_db_diff.cljs` — the `defview` body is the
+READ and nothing else, handing the values it read to `panel-tree`, a
+plain `defn` in the same file that returns the markup. Leaves expose
+plain functions plus `install!`. Where the markup fn is large enough to
+want its own file it moves to a view leaf and the facade calls it exactly
+the same way (as `reactive_panel.cljs` does — see "View body delegation"
+below).
 
 ### Required shape
 
-1. **Facade owns every public `reg-view`.** The panel's externally-named
-   `reg-view` calls live in the facade namespace, never in a leaf. The
-   facade is the one place a maintainer reads to discover which view
-   names a panel registers.
+1. **Facade owns every public view declaration.** The panel's
+   externally-named `rf.fresco/defview`, and the `as-component` bridge
+   beside it, live in the facade namespace. The facade is the one place
+   a maintainer reads to discover which view names a panel declares.
 
-2. **Leaves do not call `reg-view`.** Leaves expose plain Reagent
-   functions (e.g. `(defn header [opts] [:header ...])`), pure helpers,
-   or `install!` for sub/event registrations. A grep for `reg-view`
+   The one variant is a **directory-shaped** panel, where the facade is
+   a thin entry file over a `panels/<panel>/` directory: there the
+   `defview` lives in the directory's `view.cljs` and the facade
+   re-exports it under the public name (`epoch_panel.cljs`'s
+   `(def Panel view/Panel)` over `panels/epoch/view.cljs`). The rule it
+   preserves is the same one — ONE file names the panel's public views,
+   and it is the file a reader opens first.
+
+2. **Leaves declare no views.** Leaves expose plain functions (e.g.
+   `(defn header [opts] [:header ...])`), pure helpers, or `install!`
+   for sub/event registrations. A search for `defview` or `reg-view`
    under `panels/<panel>_*.cljs[c]` outside the facade should return
    nothing.
 
@@ -72,8 +91,10 @@ delegation" below).
 
 4. **Re-exports are minimal and intentional.** The facade re-exports:
    - `install!` (always, as the panel's installation entry point).
-   - View vars that callers (typically `shell.cljs`) reference by name
-     (e.g. `app-db-diff/Panel`).
+   - View vars that callers reference by name (e.g.
+     `app-db-diff/Panel`), and the `as-component` bridge beside them —
+     `panel-registry/reg-l4-tab!` requires a CALLABLE, which a boundary
+     is not, so it is the bridge that gets registered.
 
    The facade does **NOT** re-export every leaf's surface. Leaves are
    internal organisation; their `install!` and helpers are reached via
@@ -82,79 +103,94 @@ delegation" below).
    subs, feed projections, chrome helpers, style tokens) would invert
    the encapsulation the split exists to create.
 
-   For pure-data helper bulk re-exports — the `<panel>_helpers.cljc`
-   case where multiple leaves' pure fns roll up into a single stable
-   facade for the helpers test — see the existing
-   `subscriptions_helpers.cljc` and `mcp_server_helpers.cljc` files.
-   That's a separate concern (pure helper aggregation) from the
-   panel facade discussed here.
+   The `<panel>_helpers.cljc` sibling is a separate concern from the
+   panel facade discussed here. It exists so a panel's pure data → data
+   logic runs under the JVM unit-test target (`clojure -M:test`) as well
+   as in the browser, which is why it is `.cljc` and why it holds no
+   DOM-touching code — see `app_db_diff_helpers.cljc`.
 
 ### View body delegation
 
-The facade's `reg-view` body is either:
+The `defview` body is the READ. The markup is a plain function it calls,
+living either in the facade beside the boundary (`app_db_diff.cljs`'s
+`panel-tree`) or, when it wants its own file, in a view leaf
+(`reactive_panel.cljs` → `reactive_panel_view.cljs`). Either way the fn
+is invoked as a **plain function call** (parens), not a component vector
+(brackets):
 
-- **Inline**, when the body is small enough to read alongside the
-  facade's intent (e.g. `app_db_diff.cljs` — ~50 hiccup lines on the
-  composite-sub deref), OR
-- **Delegating** to a single plain Reagent fn from
-  `<panel>-views.cljs`, when the body would exceed the facade's
-  cohesive scope. The leaf is invoked as a **plain function call**
-  (parens), not a Reagent component vector (brackets):
+```clojure
+(rf.fresco/defview Panel
+  "The Reactive panel's root."
+  [_props]
+  (view/reactive-panel (:dispatch (rf/capture-frame))
+                       (rf.fresco/sub [:rf.xray/reactive-data])))
+```
 
-  ```clojure
-  (rf/reg-view Panel
-    "The Subscriptions panel's root view."
-    []
-    (views/subscriptions-panel))    ; parens — leaf body inlined
-  ```
+**Do not write `[view/reactive-panel …]` here.** Under Fresco a plain
+function in head position is a **loud error** — the codec's `head-kind`
+grades it `:invalid` and raises `:rf.error/fresco-bad-head` (HD-016) —
+so the mistake now costs a named refusal rather than a silent
+misbehaviour. The rule it enforces is the one that always applied: the
+plain call keeps the markup executing inside the boundary's own render
+window, where its reads resolve `:rf/xray` from React context. Splitting
+it off as its own element puts it outside that window.
 
-  **Do not write `[views/subscriptions-panel]` here.** The vector
-  form would mount the leaf as a separate plain Reagent fn component;
-  it would drop out of the surrounding frame, and any ambient
-  `subscribe` / `dispatch` inside the leaf would then **raise**
-  `:rf.error/no-frame-context` (Spec 000 §Plain Reagent fns / Spec 006
-  §Plain-fn footgun). Under EP-0002 there is no `:rf/default` floor to
-  route to: the read resolves to nil and the operation fails fast. The
-  plain-call form keeps the leaf body executing within the facade
-  reg-view wrapper's render — the wrapper IS the in-flight Reagent
-  component, so `current-frame-id` reads `:rf/xray` from React context
-  and the leaf's subs/dispatches see the Xray frame. (rf2-043uz pinned
-  this — an earlier slash-popover surface never opened because the
-  input-row leaf's input-text subscribe went to `:rf/default` while the
-  dispatch wrote to `:rf/xray`. That was the pre-EP-0002 runtime, which
-  still had the silent floor; the same mistake today is the loud error
-  above, which is the improvement EP-0002 bought.)
+Two consequences of the boundary form bite at the call site:
 
-  The same rule applies recursively to sibling leaves the view-leaf
-  itself invokes (`chrome` / `feed` / `input` / `conversation` /
-  `badges` / `rows` / `chain` / `sections`): if the sibling leaf
-  contains a `subscribe` whose key lives on the panel's frame, call
-  it with parens, not brackets. Sibling leaves that only `dispatch`
-  with an explicit `{:frame :rf/xray}` opt can use either form
-  (brackets are fine if a separate render boundary is wanted for
-  React-key / memoisation reasons).
+- **`defview` binds no `dispatch` name.** A body that needs one takes
+  `(:dispatch (rf/capture-frame))` — core's own door, which Fresco's
+  authoring surface deliberately does not duplicate — and threads it to
+  the markup fn, so a deferred handler still lands on this Xray
+  instance's frame after render scope unwinds. A bare global
+  `rf/dispatch` in its place resolves no frame once that scope is gone
+  and raises `:rf.error/no-frame-context`; under EP-0002 there is no
+  `:rf/default` floor to absorb it.
+- **A sibling leaf the markup fn invokes follows the same rule.** Call
+  it with parens if it reads through `rf.fresco/sub`. A sibling that
+  only dispatches through an explicitly frame-bound dispatcher may be
+  its own element if a separate render boundary is wanted for React-key
+  or memoisation reasons.
 
-  The leaf fn (`subscriptions-panel`) is a plain `defn`, not a
-  `reg-view`. The facade is still where the registration happens; the
-  leaf is the implementation.
-
-A facade `reg-view` body that imports a leaf-side `reg-view` (i.e. the
-leaf calls `reg-view` and the facade `def`-rebinds) is the divergence
-remediation explicitly removed; do not re-introduce it.
+The markup fn is a plain `defn`, never a view declaration. The facade is
+still where the declaration happens; the fn is the implementation. Keeping
+the markup in a callable fn is also what keeps the unit rows honest — a
+boundary's body only runs inside a React render window, so `(Panel)` is
+not a callable that answers hiccup, while `(panel-tree …)` is.
 
 ### DOM hiccup root (rf2-fkpuv)
 
-Every facade `reg-view` body MUST produce a hiccup vector with a
+**The rule survives the move to Fresco boundaries, and for the same
+reason.** Every facade view body MUST produce a hiccup vector with a
 **DOM-tag keyword head** (`:div`, `:section`, `:svg`, …) as its root —
-not a function-component head like
-`[some.ns/SomeComponent {...}]` or a `:<>` fragment. Per
+not a component head like `[some.ns/SomeComponent {...}]` or a `:<>`
+fragment. Per
 [main Spec 006 §Source-coord annotation](../../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory)
-the adapter stamps `data-rf2-source-coord` (+ `data-rf-view`) on the
-root DOM element so pair tools can map a clicked DOM node back to the
-reg-view call site. A non-DOM root is a documented exemption
-([Spec 006 §Documented exemption: non-DOM roots](../../../spec/006-ReactiveSubstrate.md#documented-exemption-non-dom-roots)) —
-the annotation is skipped, pair tools fall back to `:rf/id`, and the
-adapter emits a one-shot `console.warn` per id.
+`data-rf2-source-coord` (+ `data-rf-view`) is stamped on the root DOM
+element so pair tools can map a clicked DOM node back to the declaration
+site. A non-DOM root is a documented exemption
+([Spec 006 §Documented exemption: non-DOM roots](../../../spec/006-ReactiveSubstrate.md#documented-exemption-non-dom-roots)):
+the annotation is skipped and pair tools fall back to
+`(rf/handler-meta {:source :store :kind :view :id id})`.
+
+What changed is the MECHANISM and one clause, both settled by
+[Spec 006 §Cross-host](../../../spec/006-ReactiveSubstrate.md#cross-host)
+(rf2-c5w1) rather than here:
+
+- A `defview` registers an alias and never consults the
+  `:adapter/wrap-view` late-bind hook the other adapters annotate from,
+  so **Fresco stamps from its own codec path** — both attributes built
+  once per declaration and merged into the root hiccup's attribute map
+  on each body run, under `goog.DEBUG`. The values come from the same
+  cross-host formatters, so a boundary's attributes are byte-identical
+  to a `reg-view`'s for the same id.
+- The stamp lands on a `:tag` root and on nothing else — fragments,
+  `[:> …]` crossings and boundary heads are all skipped — which is what
+  keeps this section's rule load-bearing rather than cosmetic.
+- **Fresco emits no one-shot `console.warn` for a non-DOM root**, and
+  that is deliberate: under Fresco a boundary rooted on another
+  boundary is ordinary composition, so the warning would fire on
+  idiomatic code. Do not expect a console signal to catch a miss here;
+  the DOM attribute's absence is the only tell.
 
 When the body **logically** delegates to a single inner component
 (e.g. an overlay imported from another artefact such as
@@ -162,12 +198,13 @@ When the body **logically** delegates to a single inner component
 `display: contents` `:div`:
 
 ```clojure
-(rf/reg-view AfterRingsOverlay
-  [& _opts]
+(rf.fresco/defview AfterRingsOverlay
+  [_props]
   …
   [:div {:data-rf-xray-after-rings-host ""
          :style {:display "contents"}}
-   [mv-after-rings/AfterRingsOverlay {...}]])
+   (as-child
+     [mv-after-rings/AfterRingsOverlay {...}])])
 ```
 
 `display: contents` keeps the wrapper visible to the DOM (so the
@@ -203,13 +240,23 @@ contract; per-leaf smoke tests are the unit contract.
 
 ### Panel naming — generic `Panel` is the convention (rf2-qiek0)
 
-> **Every panel exports a single public `Panel` reg-view; do NOT
+> **Every panel exports a single public `Panel` view; do NOT
 > rename to verbose `EventDetailPanel`-style.**
 
-Each panel's facade owns one public reg-view named exactly `Panel`
+Each panel's facade owns one public view named exactly `Panel`
 (`day8.re-frame2-xray.panels.epoch-panel/Panel`,
 `day8.re-frame2-xray.panels.app-db-diff/Panel`, etc. — per
-[`API.md`](./API.md) §Panel reg-views). A reader audit
+[`API.md`](./API.md) §Panel reg-views).
+
+**One live exception, and it is a spelling rather than a divergence:**
+the Static Machines sub-tab declares
+`day8.re-frame2-xray.static.machines.panel/panel` — **lowercase**. The
+other four Static panels are capitalised `Panel`. The lowercase name is
+recorded in [`API.md`](./API.md) §Static-mode Panel reg-views; treat it
+as the existing spelling to match when reading that namespace, not as a
+second convention to copy into a new panel.
+
+A reader audit
 (`ai/findings/2026-05-20-tools-xray-api-review.md` Finding #12)
 flagged `Panel` as a generic React idiom (Material UI Panel, Ant
 Design Panel) and asked whether the CLJS-side surface should rename
@@ -227,7 +274,7 @@ locks the bare-`Panel` convention.
    `:fresco` — post rf2-5gl5r after the Event/Handler tab
    retirement, post rf2-gbz39 after the Issues tab removal) per
    [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md).
-   The reg-view symbol name is internal plumbing; the tab-key is the
+   The view symbol name is internal plumbing; the tab-key is the
    addressable identity.
 
 2. **The namespace already establishes context.** A consumer reading
@@ -253,13 +300,13 @@ locks the bare-`Panel` convention.
    Renaming one would force renaming all of them; the per-panel
    facade shape (per §Panel facade + leaf split above) is uniform
    precisely because the leaf-view symbol name is uniform. The set
-   is the registry's, not a literal — one `Panel` reg-view per id in
+   is the registry's, not a literal — one `Panel` view per id in
    `panel-registry/tab-ids-for-mode :dynamic` (enumerated in point 1
    above), so a tab added or retired never leaves a count behind.
 
 **Consequence.** New panels added under
 `tools/xray/src/day8/re_frame2_xray/panels/<panel>/` MUST follow
-the convention: a single public reg-view named `Panel` in the
+the convention: a single public view named `Panel` in the
 facade, no verbose `<Panel>Panel` rename. Hosts addressing a panel
 do so via tab-key dispatch (the shell's `tab-by-id :dynamic` registry
 lookup — the literal `case` this replaced is gone per rf2-2moh1, as
@@ -316,7 +363,11 @@ padding dock surface) is gone with the rest of the `dock!` /
 
 `teardown!` clears both mount singletons and removes their DOM nodes;
 it does NOT detach the global `Ctrl+Shift+C` keydown listener that
-`preload/init!` attaches via `keybinding/attach!`. The detach lives
+`keybinding/attach!` installs. There is no `preload/init!` — both boot
+paths call `attach!` directly: `preload.cljs`'s load-time side-effecting
+block (the whole block gated on `rf.interop/debug-enabled?`, so a
+production bundle strips it), and `core/init!` for a host wiring Xray
+manually instead of through `:devtools/preloads`. The detach lives
 in the test fixture because `mount.cljs` cannot require
 `keybinding.cljs` (the dependency runs the other way — keybinding
 requires mount for `toggle!`). Test suites driving multiple
@@ -327,9 +378,13 @@ the listener never leaks.
 
 ## Panel-id ordering inside the registry
 
-Per `registry.cljs` the panels' `install!` calls run in alphabetical
-panel-id order. When you add a new panel facade, slot its `install!` into
-the alphabetical list and keep the comment in lockstep.
+**There is no ordering rule, and the alphabetical one this section used
+to state was never the order `registry.cljs` runs.** Registration order
+is cosmetic — re-frame resolves a declared `:inputs` list lazily at
+subscribe time, and dispatch targets the same way — so the calls are
+grouped to read top-down by dependency story instead. Add a new panel's
+`install!` wherever that story reads best, and do not re-derive an
+ordering rule from a comment in the registry that still claims one.
 
 ## Setter-naming axis
 
