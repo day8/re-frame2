@@ -84,24 +84,29 @@ explicit `(mount/open!)` / `(mount/toggle!)` calls, the `:rf.xray/*`
 event surface — remain fully usable; only the window-level keystroke
 capture is suppressed.
 
-Hosts whose lifecycle places the `configure!` call BEFORE Xray's
-preload runs (boot-time configuration) need nothing further — the
-slot flip wins the read at attach time. Hosts whose mount lifecycle
-runs AFTER the preload (Story's `ensure-xray-mounted!` fires at
-variant-selection time) MUST additionally call
-`day8.re-frame2-xray.keybinding/detach!` AFTER the slot flip:
+**That flip is the whole of the contract, at any point in the boot
+sequence.** `keybinding.cljs` watches the slot (rf2-y8doi.17) and
+attaches / detaches the global listener on every change, so a host
+whose mount lifecycle runs AFTER Xray's preload — Story's
+`ensure-xray-mounted!` fires at variant-selection time — needs
+nothing further: the listener the preload already installed under
+the default-true posture comes off when the flip lands. Host boot
+ordering no longer changes what the host has to call.
+
+`day8.re-frame2-xray.keybinding/detach!` remains public and supported
+as an escape hatch — for a host that wants the listener gone WITHOUT
+declaring the slot, or that must remove it from a mount-time hook it
+does not own:
 
 ```clojure
-(xray-config/configure! {:rf.xray/keybinding-enabled? false})
 (xray-keybinding/detach!)
 ```
 
-`detach!` is idempotent and safe to call when nothing is attached
-(no-op). Per rf2-ycrt2 (rf2-q7who.1 runtime follow-on) — the slot
-declares intent but is read only at attach time; without `detach!`
-the listener Xray's preload already installed under the default-true
-posture stays on `js/document` and continues consuming keypresses.
-The full API contract for `detach!` is documented in
+It is idempotent and safe to call when nothing is attached (no-op),
+so calling it alongside the slot flip is harmless — merely redundant.
+Per rf2-ycrt2 (rf2-q7who.1 runtime follow-on), corrected by
+rf2-y8doi.17 — the slot is no longer read only at attach time. The
+full API contract for `detach!` is documented in
 [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!`.
 
 ## Embed props inventory
