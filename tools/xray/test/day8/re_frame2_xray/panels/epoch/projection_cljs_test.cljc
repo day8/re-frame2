@@ -5120,3 +5120,226 @@
              {:compound-path [:player] :kind :deep
               :recorded-config [:player :playing :mid-track]
               :prev-config [:player :playing :at-start]})))))
+
+;; ============================================================================
+;; GENERIC error catch-all (rf2-y8doi.19)
+;; ============================================================================
+;;
+;; `cascade-exception-ops` names SEVEN ops. Every other cascade
+;; `:rf.error/*` trace was read and discarded: no card, no `:status
+;; :error`, and `epoch-outcome` reading `:ok` for an event that did not
+;; complete. The fixtures below are built from the PRODUCER's emit shape
+;; (`router/emit-effect-map-shape!`'s tag map, verbatim) rather than by
+;; hand, per rf2-y8doi.10 finding 1.
+
+(defn- effect-map-shape-ev
+  "`:rf.error/effect-map-shape` trace (rf2-04tx) — the router's
+  FINAL-effects boundary REFUSING a malformed effect-map envelope. Tag
+  shape mirrors `re-frame.router/emit-effect-map-shape!`: `:offending-key`
+  is the structural discriminator, `:reason` the prose naming it, and
+  there is NO `:exception-message`, because nothing threw."
+  [event-id offending-key]
+  (assoc (ev :error :rf.error/effect-map-shape
+             {:failing-id        event-id
+              :rf.trace/event-id event-id
+              :rf.event/v        [event-id]
+              :offending-key     offending-key
+              :value             1
+              :reason            (str "Effect map carries foreign top-level key "
+                                      offending-key ".")})
+         :recovery :fix-effect))
+
+(deftest unclassified-error-surfaces-on-side-effects-test
+  (testing "rf2-y8doi.19 — a handler returning a foreign top-level effect key
+            is REFUSED by the router (`:rf.error/effect-map-shape`, rf2-04tx),
+            and the cascade must show it. Before this bead the op was outside
+            the closed `cascade-exception-ops` set, so the panel drew a clean
+            `{:db}` cascade reading `outcome=ok` while the L2 row and the
+            ribbon went red beside it."
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (effect-map-shape-ev :cart/add :bogus-fx)]
+                        :cart/add)
+          steps (proj/project rec)
+          se    (some #(when (= :side-effects (:step %)) %) steps)]
+      ;; The control for the whole test: the op really is outside the closed
+      ;; set. If someone adds it there, this arm is measuring nothing and
+      ;; should be re-pointed rather than deleted.
+      (is (not (contains? proj/cascade-exception-ops :rf.error/effect-map-shape))
+          "the op is NOT in the closed seven — which is what makes the
+           generic pass the thing under test here")
+      (is (some? se)
+          "a SIDE EFFECTS step is SYNTHESISED. The refusal is pre-commit, so
+           nothing committed and nothing ran: `side-effects-step` builds no
+           step at all, and demoting the error to HANDLER would blame the
+           handler for a key an `:after` interceptor may have added.")
+      (is (true? (:synthesised? se))
+          "and it is marked as synthesised, not mistaken for a ledger that
+           ran and reported nothing")
+      (is (= [] (:rows se))
+          "the ledger is empty — no effect ran")
+      (is (= 1 (count (:errors se)))
+          "the refusal rides the step as the shared exception card")
+      (is (= :rf.error/effect-map-shape (:operation (first (:errors se)))))
+      (is (= :error (proj/step-status se))
+          "the step reads :error")
+      (is (= :error (proj/epoch-outcome steps))
+          "and so does the epoch — the panel and the ribbon now agree")))
+
+  (testing "rf2-y8doi.19 — the card carries a MESSAGE. Nothing threw, so there
+            is no `:exception-message`; `:reason` is the whole diagnosis and
+            names the offending key."
+    (let [rec  (record [(dispatched-ev [:cart/add] :ui nil)
+                        (effect-map-shape-ev :cart/add :bogus-fx)]
+                       :cart/add)
+          row  (first (:errors (some #(when (= :side-effects (:step %)) %)
+                                     (proj/project rec))))]
+      (is (some? (:message row))
+          "a card with a heading and no text would be no better than silence")
+      (is (re-find #":bogus-fx" (:message row))
+          "and it names the key the programmer has to go and fix")))
+
+  (testing "rf2-y8doi.19 — an existing SIDE EFFECTS step is used, not duplicated"
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (effect-map-shape-ev :cart/add :bogus-fx)]
+                        :cart/add)
+          steps (proj/project rec)
+          ses   (filter #(= :side-effects (:step %)) steps)]
+      (is (= 1 (count ses)) "exactly one SIDE EFFECTS step")
+      (is (nil? (:synthesised? (first ses)))
+          "the real one, not a synthesised sibling")
+      (is (= 1 (count (:errors (first ses))))
+          "carrying the refusal")))
+
+  (testing "rf2-y8doi.19 — an op with NO placement entry lands on HANDLER
+            rather than vanishing. This is the case that matters most: the
+            framework's `:rf.error/*` vocabulary grows, and an op nobody has
+            classified must still reach the operator."
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)
+                         (ev :error :rf.error/some-future-op
+                             {:failing-id :cart/add
+                              :exception-message "invented for this test"})]
+                        :cart/add)
+          steps (proj/project rec)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (= 1 (count (:errors h)))
+          "the unknown op attached to HANDLER")
+      (is (= :rf.error/some-future-op (:operation (first (:errors h)))))
+      (is (= :error (proj/epoch-outcome steps))
+          "and the epoch is no longer green"))))
+
+(deftest cascade-error-event-discrimination-test
+  (testing "rf2-y8doi.19 — `cascade-error-event?` accepts BOTH the live
+            envelope field and the fixture spelling. `trace/emit-error!`
+            stamps `:op-type :error`; most synth fixtures in this tree name
+            the operation and omit the field."
+    (is (true? (proj/cascade-error-event?
+                 {:op-type :error :operation :rf.error/whatever}))
+        "live shape")
+    (is (true? (proj/cascade-error-event?
+                 {:op-type :rf.event :operation :rf.error/whatever}))
+        "namespace alone is enough — the fixture spelling")
+    (is (false? (proj/cascade-error-event?
+                  {:op-type :rf.event :operation :rf.event/dispatched}))
+        "an ordinary lifecycle trace is not an error")
+    (is (false? (proj/cascade-error-event? {:operation nil}))
+        "nil operation does not throw and is not an error"))
+
+  (testing "rf2-y8doi.19 — `unclassified-error-rows` takes ONLY what
+            `attach-exceptions` leaves. Overlap would double-report every
+            throw as two cards on two steps."
+    (let [evs  [(dispatched-ev [:cart/add] :ui nil)
+                (handler-exception-ev :cart/add "boom")
+                (effect-map-shape-ev :cart/add :bogus-fx)]
+          rows (proj/unclassified-error-rows evs)]
+      (is (= 1 (count rows))
+          "the handler throw belongs to `attach-exceptions`; only the
+           refusal is left over")
+      (is (= :rf.error/effect-map-shape (:operation (first rows))))
+      ;; Both ways: the throw IS picked up by the other pass, so the
+      ;; exclusion above is a division of labour and not a blind spot.
+      (is (= 1 (count (proj/exception-rows evs)))
+          "and `exception-rows` takes exactly the one this pass skipped"))))
+
+(deftest violation-catch-all-test
+  (testing "rf2-y8doi.19 — a schema violation whose owning step is absent from
+            the cascade falls back to HANDLER instead of being discarded.
+            `:sub-return` wants a SUBSCRIPTIONS step; a cascade with no sub
+            recompute has none, and the violation used to disappear with the
+            panel still reading `:ok`."
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)
+                         (schema-violation-ev :sub-return :cart/total
+                                              [:cart :total] "nope" false)]
+                        :cart/add)
+          steps (proj/project rec)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (nil? (some #(when (= :subscriptions (:step %)) %) steps))
+          "the control: there really is no SUBSCRIPTIONS step to attach to")
+      (is (= 1 (count (:violations h)))
+          "so the violation lands on HANDLER")
+      (is (= :error (proj/step-status h)))
+      (is (= :error (proj/epoch-outcome steps))
+          "and the epoch reads :error rather than a green cascade")))
+
+  (testing "rf2-y8doi.19 — a violation carrying an UNRECOGNISED `:where` lands
+            on HANDLER too. The old default branch dropped it under a comment
+            saying it rode the standalone hot-reload step, which rf2-7gf7v had
+            already retired — so it rode nothing."
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)
+                         (schema-violation-ev :some-future-where :cart/add
+                                              [:cart] "nope" false)]
+                        :cart/add)
+          steps (proj/project rec)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (= 1 (count (:violations h))))
+      (is (= :error (proj/epoch-outcome steps)))))
+
+  (testing "rf2-y8doi.19 — `:hot-reload` is still the ONE kind dropped here,
+            deliberately: it is not a cascade event and the issues ribbon
+            owns it. The catch-all must not have swept it onto HANDLER."
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)
+                         (schema-violation-ev :hot-reload :cart/add
+                                              [:cart] "drift" false)]
+                        :cart/add)
+          steps (proj/project rec)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (empty? (:violations h))
+          "hot-reload drift did NOT land on HANDLER")
+      (is (= :ok (proj/epoch-outcome steps))
+          "and the cascade stays green — nothing about it failed"))))
+
+(deftest schema-violations-are-not-double-reported-test
+  ;; rf2-y8doi.19 — this arm exists because the first cut of the generic
+  ;; catch-all DID double-report. Schema-violation traces are `:op-type
+  ;; :error` and `:rf.error/schema-validation-failure` is an `:rf.error/*`
+  ;; op, so a sweep excluding only `cascade-exception-ops` swallowed every
+  ;; one of them and attached a second card beside the violation block.
+  (testing "rf2-y8doi.19 — a runtime schema violation attaches ONCE, as a
+            violation, and the generic error pass leaves it alone"
+    (let [evs   [(dispatched-ev [:cart/add] :ui nil)
+                 (db-changed-ev [[[:count] 0 "boom" :modified]])
+                 (schema-violation-ev :app-db :cart/add [:count] "boom" true)]
+          rec   (record evs :cart/add)
+          steps (proj/project rec)
+          se    (some #(when (= :side-effects (:step %)) %) steps)
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (empty? (proj/unclassified-error-rows evs))
+          "the generic pass claims none of it")
+      (is (empty? (:errors se))
+          "no exception card on SIDE EFFECTS beside the violation")
+      (is (empty? (:errors h))
+          "and none on HANDLER either")
+      (is (= 1 (count (proj/schema-violation-rows evs)))
+          "the control, the other way: the violation IS projected, once, by
+           the pass that owns it — so the emptiness above is a division of
+           labour rather than the fixture producing nothing")
+      (is (= :error (proj/epoch-outcome steps))
+          "and the epoch still reads :error, via the violation"))))
