@@ -81,6 +81,19 @@
               (filter #(re-matches #"mount-[a-z][a-z0-9-]*!" %)))
         (emit-ns-publics day8.re-frame2-xray.panels)))
 
+;; INCREMENTAL BUILDS DO NOT RE-EXPAND THIS (rf2-863tl).
+;; `emit-spec-mount-fn-names` slurps the spec markdown on the JVM side at
+;; macro-expansion time, and a `.md` is not an input shadow-cljs tracks — so
+;; this namespace's cache holds no edge back to the bytes it froze. Correct a
+;; drifted spec row and the incremental compile reports success while the
+;; reconciliations below go on grading the PREVIOUS expansion; a cold rebuild,
+;; with no further edit, turns them green. So if this guard contradicts a spec
+;; edit you can SEE in the file, rebuild cold before hunting a second cause.
+;; That is the diagnosis and not the remedy: the recording read that
+;; `re-frame.build.spec-resource` owns registers a file against the compiling
+;; namespace's cache key, but it is scoped to the `spec/` classpath root, which
+;; `tools/xray/spec/` is not under — so adopting it here is a
+;; build-configuration change rather than a local one.
 (def ^:private spec-mount-names
   "PROJECTION B — the `mount-<panel>!` names the Xray API spec
   enumerates, captured at compile time."
