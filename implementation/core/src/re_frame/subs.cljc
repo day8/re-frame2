@@ -1564,12 +1564,12 @@
    (defn- claim-render-owned-ref!
      "Make this subscribe ONE reference held by the in-flight reactive owner.
 
-     First read of `k` by this owner: keep the bump `subscribe` just took, record
-     it, and register the release on the owner's dispose. Any later read of the
-     SAME slot by the SAME owner: release the duplicate bump immediately, so a
-     re-rendering component holds exactly one reference no matter how many times
-     it renders. The release order is bump-then-release throughout, so the count
-     never crosses the disposal edge on a re-render.
+     First read of a given SLOT by this owner: keep the bump `subscribe` just
+     took, record it, and register the release on the owner's dispose. Any later
+     read of the SAME slot by the SAME owner: release the duplicate bump
+     immediately, so a re-rendering component holds exactly one reference no
+     matter how many times it renders. The release order is bump-then-release
+     throughout, so the count never crosses the disposal edge on a re-render.
 
      Skipped during declared-input resolution. `*subs-under-construction*` is
      non-empty exactly while `build-and-cache!*` is resolving a sub's declared
@@ -1578,11 +1578,29 @@
      ambient owner as well would release each input twice for one bump.
 
      The per-owner record lives on the owner object itself, beside the other
-     per-instance state the views layer keeps there. It is keyed by cache-key
-     and holds the REACTION, so a slot rebuilt under the same key (hot reload,
-     `clear-sub-cache!`, a frame generation change) is seen as a different
-     holding and re-registered; the stale release then no-ops on its identity
-     guard rather than decrementing the successor.
+     per-instance state the views layer keeps there. It is keyed by the SLOT
+     — `[frame-id k]`, the same pair that addresses a cache entry elsewhere in
+     this namespace, because the sub-cache is PER FRAME and `k` is unique only
+     WITHIN one — and holds the REACTION, so a slot rebuilt under the same key
+     (hot reload, `clear-sub-cache!`, a frame generation change) is seen as a
+     different holding and re-registered; the stale release then no-ops on its
+     identity guard rather than decrementing the successor.
+
+     WHY THE FRAME HALF IS LOAD-BEARING (rf2-kk986). `subscribe` takes an
+     explicit `{:frame target}`, so ONE render may legitimately read the same
+     query from two frames — `@(subscribe [:n] {:frame :a})` then
+     `@(subscribe [:n] {:frame :b})`. Those are two different cached reactions
+     under an IDENTICAL `k`. Keyed by `k` alone, the second claim OVERWROTE the
+     first, and on every re-render each frame's reaction failed the identity
+     guard against the other's: neither duplicate bump was released, so both
+     `:ref-count`s climbed with RENDERS rather than readers — the very defect
+     the section comment above says this mechanism closes — and one more
+     release callback piled onto the owner per render per frame. The pair is
+     what makes the-SAME-slot-by-the-SAME-owner mean what Spec 006
+     §Ratom-family lifetime means by it: ONE reference per (owning reaction,
+     slot). The single-frame path every existing caller is on is unchanged —
+     with one frame the pair is injective in `k`, so every lookup, overwrite
+     and release lands exactly where it did before.
 
      Returns nil."
      [frame-id k query-v reaction]
@@ -1593,11 +1611,12 @@
          (let [cell (or (.-rfSubRefs ^js owner)
                         (let [c (volatile! {})]
                           (set! (.-rfSubRefs ^js owner) c)
-                          c))]
-           (if (identical? reaction (get @cell k))
+                          c))
+               slot [frame-id k]]
+           (if (identical? reaction (get @cell slot))
              (unsubscribe-if-reaction frame-id query-v reaction)
              (do
-               (vswap! cell assoc k reaction)
+               (vswap! cell assoc slot reaction)
                (rf.interop/add-on-dispose! owner
                  (fn release-render-owned-ref [_]
                    (unsubscribe-if-reaction frame-id query-v reaction))))))))
