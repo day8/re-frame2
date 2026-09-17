@@ -418,6 +418,66 @@
 
 ;; ---- top (user-domain) section ------------------------------------------
 
+(def ^:private redacted-modified-chip-style
+  "The muted-grey suppressed-signal chip (rf2-y8doi.14). Deliberately
+  quieter than the edn-inspector's magenta `● redacted` VALUE chip: that
+  one marks a slot you are looking at, this one marks a slot you are NOT
+  — informational, never an attention cue. `·` is the muted marker of the
+  rf2-87lkf Views polish family (`·` muted / `✱` amber attention)."
+  {:display        "inline-flex"
+   :align-items    "center"
+   :gap            "4px"
+   :margin-left    "8px"
+   :padding        "0 6px"
+   :border-radius  "3px"
+   :background     "color-mix(in srgb, currentColor 8%, transparent)"
+   :color          (:text-tertiary tokens)
+   :font-family    sans-stack
+   :font-size      "10px"
+   :font-style     "italic"
+   :font-weight    400
+   :text-transform "none"
+   :letter-spacing "normal"
+   :white-space    "nowrap"
+   :user-select    "none"})
+
+(defn- redacted-modified-chip
+  "The separate-from-diff signal for declared-sensitive slots that CHANGED
+  this epoch (`tools/xray/spec/004-App-DB-Diff.md` §Count semantics).
+
+  The panel projects both sides of a sensitive slot to `:rf/redacted`
+  before diffing, so the structural diff sees them as equal and draws no
+  row — the change is real and the body says nothing about it. This chip
+  is what says it, beside the diff rather than inside it, so the
+  suppressed signal never costs the projection its strength.
+
+  `n` is the framework's EXACT count
+  (`:rf.epoch/redacted-modified-paths-count`, computed in
+  `re-frame.epoch.assembly/build-record` from the raw db pair). Returns
+  nil for anything that is not a positive integer — absent / 0 / a host
+  with no classification layer draws NO DOM at all, per the spec: a
+  `0 redacted paths modified` chip would be noise on every epoch of every
+  app that classifies nothing.
+
+  Pure hiccup."
+  [n]
+  (when (and (int? n) (pos? n))
+    [:span {:data-testid "rf-xray-app-db-redacted-modified"
+            :data-count  (str n)
+            :title       (str "Spec 015 elision: " n
+                              (if (= 1 n)
+                                " declared-sensitive app-db path changed"
+                                " declared-sensitive app-db paths changed")
+                              " this epoch. Both sides project to"
+                              " :rf/redacted, so the diff below shows no row"
+                              " for them — this is the suppressed signal,"
+                              " not the values.")
+            :style       redacted-modified-chip-style}
+     [:span {:style {:font-size "9px"}} "·"]
+     (str n (if (= 1 n)
+              " redacted path modified"
+              " redacted paths modified"))]))
+
 (defn top-section
   "The TOP section — the app-db MINUS every reserved `:rf/*` key (the
   user-domain app-db). Renders the whole user-domain value as a
@@ -432,11 +492,19 @@
   an empty-state body.
 
   rf2-t3fz — the 3-arity carries `Panel`'s optional `:instance-id` down
-  to the value body; see the block comment above [[instance-token]]."
+  to the value body; see the block comment above [[instance-token]].
+
+  rf2-y8doi.14 — the 4-arity carries the focused epoch's
+  `:redacted-modified` count, which rides in the section TITLE as a muted
+  chip (see [[redacted-modified-chip]]). The title is used on BOTH
+  branches below — as the section-shell H3 on the empty branch and as the
+  edn-inspector's card `:header` otherwise — so one placement covers the
+  whole top card. Nothing else in the panel reads the count."
   ([top] (top-section top h/no-diff))
   ([top before] (top-section top before nil))
-  ([top before instance-id]
-   (let [title  [:span "app-db"]
+  ([top before instance-id] (top-section top before instance-id nil))
+  ([top before instance-id redacted-modified]
+   (let [title  [:span "app-db" (redacted-modified-chip redacted-modified)]
          empty? (and (map? top) (empty? top))]
      (section-shell
        {:testid       "rf-xray-app-db-state-top"
@@ -573,10 +641,13 @@
   the single-mount call and composes exactly the ids it always did; see
   the block comment above `instance-token`."
   ([model] (state-body model nil))
-  ([{:keys [top areas] :as model} instance-id]
+  ([{:keys [top areas redacted-modified] :as model} instance-id]
    (let [before-top (get model :before-top h/no-diff)]
      (into [:div {:data-testid "rf-xray-app-db-state"}
-            (top-section top before-top instance-id)]
+            ;; rf2-y8doi.14 — `:redacted-modified` is a record-level
+            ;; rollup, not a section: it rides on the model beside
+            ;; `:top` / `:areas` and goes to the TOP card's header only.
+            (top-section top before-top instance-id redacted-modified)]
            (for [{:keys [area] :as area-entry} areas]
              ;; rf2-k97c.3 — keyed fragment; see `instances-area` above.
              [:<> {:key (pr-str area)}

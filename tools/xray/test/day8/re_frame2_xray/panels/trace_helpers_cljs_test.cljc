@@ -24,13 +24,61 @@
     4. **Epoch-scoped feed** — `project-feed-from-epoch` projects the
        focused epoch record's `:trace-events` into the view shape and
        classifies the empty state across the focus-resolver statuses
-       (spec/018 §6)."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+       (spec/018 §6).
+    5. **Render-side redaction** (rf2-y8doi.14) — the 3-arity projects
+       the record's `:db-before` / `:db-after` through the on-box
+       local-render egress seam under the OBSERVED frame's policy before
+       the per-path diff is derived, so a declared-sensitive slot cannot
+       reach a rendered db row.
+
+  ## Why this namespace now stands up a runtime
+
+  §1–4 are pure data → data and need none. §5 cannot be: its subject is
+  `re-frame.core/project-egress` resolving a NAMED frame's `:sensitive`
+  classification, and a hand-rolled stand-in for that would pin the
+  stand-in rather than the seam (rf2-y8doi.10 finding 1 — derive the
+  fixture from the producer). So the namespace carries the same
+  reset-runtime fixture `local_render_cljs_test.cljc` uses, declaring the
+  same two frames: one CLASSIFIED, one PLAIN. The reset is inert for
+  §1–4, which read no runtime state at all."
+  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+               :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
+            [clojure.string :as str]
+            [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
             [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
+
+;; ---- runtime fixture (rf2-y8doi.14) --------------------------------------
+;;
+;; Mirrors `local_render_cljs_test.cljc`'s fixture: two frames, one with a
+;; declared `:sensitive` app-db path and one with no classification at all.
+;; The PLAIN frame is not decoration — it is the control that separates
+;; "the seam redacted this" from "the 3-arity drops values", and §5's
+;; assertions are unreadable without it.
+
+(def ^:private secure-frame :trace-helpers.test/secure)
+(def ^:private plain-frame  :trace-helpers.test/plain)
+
+(defn- install-policy! []
+  ;; EP-0025: durable app-db classification rides the commit-plane
+  ;; classification effects, not a frame annotation.
+  (rf.frame/swap-runtime-db! secure-frame
+    (fn [rt] (rf.elision/apply-classification-effects rt
+               {:sensitive [[:auth :token]]}))))
+
+(use-fixtures :each
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn []
+                (rf/make-frame {:id plain-frame})
+                (rf/make-frame {:id secure-frame})
+                (install-policy!))}))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -991,3 +1039,160 @@
             by-path (into {} (map (juxt :path identity)) (:db-diff db-row))]
         (is (contains? by-path [:counter]))
         (is (contains? by-path [:totals :sum]))))))
+
+;; ---- (11) render-side redaction — rf2-y8doi.14 --------------------------
+;;
+;; The Trace panel printed `~ [:auth :token] "old" → "new"` for a record
+;; the App-DB tab redacts, because the two tabs shared the diff ENGINE and
+;; not the egress SEAM in front of it. `project-feed-from-epoch`'s 3-arity
+;; closes that: it projects both db slots through the same
+;; `local-render/local-render-value` under the same observed frame BEFORE
+;; `diff-paths` runs.
+;;
+;; A declared-sensitive path therefore reads `:rf/redacted` on BOTH sides,
+;; `diff-paths` sees them equal, and NO TRIPLE is emitted — the row is
+;; ABSENT, not shown redacted. That is the elision contract behaving
+;; exactly as `tools/xray/spec/004-App-DB-Diff.md` §Count semantics
+;; describes, and the reason the same item adds the
+;; `:rf.epoch/redacted-modified-paths-count` chip on the App-DB tab.
+;;
+;; ## The three controls, and what each one separates
+;;
+;; A "the secret is not in the output" assertion is worthless on its own:
+;; it passes on an empty feed, a broken fixture, and a projection that
+;; drops everything. So each arm below is paired.
+;;
+;;   1. `…-2-arity-…-raw` — the RAW form still carries the secret. This is
+;;      the leak being closed, stated as a live assertion rather than as
+;;      prose, and it is what proves the fixture really carries the secret
+;;      the other arms look for.
+;;   2. the UNDECLARED sibling path survives redaction with its real
+;;      values — so the seam is path-scoped and the feed is not merely
+;;      empty.
+;;   3. `…-plain-frame-…` — the SAME fixture under a frame that declares
+;;      NOTHING keeps the sensitive-shaped path. So arm 2's disappearance
+;;      is the frame's POLICY and not the arity.
+
+(def ^:private secret-before "old-session-jwt-AAA")
+(def ^:private secret-after  "new-session-jwt-BBB")
+
+(defn- sensitive-diff-epoch
+  "A `diff-epoch` whose `[:auth :token]` leaf (the secure frame's declared
+  `:sensitive` path) changes, alongside an UNDECLARED `[:ui :tab]` leaf
+  that also changes. One epoch, two paths, one declared."
+  []
+  (diff-epoch {:auth {:token secret-before} :ui {:tab :home}}
+              {:auth {:token secret-after}  :ui {:tab :cart}}))
+
+(defn- feed-carries-secret?
+  "Does the WHOLE projected feed mention either secret anywhere — in a
+  triple, a row, a band, the envelope? `pr-str` flattens the entire
+  structure to one line, so this cannot be defeated by a wrapped or
+  nested rendering the way a per-slot probe could be."
+  [feed]
+  (let [s (pr-str feed)]
+    (or (str/includes? s secret-before)
+        (str/includes? s secret-after))))
+
+(defn- db-diff-by-path
+  "The db-changed row's `:db-diff` triples, keyed by `:path`."
+  [feed]
+  (let [db-row (some #(when (= 2 (:id %)) %) (:rows feed))]
+    (into {} (map (juxt :path identity)) (:db-diff db-row))))
+
+(deftest project-feed-2-arity-keeps-the-declared-sensitive-value-raw
+  (testing "the RAW 2-arity applies no egress policy — it still prints the
+            declared-sensitive value. This is the behaviour the 3-arity
+            replaces on the render path, and the POSITIVE CONTROL for
+            every assertion below: it proves the fixture carries the
+            secret and that the probe can see it"
+    (let [feed (h/project-feed-from-epoch (sensitive-diff-epoch) :focused)]
+      (is (feed-carries-secret? feed)
+          "the unprojected feed must carry the secret — if this fails the
+           fixture is broken and the redaction arms below are vacuous")
+      (is (= secret-before (:before (get (db-diff-by-path feed) [:auth :token])))
+          "and it carries it specifically as the [:auth :token] triple's
+           :before — the exact slot db-diff-row renders"))))
+
+(deftest project-feed-3-arity-redacts-the-declared-sensitive-path
+  (testing "rf2-y8doi.14 — under the OBSERVED frame's policy the
+            declared-sensitive path emits no triple and the value reaches
+            no part of the feed"
+    (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
+                                             :focused
+                                             secure-frame)
+          by-path (db-diff-by-path feed)]
+      (is (not (feed-carries-secret? feed))
+          "no rendered slot of the feed may carry the declared-sensitive
+           value")
+      (is (not (contains? by-path [:auth :token]))
+          "both sides project to :rf/redacted, so diff-paths sees them
+           equal and emits NO triple for the declared path")
+      (testing "CONTROL — the UNDECLARED sibling path is untouched, so the
+                seam is path-scoped rather than a blanket wipe"
+        (is (contains? by-path [:ui :tab])
+            "[:ui :tab] is not declared sensitive and must still diff")
+        (is (= :home (:before (get by-path [:ui :tab]))))
+        (is (= :cart (:after  (get by-path [:ui :tab]))))))))
+
+(deftest project-feed-3-arity-under-a-plain-frame-keeps-every-value
+  (testing "CONTROL — the SAME fixture through the SAME 3-arity, but under
+            a frame that classifies NOTHING, keeps the [:auth :token]
+            triple and both its values. So the redaction above is the
+            frame's POLICY talking, not the arity dropping values"
+    (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
+                                             :focused
+                                             plain-frame)
+          by-path (db-diff-by-path feed)]
+      (is (contains? by-path [:auth :token])
+          "an unclassified frame declares nothing to redact")
+      (is (= secret-before (:before (get by-path [:auth :token]))))
+      (is (= secret-after  (:after  (get by-path [:auth :token]))))
+      (is (contains? by-path [:ui :tab])))))
+
+(deftest project-feed-3-arity-fails-closed-on-an-unresolvable-frame
+  (testing "a nil / never-registered observed frame must NOT fall through
+            to the ambient frame's (Xray's own chrome frame's) empty
+            policy. local-render-value stamps the id verbatim and takes
+            its fail-closed branch, so the WHOLE value redacts — an
+            unresolvable frame loses the diff, it never leaks it"
+    (doseq [[label frame-id] [["never-registered" :trace-helpers.test/no-such-frame]
+                              ["nil"              nil]]]
+      (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
+                                               :focused
+                                               frame-id)
+            by-path (db-diff-by-path feed)]
+        (is (not (feed-carries-secret? feed))
+            (str label " frame — no value may survive the fail-closed branch"))
+        (is (empty? by-path)
+            (str label " frame — both sides collapse to one sentinel, so
+                 the diff is empty"))))))
+
+(deftest project-feed-3-arity-leaves-a-record-without-db-slots-alone
+  (testing "a record carrying no :db-before / :db-after is not given
+            synthesised redacted ones — it diffs to [] exactly as the
+            2-arity does, and the rows are otherwise identical"
+    (let [epoch {:epoch-id 91
+                 :trace-events
+                 [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                       :time 100 :dispatch-id 42})
+                  (ev {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                       :time 102 :dispatch-id 42})]}
+          raw   (h/project-feed-from-epoch epoch :focused)
+          proj  (h/project-feed-from-epoch epoch :focused secure-frame)]
+      (is (= [] (:db-diff (some #(when (= 2 (:id %)) %) (:rows proj)))))
+      (is (= raw proj)
+          "with nothing to project, the two arities agree exactly"))))
+
+(deftest project-feed-3-arity-preserves-every-non-db-slot
+  (testing "redaction touches the record's two db slots and NOTHING else —
+            the rows, bands, envelope, counts and epoch-id are byte-for-
+            byte what the raw projection produces for the same epoch"
+    (let [epoch (diff-epoch {:ui {:tab :home}} {:ui {:tab :cart}})
+          raw   (h/project-feed-from-epoch epoch :focused)
+          proj  (h/project-feed-from-epoch epoch :focused plain-frame)]
+      (is (= (dissoc raw :rows) (dissoc proj :rows))
+          "every non-row slot is untouched")
+      (is (= (:rows raw) (:rows proj))
+          "and with nothing declared sensitive the rows match too —
+           including the :db-diff the plain frame leaves intact"))))

@@ -14,8 +14,9 @@
                                          (the Epoch panel's `:db` diff
                                          surface reads this)
     - `:rf.xray/app-db-current+diff`   — the atomic `{:value :before
-                                         :epoch-id}` the panel body
-                                         derives from
+                                         :runtime-value :runtime-before
+                                         :epoch-id :redacted-modified}`
+                                         the panel body derives from
     - `:rf.xray/app-db-state`          — the section model the body renders
     - `:rf.xray/focused-slice-path` /
       `:rf.xray/show-me-when-this-changed-result` — the cross-epoch
@@ -247,7 +248,37 @@
          ;; epoch (the reserved areas' source post-EP-0001).
          :runtime-value  rt-value
          :runtime-before rt-before
-         :epoch-id (when record epoch-id)})))
+         :epoch-id (when record epoch-id)
+         ;; rf2-y8doi.14 — the SUPPRESSED-SIGNAL count, read straight off
+         ;; the focused record (the same record every slot above comes
+         ;; from, so it can never describe a different epoch).
+         ;;
+         ;; The panel redacts both sides of a declared-sensitive slot
+         ;; (`:rf.xray/app-db-state` below), so the structural diff sees
+         ;; `:rf/redacted` = `:rf/redacted` and emits NOTHING — a changed
+         ;; secret is invisible, which is the elision contract working and
+         ;; a terrible thing to leave unsaid. `tools/xray/spec/004-App-DB-
+         ;; Diff.md` §Count semantics designs the answer as a chip that
+         ;; sits BESIDE the diff rather than inside it; this slot is what
+         ;; feeds it, and `app_db_diff_state/top-section` draws it.
+         ;;
+         ;; `:rf.epoch/redacted-modified-paths-count` is the framework's
+         ;; EXACT figure, computed in `re-frame.epoch.assembly/build-record`
+         ;; from the RAW db pair before any projection runs — no walk and
+         ;; no heuristic on this side. Spec-Schemas §`:rf/epoch-record`
+         ;; marks the slot OPTIONAL and tells consumers to read absent as
+         ;; 0, which is exactly what a nil here means downstream: the chip
+         ;; renders only on a positive integer, so a host with no
+         ;; classification layer draws no chip rather than a zero one.
+         ;;
+         ;; NOT a revival of `:rf.xray/selected-epoch-redacted-modified-
+         ;; count`. That sub was pruned with the dead diff-sub family
+         ;; (rf2-p53m2) for having no view consumer and its absence is
+         ;; pinned by `app_db_diff_subs_cljs_test/pruned-diff-sub-family-
+         ;; stays-gone`. This is a slot on the atomic sub the panel already
+         ;; reads, and it has a consumer.
+         :redacted-modified (when record
+                              (:rf.epoch/redacted-modified-paths-count record))})))
 
   ;; ---- rf2-okvit / rf2-ad7zx.11 — current-state section model ---------
   ;;
@@ -293,20 +324,34 @@
   ;; reconstructs (or even hints at) the redacted content. Fail-closed: an
   ;; unreachable observed frame redacts the whole value rather than ship it
   ;; raw under no policy (`local-render/local-render-value`).
+  ;;
+  ;; rf2-y8doi.14 — the section model carries `:redacted-modified` through
+  ;; to the renderer. It is NOT part of the section decomposition (it
+  ;; belongs to no section — it is a record-level rollup about the whole
+  ;; epoch), so it rides as a sibling slot on the model map rather than
+  ;; through `current-state-sections`, which stays the pure value→sections
+  ;; projection it is. `app_db_diff_state/state-body` reads it off the
+  ;; model and hands it to the TOP section's header; nothing else looks at
+  ;; it. The paragraph on `:rf.xray/app-db-current+diff` above carries why
+  ;; the count exists at all.
   (rf/reg-sub :rf.xray/app-db-state
     {:inputs [[:rf.xray/app-db-current+diff] [:rf.xray/observed-frame]]}
-    (fn [[{:keys [value before runtime-value runtime-before]} observed-frame] _query]
+    (fn [[{:keys [value before runtime-value runtime-before redacted-modified]}
+          observed-frame] _query]
       (let [redact (fn [v] (local-render/local-render-value v observed-frame))
             value          (redact value)
-            runtime-value  (redact runtime-value)]
-        ;; Diff-mode is entered iff a real app-db pre-image is present,
-        ;; mirroring the pre-rf2-yng0y `(if-let [before (:db-before record)]
-        ;; …)` contract: an absent / nil `:db-before` (cold boot, or a record
-        ;; with no pre-image slot) renders plain current-state. When diffing,
-        ;; the runtime areas diff against the SAME focused epoch's runtime-db
-        ;; pre-image.
-        (if (some? before)
-          (h/current-state-sections value runtime-value
-                                    {:app     (redact before)
-                                     :runtime (redact runtime-before)})
-          (h/current-state-sections value runtime-value))))))
+            runtime-value  (redact runtime-value)
+            ;; Diff-mode is entered iff a real app-db pre-image is present,
+            ;; mirroring the pre-rf2-yng0y `(if-let [before (:db-before
+            ;; record)] …)` contract: an absent / nil `:db-before` (cold
+            ;; boot, or a record with no pre-image slot) renders plain
+            ;; current-state. When diffing, the runtime areas diff against
+            ;; the SAME focused epoch's runtime-db pre-image.
+            sections (if (some? before)
+                       (h/current-state-sections value runtime-value
+                                                 {:app     (redact before)
+                                                  :runtime (redact runtime-before)})
+                       (h/current-state-sections value runtime-value))]
+        (cond-> sections
+          (and (int? redacted-modified) (pos? redacted-modified))
+          (assoc :redacted-modified redacted-modified))))))

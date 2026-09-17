@@ -61,6 +61,7 @@
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-h]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
+            [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.theme.tokens :as tokens]
             [re-frame.trace :as rf.trace]))
 
@@ -988,6 +989,77 @@
 ;; the App-DB Diff tab / Event-panel APP-DB CHANGES section both consume
 ;; (spec/021 §2.2 step 6). One derivation, one engine, one shape —
 ;; differences in rendering live in the view, not in re-derived data.
+;;
+;; ---- render-side redaction (rf2-y8doi.14) --------------------------------
+;;
+;; One engine was not enough, because the two tabs did not share the
+;; EGRESS SEAM in front of it. The App-DB tab projects its value AND its
+;; pre-image through `local-render/local-render-value` under the OBSERVED
+;; frame's policy before the section model is built
+;; (`app_db_diff_subs/:rf.xray/app-db-state`), so a slot the frame declared
+;; `:sensitive` reaches the inspector as `:rf/redacted`. This derivation had
+;; no such seam: it diffed the epoch record's RAW `:db-before` / `:db-after`,
+;; so the identical record printed `~ [:auth :token] "old" → "new"` on the
+;; Trace tab and a redacted chip on the App-DB tab. Same record, same
+;; engine, two answers — and the leaking one was the one with a
+;; `:data-testid` on every value span.
+;;
+;; The fix is the seam, not a second policy: `redact-epoch-db` projects
+;; BOTH db slots through the SAME `local-render-value` the App-DB tab
+;; calls, under the SAME observed frame, BEFORE `diff-paths` runs. The two
+;; tabs now diff the same projected pair, so they cannot disagree by
+;; construction.
+;;
+;; A declared-sensitive path therefore reads `:rf/redacted` on both sides,
+;; `diff-paths` sees them equal and emits NO TRIPLE — the row is absent
+;; rather than redacted-in-place. That is the elision contract behaving as
+;; `tools/xray/spec/004-App-DB-Diff.md` §Count semantics already describes
+;; for the App-DB tab ("both sides redacted ⇒ empty diff but something
+;; changed"), and it is why the SAME item adds the
+;; `:rf.epoch/redacted-modified-paths-count` chip on the App-DB tab: the
+;; suppressed signal is surfaced separately from the diff, never by
+;; weakening the projection.
+;;
+;; Fail-closed, inherited whole from `local-render-value`: a nil /
+;; destroyed / never-registered observed frame redacts the WHOLE value
+;; rather than borrow the ambient frame's (Xray's own chrome frame's)
+;; empty policy — so both sides collapse to one sentinel and the diff is
+;; empty. An unresolvable frame loses the diff; it never leaks it.
+;;
+;; The ingest gate (`epoch/redact-history`, rf2-y8doi.13) is UPSTREAM of
+;; this and does NOT make it redundant. That gate drops a record whole on
+;; its stamped `:rf.epoch/sensitive?` rollup; this one projects the values
+;; a SURVIVING record carries. The two answer different questions and a
+;; record can satisfy the first while failing the second — a record with no
+;; rollup slot at all (a synthetic history seeded through
+;; `:rf.xray/sync-epoch-history`, the case `redact-history`'s own docstring
+;; names), or one whose rollup was computed before the app classified the
+;; path. Those are exactly the records this seam is the only guard for.
+
+(defn- redact-epoch-db
+  "Project `epoch-record`'s `:db-before` / `:db-after` through the on-box
+  local-render egress seam under `observed-frame`'s `:sensitive` /
+  `:large` policy, leaving every other slot untouched.
+
+  This is the App-DB tab's seam applied to the Trace tab's inputs — the
+  same `local-render/local-render-value`, the same observed frame — so
+  the two tabs project one pair of values under one policy.
+
+  Only slots the record actually carries are projected: an absent
+  `:db-before` stays absent rather than being synthesised as a redacted
+  nil, so a record with no db projection diffs to `[]` exactly as it did
+  before.
+
+  nil-safe (a nil record passes through)."
+  [epoch-record observed-frame]
+  (if (nil? epoch-record)
+    epoch-record
+    (cond-> epoch-record
+      (contains? epoch-record :db-before)
+      (update :db-before local-render/local-render-value observed-frame)
+
+      (contains? epoch-record :db-after)
+      (update :db-after local-render/local-render-value observed-frame))))
 
 (defn db-changed-diff-triples
   "Derive the per-path diff for a `:rf.event/db-changed` row from the
@@ -998,6 +1070,13 @@
   :path [...] :before <v> :after <v>}` triples, sorted by path-as-
   pr-str. Returns `[]` when `db-before == db-after` (the no-changes
   case — empty diff section per spec/023 §APP-DB CHANGES).
+
+  Takes the record's db slots AS THEY STAND. It applies no egress policy
+  of its own, so the triples it returns carry whatever the record
+  carried: on the render path `project-feed-from-epoch`'s 3-arity has
+  already projected both slots through `redact-epoch-db`, and a caller
+  that reaches this fn directly with a RAW record is asking for the raw
+  values and must not render them.
 
   Pure data → data; JVM-testable."
   [{:keys [db-before db-after] :as _epoch-record}]
@@ -1018,6 +1097,40 @@
         rows))
 
 ;; ---- epoch-scoped feed projection (the panel reads this) ----------------
+
+(defn- project-feed-from-epoch*
+  "The projection body, over a record whose db slots are ALREADY in the
+  form the caller wants rendered. Both public arities land here; the
+  redaction decision is made above it, once, so this fn can never be the
+  place a projection is accidentally skipped."
+  [epoch-record focus-status]
+  (let [record-present? (= :focused focus-status)
+        trace-events    (when record-present?
+                          (:trace-events epoch-record))
+        ;; Derive the per-path db-changed diff ONCE from the epoch
+        ;; record's `:db-before` / `:db-after` (rf2-b3zw2 — panel-side
+        ;; derive, Mike-decided rf2-8q8i4 = (b)) and attach to each
+        ;; db-changed row's `:db-diff` slot.
+        db-diff         (when record-present?
+                          (db-changed-diff-triples epoch-record))
+        raw-rows        (with-rel-times (project-rows (or trace-events [])))
+        rows            (cond-> raw-rows
+                          (some? db-diff) (attach-db-diff db-diff))
+        {:keys [envelope outcome bands]} (build-bands rows)
+        n               (count rows)
+        empty-kind      (cond
+                          (= focus-status :no-focus)      :no-focus
+                          (= focus-status :epoch-evicted) :epoch-evicted
+                          (zero? n)                       :no-events
+                          :else                           nil)]
+    {:rows         rows
+     :envelope     envelope
+     :outcome      outcome
+     :bands        bands
+     :total        n
+     :rendered     n
+     :epoch-id     (:epoch-id epoch-record)
+     :empty-kind   empty-kind}))
 
 (defn project-feed-from-epoch
   "Top-level projection — produces every slot the Trace view needs,
@@ -1055,35 +1168,31 @@
   EPOCH OPEN → ① DISPATCH → … → ④ REACTIVE → EPOCH CLOSE. `:bands` is
   the structural arc the view paints (one band per phase, empty bands
   dimmed per spec/023 §13); `:rows` is the flat oldest-first projection
-  (kept for cross-panel consumers + tests). Pure data → data."
-  [epoch-record focus-status]
-  (let [record-present? (= :focused focus-status)
-        trace-events    (when record-present?
-                          (:trace-events epoch-record))
-        ;; Derive the per-path db-changed diff ONCE from the epoch
-        ;; record's `:db-before` / `:db-after` (rf2-b3zw2 — panel-side
-        ;; derive, Mike-decided rf2-8q8i4 = (b)) and attach to each
-        ;; db-changed row's `:db-diff` slot.
-        db-diff         (when record-present?
-                          (db-changed-diff-triples epoch-record))
-        raw-rows        (with-rel-times (project-rows (or trace-events [])))
-        rows            (cond-> raw-rows
-                          (some? db-diff) (attach-db-diff db-diff))
-        {:keys [envelope outcome bands]} (build-bands rows)
-        n               (count rows)
-        empty-kind      (cond
-                          (= focus-status :no-focus)      :no-focus
-                          (= focus-status :epoch-evicted) :epoch-evicted
-                          (zero? n)                       :no-events
-                          :else                           nil)]
-    {:rows         rows
-     :envelope     envelope
-     :outcome      outcome
-     :bands        bands
-     :total        n
-     :rendered     n
-     :epoch-id     (:epoch-id epoch-record)
-     :empty-kind   empty-kind}))
+  (kept for cross-panel consumers + tests).
+
+  ## The two arities (rf2-y8doi.14)
+
+  The 3-arity is the PRODUCTION door: `observed-frame` is the frame Xray
+  is inspecting (`:rf.xray/observed-frame`), and the record's
+  `:db-before` / `:db-after` are projected under its `:sensitive` policy
+  through `redact-epoch-db` BEFORE the per-path diff is derived — the
+  same egress seam the App-DB tab applies at
+  `app_db_diff_subs/:rf.xray/app-db-state`. `:rf.xray/trace-feed` calls
+  this one.
+
+  The 2-arity is the RAW pure-data form. It derives the diff from the
+  record verbatim and reaches no runtime, which is what keeps the
+  helper's own fixtures (and the panel-gallery trace fixtures) free of a
+  live frame. It is NOT a render path: a caller that renders the returned
+  values must supply the observed frame.
+
+  Pure data → data (the 3-arity reads the named frame's classification
+  registry through the egress seam; it mutates nothing)."
+  ([epoch-record focus-status]
+   (project-feed-from-epoch* epoch-record focus-status))
+  ([epoch-record focus-status observed-frame]
+   (project-feed-from-epoch* (redact-epoch-db epoch-record observed-frame)
+                             focus-status)))
 
 ;; ---- React keys ---------------------------------------------------------
 
