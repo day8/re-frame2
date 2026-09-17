@@ -130,9 +130,16 @@ second, `:flash-duration-ms`, for a diff flash whose keyframes were
 declared but never applied to any element; both went under rf2-y8doi.29
 on 2026-09-17.)
 
-No looping animations except the machine-active state pulse (1.2s
-heartbeat — only on the active machine's node in the machine chart;
-the only continuous animation in Xray).
+No looping animations. The machine chart signals its active state
+statically — a runtime accent border, a soft `box-shadow` glow ring
+and a faint header wash, never a continuous pulse (that affordance is
+owned by machines-viz `spec/Principles.md` "No continuous animation").
+The 1.2s machine-active heartbeat this chapter used to except was
+retired 2026-05-20 under rf2-2sez0.
+
+What remains is event-driven and finite: the transition glow fires
+one motion-scaled iteration on a discrete event and settles to a
+stable end state (`ease-out forwards`), never an `infinite` loop.
 
 Every animation respects `prefers-reduced-motion`, and through **one
 seam** rather than per-component branching: every duration is built
