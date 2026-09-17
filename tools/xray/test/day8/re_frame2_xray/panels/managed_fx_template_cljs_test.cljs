@@ -312,18 +312,33 @@
             only head-position user of the widget facade; it is called now.
             This row is the FLOOR for the panel's REACHABLE tree — see the
             section comment for what it deliberately does not claim."
-    (let [r     (record {:surface     :http
-                         :fx-id       :rf.http/managed
-                         :status      :ok
-                         :http-status 200
-                         :handler     [:user/profile-loaded {:id 1}]})
-          heads (hiccup-heads (template/record-panel r))]
-      ;; Two controls, because the assertion below is an ABSENCE and an
+    ;; BOTH SHAPES THE PANEL CAN DRAW, because since rf2-y8doi.18 there are
+    ;; two: an `:http` record draws REQUEST and REPLY TARGET only, while the
+    ;; other four surfaces draw all five sections. Sampling the narrow one
+    ;; alone shrank this row's tree until its own population control — the
+    ;; `(< 20 …)` floor below, unchanged — stopped holding, which is the
+    ;; control doing its job: it refused a sample too small to make the
+    ;; absence meaningful. The answer is a bigger sample rather than a lower
+    ;; floor, and covering both shapes is what the row wanted anyway.
+    (let [http-rec (record {:surface :http
+                            :fx-id   :rf.http/managed
+                            :status  :issued
+                            :handler [:user/profile-loaded {:id 1}]})
+          ws-rec   (record {:surface     :websocket
+                            :fx-id       :rf.ws/connect
+                            :status      :ok
+                            :handler     [:user/profile-loaded {:id 1}]})
+          heads    (concat (hiccup-heads (template/record-panel http-rec))
+                           (hiccup-heads (template/record-panel ws-rec)))]
+      ;; Three controls, because the assertion below is an ABSENCE and an
       ;; absence is what a dead instrument also reports.
       (is (= :invalid (rf.fresco.impl.codec/head-kind edn-widget/inspect))
           "Fresco's own classifier grades the plain fn an invalid head")
       (is (< 20 (count heads))
           "the walker reached a populated tree, so a zero below means absence")
+      (is (seq (hiccup-heads (template/record-panel http-rec)))
+          "and the NARROWED http panel is really in the sample, so the row
+           did not quietly become a statement about websocket alone")
       ;; No plain function anywhere in head position — stated over the
       ;; whole reachable tree rather than named against `inspect` alone,
       ;; so a DIFFERENT facade helper (`ei/mini`, `edn/inspect-inline`)
