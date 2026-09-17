@@ -1236,7 +1236,7 @@ deliberately walks the event feed (rf2-llecpa).
 ### Shell spine keys
 
 Bare, unmodified keys — only inside the visible shell, never on an
-editable, activatable, or modal target (see the scope guards above).
+editable or modal target (see the scope guards above).
 Per spec/018 §3 + §6.
 
 | Key | Action | Event dispatched |
