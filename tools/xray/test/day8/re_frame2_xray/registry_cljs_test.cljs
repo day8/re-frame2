@@ -963,15 +963,37 @@
 ;; bundle. That is live production registrar mutation, not bundle bytes,
 ;; and it is what makes the four promises above false.
 ;;
-;; The guard: every `:rf.xray.edn-inspector/*` registration is reached
-;; through `register-xray-handlers!` and through nothing else.
+;; The guard: every `:rf.xray.edn-inspector/*` registration is written BY
+;; `register-xray-handlers!` — which means it is reached through the
+;; widget's own `install!`, and so is absent from a namespace that is
+;; merely loaded.
 ;;
-;; The discrimination is exact and needs no planted fault. The `:each`
-;; fixture restores the registrar to its ns-LOAD baseline before each
-;; test, so a handler registered at ns-load IS visible here while one
-;; registered from an `install!` is NOT. Read off the registrar rather
-;; than a hand-written id list, so a NEW widget registration cannot be
-;; added at the top level without turning this red.
+;; WHY THE OBVIOUS TEST CANNOT BE WRITTEN HERE, since it is the one a
+;; reader reaches for first. "Assert the ids are absent before
+;; `register-xray-handlers!` runs" cannot discriminate in this bundle:
+;; `day8.re-frame2-xray.preload` is on the `:node-test` classpath (the
+;; trace-collector suite requires it), `goog.DEBUG` is TRUE under test, so
+;; the preload's own `(when rf.interop/debug-enabled? …)` boot block RUNS
+;; AT NS-LOAD and calls `register-xray-handlers!` itself. Every suite's
+;; ns-load registrar baseline therefore carries the whole Xray surface,
+;; before AND after this change, and an absence assertion reads red either
+;; way — a control that looks decisive and measures nothing. (The tell is
+;; in the lane's own output: `mount/boot-on-runtime-ready!`'s missing-
+;; layout-host diagnostic prints during the load phase, before the first
+;; `Testing …` line.)
+;;
+;; What DOES discriminate is the orchestrator's own write set, captured by
+;; redefining the registrar's writer for the span of one install — the
+;; instrument `registry-registers-each-xray-event-once` below already
+;; uses, and whose docstring records the very fact this test now pins:
+;; registrations that run at ns-load are NOT in that set. Before
+;; rf2-y8doi.16 the eleven widget ids were exactly such registrations and
+;; the set held none of them; they are in it now because
+;; `register-xray-handlers!` reaches them through `edn-inspector/install!`.
+;;
+;; Read off the maintained snapshot sets above rather than a second
+;; hand-written id list, so a NEW widget registration cannot be added at
+;; the top level without turning this red.
 
 (defn- edn-inspector-widget-ids
   "Every live `:rf.xray.edn-inspector/*` registration of `kind`, as a set.
@@ -992,20 +1014,34 @@
   [snapshot]
   (set (filter #(= "rf.xray.edn-inspector" (namespace %)) snapshot)))
 
-(deftest edn-inspector-widget-registers-only-via-register-xray-handlers
-  (testing "no :rf.xray.edn-inspector/* handler is registered at ns-load"
-    (is (= #{} (edn-inspector-widget-ids :sub))
-        (str "a :rf.xray.edn-inspector/* SUB is registered before "
-             "`register-xray-handlers!` ran, i.e. at ns-load. A top-level "
-             "`reg-sub` survives Closure DCE and writes into the host's "
-             "registrar in a goog.DEBUG=false bundle. Move it into the "
-             "widget ns's `install!` and call that from "
-             "`register-xray-handlers!`."))
-    (is (= #{} (edn-inspector-widget-ids :event))
-        (str "a :rf.xray.edn-inspector/* EVENT is registered before "
-             "`register-xray-handlers!` ran, i.e. at ns-load. Same "
-             "remedy as the sub case above.")))
-  (testing "and register-xray-handlers! installs the whole widget surface"
+(deftest edn-inspector-widget-registers-through-the-orchestrator
+  (testing "register-xray-handlers! WRITES every :rf.xray.edn-inspector/*
+            sub and event — i.e. none of them is left at the top level of
+            a widget namespace, where ns-load would write it into a
+            release bundle's registrar (rf2-y8doi.16)"
+    (let [written            (atom #{})
+          original-register! rf.registrar/register!]
+      (with-redefs [rf.registrar/register!
+                    (fn [kind id metadata]
+                      (when (and (#{:sub :event} kind)
+                                 (keyword? id)
+                                 (= "rf.xray.edn-inspector" (namespace id)))
+                        (swap! written conj id))
+                      (original-register! kind id metadata))]
+        (registry/reset-for-test!)
+        (registry/register-xray-handlers!))
+      (is (= (into (expected-widget-ids all-sub-names)
+                   (expected-widget-ids all-event-names))
+             @written)
+          (str "a :rf.xray.edn-inspector/* id the snapshot sets above "
+               "document was NOT written by `register-xray-handlers!`, so "
+               "it is registered at ns-load instead. A top-level `reg-sub` "
+               "/ `reg-event` in a required namespace runs outside the "
+               "preload's `(when rf.interop/debug-enabled? …)` block and "
+               "no dead-code eliminator may remove a registrar write, so "
+               "it mutates the HOST's registrar in a goog.DEBUG=false "
+               "bundle. Move it into the widget ns's `install!`."))))
+  (testing "and the whole documented widget surface is live afterwards"
     (registry/register-xray-handlers!)
     (is (= (expected-widget-ids all-sub-names)
            (edn-inspector-widget-ids :sub))

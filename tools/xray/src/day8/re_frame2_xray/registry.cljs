@@ -33,12 +33,16 @@
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
-            ;; Load the first-class edn-inspector widget ns so its
-            ;; top-level `reg-sub` / `reg-event` calls land in
-            ;; the registrar at orchestrator-load time. The widget
-            ;; owns `:rf.xray.edn-inspector/*` events/subs and is the
-            ;; SINGLE source of truth for browse + diff + mini.
-            [day8.re-frame2-xray.views.edn-inspector]
+            ;; The first-class edn-inspector widget. Owns the
+            ;; `:rf.xray.edn-inspector/*` events/subs and is the SINGLE
+            ;; source of truth for browse + diff + mini. `install!`
+            ;; registers the expansion / measured-width / zoom slots at
+            ;; ORCHESTRATOR-INSTALL time, not at ns-load: a required
+            ;; namespace's top-level forms run outside the preload's
+            ;; `(when rf.interop/debug-enabled? …)` block, so a registrar
+            ;; write left up there survives Closure DCE and lands in a
+            ;; release bundle (rf2-y8doi.16).
+            [day8.re-frame2-xray.views.edn-inspector :as edn-inspector]
             ;; Popup overlay infra. `install!` registers
             ;; the stack/entries subs + open/close/close-top/close-all
             ;; events at orchestrator-load time. The stack VIEW mount
@@ -1197,6 +1201,13 @@
     (editor-hint/install!)
     (palette/install!)
     (settings-popup/install!)
+    ;; First-class edn-inspector widget (subs + events for the expansion,
+    ;; measured-width and zoom slots, plus the expansion slot owned by
+    ;; `views/edn-inspector-state`). Installs BEFORE the popup overlay
+    ;; below, which renders the widget — registration order is cosmetic
+    ;; (re-frame resolves declared inputs lazily), but the top-down
+    ;; dependency read is clearer.
+    (edn-inspector/install!)
     ;; Edn-inspector popup overlay (subs + events). The
     ;; stack view is mounted in `shell.cljs` alongside the other modal
     ;; mounts; per-panel "open in popup" affordances pass through
