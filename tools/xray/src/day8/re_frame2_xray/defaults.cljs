@@ -37,15 +37,30 @@
   machine-inspector panels observe). The target frame is NOT defaulted to
   `:rf/default`: `:rf/default` is an ordinary id, never an
   absence-repair fallback (Spec 002 §Frame target resolution).
-  The target frame starts UNSELECTED and becomes selected only by:
+  The target frame starts UNSELECTED. What may take it out of that state
+  is a RULE, not a list of sources: a selected target is either an
+  EXPLICIT CHOICE or a frame RESOLVED FROM OBSERVED EVIDENCE — never a
+  synthesised one.
 
-    - host config (`init! {:target-frame …}` / `set-target-frame!`),
-    - the frame picker (`:rf.xray/set-target-frame`), or
-    - the mount-time discovery policy (`focusable-head-frame-id` — the
-      operator-present interactive tier that uniquely resolves the head
-      app event-bundle's frame; unique resolution, NOT synthesis).
+    - EXPLICIT CHOICE — host config (`init! {:target-frame …}` /
+      `set-target-frame!`); the frame picker, from the ribbon dropdown or
+      the Cmd-K palette (both via `:rf.xray/select-frame`); and the
+      operator's focus gestures over the L2 list and Epoch panel, which
+      adopt the navigated event-bundle's or epoch's own frame
+      (`spine/reseed-epoch-history-for-frame`). May RE-target an
+      already-selected slot.
+    - RESOLVED FROM OBSERVED EVIDENCE — the mount-time discovery
+      policy (`focusable-head-frame-id`, the operator-present interactive
+      tier that uniquely resolves the head app event-bundle's frame) and
+      epoch-ingest adoption (`:rf.xray/epoch-recorded` adopting the frame
+      that actually RECORDED; Xray's own `:rf/xray` excluded). Unique
+      resolution, NOT synthesis, and fires ONLY while the slot is still
+      UNSELECTED.
 
-  When none of those select a target the slot stays `nil`; the
+  Those are the paths that exist today, not a closed list — judge a new
+  one by the rule (Xray spec 008 §Own frame vs target frame; this
+  docstring's earlier three-source enumeration was false, rf2-y3keu).
+  When nothing selects a target the slot stays `nil`; the
   `:rf.xray/target-frame` sub reports `nil` and the panels render their
   unselected-target state (the frame picker prompts a choice) rather than
   reading a synthesised `:rf/default`. `set-target-frame! nil` resets to

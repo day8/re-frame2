@@ -408,31 +408,58 @@ keeps them strictly separate:
 | Frame | Meaning | Source |
 |---|---|---|
 | **own frame** (`defaults/default-frame-id`, `:rf/xray`) | Where the shell's OWN chrome state lives — selected tab, focused epoch, theme, modal/scrubber state, the frame picker's selection. | A fixed singleton (parameterized per instance, below). Mounted explicitly by the frame-provider wrapper above. |
-| **target frame** (`:rf.xray/target-frame` slot inside `:rf/xray`) | The HOST app frame Xray inspects — what the App-db / Machine / Routes / scrubber panels observe. | Selected by host config (`init! {:target-frame …}` / `set-target-frame!`), the frame picker, or the mount-time discovery policy. |
+| **target frame** (`:rf.xray/target-frame` slot inside `:rf/xray`) | The HOST app frame Xray inspects — what the App-db / Machine / Routes / scrubber panels observe. | An explicit choice (host config `init! {:target-frame …}` / `set-target-frame!`, the frame picker, a focus gesture) or a frame resolved from observed evidence (mount-time discovery, epoch-ingest adoption) — never synthesised. See the rule below. |
 
 The **target frame is NOT defaulted to `:rf/default`.** Under the
 carried invariant `:rf/default` is an ordinary id, never an
-absence-repair fallback. The target starts **UNSELECTED** (`nil`) and
-becomes selected only by one of the three sources above:
+absence-repair fallback. The target starts **UNSELECTED** (`nil`), and
+what may take it out of that state is a RULE, not a list of sources:
 
-- **host config** — `(xray/init! {:target-frame :app/main})` or
-  `(xray/set-target-frame! :app/main)`;
-- **the frame picker** — the operator-driven ribbon dropdown
-  (`:rf.xray/set-target-frame`);
-- **the mount-time discovery policy** — `spine/focusable-head-frame-id`
-  uniquely resolves the head app cascade's frame at first open. This is
-  the operator-present interactive tier (Tool-Pair §Operating-frame
-  resolution); it is **unique resolution, not synthesis** — when no
-  focusable cascade exists the target stays UNSELECTED.
+> **A selected target is either an EXPLICIT CHOICE or a frame RESOLVED
+> FROM OBSERVED EVIDENCE — never a synthesised one.** Where no real
+> frame is named, the slot stays UNSELECTED rather than being repaired.
 
-**Discovery is the FALLBACK, and only runs while the target is still
-UNSELECTED (rf2-88f1).** The three sources above are not peers: an
-explicit target — from host config or the picker — outranks the
-mount-time policy, because discovery *guesses* which frame the operator
-is looking at while an explicit target is what the host or the operator
-*said*. So first open re-derives a seed frame only when nothing has
-chosen one; where a choice is already in the slot, first open preserves
-it and re-seeds `:epoch-history` from that frame.
+The two tiers differ in *when* they may fire:
+
+- **Explicit choice** — the host or the operator *said* which frame.
+  Host config (`(xray/init! {:target-frame :app/main})`,
+  `(xray/set-target-frame! :app/main)`); the frame picker, from the L1
+  ribbon dropdown or the Cmd-K palette (both through
+  `:rf.xray/select-frame`); and the operator's focus gestures over the
+  L2 event list and the Epoch panel — clicking a row, stepping
+  prev/next, following a parent-epoch chip — each of which adopts
+  the frame the navigated event bundle or epoch actually settled in
+  (`spine/reseed-epoch-history-for-frame`). An explicit choice may
+  RE-target an already-selected slot: it is a fresh statement of intent,
+  not a repair.
+- **Resolved from observed evidence** — nobody said, so Xray reads a
+  frame off the trace: the mount-time discovery policy
+  (`spine/focusable-head-frame-id`, which uniquely resolves the head app
+  cascade's frame at first open — the operator-present interactive
+  tier, Tool-Pair §Operating-frame resolution) and epoch-ingest
+  adoption (`:rf.xray/epoch-recorded` adopting the frame that actually
+  RECORDED, so a cold start mounting before the host's first cascade does
+  not strand unselected; Xray's own `:rf/xray` is excluded, since pointing
+  the inspector at itself is worse than staying unselected). Both are
+  **unique resolution, not synthesis**, and both fire **only while the
+  slot is still UNSELECTED**. Where nothing resolves, the target stays
+  UNSELECTED.
+
+**The call sites are illustration; the rule is the contract.** This
+chapter was wrong once by enumerating — it named those three sources
+and said *only*, while focus navigation (five events reaching
+`spine/reseed-epoch-history-for-frame`) and epoch-ingest adoption were
+already selecting targets out of the unselected state (rf2-y3keu). Judge
+a new path by the rule, not by membership of a list.
+
+**Evidence-resolution is the FALLBACK, and only runs while the target is
+still UNSELECTED (rf2-88f1).** The two tiers are not peers: an explicit
+target — from host config, the picker, or a focus gesture — outranks
+the evidence-resolved tier, because resolution *guesses* which frame the
+operator is looking at while an explicit target is what the host or the
+operator *said*. So first open re-derives a seed frame only when nothing
+has chosen one; where a choice is already in the slot, first open
+preserves it and re-seeds `:epoch-history` from that frame.
 
 The collision is new, and that is why the ordering had not needed
 stating: until the host-config entry points seated `:rf/xray` themselves
