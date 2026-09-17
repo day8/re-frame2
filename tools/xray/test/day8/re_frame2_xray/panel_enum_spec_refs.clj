@@ -54,7 +54,7 @@
   enum, and every enum mount fn MUST be named in the spec — the guard
   enforces both directions."
   (:require [clojure.string :as str]
-            [re-frame.build.spec-resource :as spec-resource]))
+            [re-frame.build.spec-resource :as rf.build.spec-resource]))
 
 (def ^:private mount-fn-re
   "The `mount-<panel>!` reference shape (007-UX-IA §The mount-fn
@@ -120,7 +120,7 @@
   (->> spec-files
        (mapcat (fn [rel]
                  (re-seq mount-fn-re
-                         (spec-resource/slurp-resource
+                         (rf.build.spec-resource/slurp-resource
                           env (spec-resource-name rel)))))
        (remove known-removed-names)
        (into #{})))
