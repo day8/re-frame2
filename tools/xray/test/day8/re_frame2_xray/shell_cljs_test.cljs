@@ -1870,6 +1870,199 @@
               "focus never goes nil with a non-empty buffer"))))))
 
 ;; -------------------------------------------------------------------------
+;; (4c) L2 sticky newer-events marker — rf2-y8doi.30
+;;
+;; spec/018 §LIVE-tracking + sticky rules rows 2 and 3: when selection
+;; stays on an older row, or LIVE is paused, and newer events have
+;; arrived, the L2 list pins a sticky marker at its bottom edge whose
+;; click follows head. The spec writes `press ⏭`; the chrome paints `»`
+;; (`rf-xray-nav-head`, title "Fast-forward to latest (G)"), so the
+;; marker says `»`.
+;;
+;; PRESENCE is `(not (:head? focus))` and nothing else. `:head?` is
+;; derived by `spine/compose-focus` over the SPINE's focusable vector,
+;; and its LIVE+unpaused branch makes `:head?` unconditionally true — so
+;; that one predicate is exactly "following is suspended AND something
+;; newer exists".
+;;
+;; N is counted over that same spine vector, never over the filtered one
+;; the list renders (`:rf.xray/filtered-event-bundles` — view-scope frame
+;; + pills + mutes). The two pure-call rows below pin that: they hand
+;; `event-list-tree` a filtered vector holding ONLY the focused bundle
+;; and still expect the spine-derived count.
+;; -------------------------------------------------------------------------
+
+(defn- newer-events-marker-in
+  "The marker node in a rendered tree, or nil."
+  [tree]
+  (find-by-testid tree "rf-xray-newer-events"))
+
+(deftest newer-events-marker-absent-in-live-at-head
+  (testing "rf2-y8doi.30 — LIVE and following head: nothing is stale, so
+            the L2 list paints NO marker. Control: the list itself and
+            its rows ARE found in the same tree, so an absent marker is
+            an absence and not a broken walk."
+    (xray-setup!)
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
+    (rf/with-frame :rf/xray
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
+            focus @(rf/subscribe [:rf.xray/focus])]
+        (is (true? (:head? focus)) "spine is at head")
+        (is (some? (find-by-testid tree "rf-xray-event-list"))
+            "CONTROL — the L2 scroll container is in the walked tree")
+        (is (some? (find-by-testid tree "rf-xray-event-row-2"))
+            "CONTROL — the head row is in the walked tree")
+        (is (nil? (newer-events-marker-in tree))
+            "no newer-events marker while following head")))))
+
+(deftest newer-events-marker-in-retro-counts-newer
+  (testing "rf2-y8doi.30 — a RETRO pin two rows back paints the marker,
+            reporting the count of newer events and naming the `»`
+            control that clears it."
+    (xray-setup!)
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:first/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:second/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:third/event]))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event 1 :rf/default]))
+    (rf/with-frame :rf/xray
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
+            focus  @(rf/subscribe [:rf.xray/focus])
+            marker (newer-events-marker-in tree)]
+        (is (false? (:head? focus)) "spine is pinned off head")
+        (is (some? marker) "marker renders in RETRO with newer events")
+        (let [text (text-nodes marker)]
+          (is (str/includes? text "2 newer events")
+              "reports the two events newer than the pin")
+          (is (str/includes? text "»")
+              "names the fast-forward control the chrome actually paints")
+          (is (not (str/includes? text "⏭"))
+              "does NOT use the spec's `⏭` glyph — the chrome paints `»`"))))))
+
+(deftest newer-events-marker-appears-only-once-paused-falls-behind
+  (testing "rf2-y8doi.30 — Space at head pauses LIVE but nothing is stale
+            yet, so NO marker. The next arrival makes the pinned read
+            stale and the marker appears, singular at one."
+    (xray-setup!)
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:first/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:second/event]))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
+    (rf/with-frame :rf/xray
+      (let [focus @(rf/subscribe [:rf.xray/focus])]
+        (is (= :live (:mode focus)) "pause keeps :mode :live")
+        (is (true? (:paused? focus)) "and sets :paused?")
+        (is (true? (:head? focus)) "still at head — nothing newer yet")
+        (is (nil? (newer-events-marker-in (dynamic-shell-tree/shell-view-tree)))
+            "paused-but-current paints nothing")))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:third/event]))
+    (rf/with-frame :rf/xray
+      (let [marker (newer-events-marker-in (dynamic-shell-tree/shell-view-tree))]
+        (is (false? (:head? @(rf/subscribe [:rf.xray/focus])))
+            "the pinned row is no longer head")
+        (is (some? marker) "marker appears once the paused read goes stale")
+        (let [text (text-nodes marker)]
+          (is (str/includes? text "1 newer event")
+              "singular at one")
+          (is (not (str/includes? text "1 newer events"))
+              "not the plural form"))))))
+
+(deftest newer-events-marker-click-follows-head
+  (testing "rf2-y8doi.30 — invoking the marker's :on-click dispatches
+            `:rf.xray/follow-head`; afterwards the spine is LIVE,
+            unpaused, at head, and the marker is gone."
+    (xray-setup!)
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:first/event]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:second/event]))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event 1 :rf/default]))
+    (rf/with-frame :rf/xray
+      (let [marker  (newer-events-marker-in (dynamic-shell-tree/shell-view-tree))
+            handler (:on-click (second marker))]
+        (is (some? marker) "marker present before the click")
+        (is (fn? handler) "marker carries an :on-click")
+        (handler nil)))
+    (rf/with-frame :rf/xray
+      (let [focus @(rf/subscribe [:rf.xray/focus])]
+        (is (= :live (:mode focus)) "follow-head restores LIVE")
+        (is (false? (:paused? focus)) "and clears :paused?")
+        (is (true? (:head? focus)) "and snaps to head")
+        (is (nil? (newer-events-marker-in (dynamic-shell-tree/shell-view-tree)))
+            "marker is gone once following again")))))
+
+(deftest newer-events-count-comes-from-the-spine-not-the-rendered-vector
+  (testing "rf2-y8doi.30 — the count's domain is the SPINE's focusable
+            vector, never the filtered vector the list renders. Handed a
+            rendered vector holding ONLY the focused bundle (every newer
+            row filtered out by a pill / mute / view scope) the marker
+            still reports the two newer events the spine knows about."
+    (let [focused {:dispatch-id 1 :frame :rf/default :event [:first/event]}
+          spine   [focused
+                   {:dispatch-id 2 :frame :rf/default :event [:second/event]}
+                   {:dispatch-id 3 :frame :rf/default :event [:third/event]}]
+          tree    (shell/event-list-tree
+                    (fn [_ev])
+                    {:col-widths          {:source 52 :timestamp 60 :duration 52}
+                     :list-height-px      200
+                     :event-bundles       [focused]
+                     :spine-event-bundles spine
+                     :focus               {:dispatch-id 1 :frame :rf/default
+                                           :mode :retro :head? false}
+                     :show-ungrouped?     false
+                     :now-ms              0})
+          marker  (newer-events-marker-in tree)]
+      (is (some? (find-by-testid tree "rf-xray-event-row-1"))
+          "CONTROL — the one visible row rendered")
+      (is (nil? (find-by-testid tree "rf-xray-event-row-3"))
+          "CONTROL — the newer rows really are absent from the rendered vector")
+      (is (some? marker) "marker renders off the spine, not the rendered rows")
+      (is (str/includes? (text-nodes marker) "2 newer events")
+          "N is the spine's count, which index arithmetic over the
+           rendered vector would have read as zero"))))
+
+(deftest newer-events-marker-drops-the-digit-for-an-evicted-pin
+  (testing "rf2-y8doi.30 — a RETRO pin whose bundle has aged out of the
+            spine vector still paints the marker (the read IS stale) but
+            without a number, rather than with a wrong one."
+    (let [spine  [{:dispatch-id 8 :frame :rf/default :event [:eighth/event]}
+                  {:dispatch-id 9 :frame :rf/default :event [:ninth/event]}]
+          tree   (shell/event-list-tree
+                   (fn [_ev])
+                   {:col-widths          {:source 52 :timestamp 60 :duration 52}
+                    :list-height-px      200
+                    :event-bundles       spine
+                    :spine-event-bundles spine
+                    :focus               {:dispatch-id 1 :frame :rf/default
+                                          :mode :retro :head? false}
+                    :show-ungrouped?     false
+                    :now-ms              0})
+           marker (newer-events-marker-in tree)
+           text   (when marker (text-nodes marker))]
+      (is (some? marker) "an evicted pin still reports staleness")
+      (is (str/includes? text "newer events")
+          "the marker reads as a plural with no count")
+      (is (not (re-find #"\d" text))
+          "no digit is invented for a pin the spine vector cannot locate"))))
+
+(deftest newer-events-marker-absent-when-the-list-is-empty
+  (testing "rf2-y8doi.30 — the marker never rides the empty state."
+    (let [tree (shell/event-list-tree
+                 (fn [_ev])
+                 {:col-widths          {:source 52 :timestamp 60 :duration 52}
+                  :list-height-px      200
+                  :event-bundles       []
+                  :spine-event-bundles []
+                  :focus               {:dispatch-id 1 :frame :rf/default
+                                        :mode :retro :head? false}
+                  :show-ungrouped?     false
+                  :now-ms              0})]
+      (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
+          "CONTROL — the empty state renders")
+      (is (nil? (newer-events-marker-in tree))
+          "no marker beside `No events.`"))))
+
+;; -------------------------------------------------------------------------
 ;; (4b) Row density + minimal default-row rendering — rf2-htik0 Bug 2 +
 ;;      Round-3 rf2-cmtkw (replaces rf2-htik0 Bug 3 inline event-vector).
 ;;
