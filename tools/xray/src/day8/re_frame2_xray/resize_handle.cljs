@@ -56,8 +56,10 @@
   consumer asserting their own handle, and [[handle-view]] renders nil
   — no double-handle, the consumer wins. Detection happens at render
   time via `getComputedStyle` on the host element. The gate sits in the
-  BOUNDARY rather than in the [[Handle]] bridge on purpose: the bridge
-  is scaffolding that gets deleted, and this is shipped behaviour.
+  BOUNDARY rather than in the [[Handle]] bridge on purpose, and NOT
+  because the bridge is temporary — THE PAIR STAYS (rf2-lect, ruled
+  option 2). The probe is re-evaluated on every boundary render, and
+  [[Handle]] passes no props across the crossing at all.
 
   ## Drag mechanics (global pointer capture)
 

@@ -519,8 +519,13 @@
   ;; mounted as `[head props]` inside a Fresco body or through
   ;; `as-component` from outside, NEVER as a hiccup render fn in a
   ;; Reagent tree — which is what `render-panel!` builds. The bridge is
-  ;; Fresco's `as-component` door and is deleted with every other
-  ;; `*-bridge` when the shell itself becomes a Fresco tree.
+  ;; Fresco's `as-component` door, and NOT SCAFFOLDING — THE PAIR STAYS
+  ;; (rf2-lect, ruled option 2). The shell ALREADY became a Fresco tree:
+  ;; `mount.cljs` owns an `rf.fresco/client-root` and heads `shell.cljs`'s
+  ;; `ShellView`, itself an `rf.fresco/defview`. The bridge stayed anyway,
+  ;; because this mount never goes through the shell at all — its parent
+  ;; is `render-panel!`, which the next paragraph keeps ratom-family. The
+  ;; chain is `[:>]` -> `as-component` -> `resources/Panel`.
   ;;
   ;; `render-panel!` ITSELF is deliberately untouched: it is the single
   ;; chokepoint where the frame-provider and adapter/render couplings
