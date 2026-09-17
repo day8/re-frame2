@@ -2295,9 +2295,74 @@
   (testing ":rf.xray/epoch-recorded only writes when frame-id matches target-frame"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
+      ;; rf2-y8doi.20 — SELECT A TARGET FIRST. What this pins is the
+      ;; `frame-id ≠ target` drop, and since cold-start adoption landed a
+      ;; nil target no longer reaches that arm: an UNSELECTED slot adopts
+      ;; the recording frame instead (see the sibling test below). The
+      ;; assertion would not have gone red without this line — an
+      ;; unregistered frame's ring is `[]`, so `:epoch-history` stayed
+      ;; empty either way — it would simply have been exercising the
+      ;; adoption arm while its name claimed otherwise.
+      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/some-target])
       ;; A non-target frame-id is dropped — :epoch-history stays empty.
       ;; (We can't easily produce a real :rf/default epoch under
       ;; node-test without booting the epoch artefact, so we assert the
       ;; gate by passing a non-target frame and observing no write.)
       (rf/dispatch-sync [:rf.xray/epoch-recorded :rf/some-other-frame])
-      (is (= [] @(rf/subscribe [:rf.xray/epoch-history]))))))
+      (is (= [] @(rf/subscribe [:rf.xray/epoch-history])))
+      (is (= :rf/some-target @(rf/subscribe [:rf.xray/target-frame]))
+          "a non-target recording frame must not move the selected target"))))
+
+;; ---- rf2-y8doi.20 — cold-start adoption ---------------------------------
+;;
+;; Mount Xray BEFORE the host's first cascade — the preload's
+;; `boot-on-runtime-ready!`, or any app whose first dispatch is user-driven
+;; — and `spine/focusable-head-frame-id` has no pre-mount cascade to
+;; resolve, so the mount seed leaves `:target-frame` UNSELECTED. Pre-fix
+;; `:rf.xray/epoch-recorded` then compared every recording frame against
+;; nil and dropped it, so `:epoch-history` never filled: `compose-focus`
+;; yielded `:epoch-id nil` and the L4 Epoch panel rendered its no-focus
+;; line while the L2 list filled and auto-follow highlighted the head row.
+;; The user's first click repaired it (`reseed-epoch-history-for-frame`
+;; adopts out of the unselected state), which is why the symptom reads as
+;; "the panel is empty until you click something".
+
+(deftest epoch-recorded-adopts-the-recording-frame-when-target-unselected
+  (testing "rf2-y8doi.20 — an ingest onto an UNSELECTED target adopts the
+            frame that recorded, aligning `:target-frame` and
+            `[:focus :frame]` exactly as `:rf.xray/set-target-frame` does"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+          "precondition: the target starts UNSELECTED (EP-0002 rf2-bd4div)")
+      ;; Stub the framework ring so the adopted frame has something to
+      ;; seed from — the same seam `mount_cljs_test.cljs` drives for its
+      ;; pre-mount `:cart-frame` records.
+      (with-redefs [rf/epoch-history (fn [frame-id]
+                                       (if (= :above frame-id)
+                                         [{:epoch-id :e-above :frame :above}]
+                                         []))]
+        (rf/dispatch-sync [:rf.xray/epoch-recorded :above]))
+      (is (= :above @(rf/subscribe [:rf.xray/target-frame]))
+          "the frame that RECORDED is adopted — unique resolution from
+           observed evidence, NOT the `:rf/default` synthesis EP-0002 rules out")
+      (is (= [:e-above] (mapv :epoch-id @(rf/subscribe [:rf.xray/epoch-history])))
+          ":epoch-history fills from the adopted frame's ring — pre-fix it
+           stayed [] until the user clicked something")
+      (is (= :above (:frame @(rf/subscribe [:rf.xray/focus])))
+          "[:focus :frame] moves in lockstep (rf2-ulpp8), so the L2 frame
+           filter and `compose-focus`'s scoping agree with the slot"))))
+
+(deftest epoch-recorded-never-adopts-xrays-own-frame
+  (testing "rf2-y8doi.20 — the epoch listener is registered process-wide, so
+            `:rf/xray` records epochs like any other frame; at cold start,
+            with the host quiet, Xray's own chrome events are the likeliest
+            first settle of all. Adopting one would point the inspector at
+            itself, which is strictly worse than staying UNSELECTED."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/epoch-recorded :rf/xray])
+      (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+          "Xray's own frame is never adopted as the observed target")
+      (is (= [] @(rf/subscribe [:rf.xray/epoch-history]))
+          "and nothing is seeded off it"))))
