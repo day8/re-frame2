@@ -596,7 +596,7 @@ status note under the panel says which parts ship today:
 │   [:cart :order-id] (added: "ord-991")                                   │
 │ Retry policy:  :retry {:on #{:rf.http/transport :rf.http/http-5xx}      │
 │                        :max-attempts 3                                   │
-│                        :backoff {:initial 100 :max 5000}}                │
+│                        :backoff {:base-ms 100 :factor 2 :max-ms 5000}}   │
 │ Attempts (this call): 1 of 3                                             │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
