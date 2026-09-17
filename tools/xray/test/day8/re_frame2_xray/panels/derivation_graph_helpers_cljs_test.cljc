@@ -172,6 +172,56 @@
     (let [s (h/summarize :rf/redacted)]
       (is (true? (:redacted? s))))))
 
+(deftest y8doi25-summarize-bounds-the-serialisation-not-just-the-string
+  (testing "rf2-y8doi.25 — the Graph tab re-summarises every cached value-
+            bearing field on every coalesced tick, so the COST is the
+            serialisation, not the 80 characters kept from it. Truncating a
+            string after the fact buys nothing: `summarize` has to bound the
+            PRINT. Measured with a realisation counter, which only a bounded
+            print can leave low."
+    (let [realised (atom 0)
+          lazy     (map (fn [i] (swap! realised inc) i) (range 20000))
+          s        (h/summarize lazy)]
+      (is (= :seq (:type s)))
+      (is (<= (count (:preview s)) 81)
+          "the operator still gets the same bounded preview")
+      (is (< @realised 1000)
+          (str "realised " @realised
+               " of 20000 elements to keep 80 characters"))))
+
+  (testing "`:size` on an UNCOUNTED value is the same walk by another door —
+            `count` over a lazy seq realises the lot. A counted collection
+            keeps its size; an uncounted one reports none rather than pay for
+            one nobody asked for."
+    (let [realised (atom 0)
+          lazy     (map (fn [i] (swap! realised inc) i) (range 20000))
+          s        (h/summarize lazy)]
+      (is (nil? (:size s)))
+      (is (< @realised 1000)))
+    (is (= 3 (:size (h/summarize [1 2 3]))) "a vector still reports its size")
+    (is (= 2 (:size (h/summarize {:a 1 :b 2}))) "and so does a map")
+    (is (= 2 (:size (h/summarize #{:a :b})))    "and a set")
+    (is (= 2 (:size (h/summarize (list :a :b)))) "and a list"))
+
+  (testing "a deeply NESTED value is bounded by depth rather than walked to
+            the bottom — 400 levels of nesting print a `#` marker, not 400
+            brackets"
+    (let [deep (nth (iterate vector :leaf) 400)
+          s    (h/summarize deep)]
+      (is (= :vector (:type s)))
+      (is (<= (count (:preview s)) 81))
+      (is (re-find #"#" (:preview s))
+          "the depth marker, not 80 characters of opening brackets")))
+
+  (testing "bounding the print does not change what the operator sees — the
+            preview's kept characters are the ones the unbounded print gave"
+    (let [v (vec (range 1000))]
+      (is (= (subs (pr-str v) 0 80)
+             (subs (:preview (h/summarize v)) 0 80))))
+    (let [long-string (apply str (repeat 500 "x"))]
+      (is (= (subs (pr-str long-string) 0 80)
+             (subs (:preview (h/summarize long-string)) 0 80))))))
+
 (deftest summarize-node-attaches-summaries-leaves-structure
   (let [node {:id [:sub [:article/page "welcome"]] :kind :derivation
               :inputs [[:sub [:article/by-slug "welcome"]]]

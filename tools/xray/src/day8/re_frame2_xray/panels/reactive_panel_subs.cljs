@@ -82,7 +82,6 @@
          :dispatch-id     <id-of-focused-event-bundle>
          :has-event-bundle?    <bool>
          :triggered-by    <event-vec>
-         :seed-paths      [<path> ...]
          :subs-ran        [{:sub-id _ :value-changed? _ ...} ...]
          :views-rendered  [{:view-id _ ...} ...]      ; legacy count slot
          :level-1-subs    [{:sub-id _ :changed? _ :coord _ :readers [...]} ...]
@@ -632,17 +631,14 @@
   [record]
   (:event record))
 
-(defn- seed-paths
-  "Derive seed paths from the event-bundle `:db-before` → `:db-after` diff.
-  The handler set state and that mutation kicks the subs event-bundle. v1
-  surfaces the changed top-level paths the diff provides; deeper-path
-  resolution can ride a follow-on."
-  [record]
-  (let [diff (:rf/changed-paths record)]
-    (cond
-      (vector? diff) diff
-      (sequential? diff) (vec diff)
-      :else [])))
+;; rf2-y8doi.25 — `seed-paths` is REMOVED, and with it the `:seed-paths`
+;; slot on `:rf.xray/reactive-data`. It read `:rf/changed-paths` off the
+;; epoch record, and nothing anywhere stamps that key: at the time of
+;; removal the literal appeared exactly ONCE in the whole tracked tree —
+;; here, at the read. So the slot was an unconditional `[]`, and no view
+;; read it. The changed-path derivation that does exist is the App-DB tab's
+;; (`diff.engine/project` over the record's pre/post images); if the
+;; Reactive panel ever wants seed paths, that is where they come from.
 
 (defn install!
   []
@@ -678,7 +674,6 @@
                 :frame        (:frame focus)
                 :dispatch-id  (:dispatch-id focus)
                 :triggered-by (when record (triggered-by record))
-                :seed-paths   (when record (seed-paths record))
                 :show-unchanged?   (boolean (or panel-unchanged? config-unchanged?))
                 :has-event-bundle? (some? record)}))))
 
@@ -712,7 +707,6 @@
                 :frame             (:frame focus)
                 :dispatch-id       (:dispatch-id focus)
                 :triggered-by      (when record (triggered-by record))
-                :seed-paths        (when record (seed-paths record))
                 ;; The predecessor had no disclosure axes — hard-false.
                 :show-unchanged?   false
                 :has-event-bundle? (some? record)}))))

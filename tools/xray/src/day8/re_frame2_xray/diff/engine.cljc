@@ -732,11 +732,27 @@
                       acc (map-indexed vector data))
 
               :else acc)))
+        ;; rf2-y8doi.25 — ASK BEFORE WALKING. `check-uniform` promotes a
+        ;; container only when EVERY leaf under it carries `target-op`, so a
+        ;; `path-ops` holding no `:added` leaf anywhere cannot produce a
+        ;; single `:added` root however far the walk goes — and likewise for
+        ;; `:removed`. Answering that costs one pass over `path-ops`;
+        ;; skipping the walk saves a `collect-leaves` sweep of the whole
+        ;; subtree at EVERY container on that side, which is the quadratic
+        ;; part. The case that matters is the NO-OP EPOCH: an empty edit
+        ;; script (the ordinary shape once the on-box egress seam has
+        ;; rebuilt an unchanged value, so `project`'s own `identical?`
+        ;; short-circuit does not fire) walked every container of the whole
+        ;; db TWICE to conclude `#{}`. Spec 004 names 1–50 MB app-dbs as the
+        ;; single most-used Xray surface, and the App-DB tab follows head.
+        any-leaf-op?
+        (fn [target-op]
+          (boolean (some (fn [[_p {:keys [op]}]] (= op target-op)) path-ops)))
         added-roots
-        (when (container? after)
+        (when (and (container? after) (any-leaf-op? :added))
           (walk-containers after [] :added before #{}))
         removed-roots
-        (when (container? before)
+        (when (and (container? before) (any-leaf-op? :removed))
           (walk-containers before [] :removed after #{}))
         all-roots (into (or added-roots #{}) (or removed-roots #{}))
         ;; Elide deeper roots — when a path is wholly-changed AND its
@@ -756,16 +772,51 @@
     minimal))
 
 (defn- container-paths-from-leaves
-  "Given the set of leaf paths in path-ops, derive every ancestor
-  container path that carries a `:children` op. Returns a map
-  `{[path] {:op :children :change-count N}}` where N counts the number
-  of changed (non-`:same`) descendants directly + indirectly under this
-  path. Excludes the empty root path unless explicitly changed."
-  [path-ops]
-  (let [non-same-leaves
+  "Given the leaf ops in `path-ops` plus the off-path `vector-removals`
+  channel, derive every ancestor container path that carries a `:children`
+  op. Returns a map `{[path] {:op :children :change-count N}}` where N counts
+  the CHANGES hiding under this path, directly + indirectly. Excludes the
+  empty root path unless explicitly changed.
+
+  ## What counts as a change (rf2-y8doi.25)
+
+  Two of the inputs are deliberately not the obvious ones, and each was
+  wrong in a different direction.
+
+  - **`:same-shifted` is EXCLUDED.** A positional shift is not a change —
+    it is the SAME element at a new index, and the operator already reads
+    the move as the R6 `(was N)` suffix on the element itself. Counting it
+    again at every ancestor inflated the chip by the length of the vector's
+    tail: prepend one element to a 100-vector and the parent read `[100∆]`.
+    `flat-rows-from-path-ops` already drops `:same-shifted` for exactly this
+    reason; this is that same rule applied to the collapsed count.
+
+  - **`:vector-removals` is INCLUDED**, though no entry of it appears in
+    `path-ops` at all. A removed vector element has no stable after-path
+    (the survivors shift up to fill the gap — see `vector-removals-at`), so
+    it rides an off-path channel keyed by the PARENT path, and a count taken
+    over `path-ops` alone could not see it. A container whose only change
+    was a TAIL removal — which shifts nobody, so there is no `:same-shifted`
+    leaf to count by accident either — therefore showed NO collapsed signal
+    whatever: `[N∆]` absent and `op-at` reading `:same` on a vector that had
+    just lost an element.
+
+  Each removal counts ONCE at its vector parent and once at every ancestor
+  above it, which is what feeding its `[parent-path before-index]` through
+  the same `container-ancestors` walk produces — the synthetic leaf path is
+  never emitted, only walked."
+  [path-ops vector-removals]
+  (let [changed-leaves
         (->> path-ops
-             (remove (fn [[_p {:keys [op]}]] (= op :same)))
-             (map first))]
+             (remove (fn [[_p {:keys [op]}]]
+                       (or (= op :same) (= op :same-shifted))))
+             (map first))
+        removal-leaves
+        (mapcat (fn [[parent-path removals]]
+                  (map (fn [{:keys [before-index]}]
+                         (conj (vec parent-path) before-index))
+                       removals))
+                vector-removals)]
     (reduce
       (fn [acc leaf-path]
         (reduce
@@ -778,7 +829,7 @@
           acc
           (container-ancestors leaf-path)))
       {}
-      non-same-leaves)))
+      (concat changed-leaves removal-leaves))))
 
 (defn- compare-path
   "Total-order comparator for two path vectors that may carry MIXED
@@ -1099,7 +1150,7 @@
           ;; Step 5 — container-ancestor ops (:children) derived from the
           ;; final path-ops map.
           container-ops
-          (container-paths-from-leaves path-ops-with-shifts)
+          (container-paths-from-leaves path-ops-with-shifts vector-removals)
           ;; Step 6 — overlay wholly-changed roots, swapping their
           ;; `:children` op to `:added` / `:removed`.
           container-ops'

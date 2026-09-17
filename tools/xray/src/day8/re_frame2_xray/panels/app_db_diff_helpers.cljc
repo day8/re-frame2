@@ -308,7 +308,25 @@
   (rf2-tj6w9l) — the runtime subsystems no longer live in app-db (they
   moved to the runtime-db partition), so in practice a normal app-db has
   no reserved key to strip; the filter remains for any host that does
-  stash one. Pure data → map. nil-safe (nil db → empty map)."
+  stash one. Pure data → map. nil-safe (nil db → empty map).
+
+  ## Do NOT make this return `db` identical (rf2-y8doi.25)
+
+  It looks like free structural sharing — `db` is usually unchanged by the
+  filter, so returning it verbatim would preserve pointer identity and let
+  some downstream `identical?` memo fire. It buys nothing, because the value
+  reaching here has ALREADY been rebuilt. `app_db_diff_subs`'
+  `:rf.xray/app-db-state` projects every partition through
+  `local-render/local-render-value` first, and that walk (core's
+  `elide-wire-value`, via `rf/project-egress`) descends structurally and
+  reconstructs every map, vector and set it passes, even under a frame that
+  declares nothing — its `:else` arm is *descend*, never *return `v`*.
+  Measured at the seam: for a nested db the result is `=` and never
+  `identical?` — neither to the input nor to the result of the previous call
+  on the same value — while a scalar slot does ride through identical, so
+  the reading is the walk and not the instrument. Restoring identity here is
+  therefore a FRAMEWORK-SIDE change to the elision walker, not a change to
+  this function."
   [db]
   (into {} (remove (fn [[k _v]] (reserved-namespace-key? k))) (or db {})))
 

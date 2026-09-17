@@ -185,6 +185,40 @@
 
 (def ^:private preview-limit 80)
 
+(def ^:private preview-print-level
+  "`*print-level*` bound for the preview print. Every nesting level costs at
+  least one opening delimiter, so a value nested deeper than a handful of
+  levels cannot contribute anything readable inside `preview-limit`
+  characters; past this depth the printer writes `#` instead of descending."
+  10)
+
+(defn- bounded-pr-str
+  "`pr-str` with the BREADTH and DEPTH of the print walk bounded
+  (rf2-y8doi.25).
+
+  The Graph tab re-summarises every cached value-bearing field on every
+  coalesced tick, so the cost here is the SERIALISATION, not the 80
+  characters kept from it: printing a 50k-element sub value in full and then
+  calling `subs` on the result pays the whole price and throws almost all of
+  it away. Bounding the print is what removes the walk; truncating after the
+  fact removes nothing.
+
+  `*print-length*` is `preview-limit` itself rather than a smaller number,
+  so the kept characters are exactly the ones the unbounded print gave:
+  every printed element costs at least a separator plus one character, so 80
+  elements can never be exhausted inside an 80-character preview.
+
+  A long STRING is bounded on the way IN instead, because `*print-length*`
+  does not reach inside one — and `preview-limit` source characters always
+  print to at least `preview-limit` characters (escapes only lengthen), so
+  the preview is unchanged there too."
+  [v]
+  (binding [*print-length* preview-limit
+            *print-level*  preview-print-level]
+    (pr-str (if (and (string? v) (> (count v) preview-limit))
+              (subs v 0 preview-limit)
+              v))))
+
 (defn- value-type [v]
   (cond
     (map? v)        :map
@@ -198,22 +232,30 @@
 
 (defn summarize
   "A bounded, render-safe summary of `v` for ON-BOX display: `{:type :size
-  :preview :redacted?}`. `:size` is the element count for collections, nil
-  otherwise. `:preview` is the printed value truncated to `preview-limit`.
-  `:redacted?` flags the `:rf/redacted` sentinel (so a value that arrived
-  already redacted — e.g. a value the egress walk redacted, then fed back —
-  renders muted). Pure size/shape projection: it does NOT consult any
-  elision policy (that is `redact-graph-for-egress`'s job)."
+  :preview :redacted?}`. `:preview` is the `bounded-pr-str` print truncated
+  to `preview-limit`. `:redacted?` flags the `:rf/redacted` sentinel (so a
+  value that arrived already redacted — e.g. a value the egress walk
+  redacted, then fed back — renders muted). Pure size/shape projection: it
+  does NOT consult any elision policy (that is `redact-graph-for-egress`'s
+  job).
+
+  `:size` is the element count for a COUNTED collection (every vector, map,
+  set and list), and is ABSENT otherwise — notably for a lazy seq, where
+  `count` is a full realisation of the very walk `bounded-pr-str` exists to
+  avoid (rf2-y8doi.25). A sub body ending in `map` / `filter` returns one, so
+  this is the ordinary case rather than an exotic one, and an unknown size is
+  the honest answer: the alternative is to walk 50k elements per coalesced
+  tick to put a number beside an 80-character preview."
   [v]
   (let [redacted? (= :rf/redacted v)
-        printed   (pr-str v)
+        printed   (bounded-pr-str v)
         truncated (if (> (count printed) preview-limit)
                     (str (subs printed 0 preview-limit) "…")
                     printed)]
     (cond-> {:type      (value-type v)
              :preview   truncated
              :redacted? redacted?}
-      (coll? v) (assoc :size (count v)))))
+      (counted? v) (assoc :size (count v)))))
 
 ;; The value-bearing summary fields a LIVE node may carry (the `:value` /
 ;; `:params` / `:query` / `:state` summaries [Derivations.md] §Redaction
