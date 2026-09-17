@@ -249,13 +249,18 @@
   the old `(shell/shell-view opts)` call, and the substitution every
   existing row makes.
 
-  It reproduces `shell-view`'s TWO SIDE EFFECTS as well as its read,
-  because rows depend on both: `global-styles/install!` (idempotent, DOM
-  guarded) and the idempotent `:rf.xray/set-modal-positioning`
-  `dispatch-sync`, which is what makes `:modal-positioning :absolute`
-  reach the modals' own sub on this same pass. Same defaults as the
-  boundary, same explicit `{:frame frame-id}` on both, because
-  `shell-view` sits OUTSIDE its own frame-provider."
+  It reproduces `ShellView`'s TWO SIDE EFFECTS as well as its two reads
+  — the plain `shell-view` defn has neither, being the `as-element` +
+  `frame-provider` bridge that mounts the boundary. The effects are
+  `global-styles/install!` (idempotent, DOM guarded) and the
+  `when`-guarded `:rf.xray/set-modal-positioning` `dispatch-sync`, which
+  is what makes `:modal-positioning :absolute` reach the modals' own sub
+  on this same pass — the one rows here depend on.
+
+  Same defaults as the boundary, but the explicit `{:frame frame-id}` on
+  both reads and the write is THIS LANE'S OWN: the boundary names the
+  frame on its WRITE alone and takes both reads AMBIENTLY from the
+  frame-provider above it, which this lane does not have."
   ([] (shell-view-tree nil))
   ([{:keys [mode modal-positioning frame-id]
      :or   {mode :inline modal-positioning :fixed
