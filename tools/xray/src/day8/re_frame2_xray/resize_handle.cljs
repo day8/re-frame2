@@ -134,9 +134,13 @@
     one small file across two substrates for no gain\". This bead
     migrates the whole file, so the condition is met and the island is
     retired.
-  - [[Handle]] is a BRIDGE, because `shell.cljs`'s `shell-view-tree` is
-    still a Reagent tree and stays so until the epic's coupling (1) is
-    severed. `rf.fresco/as-component` is Fresco's own outward door; the
+  - [[Handle]] is a BRIDGE, and NOT because `shell.cljs`'s
+    `shell-view-tree` is still Reagent — it is a Fresco tree now, and it
+    CALLS `(resize-handle/Handle mode)` rather than heading it. The
+    bridge stays for the reason the next lines give: a Reagent parent
+    still heads it on purpose. (rf2-y8doi.30 — the superseded reason was
+    left standing above the reason that replaced it.)
+    `rf.fresco/as-component` is Fresco's own outward door; the
     component is declared once at top level, as its contract requires.
     NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
     `mount.cljs` owns a Fresco root and `shell-view` lowers to a

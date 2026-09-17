@@ -27,8 +27,9 @@
   boundary beside it, with `rf.fresco/sub` swapped for `rf/subscribe`
   (the node lane has no React render window and no collector extent) and
   nothing else changed. Where the boundary applies a fallback
-  ([[detail-panel-tree]]'s `(or … default-tab)`, [[event-list-tree]]'s
-  `now-ms`), so does this; where the DERIVATION lives in the shell's own
+  ([[event-list-tree]]'s `now-ms`), so does this — [[detail-panel-tree]]
+  applied one too until rf2-y8doi.30 deleted the dead constant behind it;
+  where the DERIVATION lives in the shell's own
   `*-tree` fn (`nav-boundary-state`, the `no-filters?` gate, the L2
   visibility filter), this passes the raw values through and lets the
   shipped fn do it.
@@ -128,6 +129,13 @@
      {:col-widths      @(rf/subscribe [:rf.xray/event-list-col-widths])
       :list-height-px  @(rf/subscribe [:rf.xray/events-list-height-px])
       :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
+      ;; rf2-y8doi.30 — the boundary reads the RAW spine vector beside
+      ;; the filtered one, because the newer-events marker's presence and
+      ;; count come from the vector `spine/compose-focus` derives `:head?`
+      ;; from, never from the filtered one the rows render. Omitting it
+      ;; here would hand `event-list-tree` a nil and make this lane render
+      ;; a marker the shipped boundary does not.
+      :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
       :focus           @(rf/subscribe [:rf.xray/focus])
       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
       :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
@@ -173,18 +181,20 @@
 
 (defn detail-panel-tree
   "The L4 detail panel's hiccup, read the way `shell/detail-panel` reads
-  it — the same `(or … default-tab)` fallback and the same
+  it — the raw `:rf.xray/selected-tab` value and the same
   `panel-registry/tab-by-id :dynamic` lookup.
 
-  `default-tab` is reached THROUGH ITS VAR because it is `^:private` in
-  `shell.cljs`, and deliberately: it is the Dynamic shell's own landing
-  constant (spec/018 §5 is normative on it) with no caller outside that
-  namespace, so reproducing the boundary's fallback here is not a reason
-  to widen a production surface. `static-shell/default-tab` is public
-  only because the Static tab-id family is read from `registry.cljs`."
+  NO `(or … default-tab)` FALLBACK, because the boundary applies none
+  since rf2-y8doi.30. `shell.cljs`'s private `default-tab` pinned
+  `:event`, which no `reg-l4-tab!` registers, and the sub it guarded is
+  total (`registry.cljs` reads `(get db :selected-tab :epoch)`) — so the
+  constant was both unreachable and wrong, and it was deleted along with
+  the `or`. This fn used to reach it through its var
+  (`@#'shell/default-tab`); that reach is what made the deletion visible
+  here. `static-shell/default-tab` is a DIFFERENT and still-live
+  constant (`:machines`), read by `static_shell_tree.cljs`."
   []
-  (let [selected (or @(rf/subscribe [:rf.xray/selected-tab])
-                     @#'shell/default-tab)]
+  (let [selected @(rf/subscribe [:rf.xray/selected-tab])]
     (shell/detail-panel-tree
       selected
       (panel-registry/tab-by-id :dynamic selected)

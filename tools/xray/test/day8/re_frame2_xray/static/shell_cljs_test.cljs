@@ -344,26 +344,23 @@
         (is (nil? (:border-left style))
             "Static ribbon root has no :border-left in its inline style")))))
 
-(deftest stripe-token-single-blue-accent-both-modes
-  (testing "mode-signal mechanism #2 — 2-px left-edge stripe is the
-            single :accent (GitHub blue) in BOTH modes (rf2-ad7zx.13:
-            the Figma export carries one accent, no per-mode colour
-            swap; the Dynamic/Static MODE stays functional but no longer
-            drives stripe colour)."
-    (is (= :accent (static-shell/stripe-token-for-mode :dynamic)))
-    (is (= :accent (static-shell/stripe-token-for-mode :static)))
-    ;; Unknown / nil values fall back to the same single accent
-    (is (= :accent (static-shell/stripe-token-for-mode :nonsense)))
-    (is (= :accent (static-shell/stripe-token-for-mode nil)))))
+;; rf2-y8doi.30 — `stripe-token-single-blue-accent-both-modes` was
+;; DELETED here along with the four `stripe-*` helpers it exercised. It
+;; pinned that both modes resolve to the same single `:accent`, which
+;; was true and is now moot: the ribbon paints no left-edge stripe at
+;; all, and the row above pins THAT.
 
 ;; -------------------------------------------------------------------------
 ;; (7) Mode dropdown — compact single-select (rf2-4vp5j reshape)
 ;; -------------------------------------------------------------------------
 ;;
 ;; rf2-4vp5j replaced the two-button radio pill with a compact `<select>`
-;; dropdown (mode is an occasional-use control; the accent stripe carries
-;; the mode signal). Both `<option>` testids + the `data-active-mode`
-;; attribute remain so the inventory + active-mode are assertable.
+;; dropdown — mode is an occasional-use control. (rf2-y8doi.30 struck the
+;; clause that said "the accent stripe carries the mode signal": no
+;; ribbon paints that stripe, so the dropdown's own `data-active-mode`
+;; and the chrome silhouette are what carry it.) Both `<option>` testids
+;; + the `data-active-mode` attribute remain so the inventory +
+;; active-mode are assertable.
 
 (deftest mode-dropdown-renders-both-options
   (testing "mode control is a single-select dropdown with Dynamic +

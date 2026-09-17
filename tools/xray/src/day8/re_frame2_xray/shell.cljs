@@ -188,6 +188,13 @@
             [day8.re-frame2-xray.settings.popup :as settings-popup]
             [day8.re-frame2-xray.views.edn-inspector-popup
              :as edn-inspector-popup]
+            ;; rf2-y8doi.30 — the L2 newer-events marker counts over the
+            ;; SPINE's own focusable vector (`focusable-event-bundles`),
+            ;; the very vector `spine/compose-focus` derives `:head?`
+            ;; from, so "newer" and "head" agree by construction. Reading
+            ;; the shipped fn rather than restating its predicate here is
+            ;; the whole point of the require.
+            [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.static.mode-pill :as mode-pill]
             [day8.re-frame2-xray.static.shell :as static-shell]
@@ -261,12 +268,17 @@
   []
   (panel-registry/tabs-for-mode :dynamic))
 
-(def ^:private default-tab
-  "Default landing tab for Dynamic mode per spec/018 §5 — the Event
-  lens. Registry-derived defaults (the first tab in `dynamic-tabs`)
-  would land here too, but pinning the keyword keeps the documented
-  default explicit (spec/018 §5 is normative on the landing tab)."
-  :event)
+;; rf2-y8doi.30 (.5#9) — `default-tab` was DELETED here, and it was dead
+;; rather than merely redundant. It pinned `:event`, and no `reg-l4-tab!`
+;; call in this tree registers an `:event` tab for `:dynamic` (the
+;; registered ids are `:epoch :app-db :views :trace :machines :routing
+;; :fresco :module-view :derivation-graph :resources`), so had the `or`
+;; below it ever fired, `panel-registry/tab-by-id` would have answered
+;; nil and the L4 slot would have rendered nothing. It could not fire:
+;; `:rf.xray/selected-tab` is total — `registry.cljs`'s reg-sub reads
+;; `(get db :selected-tab :epoch)` — so the fallback was unreachable as
+;; well as wrong. `static/shell.cljs` keeps its OWN public `default-tab`
+;; (`:machines`); that one is live and is read by `registry.cljs`.
 
 ;; ---- helpers (pure, exported for tests) ---------------------------------
 
@@ -1424,10 +1436,14 @@
   ribbon, `events-ribbon`); only the add(+) sits up here, matching the
   reference's chrome-ribbon (add) / events-ribbon (pills) split.
 
-  The 2-px left-edge accent stripe (rf2-o5f5f.1 mode-signal mechanism
-  #2 — the single GitHub-blue accent in both modes, rf2-ad7zx.13) stays
-  as the chrome-edge accent; the understated mode dropdown carries the
-  mode state via its active option + `data-active-mode`.
+  THERE IS NO LEFT-EDGE STRIPE. `rf2-o5f5f.1`'s mode-signal mechanism #2
+  — a 2-px `:accent` `border-left` on this ribbon's root — was removed by
+  rf2-4yemd on 2026-05-24 after Mike reported the blue left edge live as
+  spurious and absent from the Figma authority, and
+  `chrome-ribbon-has-no-left-edge-stripe` pins that absence. The
+  understated mode dropdown carries the Dynamic/Static state on its own,
+  via its active option + `data-active-mode`. (rf2-y8doi.30 — this
+  paragraph claimed the stripe `stays` for four months after it went.)
 
   ## rf2-k97c.3 — a FRESCO BOUNDARY, not an `rf/reg-view`
 
@@ -2216,9 +2232,90 @@
                                  :width (->px (:duration col-widths))})}
       "duration"]]))
 
+(defn newer-event-count
+  "Pure helper (rf2-y8doi.30). How many spine-focusable event-bundles sit
+  AFTER the focused one — the `N` the L2 newer-events marker reports.
+
+  ## Its DOMAIN is the spine's vector, and that is the whole point
+
+  Counted over `spine/focusable-event-bundles` under the same
+  `show-ungrouped?` opt-in and the same stored frame scope
+  `spine/compose-focus` walks, NEVER over the vector [[event-list-tree]]
+  renders. That vector is `:rf.xray/filtered-event-bundles` — the
+  view-scope frame, the ribbon's IN/OUT pills and the mutes have already
+  been applied to it (`filters.cljs`) — so index arithmetic over it can
+  read ZERO while newer events genuinely exist, and the pinned row can be
+  absent from it altogether. Counting where `compose-focus` counts is
+  what makes \"newer\" agree with \"head\" by construction, which
+  spec/018 §Spine binding requires of every head-aware selector.
+
+  Returns nil when the focused id is not in that vector — an evicted
+  RETRO pin. The marker then renders WITHOUT a number rather than with a
+  wrong one."
+  [event-bundles show-ungrouped? frame focused-id]
+  (let [focusable (cond->> (spine/focusable-event-bundles event-bundles show-ungrouped?)
+                    frame (filterv #(= frame (:frame %))))
+        idx       (first (keep-indexed (fn [i event-bundle]
+                                         (when (= focused-id (:dispatch-id event-bundle))
+                                           i))
+                                       focusable))]
+    (when idx
+      (- (count focusable) idx 1))))
+
+(defn newer-events-text
+  "The marker's copy. spec/018 §LIVE-tracking + sticky rules writes
+  `↓ N new events — press ⏭ to follow`; the chrome paints `»`
+  ([[ribbon-nav-cluster]]'s `rf-xray-nav-head`, title \"Fast-forward to
+  latest (G)\"), so the marker names the control the user can actually
+  see. Singular at one. A nil or zero count drops the digit rather than
+  printing a number the spine could not stand behind — see
+  [[newer-event-count]]."
+  [n]
+  (str "↓ "
+       (when (and n (pos? n)) (str n " "))
+       (if (= 1 n) "newer event" "newer events")
+       " — » to follow"))
+
+(defn- newer-events-marker
+  "The sticky one-line strip pinned to the bottom edge of the L2 scroll
+  box (spec/018 §LIVE-tracking + sticky rules, rows 2 and 3). Clicking it
+  dispatches `:rf.xray/follow-head`, the same event the `»` control and
+  the `G` / `l` keys fire.
+
+  INLINE STYLE ONLY, and deliberately: no theme rule, no new token, no
+  colour, no animation. The four dated removals this marker replaces
+  (rf2-g9pee's mode pill, rf2-pjjwh's gutter glyph + status stripe,
+  rf2-4yemd's 2-px left edge, rf2-2sez0's refused continuous pulse) all
+  removed chrome that painted while nothing was wrong. This paints ONLY
+  while the panel is reporting a stale epoch as current, and nothing at
+  all while the spine is following.
+
+  `dispatch` is the frame-aware dispatcher [[event-list-tree]] receives
+  (rf2-r0o63), so the write lands on the surrounding instance frame."
+  [n dispatch]
+  [:div {:data-testid "rf-xray-newer-events"
+         :role        "button"
+         :title       "Fast-forward to latest (G)"
+         :on-click    (fn [_e] (dispatch [:rf.xray/follow-head]))
+         :style       {:position    "sticky"
+                       :bottom      0
+                       :width       "100%"
+                       :box-sizing  "border-box"
+                       :cursor      "pointer"
+                       :padding     "2px 6px"
+                       :background  (:bg-2 tokens)
+                       :border-top  (str "1px solid " (:border-subtle tokens))
+                       :color       (:text-secondary tokens)
+                       :font-family sans-stack
+                       :font-size   (:body-tight type-scale)
+                       :white-space "nowrap"
+                       :overflow    "hidden"
+                       :text-overflow "ellipsis"}}
+   (newer-events-text n)])
+
 (defn event-list-tree
   "The L2 event list's WHOLE hiccup, as a pure function of the frame-bound
-  `dispatch` and the six values [[event-list]] reads.
+  `dispatch` and the seven values [[event-list]] reads.
 
   SPLIT OUT OF [[event-list]] BY rf2-k97c.3, for the reason every migrated
   view in this epic splits: a boundary's body may only run inside a React
@@ -2231,9 +2328,17 @@
 
   THE VISIBILITY FILTER LIVES HERE, not in the boundary, so the node
   lane's door reproduces the READS alone and there is no second copy of
-  the derivation to drift."
-  [dispatch {:keys [col-widths list-height-px event-bundles focus
-                    show-ungrouped? now-ms]}]
+  the derivation to drift.
+
+  TWO VECTORS ARRIVE, AND THEY ARE NOT INTERCHANGEABLE. `event-bundles`
+  is `:rf.xray/filtered-event-bundles` — what the user SEES, after the
+  view-scope frame, the ribbon pills and the mutes. `spine-event-bundles`
+  is raw `:rf.xray/event-bundles` — what the SPINE walks, and the vector
+  `spine/compose-focus` derives `:head?` from. Rows render from the
+  first; the newer-events marker's presence and count come from the
+  second (see [[newer-event-count]])."
+  [dispatch {:keys [col-widths list-height-px event-bundles spine-event-bundles
+                    focus show-ungrouped? now-ms]}]
   (let [focused-id    (:dispatch-id focus)
         ;; LIVE+head+not-paused = the auto-tracking branch from
         ;; spine/compose-focus. Only here do we want scroll-into-view
@@ -2242,6 +2347,21 @@
         auto-track?   (and (= :live (:mode focus))
                            (:head? focus)
                            (not (:paused? focus)))
+        ;; rf2-y8doi.30 — spec/018 §LIVE-tracking + sticky rules. The
+        ;; marker's presence is `(not (:head? focus))` and nothing else.
+        ;; That ONE predicate is exactly "following is suspended AND
+        ;; something newer exists": `spine/compose-focus`'s LIVE+unpaused
+        ;; branch resolves the effective id to the head record, so
+        ;; `:head?` is unconditionally true while the spine is tracking;
+        ;; it can only read false when a RETRO pin or a LIVE-paused pin
+        ;; has been overtaken. Paused-but-still-current therefore paints
+        ;; nothing, which is right — nothing is stale at that instant,
+        ;; and `»` has already lit (`nav-boundary-state`'s `live?`
+        ;; excludes paused).
+        stale-read?   (not (:head? focus))
+        newer-count   (when stale-read?
+                        (newer-event-count spine-event-bundles show-ungrouped?
+                                           (:frame focus) focused-id))
         event-bundles (filterv #(l2-event-bundle-visible? % show-ungrouped?) event-bundles)]
     [:div {:data-testid "rf-xray-event-list-wrap"
            :style {:display "flex" :flex-direction "column"}}
@@ -2300,7 +2420,14 @@
                              :auto-track?  auto-track?
                              :now-ms       now-ms
                              :col-widths   col-widths
-                             :dispatch-fn  dispatch})))))]]))
+                             :dispatch-fn  dispatch})))))
+      ;; rf2-y8doi.30 — LAST child of the scroll container so
+      ;; `position: sticky; bottom: 0` pins it to the box's bottom edge
+      ;; while the rows scroll under it. Never beside the empty state:
+      ;; with no rows there is nothing to be behind. It adds no height to
+      ;; `list-height-px` and does not scroll the list.
+      (when (and stale-read? (seq event-bundles))
+        (newer-events-marker newer-count dispatch))]]))
 
 (rf/reg-view event-list
   "L2 event list — per spec/018 §4 Event list. Single-line rows,
@@ -2362,8 +2489,13 @@
   thin read-and-call shape every migrated view has, [[event-list-tree]] is
   the pure fn, and the node lane's door already drives it.
 
-  [[dynamic-chrome]] therefore mounts it as a REAGENT ISLAND through
-  `as-child`, exactly as it does the L2/L3 seam handle.
+  [[dynamic-chrome]] therefore mounts it as the Dynamic chrome's ONE
+  remaining Reagent island, through `substrate/as-element`. Not
+  `as-child` — that parameter is gone from this file — and not the way
+  the L2/L3 seam handle is mounted either: `resize-handle/seam-handle-
+  view` is a boundary now and [[dynamic-chrome]] heads it directly
+  (rf2-k97c.3 retired that island). (rf2-y8doi.30 — this sentence named
+  a parameter and a sibling that had both moved on.)
 
   Per rf2-639lc the list filters out `:ungrouped` event-bundles (those
   with no `:event` vector — registry-time emits / frame lifecycle
@@ -2405,6 +2537,11 @@
      ;; The sub returns a clamped px value; default == 200 px.
      :list-height-px  @(rf/subscribe [:rf.xray/events-list-height-px])
      :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
+     ;; rf2-y8doi.30 — the RAW spine vector, beside the filtered one.
+     ;; The newer-events marker's presence and count are derived from
+     ;; this; the rows are rendered from the filtered vector above. The
+     ;; two must not be conflated — see [[newer-event-count]].
+     :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
      ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
      ;; events ribbon (`events-ribbon`); the L2 list no longer renders
      ;; the banner itself. The events ribbon is the always-present
@@ -2840,8 +2977,10 @@
   takes. [[dynamic-chrome]] mounts it with none, so it is destructured
   away."
   [_props]
-  (let [selected (or (rf.fresco/sub [:rf.xray/selected-tab])
-                     default-tab)]
+  ;; rf2-y8doi.30 (.5#9) — no `(or … default-tab)` fallback: the sub is
+  ;; total (`registry.cljs` reads `(get db :selected-tab :epoch)`), and
+  ;; the constant it fell back to named a tab nothing registers.
+  (let [selected (rf.fresco/sub [:rf.xray/selected-tab])]
     (detail-panel-tree selected
                        (panel-registry/tab-by-id :dynamic selected)
                        substrate/as-element)))
@@ -2908,9 +3047,15 @@
   `substrate/as-element` (the node lane's door passes `identity`, so
   it stays the fn-headed vector a hiccup walker expands):
 
-    * [[event-list]] — held back by a SHIPPED EMBED in a file another
-      worker was holding, not by anything about the view. Its own
-      docstring carries the measurement and the four-line recipe.
+    * [[event-list]] — the LAST one, and what holds it is now entirely
+      in this file. The caller-side half landed with rf2-k97c.3's second
+      alias funnel: [[event-list-bridge]] is the public bridge name and
+      `panels.cljs`'s `mount-event-spine!` already passes it, so the
+      shipped embed no longer waits on a file another worker holds.
+      What remains is the `rf/reg-view` → `rf.fresco/defview` swap and
+      the `@(rf/subscribe …)` → `rf.fresco/sub` swap; [[event-list]]'s
+      own docstring carries the recipe. (rf2-y8doi.30 — this bullet still
+      named the discharged blocker as the live one.)
 
   THE SEAM'S ISLAND IS RETIRED (rf2-k97c.3), and it was retired by the
   condition it was annotated with. It read: `resize_handle.cljs` also
@@ -3134,14 +3279,17 @@
     ;; `:rf.xray/static-mode?` feature gate was removed — Static
     ;; mode is unconditionally available.
     ;;
-    ;; rf2-k97c.3 — `surface-composer` is a Fresco BOUNDARY now, so
-    ;; this Reagent tree mounts it through the private
-    ;; `as-component` bridge above. A hiccup walk of `shell-view`
-    ;; therefore STOPS at the bridge's `[:>]` interop head; what this
-    ;; view owes is that the surface mounts, and the chrome's own
-    ;; composition is `test-helpers.dynamic-shell-tree`'s subject in
-    ;; the node lane and `shell_fresco_boundary_dom_cljs_test`'s in
-    ;; the browser.
+    ;; rf2-k97c.3 — `surface-composer` is a Fresco BOUNDARY and so is
+    ;; this tree's own head, [[ShellView]], which passes
+    ;; `[surface-composer {}]` in already-composed. The private
+    ;; `as-component` bridge that used to sit above is RETIRED (see the
+    ;; retired-bridge note further up), so nothing crosses out of Fresco
+    ;; and back in here and there is no `[:>]` head for a hiccup walk to
+    ;; stop at. What this view owes is that the surface mounts; the
+    ;; chrome's own composition is `test-helpers.dynamic-shell-tree`'s
+    ;; subject in the node lane and `shell_fresco_boundary_dom_cljs_test`'s
+    ;; in the browser. (rf2-y8doi.30 — this comment described the bridge
+    ;; the same slice deleted.)
     surface*
     ;; Command palette (rf2-wm7z4) — mounted at shell root so it
     ;; overlays the chrome. Modal short-circuits to nil when
