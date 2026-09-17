@@ -47,11 +47,12 @@
   canonical `frame_switcher/frame-switcher-view` (same contract as
   Dynamic's ribbon); mode toggles preserve the selection.
 
-  L2 is also a functional signal: its absence is one of the four
-  stacked mode-signal mechanisms (chrome silhouette) the parent epic
-  documents. Together with the cyan left-edge stripe, the mode-pill
-  state, and motion dampening, the user reads Static at a glance even
-  without looking at the pill.
+  L2 is also a functional signal: its absence is the chrome-silhouette
+  mode signal. Together with the mode dropdown's own active option
+  (`data-active-mode`) and Static's motion dampening, the user reads
+  Static at a glance. (rf2-y8doi.30 — this paragraph named a `cyan
+  left-edge stripe`; there has never been a cyan token, the 2-px stripe
+  itself is gone from both ribbons, and the `mode pill` is a `<select>`.)
 
   ## Tab inventory (5 sub-tabs)
 
@@ -124,24 +125,40 @@
   that one slice deleted FOUR islands — two here and two there — which
   is exactly why they were deferred rather than migrated piecemeal.
 
-  ## Mode-signal mechanism (4 stacked signals)
+  ## Mode-signal mechanism (2 signals — rf2-y8doi.30)
 
-  The parent epic locks four signals that telegraph Static state:
+  Two signals telegraph Static state, and they are the two that exist:
 
-    1. **Mode pill** at ribbon-left — mode-`accent` active segment,
-       200ms cross-fade. Owned by `static/mode_pill.cljs`. The pill
-       lives at ribbon-left in BOTH modes (it's the toggle, not the
-       indicator).
-    2. **2-px left-edge ribbon stripe** — the single `:accent` (GitHub
-       blue) in both modes (the Figma export carries one accent, no
-       per-mode colour swap). Owned by both shells via the explicit
-       `mode-stripe-colour` arg passed into the ribbon's outer div.
-    3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-
-       active pulse + 180ms tab fade. Static drops the continuous
-       pulses entirely; the 180ms tab fade collapses to 0ms (instant)
-       so cluster swaps land without motion.
-    4. **Chrome silhouette** — Dynamic is 4-layer; Static is 3-layer
+    1. **Mode selector** at ribbon-left — a compact `<select>` owned by
+       `static/mode_pill.cljs`, carrying the live value on
+       `data-active-mode`. It sits at ribbon-left in BOTH modes; it is
+       the toggle, not an indicator.
+    2. **Chrome silhouette** — Dynamic is 4-layer; Static is 3-layer
        (no L2 / no spine). The shape itself is a signal.
+
+  THE OTHER TWO THIS DOCSTRING USED TO LIST DO NOT EXIST, and each was
+  refused or removed rather than merely unbuilt:
+
+    - a **2-px left-edge ribbon stripe** \"owned by both shells via the
+      explicit `mode-stripe-colour` arg\" — there is no such arg
+      anywhere in the tree, and the stripe itself is gone: rf2-4yemd
+      removed it from the Dynamic ribbon on 2026-05-24 after Mike
+      reported the blue left edge live as absent from the Figma
+      authority (pinned by `chrome-ribbon-has-no-left-edge-stripe`), and
+      rf2-y8doi.30 removed the Static mirror of it from `ribbon-tree`
+      below (pinned by `static-ribbon-has-no-left-edge-stripe`);
+    - a **\"LIVE pulse + machine-active pulse\"** Dynamic ships. Neither
+      ships. No LIVE pulse was ever built — rf2-pjjwh removed the head
+      row's gutter glyph that would have carried one, and `pulse` occurs
+      in `shell.cljs` exactly once, in a comment — and Mike REFUSED the
+      continuous machine-active pulse (rf2-2sez0; see
+      `tools/xray/spec/021-Dynamic-Panel-Designs.md`). What Static
+      genuinely dampens is the 180ms L4 tab fade, which collapses to 0ms
+      so cluster swaps land without motion.
+
+  What tells the user the Dynamic spine is not following is the L2
+  newer-events marker (`shell.cljs`'s `newer-events-marker`), which
+  Static has no spine to need.
 
   ## Tab panels
 
@@ -207,45 +224,19 @@
   []
   (panel-registry/tab-ids-for-mode :static))
 
-;; ---- mode signal #2 — left-edge stripe colour ---------------------------
-
-(def dynamic-stripe-token
-  "Token-key for the Dynamic mode's 2-px left-edge ribbon stripe per
-  the parent-epic mode-signal mechanism (signal #2). Held as a token
-  KEY (not the resolved hex) so per-theme palette switching (light
-  theme) flows through naturally.
-
-  The Figma export carries a SINGLE accent (GitHub blue), so the
-  stripe paints `:accent` in BOTH modes — there is no per-mode accent
-  colour swap. The Dynamic/Static MODE drives motion/pulse, not stripe
-  colour."
-  :accent)
-
-(def static-stripe-token
-  "Token-key for the Static mode's 2-px left-edge ribbon stripe per
-  the parent-epic mode-signal mechanism (signal #2). The single
-  `:accent` (GitHub blue) — same as Dynamic; the Figma export has no
-  per-mode accent colour swap."
-  :accent)
-
-(defn stripe-token-for-mode
-  "Pure helper. Returns the token KEY (`:accent`) the L1 ribbon should
-  paint as its 2-px left-edge stripe for the given mode. Both modes
-  resolve to the single `:accent` (the Figma export's one blue
-  accent). JVM-portable so the test corpus can cover the round-trip
-  without a CLJS runtime."
-  [mode]
-  (case mode
-    :static  static-stripe-token
-    dynamic-stripe-token))
-
-(defn stripe-hex-for-mode
-  "Resolve the mode's stripe token through `tokens` to the rendered
-  hex. CLJS-side helper that closes over the current `tokens` (the
-  dark palette today; the light-theme path overlays via CSS custom
-  properties)."
-  [mode]
-  (get tokens (stripe-token-for-mode mode)))
+;; ---- left-edge stripe — REMOVED (rf2-y8doi.30) --------------------------
+;;
+;; `dynamic-stripe-token`, `static-stripe-token`, `stripe-token-for-mode`
+;; and `stripe-hex-for-mode` lived here, resolving the 2-px `:accent`
+;; `border-left` [[ribbon-tree]] painted on the Static ribbon root. Mike
+;; removed the IDENTICAL stripe from the Dynamic ribbon on sight
+;; (rf2-4yemd, 2026-05-24 — "not in the Figma authority"), and this
+;; ribbon mirrors that one, so the two surfaces disagreed about a signal
+;; that signalled nothing: both helpers already answered the same single
+;; `:accent` in both modes after rf2-ad7zx.13 collapsed the palette to
+;; one accent. `static-ribbon-has-no-left-edge-stripe` is the Static
+;; mirror of `chrome-ribbon-has-no-left-edge-stripe` and pins the
+;; absence. No caller outside this file read any of the four.
 
 ;; ---- L1 ribbon (Static) -------------------------------------------------
 
@@ -318,8 +309,11 @@
                  :height           (:top-strip-height layout)
                  :padding          "0 12px"
                  :background       (:bg-1 tokens)
+                 ;; rf2-y8doi.30 — NO `:border-left`. The 2-px accent
+                 ;; stripe that rode here was the mirror of the Dynamic
+                 ;; ribbon's, which rf2-4yemd removed; see the
+                 ;; removed-stripe note above.
                  :border-bottom    (str "1px solid " (:border-subtle tokens))
-                 :border-left      (str "2px solid " (stripe-hex-for-mode :static))
                  :font-family      sans-stack
                  :font-size        (:body type-scale)}}
    ;; LEFT cluster — scope selectors (Frame + Dynamic/Static), mirroring
@@ -344,12 +338,11 @@
 
 (rf.fresco/defview ribbon
   "L1 ribbon — 56px chrome, Static-flavoured, and a FRESCO BOUNDARY
-  (rf2-k97c.3) rather than an `rf/reg-view`. Per the parent-epic
-  mode-signal mechanism the ribbon paints a 2-px left-edge stripe in
-  the single `:accent` (GitHub blue), same in both modes. Mode pill
-  sits at ribbon-left; the L1 frame-switcher sits between mode-pill and
-  the right-icons cluster; right-icons (Settings · Close) sit at
-  ribbon-right.
+  (rf2-k97c.3) rather than an `rf/reg-view`. It paints NO left-edge
+  stripe (rf2-y8doi.30, mirroring rf2-4yemd on the Dynamic ribbon — see
+  the removed-stripe note above). Mode selector sits at ribbon-left; the
+  L1 frame-switcher sits between it and the right-icons cluster;
+  right-icons (Settings · Close) sit at ribbon-right.
 
   The frame picker is MODE-INDEPENDENT — Static is also frame-scoped
   (registrations — events · subs · machines · routes · schemas · flows

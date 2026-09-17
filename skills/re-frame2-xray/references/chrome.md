@@ -58,11 +58,22 @@ Spec [`007-UX-IA.md` §Frame slot contract](https://github.com/day8/re-frame2/bl
 ## LIVE vs RETRO spine
 
 The L2 spine live-tails new events at the head (**LIVE**) until you pick a
-historical event or pause, which drops to **RETRO** (inspecting a past
-epoch). `Space` pauses/resumes LIVE; `l` (unshifted) snaps back to LIVE. There is **no
-mode pill and no animated head-row cue** — LIVE vs RETRO is conveyed by the
-`[◀ ▶ ⏭]` nav cluster plus the focused-row state (a background wash + a
-leading `>` caret on the focused row, which in LIVE tracks the head). Spec
+historical event, which drops to **RETRO** (inspecting a past epoch).
+**Pausing is a third state, not RETRO**: `Space` sets `:paused?` and leaves
+`:mode` on `:live`, pinning the shown dispatch and its epoch while the buffer
+keeps collecting. `Space` again resumes; `l` (unshifted) snaps back to LIVE
+from either. There is **no mode pill and no animated head-row cue** — LIVE vs
+RETRO is conveyed by the `[◀ ▶ ⏭]` nav cluster plus the focused-row state (a
+background wash + a leading `>` caret on the focused row, which in LIVE tracks
+the head).
+
+When the focused row is **not** the newest one — a RETRO pin, or a paused LIVE
+spine that newer events have overtaken — the L2 list pins a sticky
+`↓ N newer events — » to follow` marker to its bottom edge, where N counts the
+events newer than the focused one. Clicking it follows head, exactly as `»` and
+`G` do. Nothing is painted while the spine is following, or while a paused
+spine is still current, so the marker's presence *is* the signal that a panel
+is reporting a stale epoch as current. Spec
 [`007-UX-IA.md` §L1](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md).
 
 ## Time-travel: passive inspect vs explicit rewind
