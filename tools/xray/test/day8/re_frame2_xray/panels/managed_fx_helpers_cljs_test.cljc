@@ -83,12 +83,25 @@
 ;; ---- (2a) HTTP adapter on success --------------------------------------
 
 ;; The record is narrowed to ISSUANCE (rf2-y8doi.18, ruled B corrected).
-;; Nothing the runtime emits AFTER issuance can reach the issuing event-bundle:
-;; `:rf.http/replied`, the retries, the aborts and the stale-suppressions all
+;; Almost nothing the runtime emits AFTER issuance can reach the issuing
+;; event-bundle: `:rf.http/replied`, the retries and the stale-suppressions all
 ;; fire from a transport callback with no `*handler-scope*` (so the grouper
-;; files them under `[nil :ungrouped]`) or inside a DIFFERENT run's drain. The
-;; one exception is a SYNCHRONOUS request-body-prep failure, which runs inside
-;; the fx handler's own stack and so lands in this bundle.
+;; files them under `[nil :ungrouped]`) or inside a DIFFERENT run's drain.
+;;
+;; TWO things do land here, and both run inside the issuing fx handler's own
+;; stack, so `emit-error!` stamps them with the issuing bundle's dispatch-id:
+;;
+;;   1. a SYNCHRONOUS request-body-prep failure (`:rf.http/transport`,
+;;      `:stage :request-prep`) — this attempt's own outcome;
+;;   2. the `:rf.http/aborted` the issuance itself FIRES at the attempt it
+;;      replaces. `managed-handler` calls `registry/supersede!` synchronously
+;;      while issuing, and that fires the OLD handle's abort-fn — so the row
+;;      is about a DIFFERENT attempt and carries the SAME `:request-id`
+;;      (rf2-n3sx9).
+;;
+;; A cancellation can also arrive from a non-HTTP effect in the same drain (an
+;; actor destroy walking its in-flight handles), naming a request this bundle
+;; never issued. `http-row-for-this-record?` owns both exclusions.
 
 (defn- http-failure-ev
   "A producer-shaped synchronous body-prep failure row.
@@ -111,6 +124,52 @@
                 :url        "/api/x"
                 :recovery   :no-recovery
                 :message    "boom-thunk"}}))
+
+(defn- http-aborted-ev
+  "A producer-shaped `:rf.http/aborted` row.
+
+  Derived from the producer, not by hand: `re-frame.http.transport`'s
+  `dispatch-aborted!` builds the failure through `self-identify` (`:request`
+  / `:request-id` / `:attempt` / `:work/id`), adds `:url` and `:recovery`,
+  redacts it, and emits `(rf.trace/emit-error! :rf.http/aborted redacted)`.
+  So the OPERATION is `:rf.http/aborted`, `emit-error!` stamps
+  `:op-type :error` and merges `:category`, `:recovery` is hoisted out of
+  `:tags` to the top level by `build-event`, and the `reason` the abort-fn
+  was called with rides in the tags — which is the only thing that tells a
+  superseded attempt's abort from this attempt's own."
+  ([request-id reason] (http-aborted-ev request-id reason 1000))
+  ([request-id reason t]
+   {:operation :rf.http/aborted
+    :op-type   :error
+    :id        (rand-int 1000000)
+    :time      t
+    :recovery  :no-recovery
+    :tags      {:category   :rf.http/aborted
+                :kind       :rf.http/aborted
+                :reason     reason
+                :actor-id   nil
+                :request    {:method :get :url "/api/search"}
+                :request-id request-id
+                :attempt    1
+                :work/id    [:rf.work/http request-id 1 1]
+                :url        "/api/search"}}))
+
+(defn- http-actor-destroy-aborted-ev
+  "A producer-shaped `:rf.http/aborted-on-actor-destroy` row.
+
+  `re-frame.http.registry`'s `abort-in-flight-on-actor-destroyed!` emits it
+  with `(rf.trace/emit! :info …)` over `{:request-id :actor-id :url}` as the
+  DESTROYING drain walks the destroyed actor's in-flight handles. When the
+  destroy and an unrelated issuance ride the same event's `:fx` vector, the
+  row lands in the issuing bundle naming a request this bundle never issued."
+  [request-id]
+  {:operation :rf.http/aborted-on-actor-destroy
+   :op-type   :info
+   :id        (rand-int 1000000)
+   :time      1000
+   :tags      {:request-id request-id
+               :actor-id   :chat/panel
+               :url        "/api/messages"}})
 
 (deftest http-adapter-success-record
   (testing "The issuing event-bundle can only see that the request was ISSUED —
@@ -200,15 +259,110 @@
                                               {:sole-http-fx? false})))
           "one of several HTTP effects, no id to match on → not attributable"))))
 
+(deftest http-record-is-not-reddened-by-the-supersede-it-fired
+  (testing "REGRESSION rf2-n3sx9 — a replacement request must not inherit the
+            abort IT fired at the attempt it replaced. The whole chain is
+            synchronous and runs inside the NEW request's own issuing fx
+            handler: `managed-handler` calls `registry/supersede!` while
+            issuing, `supersede!` calls the OLD handle's abort-fn with
+            `:request-id-superseded`, and that reaches `dispatch-aborted!`,
+            which emits `:rf.http/aborted` through `emit-error!`. `emit-error!`
+            takes its dispatch-id from the dynamic `*handler-scope*`, and the
+            scope on the stack is the issuing fx handler's — so the row lands
+            in THIS bundle carrying the SAME `:request-id`, because sharing the
+            request-id is what supersession IS. Ordinary debounce / typeahead
+            behaviour produces this on every keystroke after the first."
+    (let [bundle {:dispatch-id 7
+                  :frame   :rf/default
+                  :effects [(fx-handled :rf.http/managed
+                                        {:request    {:method :get :url "/api/search?q=re-frame"}
+                                         :request-id :search
+                                         :on-success [:search/loaded]})]
+                  :other   [(http-aborted-ev :search :request-id-superseded)]}
+          rec    (first (h/event-bundle->managed-fx-records bundle))]
+      (is (= :issued (:status rec))
+          "the healthy replacement reads ISSUED, not ERROR")
+      (is (nil? (:cancel-cause rec))
+          "the superseded attempt's cancellation is not this record's")
+      (is (nil? (:failure rec)))))
+
+  (testing "CONTROL — the SAME row shape with a reason that IS this attempt's
+            still reddens the record. Without it, the row above could be passing
+            because the fixture never reached the collector at all. On CLJS an
+            already-aborted external `:abort-signal` fires this request's own
+            abort-fn synchronously inside `run-attempt!`
+            (`transport-cljs/bind-external-abort!` fires `cancel!` immediately
+            when `.-aborted` is already true), so a `:user` abort naming this
+            record's `:request-id` is a genuine same-attempt outcome and is
+            kept. Only the REASON separates the two."
+    (let [bundle {:dispatch-id 7
+                  :frame   :rf/default
+                  :effects [(fx-handled :rf.http/managed
+                                        {:request    {:method :get :url "/api/search?q=re-frame"}
+                                         :request-id :search
+                                         :on-success [:search/loaded]})]
+                  :other   [(http-aborted-ev :search :user)]}
+          rec    (first (h/event-bundle->managed-fx-records bundle))]
+      (is (= :error (:status rec))
+          "a same-attempt cancellation still reddens")
+      (is (= :user (:cancel-cause rec))))))
+
+(deftest anonymous-http-record-ignores-a-strangers-cancellation
+  (testing "REGRESSION rf2-n3sx9 — `:request-id` is OPTIONAL per Spec 014, and a
+            record without one falls back to arithmetic: sole HTTP effect in the
+            bundle, so an HTTP row here can have come from nothing else. That
+            reasoning holds for a body-prep FAILURE, which only this bundle's own
+            HTTP effects can produce. It does NOT hold for a CANCELLATION: an
+            abort terminates a request that was ALREADY in flight — issued in an
+            earlier bundle — and the thing that fires it need not be an HTTP
+            effect at all. Here the same drain destroys an actor, and
+            `registry/abort-in-flight-on-actor-destroyed!` emits the row for a
+            STRANGER's request while the bundle's only HTTP effect is an
+            anonymous issuance."
+    (let [bundle  {:dispatch-id 7
+                   :frame   :rf/default
+                   :effects [(fx-handled :rf.machine/destroy
+                                         {:machine-id :chat/panel :fixed-actor-id :m-001})
+                             (fx-handled :rf.http/managed
+                                         {:request {:method :get :url "/api/ping"}})]
+                   :other   [(http-actor-destroy-aborted-ev :messages/poll)]}
+          records (h/event-bundle->managed-fx-records bundle)
+          rec     (first (filterv #(= :http (:surface %)) records))]
+      (is (= 2 (count records))
+          "the walker sees both effects — the fixture is not degenerate")
+      (is (= :issued (:status rec))
+          "the anonymous issuance reads ISSUED, not ERROR")
+      (is (nil? (:cancel-cause rec))
+          "a stranger's cancellation is not this record's")))
+
+  (testing "CONTROL — the arithmetic branch still attributes a row this bundle's
+            own HTTP effects could have produced. Same bundle shape, but the
+            surface row is the anonymous body-prep failure, which reddens."
+    (let [bundle  {:dispatch-id 7
+                   :frame   :rf/default
+                   :effects [(fx-handled :rf.machine/destroy
+                                         {:machine-id :chat/panel :fixed-actor-id :m-001})
+                             (fx-handled :rf.http/managed
+                                         {:request {:method :get :url "/api/ping"}})]
+                   :other   [(http-failure-ev nil)]}
+          records (h/event-bundle->managed-fx-records bundle)
+          rec     (first (filterv #(= :http (:surface %)) records))]
+      (is (= :error (:status rec))
+          "sole HTTP effect, both ids nil → still attributable")
+      (is (= :rf.http/transport (-> rec :failure :kind))))))
+
 ;; `http-adapter-aborted-record` and `http-adapter-synthesised-wire-timing` were
-;; DELETED here (rf2-y8doi.18). Both injected a shape the runtime never produces
-;; in the issuing bundle:
+;; DELETED here (rf2-y8doi.18). Both injected a shape that does not belong to
+;; the record the issuing bundle can build:
 ;;
 ;;   - `:rf.http/aborted-on-actor-destroy` is emitted inside the DESTROYING
-;;     run's drain (`re-frame.http.registry`), never the issuing one, so it can
-;;     only ever reach a different bundle. `surface-events->cancel-cause` itself
-;;     is KEPT and still pinned below — it is harmless, and the deferred
-;;     cross-buffer join (rf2-6ooch) reuses it.
+;;     run's drain (`re-frame.http.registry`). It reaches the issuing bundle
+;;     only when the destroy rides the SAME event's `:fx` vector, and then it
+;;     names a request this bundle never issued — see the anonymous-record row
+;;     above. `surface-events->cancel-cause` itself is KEPT and still pinned
+;;     below — the deferred cross-buffer join (rf2-6ooch) reuses it, and
+;;     `http-row-for-this-record?` now reads it to decide which rows are
+;;     cancellations at all.
 ;;   - the wire-timing fixture injected the PHANTOM `:rf.http/handled` as a
 ;;     surface event. HTTP `:wire` is now nil by construction: the only in-bundle
 ;;     HTTP row is the sync failure above, and `:rf.fx/handled` is emitted AFTER
