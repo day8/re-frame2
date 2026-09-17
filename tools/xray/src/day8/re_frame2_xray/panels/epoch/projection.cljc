@@ -654,57 +654,76 @@
                {:fx-id (first entry) :value (second entry)}))
         :else []))))
 
-;; ---- EP-0001 closed effect-map shape -----------------------------------
+;; ---- the handler's `:fx` vector (rf2-m2ye2) ----------------------------
 ;;
-;; Under EP-0001 the handler's returned effect map is the closed
-;; `{:db :fx :rf.db/runtime}` shape — three reserved keys, two of which
-;; are STATE effects that write a frame-state partition atomically:
+;; `:rf.event/fx` on the `:rf.fx/do-fx` marker carries the fx VECTOR, not
+;; the effects map: `re-frame.fx/do-fx` stamps `(:fx effects)`
+;; (`implementation/core/src/re_frame/fx.cljc`). Measured live on the JVM —
+;; a handler returning `{:db {:n 1} :fx [[:probe/noop 1]]}` put
+;; `[[:probe/noop 1]]`, a PersistentVector, in that slot.
 ;;
-;;   :db            — the app-db partition write (→ `:rf.db/app`). Has its
-;;                    own dedicated rendering (`db-effect-row`).
-;;   :rf.db/runtime — the runtime-db partition write (→ `:rf.db/runtime`).
-;;                    A FIRST-CLASS state effect (`runtime-db-effect-row`),
-;;                    NOT an `:other-effects` key (rf2-ff9b0d).
-;;   :fx            — the canonical fx vector-of-vectors.
+;; The pre-rf2-m2ye2 reader (`effects-decomp`) guarded on `(map? fx)`, so it
+;; returned nil for every real cascade — the HANDLER body's `:fx`
+;; sub-section never rendered against the live substrate. It read GREEN
+;; because every synthetic fixture passed a MAP: the fixture-versus-producer
+;; drift rf2-y8doi.10 finding 1 names, and a shape the runtime never emits.
 ;;
-;; Any top-level key BEYOND these three is `:other` — the runtime drops it
-;; silently, so it renders as a `:skipped` diagnostic.
-(def ^:private closed-effect-keys
-  "The reserved closed-effect-map keys the runtime reads (EP-0001 ·
-  Conventions §Reserved effect keys). `:db` + `:rf.db/runtime` are the two
-  STATE effects (partition writes), `:fx` the canonical fx vector. A
-  top-level key outside this set is dropped by the runtime → `:other`."
-  #{:db :fx :rf.db/runtime})
+;; ## Why the `other` half is DELETED rather than repaired
+;;
+;; That reader also produced `:other-effects` — the return map MINUS a
+;; hand-copied 3-key closed set — which `other-effect-rows` rendered as
+;; ":skipped, an effect the runtime ignored". Its TRUE-POSITIVE POPULATION
+;; IS EMPTY. Both directions measured live against the router:
+;;
+;;   - A LEGAL classification return (`{:db … :sensitive [[:creds :password]]
+;;     :fx [[…]]}`) COMMITS, emits do-fx, and the framework applies the
+;;     declaration (the frame's `:sensitive-declarations` gained the path).
+;;     Yet `(apply dissoc effects #{:db :fx :rf.db/runtime})` yields
+;;     `{:sensitive …}` — reported to the operator as an ignored effect. A
+;;     FALSE ACCUSATION against correct framework behaviour, and the 3-vs-7
+;;     drift against `re-frame.events/closed-effect-map-keys` IS that
+;;     accusation: the four EP-0025 commit-plane keys are legal and absent
+;;     from the copy.
+;;
+;;   - A genuinely FOREIGN top-level key (`{:db … :legacy/persist {…}}`) —
+;;     the population the diagnostic was WRITTEN for — is REFUSED pre-commit
+;;     since rf2-04tx. Its ops run `:rf.event/dispatched → :rf.event/run-start
+;;     → :rf.event/db-pending → :rf.error/effect-map-shape →
+;;     :rf.event/run-end`: NO `:rf.fx/do-fx` at all, nothing committed. So it
+;;     never reaches a do-fx reader however that reader is repaired.
+;;
+;; The two together leave nothing the diagnostic can truthfully report. The
+;; refusal it was meant to surface IS surfaced, in band and by the framework:
+;; `attach-unclassified-errors` routes `:rf.error/effect-map-shape` onto the
+;; SIDE EFFECTS step. And nothing here hand-copies the framework's closed
+;; effect-key set any more — the authority is
+;; `re-frame.events/closed-effect-map-keys` (seven keys: `:db`,
+;; `:rf.db/runtime`, `:fx` plus the four EP-0025 classification effects), and
+;; a copy of it that nothing keeps in step is exactly what went wrong here.
 
-(defn- effects-decomp
-  "Decompose the handler's returned effects map into the sections the
-  HANDLER body renders per Mike pair-debug 2026-05-27 + EP-0001
-  (rf2-ff9b0d):
+(defn- handler-fx-vec
+  "The canonical `:fx` vector-of-vectors the handler returned, read off the
+  `:rf.fx/do-fx` marker's `:rf.event/fx` tag — `[[:dispatch [:foo]]
+  [:http/get {…}]]`. nil when no `:rf.fx/do-fx` fired (a handler that
+  returned no `:fx`, a cascade that aborted before do-fx, or one the router
+  refused pre-commit).
 
-    {:fx-vec        — the canonical :fx vector-of-vectors when
-                       present (`[[:dispatch [:foo]] [:http/get {...}]]`)
-     :other-effects — the effects map MINUS the closed-effect set
-                       `{:db :fx :rf.db/runtime}` (carries legacy
-                       top-level fx-ids like :dispatch, :http/get,
-                       :navigate when used directly on the return map
-                       rather than under :fx — runtime drops these)}
+  TWO CARRIERS, one answer — the same pair `fx-entries` above accepts:
 
-  The `:db` is NOT included here — it has its own dedicated rendering via
-  `handler-db-diff-block` (with the [diff][full][full+diff] toggle).
-  `:rf.db/runtime` is likewise EXCLUDED from `:other-effects` — it is a
-  legal closed-effect key (the runtime-db partition write), rendered as a
-  first-class SIDE EFFECTS row (`runtime-db-effect-row`), never as a
-  dropped/`:skipped` `other` key (rf2-ff9b0d). The view conditions each
-  section's render on its slot being non-empty.
+    - VECTOR — the PRODUCER shape, and the only one the live substrate ever
+      emits (`re-frame.fx/do-fx` stamps `(:fx effects)`).
+    - MAP — a whole-effects-map carrier some synthetic fixtures stamp
+      (`{:db … :fx [[…]]}`), whose `:fx` slot is the same vector. The runtime
+      never produces this, so a MAP here means a fixture, not a cascade.
 
-  Returns nil when no `:rf.fx/do-fx` fired (a reg-event with no `:fx`
-  effects, or the cascade aborted before do-fx)."
+  The view renders this as the HANDLER body's `:fx` sub-section, `seq`-
+  conditioned, so nil and empty both render nothing."
   [events]
   (when-let [do-fx (find-op events :rf.fx/do-fx)]
     (let [fx (common/tag-of do-fx :rf.event/fx)]
-      (when (map? fx)
-        {:fx-vec        (:fx fx)
-         :other-effects (not-empty (apply dissoc fx closed-effect-keys))}))))
+      (cond
+        (sequential? fx) (vec fx)
+        (map? fx)        (:fx fx)))))
 
 ;; rf2-bhxtr — the 4 legacy category-grouped machine builders
 ;; (`machine-lifecycle-rows` / `machine-transition-row` / `machine-guard-rows`
@@ -1819,7 +1838,6 @@
                         (:rf.event/duration-ms run-end)
                         (some-> db-changed :tags :duration-ms)
                         (some-> do-fx :tags :duration-ms))
-        decomp      (effects-decomp events)
         ;; rf2-4wywy / rf2-48oc4 — the HANDLER step's `:db` must reflect
         ;; ONLY the handler's own contribution (post-handler, PRE-flow),
         ;; never the final post-flow state. `db-post-handler` is the
@@ -1855,16 +1873,21 @@
                      ;; :fx — legacy flat-entries slot (kept for non-view
                      ;; consumers; tests + pre-rf2-p2zy0 callers).
                      :fx             (or (fx-entries events) [])
-                     ;; rf2-p2zy0 — new HANDLER-body sections:
-                     ;; `:fx-vec` is the canonical :fx vector-of-vectors
-                     ;; off the handler's return map; `:other-effects`
-                     ;; is the same map MINUS :db and :fx (carries
-                     ;; legacy top-level fx-ids like :dispatch / :http/get
-                     ;; / :navigate when used directly on the return
-                     ;; map). Either or both may be nil; view conditions
-                     ;; the render on `seq`.
-                     :fx-vec         (:fx-vec decomp)
-                     :other-effects  (:other-effects decomp)}]
+                     ;; rf2-p2zy0 — the HANDLER body's `:fx`
+                     ;; sub-section: the canonical :fx
+                     ;; vector-of-vectors the handler returned, read
+                     ;; off the tag the producer actually stamps
+                     ;; (rf2-m2ye2 — see `handler-fx-vec`). nil when
+                     ;; the handler returned no `:fx`; the view
+                     ;; conditions the render on `seq`.
+                     ;;
+                     ;; The `:other-effects` slot that used to sit
+                     ;; beside this one is GONE (rf2-m2ye2): a
+                     ;; top-level key outside the framework's closed
+                     ;; effect-map set is refused pre-commit and never
+                     ;; reaches do-fx, and every key INSIDE it is
+                     ;; legal, so the slot had no truthful population.
+                     :fx-vec         (handler-fx-vec events)}]
     (cond-> base
       (= :reg-machine flavour)
       (assoc :machine
@@ -1931,16 +1954,15 @@
 ;;            cascade rolled back. Shown whenever a `:db` commit was
 ;;            attempted — INCLUDING a plain reg-event that returns only
 ;;            `:db` (no `:fx`); ABSENT when the handler returned only
-;;            `:fx` / only other / nothing, or THREW (no phantom `:db`,
-;;            rf2-wnvid). Its args slot is the DESTINATION marker
+;;            `:fx` / nothing, or THREW (no phantom `:db`, rf2-wnvid).
+;;            Its args slot is the DESTINATION marker
 ;;            "→ app-db" (the actual db diff lives in the App-db panel —
 ;;            no duplication here), made clickable to jump there.
 ;;   :fx    — the entries in the handler's `:fx` vector, in order, each
 ;;            `[fx-id arg]` with the rf2-g1mfc open-code chip + a per-effect
 ;;            tick (✓ ran / ✗ threw / ↺ overridden / – skipped-on-platform).
-;;   other  — any TOP-LEVEL effect key beyond `:db` / `:fx` on the
-;;            handler's returned map (the historical
-;;            `{:db .. :fx .. :other-key ..}` form), last in the ledger.
+;;
+;; There is no `other` tier — rf2-m2ye2 deleted it; see `side-effects-step`.
 ;;
 ;; SETTLE-FIRST (rf2-kt6js, confirmed against the live substrate; carried
 ;; through rf2-j630b — the data source is unchanged, only the presentation
@@ -1988,12 +2010,12 @@
 ;;   `events/closed-effect-map-keys` is `{:db :rf.db/runtime :fx}` plus
 ;;   the four EP-0025 commit-plane classification effects (`:sensitive` /
 ;;   `:large` / `:clear-sensitive` / `:clear-large`), which are applied
-;;   WITH the `:db` write rather than routed through do-fx.
-;;   `closed-effect-keys` below still names three, so the `other`
-;;   diagnostic would call those four legal effects "not run". It cannot
-;;   today, for the separate reason recorded on `effects-decomp`, and
-;;   fixing the one without the other would turn that false accusation
-;;   on.
+;;   WITH the `:db` write rather than routed through do-fx. It is the
+;;   AUTHORITY, and this panel no longer keeps a copy of it: rf2-m2ye2
+;;   deleted the 3-key `closed-effect-keys` and the `other` diagnostic it
+;;   fed, which could only ever have accused those four legal effects of
+;;   not running. The reasoning, and the live measurement both ways, are
+;;   recorded above `handler-fx-vec`.
 
 (def ^:private fx-outcome-op->status
   "Map a per-fx trace op → the fx-row `:status` (rf2-kt6js, lifted from
@@ -2193,7 +2215,7 @@
   the partition writes commit atomically together, then `:fx` walks the
   flow-augmented frame-state. A mixed `{:rf.db/runtime ... :fx [...]}`
   return therefore shows the runtime write as APPLIED (an ✓ state-effect
-  row), never under `:skipped`/`other`."
+  row), never under `:skipped`."
   [events]
   (when (runtime-db-commit? events)
     {:fx-id  :rf.db/runtime
@@ -2234,61 +2256,12 @@
           (get attribution-map fx-id)
           (assoc :attributed-to (get attribution-map fx-id)))))))
 
-(defn other-effect-rows
-  "The `other` sub-step rows — one per TOP-LEVEL effect key on the
-  handler's returned map BEYOND the closed-effect set
-  `{:db :fx :rf.db/runtime}` (rf2-kt6js · widened EP-0001 rf2-ff9b0d).
-  Sourced from `effects-decomp`'s `:other-effects` slot (the return map
-  MINUS those three reserved keys).
-
-  rf2-y8doi.19 — THIS DOCSTRING USED TO SAY such a key was silently
-  DROPPED, never executed and never traced, and that has been false since
-  rf2-04tx. The router's FINAL-effects boundary REFUSES the event
-  pre-commit with `:rf.error/effect-map-shape`: nothing commits, nothing
-  runs, and there IS a trace. `reg-event`'s own docstring is explicit —
-  . The panel
-  surfaces that refusal through `attach-unclassified-errors`, on the
-  SIDE EFFECTS step, synthesising it when no effect ran.
-
-  So each `other` row is a DIAGNOSTIC for a shape the live runtime no
-  longer produces: `:status :skipped` (not-run) against a handler that
-  declared an effect the runtime ignored. `:rf.db/runtime` is NOT an
-  `other` key — it is a committed state effect with its own
-  `runtime-db-effect-row` (rf2-ff9b0d), so a mixed
-  `{:rf.db/runtime ... :fx [...]}` return never shows the runtime write
-  under `:skipped`/`other`.
-
-  MEASURED UNREACHABLE AGAINST THE LIVE SUBSTRATE, and left in place
-  rather than retired here because retiring it is a wider call than this
-  bead. `effects-decomp` reads the handler's returned map off the
-  `:rf.fx/do-fx` trace's `:rf.event/fx` tag and guards on `(map? fx)`,
-  but `re-frame.fx` stamps that tag as `(:fx effects)` — the fx VECTOR,
-  not the effects map — so the guard never holds and `:other-effects`
-  (and `:fx-vec` beside it) is always nil for a real cascade. Driving a
-  live `{:db … :fx [[…]]}` handler through the router on the JVM:
-  `:rf.event/fx` came back `[[:probe/noop 1]]`, a vector, and the
-  projected HANDLER step carried `:fx-vec nil` / `:other-effects nil`.
-  The synth fixtures in `projection_cljs_test` pass a MAP, which is why
-  this reads green — the exact fixture-versus-producer drift
-  rf2-y8doi.10 finding 1 describes.
-
-  Empty vec when the handler returned the canonical closed shape (the
-  overwhelming common case), or when no do-fx fired."
-  [events]
-  (let [other (:other-effects (effects-decomp events))]
-    (if (map? other)
-      (vec (for [[fx-id value] other]
-             {:fx-id  fx-id
-              :value  value
-              :status :skipped}))
-      [])))
-
 (defn row-failed?
   "True iff a SIDE EFFECTS ledger row is a REAL failure (rf2-j630b) —
   its own `:status` is `:error` / `:rollback`, OR it carries an attached
   `:errors` (exception) / `:violations` (schema) vec. A `:skipped` row
-  (`:skipped-on-platform`, or a dropped `other` effect) is NOT a failure
-  — it is NEUTRAL and never trips the badge to cross.
+  (`:skipped-on-platform`) is NOT a failure — it is NEUTRAL and never
+  trips the badge to cross.
 
   Reads the post-attachment row shape so an exception / violation that
   `attach-*` lands on a row AFTER `side-effects-step` built it still
@@ -2322,18 +2295,25 @@
 
     1. the synthesised `:db` row (`db-effect-row`) — WHEN a `:db` commit
        was attempted (often present; absent when the handler returned
-       only `:fx` / only `:rf.db/runtime` / only other / nothing, or
-       THREW — no phantom `:db`, per rf2-wnvid);
+       only `:fx` / only `:rf.db/runtime` / nothing, or THREW — no
+       phantom `:db`, per rf2-wnvid);
     2. the synthesised `:rf.db/runtime` row (`runtime-db-effect-row`) —
        WHEN a runtime-db partition commit was attempted (EP-0001
        rf2-ff9b0d). The two STATE-effect partitions commit atomically, so
        the runtime-db row follows the `:db` row and precedes `:fx`;
-    3. the handler's `:fx`-vector entries (`fx-effect-rows`) in order;
-    4. any top-level non-closed-key effects (`other-effect-rows` — beyond
-       `{:db :fx :rf.db/runtime}`).
+    3. the handler's `:fx`-vector entries (`fx-effect-rows`) in order.
 
-  There are NO `:db` / `:fx` / other group headers — the leading status
-  glyph + effect-id + args edn-inspector on each row + the execution
+  There is NO fourth `other` tier. rf2-m2ye2 deleted `other-effect-rows`:
+  a top-level key outside `re-frame.events/closed-effect-map-keys` is
+  REFUSED pre-commit (rf2-04tx) and never reaches do-fx, while every key
+  INSIDE that set is legal — so the tier had no truthful population, and
+  its 3-key copy of the closed set would have accused the four EP-0025
+  classification effects of not running. The refusal surfaces instead as
+  the `:rf.error/effect-map-shape` row `attach-unclassified-errors` lands
+  on this step.
+
+  There are NO `:db` / `:fx` group headers — the leading status glyph +
+  effect-id + args edn-inspector on each row + the execution
   order carry the structure. After the \"EFFECT HANDLERS\" badge the view
   paints ONE overall glyph: TICK when every present row succeeded, CROSS
   when one or more FAILED (`side-effects-badge-status`; SKIPPED rows are
@@ -2372,10 +2352,9 @@
   (let [db-row      (db-effect-row events)
         runtime-row (runtime-db-effect-row events)
         fx-rows     (fx-effect-rows events)
-        other       (other-effect-rows events)
         rows        (vec (concat (when db-row [db-row])
                                  (when runtime-row [runtime-row])
-                                 fx-rows other))]
+                                 fx-rows))]
     (when (seq rows)
       {:step  :side-effects
        :badge :SIDE-EFFECTS
