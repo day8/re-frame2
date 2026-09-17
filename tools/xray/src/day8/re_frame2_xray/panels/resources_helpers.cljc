@@ -2046,11 +2046,15 @@
   — rf2-qqi7u; see `optimistic-supersession-index` for the full reasoning.
 
   A key in a scope the write-side `:rf.warning/mutation-scope-mismatch`
-  tripwire already named as `:other-scope` for the same mutation is left to
-  that warning: a wrong-scope descriptor gets one diagnostic, not two.
+  tripwire already named as `:other-scope` for the same mutation IN THE SAME
+  FRAME is left to that warning: a wrong-scope descriptor gets one diagnostic,
+  not two. The frame is part of THAT identity for the same reason it is part
+  of the settlement one — rf2-389dv.
 
-  Informational and dedupe-keyed on `[mutation instance missing-keys]` (raw
-  keys, not their summaries), so a settled instance seen twice is one row:
+  Informational and dedupe-keyed on `[frame mutation instance missing-keys]`
+  (raw keys, not their summaries), so a settled instance seen twice is one
+  row, while the SAME instance id in two frames stays two rows — it is two
+  different mutations that happen to share a frame-local name:
 
       [{:id           <reconciled trace id>
         :mutation     :realworld/favorite-article
@@ -2083,11 +2087,19 @@
                               (fnil into #{}) (:affected-keys tags)))
                     acc))
                 {} buffer)
+        ;; Keyed by [frame mutation other-scope] (rf2-389dv) — the same
+        ;; correction `affected-by-work` above carries, for the same reason.
+        ;; A wrong-scope descriptor is a property of the frame that dispatched
+        ;; it, so keyed without the frame a warning in ANOTHER frame erased
+        ;; this frame's finding outright. Reassuring direction again, and a
+        ;; worse one than the join above: there the finding merely went
+        ;; missing, here a DIFFERENT diagnostic's existence is what deleted it.
         warned-scopes
         (into #{}
               (comp (filter #(= :rf.warning/mutation-scope-mismatch (trace-op %)))
-                    (map trace-tags)
-                    (map (juxt :mutation :other-scope)))
+                    (map (fn [ev]
+                           (let [tags (trace-tags ev)]
+                             [(trace-frame ev) (:mutation tags) (:other-scope tags)]))))
               buffer)
         candidates
         (keep (fn [ev]
@@ -2100,12 +2112,18 @@
                       missing (->> (:optimistic-keys tags)
                                    (remove reached)
                                    (remove #(and (vector? %)
-                                                 (contains? warned-scopes [mutation (first %)])))
+                                                 (contains? warned-scopes
+                                                            [(trace-frame ev) mutation (first %)])))
                                    distinct
                                    (sort-by pr-str)
                                    vec)]
                   (when (seq missing)
-                    {:dedupe-key   [mutation instance missing]
+                    ;; The frame leads the dedupe key (rf2-389dv) because
+                    ;; `mutation`, `instance` and the missing keys are all
+                    ;; frame-local: without it, two frames' genuinely
+                    ;; independent findings read as one finding seen twice and
+                    ;; the reducer below dropped the second.
+                    {:dedupe-key   [(trace-frame ev) mutation instance missing]
                      :id           (:id ev)
                      :mutation     mutation
                      :instance     instance
