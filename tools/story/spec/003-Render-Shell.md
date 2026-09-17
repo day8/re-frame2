@@ -327,24 +327,29 @@ escape hatches. The hook is the canonical portable surface; panel
 authors writing for the multi-substrate world should target it
 directly.
 
-## Workspace persistence (both modes)
+## Workspace persistence
 
-Workspace layouts persist **both** ways:
+A workspace's layout **is** its registered `story/reg-workspace` body:
+the cells, the grid and the column count all come from the
+registration, which
+[`re-frame.story.ui.workspace`](../src/re_frame/story/ui/workspace.cljc)
+resolves at render time. Changing a layout means changing that body,
+and because the body lives in source it is already the durable,
+cross-machine, shareable form.
 
-- **Default: local-storage.** Interactive rearrangements (drag-resize
-  panes, reorder variants in a grid) auto-save to local storage keyed
-  by `[workspace-id breakpoint]`. Persistence is per-user, per-browser.
-- **Save-as registered artefact.** A "Save layout as `:Workspace.x/y`"
-  button serialises the current layout to transit (full
-  `story/reg-workspace` body), re-registers it under the chosen id, and
-  exports the transit blob for cross-machine sharing. Other users
-  `(story/reg-workspace ...)` the transit body to consume the layout
-  durably.
+What the shell persists locally is **chrome preference, not layout** —
+rail widths, mode tabs, toolbar state, viewport and background, each
+per-user and per-browser. Sharing the current view is the address
+bar's job (see
+[`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md)).
+`re-frame.story/workspace->edn` returns the registered body: it
+captures no interactive rearrangement and exports no transit blob.
 
-Stage 4 (render shell) wires the local-storage save on every layout
-change; Stage 4 also adds the "Save layout" affordance.
-`tools.story.workspace.transit/workspace->edn` returns the serialised
-form. Rationale: see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
+Interactive rearrangement (drag-resize panes, reorder variants in a
+grid, auto-saved to local storage keyed by `[workspace-id breakpoint]`)
+and a "Save layout as `:Workspace.x/y`" affordance are a recorded
+2026-05-11 decision the shell has not grown — see
+[`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
 §both-workspace-persistence.
 
 ## Right-hand pane (rf2-sgdd3 · rewritten per rf2-v1ach)
