@@ -21,17 +21,22 @@
                                             ;; body (or surface-specific
                                             ;; equivalent)
        :wire            <wire-timing-map>   ;; nil when the surface
-                                            ;; doesn't emit timing
+                                            ;; doesn't emit timing;
+                                            ;; ALWAYS nil for :http
        :res             <response-payload>  ;; nil when in-flight or
                                             ;; the surface has no
-                                            ;; reply-shape
-       :handler         <handler-event-vec> ;; the dispatched response
-                                            ;; handler (e.g.
-                                            ;; [:user/profile-loaded …])
-       :status          :ok | :error | :in-flight | :overridden
-                                | :skipped | :stub
+                                            ;; reply-shape; ALWAYS nil
+                                            ;; for :http
+       :handler         <handler-event-vec> ;; the CONFIGURED reply
+                                            ;; target (:reply-to, else
+                                            ;; the :on-success/:on-done/
+                                            ;; :on-failure sugar) — what
+                                            ;; the caller wrote, not an
+                                            ;; observed delivery
+       :status          :issued | :ok | :error | :in-flight
+                                | :overridden | :skipped | :stub
        :phase           :issued | :sent | :received | :completed
-                                | :failed | :aborted
+                                | :failed | :aborted  ;; nil for :http
        :correlation-id  <id-or-nil>         ;; request-id, machine
                                             ;; spawn id, …
        :cancel-cause    <kw-or-nil>         ;; :user / :actor-destroyed
@@ -41,7 +46,11 @@
        :failure         <failure-map-or-nil>;; `:rf.<surface>/*` kind +
                                             ;; tags
        :paths-touched   [<path> ...]        ;; app-db slice paths the
-                                            ;; handler caused to change
+                                            ;; handler caused to change;
+                                            ;; nil = UNTRACKED (no diff
+                                            ;; feed is wired today), as
+                                            ;; distinct from [] = measured
+                                            ;; and nothing changed
        :origin-event-id <int-or-nil>}       ;; trace-event :id of the
                                             ;; `:rf.fx/handled` emit —
                                             ;; the cross-link anchor
@@ -113,7 +122,8 @@
 (def status->colour-token
   "Status → colour-token mapping. The view resolves the token to a hex
   via the panel's `tokens` map."
-  {:ok         :green
+  {:issued     :text-secondary          ; neutral — a statement about the request going out, not about its outcome
+   :ok         :green
    :error      :red
    :in-flight  :info                     ; fixed cool blue — distinct from the accent-coloured :overridden/:stub
    :overridden :accent
@@ -122,7 +132,8 @@
 
 (def status->glyph
   "Status → shape-glyph (colour-blind-safe parallel signal)."
-  {:ok         "✓"   ;; ✓
+  {:issued     "◦"   ;; ◦ — deliberately not ✓: nothing here says the request succeeded
+   :ok         "✓"   ;; ✓
    :error      "✗"   ;; ✗
    :in-flight  "⧖"   ;; ⧖
    :overridden "◑"   ;; ◑
@@ -208,18 +219,37 @@
 ;; ---- surface-event collectors ------------------------------------------
 
 (def http-trace-operations
-  "Trace operations the HTTP surface emits between issuance and
-  terminal outcome. The panel groups them under the per-record
-  surface-events bag so the WIRE TIMING / phase summary can fold
-  them."
+  "Trace operations the HTTP surface really emits, kept under their real
+  names so the deferred cross-buffer join (rf2-6ooch) has them.
+
+  IN THE ISSUING EVENT-BUNDLE THIS FILTER IS ALL BUT EMPTY, AND THAT IS
+  THE RUNTIME'S SHAPE RATHER THAN A GAP. `re-frame.trace/emit!` and
+  `emit-error!` take the dispatch-id from the dynamic `*handler-scope*`,
+  and every HTTP row after issuance is emitted either from a transport
+  callback (no scope at all — the grouper files it under
+  `[nil :ungrouped]`) or inside a DIFFERENT run's drain (the aborting or
+  destroying event's). So the completion, the retries, the aborts and the
+  stale-suppressions can none of them reach the bundle that issued the
+  request.
+
+  The ONE exception is a SYNCHRONOUS request-body-prep failure: a
+  throwing `:body` thunk or an unencodable body fails inside the fx
+  handler's own stack, so its `:rf.http/transport` row is emitted while
+  the issuing drain is still live and lands in this bundle.
+
+  `:rf.http/handled` and `:rf.http/managed-issued` USED TO BE LISTED HERE
+  AND ARE NOT EMITTED ANYWHERE (rf2-y8doi.18). They were the collector's
+  only route to a `:res` / `:http-status` / wire timing, so reading them
+  produced a record that said `OK · completed` with every outcome field
+  nil, for a request that may well have failed. Do not restore them; the
+  runtime's completion op is `:rf.http/replied`, and it is out of reach
+  from here by construction."
   #{:rf.http/retry-attempt
     :rf.http/aborted-on-actor-destroy
     :rf.http/aborted
     :rf.http/transport
     :rf.http/timeout
-    :rf.http/decode-failure
-    :rf.http/handled
-    :rf.http/managed-issued})
+    :rf.http/decode-failure})
 
 (def websocket-trace-operations
   #{:rf.ws/connected
@@ -368,15 +398,32 @@
 ;; ---- handler / response extraction -------------------------------------
 
 (defn- args-handler-event
-  "Pull the response handler event vector off the fx-args, if any. The
-  managed-effect surfaces all carry the dispatched response under one
-  of `:on-success`, `:on-failure`, `:on-done`, `:on-reply` — the
-  caller's projection of 'what fires when this returns'. Pure fn."
+  "Pull the CONFIGURED reply target off the fx-args, if any.
+
+  This is configuration the caller wrote, NOT an observation: nothing
+  here watches a reply being delivered, and for HTTP the reply lands in
+  its own later event-bundle with its own dispatch-id. The panel labels
+  it accordingly.
+
+  `:reply-to` is first because it is the app-facing unified key — per
+  [Spec 014 §Reply addressing](../../../../spec/014-HTTPRequests.md) one
+  target for both the success and the failure reply, with `:on-success` /
+  `:on-failure` the split routing sugar over it, all three lowering onto
+  the one internal descriptor. It was missing here, so a request written
+  the recommended way read as having no reply target at all.
+
+  `:on-done` is the machine surface's spelling. `:on-reply` was listed
+  here too and is NOT a reply target anywhere in this tree — every
+  occurrence of it is a derivation `:evaluation` policy value
+  (`#{:on-route :on-reply :scheduled :manual}`), so reading it could only
+  ever have surfaced a policy keyword as though it were an event vector.
+
+  Pure fn."
   [args]
   (when (map? args)
-    (or (:on-success args)
+    (or (:reply-to args)
+        (:on-success args)
         (:on-done args)
-        (:on-reply args)
         (:on-failure args))))
 
 ;; ---- correlation-id resolution -----------------------------------------
@@ -477,53 +524,85 @@
                                        (non-http-wire-timing fx-ev surface-events))]
                         (:total-ms w))
      :failure         failure
-     :paths-touched   []
+     ;; nil means UNTRACKED, and is the default because no diff feed is
+     ;; wired at all today. `[]` would mean "measured, and nothing
+     ;; changed" — a different claim, and the one the retired amber
+     ;; warning was drawn from. The walker fills this in when a caller
+     ;; supplies `paths-by-dispatch-id`.
+     :paths-touched   nil
      :origin-event-id (:id fx-ev)
      :dispatch-id     (dispatch-id-of fx-ev)
      :frame           (frame-id-of fx-ev)
      :stubbed?        (= status :overridden)}))
 
+(defn- http-row-for-this-record?
+  "Does a same-bundle HTTP row belong to THIS record?
+
+  One event can issue several HTTP requests, so a bundle can hold more
+  than one HTTP record and (in the synchronous body-prep case) a failure
+  row belonging to exactly one of them. Attributing any failure row to
+  every HTTP record in the bundle reddens requests that were merely
+  issued, which is the same class of untruth as the `OK · completed` this
+  record was narrowed to escape — so attribution is positive-evidence
+  only, and the fallback is `:issued` rather than a guess.
+
+  The failure emit carries the caller's `:request-id` in its tags
+  (`re-frame.http.transport` stamps `:request-id (:request-id ctx)` onto
+  the redacted failure map), so when the caller supplied one there is a
+  real key to match on. `:request-id` is OPTIONAL per Spec 014, and when
+  the record has none the only sound attribution left is arithmetic: if
+  this is the bundle's SOLE HTTP effect, an HTTP row in the bundle can
+  have come from nothing else."
+  [record-request-id sole-http-fx? ev]
+  (if (some? record-request-id)
+    (= record-request-id (get-in ev [:tags :request-id]))
+    (boolean sole-http-fx?)))
+
 (defn http-adapter
-  "HTTP surface adapter. Pull request payload off `:fx-args :request`;
-  pull HTTP status / response off the surface events; fold the
-  per-phase wire timing where available."
-  [fx-ev event-bundle-other]
-  (let [surface-events (surface-events-for event-bundle-other :http)
-        args           (fx-args-of fx-ev)
-        request        (when (map? args) (:request args))
-        ;; A successful response trace (if any) carries `:response`
-        ;; under `:tags` per Spec 014. Failure traces carry `:kind` +
-        ;; `:status` for HTTP-4xx/5xx.
-        terminal       (some (fn [ev]
-                               (when (contains? #{:rf.http/handled
-                                                  :rf.http/transport
-                                                  :rf.http/timeout
-                                                  :rf.http/decode-failure}
-                                                (:operation ev))
-                                 ev))
-                             surface-events)
-        response       (some-> terminal :tags :response)
-        http-status    (or (some-> terminal :tags :status)
-                           (some-> response :status))
-        wire           (http-wire-timing fx-ev surface-events)
-        rec            (common-record :http fx-ev surface-events)]
-    (cond-> rec
-      true        (assoc :req request
-                         :wire wire
-                         :res  response
-                         :http-status http-status)
-      ;; Failure tags can land directly on the surface event when the
-      ;; runtime classifies the outcome under `:rf.http/*`; promote
-      ;; them into the record's `:failure` map for the panel.
-      (and (not (:failure rec))
-           terminal
-           (contains? #{:rf.http/transport
-                        :rf.http/timeout
-                        :rf.http/decode-failure}
-                      (:operation terminal)))
-      (assoc :failure {:kind (:operation terminal)
-                       :tags (:tags terminal)
-                       :message (some-> terminal :tags :message)}))))
+  "HTTP surface adapter — the record is narrowed to ISSUANCE.
+
+  What one drain can see about a managed HTTP request is that the fx
+  handler returned and the transport was entered: `:rf.fx/handled` is
+  emitted AFTER the handler returns true, so the row means the request
+  went out, and nothing after that point reaches this bundle (see
+  `http-trace-operations`). The record therefore says `:issued` and
+  leaves `:phase` / `:wire` / `:res` / `:duration-ms` / `:http-status`
+  nil BY CONSTRUCTION rather than pending — there is no later event that
+  could fill them in, so a UI that renders them would be rendering a
+  promise, not a measurement.
+
+  `:issued` is a NEW status rather than `:ok` relabelled, so
+  `(= status :ok)` can never again mean 'completed' by accident. It is
+  set here, on the HTTP surface, rather than in `fx-event->status`: the
+  other four surfaces DO get their end events in-bundle, so `:ok` keeps
+  its meaning for them.
+
+  The one outcome this bundle CAN witness is a synchronous
+  request-body-prep failure, which runs inside the fx handler's own
+  stack; it is attributed per `http-row-for-this-record?` and reddens the
+  record to `:error` through `common-record`. `opts` carries
+  `:sole-http-fx?` — whether this is the bundle's only HTTP effect, which
+  the walker knows and the adapter cannot. The 2-arity assumes it is,
+  which is both the common case and what a direct single-record caller
+  means."
+  ([fx-ev event-bundle-other]
+   (http-adapter fx-ev event-bundle-other {:sole-http-fx? true}))
+  ([fx-ev event-bundle-other {:keys [sole-http-fx?] :or {sole-http-fx? true}}]
+   (let [args           (fx-args-of fx-ev)
+         request-id     (when (map? args) (:request-id args))
+         surface-events (filterv #(http-row-for-this-record? request-id sole-http-fx? %)
+                                 (surface-events-for event-bundle-other :http))
+         request        (when (map? args) (:request args))
+         rec            (common-record :http fx-ev surface-events)]
+     (assoc rec
+            :req         request
+            ;; Nil by construction, not "not yet" — see the docstring.
+            :wire        nil
+            :res         nil
+            :phase       nil
+            :duration-ms nil
+            :http-status nil
+            :status      (if (= :ok (:status rec)) :issued (:status rec))))))
 
 (defn websocket-adapter
   "WebSocket surface adapter. The `:fx-args` carries connection-config
@@ -609,23 +688,34 @@
   carries the surface-specific projection of `req` / `wire` / `res` /
   `handler` / `status` / `phase` / `correlation-id` / `cancel-cause`.
 
-  When `paths-by-dispatch-id` is supplied (per the composite sub) the
-  record's `:paths-touched` is filled with the app-db diff paths that
-  changed during this event-bundle — the F.4 'app-db wasn't updated' bug
-  class lights up when this list is empty for an OK-status record."
+  When `paths-by-dispatch-id` is supplied the record's `:paths-touched`
+  is filled with the app-db diff paths that changed during this
+  event-bundle. NO CALLER SUPPLIES IT TODAY — the composite sub in
+  `panels/managed_fx_subs` calls the 1-arity — so `:paths-touched` is
+  normally nil, meaning UNTRACKED rather than measured-and-empty. The two
+  must stay distinguishable: the panel used to read the empty vector as
+  evidence and warn, on every single successful record, that the author's
+  handler had failed to write app-db."
   ([event-bundle]
    (event-bundle->managed-fx-records event-bundle nil))
   ([{:keys [effects other dispatch-id] :as _event-bundle} paths-by-dispatch-id]
    (let [fx-events     (filterv managed-fx-effect? (or effects []))
          path-touched  (when paths-by-dispatch-id
-                         (get paths-by-dispatch-id dispatch-id []))]
+                         (vec (get paths-by-dispatch-id dispatch-id [])))
+         ;; Whether an HTTP failure row in this bundle can be attributed
+         ;; to a record that carries no `:request-id` is a fact about the
+         ;; BUNDLE, so only this walker can answer it.
+         http-fx-count (count (filterv #(= :http (classify-fx-id (fx-id-of %)))
+                                       fx-events))]
      (vec
        (for [fx-ev fx-events
              :let  [surface (classify-fx-id (fx-id-of fx-ev))
                     adapter (get surface->adapter surface)]
              :when adapter]
-         (-> (adapter fx-ev other)
-             (assoc :paths-touched (vec path-touched))))))))
+         (-> (if (= surface :http)
+               (http-adapter fx-ev other {:sole-http-fx? (= 1 http-fx-count)})
+               (adapter fx-ev other))
+             (assoc :paths-touched path-touched)))))))
 
 ;; ---- formatting helpers (consumed by the view) ------------------------
 
@@ -633,6 +723,7 @@
   "Human-readable status label for the panel header."
   [status]
   (case status
+    :issued     "ISSUED"
     :ok         "OK"
     :error      "ERROR"
     :in-flight  "IN-FLIGHT"
@@ -668,27 +759,20 @@
     (< ms 1000)        (str (long ms) "ms")
     :else              (str (Math/round (/ ms 100.0)) "00ms")))
 
-;; ---- spec-018 §Bug class coverage table -------------------------------
+;; The `bug-class-coverage` map that used to sit here is DELETED
+;; (rf2-y8doi.12 #9, rf2-y8doi.18). It claimed, as data, that each bug
+;; class in `tools/xray/spec/019-Cross-Cutting-Insight.md` was addressed
+;; by a named record field, and nothing but its own test ever read it —
+;; so it was a claim that could not go stale loudly. Several of its rows
+;; were already untrue: the F.1 row named `[:wire :duration-ms]`, both of
+;; which are nil by construction for HTTP, and the F.4 row
+;; (`[:paths-touched :status]`) was the only anchor for the amber
+;; "app-db wasn't updated" warning this bead removed.
 ;;
-;; Surfaced here as data so the view can iterate the coverage rows in
-;; the panel doc-overlay (if/when added) and so the test suite can pin
-;; the bug-class → field mapping the panel claims to address.
-
-(def bug-class-coverage
-  "Map of `:F.<n>` → the record field(s) the panel surfaces to address
-  that bug class. Anchors the per-class coverage claim in the
-  findings doc."
-  {:F.1  [:wire :duration-ms]            ;; request-timeout waterfall
-   :F.2  [:req]                          ;; bad-request payload inspector
-   :F.3  [:handler :failure]             ;; failed response handler
-   :F.4  [:paths-touched :status]        ;; app-db wasn't updated
-   :F.5  [:cancel-cause :correlation-id] ;; cancellation event-bundle (deferred to rf2-wvkn)
-   :F.6  [:correlation-id]               ;; stale response — id mismatch in header
-   :F.7  [:failure]                      ;; remaining structured-failure surfacing
-   :F.8  [:status :stubbed?]             ;; stub/override visibility
-   :F.9  [:status]                       ;; skipped-on-platform visibility
-   :F.10 [:surface]                      ;; surface badge taxonomy
-   :F.11 [:cancel-cause]})               ;; cross-surface stale-suppression
+;; The 019 catalogue is still audited in both directions, by a separate
+;; and unrelated map of the same name in
+;; `tools/xray/test/day8/re_frame2_xray/coverage_matrix_metadata_test.clj`,
+;; which never referred to this one.
 
 ;; ---- section disclosure state -------------------------------------------
 ;;

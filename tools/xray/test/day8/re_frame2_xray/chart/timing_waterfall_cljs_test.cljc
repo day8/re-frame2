@@ -40,12 +40,44 @@
       (is (= 0.25 (:offset-pct (nth out 1))))
       (is (= 0.5 (:offset-pct (nth out 2)))))))
 
-(deftest normalise-phases-drops-non-positive
-  (testing "Non-numeric / non-positive durations are filtered out"
+(deftest normalise-phases-drops-negative-and-non-numeric
+  (testing "Non-numeric and NEGATIVE durations are filtered out; a ZERO-length
+            phase is KEPT and renders as a zero-width bar.
+
+            A zero-length phase is a real measurement, not a bogus row: the
+            managed-fx producers emit `[[:issued 0] [:elapsed N]]` deliberately,
+            the `:issued` instant being the start of the window rather than a
+            span. Dropping it collapsed that two-bar waterfall to one bar and
+            made `timing-waterfall/bar-fill`'s `:issued` accent arm unreachable.
+            The renderer already clamps bar width with `(max 1 …)`, so a
+            zero-width row was always safe to draw."
     (let [out (wf/normalise-phases {:phases [[:a 100] [:b 0] [:c -10] [:d "x"]]
                                     :total-ms 100})]
-      (is (= 1 (count out)))
-      (is (= :a (:phase (first out)))))))
+      (is (= 2 (count out)))
+      (is (= [:a :b] (mapv :phase out)))
+      (is (= 1.0 (:width-pct (first out))))
+      (is (= 0.0 (:width-pct (second out)))
+          "the zero-length phase draws a zero-width bar rather than vanishing"))))
+
+(deftest normalise-phases-keeps-the-producers-two-row-issued-waterfall
+  (testing "The exact shape `managed-fx-helpers`' wire-timing readers synthesise
+            — `[[:issued 0] [:elapsed N]]` — reaches the renderer as TWO rows,
+            which is what makes the `:issued` accent fill reachable."
+    (let [out (wf/normalise-phases {:phases [[:issued 0] [:elapsed 12]]
+                                    :total-ms 12})]
+      (is (= 2 (count out)))
+      (is (= [:issued :elapsed] (mapv :phase out)))
+      (is (= 0.0 (:width-pct (first out))))
+      (is (= 1.0 (:width-pct (second out))))))
+  (testing "and the renderer draws both rows"
+    (let [svg (wf/render {:phases [[:issued 0] [:elapsed 12]] :total-ms 12})]
+      (is (= "2" (-> svg second :data-row-count))))))
+
+(deftest slowest-phase-still-ignores-zero-length-phases
+  (testing "`slowest-phase` stays on `pos?` — a zero-length phase can never be
+            the slowest, so widening `normalise-phases` must not widen this."
+    (is (= :elapsed (wf/slowest-phase {:phases [[:issued 0] [:elapsed 12]]})))
+    (is (nil? (wf/slowest-phase {:phases [[:issued 0]]})))))
 
 ;; ---- slowest-phase ------------------------------------------------------
 

@@ -65,8 +65,17 @@
 
   Pure fn — JVM-testable.
 
-    - Drops phases with non-numeric / non-positive duration so a single
-      bogus row doesn't break the layout.
+    - Drops phases with non-numeric or NEGATIVE duration so a single
+      bogus row doesn't break the layout. A ZERO-length phase is KEPT
+      and draws a zero-width bar: it is a real measurement rather than a
+      bogus row — the managed-fx wire-timing readers emit
+      `[[:issued 0] [:elapsed N]]` deliberately, `:issued` being the
+      instant the window opens rather than a span. Dropping it collapsed
+      that waterfall to a single bar and made [[bar-fill]]'s `:issued`
+      accent arm unreachable. The renderer clamps bar width with
+      `(max 1 …)`, so a zero-width row was always safe to draw.
+      `slowest-phase` below stays on `pos?` — a zero-length phase can
+      never be the slowest.
     - `:width-pct` is `duration / total` ratio clamped to `[0, 1]`.
     - `:offset-pct` is the running sum of preceding widths — supports
       a layered (gantt-style) rendering where each phase starts after
@@ -74,7 +83,7 @@
       stack-of-bars (each row starts at 0); the panel can choose either
       mode by reading the same projection."
   [{:keys [phases total-ms]}]
-  (let [clean     (filterv (fn [[_ ms]] (and (number? ms) (pos? ms))) (or phases []))
+  (let [clean     (filterv (fn [[_ ms]] (and (number? ms) (>= ms 0))) (or phases []))
         durations (mapv second clean)
         sum       (reduce + 0 durations)
         total     (or (when (and (number? total-ms) (pos? total-ms)) total-ms)

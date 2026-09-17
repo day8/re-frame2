@@ -82,8 +82,41 @@
 
 ;; ---- (2a) HTTP adapter on success --------------------------------------
 
+;; The record is narrowed to ISSUANCE (rf2-y8doi.18, ruled B corrected).
+;; Nothing the runtime emits AFTER issuance can reach the issuing event-bundle:
+;; `:rf.http/replied`, the retries, the aborts and the stale-suppressions all
+;; fire from a transport callback with no `*handler-scope*` (so the grouper
+;; files them under `[nil :ungrouped]`) or inside a DIFFERENT run's drain. The
+;; one exception is a SYNCHRONOUS request-body-prep failure, which runs inside
+;; the fx handler's own stack and so lands in this bundle.
+
+(defn- http-failure-ev
+  "A producer-shaped synchronous body-prep failure row.
+
+  Derived from the producer, not by hand: `re-frame.http.transport` emits it as
+  `(rf.trace/emit-error! (:kind failure) redacted)`, so the OPERATION is the
+  failure `:kind` and `re-frame.trace/emit-error!` stamps `:op-type :error`.
+  The redacted tag map is the failure map plus `:request-id` / `:url` /
+  `:recovery`, which is what makes per-record attribution by `:request-id`
+  possible at all."
+  ([request-id] (http-failure-ev request-id 1000))
+  ([request-id t]
+   {:operation :rf.http/transport
+    :op-type   :error
+    :id        (rand-int 1000000)
+    :time      t
+    :tags      {:kind       :rf.http/transport
+                :stage      :request-prep
+                :request-id request-id
+                :url        "/api/x"
+                :recovery   :no-recovery
+                :message    "boom-thunk"}}))
+
 (deftest http-adapter-success-record
-  (testing "HTTP success path projects a clean OK record"
+  (testing "The issuing event-bundle can only see that the request was ISSUED —
+            the fx handler returned and the transport was entered. Every field
+            that would describe an OUTCOME is nil by construction, because no
+            completion row can reach this bundle."
     (let [args   {:request {:method :get :url "/api/users/42"
                             :headers {:accept "application/json"}}
                   :decode  :json
@@ -93,52 +126,96 @@
           rec    (h/http-adapter fx-ev [])]
       (is (= :http (:surface rec)))
       (is (= :rf.http/managed (:fx-id rec)))
-      (is (= :ok (:status rec)))
+      (is (= :issued (:status rec))
+          "NOT :ok — :ok would claim an outcome this bundle cannot observe")
       (is (= [:user/loaded] (:handler rec)))
       (is (= :req-1 (:correlation-id rec)))
       (is (nil? (:cancel-cause rec)))
       (is (= {:method :get :url "/api/users/42"
               :headers {:accept "application/json"}}
-             (:req rec))))))
+             (:req rec)))
+      (testing "and no field claims a phase, a wire timing, a response or a duration"
+        (is (nil? (:phase rec)))
+        (is (nil? (:wire rec)))
+        (is (nil? (:res rec)))
+        (is (nil? (:duration-ms rec)))
+        (is (nil? (:http-status rec)))))))
+
+(deftest http-record-from-issuing-bundle-is-issued
+  (testing "The runtime's ACTUAL issuing-bundle shape, walked end to end: the
+            `:rf.fx/handled` row in `:effects` and an EMPTY `:other`. That empty
+            `:other` is not an impoverished fixture — it is what the grouper
+            produces, because every later HTTP row is scope-less and lands in
+            `[nil :ungrouped]`."
+    (let [bundle {:dispatch-id 7
+                  :frame :rf/default
+                  :effects [(fx-handled :rf.http/managed
+                                        {:request    {:method :post :url "/api/checkout"}
+                                         :request-id :checkout
+                                         :on-success [:checkout/done]})]
+                  :other   []}
+          rec    (first (h/event-bundle->managed-fx-records bundle))]
+      (is (= 1 (count (h/event-bundle->managed-fx-records bundle))))
+      (is (= :issued (:status rec)))
+      (is (nil? (:failure rec)))
+      (is (nil? (:cancel-cause rec)))
+      (is (nil? (:phase rec))))))
 
 (deftest http-adapter-failure-record
-  (testing "HTTP transport failure surfaces under :failure"
+  (testing "The ONE HTTP failure that can land in the issuing bundle is a
+            SYNCHRONOUS request-body-prep failure — `prepare-body!` runs inside
+            the fx handler's stack, so its failure routes through the same
+            dynamic `emit-error!` while the issuing drain is still on the stack
+            (regression: implementation/http/test/re_frame/http_body_prep_failure_test.clj)."
     (let [args   {:request {:method :get :url "/api/x"}
                   :request-id :req-2
                   :on-failure [:x/failed]}
           fx-ev  (fx-handled :rf.http/managed args)
-          fail-ev (surface-ev :rf.http/transport
-                              {:request-id :req-2 :message "ECONNREFUSED"})
-          rec    (h/http-adapter fx-ev [fail-ev])]
+          rec    (h/http-adapter fx-ev [(http-failure-ev :req-2)])]
       (is (= :http (:surface rec)))
       (is (= :error (:status rec)))
-      (is (= :rf.http/transport (-> rec :failure :kind))))))
+      (is (= :rf.http/transport (-> rec :failure :kind)))
+      (is (= :request-prep (-> rec :failure :tags :stage)))))
 
-(deftest http-adapter-aborted-record
-  (testing "HTTP abort-on-actor-destroy surfaces :cancel-cause"
-    (let [args   {:request {:method :post :url "/api/finalize"}
-                  :request-id :req-3}
+  (testing "CONTROL — a failure row for a DIFFERENT :request-id is NOT this
+            record's. One event can issue several HTTP requests, so attributing
+            any failure row in the bundle to every HTTP record in it manufactures
+            a red record for a request that was merely issued."
+    (let [args   {:request {:method :get :url "/api/x"}
+                  :request-id :req-2
+                  :on-failure [:x/failed]}
           fx-ev  (fx-handled :rf.http/managed args)
-          abort  (surface-ev :rf.http/aborted-on-actor-destroy
-                             {:request-id :req-3})
-          rec    (h/http-adapter fx-ev [abort])]
-      (is (= :aborted (:phase rec)))
-      (is (= :actor-destroyed (:cancel-cause rec))))))
+          rec    (h/http-adapter fx-ev [(http-failure-ev :some-other-request)])]
+      (is (= :issued (:status rec))
+          "a stranger's failure must not redden this record")
+      (is (nil? (:failure rec)))))
 
-(deftest http-adapter-synthesised-wire-timing
-  (testing "When per-phase timing is absent the synthesised round-trip
-            two-row waterfall lights up so the user still sees elapsed"
-    (let [fx-ev (fx-handled :rf.http/managed
-                            {:request {:method :get :url "/x"}}
-                            {})
-          end   (surface-ev :rf.http/handled
-                            {:request-id :req-1 :status 200}
-                            1250)
-          rec   (h/http-adapter fx-ev [end])]
-      (is (= 250 (:duration-ms rec)))
-      (is (some? (:wire rec)))
-      (is (= 2 (count (-> rec :wire :phases))))
-      (is (true? (-> rec :wire :synthesised?))))))
+  (testing "A record whose args carry NO :request-id attributes a same-bundle
+            failure only when it is the bundle's SOLE HTTP effect — otherwise
+            there is nothing to tell the two apart."
+    (let [fx-ev (fx-handled :rf.http/managed {:request {:method :get :url "/api/x"}})]
+      (is (= :error (:status (h/http-adapter fx-ev [(http-failure-ev nil)])))
+          "sole HTTP effect, both ids nil → attributable")
+      (is (= :issued (:status (h/http-adapter fx-ev [(http-failure-ev nil)]
+                                              {:sole-http-fx? false})))
+          "one of several HTTP effects, no id to match on → not attributable"))))
+
+;; `http-adapter-aborted-record` and `http-adapter-synthesised-wire-timing` were
+;; DELETED here (rf2-y8doi.18). Both injected a shape the runtime never produces
+;; in the issuing bundle:
+;;
+;;   - `:rf.http/aborted-on-actor-destroy` is emitted inside the DESTROYING
+;;     run's drain (`re-frame.http.registry`), never the issuing one, so it can
+;;     only ever reach a different bundle. `surface-events->cancel-cause` itself
+;;     is KEPT and still pinned below — it is harmless, and the deferred
+;;     cross-buffer join (rf2-6ooch) reuses it.
+;;   - the wire-timing fixture injected the PHANTOM `:rf.http/handled` as a
+;;     surface event. HTTP `:wire` is now nil by construction: the only in-bundle
+;;     HTTP row is the sync failure above, and `:rf.fx/handled` is emitted AFTER
+;;     the fx handler returns, so the failure row never post-dates the issue row
+;;     and no elapsed window exists to synthesise. The non-HTTP wire-timing
+;;     coverage for the four surfaces that DO get end events in-bundle is
+;;     unchanged (see the machine-destroy and websocket rows below).
 
 ;; ---- (2b) WebSocket adapter --------------------------------------------
 
@@ -335,8 +412,35 @@
       (is (= #{:http :ssr-fx :flow}
              (set (map :surface records)))))))
 
+(deftest cascade-walker-paths-untracked-without-diff-feed
+  (testing "The 1-arity — which is what PRODUCTION calls
+            (panels/managed_fx_subs, the composite sub) — supplies no
+            `paths-by-dispatch-id`, so `:paths-touched` is nil, meaning
+            UNTRACKED. It must not be `[]`, which means 'measured, and nothing
+            changed': the panel drew an amber 'app-db wasn't updated' warning off
+            that empty vector on every successful record, telling authors their
+            handler was broken when nothing had been measured at all."
+    (let [cascade {:dispatch-id 9
+                   :frame :rf/default
+                   :effects [(fx-handled :rf.http/managed
+                                         {:request {:method :get :url "/x"}})]
+                   :other []}
+          rec     (first (h/event-bundle->managed-fx-records cascade))]
+      (is (nil? (:paths-touched rec))
+          "absent diff feed → nil (untracked), never [] (measured-empty)")))
+  (testing "CONTROL — supplying the feed with an EMPTY path set still yields [],
+            so nil and [] remain distinguishable and this is not simply nil
+            everywhere"
+    (let [cascade {:dispatch-id 9
+                   :frame :rf/default
+                   :effects [(fx-handled :rf.http/managed
+                                         {:request {:method :get :url "/x"}})]
+                   :other []}
+          rec     (first (h/event-bundle->managed-fx-records cascade {9 []}))]
+      (is (= [] (:paths-touched rec))))))
+
 (deftest cascade-walker-folds-paths-touched
-  (testing "paths-by-dispatch-id supplies the F.4 slice-touched check"
+  (testing "paths-by-dispatch-id supplies the slice-touched list"
     (let [cascade {:dispatch-id 9
                    :frame :rf/default
                    :effects [(fx-handled :rf.http/managed
@@ -363,9 +467,32 @@
   (is (= ":rf.http/managed" (h/format-fx-id :rf.http/managed)))
   (is (= "—"                (h/format-fx-id nil))))
 
+(def ^:private panel-status-taxonomy
+  "The panel's closed status set. `:issued` joined it with rf2-y8doi.18 and is
+  HTTP-only today: 'the fx handler returned and the transport was entered;
+  nothing later is visible in this bundle'. It is a NEW status rather than `:ok`
+  relabelled, so `(= status :ok)` can never again mean 'completed' by accident."
+  [:issued :ok :error :in-flight :overridden :skipped :stub])
+
 (deftest format-status-label-covers-taxonomy
-  (doseq [s [:ok :error :in-flight :overridden :skipped :stub]]
-    (is (some? (h/format-status-label s)))))
+  (doseq [s panel-status-taxonomy]
+    (is (some? (h/format-status-label s)) (str "label for " s))
+    (is (not= "—" (h/format-status-label s))
+        (str "a real label for " s ", not the unknown-status dash")))
+  (testing "CONTROL — an unknown status still falls through to the dash, so the
+            row above is a statement about the taxonomy rather than about the
+            fn always answering"
+    (is (= "—" (h/format-status-label :no-such-status)))))
+
+(deftest status-colour-and-glyph-cover-the-taxonomy
+  (testing "every status the panel can hold carries a colour token and a
+            colour-blind-safe shape glyph — the status pill reads both"
+    (doseq [s panel-status-taxonomy]
+      (is (some? (get h/status->colour-token s)) (str "colour token for " s))
+      (is (some? (get h/status->glyph s))        (str "glyph for " s))))
+  (testing "CONTROL — an unknown status carries neither"
+    (is (nil? (get h/status->colour-token :no-such-status)))
+    (is (nil? (get h/status->glyph :no-such-status)))))
 
 (deftest format-http-status-band-bands
   (is (= :green         (h/format-http-status-band 200)))
@@ -388,11 +515,15 @@
       (is (some? (get h/surface->adapter s)) (str "adapter for " s)))))
 
 ;; ---- (5) bug-class coverage table --------------------------------------
-
-(deftest bug-class-coverage-is-data
-  (testing "every F.<n> the panel claims to address lists at least one
-            record-field it surfaces"
-    (doseq [[k fields] h/bug-class-coverage]
-      (is (keyword? k))
-      (is (vector? fields))
-      (is (seq fields) (str "no fields listed for " k)))))
+;;
+;; DELETED with the `bug-class-coverage` def it pinned (rf2-y8doi.12 #9,
+;; rf2-y8doi.18). The map was a panel-local claim that each 019 bug class was
+;; addressed by a named record field, read by nothing but this row — and its
+;; F.4 entry (`[:paths-touched :status]`) was the only anchor for the amber
+;; "app-db wasn't updated" warning, which this bead removes.
+;;
+;; The 019 bug-class catalogue is still audited, by a DIFFERENT and unrelated
+;; map: `tools/xray/test/day8/re_frame2_xray/coverage_matrix_metadata_test.clj`
+;; carries its own `^:private bug-class-coverage` (a `:covered` / `:deferred`
+;; audit over every catalogued id) and never referred to the helpers' var, so
+;; deleting this one leaves that audit standing.
