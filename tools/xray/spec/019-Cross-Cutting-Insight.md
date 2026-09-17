@@ -640,8 +640,9 @@ Erlang-Observer-for-managed-effects.
 #### F.3 — "This request retried 5 times and finally failed. What was the backoff?"
 
 **Bug class:** Silent retry chain. `:retry {:on ... :max-attempts 5 :backoff
-{:initial 100 :max 5000}}` retried at growing intervals. Each attempt =
-`:rf.http/handled` trace. User wants a timeline of attempts with timing.
+{:initial 100 :max 5000}}` retried at growing intervals. Each attempt emits
+its own `:rf.http/retry-attempt` trace; the terminal reply is one
+`:rf.http/replied`. User wants a timeline of attempts with timing.
 
 **Insight Xray provides:** A **retry timeline** under the fx row:
 
