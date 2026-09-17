@@ -260,6 +260,46 @@
   (when (keyword? operation)
     (get-in trace-ops [operation :label] (name operation))))
 
+(def mutation-trace-family-prefix
+  "The reserved trace-family namespace prefix for mutation trace rows
+  (`:rf.mutation/*` — started / succeeded / failed / replied /
+  stale-suppressed / the three optimistic lifecycle ops). Per
+  [Conventions §Reserved namespaces]."
+  "rf.mutation")
+
+(def projection-warning-ops
+  "The two `:rf.warning/*` ops the resources panel's trace-borne projections
+  read: the `:on-conflict :force` clobber warning (rendered as its own §6d
+  run) and the write-side scope-mismatch tripwire (which suppresses a
+  duplicate optimistic-reach finding). Enumerated because the `:rf.warning`
+  namespace is shared framework-wide — unlike `rf.resource` / `rf.mutation`,
+  a prefix test there would admit every warning the runtime emits."
+  #{:rf.warning/optimistic-force-clobber
+    :rf.warning/mutation-scope-mismatch})
+
+(defn resource-projection-op?
+  "True iff a trace `operation` can feed ANY of this panel's trace-borne
+  projections — the `:rf.resource/*` family, the `:rf.mutation/*` family, or
+  one of `projection-warning-ops`.
+
+  This is the PRE-FILTER predicate (rf2-y8doi.15). The composite used to hand
+  the WHOLE trace buffer to a dozen projections, each of which re-scanned it
+  end to end on every trace row; filtering once to the family's own share and
+  feeding the projections from that leaves each projection's own filter intact
+  (they stay correct on an unfiltered buffer) while dropping the per-row cost
+  to the share of trace rows this panel can actually use.
+
+  Deliberately WIDER than any single projection's filter: a future
+  `:rf.mutation/*` or `:rf.resource/*` op is retained by prefix, so adding a
+  projection never needs this predicate widened first — the failure mode of
+  the opposite choice is a section that silently reads empty."
+  [operation]
+  (boolean
+    (and (keyword? operation)
+         (or (resource-trace-op? operation)
+             (= mutation-trace-family-prefix (namespace operation))
+             (contains? projection-warning-ops operation)))))
+
 ;; ---------------------------------------------------------------------------
 ;; PRIVACY — summarization with size + redaction elision (Spec 016).
 ;; ---------------------------------------------------------------------------
@@ -372,6 +412,70 @@
        {:scope       (summarize (eg scoped-key))
         :resource-id nil
         :params      (summarize nil)}))))
+
+;; ---------------------------------------------------------------------------
+;; ON-BOX sensitive-resource redaction for the TRACE-BORNE projections
+;; (rf2-y8doi.15, extending rf2-9zix0u).
+;;
+;; rf2-9zix0u closed the on-box leak for the LIVE INSTANCE rows: their payload
+;; slots route through the observed frame's `:sensitive` classification before
+;; `summarize`, so a sensitive resource renders `[redacted]` rather than a
+;; 120-char `pr-str` preview on a screen-shared panel. That gate is keyed on a
+;; runtime-db PATH (`[:rf.runtime/resources :entries <key-id> …]`), which a
+;; TRACE row does not have — a trace value carries no key-id and no runtime-db
+;; coordinate — so the same fn cannot be reused here.
+;;
+;; What a trace row DOES carry is the RESOURCE-ID, in its `:resource/key`
+;; scoped key (`[scope resource-id params]`) and in its `:resource-id` tag. The
+;; static registry carries the coarse root `:sensitive?` declaration per
+;; resource (`registry-row`). Joining those two gives the on-box gate for the
+;; trace-borne sections: a row that NAMES a `:sensitive?` resource redacts its
+;; value-bearing slots, exactly as that resource's instance row already does.
+;;
+;; The rule is deliberately ROW-level rather than slot-level: a row's scope,
+;; params, cause and matched keys are all identity-bearing evidence about the
+;; same read, so redacting some of them and printing the rest is the leak in a
+;; different shape. The METADATA (operation, label, class, resource-id,
+;; generation, work-id, owner, status, tags, counts) is never redacted — a
+;; redacted row still shows the whole lifecycle SHAPE.
+;;
+;; NOT applied to `scope-resolutions`: its rows are named-scope RESOLVER
+;; resolutions, whose `:resource-id` tag carries the RESOLVER id (see the
+;; `:rf.resource/scope-resolved` emit in the resources artefact's scope
+;; registry), not a resource-id — so a resource-id-keyed set cannot decide
+;; them, and the framework rules that surface's redaction unconditional and
+;; OFF-BOX-owned (its own off-box projector), with the on-box listener keeping
+;; the raw evidence. Gating it on this set would be dead code.
+;; ---------------------------------------------------------------------------
+
+(defn sensitive-resource-ids
+  "The set of resource-ids whose STATIC registry row declares `:sensitive?
+  true` — the coarse root privacy prop `registry-row` projects. `rows` is
+  `project-registry`'s output. Pure; nil ⇒ `#{}`."
+  [rows]
+  (into #{} (comp (filter :sensitive?) (map :resource-id)) (or rows [])))
+
+(defn- scoped-key-resource-id
+  "The resource-id carried at index 1 of a canonical scoped key `[scope
+  resource-id params]`; nil for a malformed key."
+  [scoped-key]
+  (when (and (vector? scoped-key) (= 3 (count scoped-key)))
+    (nth scoped-key 1)))
+
+(defn- names-sensitive?
+  "True iff any of `resource-ids` is declared `:sensitive?`. nil-safe both
+  ways, so the default (no set threaded) is always false."
+  [sensitive-rids resource-ids]
+  (boolean (and (seq sensitive-rids)
+                (some #(contains? sensitive-rids %) resource-ids))))
+
+(defn- sensitive-eg
+  "The per-row value gate. Returns `eg` unchanged for a row that names no
+  `:sensitive?` resource, and a fn collapsing EVERY value to the framework
+  `redacted-sentinel` for one that does — `summarize` then renders
+  `[redacted]` and no preview, identically to an upstream-redacted slot."
+  [eg sensitive?]
+  (if sensitive? (constantly redacted-sentinel) eg))
 
 ;; ---------------------------------------------------------------------------
 ;; Static resource registry projection (Spec 016 §Xray and AI tooling).
@@ -889,14 +993,23 @@
        :stale?      false  ; ≥1 cached entry is derived-stale
        :statuses    #{:loaded}   ; the set of live entry statuses
        :active-work 1      ; non-terminal work-ledger rows for this resource-id
-       :freshness   :fresh}  ; :fresh / :stale / :loading / :idle / :none
+       :freshness   :fresh}  ; :fresh / :stale / :loading / :error / :idle / :none
 
   `:freshness` is the headline: `:loading` (active work and no usable data
   yet — checked first so a mid-fetch read with no cache entry still reads
-  loading), `:none` (no cached entry AND no active work), `:stale` (≥1 stale
-  entry), `:fresh` (cached, has data, not stale), else `:idle`. Pure over the
-  already-projected rows; nil live inputs ⇒ a `:none` rollup so the static
-  graph still renders."
+  loading), `:none` (no cached entry AND no active work), `:error` (≥1 entry
+  at `:status :error`), `:stale` (≥1 stale entry), `:fresh` (cached, has
+  data, not stale), else `:idle`. Pure over the already-projected rows; nil
+  live inputs ⇒ a `:none` rollup so the static graph still renders.
+
+  `:error` sits BEFORE `:stale` because a blocking SSR wait point whose
+  first load FAILED carries no data and no live work, so without it the
+  rollup fell to `:idle` — the graph painted a failed wait point as if
+  nothing had been asked of it, which is the bug class Xray spec 024
+  §Bug classes names (\"a permanent skeleton … did the last background
+  refresh fail?\"). `:error` is a first-class entry status per Spec 016
+  §Status semantics, and `freshness-colour` in the view already carried an
+  `:error` arm this rollup could never reach."
   [resource-id instance-rows work-rows]
   (let [rows  (filterv #(= resource-id (:resource-id %)) (or instance-rows []))
         works (filterv #(and (= resource-id (:resource-id %))
@@ -904,6 +1017,7 @@
                        (or work-rows []))
         has-data?    (boolean (some :has-data? rows))
         stale?       (boolean (some :stale? rows))
+        error?       (boolean (some #(= :error (:status %)) rows))
         active-work  (count works)
         statuses     (into #{} (keep :status) rows)
         freshness    (cond
@@ -913,6 +1027,7 @@
                        ;; not "nothing here")
                        (and (pos? active-work) (not has-data?)) :loading
                        (and (empty? rows) (zero? active-work)) :none
+                       error?                                :error
                        stale?                                :stale
                        has-data?                             :fresh
                        :else                                 :idle)]
@@ -1040,6 +1155,17 @@
 
 (defn- trace-tags [ev] (or (:tags ev) {}))
 
+(defn resource-projection-rows
+  "Filter a trace buffer ONCE to the rows this panel's trace-borne projections
+  can use (`resource-projection-op?`), oldest-first order preserved.
+
+  The composite feeds every trace-borne projection from this ONE pass instead
+  of handing each the whole buffer (rf2-y8doi.15). Each projection keeps its
+  own filter, so passing it an unfiltered buffer is still correct — this only
+  removes the repeated full-buffer scan. Pure; nil ⇒ `[]`."
+  [trace-buffer]
+  (filterv #(resource-projection-op? (trace-op %)) (or trace-buffer [])))
+
 (def ^:private infinite-trace-ops
   "The four EP-0021 infinite-feed trace ops whose tags carry op-specific page
   evidence beyond the generic lifecycle fields (Spec 016 §Trace surfacing,
@@ -1130,23 +1256,33 @@
   value and is never egressed — a redacted timeline STILL exposes the
   lifecycle shape. The in-panel caller omits the fn (the in-panel
   `summarize` is sufficient; values never leave the box). Pure when
-  `egress-fn` is pure."
-  ([trace-buffer] (lifecycle-timeline trace-buffer nil))
-  ([trace-buffer egress-fn]
-   (let [eg (or egress-fn identity)]
+  `egress-fn` is pure.
+
+  Optional `sensitive-rids` (rf2-y8doi.15): the `sensitive-resource-ids` set
+  from the static registry. A row whose resource-id is in it redacts its
+  value-bearing slots ON BOX — the screen-share gate rf2-9zix0u closed for the
+  live instance rows, reached here through the resource-id rather than a
+  runtime-db path (see §ON-BOX sensitive-resource redaction above). Metadata
+  is untouched, so a redacted row still shows its whole lifecycle shape."
+  ([trace-buffer] (lifecycle-timeline trace-buffer nil nil))
+  ([trace-buffer egress-fn] (lifecycle-timeline trace-buffer egress-fn nil))
+  ([trace-buffer egress-fn sensitive-rids]
+   (let [eg0 (or egress-fn identity)]
      (->> (or trace-buffer [])
           (filter #(resource-trace-op? (trace-op %)))
           (mapv (fn [ev]
                   (let [op   (trace-op ev)
                         tags (trace-tags ev)
-                        rkey (:resource/key tags)]
+                        rkey (:resource/key tags)
+                        rid  (or (:resource-id tags)
+                                 (when (vector? rkey) (second rkey)))
+                        eg   (sensitive-eg eg0 (names-sensitive? sensitive-rids [rid]))]
                     (cond->
                       {:id           (:id ev)
                        :operation    op
                        :label        (op-label op)
                        :class        (op-class op)
-                       :resource-id  (or (:resource-id tags)
-                                         (when (vector? rkey) (second rkey)))
+                       :resource-id  rid
                        :resource/key (when rkey (scoped-key-summary rkey eg))
                        :generation   (:generation tags)
                        ;; Most resource-lifecycle ops carry the bare `:work/id`
@@ -1193,15 +1329,28 @@
   identity, `:match-count`, `:refetched`) is NEVER egressed, so the
   tag-filter axis and the storm / zero-match distinction stay useful even
   on the default-redacted path. The in-panel caller omits the fn. Pure when
-  `egress-fn` is pure."
-  ([trace-buffer] (invalidation-graph trace-buffer nil))
-  ([trace-buffer egress-fn]
-   (let [eg (or egress-fn identity)]
+  `egress-fn` is pure.
+
+  Optional `sensitive-rids` (rf2-y8doi.15): an invalidation row that MATCHED a
+  key belonging to a `:sensitive?` resource redacts its value-bearing slots on
+  box (`:scope`, `:cause`, every matched key's scope/params). The row is the
+  unit because a broad-tag invalidation's scope and cause identify the same
+  read its matched keys do. `:tags` / `:match-count` / `:refetched` are
+  identity and counts, never redacted, so the storm and zero-match
+  distinctions survive."
+  ([trace-buffer] (invalidation-graph trace-buffer nil nil))
+  ([trace-buffer egress-fn] (invalidation-graph trace-buffer egress-fn nil))
+  ([trace-buffer egress-fn sensitive-rids]
+   (let [eg0 (or egress-fn identity)]
      (->> (or trace-buffer [])
           (filter #(= :rf.resource/invalidated (trace-op %)))
           (mapv (fn [ev]
                   (let [tags    (trace-tags ev)
-                        matched (or (:matched tags) [])]
+                        matched (or (:matched tags) [])
+                        eg      (sensitive-eg
+                                  eg0
+                                  (names-sensitive? sensitive-rids
+                                                    (map scoped-key-resource-id matched)))]
                     {:id          (:id ev)
                      :scope       (summarize (eg (:scope tags)))
                      :tags        (vec (:tags tags))
@@ -1290,13 +1439,17 @@
   `:populate-exempt` union — keeps a MIXED plan (one descriptor opts in, another
   default descriptor matches the same populated key) debuggable: the row shows
   exactly which pass spared which populated key. Each exempt scoped key carries
-  PII in its scope/params → summarized."
-  [{:keys [scope cross-scope? tags refetch-populated? exempt-keys]}]
-  {:scope              (summarize scope)
-   :cross-scope?       (boolean cross-scope?)
-   :tags               (vec tags)
-   :refetch-populated? (boolean refetch-populated?)
-   :exempt-keys        (mapv scoped-key-summary exempt-keys)})
+  PII in its scope/params → summarized.
+
+  `eg` (rf2-y8doi.15) is the ROW's on-box value gate — `identity` by default,
+  the redacting fn when the settled mutation touched a `:sensitive?` resource."
+  ([descriptor] (descriptor-summary descriptor identity))
+  ([{:keys [scope cross-scope? tags refetch-populated? exempt-keys]} eg]
+   {:scope              (summarize (eg scope))
+    :cross-scope?       (boolean cross-scope?)
+    :tags               (vec tags)
+    :refetch-populated? (boolean refetch-populated?)
+    :exempt-keys        (mapv #(scoped-key-summary % eg) exempt-keys)}))
 
 (defn mutation-invalidation-evidence
   "Project the descriptor-level invalidation evidence off the
@@ -1329,23 +1482,37 @@
   spares the populated key it matched). The top-level `:populate-exempt` is the
   union of those per-descriptor exempt sets. PRIVACY: each descriptor's resolved
   scope is summarized; tags are identity; exempt scoped keys are summarized.
-  Pure over the trace vector. Per Spec 016."
-  [trace-buffer]
-  (->> (or trace-buffer [])
-       (keep (fn [ev]
-               (let [op   (trace-op ev)
-                     tags (trace-tags ev)
-                     inv  (:invalidation tags)]
-                 (when (and (contains? mutation-settlement-ops op) (map? inv))
-                   {:id               (:id ev)
-                    :operation        op
-                    :mutation         (:mutation tags)
-                    :instance         (:instance tags)
-                    :descriptor-count (:descriptor-count inv)
-                    :dispatched       (mapv descriptor-summary (:dispatched inv))
-                    :unresolved       (vec (:unresolved inv))
-                    :populate-exempt  (mapv scoped-key-summary (:populate-exempt inv))}))))
-       vec))
+  Pure over the trace vector. Per Spec 016.
+
+  Optional `sensitive-rids` (rf2-y8doi.15): a settlement row any of whose
+  exempt scoped keys names a `:sensitive?` resource redacts every descriptor's
+  resolved `:scope` and every exempt key on box. `:unresolved` /
+  `:descriptor-count` / `:tags` are identity and counts, never redacted."
+  ([trace-buffer] (mutation-invalidation-evidence trace-buffer nil))
+  ([trace-buffer sensitive-rids]
+   (->> (or trace-buffer [])
+        (keep (fn [ev]
+                (let [op   (trace-op ev)
+                      tags (trace-tags ev)
+                      inv  (:invalidation tags)]
+                  (when (and (contains? mutation-settlement-ops op) (map? inv))
+                    (let [exempt-rids (->> (:dispatched inv)
+                                           (mapcat :exempt-keys)
+                                           (concat (:populate-exempt inv))
+                                           (map scoped-key-resource-id))
+                          eg          (sensitive-eg
+                                        identity
+                                        (names-sensitive? sensitive-rids exempt-rids))]
+                      {:id               (:id ev)
+                       :operation        op
+                       :mutation         (:mutation tags)
+                       :instance         (:instance tags)
+                       :descriptor-count (:descriptor-count inv)
+                       :dispatched       (mapv #(descriptor-summary % eg) (:dispatched inv))
+                       :unresolved       (vec (:unresolved inv))
+                       :populate-exempt  (mapv #(scoped-key-summary % eg)
+                                               (:populate-exempt inv))})))))
+        vec)))
 
 (defn mutation-continuations
   "Project the call-site `:reply-to` continuation dispatch evidence off the
@@ -1454,12 +1621,56 @@
   [operation]
   (contains? optimistic-ops operation))
 
+(def mutation-stale-suppressed-op
+  "The op the runtime emits when a mutation reply arrives for a SUPERSEDED
+  instance generation. Per Spec 016 §Optimistic mutations, such a reply
+  settles nothing: \"its inverse is discarded, never replayed\", so it emits
+  NEITHER `:rf.mutation/optimistic-reconciled` nor `…/optimistic-rolled-back`.
+  It is the third terminal fact of an optimistic apply's life, and the only
+  record that one exists."
+  :rf.mutation/stale-suppressed)
+
+(defn- optimistic-supersession-index
+  "PURE: index the `:rf.mutation/stale-suppressed` rows by the identity an
+  `:applied` row can be joined on (rf2-y8doi.15).
+
+  A superseded mutation reply emits neither settle op, so `optimistic-lifecycle`
+  paired its `:applied` row with nothing and reported `:pending` — \"still in
+  flight\" for a request that has SETTLED and will never reconcile. That is the
+  first bug class a network inspector exists to catch, and the evidence is
+  already in the same buffer.
+
+  Both ops carry the mutation work identity, so the join is EXACT rather than
+  instance-wide: the suppression row's `:rf.reply/work-id` (one name per fact —
+  the bare `:work/id` duplicate was dropped) equals the apply row's `:work/id`,
+  and both carry `:instance` + `:generation` from the same execution. Indexed
+  under BOTH `[:work <instance> <work-id>]` and `[:gen <instance> <generation>]`
+  so a row missing one identity still joins on the other; an instance-only key
+  is deliberately NOT indexed, because a second apply for the same instance
+  genuinely in flight would then be mislabelled superseded.
+
+  Each value is `{:outcome :superseded :id <trace-id>}`."
+  [trace-buffer]
+  (reduce (fn [acc ev]
+            (if (= mutation-stale-suppressed-op (trace-op ev))
+              (let [tags     (trace-tags ev)
+                    instance (:instance tags)
+                    work-id  (:rf.reply/work-id tags)
+                    gen      (:generation tags)
+                    row      {:outcome :superseded :id (:id ev)}]
+                (cond-> acc
+                  (some? work-id) (assoc [:work instance work-id] row)
+                  (some? gen)     (assoc [:gen instance gen] row)))
+              acc))
+          {} (or trace-buffer [])))
+
 (defn- optimistic-settlement-index
   "PURE: index the terminal settle dispositions (`:reconciled` / `:rolled-back`)
   by `:snapshot-id`, so an `:applied` row can be paired with its outcome. Each
   value is `{:outcome (:reconciled|:rolled-back) :id <trace-id>}` (the LAST
   terminal seen for a snapshot-id wins, though a snapshot settles exactly once
-  in practice). Apply rows with no terminal settle are left `:pending`."
+  in practice). Apply rows with no terminal settle and no supersession row are
+  left `:pending` — see `optimistic-supersession-index` for the third case."
   [trace-buffer]
   (reduce (fn [acc ev]
             (let [op (trace-op ev)]
@@ -1477,12 +1688,15 @@
   "Summarize ONE `:rf.mutation/optimistic-rolled-back` per-key disposition
   `{:resource/key … :restored (bool) :conflict (bool) :on-conflict …}` for a
   render-safe row. PRIVACY: the scoped key carries PII in scope/params →
-  summarized; `:restored` / `:conflict` / `:on-conflict` are bookkeeping."
-  [{scoped-key :resource/key :keys [restored conflict on-conflict]}]
-  (cond-> {:resource/key (scoped-key-summary scoped-key)
-           :restored     (boolean restored)
-           :conflict     (boolean conflict)}
-    (some? on-conflict) (assoc :on-conflict on-conflict)))
+  summarized; `:restored` / `:conflict` / `:on-conflict` are bookkeeping.
+
+  `eg` (rf2-y8doi.15) is the row's on-box value gate — `identity` by default."
+  ([disposition] (rollback-disposition-summary disposition identity))
+  ([{scoped-key :resource/key :keys [restored conflict on-conflict]} eg]
+   (cond-> {:resource/key (scoped-key-summary scoped-key eg)
+            :restored     (boolean restored)
+            :conflict     (boolean conflict)}
+     (some? on-conflict) (assoc :on-conflict on-conflict))))
 
 (defn optimistic-lifecycle
   "Project the EP-0019 optimistic-mutation lifecycle from the trace buffer
@@ -1502,7 +1716,7 @@
        :tag-matched-keys [<scoped-key-summary> …]  ; keys reached via :optimistic-tags
        :target-unresolved [:realworld/tenant]      ; fail-closed {:from-db …} ids
        :cause           <summary>
-       :outcome         :pending         ; :pending / :reconciled / :rolled-back
+       :outcome         :pending   ; :pending / :reconciled / :rolled-back / :superseded
        :settled-id      <trace-id>        ; the terminal settle event's id (when settled)
        ;; ON RECONCILE (commit):
        :committed       [<scoped-key-summary> …]   ; keys the authoritative write owned
@@ -1518,14 +1732,31 @@
   `:pending` (still in flight — the optimistic value is live on the cache); a
   COMMITTED one is `:reconciled`; a rolled-back one is `:rolled-back` (carrying
   the per-key restored-vs-conflict evidence + the resolved `:on-conflict`
-  rule). The settle facets (`:committed` / `:restored` / `:conflicted` / …)
+  rule); and a SUPERSEDED one is `:superseded` — its reply arrived for an
+  already-stale generation, so the runtime emitted `:rf.mutation/stale-
+  suppressed` and no settle op at all, discarding the inverse rather than
+  replaying it (Spec 016 §Optimistic settle). Before rf2-y8doi.15 that last
+  case read `:pending` for ever, claiming a settled request was still in
+  flight; the suppression row was already in the same buffer and is joined by
+  the mutation work identity (see `optimistic-supersession-index`).
+  A `:superseded` row carries `:settled-id` — the suppression event's id — and
+  none of the reconcile / rollback facets, because none were emitted.
+
+  The settle facets (`:committed` / `:restored` / `:conflicted` / …)
   are read off the terminal event's tags and attached to the apply row, so a
   developer reads the WHOLE lifecycle of one optimistic apply in a single row.
   Pure over the trace vector; preserves apply order (oldest-first). Per Spec
-  016."
-  [trace-buffer]
+  016.
+
+  Optional `sensitive-rids` (rf2-y8doi.15): an apply row any of whose scoped
+  keys names a `:sensitive?` resource redacts its value-bearing slots on box
+  (`:scope`, `:cause`, and every scoped key it renders). The counts, outcome,
+  mutation/instance identity and `:target-unresolved` ids are never redacted."
+  ([trace-buffer] (optimistic-lifecycle trace-buffer nil))
+  ([trace-buffer sensitive-rids]
   (let [buffer    (or trace-buffer [])
         settle-ix (optimistic-settlement-index buffer)
+        super-ix  (optimistic-supersession-index buffer)
         ;; index the terminal settle EVENTS by snapshot-id so the apply row can
         ;; pull the matching facets (committed / restored / conflicted / …).
         terminal-by-sid
@@ -1541,42 +1772,61 @@
          (mapv (fn [ev]
                  (let [tags     (trace-tags ev)
                        sid      (:snapshot-id tags)
-                       settled  (get settle-ix sid)
+                       instance (:instance tags)
+                       ;; A settle op wins over a supersession row: an apply
+                       ;; that DID reconcile or roll back has its own terminal,
+                       ;; and a later reply for the same instance being
+                       ;; suppressed says nothing about it.
+                       settled  (or (get settle-ix sid)
+                                    (get super-ix [:work instance (:work/id tags)])
+                                    (get super-ix [:gen instance (:generation tags)]))
                        outcome  (:outcome settled :pending)
                        term-ev  (get terminal-by-sid sid)
-                       term     (trace-tags term-ev)]
+                       term     (trace-tags term-ev)
+                       eg       (sensitive-eg
+                                  identity
+                                  (names-sensitive?
+                                    sensitive-rids
+                                    (map scoped-key-resource-id
+                                         (concat (:affected-keys tags)
+                                                 (:tag-matched-keys tags)
+                                                 (map :resource/key (:revisions tags))
+                                                 (:committed term)
+                                                 (:restored term)
+                                                 (:conflicted term)
+                                                 (:refetched term)))))]
                    (cond-> {:id                (:id ev)
                             :snapshot-id       sid
                             :mutation          (:mutation tags)
-                            :instance          (:instance tags)
+                            :instance          instance
                             :work-id           (:work/id tags)
                             :generation        (:generation tags)
-                            :scope             (summarize (:scope tags))
-                            :affected-keys     (mapv scoped-key-summary (:affected-keys tags))
+                            :scope             (summarize (eg (:scope tags)))
+                            :affected-keys     (mapv #(scoped-key-summary % eg) (:affected-keys tags))
                             :forward           (mapv (fn [{scoped-key :resource/key :keys [revision forward]}]
-                                                       {:resource/key (scoped-key-summary scoped-key)
+                                                       {:resource/key (scoped-key-summary scoped-key eg)
                                                         :revision     revision
                                                         :forward      forward})
                                                      (:revisions tags))
-                            :tag-matched-keys  (mapv scoped-key-summary (:tag-matched-keys tags))
+                            :tag-matched-keys  (mapv #(scoped-key-summary % eg) (:tag-matched-keys tags))
                             :target-unresolved (vec (:target-unresolved tags))
                             :cause             (when (contains? tags :cause)
-                                                 (summarize (:cause tags)))
+                                                 (summarize (eg (:cause tags))))
                             :outcome           outcome}
                      (some? settled)
                      (assoc :settled-id (:id settled))
                      (= :reconciled outcome)
-                     (assoc :committed (mapv scoped-key-summary (:committed term))
+                     (assoc :committed (mapv #(scoped-key-summary % eg) (:committed term))
                             :reconciliation-refetches
-                            (mapv scoped-key-summary (:reconciliation-refetches term)))
+                            (mapv #(scoped-key-summary % eg) (:reconciliation-refetches term)))
                      (= :rolled-back outcome)
                      (assoc :on-conflict  (:on-conflict term)
-                            :restored     (mapv scoped-key-summary (:restored term))
-                            :conflicted   (mapv scoped-key-summary (:conflicted term))
-                            :refetched    (mapv scoped-key-summary (:refetched term))
-                            :dispositions (mapv rollback-disposition-summary
+                            :restored     (mapv #(scoped-key-summary % eg) (:restored term))
+                            :conflicted   (mapv #(scoped-key-summary % eg) (:conflicted term))
+                            :refetched    (mapv #(scoped-key-summary % eg) (:refetched term))
+                            :dispositions (mapv #(rollback-disposition-summary % eg)
                                                 (:dispositions term)))))))
-         vec)))
+         vec))))
 
 (defn optimistic-force-clobbers
   "Project the `:rf.warning/optimistic-force-clobber` trace rows (EP-0019
@@ -1594,18 +1844,29 @@
 
   PRIVACY: the forced scoped keys carry PII in scope/params → summarized; the
   mutation/instance/recovery/reason are bookkeeping. Pure over the trace
-  vector; preserves order. Per Spec 016."
-  [trace-buffer]
-  (->> (or trace-buffer [])
-       (filter #(= optimistic-force-clobber-op (trace-op %)))
-       (mapv (fn [ev]
-               (let [tags (trace-tags ev)]
-                 {:id          (:id ev)
-                  :mutation    (:mutation tags)
-                  :instance    (:instance tags)
-                  :forced-keys (mapv scoped-key-summary (:forced-keys tags))
-                  :recovery    (:recovery tags)
-                  :reason      (:reason tags)})))))
+  vector; preserves order. Per Spec 016.
+
+  Optional `sensitive-rids` (rf2-y8doi.15): a warning whose forced keys name a
+  `:sensitive?` resource redacts those keys' scope/params on box. The warning
+  itself — mutation, instance, count, recovery and reason — always renders, so
+  a clobber on a sensitive resource stays exactly as LOUD as any other."
+  ([trace-buffer] (optimistic-force-clobbers trace-buffer nil))
+  ([trace-buffer sensitive-rids]
+   (->> (or trace-buffer [])
+        (filter #(= optimistic-force-clobber-op (trace-op %)))
+        (mapv (fn [ev]
+                (let [tags   (trace-tags ev)
+                      forced (:forced-keys tags)
+                      eg     (sensitive-eg
+                               identity
+                               (names-sensitive? sensitive-rids
+                                                 (map scoped-key-resource-id forced)))]
+                  {:id          (:id ev)
+                   :mutation    (:mutation tags)
+                   :instance    (:instance tags)
+                   :forced-keys (mapv #(scoped-key-summary % eg) forced)
+                   :recovery    (:recovery tags)
+                   :reason      (:reason tags)}))))))
 
 (defn cache-growth
   "Project the live instance rows + the work ledger into the cache-growth
@@ -1811,8 +2072,14 @@
 
   Leaving a value optimistic can be a deliberate authoring choice, so the
   hint says what settlement did not reach rather than calling it a defect.
-  PRIVACY: the missing scoped keys are summarized. Pure; preserves order."
-  [trace-buffer]
+  PRIVACY: the missing scoped keys are summarized. Pure; preserves order.
+
+  Optional `sensitive-rids` (rf2-y8doi.15): a row whose missing keys name a
+  `:sensitive?` resource redacts those keys' scope/params on box. The hint
+  names RESOURCE-IDS only (never a scope or params value), so it is left
+  intact and the finding stays readable."
+  ([trace-buffer] (optimistic-reach-lint trace-buffer nil))
+  ([trace-buffer sensitive-rids]
   (let [buffer (or trace-buffer [])
         affected-by-work
         (reduce (fn [acc ev]
@@ -1847,7 +2114,12 @@
                      :id           (:id ev)
                      :mutation     mutation
                      :instance     instance
-                     :missing-keys (mapv scoped-key-summary missing)
+                     :missing-keys (let [eg (sensitive-eg
+                                              identity
+                                              (names-sensitive?
+                                                sensitive-rids
+                                                (map scoped-key-resource-id missing)))]
+                                     (mapv #(scoped-key-summary % eg) missing))
                      :hint         (str "not reconciled — the optimistic patch reached "
                                         (str/join ", " (map #(pr-str (when (vector? %) (second %)))
                                                             missing))
@@ -1860,74 +2132,7 @@
                 (if (contains? seen dedupe-key)
                   [rows seen]
                   [(conj rows (dissoc row :dedupe-key)) (conj seen dedupe-key)]))
-              [[] #{}] candidates))))
-
-;; ---------------------------------------------------------------------------
-;; Tool-accessor filtering (Spec 016 §Xray and AI tooling — the
-;; list-resources / list-resource-instances / get-resource-state /
-;; get-resource-history / list-resource-invalidations filter axes).
-;; ---------------------------------------------------------------------------
-
-(defn- scoped-key-matches?
-  "Does the scoped key `[scope rid params]` match the supplied filter
-  axes? `scope` / `resource-id` / `params` are compared against the RAW
-  key parts by KEY PRESENCE (rf2-7iw0bw): an axis ABSENT from the filter
-  map is a wildcard; an axis PRESENT — even bound to nil — is an EXACT
-  match. An explicit `:params nil` therefore matches ONLY entries whose
-  scoped key carries nil params, keeping a nil-params resource addressable
-  and DISTINCT from the wildcard. The prior `nil?` test conflated an absent
-  axis with a present-nil one, so an explicit nil scope/params silently
-  widened to a match-everything wildcard (and, for the exact-read accessor,
-  a nil-params entry could never be pinned).
-
-  rf2-9e0tyq / rf2-hgy5kf: the `:entries` map is keyed on the opaque CEDN-1
-  byte `key-id` STRING, so the kind-preserving `[scope rid params]` scoped-key
-  VECTOR is read from the entry's `:resource/key` stamp (with a fallback to
-  the map key for a legacy entry that lacks the stamp) — exactly as
-  `instance-row` projects. Matching the map key directly would silently match
-  NOTHING for live byte-keyed runtime data."
-  [scoped-key {:keys [scope resource-id params] :as key-filter}]
-  (let [[ks krid kparams] (if (and (vector? scoped-key) (= 3 (count scoped-key)))
-                            scoped-key
-                            [nil nil nil])]
-    (and (or (not (contains? key-filter :scope))       (= scope ks))
-         (or (not (contains? key-filter :resource-id)) (= resource-id krid))
-         (or (not (contains? key-filter :params))      (= params kparams)))))
-
-(defn filter-instance-rows
-  "Filter projected instance rows by the tool-accessor axes (Spec 016):
-  `:resource-id`, `:status`, `:stale?`, `:tag`, `:owner`, `:request-id`.
-  Each nil axis is a wildcard. (Scope/params/frame are applied upstream
-  against the raw key; this filters the already-projected rows.) Pure."
-  [rows {:keys [resource-id status stale? tag owner request-id]}]
-  (->> rows
-       (filter (fn [row]
-                 (and (or (nil? resource-id) (= resource-id (:resource-id row)))
-                      (or (nil? status)      (= status (:status row)))
-                      (or (nil? stale?)      (= (boolean stale?) (:stale? row)))
-                      (or (nil? tag)         (some #{tag} (:tags row)))
-                      (or (nil? owner)       (some #{owner} (:active-owners row)))
-                      (or (nil? request-id)  (= request-id (:request-id row))))))
-       vec))
-
-(defn select-raw-entries
-  "Select the RAW runtime-db entries (`{<key-id> <entry>}`) matching the
-  scope / resource-id / params key axes — the upstream filter a caller
-  applies BEFORE projection/elision (so a read can be scoped by the
-  cache key before summarizing). Pure; the caller still routes selected
-  values through the off-box elision walker afterwards.
-
-  rf2-9e0tyq / rf2-hgy5kf: the `:entries` map is keyed on the opaque CEDN-1
-  byte `key-id` STRING, so each entry is matched against its `:resource/key`
-  stamp (the kind-preserving `[scope rid params]` vector), with a fallback to
-  the map key for a legacy entry that lacks the stamp. Matching the byte
-  map-key directly would silently return NO matches for live byte-keyed
-  runtime data."
-  [entries key-filter]
-  (into {}
-        (filter (fn [[k entry]]
-                  (scoped-key-matches? (or (:resource/key entry) k) key-filter)))
-        (or entries {})))
+              [[] #{}] candidates)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-slot value egress contract (rf2-tgm1xu). Spec 016 §Xray, line 314:
@@ -1958,37 +2163,3 @@
 ;; projected rows) could never match. Egressing the KEY ITSELF would also
 ;; collapse two entries whose scope/params redact to the same sentinel; the
 ;; row keeps the raw key as identity to avoid that.
-
-(defn filter-work-rows
-  "Filter projected work-ledger rows by the accessor axes: `:resource-id`,
-  `:status`, `:owner`, `:request-id` (= work-id), `:nav-token`. Pure."
-  [rows {:keys [resource-id status owner request-id nav-token]}]
-  (->> rows
-       (filter (fn [row]
-                 (and (or (nil? resource-id) (= resource-id (:resource-id row)))
-                      (or (nil? status)      (= status (:status row)))
-                      (or (nil? owner)       (some #{owner} (:owners row)))
-                      (or (nil? request-id)  (= request-id (:work-id row)))
-                      (or (nil? nav-token)
-                          (some (fn [o] (and (vector? o) (some #{nav-token} o)))
-                                (:owners row))))))
-       vec))
-
-(defn filter-history-rows
-  "Filter projected lifecycle-timeline rows by the accessor axes:
-  `:resource-id`, `:nav-token` (matches an owner carrying the token), and
-  bound the result to the last `:limit` rows (bounded history — Spec 016:
-  resource history MUST be bounded). Pure."
-  [rows {:keys [resource-id nav-token limit]}]
-  (let [filtered (->> rows
-                      (filter (fn [row]
-                                (and (or (nil? resource-id)
-                                         (= resource-id (:resource-id row)))
-                                     (or (nil? nav-token)
-                                         (let [o (:owner row)]
-                                           (and (vector? o)
-                                                (some #{nav-token} o)))))))
-                      vec)]
-    (if (and limit (> (count filtered) limit))
-      (vec (take-last limit filtered))
-      filtered)))

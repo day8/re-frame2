@@ -91,6 +91,8 @@
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
+            [day8.re-frame2-xray.panels.common-helpers :as ch]
+            [day8.re-frame2-xray.panels.overflow-indicator :as overflow]
             [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.panels.reply-envelope :as reply]
             [day8.re-frame2-xray.theme.tokens
@@ -166,6 +168,33 @@
                        :font-style  "italic"
                        :font-size   "11px"}}
    text])
+
+(defn- capped-body
+  "Render `rows` as this panel's flex-column list body, capped at the SHARED
+  200-row panel budget (`common-helpers/panel-row-cap`, per
+  `tools/xray/spec/007-UX-IA.md` §Performance budget) with the shared
+  overflow affordance appended when the cap drops rows.
+
+  rf2-y8doi.15: every trace-derived section here rendered EVERY row with no
+  cap and no indicator, so once the trace ring filled, one invalidation storm
+  or one busy epoch mounted thousands of DOM nodes and 007's 'nothing renders
+  >200 rows at once' budget was silently unmet. The cap and the indicator are
+  the shared ones — `cap-rows` is the single source of truth for the number,
+  and `overflow-row` is the affordance every other long-list panel shows —
+  so a user is never left believing a truncated section is the whole story.
+
+  `panel-id` keys the indicator's own testid (`rf-xray-<panel-id>-overflow-
+  indicator`); `testid` and `gap` are the body div's, unchanged from what
+  each section rendered before."
+  [{:keys [panel-id testid gap]} row-fn rows]
+  (let [[shown over? hidden] (ch/cap-rows rows)]
+    (into [:div {:data-testid testid
+                 :style {:display "flex" :flex-direction "column"
+                         :gap (or gap "1px")}}]
+          (concat (map row-fn shown)
+                  [(overflow/overflow-row {:panel-id     panel-id
+                                           :over-cap?    over?
+                                           :hidden-count hidden})]))))
 
 ;; ---- §1 STATIC RESOURCE REGISTRY ---------------------------------------
 
@@ -415,9 +444,10 @@
     {:first? false :testid "rf-xray-resources-work"}
     (section-caption "Work ledger" "rf-xray-resources-work-caption")
     (if (seq rows)
-      (into [:div {:data-testid "rf-xray-resources-work-body"
-                   :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-            (map work-row-view rows))
+      (capped-body {:panel-id "resources-work"
+                    :testid   "rf-xray-resources-work-body"
+                    :gap      "2px"}
+                   work-row-view rows)
       (empty-caption "No in-flight or recent resource work in this frame."
                      "rf-xray-resources-work-empty"))))
 
@@ -629,8 +659,28 @@
                    :font-weight 600 :min-width "9rem"}}
     (:label row)]
    [:span {:style {:color mode-accent}} (str (:resource-id row))]
+   ;; rf2-y8doi.15 — the SCOPED KEY's params, and the status transition. The
+   ;; projection computed both and the row dropped them, so with several
+   ;; params-keyed entries of one resource the timeline could not say WHICH
+   ;; instance the row was about, nor what the event did to its status. Xray
+   ;; spec 024 §Lifecycle timeline lists both as rendered. The params chip is
+   ;; the SAME `summary-chip` the §2 instance row uses, so a `:sensitive?`
+   ;; resource reads `[redacted]` here too (the on-box gate the composite
+   ;; threads).
+   (when-let [params (get-in row [:resource/key :params])]
+     [:span {:style {:display "flex" :gap "2px" :align-items "baseline"}}
+      (summary-chip params
+                    (str "rf-xray-resources-timeline-row-" (:id row) "-params"))])
    (when (:generation row)
      [:span {:style {:color (:text-tertiary tokens)}} "gen " (:generation row)])
+   (let [{:keys [before after]} (:status row)
+         label (fn [s] (if (keyword? s) (name s) (str s)))]
+     (when (or (some? before) (some? after))
+       [:span {:data-testid (str "rf-xray-resources-timeline-row-" (:id row) "-status")
+               :style {:color (:text-tertiary tokens)}}
+        (if (and (some? before) (some? after))
+          (str (label before) " → " (label after))
+          (label (if (some? after) after before)))]))
    ;; EP-0021 — the infinite-feed page evidence carried by the four load-more
    ;; family ops (page param / index / count / next cursor / terminal / skip
    ;; reason / page-error). Without this the timeline shows "load more"
@@ -668,38 +718,83 @@
     {:first? false :testid "rf-xray-resources-timeline"}
     (section-caption "Lifecycle timeline" "rf-xray-resources-timeline-caption")
     (if (seq rows)
-      (into [:div {:data-testid "rf-xray-resources-timeline-body"
-                   :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-            (map timeline-row-view rows))
+      (capped-body {:panel-id "resources-timeline"
+                    :testid   "rf-xray-resources-timeline-body"}
+                   timeline-row-view rows)
       (empty-caption "No resource lifecycle events in this epoch."
                      "rf-xray-resources-timeline-empty"))))
 
 ;; ---- §6 INVALIDATION GRAPH ----------------------------------------------
 
+(def ^:private matched-key-chip-cap
+  "How many of an invalidation's MATCHED keys render as chips before the row
+  falls back to the bare count. A broad-tag storm can match hundreds of keys;
+  the point of the chips is 'which instance did this hit?', which the first
+  few answer. The row always shows the full `:match-count`, so the storm is
+  never understated (rf2-y8doi.15)."
+  6)
+
 (defn- invalidation-row-view [row]
-  [:div {:key         (str (:id row))
-         :data-testid (str "rf-xray-resources-invalidation-row-" (:id row))
-         :style {:display "flex" :gap "8px" :align-items "baseline"
-                 :padding "2px 0" :font-family mono-stack :font-size "11px"}}
-   [:span {:style {:color (:orange tokens) :font-weight 600}} "invalidate"]
-   [:span {:style {:color (:text-primary tokens)}}
-    (str/join " " (map pr-str (:tags row)))]
-   [:span {:data-testid (str "rf-xray-resources-invalidation-match-" (:id row))
-           :style {:color (if (zero? (:match-count row))
-                           (:text-tertiary tokens)
-                           (:text-primary tokens))}}
-    (:match-count row) " matched"]
-   [:span {:style {:color (:text-tertiary tokens)}}
-    (:refetched row) " refetched"]])
+  (let [testid  (str "rf-xray-resources-invalidation-row-" (:id row))
+        matched (:matched row)
+        shown   (take matched-key-chip-cap matched)
+        hidden  (max 0 (- (count matched) matched-key-chip-cap))]
+    [:div {:key         (str (:id row))
+           :data-testid testid
+           :style {:display "flex" :gap "8px" :align-items "baseline"
+                   :flex-wrap "wrap"
+                   :padding "2px 0" :font-family mono-stack :font-size "11px"}}
+     [:span {:style {:color (:orange tokens) :font-weight 600}} "invalidate"]
+     [:span {:style {:color (:text-primary tokens)}}
+      (str/join " " (map pr-str (:tags row)))]
+     ;; rf2-y8doi.15 — the SCOPE this invalidation ran under and its CAUSE.
+     ;; The projection computed both and the row dropped them, so a
+     ;; cross-scope blast and a precisely-scoped one read identically. Both
+     ;; are `summarize` shapes, so a `:sensitive?` resource's row reads
+     ;; `[redacted]` (the composite's on-box gate).
+     (when-let [scope (:scope row)]
+       [:span {:style {:display "flex" :gap "2px" :align-items "baseline"}}
+        [:span {:style {:color (:text-tertiary tokens)}} "scope"]
+        (summary-chip scope (str testid "-scope"))])
+     (when-let [cause (:cause row)]
+       [:span {:style {:display "flex" :gap "2px" :align-items "baseline"}}
+        [:span {:style {:color (:text-tertiary tokens)}} "cause"]
+        (summary-chip cause (str testid "-cause"))])
+     [:span {:data-testid (str "rf-xray-resources-invalidation-match-" (:id row))
+             :style {:color (if (zero? (:match-count row))
+                             (:text-tertiary tokens)
+                             (:text-primary tokens))}}
+      (:match-count row) " matched"]
+     ;; WHICH keys were hit — capped, with the remainder counted rather than
+     ;; dropped silently.
+     (when (seq shown)
+       (into [:span {:data-testid (str testid "-matched")
+                     :style {:display "flex" :gap "6px" :align-items "baseline"
+                             :flex-wrap "wrap"}}]
+             (concat
+               (map-indexed
+                 (fn [i k]
+                   [:span {:key   (str (:resource-id k) i)
+                           :style {:display "flex" :gap "2px" :align-items "baseline"}}
+                    [:span {:style {:color mode-accent}} (str (:resource-id k))]
+                    (summary-chip (:params k) (str testid "-matched-" i))])
+                 shown)
+               (when (pos? hidden)
+                 [[:span {:key "more"
+                          :data-testid (str testid "-matched-overflow")
+                          :style {:color (:text-tertiary tokens) :font-style "italic"}}
+                   (str "+" hidden " more")]]))))
+     [:span {:style {:color (:text-tertiary tokens)}}
+      (:refetched row) " refetched"]]))
 
 (defn- invalidation-section [rows]
   (section
     {:first? false :testid "rf-xray-resources-invalidation"}
     (section-caption "Invalidation / mutation graph" "rf-xray-resources-invalidation-caption")
     (if (seq rows)
-      (into [:div {:data-testid "rf-xray-resources-invalidation-body"
-                   :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-            (map invalidation-row-view rows))
+      (capped-body {:panel-id "resources-invalidation"
+                    :testid   "rf-xray-resources-invalidation-body"}
+                   invalidation-row-view rows)
       (empty-caption "No invalidations in this epoch."
                      "rf-xray-resources-invalidation-empty"))))
 
@@ -739,9 +834,9 @@
     {:first? false :testid "rf-xray-resources-scope-resolution"}
     (section-caption "Scope resolution timeline" "rf-xray-resources-scope-resolution-caption")
     (if (seq rows)
-      (into [:div {:data-testid "rf-xray-resources-scope-resolution-body"
-                   :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-            (map scope-resolution-row-view rows))
+      (capped-body {:panel-id "resources-scope-resolution"
+                    :testid   "rf-xray-resources-scope-resolution-body"}
+                   scope-resolution-row-view rows)
       (empty-caption "No named-scope resolutions in this epoch."
                      "rf-xray-resources-scope-resolution-empty"))))
 
@@ -826,16 +921,16 @@
     [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
      ;; the descriptor-level invalidation evidence (cache consequence)
      (if (seq mutation-invalidations)
-       (into [:div {:data-testid "rf-xray-resources-mutation-invalidation-body"
-                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (map mutation-invalidation-row-view mutation-invalidations))
+       (capped-body {:panel-id "resources-mutation-invalidation"
+                     :testid   "rf-xray-resources-mutation-invalidation-body"}
+                    mutation-invalidation-row-view mutation-invalidations)
        (empty-caption "No scoped mutation invalidations in this epoch."
                       "rf-xray-resources-mutation-invalidation-empty"))
      ;; the call-site :reply-to continuation dispatch (workflow)
      (if (seq continuations)
-       (into [:div {:data-testid "rf-xray-resources-continuations-body"
-                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (map continuation-row-view continuations))
+       (capped-body {:panel-id "resources-continuations"
+                     :testid   "rf-xray-resources-continuations-body"}
+                    continuation-row-view continuations)
        (empty-caption "No :reply-to continuations dispatched in this epoch."
                       "rf-xray-resources-continuations-empty"))]))
 
@@ -855,11 +950,14 @@
 (defn- optimistic-outcome-colour
   "Outcome → token for an optimistic-apply row. `:reconciled` (committed —
   the happy path) green, `:rolled-back` amber (the inverse won), `:pending`
-  (still in flight, optimistic value live on the cache) accent."
+  (still in flight, optimistic value live on the cache) accent,
+  `:superseded` muted-warning — it is settled, so not accent, but the
+  optimistic value is still sitting on the cache, so not green either."
   [outcome]
   (case outcome
     :reconciled  (:green tokens)
     :rolled-back (:warning tokens)
+    :superseded  (:warning tokens)
     :pending     mode-accent
     (:text-tertiary tokens)))
 
@@ -868,6 +966,13 @@
   (case outcome
     :reconciled  "reconciled (committed)"
     :rolled-back "rolled back"
+    ;; rf2-y8doi.15 — the fourth outcome. The reply arrived for a superseded
+    ;; generation, so the runtime suppressed it and emitted NO settle op; the
+    ;; recorded inverse was discarded, never replayed (Spec 016 §Optimistic
+    ;; settle). This row used to read "pending (optimistic)" for ever, which
+    ;; claimed a settled request was still in flight. The label says where the
+    ;; value actually is.
+    :superseded  "superseded (optimistic value left on cache)"
     :pending     "pending (optimistic)"
     (str (some-> outcome name))))
 
@@ -973,16 +1078,17 @@
     (section-caption "Optimistic mutations" "rf-xray-resources-optimistic-caption")
     [:div {:style {:display "flex" :flex-direction "column" :gap "6px"}}
      (if (seq optimistic-mutations)
-       (into [:div {:data-testid "rf-xray-resources-optimistic-body"
-                    :style {:display "flex" :flex-direction "column" :gap "3px"}}]
-             (map optimistic-mutation-row-view optimistic-mutations))
+       (capped-body {:panel-id "resources-optimistic"
+                     :testid   "rf-xray-resources-optimistic-body"
+                     :gap      "3px"}
+                    optimistic-mutation-row-view optimistic-mutations)
        (empty-caption "No optimistic mutations in this epoch."
                       "rf-xray-resources-optimistic-empty"))
      ;; the loud :force-over-a-concurrent-write clobber warnings
      (when (seq optimistic-force-clobbers)
-       (into [:div {:data-testid "rf-xray-resources-optimistic-clobber-body"
-                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (map optimistic-force-clobber-row-view optimistic-force-clobbers)))]))
+       (capped-body {:panel-id "resources-optimistic-clobber"
+                     :testid   "rf-xray-resources-optimistic-clobber-body"}
+                    optimistic-force-clobber-row-view optimistic-force-clobbers))]))
 
 ;; ---- §7 CACHE GROWTH ----------------------------------------------------
 
@@ -1055,12 +1161,13 @@
                 " pins " (str (:resource-id o))])))
      ;; optimistic-reach lint — informational: a value left optimistic can be deliberate
      (when (seq optimistic-reach)
-       (into [:div {:data-testid "rf-xray-resources-audit-optimistic-reach"
-                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (for [r optimistic-reach]
-               [:div {:key   (str (:id r))
-                      :style {:color (:info tokens)}}
-                (str (:mutation r)) " " (pr-str (:instance r)) " — " (:hint r)])))]))
+       (capped-body {:panel-id "resources-audit-optimistic-reach"
+                     :testid   "rf-xray-resources-audit-optimistic-reach"}
+                    (fn [r]
+                      [:div {:key   (str (:id r))
+                             :style {:color (:info tokens)}}
+                       (str (:mutation r)) " " (pr-str (:instance r)) " — " (:hint r)])
+                    optimistic-reach))]))
 
 ;; ---- empty (no resources artefact / no resources registered) -----------
 
@@ -1406,6 +1513,25 @@
       (let [now-ms        (.now js/Date)
             routes-map    (rf/registrations {:source :store :kind :route})
             registry-rows (h/project-registry registrations routes-map)
+            ;; rf2-y8doi.15 — the ON-BOX gate for the TRACE-BORNE sections.
+            ;; rf2-9zix0u closed this leak for the §2 instance rows (their
+            ;; payload slots route through the observed frame's `:sensitive`
+            ;; classification), but every trace-derived section below still
+            ;; `pr-str`'d up to 120 characters of the SAME resource's scope,
+            ;; params and cause one scroll down. A trace row has no runtime-db
+            ;; path, so the instance gate cannot be reused; what it does carry
+            ;; is the resource-id, and the static registry carries the coarse
+            ;; `:sensitive?` declaration per resource. Joining them redacts a
+            ;; sensitive resource's values wherever they surface.
+            sensitive-rids (h/sensitive-resource-ids registry-rows)
+            ;; rf2-y8doi.15 — filter the buffer ONCE. Every projection below
+            ;; used to re-scan the WHOLE buffer on every trace row; they now
+            ;; share one pass over the rows this panel can actually use. Each
+            ;; projection keeps its own filter, so this is a cost change only.
+            ;; The reply-envelope reads stay on the raw buffer: they are
+            ;; deliberately CROSS-FAMILY (http / route / machine / timer), so
+            ;; a resource-family filter would silently narrow them.
+            family-rows   (h/resource-projection-rows trace-buffer)
             ;; rf2-9zix0u — thread the on-box egress-fn so a frame-`:sensitive`
             ;; resource payload redacts to `[redacted]` on the on-box render
             ;; path (screen-share safe), structurally matching the off-box MCP
@@ -1452,20 +1578,20 @@
                              ;; resource graph: per-nav-token unsettled set).
                              :blocking-keys (h/routing-blocking-keys
                                               routing-slice (:nav-token current))}))
-         :timeline      (h/lifecycle-timeline trace-buffer)
-         :invalidations (h/invalidation-graph trace-buffer)
+         :timeline      (h/lifecycle-timeline family-rows nil sensitive-rids)
+         :invalidations (h/invalidation-graph family-rows nil sensitive-rids)
          ;; EP-0016 D3 (slice 8): the named-scope-resolver RESOLUTION timeline
          ;; — `:rf.resource/scope-resolved` rows (which resolver ran, resolved
          ;; scope summarized, fail-closed nil evidence).
-         :scope-resolutions (h/scope-resolutions trace-buffer)
+         :scope-resolutions (h/scope-resolutions family-rows)
          ;; EP-0016 D2 (slice 8): the descriptor-level invalidation evidence off
          ;; the mutation settlement traces (resolved scope per descriptor +
          ;; fail-closed `:unresolved` + Rider-1 `:populate-exempt`).
-         :mutation-invalidations (h/mutation-invalidation-evidence trace-buffer)
+         :mutation-invalidations (h/mutation-invalidation-evidence family-rows sensitive-rids)
          ;; EP-0016 D1 (slice 8): the call-site `:reply-to` continuation
          ;; dispatch evidence (`:rf.mutation/replied` — phase 6, after cache
          ;; consequences + instance settlement).
-         :continuations (h/mutation-continuations trace-buffer)
+         :continuations (h/mutation-continuations family-rows)
          ;; EP-0019 (slice 4b): the optimistic-mutation lifecycle — each
          ;; `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its
          ;; terminal settle (`:reconciled` commit / `:rolled-back`), so a
@@ -1473,15 +1599,15 @@
          ;; committed or rolled back (with the conflict outcome). The
          ;; `:optimistic-force-clobbers` are the loud `:force`-restored-over-a-
          ;; concurrent-write warnings.
-         :optimistic-mutations (h/optimistic-lifecycle trace-buffer)
-         :optimistic-force-clobbers (h/optimistic-force-clobbers trace-buffer)
+         :optimistic-mutations (h/optimistic-lifecycle family-rows sensitive-rids)
+         :optimistic-force-clobbers (h/optimistic-force-clobbers family-rows sensitive-rids)
          :cache-growth  (h/cache-growth instance-rows work-rows)
          :audit         {:global-audit (h/global-scope-audit registry-rows)
                          :suspicious   (h/suspicious-global-warnings registry-rows)
                          :mismatches   (h/scope-mismatch-lint instance-rows sub-reads)
-                         :orphans      (h/orphaned-owner-lint instance-rows trace-buffer)
+                         :orphans      (h/orphaned-owner-lint instance-rows family-rows)
                          ;; rf2-ynkzj — optimistic keys the settlement never reached
-                         :optimistic-reach (h/optimistic-reach-lint trace-buffer)}})))
+                         :optimistic-reach (h/optimistic-reach-lint family-rows sensitive-rids)}})))
 
   ;; Register the Dynamic Resources tab with the internal L4 tab registry.
   ;; Per Mike's cohesive-sub-domain ruling (server-state earns its own L4
