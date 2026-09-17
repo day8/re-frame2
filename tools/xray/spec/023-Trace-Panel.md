@@ -98,21 +98,38 @@ Errors / warnings are cross-cutting (§7): the stage column still labels the ste
 
 ## §5 What-happened verb taxonomy
 
-> **Status: PARTIALLY SHIPPED — this table is the target vocabulary, not the rendered strings.** What ships
-> (`trace_helpers/what-happened`) is the operation's **terminal name segment** with hyphens folded to spaces
-> — `:rf.sub/run` → `run`, `:rf.machine.timer/scheduled` → `scheduled` — except for **nine explicit
-> overrides** (`trace_helpers/operation->verb`): `:rf.event/dispatched` → `dispatched`,
-> `:rf.event/run-start` and `:rf.event/run-end` → `handler ran`, `:rf.event/db-changed` → `changed`,
-> `:rf.event/db-noop` → `unchanged`, `:rf.epoch/snapshotted` → `snapshotted`, `:rf.epoch/outcome` →
-> `outcome`, `:rf.cofx/run` → `run`, `:rf.flow/computed` → `computed`.
+> **Status: PARTIALLY SHIPPED — the derived SUB and VIEW verbs now render, except the VIEW `skipped`, which
+> has no op to hang off (rf2-u7l6h).** `trace_helpers/what-happened` reads the explicit overrides first,
+> then the tag-split pairs, then falls through to the operation's terminal name segment.
 >
-> So the EVENT, COEFFECT, DB, FLOW and EPOCH rows below read as written, and the rest fall through to the
-> terminal segment. In particular the **derived** SUB and VIEW verbs are NOT produced: `created` ·
-> `recalculated` · `ran-unchanged` · `cache-hit` · `disposed` render as `create` · `computed` · `run` ·
-> `skip` · `dispose`, and `mounted` · `re-rendered` · `skipped` render as `render` · `rendered` · `skip`
-> (`unmounted` happens to coincide). Those five derived labels need a `value-changed?` / `mount?` read the
-> verb function does not make; closing that gap is a code change, not a spec one. Appendix A's **Row label**
-> column carries the same target vocabulary and the same caveat.
+> The **explicit overrides** (`trace_helpers/operation->verb`) are the operations whose readable verb simply
+> isn't their terminal segment: `:rf.event/dispatched` → `dispatched`, `:rf.event/run-start` and
+> `:rf.event/run-end` → `handler ran`, `:rf.event/db-changed` → `changed`, `:rf.event/db-noop` →
+> `unchanged`, `:rf.epoch/snapshotted` → `snapshotted`, `:rf.epoch/outcome` → `outcome`, `:rf.cofx/run` →
+> `run`, `:rf.flow/computed` → `computed`, `:rf.sub/create` → `created`, `:rf.sub/skip` → `cache-hit`,
+> `:rf.sub/dispose` → `disposed`.
+>
+> The **tag-split pairs** (`trace_helpers/operation->split-verb`) are the operations carrying a boolean
+> discriminator the substrate already stamps, so one op yields two verbs: `:rf.sub/run` splits on
+> `:rf.sub/value-changed?` into `recalculated` / `ran-unchanged`, and `:rf.view/rendered` splits on
+> `:rf.view/mount?` into `mounted` / `re-rendered`. The mount flag rides the post-render
+> `:rf.view/rendered`, **not** the render-START `:rf.view/render`, whose tags are `:frame` +
+> `:rf.view/render-key` only ([Spec 009](../../../spec/009-Instrumentation.md)).
+>
+> Everything else is the **terminal name segment** with hyphens folded to spaces —
+> `:rf.machine.timer/scheduled` → `scheduled`, `:rf.cofx/skipped-on-platform` → `skipped on platform`. So is
+> a split op whose discriminating tag is **absent**: the panel falls through rather than picking a side,
+> because Spec 009's pure `compute-sub` form omits the attribution slots, so a `:rf.sub/run` genuinely can
+> arrive without the boolean — and an over-applied verb is a visible wrong label on the row, where the
+> coarser segment is merely less informative.
+>
+> **The verb below that is NOT produced is the VIEW `skipped`, and the reason is upstream of this panel:
+> there is no `:rf.view/skip` op.** Spec 009's view vocabulary is `:rf.view/render` · `:rf.view/rendered` ·
+> `:rf.view/unmounted`, plus the `:rf.view/dropped-after` / `:rf.view/rendered-cap-reached` cap markers;
+> nothing in the substrate emits a skipped view, so no verb function can produce the label. Whether views
+> should emit such an op is a Spec 009 question, not a Trace-panel one. Appendix A's **Row label** column
+> carries this same vocabulary; its `:rf.view/skip` row, and the `:rf.sub/computed` / `:rf.sub/skipped`
+> spellings in its Op column, name ops Spec 009 does not define and are stale for the same reason.
 
 | Area | Verbs |
 |---|---|

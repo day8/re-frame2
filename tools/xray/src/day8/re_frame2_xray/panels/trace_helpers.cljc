@@ -447,17 +447,27 @@
 ;; ---- what-happened verb (spec/023 §5) -----------------------------------
 ;;
 ;; Per spec/023 §5 each area has a verb taxonomy — the per-row "what
-;; happened" state. We derive it from the operation's terminal segment
-;; with a small override map for the operations whose readable form
-;; differs (`handler ran`, `unchanged`, …). The derived SUB/VIEW verbs
-;; (`recalculated`, `cache-hit`, `mounted`, …) are NOT produced here:
-;; they need a `value-changed?` / `mount?` read this namespace does not
-;; make, and spec/023 §5 marks closing that gap a code change.
+;; happened" state. Three sources, consulted in this order:
+;;
+;;   1. `operation->verb` — operations whose readable verb simply isn't
+;;      their terminal segment (`handler ran`, `unchanged`, `cache-hit`).
+;;   2. `operation->split-verb` — the two operations whose §5 verb is a
+;;      PAIR discriminated by a boolean tag the substrate already
+;;      stamps, so one op yields two verbs.
+;;   3. the operation's terminal segment, hyphens folded to spaces.
+;;
+;; THE ONE §5 VERB THIS CANNOT PRODUCE IS THE VIEW `skipped`, and the
+;; reason is upstream of this namespace rather than in it: spec/009's
+;; view vocabulary is `:rf.view/render` · `:rf.view/rendered` ·
+;; `:rf.view/unmounted` (plus the `dropped-after` / `rendered-cap-reached`
+;; cap markers). There is no `:rf.view/skip` op, nothing in the substrate
+;; emits one, and a verb function cannot invent a row the trace never
+;; produced. Whether views SHOULD emit a skip op is a spec/009 question.
 
 (def operation->verb
   "Explicit verb overrides for the operations whose readable verb isn't
   simply their terminal segment (spec/023 §5 / Appendix A). Falls
-  through to the name-based default for everything else."
+  through to `operation->split-verb`, then to the name-based default."
   {:rf.event/dispatched   "dispatched"
    :rf.event/run-start    "handler ran"
    :rf.event/run-end      "handler ran"
@@ -466,17 +476,50 @@
    :rf.epoch/snapshotted  "snapshotted"
    :rf.epoch/outcome      "outcome"
    :rf.cofx/run           "run"
-   :rf.flow/computed      "computed"})
+   :rf.flow/computed      "computed"
+   ;; SUB lifecycle (spec/023 §5). The bare terminal segments under-read
+   ;; the arc: `skip` in particular says only that the body didn't run,
+   ;; where `cache-hit` names the memo hit spec/009 actually emits — and
+   ;; `create` collides visually with the machine/resource `created`
+   ;; rows it sits beside in the flat list.
+   :rf.sub/create         "created"
+   :rf.sub/skip           "cache-hit"
+   :rf.sub/dispose        "disposed"})
+
+(def operation->split-verb
+  "The two operations whose spec/023 §5 verb is a PAIR: one op, two
+  verbs, discriminated by a boolean tag the substrate already stamps.
+  Each entry is `[tag verb-when-true verb-when-false]`.
+
+  `:rf.sub/run` fires on a true recompute; `:rf.sub/value-changed?` says
+  whether that recompute actually moved the value (spec/009). The pure
+  `compute-sub` form omits the attribution slots, so the tag can be
+  genuinely absent.
+
+  `:rf.view/mount?` rides `:rf.view/rendered` and NOT the render-START
+  `:rf.view/render`, whose spec/009 tags are `:frame` +
+  `:rf.view/render-key` only — so the mount/re-render split hangs off
+  the post-render op."
+  {:rf.sub/run       [:rf.sub/value-changed? "recalculated" "ran-unchanged"]
+   :rf.view/rendered [:rf.view/mount?        "mounted"      "re-rendered"]})
 
 (defn what-happened
-  "Build the per-row what-happened verb (spec/023 §5). Uses the explicit
-  override map first, then falls back to the operation's terminal name
-  segment with hyphens folded to spaces (`:rf.sub/run` → `run`,
-  `:rf.machine.timer/scheduled` → `scheduled`,
-  `:rf.cofx/skipped-on-platform` → `skipped on platform`). Pure data →
-  string; JVM-testable."
-  [{:keys [operation] :as _row-or-ev}]
+  "Build the per-row what-happened verb (spec/023 §5). Reads, in order:
+  the explicit override map; the tag-split pair map; then the
+  operation's terminal name segment with hyphens folded to spaces
+  (`:rf.view/render` → `render`, `:rf.machine.timer/scheduled` →
+  `scheduled`, `:rf.cofx/skipped-on-platform` → `skipped on platform`).
+
+  A split op whose discriminating tag is ABSENT falls through to the
+  terminal segment rather than picking a side: an over-applied verb is a
+  visible wrong label on the row, where the coarser segment is merely
+  less informative. Pure data → string; JVM-testable."
+  [{:keys [operation tags] :as _row-or-ev}]
   (or (get operation->verb operation)
+      (when-let [[tag when-true when-false] (get operation->split-verb operation)]
+        (let [changed? (get tags tag)]
+          (when (boolean? changed?)
+            (if changed? when-true when-false))))
       (when (keyword? operation)
         (-> (name operation)
             (str/replace #"-" " ")))
