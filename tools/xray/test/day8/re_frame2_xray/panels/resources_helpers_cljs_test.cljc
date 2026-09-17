@@ -52,7 +52,6 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(def ^:private global-scope :rf.scope/global)
 (def ^:private session-scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
 
 (def ^:private registrations
