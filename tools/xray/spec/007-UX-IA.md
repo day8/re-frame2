@@ -1205,13 +1205,18 @@ contract for this section — trim any spec drift back to it):
 - **Shell spine keys** are bare unmodified keys that fire **only** when
   the Xray shell is visible AND the keydown target is inside the shell
   DOM tree AND the target is not an editable element (`<input>` /
-  `<textarea>` / `<select>` / contenteditable) AND not an activatable
-  control (`<button>` / `<summary>` / `[role=button]`, which own
-  `Space` / `Enter` for their own activation — rf2-d716o9) AND not
-  inside a modal (Settings / palette). Those guards keep the bare
-  letters from stealing keystrokes from the host app, from text fields,
-  from a focused control's native activation, and from a modal's own
-  inner mnemonics (per spec/018 §3 + §6, rf2-ttnst, rf2-d716o9).
+  `<textarea>` / `<select>` / contenteditable) AND not inside a modal
+  (Settings / palette). One further guard binds **`Space` alone**: an
+  activatable control (`<button>` / `<summary>` / `[role=button]`) owns
+  `Space` / `Enter` for its own activation, so the shell yields `Space`
+  to a focused one and keeps the rest of the roster (rf2-d716o9, scoped
+  to `Space` by rf2-y8doi.20 — roster-wide the exemption killed `j` /
+  `k` / `l` / `Shift+G` / `,` / `s` after any click on an L2 row or a
+  nav chevron, both of which take DOM focus). Those guards keep the
+  bare letters from stealing keystrokes from the host app, from text
+  fields, from a focused control's native activation, and from a
+  modal's own inner mnemonics (per spec/018 §3 + §6, rf2-ttnst,
+  rf2-d716o9).
 
 Every binding fires **once per physical key press**: OS key-repeat
 (`event.repeat`) is ignored for the toggle chords and the toggle-style

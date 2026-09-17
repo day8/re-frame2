@@ -868,13 +868,20 @@
           (js-obj "tagName"      tag
                   "getAttribute" (fn [attr] (when (= attr "role") role)))))
 
-(defn- mk-shell-space-event
-  "Synthetic bare Space keydown whose `.target` is a fake element INSIDE
-  the Xray shell: `.closest` resolves the shell testid (so
-  `target-inside-xray?` is true) but carries no modal marker. `tag` /
-  `role` drive the activatable check; preventDefault / stopPropagation
-  are spied so a test can see whether the spine consumed Space."
-  [{:keys [tag role]}]
+(defn- mk-shell-target-key-event
+  "Synthetic keydown whose `.target` is a fake element INSIDE the Xray
+  shell: `.closest` resolves the shell testid (so `target-inside-xray?`
+  is true) but carries no modal marker. `tag` / `role` drive the
+  activatable check; `key` / `code` / `shift?` choose the binding;
+  preventDefault / stopPropagation are spied so a test can see whether
+  the spine consumed the keystroke.
+
+  rf2-y8doi.20 generalised this from the Space-only form below: the
+  activatable-target exemption is now scoped to Space, so the roster
+  keys need the same shell-inside target shape to assert they are NOT
+  exempted."
+  [{:keys [tag role key code shift?]
+    :or   {key " " code "Space" shift? false}}]
   (let [prevented  (atom false)
         stopped    (atom false)
         shell-node (js-obj "id" "fake-shell")
@@ -883,15 +890,22 @@
                            "closest"      (fn [sel]
                                             (when (re-find #"rf-xray-shell" sel)
                                               shell-node)))
-        event      (js-obj "key"             " "
-                           "code"            "Space"
+        event      (js-obj "key"             key
+                           "code"            code
                            "target"          target
                            "ctrlKey"  false  "metaKey" false
-                           "altKey"   false  "shiftKey" false
+                           "altKey"   false  "shiftKey" shift?
                            "repeat"          false
                            "preventDefault"  (fn [] (reset! prevented true))
                            "stopPropagation" (fn [] (reset! stopped true)))]
     {:event event :prevented prevented :stopped stopped}))
+
+(defn- mk-shell-space-event
+  "Synthetic bare Space keydown inside the shell — the Space-specific
+  spelling of `mk-shell-target-key-event`, kept so the rf2-d716o9 rows
+  below read exactly as they did."
+  [{:keys [tag role]}]
+  (mk-shell-target-key-event {:tag tag :role role}))
 
 (deftest target-activatable-matches-buttons-summary-role
   (testing "rf2-d716o9 — a focused <button> / <summary> / [role=button]
@@ -951,6 +965,75 @@
         (handle-keydown event)
         (is (true? @prevented)
             "Space consumed — the spine live-pause binding fired on a plain node")))))
+
+;; ---- rf2-y8doi.20 — the exemption is SPACE'S, not the roster's -----------
+;;
+;; `target-activatable?` was added for Space alone (rf2-d716o9) but sat
+;; bare in front of the whole `:else` guard, so it exempted every spine
+;; key. The most natural gesture in the tool leaves DOM focus on an
+;; activatable control — an L2 row is `role="button"` + `tab-index "0"`
+;; and the nav chevrons are `<button>`s, and browsers focus both on
+;; mousedown — after which j / k / L / Shift+G / `,` / s were all dead
+;; until the user clicked somewhere inert. The row's own `:on-key-down`
+;; handles Enter / Space / ContextMenu / Shift+F10 and nothing else, so
+;; the step keys reached no handler at all. Space (and Enter, which is
+;; not a spine key) is the whole of what a native control claims.
+
+(def ^:private spine-roster-minus-space
+  "The spine bindings a focused activatable control does NOT claim,
+  paired with the id `spine-key-id` maps each to."
+  [{:key "j" :code "KeyJ"                :expect :rf.xray/focus-event-prev}
+   {:key "k" :code "KeyK"                :expect :rf.xray/focus-event-next}
+   {:key "l" :code "KeyL"                :expect :rf.xray/follow-head}
+   {:key "G" :code "KeyG" :shift? true   :expect :rf.xray/follow-head}
+   {:key "," :code "Comma"               :expect :rf.xray/settings-toggle}
+   {:key "s" :code "KeyS"                :expect :rf.xray/settings-toggle}])
+
+(deftest spine-roster-survives-focus-on-an-activatable-target
+  (testing "rf2-y8doi.20 — with focus on a shell <button> / <summary> /
+            [role=button], every spine key EXCEPT Space still fires: the
+            keystroke is consumed and the roster's own event is dispatched"
+    (setup-xray-runtime!)
+    (let [dispatched (atom [])]
+      (with-redefs [mount/visible? (constantly true)
+                    rf/dispatch    (fn [v] (swap! dispatched conj v) nil)]
+        (doseq [target-spec [{:tag "BUTTON"}
+                             {:tag "SUMMARY"}
+                             {:tag "DIV" :role "button"}]
+                {:keys [key code shift? expect]} spine-roster-minus-space]
+          (reset! dispatched [])
+          (let [{:keys [event prevented stopped]}
+                (mk-shell-target-key-event
+                  (assoc target-spec :key key :code code :shift? (boolean shift?)))]
+            (handle-keydown event)
+            (is (true? @prevented)
+                (str key " on a focused " target-spec
+                     " must be consumed by the spine (preventDefault)"))
+            (is (true? @stopped)
+                (str key " on a focused " target-spec " must stopPropagation"))
+            (is (= [[expect]] @dispatched)
+                (str key " on a focused " target-spec " dispatches " expect))))))))
+
+(deftest space-stays-exempt-on-an-activatable-target
+  (testing "rf2-y8doi.20 — narrowing the guard to Space must not un-fix
+            rf2-d716o9: Space on the SAME targets is still yielded, with no
+            preventDefault and no live-pause dispatch. This is the control
+            that says the narrowing is surgical rather than a removal."
+    (setup-xray-runtime!)
+    (let [dispatched (atom [])]
+      (with-redefs [mount/visible? (constantly true)
+                    rf/dispatch    (fn [v] (swap! dispatched conj v) nil)]
+        (doseq [target-spec [{:tag "BUTTON"}
+                             {:tag "SUMMARY"}
+                             {:tag "DIV" :role "button"}]]
+          (reset! dispatched [])
+          (let [{:keys [event prevented]} (mk-shell-target-key-event target-spec)]
+            (handle-keydown event)
+            (is (false? @prevented)
+                (str "Space on a focused " target-spec " is still the control's"))
+            (is (= [] @dispatched)
+                (str "Space on a focused " target-spec
+                     " dispatches nothing — the native activation wins"))))))))
 
 ;; ---- (10) the pop-out document's own listener (rf2-61i5) -----------------
 ;;

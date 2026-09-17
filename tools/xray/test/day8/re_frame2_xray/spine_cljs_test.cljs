@@ -1806,6 +1806,54 @@
       (is (= :cart-frame target)
           ":target-frame re-keyed onto the epoch's frame"))))
 
+;; ---- rf2-y8doi.20 — the `:rf.xray/focus-epoch` else-branch ---------------
+;;
+;; `focus-command->dispatches` turns a host `focus! {:epoch-id N}` with no
+;; frame into `[:rf.xray/focus-epoch N]`. When N's settling dispatch cannot
+;; be resolved — the epoch is outside the current ring, or its trace was
+;; elided — the handler takes its else-branch. That branch pinned
+;; `:epoch-id` and `:mode :retro` and left `:dispatch-id` ALONE, so the
+;; spine came to rest in RETRO on whatever row was previously focused:
+;; App-db diff / Views / the Epoch panel pivoted on N while the L2
+;; highlight named an unrelated event. The branch sets `:mode :retro`
+;; itself, so the "recover on the next live tick" its comment promised
+;; could not happen, and `follow-head` clears `:epoch-id` rather than
+;; reconciling — the two axes stayed split until the user clicked.
+
+(deftest focus-epoch-unresolvable-clears-the-stale-dispatch-id-rf2-y8doi-20
+  (testing "rf2-y8doi.20 — focusing an epoch whose settling dispatch-id does
+            not resolve clears the stored `:dispatch-id`, so the composed
+            focus snaps to head instead of keeping the pre-navigation row
+            pinned; the requested `:epoch-id` survives"
+    (mount-multi-frame-picker-untouched!)
+    ;; Focus a NON-head row first — `:c3` is head, so this pins RETRO on
+    ;; `:c2`. That stored `:c2` is the stale value the bug left behind.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event :c2 :rf/default]))
+    (is (= :c2 (:dispatch-id (focus-sub)))
+        "precondition: a row is focused, and it is not the head row")
+    ;; Now navigate to an epoch present in NO ring: the handler's record
+    ;; lookup misses, `dispatch-id-for-epoch` yields nil, and the
+    ;; else-branch runs. This is the host-`focus!` path, not a click.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-epoch :ghost-epoch]))
+    (let [stored (:focus (rf.frame/frame-app-db-value :rf/xray))
+          r      (focus-sub)]
+      (is (nil? (:dispatch-id stored))
+          "the stale pin is cleared in the SLOT — pre-fix it still read :c2")
+      (is (= :ghost-epoch (:epoch-id r))
+          "the requested epoch is still pinned: the RETRO arm of
+           `eff-epoch-id` honours the stored slot")
+      (is (= :retro (:mode r))
+          "the navigation still pins RETRO — clearing the id is not a
+           silent snap back to LIVE auto-follow")
+      (is (= :c3 (:dispatch-id r))
+          "the composed id is HEAD: a nil stored id is not pinnable, so
+           `compose-focus`'s snap-to-head branch fires regardless of mode")
+      (is (not= :c2 (:dispatch-id r))
+          "L2 can no longer highlight a row the navigation did not choose —
+           this is the assertion that was red before the fix"))))
+
 (deftest select-dispatch-id-cross-frame-reseeds-epoch-history-rf2-o1c3r
   (testing "rf2-o1c3r — :rf.xray/select-dispatch-id (the legacy
             machine-inspector / trace / mcp-server entry point) for a
