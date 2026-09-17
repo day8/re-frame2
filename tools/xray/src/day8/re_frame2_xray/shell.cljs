@@ -1205,6 +1205,30 @@
                :style       icon-style}
       [:span {:aria-hidden "true"} "✕"]]]))
 
+(defn spine-focusable-bundles
+  "THE RAW FOCUSABLE SPINE DOMAIN — the one vector every head-aware
+  selector in this ns walks, and the reason it has a name (rf2-cqpj4).
+
+  `spine-event-bundles` is raw `:rf.xray/event-bundles`, narrowed to the
+  rows the spine may actually focus: `spine/focusable-event-bundles`
+  under the same `show-ungrouped?` opt-in, then scoped to `frame` when
+  the focus carries one. That is the walk `spine/compose-focus` derives
+  `:head?` from and the walk `spine/focus-step-reducer` steps over, so a
+  boundary or a count taken here agrees BY CONSTRUCTION with what `j` /
+  `k` and the `»` snap actually do.
+
+  NEVER hand this `:rf.xray/filtered-event-bundles`. That vector has the
+  view-scope frame, the ribbon's IN/OUT pills and the mutes already
+  applied (`filters.cljs`), so a filter that hides every row empties it
+  while the spine is unmoved — and both selectors that read it reported a
+  boundary the spine did not have. It has a name so the next reader has
+  to choose the wrong vector on purpose.
+
+  Pure data → data."
+  [spine-event-bundles show-ungrouped? frame]
+  (cond->> (spine/focusable-event-bundles spine-event-bundles show-ungrouped?)
+    frame (filterv #(= frame (:frame %)))))
+
 (defn nav-boundary-state
   "Pure helper (rf2-3f2di A5) — compute the `{:at-head? :at-tail? :live?}`
   state the nav cluster consumes, from the already-resolved sub values.
@@ -1214,18 +1238,25 @@
   did inline.
 
   - `focus` — `:rf.xray/focus` (carries `:dispatch-id` + `:mode` +
-    `:paused?`).
-  - `event-bundles` — `:rf.xray/filtered-event-bundles` (frame view-scope + pills
-    + mutes already applied).
-  - `show-ungrouped?` — `:rf.xray/show-ungrouped?` (the L2 visibility
-    predicate must agree with what the user sees).
+    `:paused?`, and the `:frame` the spine resolved the pin in).
+  - `spine-event-bundles` — RAW `:rf.xray/event-bundles`, read through
+    [[spine-focusable-bundles]]. NOT the filtered vector L2 renders:
+    `‹` and `›` gate `:rf.xray/focus-event-prev` / `-next`, which walk
+    the raw projection, so a boundary taken off the rendered rows
+    disabled BOTH chevrons whenever a pill or a mute hid every row —
+    while `j` / `k`, bound to those same two events, went on stepping
+    (rf2-cqpj4).
+  - `show-ungrouped?` — `:rf.xray/show-ungrouped?` (the `:ungrouped`
+    bucket is a step target only under the opt-in, per rf2-fzbrw).
 
   Pure-data → map; JVM-runnable so the boundary logic is testable
   without a CLJS runtime."
-  [{:keys [focus event-bundles show-ungrouped?]}]
+  [{:keys [focus spine-event-bundles show-ungrouped?]}]
   (let [focused-id      (:dispatch-id focus)
-        event-bundles  (filterv #(l2-event-bundle-visible? % show-ungrouped?) event-bundles)
-        ids             (mapv :dispatch-id event-bundles)
+        ids             (mapv :dispatch-id
+                              (spine-focusable-bundles spine-event-bundles
+                                                       show-ungrouped?
+                                                       (:frame focus)))
         at-head?        (or (empty? ids)
                             (= focused-id (last ids))
                             (nil? focused-id))
@@ -1278,15 +1309,16 @@
   migrated piecemeal. [[event-list-tree]]'s L4 seam is untouched and
   stands for its own recorded reason."
   [dispatch
-   {:keys [redacted-count muted-count focus event-bundles show-ungrouped? filters]}
+   {:keys [redacted-count muted-count focus spine-event-bundles show-ungrouped?
+           filters]}
    frame-switcher*
    mode-pill*
    theme-toggle*]
   (let [no-filters? (zero? (+ (count (:in filters)) (count (:out filters))))
         {:keys [at-head? at-tail? live?]}
-        (nav-boundary-state {:focus           focus
-                             :event-bundles   event-bundles
-                             :show-ungrouped? show-ungrouped?})]
+        (nav-boundary-state {:focus               focus
+                             :spine-event-bundles spine-event-bundles
+                             :show-ungrouped?     show-ungrouped?})]
     [:div {:data-testid "rf-xray-ribbon"
            :style {:display          "flex"
                    :align-items      "center"
@@ -1484,7 +1516,14 @@
      ;; per the authority reference, so the chrome ribbon reads the
      ;; spine state the events ribbon used to own.
      :focus           (rf.fresco/sub [:rf.xray/focus])
-     :event-bundles   (rf.fresco/sub [:rf.xray/filtered-event-bundles])
+     ;; rf2-cqpj4 — the RAW spine vector, not the filtered one. The nav
+     ;; cluster's boundary is the only thing this read feeds, and
+     ;; `nav-boundary-state`'s domain is the spine's focusable walk — the
+     ;; same walk `:rf.xray/focus-event-prev` / `-next` step over. Reading
+     ;; `:rf.xray/filtered-event-bundles` here disabled `‹` and `›`
+     ;; whenever a pill or a mute hid every row, while `j` / `k` kept
+     ;; stepping: one action, two affordances, opposite availability.
+     :spine-event-bundles (rf.fresco/sub [:rf.xray/event-bundles])
      :show-ungrouped? (rf.fresco/sub [:rf.xray/show-ungrouped?])
      ;; rf2-8zd80 — the chrome `+ filter` and the events-ribbon are
      ;; mutually-exclusive add affordances. Hide the chrome button
@@ -2236,23 +2275,25 @@
 
   ## Its DOMAIN is the spine's vector, and that is the whole point
 
-  Counted over `spine/focusable-event-bundles` under the same
-  `show-ungrouped?` opt-in and the same stored frame scope
-  `spine/compose-focus` walks, NEVER over the vector [[event-list-tree]]
-  renders. That vector is `:rf.xray/filtered-event-bundles` — the
-  view-scope frame, the ribbon's IN/OUT pills and the mutes have already
-  been applied to it (`filters.cljs`) — so index arithmetic over it can
-  read ZERO while newer events genuinely exist, and the pinned row can be
-  absent from it altogether. Counting where `compose-focus` counts is
-  what makes \"newer\" agree with \"head\" by construction, which
-  spec/018 §Spine binding requires of every head-aware selector.
+  Counted over [[spine-focusable-bundles]] — `spine/focusable-event-
+  bundles` under the same `show-ungrouped?` opt-in and the same frame
+  scope `spine/compose-focus` walks — and NEVER over the vector
+  [[event-list-tree]] renders. That vector is
+  `:rf.xray/filtered-event-bundles` — the view-scope frame, the ribbon's
+  IN/OUT pills and the mutes have already been applied to it
+  (`filters.cljs`) — so index arithmetic over it can read ZERO while
+  newer events genuinely exist, and the pinned row can be absent from it
+  altogether. Counting where `compose-focus` counts is what makes
+  \"newer\" agree with \"head\" by construction, which spec/018 §Spine
+  binding requires of every head-aware selector. rf2-cqpj4 moved that
+  domain behind the shared helper so this selector and
+  [[nav-boundary-state]] cannot drift apart again.
 
   Returns nil when the focused id is not in that vector — an evicted
   RETRO pin. The marker then renders WITHOUT a number rather than with a
   wrong one."
   [event-bundles show-ungrouped? frame focused-id]
-  (let [focusable (cond->> (spine/focusable-event-bundles event-bundles show-ungrouped?)
-                    frame (filterv #(= frame (:frame %))))
+  (let [focusable (spine-focusable-bundles event-bundles show-ungrouped? frame)
         idx       (first (keep-indexed (fn [i event-bundle]
                                          (when (= focused-id (:dispatch-id event-bundle))
                                            i))
@@ -2421,10 +2462,24 @@
                              :dispatch-fn  dispatch})))))
       ;; rf2-y8doi.30 — LAST child of the scroll container so
       ;; `position: sticky; bottom: 0` pins it to the box's bottom edge
-      ;; while the rows scroll under it. Never beside the empty state:
-      ;; with no rows there is nothing to be behind. It adds no height to
+      ;; while the rows scroll under it. It adds no height to
       ;; `list-height-px` and does not scroll the list.
-      (when (and stale-read? (seq event-bundles))
+      ;;
+      ;; rf2-cqpj4 — PRESENCE HAS THE SPINE'S DOMAIN, exactly as the count
+      ;; does. The guard read `(seq event-bundles)` — the locally rebound
+      ;; FILTERED vector — which is empty whenever a pill or a mute hides
+      ;; every row, so the marker vanished in the one case it exists for:
+      ;; `newer-count` non-zero, L4 still reporting the older pinned
+      ;; epoch, and nothing on screen saying so. `spine-event-bundles` is
+      ;; the raw vector, where empty means the buffer is genuinely empty —
+      ;; the only emptiness worth guarding, and one `stale-read?` already
+      ;; covers, since `compose-focus` reports `:head?` true when there is
+      ;; no head to miss.
+      ;;
+      ;; So the marker MAY now ride the empty state, and should: `No
+      ;; events.` is what the FILTERS show, not what the spine holds, and
+      ;; the marker is the only thing that can tell the two apart.
+      (when (and stale-read? (seq spine-event-bundles))
         (newer-events-marker newer-count dispatch))]]))
 
 (rf/reg-view event-list

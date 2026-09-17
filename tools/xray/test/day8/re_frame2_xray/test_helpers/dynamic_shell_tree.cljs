@@ -96,7 +96,14 @@
      {:redacted-count  @(rf/subscribe [:rf.xray/suppressed-sensitive-count])
       :muted-count     @(rf/subscribe [:rf.xray/muted-event-ids-count])
       :focus           @(rf/subscribe [:rf.xray/focus])
-      :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
+      ;; rf2-cqpj4 — the boundary reads the RAW spine vector in this slot,
+      ;; not the filtered one. `nav-boundary-state`'s domain is the
+      ;; spine's focusable walk — the same walk
+      ;; `:rf.xray/focus-event-prev` / `-next` step over — so reproducing
+      ;; a `:rf.xray/filtered-event-bundles` read here would grade this
+      ;; lane's nav boundary against a vector the shipped ribbon no longer
+      ;; passes.
+      :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
       :filters         @(rf/subscribe [:rf.xray/active-filters])}
      (static-shell-tree/frame-switcher-tree dispatch)
