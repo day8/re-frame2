@@ -4214,7 +4214,21 @@
   window, and its diff algebra is ordinary data → data that the fast node
   lane is the right place to test. Every migrated panel in this tree made
   the same call. `nil` renders as `db-before` absent, which is what a
-  direct caller passing no `ctx` means."
+  direct caller passing no `ctx` means.
+
+  rf2-y8doi.19 — EGRESS IS THE CALLER'S OBLIGATION, and this block is
+  where it would otherwise be missed. Both db values it hands the shared
+  edn-inspector are WHOLE app-db images: `:before` is the record's
+  `:db-before` and `:value` is either the post-handler snapshot or, in
+  the no-t1 fallback, the record's `:db-after`. The framework stamps
+  both record slots straight off the frame with no elision, so an
+  unprojected record prints every declared-sensitive slot in the app.
+  In production the record arrives already projected under the observed
+  frame's policy — `epoch-panel/redact-record-db`, applied in the
+  `:rf.xray/epoch-pipeline` sub and threaded down `ctx`; that comment
+  carries the reasoning and the one residual. A DIRECT caller (a test,
+  a gallery fixture) gets exactly the values it passes: this block
+  applies no policy of its own and cannot, having no frame to apply."
   [db-post-handler db-write? record instance]
   (let [db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
@@ -6115,10 +6129,22 @@
 
 (defn- empty-state-view
   "Render the empty-state copy for a given focus status. Per the
-  shared focus-resolver contract — three statuses, three messages."
+  shared focus-resolver contract — one terse line per status.
+
+  rf2-y8doi.19 — `:no-epoch` is the pinned event bundle that settled no
+  epoch. Its copy is deliberately CAUSE-NEUTRAL: at least four things
+  produce the status and the resolver can tell none of them apart from
+  focus alone (a dispatch refused before any handler ran; a bundle still
+  mid-build; a bundle whose epoch aged out of the ring; a focus pinning
+  `:ungrouped`). Naming the refusal would read as fact and be a fresh
+  falsehood on the other three, so the line states only what is known.
+  Before this status existed the panel answered the head epoch's
+  cascade here — a complete, plausible pipeline for a DIFFERENT event,
+  which is worse than an empty pane by some distance."
   [status]
   (let [msg (case status
               :no-focus      "No event focused. Click an event in the list to inspect its pipeline."
+              :no-epoch      "The selected event settled no epoch."
               :epoch-evicted "The selected epoch was evicted from the history buffer. Pick a more recent event."
               :no-events     "The focused epoch has no recorded trace events."
               "No data available.")]
@@ -6248,8 +6274,23 @@
   The token is idempotent on its own output, so one value composes one set
   of ids whichever head mounted it."
   [{:keys [instance-id]}]
-  (let [{:keys [status steps epoch-history outcome]}
-        (rf.fresco/sub [:rf.xray/epoch-pipeline])]
+  (let [{:keys [status steps record outcome]}
+        (rf.fresco/sub [:rf.xray/epoch-pipeline])
+        ;; rf2-y8doi.19 — the parent-epoch link is the one thing here
+        ;; that needs the epoch ring, and it used to get it by having the
+        ;; pipeline sub ship `:epoch-history` in its value, which made
+        ;; every settled host event a fresh value and a whole-panel
+        ;; re-render. It now asks a narrow sub for exactly the parent ids
+        ;; THIS cascade carries; that answer is `=`-equal across settles,
+        ;; so the propagation collapses upstream of this component.
+        ;;
+        ;; Both reads are unconditional and in a fixed order, so the
+        ;; boundary's hook order is stable across renders; `parents` is
+        ;; `[]` on the overwhelmingly common parentless cascade and the
+        ;; sub answers `{}` without walking the ring.
+        parents (proj/parent-dispatch-ids steps)
+        parent-epoch-index
+        (rf.fresco/sub [:rf.xray.epoch/parent-epoch-index parents])]
     [:section {:data-testid "rf-xray-epoch-panel"
                :data-rf-xray-outcome (when outcome (name outcome))
                :style panel-root-style}
@@ -6258,14 +6299,14 @@
         (= :focused status)
         (if (seq steps)
           [:<>
-           ;; rf2-x25e0 — build the `{dispatch-id → epoch-id}` index
-           ;; once per panel render. Threaded through `ctx` to the
-           ;; DISPATCH step's `:fx-dispatch` / `:fx-dispatch-later`
-           ;; parent-epoch resolver (O(1) lookup instead of an O(N)
-           ;; epoch-history scan per render).
+           ;; rf2-x25e0 — the `{dispatch-id → epoch-id}` index, threaded
+           ;; through `ctx` to the DISPATCH step's `:fx-dispatch` /
+           ;; `:fx-dispatch-later` parent-epoch resolver (O(1) lookup
+           ;; instead of an O(N) epoch-history scan per render).
+           ;; rf2-y8doi.19 — it arrives from the narrow sub read above
+           ;; rather than being rebuilt here off the whole ring.
            (pipeline-view steps
-                          {:dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
-                                                    epoch-history)
+                          {:dispatch-id->epoch-id parent-epoch-index
                            ;; rf2-3ymg — this mount's qualifier, tokenised
                            ;; ONCE here and threaded down `ctx` with the
                            ;; rest. Nil unless the caller named the mount.
@@ -6275,8 +6316,23 @@
                            ;; THEMSELVES, hoisted here and threaded down
                            ;; as values. See this view's docstring for
                            ;; why they are not left to donate upward.
-                           :selected-epoch-record
-                           (rf.fresco/sub [:rf.xray/selected-epoch-record])
+                           ;;
+                           ;; rf2-y8doi.19 — this is the pipeline's OWN
+                           ;; `:record`, no longer a second read of
+                           ;; `:rf.xray/selected-epoch-record`. TWO
+                           ;; reasons, and the first is load-bearing:
+                           ;; that sub answers the RAW record, so reading
+                           ;; it here routed straight around the egress
+                           ;; seam the pipeline sub applies to the db
+                           ;; snapshots this record is used for. And the
+                           ;; two subs did not agree: that one is
+                           ;; deliberately head-fallback-free, so under
+                           ;; head-fallback (focus unset, history
+                           ;; non-empty) the cascade rendered the head
+                           ;; epoch while the `:db` diff beside it got
+                           ;; nil and drew no pre-image. One record for
+                           ;; one panel; the view stops re-deciding it.
+                           :selected-epoch-record record
                            :subs-filter-mode
                            (rf.fresco/sub [:rf.xray.epoch/subs-filter-mode])})]
           (empty-state-view :no-events))

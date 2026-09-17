@@ -3783,8 +3783,31 @@
 ;; step already surfaces every dispatch-family fx entry per row, so the
 ;; cascade-link affordance lives on the FX rows themselves.
 
-(defn dispatch-id->epoch-id-index
-  "Build a `{dispatch-id → epoch-id}` map from an `epoch-history` vector.
+(defn parent-dispatch-ids
+  "The DISTINCT `:parent-dispatch-id`s a projected step vector carries,
+  in cascade order (rf2-y8doi.19).
+
+  Only the DISPATCH step's `:source-enrichment` carries one, and only
+  for the `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`
+  sources, so in practice this is zero or one id. It is the QUERY ARG
+  of the `:rf.xray.epoch/parent-epoch-index` sub, which is why it is a
+  vector in a DETERMINISTIC order rather than a set: the sub cache is
+  value-keyed (spec/006 §Host value model), so two renders of one
+  cascade must hand it an `=` argument or they miss the cache and the
+  panel re-renders for nothing. `steps` is itself deterministic from
+  the record, so encounter order is stable and needs no sort — which
+  also keeps a non-comparable id from throwing here.
+
+  Pure data → vector."
+  [steps]
+  (->> steps
+       (keep #(get-in % [:source-enrichment :parent-dispatch-id]))
+       distinct
+       vec))
+
+(defn parent-epoch-index
+  "Build a `{dispatch-id → epoch-id}` map from an `epoch-history`
+  vector, restricted to the dispatch ids in `wanted-dispatch-ids`.
 
   rf2-x25e0 — collapses the per-row O(N) scan that `find-parent-epoch`
   previously did to an O(1) lookup. Each record contributes both its
@@ -3794,20 +3817,36 @@
   matching surface as the prior `some`-based lookup; nil keys are
   skipped so records with neither identifier don't collide.
 
-  Pure data → map. Build once per render at the call site (the view
-  layer) and feed `find-parent-epoch` for every DISPATCH-row lookup."
-  [epoch-history]
-  (persistent!
-    (reduce
-      (fn [acc record]
-        (let [id1 (:dispatch-id record)
-              id2 (common/dispatch-id-of-epoch record)
-              eid (:epoch-id record)]
-          (cond-> acc
-            (some? id1) (assoc! id1 eid)
-            (and (some? id2) (not= id2 id1)) (assoc! id2 eid))))
-      (transient {})
-      epoch-history)))
+  rf2-y8doi.19 — THE NARROWING IS ABOUT INVALIDATION, NOT LOOKUP COST.
+  This replaced a whole-ring `dispatch-id->epoch-id-index`, and the
+  whole-ring map gains an entry every time an epoch settles. A panel
+  reading it therefore re-derived and re-rendered on every host event
+  even while pinned to an old epoch, for a map whose one interesting
+  entry had not moved. A settled parent's `:epoch-id` never changes, so
+  the narrowed map is `=`-equal across settles and the substrate's
+  propagation collapse stops there (spec/006 §Invalidation algorithm —
+  `=`-equal upstream values suppress recompute). An empty request
+  answers `{}` without walking the ring at all, which is the common
+  case: most cascades have no parent.
+
+  Pure data → map. The caller is the `:rf.xray.epoch/parent-epoch-index`
+  sub; the result feeds `find-parent-epoch` for every DISPATCH-row
+  lookup."
+  [epoch-history wanted-dispatch-ids]
+  (if (empty? wanted-dispatch-ids)
+    {}
+    (let [wanted (set wanted-dispatch-ids)]
+      (persistent!
+        (reduce
+          (fn [acc record]
+            (let [id1 (:dispatch-id record)
+                  id2 (common/dispatch-id-of-epoch record)
+                  eid (:epoch-id record)]
+              (cond-> acc
+                (contains? wanted id1) (assoc! id1 eid)
+                (and (contains? wanted id2) (not= id2 id1)) (assoc! id2 eid))))
+          (transient {})
+          epoch-history)))))
 
 (defn find-parent-epoch
   "Resolve a parent epoch's `:epoch-id` against a precomputed
@@ -3819,10 +3858,11 @@
   parent epoch is in the buffer (root cascade, or aged out).
 
   rf2-x25e0 — O(1) lookup. The prior O(N) `some`-walk over
-  `epoch-history` is replaced by a map `get`. Callers build the
-  index once per panel render via `dispatch-id->epoch-id-index` and
-  thread it down to every DISPATCH-row lookup (clean-swap; the
-  arity-2 history-walking form is gone)."
+  `epoch-history` is replaced by a map `get`. rf2-y8doi.19 — the index
+  now arrives from the `:rf.xray.epoch/parent-epoch-index` sub
+  (`parent-epoch-index` above) rather than being built per render from
+  the whole ring, and is threaded down `ctx` to every DISPATCH-row
+  lookup (clean-swap; the arity-2 history-walking form is gone)."
   [dispatch-id->epoch-id parent-dispatch-id]
   (when (some? parent-dispatch-id)
     (get dispatch-id->epoch-id parent-dispatch-id)))

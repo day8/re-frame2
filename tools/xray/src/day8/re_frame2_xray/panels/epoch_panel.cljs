@@ -36,6 +36,7 @@
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
+            [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; The registry resolvers below run INSIDE the
@@ -136,6 +137,66 @@
           (when (seq recordables)
             recordables))))))
 
+;; ---- render-side egress for the record's db snapshots (rf2-y8doi.19) -----
+;;
+;; THE EPOCH RECORD'S `:db-before` / `:db-after` ARE RAW APP-DB. The
+;; framework stamps them straight off the frame — `router-transducer`'s
+;; `:db-before (get-in envelope [:frame :db])` — with no elision on the
+;; way, and the HANDLER step's `:db` sub-section hands BOTH to the shared
+;; edn-inspector (`view/handler-db-diff-block`: `:value` the post-handler
+;; db, `:before` the record's `:db-before`). Nothing between the two
+;; applied the observed frame's `:sensitive` policy, so this panel
+;; printed the WHOLE app-db — declared-sensitive slots included — for a
+;; record the App-DB tab redacts.
+;;
+;; It is the same gap rf2-y8doi.14 closed for the Trace panel, through
+;; the same seam (`local-render/local-render-value`, the projection the
+;; App-DB tab applies), and WIDER: the Trace panel leaked the CHANGED
+;; PATHS of a diff, this one the whole tree.
+;;
+;; The upstream `epoch/redact-history` ingest gate does NOT make this
+;; redundant. That gate drops a record whole on its stamped
+;; `:rf.epoch/sensitive?` rollup; this projects the values a SURVIVING
+;; record carries — a record with no rollup slot at all (a synthetic
+;; history seeded through `:rf.xray/sync-epoch-history`), or one whose
+;; rollup was computed before the app classified the path.
+;;
+;; WHAT THIS SEAM DOES NOT RECOVER, stated plainly because it is a real
+;; residual and not an oversight: the edn-inspector derives its diff
+;; annotations by comparing `:value` against `:before`, and both sides
+;; are projected, so a declared-sensitive leaf that CHANGED reads as
+;; unchanged — both sides are the same `:rf/redacted` sentinel. The path
+;; and its withheld-ness stay on screen (the inspector paints the
+;; sentinel as a first-class chip), so nothing VANISHES — which was the
+;; failure rf2-y8doi.14 met and had to engineer around, where the rows
+;; were derived FROM the diff and disappeared with it. Keeping the
+;; change-signal here would mean a second sentinel meaning "changed but
+;; withheld", i.e. new vocabulary in the shared inspector, which is
+;; outside this panel and more machinery than the residual is worth.
+;;
+;; Absent slots are left absent rather than projected: an added
+;; `:db-after` would turn the view's honest "— db-after not available in
+;; epoch record" line into a redaction chip over data that was never
+;; there.
+
+(defn- redact-record-db
+  "Project an epoch record's raw `:db-before` / `:db-after` snapshots
+  through `observed-frame`'s egress policy, leaving every other slot
+  untouched. nil record in, nil record out.
+
+  Fail-closed, inherited whole from `local-render-value`: a nil /
+  destroyed / never-registered observed frame redacts the WHOLE
+  snapshot rather than ship it raw under no policy."
+  [record observed-frame]
+  (if (nil? record)
+    record
+    (cond-> record
+      (contains? record :db-before)
+      (update :db-before local-render/local-render-value observed-frame)
+
+      (contains? record :db-after)
+      (update :db-after local-render/local-render-value observed-frame))))
+
 ;; ---- public Panel surface ------------------------------------------------
 
 ;; Re-export the view-side `Panel` so the spine + panel-registry
@@ -164,56 +225,127 @@
 (defn install!
   "Idempotent install for the Epoch panel:
 
-    - `:rf.xray/epoch-pipeline` composite sub (focus + history →
-      projection rows + focus-status)
+    - `:rf.xray/focused-epoch-record` sub (focus + history → status +
+      record; the thin history-watching layer)
+    - `:rf.xray.epoch/parent-epoch-index` sub (the narrow parent link)
+    - `:rf.xray/epoch-pipeline` composite sub (focused record + observed
+      frame → projection rows + focus-status)
     - `:rf.xray.epoch/expanded-rows` sub
     - `:rf.xray.epoch/toggle-row-expand` event
     - `:rf.xray.epoch/clear-row-expand` event
     - L4 tab registration (`:epoch`, mnem `e`, order 5)
 
-  The composite sub joins the spine's `:rf.xray/focus` with the
-  framework's `:rf.xray/epoch-history` through the shared focus-
-  resolver, then runs the pure projection from
-  `panels.epoch.projection/project-numbered` to produce the ordered
-  + numbered step rows. The view subscribes only to this composite;
-  the projection is fully testable in isolation."
+  `:rf.xray/focused-epoch-record` joins the spine's `:rf.xray/focus`
+  with the framework's `:rf.xray/epoch-history` through the shared
+  focus-resolver; `:rf.xray/epoch-pipeline` reads THAT, applies the
+  observed frame's egress policy to the record's db snapshots, and runs
+  the pure projection from `panels.epoch.projection/project-numbered` to
+  produce the ordered + numbered step rows. The view subscribes to the
+  composite plus the narrow parent-epoch index; the projection is fully
+  testable in isolation."
   []
   ;; ---- composite sub -----------------------------------------------------
   ;;
   ;; Shape:
   ;;
-  ;;     {:status   :no-focus | :focused | :epoch-evicted
+  ;;     {:status   :no-focus | :no-epoch | :focused | :epoch-evicted
   ;;      :epoch-id <int-or-nil>      ; for view chrome
-  ;;      :record   <:rf/epoch-record map or nil>
+  ;;      :record   <:rf/epoch-record map or nil>  ; db slots REDACTED
   ;;      :steps    [<step-row> ...]} ; the numbered pipeline
   ;;
   ;; The view branches on `:status` for the empty-state lines and
   ;; renders `:steps` when present.
-  (rf/reg-sub :rf.xray/epoch-pipeline
+  ;;
+  ;; ---- why this is TWO subs and no longer one (rf2-y8doi.19) ----------
+  ;;
+  ;; `:rf.xray/epoch-history` gains a record on every settled host event,
+  ;; so a sub taking it as an input recomputes on every host event. When
+  ;; that sub is this one, every host event re-ran `project-numbered` over
+  ;; the focused record and handed the view a fresh value — even pinned
+  ;; RETRO, where the focused record had not moved and the answer was
+  ;; identical. The whole 6k-line panel re-rendered for it, and the value
+  ;; ALSO carried `:epoch-history` itself, which guaranteed a fresh value
+  ;; whether or not anything else had changed.
+  ;;
+  ;; Splitting the history-dependent half out fixes both. The thin
+  ;; `:rf.xray/focused-epoch-record` still recomputes per settle — it must,
+  ;; it is what watches the ring — but its VALUE is `=`-equal across
+  ;; settles while the focus is pinned, so the substrate's propagation
+  ;; collapse stops there (spec/006 §Invalidation algorithm: `=`-equal
+  ;; upstream values suppress recompute). The expensive half below sees
+  ;; nothing and does not run.
+  ;;
+  ;; The parent-epoch link is the one thing left that genuinely needs the
+  ;; ring, and it is why `:epoch-history` used to ride in the value. It
+  ;; now has its own narrow sub keyed on the ids the cascade actually
+  ;; asks about — see `:rf.xray.epoch/parent-epoch-index` below.
+
+  (rf/reg-sub :rf.xray/focused-epoch-record
     {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
     (fn [[focus epoch-history] _query]
-      (let [focus-epoch-id (:epoch-id focus)
-            status         (focus/resolve-focus-status focus-epoch-id
-                                                       epoch-history)
-            record         (focus/find-epoch-record focus-epoch-id
-                                                    epoch-history)
+      (let [focus-epoch-id    (:epoch-id focus)
+            ;; rf2-y8doi.19 — the pinned `:dispatch-id` is what separates
+            ;; "focus unset, show the head" from "the operator pinned an
+            ;; event bundle that settled no epoch". Both carry a nil
+            ;; `:epoch-id`; without the dispatch-id the resolver cannot
+            ;; tell them apart and head-fallback answered BOTH, so
+            ;; clicking the red L2 row of a dispatch with no registered
+            ;; handler rendered the HEAD epoch's cascade underneath it.
+            focus-dispatch-id (:dispatch-id focus)
+            record            (focus/find-epoch-record focus-epoch-id
+                                                       focus-dispatch-id
+                                                       epoch-history)]
+        {:status   (focus/resolve-focus-status focus-epoch-id
+                                               focus-dispatch-id
+                                               epoch-history)
+         :epoch-id (or focus-epoch-id (:epoch-id record))
+         :record   record})))
+
+  ;; The narrow `{parent-dispatch-id → epoch-id}` index the DISPATCH
+  ;; step's `:fx-dispatch` / `:fx-dispatch-later` parent-epoch chip
+  ;; resolves through. Keyed on the ids THIS cascade carries (the query
+  ;; arg, from `proj/parent-dispatch-ids`) rather than built over the
+  ;; whole ring: a whole-ring map gains an entry per settle and so
+  ;; re-renders the panel forever, where a settled parent's `:epoch-id`
+  ;; never changes and the narrow map is `=`-equal across settles.
+  ;; `proj/parent-epoch-index` carries the reasoning.
+  (rf/reg-sub :rf.xray.epoch/parent-epoch-index
+    {:inputs [[:rf.xray/epoch-history]]}
+    (fn [[epoch-history] [_ wanted-dispatch-ids]]
+      (proj/parent-epoch-index epoch-history wanted-dispatch-ids)))
+
+  (rf/reg-sub :rf.xray/epoch-pipeline
+    ;; rf2-y8doi.19 — `:rf.xray/observed-frame` is the REDACTION seam, not
+    ;; a data axis: it names the frame whose `:sensitive` policy governs
+    ;; the record's raw `:db-before` / `:db-after`. See `redact-record-db`
+    ;; above. It derives from `:rf.xray/focus` + `:rf.xray/target-frame`,
+    ;; so nothing in the settle path invalidates the pipeline through it.
+    {:inputs [[:rf.xray/focused-epoch-record] [:rf.xray/observed-frame]]}
+    (fn [[{:keys [status epoch-id record]} observed-frame] _query]
+      (let [record (redact-record-db record observed-frame)
             ;; rf2-se9a9t — thread the registry-reading resolver so the
             ;; INTERCEPTORS step surfaces the dispatched event's AUTHORED
             ;; interceptor chain (EP-0022 §11). The projection stays pure;
             ;; the runtime read lives here, in the sub.
-            steps          (when record
-                             (proj/project-numbered
-                               record
-                               {:resolve-event-interceptors
-                                resolve-event-interceptors
-                                ;; rf2-n9v5ga — the declared-recordable
-                                ;; resolver: the RECORDABLE COEFFECTS lens
-                                ;; filters the raw token's leaves to the
-                                ;; handler's declared recordable inputs.
-                                :resolve-event-recordables
-                                resolve-event-recordables}))]
+            steps  (when record
+                     (proj/project-numbered
+                       record
+                       {:resolve-event-interceptors
+                        resolve-event-interceptors
+                        ;; rf2-n9v5ga — the declared-recordable
+                        ;; resolver: the RECORDABLE COEFFECTS lens
+                        ;; filters the raw token's leaves to the
+                        ;; handler's declared recordable inputs.
+                        :resolve-event-recordables
+                        resolve-event-recordables}))]
         {:status         status
-         :epoch-id       (or focus-epoch-id (:epoch-id record))
+         :epoch-id       epoch-id
+         ;; The REDACTED record. The view reads `:db-before` / `:db-after`
+         ;; off this for the HANDLER step's `:db` diff and must not reach
+         ;; the raw one — which is why the view stopped subscribing to
+         ;; `:rf.xray/selected-epoch-record` for it (that sub answers the
+         ;; raw record, and reaching it here would route straight around
+         ;; the seam above).
          :record         record
          ;; rf2-ahhgn — the TOOL-SIDE outcome (`:ok` / `:error`) derived
          ;; from the projected steps (any step carrying an exception or
@@ -223,13 +355,6 @@
          ;; by spec, and is NOT the panel's outcome (see
          ;; `projection/epoch-outcome`).
          :outcome        (proj/epoch-outcome steps)
-         ;; rf2-x25e0 — the DISPATCH step's `:fx-dispatch` parent-epoch
-         ;; link resolves `:parent-dispatch-id → parent epoch-id` off a
-         ;; `{dispatch-id → epoch-id}` index the view builds once per
-         ;; render from this slice. Pinning `:epoch-history` on the
-         ;; composite sub keeps the view side a pure render — no secondary
-         ;; sub against `:rf.xray/epoch-history` in the per-row hot path.
-         :epoch-history  epoch-history
          :steps          (vec (or steps []))})))
 
   ;; ---- per-row expand state ---------------------------------------------
