@@ -1967,21 +1967,33 @@
 ;;   all. Keying off `:rf.event/db-changed` fixes the ALWAYS-APPEARS
 ;;   contract tool-side.
 ;;
-;; - "OTHER" TOP-LEVEL EFFECTS ARE NOT EXECUTED BY THE re-frame2 RUNTIME.
-;;   The effect map is the closed `{:db :fx :rf.db/runtime}` shape (spec/002
-;;   §The two-partition frame contract; spec/002 §`:fx` ordering and
-;;   atomicity guarantees). The runtime commits the two STATE effects
-;;   (`:db` → app-db, `:rf.db/runtime` → runtime-db) and `re-frame.router/
-;;   run-fx-effects!` reads `(:fx effects)`; any top-level key OUTSIDE the
-;;   closed set is silently ignored (no trace, no run). So "other" is a
-;;   DIAGNOSTIC: when the handler's returned map (off the `:effects-decomp`
-;;   `:other-effects` slot) carries a key beyond `:db` / `:fx` /
-;;   `:rf.db/runtime`, surface it as a `:skipped` (not-run) effect so the
-;;   operator sees the dropped effect rather than wondering why nothing
-;;   fired. `:rf.db/runtime` is NOT an "other" key — it is a committed
-;;   state effect with its own row. No framework change records the dropped
-;;   keys — they don't exist on the trace stream because the runtime never
-;;   touched them.
+;; - A FOREIGN TOP-LEVEL EFFECT KEY IS REFUSED, NOT DROPPED (rf2-04tx,
+;;   corrected here under rf2-y8doi.19). This comment used to say such a
+;;   key was "silently ignored (no trace, no run)" and that the runtime
+;;   "never touched them", which was true before rf2-04tx and is the
+;;   opposite of the contract now. `re-frame.events/effect-map-defect`
+;;   validates the FINAL effects map's top level, and the router's
+;;   FINAL-effects boundary emits `:rf.error/effect-map-shape` in-band
+;;   and ABORTS the event pre-commit: `restore!`, outcome `:error`, no
+;;   `:db`, no `:rf.db/runtime`, no classification commit, no `:fx`.
+;;   `reg-event`'s own docstring puts it flatly — "Any other top-level
+;;   key REFUSES the event pre-commit … nothing is committed, and
+;;   nothing is silently dropped."
+;;
+;;   That refusal is WHY this panel needed `attach-unclassified-errors`:
+;;   there IS a trace now, it is simply not one of the seven ops
+;;   `cascade-exception-ops` names, so it used to be read and discarded.
+;;
+;;   The legal top level is SEVEN keys, not three —
+;;   `events/closed-effect-map-keys` is `{:db :rf.db/runtime :fx}` plus
+;;   the four EP-0025 commit-plane classification effects (`:sensitive` /
+;;   `:large` / `:clear-sensitive` / `:clear-large`), which are applied
+;;   WITH the `:db` write rather than routed through do-fx.
+;;   `closed-effect-keys` below still names three, so the `other`
+;;   diagnostic would call those four legal effects "not run". It cannot
+;;   today, for the separate reason recorded on `effects-decomp`, and
+;;   fixing the one without the other would turn that false accusation
+;;   on.
 
 (def ^:private fx-outcome-op->status
   "Map a per-fx trace op → the fx-row `:status` (rf2-kt6js, lifted from
@@ -2229,17 +2241,36 @@
   Sourced from `effects-decomp`'s `:other-effects` slot (the return map
   MINUS those three reserved keys).
 
-  In re-frame2 the effect map is the closed `{:db :fx :rf.db/runtime}`
-  shape: the runtime commits the two STATE effects (`:db` → app-db,
-  `:rf.db/runtime` → runtime-db) atomically and runs `:fx`. Any OTHER
-  top-level key is silently DROPPED — never executed, never traced. So
-  each `other` row is a DIAGNOSTIC: `:status :skipped` (not-run) flags
-  that the handler declared an effect the runtime ignored — almost always
-  a bug (the effect belongs inside `:fx`). `:rf.db/runtime` is NOT an
+  rf2-y8doi.19 — THIS DOCSTRING USED TO SAY such a key was silently
+  DROPPED, never executed and never traced, and that has been false since
+  rf2-04tx. The router's FINAL-effects boundary REFUSES the event
+  pre-commit with `:rf.error/effect-map-shape`: nothing commits, nothing
+  runs, and there IS a trace. `reg-event`'s own docstring is explicit —
+  . The panel
+  surfaces that refusal through `attach-unclassified-errors`, on the
+  SIDE EFFECTS step, synthesising it when no effect ran.
+
+  So each `other` row is a DIAGNOSTIC for a shape the live runtime no
+  longer produces: `:status :skipped` (not-run) against a handler that
+  declared an effect the runtime ignored. `:rf.db/runtime` is NOT an
   `other` key — it is a committed state effect with its own
   `runtime-db-effect-row` (rf2-ff9b0d), so a mixed
   `{:rf.db/runtime ... :fx [...]}` return never shows the runtime write
   under `:skipped`/`other`.
+
+  MEASURED UNREACHABLE AGAINST THE LIVE SUBSTRATE, and left in place
+  rather than retired here because retiring it is a wider call than this
+  bead. `effects-decomp` reads the handler's returned map off the
+  `:rf.fx/do-fx` trace's `:rf.event/fx` tag and guards on `(map? fx)`,
+  but `re-frame.fx` stamps that tag as `(:fx effects)` — the fx VECTOR,
+  not the effects map — so the guard never holds and `:other-effects`
+  (and `:fx-vec` beside it) is always nil for a real cascade. Driving a
+  live `{:db … :fx [[…]]}` handler through the router on the JVM:
+  `:rf.event/fx` came back `[[:probe/noop 1]]`, a vector, and the
+  projected HANDLER step carried `:fx-vec nil` / `:other-effects nil`.
+  The synth fixtures in `projection_cljs_test` pass a MAP, which is why
+  this reads green — the exact fixture-versus-producer drift
+  rf2-y8doi.10 finding 1 describes.
 
   Empty vec when the handler returned the canonical closed shape (the
   overwhelming common case), or when no do-fx fired."
@@ -2872,8 +2903,11 @@
 ;; rf2-xgeag — the trailing SCHEMA-VIOLATIONS aggregate step retired
 ;; pair-debug 2026-05-27. Violations now attach to their owning
 ;; pipeline step via `attach-violations`. Hot-reload drift surfaces
-;; via the Issues panel exclusively (rf2-7gf7v retired the standalone
-;; `:schema-hot-reload` step). The per-row data (`schema-violation-rows`)
+;; via the issues RIBBON exclusively (rf2-7gf7v retired the standalone
+;; `:schema-hot-reload` step; rf2-gbz39 then retired the Issues TAB
+;; itself, so "the Issues panel" names nothing today — the surviving
+;; surface is `panels/issues_ribbon_helpers.cljc`, which harvests by
+;; `:op-type` and so picks the drift up as a `:warning` row). The per-row data (`schema-violation-rows`)
 ;; is unchanged — only the aggregation + view shape moved.
 
 ;; Per the attachment mapping (post-rf2-8resu + rf2-7gf7v):
@@ -2886,7 +2920,7 @@
 ;;                  | rf2-8resu / rf2-kt6js)
 ;;   :fx-args       | SIDE EFFECTS step (row-level :fx-id match)
 ;;   :sub-return    | SUBSCRIPTIONS step (row-level :sub-id match)
-;;   :hot-reload    | Issues panel only — no pipeline step (rf2-7gf7v)
+;;   :hot-reload    | issues ribbon only — no pipeline step (rf2-7gf7v)
 
 (defn- attach-step-violation
   "Append `row` to `step`'s `:violations` vec when `step` is non-nil."
@@ -2898,6 +2932,7 @@
   "Update `row`'s `:violations` vec, appending `violation`."
   [row violation]
   (update row :violations (fnil conj []) violation))
+
 
 (defn- attach-to-fx-row
   "When `step` is the SIDE EFFECTS step + the violation's `:failing-id`
@@ -2973,6 +3008,24 @@
   [pred coll]
   (first (keep-indexed (fn [i x] (when (pred x) i)) coll)))
 
+(defn- attach-violation-to-handler
+  "The catch-all for a schema violation whose owning step is not in this
+  cascade, or whose `:where` this projection does not recognise
+  (rf2-y8doi.19). Attaches to the HANDLER step — the one step every
+  epoch has — so the failure surfaces somewhere rather than nowhere.
+
+  Mirrors the catch-all `attach-exceptions` has always had. Returns
+  `steps` unchanged only when even HANDLER is absent, which is the
+  degenerate empty-cascade case `project` short-circuits before this
+  pass runs.
+
+  It is deliberately NOT a synthesised step: an invented HANDLER would
+  claim the handler ran, and this pass cannot know that."
+  [steps row]
+  (if-let [h (index-of #(= :handler (:step %)) steps)]
+    (update steps h attach-step-violation row)
+    steps))
+
 (defn attach-violations
   "Take a projected step vector + a vec of schema-violation rows (post-
   `schema-violation-rows`) and return the step vector with each
@@ -2980,9 +3033,23 @@
   attachment mapping). Returns `steps` unchanged when `rows` is
   empty.
 
-  The hot-reload subset is NOT attached here — those violations have
-  no owning cascade step and ride a standalone SCHEMA-HOT-RELOAD
-  step appended via `hot-reload-step`."
+  The hot-reload subset is NOT attached here. Hot-reload drift is a
+  dev-time event rather than a cascade event, and rf2-7gf7v retired the
+  standalone SCHEMA-HOT-RELOAD step it used to ride: the issues ribbon
+  owns it exclusively, harvesting it by `:op-type :warning` off the
+  trace stream. Those rows are dropped from this pass DELIBERATELY and
+  are the ONE kind that is.
+
+  rf2-y8doi.19 — EVERY OTHER ROW LANDS SOMEWHERE. Each branch below
+  resolves an owning step, and until this bead a branch that could not
+  find one returned the step vector untouched, as did any `:where` the
+  `case` did not name — so a violation whose owning step was absent from
+  this cascade, or one carrying a `:where` the framework grew later,
+  vanished with the panel still reading `:ok`. The catch-all is the same
+  one `attach-exceptions` uses: fall back to the HANDLER step, where the
+  operator at least sees that something failed and what it said. A
+  violation attached anywhere makes `step-status` read `:error` (it
+  scans `:violations`), so the epoch outcome is no longer green either."
   [steps rows]
   (if (empty? rows)
     steps
@@ -2993,7 +3060,7 @@
           (let [i (index-of #(= :dispatch (:step %)) s)]
             (if i
               (update s i attach-step-violation row)
-              s))
+              (attach-violation-to-handler s row)))
 
           :cofx
           (let [fid (:failing-id row)
@@ -3007,7 +3074,7 @@
               ;; rather than disappearing).
               (if-let [j (index-of #(= :coeffect (:step %)) s)]
                 (update s j attach-step-violation row)
-                s)))
+                (attach-violation-to-handler s row))))
 
           :app-db
           ;; rf2-8resu / rf2-kt6js / rf2-j630b — :where :app-db violations
@@ -3019,7 +3086,7 @@
           (let [i (index-of #(= :side-effects (:step %)) s)]
             (if i
               (update s i attach-to-fx-db-row row)
-              s))
+              (attach-violation-to-handler s row)))
 
           :machine-data
           ;; EP-0001 rf2-ff9b0d — `:where :machine-data` violations are
@@ -3029,23 +3096,27 @@
           (let [i (index-of #(= :side-effects (:step %)) s)]
             (if i
               (update s i attach-to-runtime-db-row row)
-              s))
+              (attach-violation-to-handler s row)))
 
           :fx-args
           (let [i (index-of #(= :side-effects (:step %)) s)]
             (if i
               (update s i attach-to-fx-row row)
-              s))
+              (attach-violation-to-handler s row)))
 
           :sub-return
           (let [i (index-of #(= :subscriptions (:step %)) s)]
             (if i
               (update s i attach-to-sub-row row)
-              s))
+              (attach-violation-to-handler s row)))
 
-          ;; hot-reload + unknowns: untouched here; ride the
-          ;; standalone hot-reload step.
-          s))
+          ;; rf2-y8doi.19 — an unrecognised `:where`. It used to land
+          ;; here and be discarded, under a comment saying it rode the
+          ;; standalone hot-reload step; rf2-7gf7v had already retired
+          ;; that step, so it rode nothing. A `:where` the framework
+          ;; grows later reaches this branch by construction, which is
+          ;; exactly when the panel must not go quiet.
+          (attach-violation-to-handler s row)))
       steps
       (remove #(= :hot-reload (:where %)) rows))))
 
@@ -3057,8 +3128,9 @@
 ;; path [:user/profile :age] · value -3`) lacking the rich
 ;; context the operator needs (pre/post schema, file:line of the
 ;; re-registration). Hot-reload drift continues to fire its
-;; `:rf.schema/violation` trace events; the Issues panel
-;; consumes them. The Epoch panel's pipeline now stays
+;; `:rf.schema/violation` trace events at `:op-type :warning`, and
+;; the issues RIBBON consumes them — not an "Issues panel", which
+;; rf2-gbz39 retired along with the Issues tab (rf2-y8doi.19). The Epoch panel's pipeline now stays
 ;; exclusively for runtime-cascade events.
 
 ;; ---- INLINE EXCEPTION attachment (rf2-ahhgn) ----------------------------
@@ -3192,7 +3264,7 @@
 (defn exception-row
   "Project one cascade-exception trace event into the per-step error
   record (rf2-ahhgn). Mirrors the issues-ribbon projection shape so the
-  inline display reads the same message + coord the Issues panel does:
+  inline display reads the same message + coord the issues ribbon does:
 
       {:operation  <error-op kw>           ;; e.g. :rf.error/handler-exception
        :message    <string-or-nil>         ;; the exception message / reason
@@ -3656,6 +3728,189 @@
                             (assoc :status :error))))
               s))))
       steps
+      rows)))
+
+;; ---- GENERIC error catch-all (rf2-y8doi.19) -----------------------------
+;;
+;; `cascade-exception-ops` is a CLOSED SET OF SEVEN, and every cascade
+;; error outside it surfaced NOWHERE: no card, no `:status :error`, and
+;; `epoch-outcome` reading `:ok` for an event that did not complete. The
+;; framework's `:rf.error/*` vocabulary is far wider than seven and grows
+;; — `router.cljc` alone emits more than twenty — so the closed set was
+;; never going to hold, and the failure mode is the worst available: a
+;; clean-looking cascade with a green outcome for an event that was
+;; refused.
+;;
+;; The instance that found it: a handler returning a foreign top-level
+;; effect key. The router REFUSES that pre-commit with
+;; `:rf.error/effect-map-shape` (rf2-04tx) — no `:db`, no `:fx`, the
+;; event aborted — and the panel drew a tidy `{:db}` cascade reading
+;; `outcome="ok"` while the L2 row and the ribbon went red beside it. The
+;; operator's two surfaces disagreed and the panel was the wrong one.
+;;
+;; This pass runs AFTER `attach-exceptions` and takes what that left. It
+;; is deliberately a SWEEP over an open predicate rather than a second
+;; closed set: an op nobody has heard of still lands on the HANDLER step
+;; with its message, which is the whole point.
+
+(def ^:private unclassified-error-op->step
+  "Best-step placement for a cascade error trace OUTSIDE
+  `cascade-exception-ops` (rf2-y8doi.19).
+
+  A TABLE OF EXCEPTIONS TO THE HANDLER DEFAULT, NOT AN INVENTORY. An op
+  absent from here is not unhandled — it lands on HANDLER with its
+  message intact — so this table never needs to be exhaustive and must
+  not be read as a closed set the way `cascade-exception-ops` is. Adding
+  an entry buys sharper placement and nothing else, which is why it can
+  stay short without the panel going quiet.
+
+  Read the groupings as: where did the cascade actually refuse?
+
+    - the EFFECTS BOUNDARY (`:side-effects`) — the effect map was
+      rejected, or an effect could not be honoured. The handler itself
+      returned; HANDLER would be the wrong home, and for
+      `:rf.error/effect-map-shape` possibly a slander, since the
+      offending key may have come from an `:after` interceptor rather
+      than from the handler at all (`router/emit-effect-map-shape!`).
+    - the SUBSCRIPTION stage (`:subscriptions`).
+    - COEFFECT INJECTION (`:coeffect`) — before the handler ran."
+  {:rf.error/effect-map-shape            :side-effects
+   :rf.error/classification-effect-shape :side-effects
+   :rf.error/reserved-fx-override        :side-effects
+   :rf.error/override-fallthrough        :side-effects
+   :rf.error/sub-exception               :subscriptions
+   :rf.error/no-such-sub                 :subscriptions
+   :rf.error/sub-input-fn-bad-return     :subscriptions
+   :rf.error/unregistered-cofx           :coeffect
+   :rf.error/missing-required-cofx       :coeffect
+   :rf.error/cofx-value-invalid          :coeffect})
+
+(defn cascade-error-event?
+  "True iff `ev` is a cascade ERROR trace (rf2-y8doi.19).
+
+  TWO tests, and the second is not redundant. `re-frame.trace/emit-error!`
+  stamps `:op-type :error` on every error it emits, which is the
+  authoritative discriminator on a live stream; the namespace test
+  catches a hand-written fixture that names the operation without the
+  envelope field, which is most of the synth fixtures in this tree.
+  Keeping both means a fixture and a live trace classify alike, which is
+  the whole reason `real_substrate_projection_cljs_test` exists."
+  [ev]
+  (let [o (op ev)]
+    (or (= :error (:op-type ev))
+        (and (keyword? o) (= "rf.error" (namespace o))))))
+
+(defn unclassified-error-row
+  "`exception-row` for a cascade error OUTSIDE `cascade-exception-ops`,
+  with one addition (rf2-y8doi.19): a `:message` lifted from `:reason`
+  when the trace carried no exception message.
+
+  rf2-oqi0c dropped the `[:tags :reason]` fallback from `exception-row`
+  because for a THROW `:reason` is terse category boilerplate the card's
+  own position already conveys. A REFUSAL is the opposite case: nothing
+  threw, so there is no `.getMessage` at all, and `:reason` is the entire
+  diagnosis — for `:rf.error/effect-map-shape` it is the sentence naming
+  the offending key. Without this the card would render a heading and no
+  text. The narrowing is deliberate: `:message` is only ever filled from
+  `:reason` when `exception-row` found nothing, so rf2-oqi0c's rule still
+  governs every op it was written about."
+  [ev]
+  (let [row (exception-row ev)]
+    (cond-> row
+      (nil? (:message row))
+      (assoc :message (or (common/tag-of ev :reason)
+                          (common/tag-of ev :message))))))
+
+(defn unclassified-error-rows
+  "Every cascade error trace in `events` that NO other pass handles, as
+  `unclassified-error-row` records in trace order (rf2-y8doi.19). Empty
+  vec when none fired.
+
+  TWO exclusions, and the second is not optional. `cascade-exception-ops`
+  is the obvious one — those ride `attach-exceptions`. `schema-violation-
+  ops` is the one that bites: those traces are `:op-type :error` too, and
+  `:rf.error/schema-validation-failure` is an `:rf.error/*` op, so a sweep
+  that excluded only the first set picked up EVERY schema violation and
+  attached it a SECOND time as an exception card beside the violation
+  block it already had. `cascade-exception-ops`' own docstring states the
+  division — schema failures ride `schema-violation-rows` +
+  `attach-violations`, carrying `:explain` / `:where` / recovery chrome
+  rather than an exception message — and this honours it.
+
+  It shows up first on `:where :hot-reload`, which is the one violation
+  kind `attach-violations` drops DELIBERATELY: swept up here it turned a
+  green cascade `:error` on dev-time schema drift that has nothing to do
+  with the event. That is the arm that caught it."
+  [events]
+  (vec
+    (for [ev events
+          :when (and (cascade-error-event? ev)
+                     (not (contains? cascade-exception-ops (op ev)))
+                     (not (contains? schema-violation-ops (op ev))))]
+      (unclassified-error-row ev))))
+
+(defn- synthesise-side-effects-step
+  "Insert a SIDE EFFECTS step carrying `row`, for a refusal at the
+  effects boundary in a cascade where no effect ran and so no SIDE
+  EFFECTS step was projected (rf2-y8doi.19).
+
+  `side-effects-step` builds nothing when the ledger has no rows, which
+  is exactly the shape a pre-commit refusal produces: no `:db` commit, no
+  fx, nothing to list. The step is synthesised with an EMPTY ledger and
+  the error at step level, which the view already renders — an empty
+  `:rows` draws no ledger lines and `error-blocks` paints the card.
+
+  Placed before SUBSCRIPTIONS / VIEWS so cascade order still reads as
+  execution order, and appended when neither is present. Carries
+  `:synthesised? true` so a consumer can tell it from a ledger that
+  genuinely ran and reported nothing."
+  [steps row]
+  (let [steps (vec steps)
+        step  {:step         :side-effects
+               :badge        :SIDE-EFFECTS
+               :rows         []
+               :threw        0
+               :synthesised? true
+               :errors       [row]
+               :status       :error}
+        i     (or (index-of #(contains? #{:subscriptions :views} (:step %)) steps)
+                  (count steps))]
+    (into (conj (subvec steps 0 i) step) (subvec steps i))))
+
+(defn attach-unclassified-errors
+  "Take a projected step vector + `unclassified-error-rows` and return it
+  with every row attached to its best step (rf2-y8doi.19). Returns
+  `steps` unchanged when `rows` is empty.
+
+  Placement is `unclassified-error-op->step`, defaulting to HANDLER — the
+  one step every epoch has. When the table names SIDE EFFECTS and the
+  cascade has no such step, the step is SYNTHESISED rather than the error
+  being demoted to HANDLER: a refusal at the effects boundary belongs at
+  the effects boundary, and saying 'the handler failed' about an
+  `:after`-interceptor-authored key would be worse than saying nothing.
+  Every other target falls back to HANDLER when absent.
+
+  Each touched step gains `:status :error`, so `epoch-outcome` stops
+  reading `:ok` for an event that did not complete — which was the
+  visible half of this defect."
+  [steps rows]
+  (if (empty? rows)
+    steps
+    (reduce
+      (fn [s row]
+        (let [target (get unclassified-error-op->step (:operation row) :handler)
+              attach (fn [step]
+                       (-> step
+                           (update :errors (fnil conj []) row)
+                           (assoc :status :error)))]
+          (if-let [i (index-of #(= target (:step %)) s)]
+            (update s i attach)
+            (if (= :side-effects target)
+              (synthesise-side-effects-step s row)
+              (if-let [h (index-of #(= :handler (:step %)) s)]
+                (update s h attach)
+                s)))))
+      (vec steps)
       rows)))
 
 ;; ---- per-step status + epoch outcome (rf2-ahhgn) ------------------------
@@ -4163,6 +4418,15 @@
             ;; `attach-exceptions` additionally stamps `:status :error` on
             ;; each touched step for the per-step ✓/✗ primitive.
             with-errs  (attach-exceptions attached exceptions)
+            ;; rf2-y8doi.19 — the generic pass: every cascade `:rf.error/*`
+            ;; trace the CLOSED `cascade-exception-ops` set does not name
+            ;; lands on its best step as the same shared exception card,
+            ;; instead of vanishing and leaving the panel green. Runs AFTER
+            ;; `attach-exceptions` so it only ever sees what that left, and
+            ;; can synthesise a SIDE EFFECTS step for a refusal at the
+            ;; effects boundary in a cascade where no effect ran.
+            with-errs  (attach-unclassified-errors
+                         with-errs (unclassified-error-rows events))
             ;; rf2-yz57h — when an upstream `:before`-chain throw (coeffect /
             ;; interceptor :before) skipped the handler, mark the HANDLER +
             ;; SIDE EFFECTS steps `:status :skipped` so the view renders them
