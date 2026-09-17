@@ -2171,6 +2171,124 @@ test('Epoch live-redaction job (mcp-conformance-re-frame2-pair) is gated on mcp_
   );
 });
 
+// rf2-01dix — the HTTP wire-vocabulary false-green. Two JVM suites under
+// tools/mcp-conformance/wire-vocab READ HTTP SOURCE AS TEXT, through
+// `re-frame.mcp-conformance.fixtures/read-source` (a `slurp` off a repo root
+// derived from the classpath, not a `:local/root` — implementation/http is on
+// NO MCP classpath at all):
+//
+//   trace_catalogue_lint_test.clj rosters
+//     implementation/http/src/re_frame/http/registry.cljc  and  …/transport.cljc
+//   reply_envelope_test.clj rosters
+//     implementation/http/src/re_frame/http/transport.cljc
+//
+// and both roster it precisely so a RENAME of the MCP-visible
+// `:rf.reply/*` / trace vocabulary trips a gate. The only job that runs those
+// suites is mcp-conformance-wire-vocab, gated on `mcp_conformance`. Folded into
+// the generic per-feature bucket, an HTTP source change set neither — so a diff
+// that renamed a pinned reply-envelope key in the very file these suites read
+// merged GREEN at PR time, with the one job that reads it SKIPPED.
+//
+// The arm is `implementation/http/src/*` — the directory the suites read from,
+// not the two rostered files. An enumeration here would be a second copy of a
+// roster that already lives in the suites, free to drift the moment a third
+// HTTP source file starts emitting the vocabulary; and it would go stale in the
+// REASSURING direction, since the missing row is a skipped gate, not a red one.
+// The narrowing to `src/*` is the other half of the scope discipline: the
+// suites read source TEXT only, so the artefact's entire test tree and its
+// deps.edn must not queue four MCP jobs.
+
+const HTTP_WIRE_VOCAB_EMIT_SOURCES = pinnedRoster('HTTP_WIRE_VOCAB_EMIT_SOURCES', [
+  'implementation/http/src/re_frame/http/registry.cljc',
+  'implementation/http/src/re_frame/http/transport.cljc',
+]);
+
+for (const file of HTTP_WIRE_VOCAB_EMIT_SOURCES) {
+  test(`${file} arms mcp_conformance — the wire-vocab suites read it (rf2-01dix)`, () => {
+    assert.equal(
+      classify(file).mcp_conformance,
+      'true',
+      `${file} is read as text by the wire-vocab conformance suites; a change to it must ` +
+        'schedule mcp-conformance-wire-vocab, the only job that runs them',
+    );
+  });
+}
+
+test('a NON-rostered HTTP source file arms mcp_conformance too — the arm is the directory (rf2-01dix)', () => {
+  // The two rosters above are the suites' business, not the classifier's. This
+  // is the over-arm being deliberate: a third HTTP source file that starts
+  // emitting the vocabulary is already scheduled, with nothing to remember.
+  assert.equal(classify('implementation/http/src/re_frame/http/reply.cljc').mcp_conformance, 'true');
+});
+
+test('HTTP source keeps its whole generic per-feature fan-out (regression) (rf2-01dix)', () => {
+  // The edit adds one output inside the existing per-feature arm. If it were
+  // ever refactored into a case of its own, this is what would silently go.
+  const result = classify('implementation/http/src/re_frame/http/transport.cljc');
+  for (const key of [
+    'implementation_jvm',
+    'cljs_node_test',
+    'cljs_browser',
+    'cljs_prod',
+    'bundle_isolation',
+    'examples_compile',
+  ]) {
+    assert.equal(result[key], 'true', `HTTP source must retain ${key}`);
+  }
+});
+
+test('HTTP source does NOT arm mcp_live — it is on no live MCP fixture classpath (rf2-01dix)', () => {
+  // mcp_live is epoch's (rf2-ribu5a): the re-frame2-pair live fixture resolves
+  // day8/re-frame2-epoch as a :local/root. Nothing resolves re-frame2-http, and
+  // the wire-vocab suites need no classpath edge at all — they read text.
+  assert.equal(classify('implementation/http/src/re_frame/http/transport.cljc').mcp_live, 'false');
+});
+
+test('HTTP test/ and deps.edn stay OFF mcp_conformance — the suites read src text only (rf2-01dix)', () => {
+  // The scope discipline, and the assertion that discriminates this arm from a
+  // whole-tree `implementation/http/*` one. implementation/http/test carries the
+  // bulk of the artefact's files; none is read by any conformance suite, so a
+  // test-only HTTP diff must not queue four MCP jobs to grade nothing.
+  for (const file of [
+    'implementation/http/test/re_frame/http_decode_test.clj',
+    'implementation/http/test/re_frame/http_cljs_test.cljs',
+    'implementation/http/deps.edn',
+  ]) {
+    assert.equal(
+      classify(file).mcp_conformance,
+      'false',
+      `${file} is not read by any wire-vocab suite; it must not arm mcp_conformance`,
+    );
+  }
+});
+
+test('sibling per-feature artefacts with no rostered source stay OFF mcp_conformance (rf2-01dix scope)', () => {
+  // The negative control for the arm itself: it must not have widened the
+  // per-feature bucket. flows and ssr are rostered by no conformance suite.
+  for (const file of [
+    'implementation/flows/src/re_frame/flows.cljc',
+    'implementation/ssr/src/re_frame/ssr.cljc',
+  ]) {
+    assert.equal(
+      classify(file).mcp_conformance,
+      'false',
+      `${file} is read by no conformance suite; the HTTP arm must not have widened the bucket`,
+    );
+  }
+});
+
+test('mcp-conformance-wire-vocab is job-level gated on mcp_conformance (rf2-01dix)', () => {
+  // Workflow-shape pin, the same posture rf2-ribu5a takes for the live gate: the
+  // job that runs the suites reading HTTP source must be gated on the output the
+  // classifier now arms for it. Rename the output and both sides move together.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'mcp-conformance-wire-vocab');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.mcp_conformance == 'true'/,
+  );
+});
+
 test('tools/template change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
   const result = classify('tools/template/src/day8/re_frame2_template/hooks.clj');
   assert.equal(result.template_expensive, 'true');

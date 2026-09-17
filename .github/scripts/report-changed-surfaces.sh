@@ -1273,6 +1273,39 @@ else
             # engine change must schedule both of its lanes.
             tools_cljs_machines_viz=true ;;
         esac
+        # rf2-01dix — the HTTP wire-vocabulary false-green. Two JVM suites under
+        # tools/mcp-conformance/wire-vocab READ HTTP SOURCE AS TEXT and pin the
+        # MCP-visible vocabulary emitted in it: trace_catalogue_lint_test.clj
+        # rosters both re_frame/http/registry.cljc and re_frame/http/
+        # transport.cljc, and reply_envelope_test.clj rosters transport.cljc
+        # for the additive `:rf.reply/*` keys (plus a near-miss anti-pin, so a
+        # rename to a snake_case/pluralised spelling must FAIL). They reach the
+        # file through `re-frame.mcp-conformance.fixtures/read-source`, a slurp
+        # off a repo root derived from the CLASSPATH RESOURCE — so there is no
+        # :local/root to notice: implementation/http is on no MCP classpath at
+        # all, and nothing but this arm connects the two.
+        #
+        # The only job that runs those suites is mcp-conformance-wire-vocab,
+        # gated on `mcp_conformance`. Folded into the per-feature bucket above,
+        # an HTTP source change set neither it nor mcp_live — so a diff that
+        # renamed a pinned reply-envelope key in the very file these suites read
+        # merged GREEN at PR time with its designated gate SKIPPED. Same shape
+        # as the epoch case above (rf2-ribu5a), reached by a text read rather
+        # than a classpath edge, which is why no dependency graph would find it.
+        #
+        # SCOPED TWO WAYS, and both halves are load-bearing. Narrowed to
+        # `src/*`: the suites read source TEXT, so arming the whole tree would
+        # queue four MCP jobs to grade nothing for the artefact's entire test
+        # tree and for its deps.edn. And NOT narrowed to the
+        # two rostered files: an enumeration here would be a second copy of a
+        # roster that already lives in the suites, free to drift the moment a
+        # third HTTP source file emits the vocabulary — and it would drift in
+        # the REASSURING direction, the missing row being a skipped gate rather
+        # than a red one. `mcp_live` stays OFF: that is epoch's, for a live
+        # fixture :local/root this artefact has no part in.
+        case "$file" in
+          implementation/http/src/*) mcp_conformance=true ;;
+        esac
         ;;
       implementation/fresco/*)
         # rf2-8a6s — the Fresco view substrate artefact (rf2-hic-001).
