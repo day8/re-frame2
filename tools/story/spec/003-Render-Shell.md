@@ -139,7 +139,7 @@ canonical layouts:
 
 | Layout | Source data | UX |
 |---|---|---|
-| `:grid` | explicit `:variants` list | Responsive grid; per-card width/height; drag-resize. |
+| `:grid` | explicit `:variants` list | Responsive grid (`auto-fit`, 280px minimum track); optional `:columns` pins the column count. No interactive resize — see §Workspace persistence. |
 | `:prose` | `:content` blocks (`{:type :prose :body "md..."}` or `{:type :variant :id ...}`) | Markdown narrative with embedded variants. |
 | `:variants-grid` | implicit — enumerates variants from the registry for one parent story | devcards-style "all states at once" view. |
 | `:tabs` | explicit `:variants` list | Tab strip; one variant active at a time. |

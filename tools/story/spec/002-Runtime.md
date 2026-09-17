@@ -599,6 +599,8 @@ torn-down frame and may either no-op or surface as
    (story/reg-variant :story.feed/live
      {:loaders          [[:ws/subscribe]]
       :loaders-teardown [[:ws/unsubscribe]]
+      ;; Same one-shot caveat as pattern 1 above: the first tick must
+      ;; land inside the loader drain, so stub :rf.host/open-socket.
       :loaders-complete-when [[:ws/first-tick-received]]})
    ```
 
