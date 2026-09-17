@@ -101,7 +101,9 @@
             ;; Xray's `:root` CSS-variable installer. Required
             ;; here because the panel-gallery embeds bare Xray widgets
             ;; without mounting the Xray shell; the shell normally calls
-            ;; `global-styles/install!` from its `shell-view` reg-view body.
+            ;; `global-styles/install!` from `ShellView`'s body — a
+            ;; `rf.fresco/defview` boundary, not an `rf/reg-view`
+            ;; (rf2-k97c.3).
             ;; Without this call the tokens in
             ;; `day8.re-frame2-xray.theme.tokens` resolve their
             ;; `var(--rf-xray-*)` references to CSS fallback defaults and
@@ -239,7 +241,7 @@
   (xray-registry/register-xray-handlers!)
   ;; Install Xray theme CSS variables on :root so
   ;; embedded widgets paint with the themed palette rather than
-  ;; browser defaults. Shell normally calls this from shell-view;
+  ;; browser defaults. Shell normally calls this from `ShellView`;
   ;; the gallery bypasses the shell so we call directly.
   ;; `global-styles/install!` is idempotent (defonce-guarded +
   ;; DOM-probed via fixed id attributes per its docstring) so this
