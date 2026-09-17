@@ -204,6 +204,40 @@
                 ;; cache, so every run re-reads the file) and do not carry
                 ;; this root: each walks up from the compile CWD instead.
                 "../spec"
+                ;; `tools/xray/spec` as a SECOND committed-data root, for
+                ;; the same reason and through the same reader (rf2-uttbj,
+                ;; repairing rf2-863tl).
+                ;;
+                ;;   007-UX-IA.md, 008-Embedding-Contract.md — the
+                ;;     `mount-<panel>!` inventory, inlined by
+                ;;     `day8.re-frame2-xray.panel-enum-spec-refs` into the
+                ;;     panel-enum guard. Until this root existed that macro
+                ;;     reached the files by walking up from the compile CWD
+                ;;     — a read the compiler cannot see, so correcting a
+                ;;     drifted spec row left the guard grading the PREVIOUS
+                ;;     expansion while the incremental compile reported
+                ;;     `1 compiled`, and only a cold rebuild moved it.
+                ;;
+                ;; The "ONE root" note above argues against nesting two
+                ;; roots over the SAME tree; these are disjoint trees, and a
+                ;; second root is what the mechanism needs. No existing root
+                ;; spans this one: a classpath resource name cannot escape
+                ;; its root with `..` (the JDK file loader refuses it
+                ;; outright), so `../tools/xray/test`, where that macro
+                ;; itself lives, cannot reach its sibling `spec/`.
+                ;;
+                ;; ORDER IS LOAD-BEARING. This root sits AFTER `../spec`, so
+                ;; the five names the two trees share — 000-Vision.md,
+                ;; API.md, Conventions.md, Principles.md, README.md —
+                ;; resolve to the repo-root `spec/` copy. Nothing reads any
+                ;; of the five as a resource today; a consumer wanting the
+                ;; Xray copy of one must not address it by bare name.
+                ;;
+                ;; Data only: nothing compilable lives under it, and the
+                ;; JVM lanes carry it no more than they carry `../spec` —
+                ;; `clojure -M:test` re-reads on every run, so it has no
+                ;; cache to invalidate.
+                "../tools/xray/spec"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping
