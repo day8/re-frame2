@@ -31,7 +31,24 @@
        `format-event-display`    — UI-facing formatters"
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.parallel :as rf.machines.parallel]
             [day8.re-frame2-xray.static.machines.sim-helpers :as sim-h]))
+
+;; ---- the engine, not a hand-written stand-in ----------------------------
+;;
+;; rf2-y8doi.21: the machines artefact is a top-level dependency of
+;; tools/xray (`deps.edn` → `day8/re-frame2-machines`) and `machines/src`
+;; is on the consolidated `:node-test` source-paths, so BOTH hosts can
+;; call the real engine. Every fixture below that describes an engine
+;; result is OBTAINED from `rf.machines/machine-transition` rather than
+;; written by hand — the shapes this file used to fabricate were shapes
+;; the engine never returns.
+
+(defn- engine-seed
+  "The seeder `sim.cljs` hands `make-sim-state` in production."
+  [definition]
+  (rf.machines.parallel/build-initial-snapshot definition {:bootstrap-pending? false}))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -54,6 +71,33 @@
                               :loading {:on {:ok :done}}}}
              :done {:final? true}}})
 
+(def ^:private parallel-definition
+  "A `:type :parallel` root. Parallel machines declare `:regions`, not
+  `:states`, and carry NO root `:initial` — which is exactly why the
+  shallow seed reads nil for them."
+  {:type    :parallel
+   :data    {}
+   :regions {:form {:initial :editing
+                    :states  {:editing {:on {:submit :submitted}}
+                              :submitted {}}}
+             :net  {:initial :idle
+                    :states  {:idle {} :busy {}}}}})
+
+(def ^:private guarded-definition
+  "A guard that reads the snapshot's `:data`, so the sim can drive it
+  both ways from the SAME definition."
+  {:initial :locked
+   :data    {:key? false}
+   :guards  {:has-key? (fn [{:keys [data]}] (boolean (:key? data)))}
+   :states  {:locked   {:on {:open {:target :unlocked :guard :has-key?}}}
+             :unlocked {}}})
+
+(defn- engine-step
+  "The `runtime-fn` `sim.cljs` hands `step-sim` in production — the real
+  pure engine closed over the sim's definition + snapshot."
+  [definition snapshot]
+  (fn [event] (rf.machines/machine-transition definition snapshot event)))
+
 ;; ---- (1) initial-snapshot -----------------------------------------------
 
 (deftest initial-snapshot-builds-seed-from-flat-definition
@@ -72,6 +116,65 @@
   (is (nil? (sim-h/initial-snapshot {}))
       "no :initial slot → nil")
   (is (nil? (sim-h/initial-snapshot "not a map"))))
+
+;; ---- (1b) seeding THROUGH THE ENGINE (rf2-y8doi.21) ---------------------
+;;
+;; The shallow read is right only for a FLAT machine. A compound root is
+;; not a state the machine can rest in, and a parallel root has no
+;; `:initial` at all — so the sim used to open stuck at a compound node
+;; (every later step recording a phantom `:auth → :auth`) or with a nil
+;; snapshot. The engine already computes the right answer; the sim asks
+;; it rather than re-deriving it.
+
+(deftest initial-snapshot-seeds-a-compound-root-at-the-engine-leaf
+  (testing "a compound :initial descends its own :initial chain to a leaf
+            path — the value the ENGINE seeds, not the compound node"
+    (let [snap (sim-h/initial-snapshot hierarchical-definition engine-seed)]
+      (is (= [:auth :form] (:state snap))
+          "descends :auth → :form rather than resting on the compound :auth")
+      (is (= (:state (engine-seed hierarchical-definition)) (:state snap))
+          "identical to the engine's own initial snapshot"))))
+
+(deftest initial-snapshot-seeds-a-parallel-root-with-a-region-map
+  (testing "a :type :parallel root seeds a region→state map, not nil"
+    (let [snap (sim-h/initial-snapshot parallel-definition engine-seed)]
+      (is (= {:form :editing :net :idle} (:state snap))
+          "one entry per declared region, each at its own cascaded initial")
+      (is (= (:state (engine-seed parallel-definition)) (:state snap))
+          "identical to the engine's own initial snapshot"))))
+
+(deftest initial-snapshot-keeps-the-engines-own-snapshot-slots
+  (testing "the seed is the engine's whole snapshot — `:rf/spawn-counter`
+            included — so the first step runs against what the runtime
+            would have had, not a reconstruction of it"
+    (let [snap (sim-h/initial-snapshot hierarchical-definition engine-seed)]
+      (is (= (engine-seed hierarchical-definition) snap)))))
+
+(deftest initial-snapshot-without-a-seeder-keeps-the-shallow-read
+  (testing "the seeder is optional: with none supplied the helper stays a
+            pure `:initial` read, so the JVM target drives it with no
+            machines artefact at all"
+    (is (= :auth (:state (sim-h/initial-snapshot hierarchical-definition))))
+    (is (nil? (sim-h/initial-snapshot parallel-definition))
+        "no root :initial → nil, which is why a seeder is wanted")))
+
+(deftest make-sim-state-seeds-through-the-supplied-seeder
+  (testing "the production path — `sim.cljs`'s :sim-start hands the engine
+            seeder straight through"
+    (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition engine-seed)]
+      (is (= [:auth :form] (sim-h/current-sim-state s0)))
+      (is (= (engine-seed hierarchical-definition) (:snapshot s0))))))
+
+(deftest reset-sim-state-restores-the-seed-it-opened-with
+  (testing "reset rewinds to the snapshot the slot was SEEDED with, so a
+            seeded sim does not silently fall back to the shallow read"
+    (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition engine-seed)
+          s1 (assoc s0 :snapshot {:state [:auth :loading] :data {}}
+                       :audit-trail [{:from [:auth :form] :to [:auth :loading]}])
+          s2 (sim-h/reset-sim-state s1)]
+      (is (= (:snapshot s0) (:snapshot s2)))
+      (is (= [:auth :form] (sim-h/current-sim-state s2)))
+      (is (= [] (:audit-trail s2))))))
 
 ;; ---- (2) event-id-suggestions -------------------------------------------
 
@@ -201,10 +304,35 @@
    :snapshot {:state :authing :data {:counter 1}}
    :fx []})
 
+;; rf2-y8doi.21: this used to be a HAND-WRITTEN
+;; `{:status :error :error {:kind … :reason :no-matching-transition}}`.
+;; The engine never returns that shape twice over: `:no-matching-transition`
+;; appears nowhere in the machines artefact, and an event no transition
+;; matched is `:status :ok` with the snapshot unchanged
+;; (`machines.cljc` — "An event no transition matched is `:status :ok`
+;; with the snapshot unchanged and `:fx []`"). A REAL `:status :error` is
+;; the engine's own failed macrostep, so we obtain one by making an
+;; action throw.
+
+(def ^:private throwing-definition
+  {:initial :a
+   :data    {}
+   :actions {:boom (fn [_] (throw (ex-info "boom" {:why :fixture})))}
+   :states  {:a {:on {:go {:target :b :action :boom}}}
+             :b {}}})
+
 (def ^:private fail-result
-  {:status :error
-   :error {:kind :rf.error/machine-action-exception
-           :reason :no-matching-transition}})
+  "An ACTUAL engine `:status :error`, obtained from the producer."
+  (rf.machines/machine-transition throwing-definition
+                                  (engine-seed throwing-definition)
+                                  [:go]))
+
+(deftest fail-result-fixture-really-is-an-engine-error
+  (testing "the fixture is the engine's own shape, not a hand-written one"
+    (is (= :error (:status fail-result)))
+    (is (= :rf.error/machine-action-exception (get-in fail-result [:error :kind])))
+    (is (nil? (get-in fail-result [:error :reason]))
+        "the engine's :error map carries no :reason — the old fixture invented one")))
 
 (deftest step-sim-ok-advances-snapshot-and-trail
   (let [s0       (sim-h/make-sim-state :auth/login flat-definition)
@@ -246,6 +374,81 @@
     (is (some? (:last-error s1)))
     (is (= "engine returned a non-result value" (-> s1 :last-error :reason)))))
 
+;; ---- (6b) a step the engine DECLINED is not a transition ----------------
+;;
+;; rf2-y8doi.21. A guard-blocked or unhandled event comes back
+;; `:status :ok` with the snapshot UNCHANGED and `:fx []` — the engine
+;; returns the same three shapes for "stale", "guard-suppressed" and "no
+;; match" (`transition.cljc`'s `apply-preselected-transition`). Folding
+;; every `:ok` as a transition invented a self-transition the framework
+;; never made: a `#N :open → :open` audit row with an animated from=to
+;; edge and no diagnostic at all.
+;;
+;; Every fixture below is the REAL engine result, so the test cannot pin
+;; a shape the engine does not produce.
+
+;; `guarded-definition` is FLAT, so the shallow seed is already the right
+;; one for it. These three therefore exercise the `step-sim` fold ALONE,
+;; with no seeder in the picture — a clean value-level red rather than an
+;; arity one, and the control below shares their exact shape.
+
+(deftest step-sim-guard-blocked-appends-no-row-and-says-so
+  (testing "a guard that declines leaves the snapshot put, appends NO audit
+            row, and stamps the rejection"
+    (let [s0 (sim-h/make-sim-state :door guarded-definition)
+          s1 (sim-h/step-sim s0 [:open] (engine-step guarded-definition (:snapshot s0)))]
+      (is (= :locked (sim-h/current-sim-state s1))
+          "snapshot unchanged — the engine is right")
+      (is (= [] (:audit-trail s1))
+          "NO phantom :locked → :locked row")
+      (is (nil? (sim-h/last-transition s1))
+          "and nothing for the chart to animate")
+      (is (= [:open] (-> s1 :last-error :event)))
+      (is (= :rf.xray.static.machines.sim/no-change
+             (-> s1 :last-error :info :kind))))))
+
+(deftest step-sim-unhandled-event-appends-no-row-and-says-so
+  (testing "an event the machine declares nowhere is the SAME engine
+            shape as a guard block, and is treated the same way"
+    (let [s0 (sim-h/make-sim-state :door guarded-definition)
+          s1 (sim-h/step-sim s0 [:no-such-event]
+                             (engine-step guarded-definition (:snapshot s0)))]
+      (is (= :locked (sim-h/current-sim-state s1)))
+      (is (= [] (:audit-trail s1)))
+      (is (= :rf.xray.static.machines.sim/no-change
+             (-> s1 :last-error :info :kind))))))
+
+(deftest step-sim-guard-passing-still-appends-a-row
+  (testing "THE CONTROL — the same definition, the same event, the same
+            call shape, a guard that PASSES: the row must still be
+            appended, or the no-change branch has swallowed a real
+            transition"
+    (let [s0   (sim-h/make-sim-state :door guarded-definition)
+          open (assoc s0 :snapshot {:state :locked :data {:key? true}})
+          s1   (sim-h/step-sim open [:open]
+                               (engine-step guarded-definition (:snapshot open)))]
+      (is (= :unlocked (sim-h/current-sim-state s1))
+          "the snapshot advanced")
+      (is (= 1 (count (:audit-trail s1)))
+          "the real transition IS recorded")
+      (is (= {:from :locked :to :unlocked :event [:open]}
+             (sim-h/last-transition s1)))
+      (is (nil? (:last-error s1))
+          "a successful step clears the prior rejection"))))
+
+(deftest step-sim-compound-seed-no-longer-phantom-steps
+  (testing "the two halves of this item together: seeded at the engine's
+            leaf, a declared event is a REAL transition — where the shallow
+            seed left the sim stuck at the compound node recording
+            `:auth → :auth` for ever"
+    (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition engine-seed)
+          s1 (sim-h/step-sim s0 [:submit]
+                             (engine-step hierarchical-definition (:snapshot s0)))]
+      (is (= [:auth :loading] (sim-h/current-sim-state s1)))
+      (is (= 1 (count (:audit-trail s1))))
+      (is (= {:from [:auth :form] :to [:auth :loading] :event [:submit]}
+             (sim-h/last-transition s1))))))
+
 (deftest step-sim-audit-trail-order-newest-last
   "Each step appends — the trail is insertion-ordered so the view can
   render either direction. We pin the contract here so a downstream
@@ -285,10 +488,17 @@
 
 (deftest current-sim-state-tracks-vector-paths
   (testing "a hierarchical :state path surfaces unchanged for the chart"
-    (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition)]
-      ;; hierarchical-definition's :initial is :auth (a compound) — the
-      ;; seed snapshot keeps it as the declared :initial value.
-      (is (= :auth (sim-h/current-sim-state s0))))))
+    ;; rf2-y8doi.21: this used to pin `:auth` — the COMPOUND node — and
+    ;; its comment recorded the defect as if it were the contract. A
+    ;; compound root is not a state the machine can rest in, so seeded
+    ;; through the engine the sim opens at the leaf PATH, which is what
+    ;; the chart's active-state highlight wants.
+    (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition engine-seed)]
+      (is (= [:auth :form] (sim-h/current-sim-state s0))))
+    (testing "and the shallow read (no seeder) still surfaces whatever
+              `:initial` declared, unchanged"
+      (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition)]
+        (is (= :auth (sim-h/current-sim-state s0)))))))
 
 (deftest last-transition-nil-before-any-step
   (testing "no step taken yet → nil (no edge to animate)"
