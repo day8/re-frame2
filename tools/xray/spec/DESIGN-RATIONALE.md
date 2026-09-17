@@ -279,6 +279,16 @@ binding are all gone. Event detail remains hero; cascade lineage is
 inspected via the hero panel (then the Event/Handler tab; later the
 Epoch panel per rf2-5gl5r) + Trace tab tags, not a dedicated graph.
 
+**Updated 2026-09-18 (rf2-y8doi.57).** The **inline mini-graph** the
+Pick and Why below describe went with that surface and is not built —
+the term occurs nowhere under `tools/xray/src/`. The causal breadcrumb
+it was meant to carry inside the detail panel is now the DISPATCH
+step's click-to-navigate **parent-epoch chip**, catalogued in
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
+§9.1.6.3, which reads the trace's `:rf.trace/parent-dispatch-id`
+rather than drawing a node graph. The lock's pick — event detail as
+hero, graph not the front door — is unaffected and stands.
+
 ### Question
 
 What's the hero panel — the one users land in on every `Ctrl+Shift+C`?
@@ -422,7 +432,37 @@ removed entirely (see Lock #2 reversal).** AI integration lives in
 
 ---
 
-## Lock #11 — Source-coord fallback
+## Lock #11 — Source-coord fallback (SUPERSEDED 2026-09-18)
+
+**Superseded 2026-09-18 (rf2-y8doi.57).** **The inline `(?)`
+annotation was never built**, and the concern it addressed is now
+carried by the per-source-kind DISPATCH enrichment catalogued in
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
+§9.1.6.3 — which names the specific timer, delay, state-path, spawned
+actor or parent epoch outright, rather than substituting one coord for
+another and annotating the substitution. What ships of the original
+pick is narrower than the lock below reads:
+
+- The **handler-coord fallback exists only in the Epoch panel's
+  exception card** (`exception-source-coord` in
+  `tools/xray/src/day8/re_frame2_xray/panels/epoch/projection.cljc`),
+  and there `:rf.trace/trigger-handler`'s `:source-coord` is tried
+  FIRST with `:rf.trace/call-site` as the fallback — the reverse of
+  the ordering locked below. It renders no annotation.
+- The **DISPATCH source label reads `:rf.trace/call-site` only**
+  (`tools/xray/src/day8/re_frame2_xray/panels/epoch/view.cljs`). It
+  links to the dispatch call-site when a coord was captured and falls
+  through to plain text when none was — it never reaches for the
+  handler's coord, so the lock's fallback does not run there at all.
+- The one surface this supersession leaves with an inert label is the
+  `:machine-spawn` row, whose spawned actor-id is gensym'd; resolving
+  it to a spec is recorded in §9.1.6.3 as a follow-on enrichment.
+
+Implementing the `(?)` chip was considered and dismissed: the
+enrichment already tells the operator which code it is showing them,
+and a chip apologising for a substitution that no longer happens would
+be chrome explaining chrome. The original lock is retained below as
+history.
 
 **Locked 2026-05-12 (Mike).** **Handler-coord fallback** via
 `:rf.trace/trigger-handler`. Inline `(?)` annotation when the
@@ -624,9 +664,10 @@ the toggle, not the indicator.
   per mode) without the duplicated build / install surface.
 - **Cross-mode tab choice is preserved.** The Static-scoped tab
   lives at `:rf.xray.static/selected-tab` (default `:machines`);
-  the Dynamic-scoped tab lives at the existing `:rf.xray/active-
-  tab` (default `:event`). Flipping modes restores the prior
-  Dynamic tab choice; it doesn't clobber it.
+  the Dynamic-scoped tab lives at `:rf.xray/selected-tab`
+  (default `:epoch` — the Epoch panel, which registers leftmost;
+  no `:event` tab is registered for Dynamic). Flipping modes
+  restores the prior Dynamic tab choice; it doesn't clobber it.
 
 ### Cross-reference
 
@@ -873,8 +914,8 @@ Vite DevTools) drifted into; the lock names the rejection.
 This lock is direction-setting via *what it refuses*, not
 between alternatives. The three REJECTs are:
 
-- **(1) No commodity fonts.** Fraunces (display face) for the L1
-  ribbon + mode pill + chord callouts; Inter for UI sans;
+- **(1) No commodity fonts.** Fraunces (display face) for L4
+  panel headings; Inter for UI sans;
   JetBrains Mono for data. NOT `system-ui` / `-apple-system` /
   the OS default sans as the chrome face. Peer tools that
   defaulted to `system-ui` lost type identity entirely —
@@ -891,7 +932,7 @@ between alternatives. The three REJECTs are:
 - **(3) No pixels-as-first-class.** Every type / spacing /
   motion value is a token — type-scale resolved via a calc
   anchor from `--rf-xray-font-size`; spacing on the 4-px grid;
-  motion via the three duration tiers in Principles.md. Magic
+  motion via the canonical duration tokens in Principles.md. Magic
   numbers in CSS or inline styles are reviewable as bugs. Peer
   tools that hard-coded pixels couldn't roll a density tier
   without combing every component; tokens make the surface
@@ -932,11 +973,12 @@ hard-coded pixel value are reviewable bugs.
   settings sheets. Users learn ONE chord, get ALL the surface
   area; addon authors register actions into the palette
   registry, not into per-tab chrome.
-- **Tokens make Xray re-themable end-to-end.** The three
-  duration tiers in Principles.md (instant / quick / measured)
-  + the 4-px spacing grid + the calc-anchored type scale + the
-  named palette tokens are the entire surface area. Anything
-  outside this set is a bug; anything inside is a knob.
+- **Tokens make Xray re-themable end-to-end.** The two canonical
+  duration tokens in Principles.md (`:flash-duration-ms` 400ms,
+  `:fade-duration-ms` 180ms) + the 4-px spacing grid + the
+  calc-anchored type scale + the named palette tokens are the
+  entire surface area. Anything outside this set is a bug;
+  anything inside is a knob.
 
 ### Cross-reference
 
@@ -948,8 +990,12 @@ hard-coded pixel value are reviewable bugs.
   implementation; the single density knob.
 - **rf2-ybjkx** — Cmd-K palette as the single nav primitive
   (rather than addon-per-tab burger menus).
-- **Principles.md** §Motion — the three duration tiers
-  (instant / quick / measured) that motion tokens resolve to.
+- **Principles.md** §Animation communicates, not decorates — the
+  two canonical durations (`:flash-duration-ms`, the 400ms diff
+  flash; `:fade-duration-ms`, the 180ms tab cross-fade) that
+  motion tokens resolve to, and the single
+  `--rf-xray-motion-scale` reduced-motion seam they interpolate
+  through.
 
 ### Date locked
 
@@ -979,7 +1025,7 @@ hard-coded pixel value are reviewable bugs.
 | 8 | AI panel default state | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 9 | Launch modes | **Hybrid: in-app + MCP** | 2026-05-12 |
 | 10 | Narrate mode | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
-| 11 | Source-coord fallback | **Handler-coord with `(?)` annotation** | 2026-05-12 |
+| 11 | Source-coord fallback | **SUPERSEDED 2026-09-18: the `(?)` annotation was never built; per-source DISPATCH enrichment replaces it (021 §9.1.6.3, rf2-y8doi.57)** | 2026-09-18 |
 | 12 | Conversation persistence | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 13 | Voice STT | **SUPERSEDED by #2 reversal (rf2-s3vx5)** | 2026-05-17 |
 | 14 | Two modes (Dynamic + Static) | **Two modes within one tool — chrome silhouette IS the signal; pill is the toggle** | 2026-05-19 |
