@@ -163,9 +163,16 @@
   does NOT default the target to `:rf/default` (Spec 002 §Frame target
   resolution).
 
-  Wires the foundation side-effects — the registry handlers, the trace and
-  epoch collectors, the browser-API exports, and the keybinding listener —
-  then threads each supplied opt through to its backing surface:
+  Loads the user's PERSISTED Settings first and applies them (rf2-y8doi.17
+  — the preload has always done this; `init!` never did, so a host that
+  installed manually saw compiled-in defaults on every boot no matter what
+  the user had saved in the Settings popup). Then wires the foundation
+  side-effects — the registry handlers, the trace and epoch collectors, the
+  browser-API exports, and the keybinding listener — then threads each
+  supplied opt through to its backing surface. The opts are applied LAST and
+  so win over the persisted values for the keys they name, which is the
+  documented role of `init! opts` as the last-mile injection seam
+  (spec/015-Configuration.md §`configure!` vs `init!` vs persisted Settings):
 
   - `:target-frame` — dispatches `:rf.xray/set-target-frame` so the
     scrubber + every dependent panel re-fire on the standard reactive
@@ -208,6 +215,12 @@
   ([]
    (init! nil))
   ([{:keys [target-frame theme density buffer-depths] :as _opts}]
+   ;; Settings persistence — load BEFORE the registry install, exactly as
+   ;; `preload.cljs`'s boot block does and for the same reason: the first
+   ;; sub read from the popup's events must land on the persisted values,
+   ;; not on the defaults. rf2-y8doi.17 — this call was simply absent, so
+   ;; `init!` hosts never saw their own saved Settings at all.
+   (config/load-settings-from-storage!)
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
    (install/register-epoch-collector!)
@@ -216,6 +229,10 @@
    ;; preload startup therefore install the same exports.
    (install/install-browser-api-exports!)
    (keybinding/attach!)
+   ;; Apply the persisted CSS-var + theme-class effects, in the same
+   ;; position the preload applies them. No-op-safe pre-mount; the explicit
+   ;; opts below re-apply their own slots on top.
+   (settings-effects/apply-all!)
    ;; Select the explicit inspected target frame in
    ;; Xray's OWN (`:rf/xray`) frame. Absent → leave unselected (the picker
    ;; / mount discovery policy chooses); never a `:rf/default` fallback.

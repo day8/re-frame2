@@ -319,13 +319,25 @@
 ;; host's own bindings never fire — the embed silently swallows
 ;; keystrokes that belong to the host.
 ;;
-;; The flag is the host's surrender switch: set it to `false` BEFORE
-;; the Xray preload runs (typically inside the host's boot sequence
-;; via `(xray-config/configure! {:rf.xray/keybinding-enabled? false})`)
-;; and `keybinding/attach!` short-circuits to a no-op. The shell is
-;; still mountable / dispatchable / inspectable via Xray's other
-;; surfaces (the host owns its own open-Xray affordance); only the
-;; global listener is suppressed.
+;; The flag is the host's surrender switch: set it to `false`
+;; (typically inside the host's boot sequence via
+;; `(xray-config/configure! {:rf.xray/keybinding-enabled? false})`) and
+;; the listener goes away. The shell is still mountable /
+;; dispatchable / inspectable via Xray's other surfaces (the host owns
+;; its own open-Xray affordance); only the global listener is
+;; suppressed.
+;;
+;; The flip is REACTIVE (rf2-y8doi.17): `keybinding.cljs` watches this
+;; atom and calls `detach!` / `attach!` on every change, so the slot
+;; works at any point in the boot sequence. It has to, because on the
+;; `:devtools/preloads` path the host CANNOT get in first — shadow-cljs
+;; loads preloads before the app's `:init-fn`, so `keybinding/attach!`
+;; has already installed the listener by the time the host's
+;; `configure!` runs, and a flag read only at attach time was a no-op
+;; for every host that took the documented route. `attach!` still reads
+;; the slot too, for the case where a host DOES get in first (its own
+;; preload ordered ahead of Xray's), and `keybinding/detach!` remains
+;; public for a host that wants the removal without the slot flip.
 ;;
 ;; Standalone Xray (the default) keeps the listener attached — the
 ;; default is `true` so existing hosts that never set the flag observe
@@ -343,10 +355,15 @@
 
 (defn set-keybinding-enabled!
   "Replace the `:rf.xray/keybinding-enabled?` flag. `nil` resets to the
-  default (`true`). Hosts MUST set this BEFORE the Xray preload runs
-  (the preload calls `keybinding/attach!` at adapter-ready time);
-  setting it afterwards is a no-op on the already-attached listener
-  unless the host explicitly calls `keybinding/detach!`."
+  default (`true`).
+
+  Takes effect whenever it is called (rf2-y8doi.17): `keybinding.cljs`
+  watches this atom and detaches / re-attaches the global listener on
+  every change, so a host that flips it AFTER Xray's preload has
+  already attached — which, on the `:devtools/preloads` path, is every
+  host — gets the listener removed rather than a silent no-op. The
+  explicit `keybinding/detach!` escape hatch is unchanged and still
+  supported; it is simply no longer mandatory alongside the flip."
   [v]
   (reset! keybinding-enabled? (if (nil? v) true (boolean v)))
   nil)
@@ -1454,37 +1471,119 @@
        (catch :default _ nil))))
 
 #?(:cljs
-   (defn load-settings-from-storage!
-     "Read the persisted settings map out of localStorage (if any) and
-     deep-merge it OVER `(merge-known-sections default-settings
-     @configured-settings-seed)` — the documented `hardcoded defaults <
-     configure! overrides < persisted Settings overrides` merge order
-     (rf2-rr2yw3 / spec/015-Configuration.md §`configure!` vs `init!`
-     vs persisted Settings). A host's `configure!` call sets the
-     boot-time default for any key the user hasn't already persisted a
-     value for; a value the user HAS persisted (any prior Settings-
-     popup edit) always wins over what the host configures on a later
-     boot. Idempotent — safe to call more than once. Failures (no
-     window, no localStorage, malformed payload) degrade silently to
-     the defaults+configure! base. Called from the preload's
-     side-effect block on CLJS startup, AFTER any host `configure!`
-     call per the documented boot order.
-
-     Unknown top-level keys in the persisted payload are silently
-     dropped — the per-section merge below only knows about known
-     slots, so any unknown top-level key falls on the floor without
-     throwing."
+   (defn- persisted-settings
+     "The persisted Settings payload as a map, or nil when there is
+     none, it is unreadable, or it does not parse to a map. The READ
+     half of `resolve-settings` below, split out because BOTH callers
+     that need the persisted layer — `load-settings-from-storage!` and
+     `configure!` — must reach it through one expression."
      []
-     (let [base (merge-known-sections default-settings @configured-settings-seed)]
-       (try
-         (if-let [raw (storage-get settings-storage-key)]
-           (let [parsed (cljs.reader/read-string raw)]
-             (reset! settings (if (map? parsed)
-                                 (merge-known-sections base parsed)
-                                 base)))
-           (reset! settings base))
-         (catch :default _ (reset! settings base))))
+     (try
+       (when-let [raw (storage-get settings-storage-key)]
+         (let [parsed (cljs.reader/read-string raw)]
+           (when (map? parsed) parsed)))
+       (catch :default _ nil))))
+
+(defn- resolve-settings
+  "Compute the live settings map from all three layers, lowest
+  precedence first: `default-settings` < the `configure!` seed
+  (`configured-settings-seed`) < the persisted localStorage payload —
+  the documented `hardcoded defaults < configure! overrides <
+  persisted Settings overrides` order (rf2-rr2yw3 /
+  spec/015-Configuration.md §`configure!` vs `init!` vs persisted
+  Settings).
+
+  ORDER-INDEPENDENT, and that is the whole point (rf2-y8doi.17). The
+  persisted layer is re-read on every call, so it makes no difference
+  whether the host's `configure!` runs before the preload's
+  `load-settings-from-storage!` or after it — both recompute the same
+  answer. Under `:devtools/preloads` the host CANNOT get in first:
+  shadow-cljs loads preloads ahead of the app's `:init-fn`, so a
+  `configure!` that merely `reset!`-ed its seed onto the live atom
+  delivered the merge order INVERTED (persisted < configure!) on the
+  one path every shipped host actually takes.
+
+  JVM target: there is no storage layer, so the answer is
+  `defaults < seed`. On the CLJS side every failure mode (no window,
+  no localStorage, malformed payload) degrades silently to that same
+  base, because `persisted-settings` returns nil for all of them.
+
+  Unknown top-level keys in either layer are silently dropped —
+  `merge-known-sections` only knows the enumerated slots."
+  []
+  (let [base (merge-known-sections default-settings @configured-settings-seed)]
+    #?(:cljs (if-let [parsed (persisted-settings)]
+               (merge-known-sections base parsed)
+               base)
+       :clj  base)))
+
+#?(:cljs
+   (defn load-settings-from-storage!
+     "Reset the live settings atom to `(resolve-settings)` — the
+     persisted localStorage payload deep-merged OVER
+     `(merge-known-sections default-settings @configured-settings-seed)`.
+     A host's `configure!` call sets the boot-time default for any key
+     the user hasn't already persisted a value for; a value the user HAS
+     persisted (any prior Settings-popup edit) always wins over what the
+     host configures on a later boot. Idempotent — safe to call more
+     than once. Failures degrade silently to the defaults+configure!
+     base.
+
+     Called from the preload's side-effect block on CLJS startup, and
+     from `core/init!` for hosts that install manually rather than via
+     `:devtools/preloads`.
+
+     NOTE THE REAL ORDERING, which this docstring previously had
+     backwards (rf2-y8doi.17): on the preload path this runs BEFORE any
+     host `configure!` call, not after, because shadow-cljs loads
+     `:devtools/preloads` ahead of the app's `:init-fn` — the same
+     ordering `mount.cljs` states for `auto-open?` (§`auto-open-enabled?`
+     is read INSIDE the tick). `configure!` recomputes through
+     `resolve-settings` for exactly that reason, so neither order can
+     lose the user's persisted values."
+     []
+     (reset! settings (resolve-settings))
      nil))
+
+;; ---- settings-effects applier hook (rf2-y8doi.17) -----------------------
+;;
+;; `configure!` has to re-apply the DOM / substrate effects of the
+;; settings map it just recomputed, but `settings/effects.cljs` requires
+;; THIS namespace — a direct require here would close the cycle. Same
+;; shape as `toggle-off-callbacks` above: the lower namespace registers
+;; its fn at load time and the caller walks the slot. With nothing
+;; registered (JVM tests, a build that never loads the Settings effects)
+;; the call is an inert no-op.
+
+(defonce
+  ^{:doc "Atom holding the zero-arg fn that re-applies every persisted
+         setting to the live shell — `settings/effects.cljs` registers
+         its `apply-all!` here at load time. Internal; host
+         applications should not register here."}
+  settings-applier
+  (atom nil))
+
+(defn register-settings-applier!
+  "Register `f`, a zero-arg fn, as the settings-effects applier
+  `configure!` runs after it recomputes the live settings map.
+  Replaces any previous registration, so a shadow-cljs `:after-load`
+  rebinds to the freshly compiled fn. Internal API — Xray modules wire
+  this; host applications should NOT register here. Returns nil."
+  [f]
+  (reset! settings-applier f)
+  nil)
+
+(defn- apply-settings-effects!
+  "Run the registered settings-effects applier, if any. Swallows its
+  exception (logged via `tap>`) — a failed DOM effect must not abort
+  the rest of `configure!`, which is the host's single boot-time call."
+  []
+  (when-let [f @settings-applier]
+    (try
+      (f)
+      (catch #?(:clj Throwable :cljs :default) e
+        (tap> {:tag ::settings-applier-failed :error e}))))
+  nil)
 
 (defn update-setting!
   "Write `value` into the settings slot at `[section key]`. CLJS calls
@@ -1700,7 +1799,9 @@
        listener. Embed hosts (Story mounts Xray as RHS) set `false`
        so their own global keybindings — typically `Cmd/Ctrl+K` for
        the host's command palette — are not swallowed by Xray's
-       capture-phase listener. MUST be set BEFORE the Xray preload runs.
+       capture-phase listener. Takes effect whenever it is set: the
+       flip is watched, so a `false` arriving AFTER the preload has
+       attached detaches the listener (rf2-y8doi.17).
     `{:rf.xray/egress-profile <kw>}` — Xray's on-box dev-UI egress
        profile (EP-0015 issue 7). One of the closed
        `:rf.egress/*` enum (`re-frame.projection/profiles`); for the
@@ -1820,25 +1921,42 @@
   ;; which — for a host that calls `configure!` on every boot (the
   ;; documented pattern) — permanently clobbered a user's already-
   ;; persisted Settings-popup mutations, violating the documented
-  ;; `defaults < configure! < persisted` merge order. Now: the raw map
-  ;; seeds `configured-settings-seed` (which `load-settings-from-
-  ;; storage!`, run later per the documented boot order, deep-merges
-  ;; the persisted payload OVER), and ALSO applies immediately to the
-  ;; live atom so a synchronous read right after `configure!` sees the
-  ;; host's posture even when no storage-backed load ever runs (tests;
-  ;; hosts that skip the preload). The write is now GUARDED on the
+  ;; `defaults < configure! < persisted` merge order. The raw map now
+  ;; seeds `configured-settings-seed`, and the write is GUARDED on the
   ;; storage slot being genuinely empty — a fresh install still
   ;; persists the host's posture (so it survives a reload even absent
   ;; another `configure!` call), but a returning user's real payload is
   ;; never overwritten.
+  ;;
+  ;; rf2-y8doi.17: the SECOND half of that fix. Seeding alone was not
+  ;; enough, because the live atom was still `reset!` to
+  ;; `(merge-known-sections settings-opt)` — defaults+seed with the
+  ;; persisted layer dropped. That is harmless only if
+  ;; `load-settings-from-storage!` runs afterwards, and on the
+  ;; `:devtools/preloads` path it does NOT: shadow-cljs loads preloads
+  ;; before the app's `:init-fn`, so the preload's load has already run
+  ;; by the time the host calls `configure!`, and the `reset!` landed
+  ;; ON TOP of the user's persisted values — the documented order
+  ;; delivered inverted, on the one path every shipped host takes.
+  ;; Recomputing through `resolve-settings` re-reads the persisted
+  ;; payload and re-merges it above the seed, so the result is the same
+  ;; whichever of the two runs first, and a synchronous read right
+  ;; after `configure!` still sees the host's posture for every key the
+  ;; user has not persisted.
   (when (contains? opts :rf.xray/settings)
     (when (map? settings-opt)
       (reset! configured-settings-seed settings-opt)
-      (reset! day8.re-frame2-xray.config/settings
-              (merge-known-sections settings-opt))
+      (reset! day8.re-frame2-xray.config/settings (resolve-settings))
       #?(:cljs
          (when-not (storage-get settings-storage-key)
-           (write-storage!)))))
+           (write-storage!)))
+      ;; The recomputed map has to reach the DOM / substrate as well:
+      ;; on the preload path `apply-all!` ran before this call, against
+      ;; the pre-`configure!` map, so without this a host's configured
+      ;; theme / text-size / width never painted at all. Late-bound via
+      ;; `settings-applier` to keep config.cljc free of a require on
+      ;; `settings/effects.cljs`; inert when nothing is registered.
+      (apply-settings-effects!)))
   ;; Filter seed + storage key — two independent axes. The storage key
   ;; governs the transient user-pill localStorage round-trip (within-
   ;; session writes + the load-time reset cleanup); the filter seed is an

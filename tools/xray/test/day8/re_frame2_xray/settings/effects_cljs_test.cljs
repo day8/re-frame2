@@ -22,6 +22,8 @@
             [re-frame.epoch.state :as rf.epoch.state]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.core :as core]
+            [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as effects]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -360,6 +362,113 @@
             "apply-all! routes the persisted value to the substrate")))))
 
 ;; ---- panel width (rf2-x8h9y) -------------------------------------------
+;;
+;; The `<html>` CSS-var rows live in the dom sibling (rf2-r51p). The rows
+;; below are about the CLAMP, which is deliberately outside the `<html>`
+;; guard and so is the half this node lane CAN see (rf2-y8doi.17).
+;;
+;; Before the fix `:rf.xray/set-panel-width-px` (the drag handler) was the
+;; only clamp site, so a width dragged wide on a large monitor replayed
+;; VERBATIM at boot on a narrow one: `apply-all!` handed the persisted
+;; number straight to `<html>` and the host's `flex-basis` could squeeze the
+;; app itself to nothing, on a surface whose resize handle had gone off the
+;; side of the screen with it.
+
+(deftest apply-panel-width-clamps-persisted-width-to-viewport
+  (testing "rf2-y8doi.17 — a persisted width wider than the viewport
+            allows is clamped to viewport × `max-panel-width-fraction`
+            before it is applied, and the clamped value is written BACK
+            through `update-setting!` so storage converges rather than
+            re-clamping on every boot (the same posture the drag path
+            already takes)."
+    (config/update-setting! :general :panel-width-px 1700)
+    (is (= 1700 (config/get-setting :general :panel-width-px))
+        "precondition: the oversize width is persisted")
+    ;; Viewport passed explicitly — the 1-arity reads `js/window`, which
+    ;; the node lane does not have. This is the same why-pass-it-in
+    ;; reasoning `config/clamp-panel-width-px` itself documents.
+    (effects/apply-panel-width! 1700 1280)
+    (let [clamped (config/get-setting :general :panel-width-px)]
+      (is (= 1152 clamped)
+          "clamped to 0.9 × 1280")
+      (is (<= clamped (* 0.9 1280))
+          "and therefore inside the documented ceiling")
+      (is (>= clamped config/min-panel-width-px)
+          "never below the floor"))
+    ;; Storage converged: a fresh in-memory atom reloaded from the
+    ;; payload reads the clamped value, not the original 1700.
+    (reset! config/settings config/default-settings)
+    (config/load-settings-from-storage!)
+    (is (= 1152 (config/get-setting :general :panel-width-px))
+        "the write-back reached localStorage — the next boot starts
+         from a usable width")))
+
+(deftest apply-panel-width-leaves-an-in-range-width-alone
+  (testing "rf2-y8doi.17 — the write-back is guarded on the value
+            actually moving, so the drag path (which clamps before it
+            calls here) triggers no second storage round-trip, and a
+            width that fits is persisted unchanged."
+    (config/update-setting! :general :panel-width-px 700)
+    (effects/apply-panel-width! 700 1280)
+    (is (= 700 (config/get-setting :general :panel-width-px))
+        "700 fits inside 0.9 × 1280 = 1152 — untouched")
+    (reset! config/settings config/default-settings)
+    (config/load-settings-from-storage!)
+    (is (= 700 (config/get-setting :general :panel-width-px))
+        "and storage still carries it")))
+
+(deftest apply-all-clamps-the-persisted-width
+  (testing "rf2-y8doi.17 — the repair reaches the boot path, which is
+            where it matters: `apply-all!` is what the preload and
+            `core/init!` call, and it is the caller that replayed the
+            unclamped value."
+    (config/update-setting! :general :panel-width-px 4000)
+    (effects/apply-all!)
+    ;; The 1-arity resolves the viewport itself; the node lane has no
+    ;; `js/window`, so `clamp-panel-width-px` falls back to its own
+    ;; 2000px default → ceiling 1800.
+    (is (= 1800 (config/get-setting :general :panel-width-px))
+        "apply-all! clamped the oversize persisted width")))
+
+;; ---- init! loads + applies persisted Settings (rf2-y8doi.17) ------------
+;;
+;; `core/init!` is the MANUAL install path — the documented alternative to
+;; wiring `day8.re-frame2-xray.preload` into `:devtools/preloads`. The
+;; preload's boot block has always called `load-settings-from-storage!`
+;; then `apply-all!`; `init!` called neither, so a host that installed
+;; manually showed compiled-in defaults however many times the user had
+;; changed them in the Settings popup.
+
+(deftest init-loads-and-applies-persisted-settings
+  (testing "rf2-y8doi.17 — `core/init!` loads the persisted Settings and
+            applies their effects, exactly as the preload's boot block
+            does"
+    (#'config/storage-set! config/settings-storage-key
+                           (pr-str {:general {:text-size     19
+                                              :epoch-history 123}}))
+    (reset! config/settings config/default-settings)
+    (is (= 13 (config/get-setting :general :text-size))
+        "precondition: the in-memory atom is back at the default")
+    (let [calls (atom [])]
+      (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
+        (core/init!))
+      (is (= 19 (config/get-setting :general :text-size))
+          "init! loaded the persisted value into the live settings atom")
+      (is (some #{{:epoch-history {:depth 123 :trace-events-keep 123}}} @calls)
+          "and applied it — apply-all! routed the persisted epoch depth
+           to the substrate"))))
+
+(deftest init-opts-still-win-over-persisted-settings
+  (testing "rf2-y8doi.17 — the load runs FIRST and the explicit opts
+            last, so `init! opts` remains the last-mile injection seam
+            spec/015 §`configure!` vs `init!` vs persisted Settings
+            describes"
+    (#'config/storage-set! config/settings-storage-key
+                           (pr-str {:theme :dark}))
+    (reset! config/settings config/default-settings)
+    (core/init! {:theme :light})
+    (is (= :light (config/get-setting :theme nil))
+        "the explicit opt beat the persisted :dark")))
 
 ;; ---- density → font-size knob (rf2-i40us) ------------------------------
 
@@ -494,3 +603,49 @@
       (is (false? @(rf/subscribe [:rf.xray/keybinding-enabled?]))
           "sub reads the atom directly when app-db has never mirrored it"))
     (config/set-keybinding-enabled! true)))
+
+;; ---- the slot flip is REACTIVE (rf2-y8doi.17) ---------------------------
+;;
+;; `keybinding/attach!` reads the slot ONCE, at attach time. On the
+;; `:devtools/preloads` install path — the documented one — shadow-cljs
+;; loads preloads before the app's `:init-fn`, so the listener is already
+;; on `js/document` by the time the host's `configure!` runs, and
+;; `(configure! {:rf.xray/keybinding-enabled? false})` was a silent no-op:
+;; the host declared its intent, nothing was printed, and Xray's
+;; capture-phase listener carried on swallowing the host's own Cmd/Ctrl+K.
+;; `keybinding.cljs` now watches the slot. The attach / detach themselves
+;; need a `js/document` this lane does not have, so the rows below pin the
+;; WIRING — that a flip reaches the runtime at all — and leave the
+;; listener mechanics to `keybinding_cljs_test`'s stub-driven rows.
+
+(deftest keybinding-enabled-flip-detaches-and-reattaches
+  (testing "rf2-y8doi.17 — flipping the slot drives the runtime rather
+            than only mutating an atom nothing re-reads"
+    (let [calls (atom [])]
+      (with-redefs [keybinding/attach! (fn [] (swap! calls conj :attach) nil)
+                    keybinding/detach! (fn [] (swap! calls conj :detach) nil)]
+        (config/set-keybinding-enabled! false)
+        (is (= [:detach] @calls)
+            "a false flip removes the listener the preload already attached")
+        (config/set-keybinding-enabled! true)
+        (is (= [:detach :attach] @calls)
+            "and flipping back re-attaches — symmetric, per the
+             attach!/detach! contract")
+        (config/set-keybinding-enabled! nil)
+        (is (= [:detach :attach] @calls)
+            "`nil` resets to the default `true`, which is already the
+             current value — no change, so no redundant attach")))))
+
+(deftest keybinding-enabled-flip-through-configure-is-reactive
+  (testing "rf2-y8doi.17 — and it works through the host-facing surface,
+            which is the call that was a no-op: `(configure!
+            {:rf.xray/keybinding-enabled? false})` landing AFTER the
+            preload attached"
+    (let [calls (atom [])]
+      (with-redefs [keybinding/attach! (fn [] (swap! calls conj :attach) nil)
+                    keybinding/detach! (fn [] (swap! calls conj :detach) nil)]
+        (config/configure! {:rf.xray/keybinding-enabled? false})
+        (is (= [:detach] @calls)
+            "the embed host's surrender switch now reaches the listener")
+        (config/configure! {:rf.xray/keybinding-enabled? true})
+        (is (= [:detach :attach] @calls))))))

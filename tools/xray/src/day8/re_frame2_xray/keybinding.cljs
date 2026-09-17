@@ -600,3 +600,35 @@
 ;; installs until `popout!` calls the installer, and the installer re-reads
 ;; the config slot then.
 (mount/register-popout-keydown-installer! install-popout-keydown!)
+
+;; ---- reactive `:rf.xray/keybinding-enabled?` (rf2-y8doi.17) --------------
+;;
+;; `attach!` reads the config slot ONCE, at attach time. That made
+;; `(configure! {:rf.xray/keybinding-enabled? false})` a silent no-op for
+;; every host on the `:devtools/preloads` path, which is the documented
+;; install route: shadow-cljs loads preloads before the app's `:init-fn`, so
+;; `preload.cljs`'s load-time block has already called `attach!` by the time
+;; the host's `configure!` runs. The host declared its intent, Xray printed
+;; nothing, and the capture-phase listener carried on swallowing the host's
+;; own `Cmd/Ctrl+K`.
+;;
+;; Watching the slot makes the flip mean what it says at any point in the boot
+;; sequence. Both directions are handled and both sides are idempotent — the
+;; `attached-state` CAS makes a redundant attach / detach a no-op — and the
+;; watch only fires on a genuine change, so re-asserting the current value
+;; costs nothing.
+;;
+;; `keybinding/detach!` stays public and stays documented: a host that wants
+;; the listener gone WITHOUT declaring the slot (or that must remove it from a
+;; mount-time hook it does not own) still calls it, and calling it alongside
+;; the flip is harmless.
+;;
+;; Not `defonce`-wrapped on purpose: `add-watch` is keyed, so a shadow-cljs
+;; `:after-load` replaces this watch with the freshly compiled closure rather
+;; than accumulating one per reload.
+(add-watch config/keybinding-enabled? ::sync-global-listener
+           (fn [_key _ref old-enabled? new-enabled?]
+             (when (not= old-enabled? new-enabled?)
+               (if new-enabled?
+                 (attach!)
+                 (detach!)))))

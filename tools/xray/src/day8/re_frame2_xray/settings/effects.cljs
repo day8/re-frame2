@@ -375,6 +375,19 @@
   apply fn + tests reference one spelling."
   "--rf-xray-inline-width")
 
+(defn- viewport-width-px
+  "The live viewport width in pixels, or nil where there is no usable
+  one — outside a browser (the node lane has no `js/window`), or a
+  zero/absent `innerWidth` (a detached or not-yet-laid-out frame).
+  `config/clamp-panel-width-px` supplies its own generous fallback for
+  the nil case, so the caller never has to invent a number; returning
+  nil rather than 0 keeps a zero-width host from clamping the user's
+  saved width down to the floor and persisting it there."
+  []
+  (when (exists? js/window)
+    (let [w (.-innerWidth js/window)]
+      (when (and (number? w) (pos? w)) w))))
+
 (defn apply-panel-width!
   "Drive `--rf-xray-inline-width` on the `<html>` root from the user's
   resize-handle setting.
@@ -409,22 +422,52 @@
   host beats ALL selector-based declarations regardless of layer,
   including the consumer's `:root` rule. Removed for the same
   rf2-6fqr5 reason; the host's `var(...)` inherits from `<html>`
-  (or `:root`) on the next paint without any per-element write."
-  [px]
-  (when-let [html (html-root-element)]
-    (let [px      (or px config/default-panel-width-px)
-          default config/default-panel-width-px]
-      (if (= (long px) (long default))
-        ;; Default value — clear any prior inline write so the
-        ;; consumer's cascade override (or the host CSS's `var(...)`
-        ;; fallback) wins.
-        (.removeProperty (.-style html) panel-width-css-var)
-        ;; Explicit user setting (drag handle / numeric input) —
-        ;; write inline on `<html>` so it overrides the consumer's
-        ;; baseline. The user's gesture is the strongest signal.
-        (.setProperty (.-style html) panel-width-css-var
-                      (str (long px) "px")))))
-  nil)
+  (or `:root`) on the next paint without any per-element write.
+
+  ## Clamping, and why the persisted value converges (rf2-y8doi.17)
+
+  `px` is clamped through `config/clamp-panel-width-px` against the
+  LIVE viewport, and a clamped-down value is written back through
+  `config/update-setting!`. Before this, the drag handler
+  (`:rf.xray/set-panel-width-px`) was the only clamp site, so a width
+  dragged wide on a large monitor replayed VERBATIM at boot on a
+  narrower one: `apply-all!` handed the persisted number straight to
+  `<html>` and the host's `flex-basis` could squeeze the app itself to
+  nothing, on a surface with no resize handle visible to undo it.
+
+  The write-back makes storage converge on a usable value rather than
+  re-clamping on every boot, matching the drag path's own posture
+  (`registry.cljs` §`:rf.xray/set-panel-width-px` — 'the clamp is
+  applied at write-time so the persisted payload is always in-range').
+  It is guarded on the value actually moving, so the drag path — which
+  clamps before it calls here — triggers no second storage round-trip.
+
+  The clamp and the write-back sit OUTSIDE the `<html>` guard: the
+  persisted payload is worth repairing whether or not this runtime has
+  a document (and the node lane, which has none, is where the
+  repair is tested)."
+  ([px]
+   (apply-panel-width! px (viewport-width-px)))
+  ([px viewport-width-px]
+   (let [clamped (config/clamp-panel-width-px px viewport-width-px)
+         default (long config/default-panel-width-px)]
+     ;; Converge the persisted payload. Guarded on a real numeric input
+     ;; that actually moved, so a nil (no persisted value) writes
+     ;; nothing and an already-in-range value costs no storage write.
+     (when (and (number? px) (not= (long px) clamped))
+       (config/update-setting! :general :panel-width-px clamped))
+     (when-let [html (html-root-element)]
+       (if (= clamped default)
+         ;; Default value — clear any prior inline write so the
+         ;; consumer's cascade override (or the host CSS's `var(...)`
+         ;; fallback) wins.
+         (.removeProperty (.-style html) panel-width-css-var)
+         ;; Explicit user setting (drag handle / numeric input) —
+         ;; write inline on `<html>` so it overrides the consumer's
+         ;; baseline. The user's gesture is the strongest signal.
+         (.setProperty (.-style html) panel-width-css-var
+                       (str clamped "px")))))
+   nil))
 
 ;; ---- epoch history (rf2-3zyyx — spec/021 §10.7, §13) -------------------
 ;;
@@ -736,3 +779,20 @@
     ;; user changes it from the popup.
     )
   nil)
+
+;; ---- applier registration (rf2-y8doi.17) --------------------------------
+;;
+;; `config/configure!` recomputes the live settings map (defaults < the
+;; `:rf.xray/settings` seed < the persisted payload) and then has to get that
+;; map onto the DOM and into the substrate. It cannot call `apply-all!`
+;; directly — this namespace requires `config`, so the require would close a
+;; cycle — so `config` holds the slot and we push the fn DOWN into it, the
+;; same shape `trace_collector.cljs` uses for `config/register-toggle-off-
+;; callback!` and `keybinding.cljs` for `mount/register-popout-keydown-
+;; installer!`.
+;;
+;; Inert on its own: registering stores a fn and runs nothing. On the preload
+;; path `apply-all!` ran at load time against the pre-`configure!` map, which
+;; is precisely why the host's configured theme / text-size / width needs this
+;; second application.
+(config/register-settings-applier! apply-all!)
