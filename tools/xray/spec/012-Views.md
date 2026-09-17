@@ -367,7 +367,7 @@ chip appears ABOVE the three-group section header:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Per `findings/2026-05-17-xray-consolidated-design.md` §0ter.1
+Per the 2026-05-17 consolidated-design walkthrough §0ter.1
 R3-E the chip is **panel-scoped** (NOT ribbon-scoped — the ribbon
 carries event-list filters). The bottom-controls footer keeps a
 secondary clear button for the scrolled-past case.
@@ -395,8 +395,8 @@ on the sub-id when the cache state is interesting:
 ### Re-rendered-row sub-status decoration
 
 Inside the Re-rendered group's right-column "Rerendered because" list,
-each consumed sub carries one of three statuses (per
-`findings/2026-05-17-xray-consolidated-design.md` §0ter.1 R3):
+each consumed sub carries one of three statuses (per the 2026-05-17
+consolidated-design walkthrough §0ter.1 R3):
 
 | Status | Glyph + colour | Meaning |
 |---|---|---|
@@ -460,18 +460,14 @@ Xray-internal hover-renders. Per
 [`018-Event-Spine.md`](018-Event-Spine.md) §8 I4 — **failure blocks
 merge**.
 
-## Renderer
+## Renderer — superseded
 
-Sub return values use `inspect-inline` (one-line, tail-elided); click
-expands to `inspect` (expandable hero). Props diffs use `inspect-diff`
-(side-by-side or unified). All three live in
-`tools/xray/src/day8/re_frame2_xray/theme/data_inspector.cljc` — see
-[`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
-
-The renderer respects [spec/015 data classification](../../../spec/015-Data-Classification.md):
-`:rf/redacted` → `[● REDACTED N]` magenta opaque; `:rf.size/large-elided` → `[●
-ELIDED · N bytes]` yellow drillable. See
-[`018-Event-Spine.md`](018-Event-Spine.md) §12.
+The `inspect-inline` / `inspect` / `inspect-diff` trio and the
+`theme/data_inspector.cljc` chrome namespace this section described are
+gone (the namespace was deleted in the rf2-oqa60 phase-5 sweep,
+rf2-q3dzw). The shared renderer — including the spec/015 sentinel
+chrome sketched here — is normative in
+[`021-Dynamic-Panel-Designs.md` §10](021-Dynamic-Panel-Designs.md#10-shared-edn-inspector-renderer).
 
 ## JVM behaviour
 
@@ -537,7 +533,7 @@ v1.0 ships the panel as part of Xray's tab bar only.
 ## Cross-references
 
 - [`018-Event-Spine.md`](018-Event-Spine.md) — Views tab placement
-  (tab 3 of 7); spine binding; isolation invariants.
+  (tab 3 of 10); spine binding; isolation invariants.
 - [`007-UX-IA.md`](007-UX-IA.md) — detail panel renderer; long-keyword
   treatment.
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — changed-paths
