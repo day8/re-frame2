@@ -293,26 +293,72 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- read-edges
-  "The `[frame-id sub-id]` pairs a producer boundary row reads.
+  "The `[frame-id sub-id]` pairs a producer boundary row reads, DISTINCT.
 
   Taken from `:reads` (which carries `:frame-id` and `:sub-id` per edge)
   rather than from the projected `:boundary :key`, because the key's third
   element is a PROJECTED query and the timing digest is keyed on the
-  registration id — the one spelling redaction cannot take."
+  registration id — the one spelling redaction cannot take.
+
+  **The pair is the right key here and the DISTINCT is what makes it
+  honest.** Spec 009's ring tags `:rf.sub/id` and carries no query, so a
+  `[frame-id sub-id]` entry in [[sub-timing]]'s digest already holds the
+  work of EVERY cell of that registration in that frame. A boundary
+  reading two cells of one sub — `[:todo/by-id 1]` and `[:todo/by-id 2]`
+  — yields two `:reads` rows that collapse to ONE pair, and looking that
+  single entry up once per row charged it twice: a doubled `:runs`, a
+  doubled `:elapsed-ms`, and therefore a doubled sort key on the one axis
+  the roster is ordered by.
+
+  The residual is stated rather than hidden: the digest cannot split a
+  registration's time per cell, so a boundary reading one of two cells is
+  still charged for both. That is the ring's own grain, and pricing it
+  once is the most this join can honestly say. The FAN-OUT join has a
+  finer key available and takes it — see [[fan-out-edges]]."
   [row]
-  (into [] (map (juxt :frame-id :sub-id)) (:reads row)))
+  (into [] (comp (map (juxt :frame-id :sub-id)) (distinct)) (:reads row)))
+
+(defn- fan-out-edges
+  "The `[frame-id sub-id query]` CELLS a producer boundary row reads,
+  DISTINCT.
+
+  A second derivation beside [[read-edges]] rather than a widening of it,
+  because the two joins have different producers and therefore different
+  finest identities: the timing digest comes from Spec 009's ring, which
+  knows only the registration id, while fan-out comes from the cell table,
+  where `edge-row` carries `:query` on every edge and `read-row` carries
+  it on every read. Keying both on the coarser of the two throws away an
+  identity the producer went to trouble to publish."
+  [row]
+  (into [] (comp (map (juxt :frame-id :sub-id :query)) (distinct)) (:reads row)))
 
 (defn- fan-out-index
-  "`{[frame-id sub-id] fan-out}` from the attribution envelope.
+  "`{[frame-id sub-id query] fan-out}` from the attribution envelope.
 
-  Summed rather than maxed across cells sharing a registration id,
-  because two parameterizations of one sub are two cells and a boundary
-  reading both is exposed to both reader populations."
+  **The key is the CELL, not the registration** (rf2-y8doi.26). It was
+  `[frame-id sub-id]`, which summed every parameterization of one sub into
+  one bucket — so a boundary reading `[:todo/by-id 1]` alone was charged
+  the reader population of `[:todo/by-id 2]`, `…3` and every other row on
+  the page. On a per-row list that is *fan-out N* printed on every advisor
+  row, and `docs/core/fresco/16-diagnostics.md` teaches a reader to hunt
+  exactly that signature: the defect did not inflate a number, it
+  FABRICATED the evidence a developer is told to act on.
+
+  Still SUMMED within a key, and that is now the narrow claim it always
+  should have been: a boundary reading several cells is exposed to each
+  one's reader population, so [[fan-out-edges]] hands this index one
+  lookup per cell and the sum happens across the boundary's OWN cells.
+  Summing inside a key is for the one case the producer genuinely folds —
+  an egress policy that elides a query projects `[:row \"secret-a\"]` and
+  `[:row \"secret-b\"]` onto one identity, and two cells then share a
+  spelling nothing downstream can split. That is the honest ceiling the
+  projection allows, not a bucket to pour unrelated cells into."
   [attribution]
   (if-not (hh/supported? attribution)
     {}
     (reduce (fn [m edge]
-              (update m [(:frame-id edge) (:sub-id edge)] (fnil + 0) (or (:fan-out edge) 0)))
+              (update m [(:frame-id edge) (:sub-id edge) (:query edge)]
+                      (fnil + 0) (or (:fan-out edge) 0)))
             {}
             (:edges attribution))))
 
@@ -748,7 +794,10 @@
   [timing fan-idx row]
   (let [edges   (read-edges row)
         att     (attributable timing edges)
-        fan     (reduce + 0 (map #(get fan-idx % 0) edges))
+        ;; TWO edge derivations, one per join — see [[fan-out-edges]] for
+        ;; why the finest identity differs between the ring and the cell
+        ;; table. Reusing `edges` here was the whole of the fan-out defect.
+        fan     (reduce + 0 (map #(get fan-idx % 0) (fan-out-edges row)))
         ax      (axes row att fan)
         cls     (classify ax att)]
     {:boundary   (:boundary row)

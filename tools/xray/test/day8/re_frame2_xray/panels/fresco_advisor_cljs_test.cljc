@@ -51,16 +51,29 @@
    :edges     edges})
 
 (defn- boundary
-  "One producer boundary row. `reads` is `[[frame-id sub-id] …]`."
+  "One producer boundary row. `reads` is `[[frame-id sub-id] …]`, or
+  `[[frame-id sub-id query] …]` where the query matters.
+
+  **The three-element form is what makes a per-CELL claim expressible at
+  all.** A boundary reading `[:todo/by-id 1]` and `[:todo/by-id 2]` holds
+  TWO cells of ONE registration, and the producer distinguishes them by
+  `:query` — `read-row` and `edge-row` both carry it beside the sub-id, and
+  `explanation`'s `:latest-reads` says in its own comment that `[:row 1]`
+  and `[:row 2]` are one sub-id and two different reads. The two-element
+  form mints `[s]` as the query, so every read it builds is the sole cell
+  of its registration and a fixture written with it cannot exercise a
+  per-cell defect in either direction."
   [reads & {:keys [instances read-orders] :or {instances 1 read-orders 1}}]
-  {:boundary    {:parent nil
-                 :key    (mapv (fn [[f s]] [f s [s]]) reads)}
-   :view        hh/unknown
-   :source      hh/unknown
-   :instances   instances
-   :read-orders read-orders
-   :frame       (ffirst reads)
-   :reads       (mapv (fn [[f s]] {:sub-id s :query [s] :frame-id f :epoch 1}) reads)})
+  (let [triples (mapv (fn [[f s q]] [f s (or q [s])]) reads)]
+    {:boundary    {:parent nil
+                   :key    triples}
+     :view        hh/unknown
+     :source      hh/unknown
+     :instances   instances
+     :read-orders read-orders
+     :frame       (ffirst reads)
+     :reads       (mapv (fn [[f s q]] {:sub-id s :query q :frame-id f :epoch 1})
+                        triples)}))
 
 (defn- sub-ev
   "One `:rf.sub/run` trace event, in Spec 009's own shape."
@@ -406,6 +419,83 @@
               (advisor/sub-timing {}))]
     (is (= 7 (get-in (first (:rows adv)) [:axes :fan-out :total]))
         "3 + 4 — and never the 99, which is another frame's cell")))
+
+;; THE ROW ABOVE CANNOT SEE THE DEFECT THE TWO BELOW ARE ABOUT, and saying
+;; so here is the point of the pair. Every read it builds is the SOLE cell
+;; of its registration — `:a`, `:b`, and an `:a` in another frame — so the
+;; pair key `[frame-id sub-id]` and the cell key `[frame-id sub-id query]`
+;; partition its edges identically and it reads 7 under either. A fixture
+;; that cannot separate two implementations is not a control for the
+;; difference between them.
+
+(deftest fan-out-is-per-CELL-and-never-summed-across-one-sub-ids-cells
+  ;; TWO CELLS OF ONE REGISTRATION IN ONE FRAME — the parameterized shape,
+  ;; `[:todo/by-id 1]` and `[:todo/by-id 2]`. The producer keeps them
+  ;; apart: `edge-row` carries `:query` beside `:sub-id` on every edge and
+  ;; `read-row` carries it on every read, which is what makes the cell the
+  ;; finest identity the egress policy allows.
+  ;;
+  ;; Summing them under `[frame-id sub-id]` prints the WHOLE
+  ;; registration's reader population on a row that reads one cell of it —
+  ;; and `docs/core/fresco/16-diagnostics.md` teaches the reader to hunt
+  ;; exactly that signature, so the number is not merely inflated, it is
+  ;; the evidence a developer is told to act on.
+  (let [edges [{:sub-id :todo/by-id :query [:todo/by-id 1] :frame-id :app/main
+                :epoch 1 :fan-out 1 :readers []}
+               {:sub-id :todo/by-id :query [:todo/by-id 2] :frame-id :app/main
+                :epoch 1 :fan-out 6 :readers []}]
+        one   (advisor/advise
+                {:mounted-boundaries
+                 (mounted-envelope [(boundary [[:app/main :todo/by-id [:todo/by-id 1]]])])
+                 :read-attribution (attribution-envelope edges)}
+                (advisor/sub-timing {}))]
+    (is (= 1 (get-in (first (:rows one)) [:axes :fan-out :total]))
+        (str "this boundary reads cell 1, whose reader array holds ONE slot. "
+             "7 would be cell 2's six readers charged to a row that does not "
+             "read it"))
+
+    (testing "and a boundary reading BOTH cells is charged each cell ONCE"
+      (let [both (advisor/advise
+                   {:mounted-boundaries
+                    (mounted-envelope
+                      [(boundary [[:app/main :todo/by-id [:todo/by-id 1]]
+                                  [:app/main :todo/by-id [:todo/by-id 2]]])])
+                    :read-attribution (attribution-envelope edges)}
+                   (advisor/sub-timing {}))]
+        (is (= 7 (get-in (first (:rows both)) [:axes :fan-out :total]))
+            (str "1 + 6. The other direction of the same key defect: two "
+                 "reads collapsing to one lookup key make the row look the "
+                 "summed total up TWICE, for 14"))))))
+
+(deftest two-cells-of-one-registration-are-priced-ONCE-not-once-per-cell
+  ;; The same conflation on the axis the roster is SORTED on, which is
+  ;; where it costs most. Spec 009's ring tags `:rf.sub/id` and no query,
+  ;; so the timing digest's `[frame-id sub-id]` entry already holds the
+  ;; work of EVERY cell of that registration in that frame — the pair key
+  ;; is right there and stays. Looking that one entry up once per read
+  ;; edge charges it once per CELL, so a boundary reading two cells is
+  ;; ranked at twice its measured cost and sorts above a boundary that
+  ;; genuinely cost more.
+  ;;
+  ;; The residual is stated rather than fixed: the digest cannot split a
+  ;; registration's time per cell, so a boundary reading one of two cells
+  ;; is still charged for both. That is the ring's own grain, and pricing
+  ;; it once is the most this join can honestly say.
+  (let [row (first (:rows (advisor/advise
+                            {:mounted-boundaries
+                             (mounted-envelope
+                               [(boundary [[:app/main :todo/by-id [:todo/by-id 1]]
+                                           [:app/main :todo/by-id [:todo/by-id 2]]])])}
+                            (advisor/sub-timing
+                              {:app/main [(bundle 1 :e [(sub-ev :todo/by-id 4.0)])]}))))]
+    (is (= 1 (get-in row [:axes :frequency :runs]))
+        "one run happened; 2 is one run counted once per cell that reads it")
+    (is (= 4.0 (get-in row [:axes :time :ms]))
+        "and 8.0 ms of attributable time would be a doubled sort key")
+    (is (= 2 (get-in row [:axes :read-churn :reads]))
+        (str "while the read COUNT still says two — the boundary really does "
+             "hold two read edges, and that axis is about the edge set rather "
+             "than about what the ring could price"))))
 
 (deftest the-advisor-ADVISES-and-carries-nothing-executable
   ;; The bead's own words: it never rewrites code and never switches
