@@ -460,17 +460,7 @@ stacked sections:
    list** (every `:rf.scope/global` resource — the structural replacement
    for the old `/me` heuristic), the **suspicious-explicit-global**
    warnings (defense-in-depth: an explicit-global resource whose id/doc
-   looks session-dependent), the **scope-mismatch lint** (an entry under
-   scope A while a live sub reads the same R+P under a different scope B —
-   matched on the **canonical** `[resource-id params]` + `scope` identities
-   read off each row's raw `:scoped-key`, NOT the truncated/redacted display
-   previews, so long-or-colliding params and distinct redacted scopes
-   cannot false-trip or be missed; the surfaced output is summarized for
-   privacy — but **DORMANT in production**: its only feed is
-   `:rf.xray/resource-sub-reads`, whose production registration is the
-   constant `[]`, so the lint is exercised today only through its test
-   override and fires for a host solely once something populates observed
-   subscription reads), the **orphaned-owner lint** (an app-minted `[:dashboard/opened …]`
+   looks session-dependent), the **orphaned-owner lint** (an app-minted `[:dashboard/opened …]`
    (or other app-kind) owner pinning an entry with no observed release; route /
    machine / ssr owners are framework-released and not linted), and the
    **optimistic-reach lint** (informational — a settled optimistic mutation
@@ -686,16 +676,15 @@ override input layered on top; see §Events below.
 | `:rf.xray/registered-scope-resolvers` | `:rf.xray/trace-buffer` | `(rf/registrations {:source :store :kind :resource-scope})` — the static named-scope-resolver registry map (rf2-hls77w, EP-0016 D3). |
 | `:rf.xray/resource-entries` | `:rf.xray/target-frame-runtime-db` | the live cache entries map at `[:rf.runtime/resources :entries]`. |
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db` | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
-| `:rf.xray/resource-sub-reads` | (none) | observed live subscription reads backing the scope-mismatch lint (empty by default). |
 | `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db` | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
-| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + `:rf.xray/observed-frame` (rf2-9zix0u — the frame whose `:sensitive` / `:large` classification governs the on-box payload egress; already an upstream dep transitively, named directly so the entries project under THEIR frame). The route registry is NOT an input: it is read inside the computation via `(rf/registrations {:source :store :kind :route})` | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :optimistic-mutations :optimistic-force-clobbers :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1); `:optimistic-mutations` is the EP-0019 optimistic-mutation lifecycle (each `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its terminal `:reconciled` / `:rolled-back` settle, carrying the per-key restored-vs-conflict disposition); `:optimistic-force-clobbers` is the `:rf.warning/optimistic-force-clobber` rows (a `:force` rollback over a concurrent write). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
+| `:rf.xray/resources-tab-data` | the five above + `:rf.xray/trace-buffer` + `:rf.xray/observed-frame` (rf2-9zix0u — the frame whose `:sensitive` / `:large` classification governs the on-box payload egress; already an upstream dep transitively, named directly so the entries project under THEIR frame). The route registry is NOT an input: it is read inside the computation via `(rf/registrations {:source :store :kind :route})` | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :optimistic-mutations :optimistic-force-clobbers :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1); `:optimistic-mutations` is the EP-0019 optimistic-mutation lifecycle (each `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its terminal `:reconciled` / `:rolled-back` settle, carrying the per-key restored-vs-conflict disposition); `:optimistic-force-clobbers` is the `:rf.warning/optimistic-force-clobber` rows (a `:force` rollback over a concurrent write). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
 
 ### Events (test-only override seam — rf2-e8330v / xxo3zz F3)
 
 These are **NOT** installed by `register-xray-handlers!`. They live behind
 `resources/install-test-overrides!` (orchestrated by `test-support/
 install-test-overrides!`), which a test opts into AFTER
-`register-xray-handlers!`. The seam also re-registers the six production
+`register-xray-handlers!`. The seam also re-registers the five production
 subs above with their `*-override` input layered on top. Production code
 paths never dispatch these; `nil` clears the override.
 
@@ -703,7 +692,6 @@ paths never dispatch these; `nil` clears the override.
 `:rf.xray/set-registered-scope-resolvers-override-for-test`,
 `:rf.xray/set-resource-entries-override-for-test`,
 `:rf.xray/set-resource-work-ledger-override-for-test`,
-`:rf.xray/set-resource-sub-reads-override-for-test`,
 `:rf.xray/set-resource-routing-slice-override-for-test`.
 
 ### Uniform reply-envelope reads (`:live-work` / `:stale-races`)
