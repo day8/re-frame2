@@ -212,8 +212,14 @@ they act at **different** points, so none of them makes the others redundant.
   visible rather than silent. An event **bundle** carrying any suppressed event is dropped **whole**: scrubbing
   the one row is unsafe, because a non-sensitive sub recompute or view render in the same cascade can
   structurally reveal the value. The full contract is [`013` §Privacy gate](./013-Trace-Consumer.md#privacy-gate).
-- **At history read.** `epoch/redact-history` drops any epoch record whose framework-stamped
-  `:rf.epoch/sensitive?` rollup is true, so a sensitive record never enters the history this panel focuses.
+- **At history read — dropped whole, not scrubbed.** `epoch/redact-history` drops an epoch record when
+  **either** signal fires: the framework-stamped `:rf.epoch/sensitive?` rollup, or a suppressed event in the
+  record's own `:trace-events` — the same `config/suppress-sensitive?` predicate the ingest gate applies, here
+  at **record** grain rather than at event grain. The record goes whole for the reason the bullet above gives
+  at bundle grain: `build-record`'s sibling slots (`:sub-runs`, `:renders`, `:effects`, `:trigger-event`,
+  `:db-before` / `:db-after`) are projections of the very events a scrub would remove, so the payload would
+  survive under another key. **So an absent rollup is not evidence of innocence** — a rollup-less record
+  carrying a sensitive event is dropped too, and that is the intended price (rf2-vaont).
 - **At render, for the db rows.** §10.1's per-path diff re-seats each triple's `:before` / `:after` on
   **whole-db projections** of the record's `db-before` / `db-after` under `:rf.xray/observed-frame`'s
   classification policy — the same `local-render-value` seam the App-DB tab applies. `:op` and `:path` are
