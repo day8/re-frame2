@@ -240,7 +240,7 @@ or a colour-blind-friendly fork) override the property on `:root` or
 any ancestor of the consumer rule:
 
 ```css
-:root { --rf-xray-accent: #5570FF; }  /* swap violet → indigo */
+:root { --rf-xray-accent: #5570FF; }  /* swap the default blue → indigo */
 ```
 
 The property name and default are published as
@@ -299,8 +299,18 @@ Remove the `:preloads` entry, or:
 | Suppress auto-open on tool-only pages | `(xray-config/configure! {:rf.xray/auto-open? false})` before `rf/init!` |
 | Hide/show | `Ctrl+Shift+C` |
 | Legacy overlay debug mode | `window.day8.re_frame2_xray.open_overlay_BANG_()` |
-| Close | `Esc` or `Ctrl+Shift+C` again |
+| Close | `Ctrl+Shift+C` again |
 | Pop out to second window | `window.day8.re_frame2_xray.popout_BANG_()` |
+
+**`Esc` does not close Xray**, and no chord other than `Ctrl+Shift+C`
+does. The shell-level global listener consumes `Esc` for exactly one
+job — dismissing the open-in-editor hint toast, and only while that
+toast is open — the `editor-hint-open?` branch in
+`tools/xray/src/day8/re_frame2_xray/keybinding.cljs` — so
+that `Esc` otherwise falls through to the host app and to any other
+`Esc` consumer. Individual Xray popups and modals bind their own `Esc`
+on their own DOM nodes to dismiss themselves; none of them closes the
+shell.
 
 Per `rf2-sbfb7` the body-padding dock surface (`dock!` / `undock!`) and
 the imperative inline-panel surface (`mount-inline-panel!` /
@@ -684,8 +694,7 @@ preserves the <80ms first-paint on every toggle after the first
 (per §Animation above): subsequent paints reuse the existing
 React tree, the existing subscriptions, the existing local UI
 state. A re-mount would discard internal panel state (current tab,
-scroll position, selected epoch, AI-rail conversation) and miss
-the toggle-paint target.
+scroll position, selected epoch) and miss the toggle-paint target.
 
 **Idempotency under hot-reload.** Every piece of mount-adjacent
 state — the registration sentinels, the keybinding sentinel, the
@@ -781,11 +790,36 @@ app code owns its own exclusion — keep the `:require` and the calls in a
 namespace only the dev entry point loads, per
 `skills/re-frame2-xray/references/launch-programmatic.md` §Keeping the
 manual path out of production. If the preload is mistakenly included
-in a production bundle, its side-effects fold away, the framework's
-trace surface is a no-op under the same flag, and a manual mount call
-fails silently because `current-adapter` is unset unless the host
-called `rf/init!`; the fallback is graceful, not catastrophic — but the
-namespace's bytes are still in the bundle.
+in a production bundle, the boot block's side-effects fold away, the
+framework's trace surface is a no-op under the same flag, and a manual
+mount call fails silently because `current-adapter` is unset unless the
+host called `rf/init!`; the fallback is graceful, not catastrophic —
+but the namespace's bytes are still in the bundle.
+
+**The gate is on the preload's boot BLOCK, not on the namespaces it
+requires, and the difference is visible in a release bundle.** Loading
+the preload loads its whole require graph, and a top-level registration
+in any of those namespaces runs at namespace load whatever the flag
+says. `rf/reg-view` is the case that survives: it expands to an
+unconditional `reg-view*` call plus a `def` of the symbol (per
+`implementation/core/src/re_frame/core_reg_view_macro.cljc`
+`expand-reg-view`), and the `debug-enabled?` gates inside that
+expansion cover the injected source-coord literals, not the
+registration itself. As at 2026-09-17 four such sites remain — census
+them as `rf/reg-view` at column 0 under `tools/xray/src/` — so four
+`:view-kind` slots under `day8.re-frame2-xray.*` ids still land in a
+preload-carrying release bundle. Being Xray-namespaced they cannot
+collide with a host's own registrations. Eleven sibling registrations
+were moved into caller-invoked `install!` fns under `rf2-y8doi.16`; the
+four `reg-view` sites are held back there because the macro also `def`s
+the symbol to `(rf/view id)`, so relocating the registration on its own
+would bind `nil`.
+
+By contrast a Fresco `rf.fresco/defview` does NOT leave a registration
+behind: it publishes its view alias inside its own
+`(when re-frame.interop/debug-enabled? …)`, so under
+`(set! goog.DEBUG false)` nothing registers and `(rf/view id)` for a
+Fresco view is nil in a release build — the documented answer.
 
 ### Epoch pump (rf2-yp92j)
 
@@ -954,9 +988,15 @@ populates, so the require is what stops
 no-op it correctly performs for a host that must tolerate the artefact's
 absence. The "absent-artefact" case therefore cannot arise for a compiled
 Xray. See [Tool-Pair §Facade vs home-namespace verb](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule).
-Xray's time-travel panel still renders an empty state when
+Xray's epoch-reading panels still render an empty state when
 `(empty? (rf/epoch-history ...))` — but that reflects a target frame
-with **no epochs recorded yet**, not an absent artefact.
+with **no epochs recorded yet**, not an absent artefact. (There is no
+Time Travel PANEL to point at: it was deleted under `rf2-qy0nu` as
+unreachable in the 4-layer shell. Its epoch / target-frame plumbing
+survives it in
+`tools/xray/src/day8/re_frame2_xray/epoch.cljs`, and the App-DB Diff,
+Machine Inspector and Reactive panels read
+`:rf.xray/epoch-history` from there.)
 
 **Where that guarantee is witnessed.** The claim above is about a
 DEPENDENCY GRAPH, so no test sharing a bundle with `preload.cljs` can
@@ -1104,16 +1144,41 @@ conflict:
 - The trace bus emits once; both subscribers (panel + MCP server's
   trace listener) see every event.
 - The epoch-history surface is read-mostly from both.
-- Mutations from re-frame2-pair-mcp are tagged
-  `:origin :re-frame2-pair-mcp`; mutations from the panel's
-  re-dispatch affordance are tagged `:origin :xray`. Both are
-  distinguishable in the event log.
+- Dispatches issued by the pair tooling carry the
+  [Spec 002 §Dispatch origin tagging](../../../spec/002-Frames.md#dispatch-origin-tagging)
+  opt `{:origin :pair}`, which the trace surface lifts onto every
+  `:rf.event/dispatched` event under `:tags :rf.event/origin`. App
+  dispatches carry the default `:app`. The axis is an open vocabulary
+  (`:pair`, `:claude`, `:story`, `:test`, …), not a closed enum.
+
+**Xray itself neither stamps nor renders that axis today**, so a
+developer running the AI pair beside Xray will look for a visible
+distinction that is not there. Three things an earlier draft of this
+section promised are not built:
+
+- **Xray stamps no origin of its own.** `:origin :xray` appears
+  nowhere in `tools/xray/src`; Xray's own dispatches carry the default
+  `:app`.
+- **There is no panel re-dispatch affordance to stamp.** The `R`
+  re-dispatch key is catalogued in [`007-UX-IA.md`](./007-UX-IA.md)
+  §Trimmed pending demand as never wired, with no implementation at
+  all.
+- **Nothing colour-codes by origin.** The trace projection in
+  `tools/xray/src/day8/re_frame2_xray/panels/trace_helpers.cljc` does
+  lift an `:origin` slot off the tag, but no view reads it. The L2
+  event list's left-most SOURCE column renders the closed `:source`
+  trigger-kind enum instead (`router` / `http` / `fx-dispatch` /
+  `after-timer` / …, with app-code sources labelled `ui`) — a
+  different axis: *what woke the runtime*, not *who issued the
+  dispatch*.
+
+An agent's dispatches are therefore distinguishable in the raw trace
+stream, by filtering `:tags :rf.event/origin` for `:pair`; they are
+not distinguishable by eye in Xray's chrome.
 
 A common workflow: the developer has the panel open for direct
 inspection; the AI assistant operates on the same runtime via MCP
-in parallel. The panel surfaces the agent's actions
-(the `:origin :re-frame2-pair-mcp` colour-coding is visible in the
-strip and event log).
+in parallel.
 
 ## What this doesn't do
 
@@ -1165,10 +1230,17 @@ Clojure eval) commands that drive Xray's panel through the existing
 ;; Agent eval, via re-frame2-pair-mcp:
 (require '[day8.re-frame2-xray.core :as xray])
 (xray/open!)
-(xray/target-frame :app/main)
-(xray/focus-cascade <dispatch-id>)
-(xray/select-tab :machines)
+(xray/set-target-frame! :app/main)
+(xray/focus! {:dispatch-id <dispatch-id> :panel :machines})
 ```
+
+Those are real exports of that namespace, which is deliberately small.
+`target-frame` is the zero-arity READER of the current target and
+`set-target-frame!` the setter; panel, epoch, event-bundle and app-db
+focus all arrive through the single data-shaped `focus!` command map
+rather than through a verb per surface (`{:frame :panel :epoch-id
+:dispatch-id :path}`, every field optional, panel ids validated
+against `valid-focus-panels`).
 
 The agent uses the same primitives Xray's chrome uses. No curated
 MCP facade in front; whatever the agent wants to do, it does by
@@ -1191,10 +1263,14 @@ lets instances share:
 - **Selected tab** — switching to Machines in one instance switches
   in siblings (opt-in via Settings → Multi-instance → "Sync tab
   selection").
-- **Pinned snapshots** — pinning an epoch in one instance reflects the
-  pin label in siblings as a hint (without sharing the pin store; pins
-  remain per-instance for the rewind-fidelity reason in
-  [`002-Time-Travel.md`](002-Time-Travel.md)).
+
+A third candidate — broadcasting a **pinned snapshot** label — was
+listed here until the pin store it depended on was removed. The
+per-frame pinned-slices `localStorage` slot is deprecated and no longer
+written (`rf2-e9tb0`, catalogued in [`API.md`](./API.md)), and the
+pinned-watches strip was superseded by the App-DB Diff
+segment-inspector popup. There is no pin left to broadcast, so the
+candidate is struck rather than deferred.
 
 The broadcast channel is opt-in (default off); same-origin only;
 session-scoped (cleared on tab close). Surfaces in Settings →
