@@ -112,11 +112,15 @@
                (conj acc (nth token-chars (rnd s (count token-chars)))))))))
 
 (defn- gen-query
-  "Generate a query map of 0..3 string-keyed string-valued pairs. Returns
+  "Generate a query map of 0..12 string-keyed string-valued pairs. Returns
   `[query-map next-state]`. Keys are distinct URL-safe tokens; values are
   URL-safe tokens. An empty map (no query) is a legal draw."
   [state]
-  (let [n (rnd state 4)]
+  ;; 0..12 pairs, NOT 0..3 (rf2-c5cub). A bound of 4 could never draw a query
+  ;; that crosses the 9th-key array-map promotion boundary, so the canonical-
+  ;; order properties below were green over a range in which the order could
+  ;; not be lost. Roughly 90 of the 300 draws now carry 9+ keys.
+  (let [n (rnd state 13)]
     (loop [i 0, s (lcg-next state), acc {}]
       (if (= i n)
         [acc s]
@@ -299,3 +303,112 @@
                       (recur (inc i) (lcg-next s1))))))))]
       (is (nil? failure)
           (str "prism canonical-order property failed: " (pr-str failure))))))
+
+;; ---- fixed examples at the array-map promotion boundary (rf2-c5cub) -------
+;;
+;; The properties above DRAW their queries, so the 9th-key boundary is reached
+;; only by chance — and at the original `0..3` bound, never at all. These are
+;; the FIXED cases either side of it: 8 keys (the largest a `PersistentArrayMap`
+;; holds), 9 (the first promotion) and 12 (well past it), plus a
+;; `:query-defaults` case that exercises the OUTBOUND REBUILD at 10 keys.
+;;
+;; Each query is built with `array-map` in a deliberately SCRAMBLED insertion
+;; order, so the test cannot pass by accident of construction order, and each
+;; emitted URL is pinned to a literal. The literal's own key sequence is
+;; asserted against `canonical-key-order` FIRST, so the literal cannot drift
+;; from the rule and the rule cannot be vacuous.
+
+(def ^:private wide-query
+  "Canonical key -> value for the fixed examples: `:a` carries \"v1\" … `:l`
+  carries \"v12\". Keyword keys sort alphabetically by name under
+  `canonical-bytes`, so the canonical URL of any subset of them is `a=v1&…`
+  with the absent letters dropped."
+  (array-map :a "v1" :b "v2" :c "v3" :d "v4" :e "v5" :f "v6"
+             :g "v7" :h "v8" :i "v9" :j "v10" :k "v11" :l "v12"))
+
+(defn- scrambled-query
+  "An `array-map` over `ks` IN THE GIVEN ORDER, so the fixture's own insertion
+  order is never the canonical one. `apply array-map`, NOT `(into (array-map) …)`
+  — `into` would promote at the 9th entry and scramble the very input this test
+  exists to control (rf2-c5cub). `:page` draws the declared default."
+  [ks]
+  (apply array-map (mapcat (fn [k] [k (get wide-query k default-page)]) ks)))
+
+(defn- url-query-keys
+  "The KEY of each `k=v` pair in `url`'s query string, in EMITTED order."
+  [url]
+  (mapv (fn [pair] (subs pair 0 (str/index-of pair "=")))
+        (str/split (subs url (inc (str/index-of url "?"))) #"&")))
+
+(defn- expected-string-query
+  "What `match-url` recovers for `ks`: `:route/wide` declares no query
+  vocabulary, so every undeclared key comes back as a STRING (rf2-5ifai)."
+  [ks]
+  (into {} (map (fn [k] [(name k) (get wide-query k)])) ks))
+
+;; The pinned canonical-order URLs. Each is asserted against
+;; `canonical-key-order` in the test before it is used as an expectation.
+(def ^:private wide-url-8
+  "/wide?a=v1&b=v2&c=v3&d=v4&e=v5&f=v6&g=v7&h=v8")
+
+(def ^:private wide-url-9
+  "/wide?a=v1&b=v2&c=v3&d=v4&e=v5&f=v6&g=v7&h=v8&i=v9")
+
+(def ^:private wide-url-12
+  "/wide?a=v1&b=v2&c=v3&d=v4&e=v5&f=v6&g=v7&h=v8&i=v9&j=v10&k=v11&l=v12")
+
+(def ^:private wide-dflt-url-9
+  "/wide-dflt?a=v1&b=v2&c=v3&d=v4&e=v5&f=v6&g=v7&h=v8&i=v9")
+
+(deftest route-url-and-match-url-keep-canonical-order-past-eight-keys
+  (testing "route-url emits, and match-url returns, query keys in CEDN-1
+            canonical order at 8, 9 and 12 distinct keys — i.e. past the
+            9th-entry array-map promotion boundary (rf2-c5cub)"
+    (rf/reg-route :route/wide {} "/wide")
+    (doseq [[n ks pinned]
+            [[8  [:g :c :a :h :e :b :f :d]                wide-url-8]
+             [9  [:i :d :a :g :c :h :b :f :e]             wide-url-9]
+             [12 [:k :f :a :l :c :i :d :h :b :g :e :j]    wide-url-12]]]
+      (testing (str n " distinct query keys")
+        ;; the pinned literal is canonical BY THE RULE, never by inspection
+        (is (= (mapv name (canonical-key-order ks)) (url-query-keys pinned))
+            (str n " keys: the pinned URL literal is not in canonical key order"))
+        (let [q   (scrambled-query ks)
+              url (rf.routing/route-url {:to :route/wide :query q})
+              m   (rf.routing/match-url url)]
+          ;; the fixture must STAY scrambled, or nothing below is a test
+          (is (= ks (vec (keys q)))
+              (str n " keys: the test fixture lost its own insertion order"))
+          ;; (i) the emitted URL is the canonical-order literal
+          (is (= pinned url)
+              (str n " keys: route-url emitted a non-canonical query string"))
+          ;; (ii) the inbound leg returns the SAME canonical order
+          (is (= (canonical-key-order (keys (:query m))) (vec (keys (:query m))))
+              (str n " keys: match-url returned :query in non-canonical key order"))
+          ;; (iii) membership and values round-trip unchanged
+          (is (= (expected-string-query ks) (:query m))
+              (str n " keys: query membership/values did not round-trip"))))))
+
+  (testing "a :query-defaults route keeps canonical order through the outbound
+            REBUILD too — `query-without-defaults` does not sort, it rebuilds the
+            already-sorted map while dropping keys at their default, and past 8
+            surviving keys that rebuild re-scrambled what the sort had ordered"
+    (rf/reg-route :route/wide-dflt {:query-defaults {:page default-page}} "/wide-dflt")
+    (let [ks  [:g :page :c :a :i :e :b :h :f :d]
+          q   (scrambled-query ks)
+          url (rf.routing/route-url {:to :route/wide-dflt :query q})
+          m   (rf.routing/match-url url)]
+      (is (= 10 (count q))
+          "fixture: 10 keys in, with :page AT its declared default")
+      (is (= (mapv name (canonical-key-order (remove #{:page} ks)))
+             (url-query-keys wide-dflt-url-9))
+          "the pinned :query-defaults URL literal is not in canonical key order")
+      (is (= wide-dflt-url-9 url)
+          "route-url emitted the 9 surviving keys in non-canonical order")
+      (is (not (str/includes? url "page="))
+          "a key at its declared default must never be spelled in the URL")
+      (is (= (canonical-key-order (keys (:query m))) (vec (keys (:query m))))
+          "match-url returned :query in non-canonical key order")
+      (is (= (assoc (expected-string-query (remove #{:page} ks)) :page default-page)
+             (:query m))
+          "query membership/values did not round-trip with the default filled"))))
