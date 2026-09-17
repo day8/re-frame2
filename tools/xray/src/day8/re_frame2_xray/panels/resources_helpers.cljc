@@ -1155,6 +1155,23 @@
 
 (defn- trace-tags [ev] (or (:tags ev) {}))
 
+(defn- trace-frame
+  "The frame a `:rf.resource/*` / `:rf.mutation/*` trace event was emitted
+  under — its `:rf.frame/id` tag, or nil when the event carries none.
+
+  WHICH SPELLING, and why it is this one (rf2-l9vb09): the resources,
+  machines and mutation families stamp the EP-0002 carried-frame stamp
+  `:rf.frame/id` in `:tags`, which is the vocabulary every producer op this
+  ns joins on emits. HTTP instead stamps the bare `[:tags :frame]`
+  carve-out read by the contract-owned `re-frame.trace/trace-event-frame`;
+  no op in this panel's families uses it, and reaching for that reader here
+  would add a require edge for a fallback that can never fire.
+
+  A nil frame is a legitimate value, not a failure: an event emitted outside
+  any frame (or a hand-built fixture) simply joins with its own kind."
+  [ev]
+  (:rf.frame/id (trace-tags ev)))
+
 (defn resource-projection-rows
   "Filter a trace buffer ONCE to the rows this panel's trace-borne projections
   can use (`resource-projection-op?`), oldest-first order preserved.
@@ -1644,33 +1661,57 @@
   instance-wide: the suppression row's `:rf.reply/work-id` (one name per fact —
   the bare `:work/id` duplicate was dropped) equals the apply row's `:work/id`,
   and both carry `:instance` + `:generation` from the same execution. Indexed
-  under BOTH `[:work <instance> <work-id>]` and `[:gen <instance> <generation>]`
-  so a row missing one identity still joins on the other; an instance-only key
-  is deliberately NOT indexed, because a second apply for the same instance
-  genuinely in flight would then be mislabelled superseded.
+  under BOTH `[:work <frame> <instance> <work-id>]` and `[:gen <frame>
+  <instance> <generation>]` so a row missing one identity still joins on the
+  other; an instance-only key is deliberately NOT indexed, because a second
+  apply for the same instance genuinely in flight would then be mislabelled
+  superseded.
+
+  THE FRAME IS PART OF THE KEY (rf2-qqi7u), because every other element of it
+  is FRAME-LOCAL. The runtime says so of the work-id outright — its scoped key
+  and generation \"carry no frame identity, so two frames issuing the same
+  resource at the same generation mint the SAME work-id\" — and a mutation
+  instance id is either the caller's own value (a form keyed by a row id, which
+  two frames can trivially share) or one derived from the mutation id and the
+  frame's own monotone generation. The panel feeds this index ONE deliberately
+  cross-frame buffer, so without the frame a suppression in frame B marked
+  frame A's apply `:superseded` and handed it B's terminal, reporting a request
+  that is still genuinely in flight as settled — the inverse of the bug class
+  this outcome was added to catch. Both producer ops stamp `:rf.frame/id`, so
+  the frame is simply read off the event rather than reconstructed.
 
   Each value is `{:outcome :superseded :id <trace-id>}`."
   [trace-buffer]
   (reduce (fn [acc ev]
             (if (= mutation-stale-suppressed-op (trace-op ev))
               (let [tags     (trace-tags ev)
+                    frame    (trace-frame ev)
                     instance (:instance tags)
                     work-id  (:rf.reply/work-id tags)
                     gen      (:generation tags)
                     row      {:outcome :superseded :id (:id ev)}]
                 (cond-> acc
-                  (some? work-id) (assoc [:work instance work-id] row)
-                  (some? gen)     (assoc [:gen instance gen] row)))
+                  (some? work-id) (assoc [:work frame instance work-id] row)
+                  (some? gen)     (assoc [:gen frame instance gen] row)))
               acc))
           {} (or trace-buffer [])))
 
 (defn- optimistic-settlement-index
   "PURE: index the terminal settle dispositions (`:reconciled` / `:rolled-back`)
-  by `:snapshot-id`, so an `:applied` row can be paired with its outcome. Each
-  value is `{:outcome (:reconciled|:rolled-back) :id <trace-id>}` (the LAST
-  terminal seen for a snapshot-id wins, though a snapshot settles exactly once
+  by `[<frame> <snapshot-id>]`, so an `:applied` row can be paired with its
+  outcome. Each value is `{:outcome (:reconciled|:rolled-back) :id <trace-id>}`
+  (the LAST terminal seen for a key wins, though a snapshot settles exactly once
   in practice). Apply rows with no terminal settle and no supersession row are
-  left `:pending` — see `optimistic-supersession-index` for the third case."
+  left `:pending` — see `optimistic-supersession-index` for the third case.
+
+  THE FRAME IS PART OF THE KEY for the same reason it is part of the
+  supersession index's (rf2-qqi7u), and the reason is easy to miss here because
+  a `:snapshot-id` LOOKS opaque enough to be unique. It is not: the runtime
+  derives it from the mutation instance id plus the generation and nothing else,
+  both of them frame-local, so it INHERITS that collision rather than escaping
+  it. Two frames settling the same instance at the same generation therefore
+  mint the same `:snapshot-id`, and on this panel's deliberately cross-frame
+  buffer frame B's reconcile settled frame A's apply."
   [trace-buffer]
   (reduce (fn [acc ev]
             (let [op (trace-op ev)]
@@ -1678,9 +1719,10 @@
                 (let [sid (:snapshot-id (trace-tags ev))]
                   (cond-> acc
                     (some? sid)
-                    (assoc sid {:outcome (if (= op optimistic-reconcile-op)
-                                           :reconciled :rolled-back)
-                                :id      (:id ev)})))
+                    (assoc [(trace-frame ev) sid]
+                           {:outcome (if (= op optimistic-reconcile-op)
+                                       :reconciled :rolled-back)
+                            :id      (:id ev)})))
                 acc)))
           {} (or trace-buffer [])))
 
@@ -1757,14 +1799,19 @@
   (let [buffer    (or trace-buffer [])
         settle-ix (optimistic-settlement-index buffer)
         super-ix  (optimistic-supersession-index buffer)
-        ;; index the terminal settle EVENTS by snapshot-id so the apply row can
-        ;; pull the matching facets (committed / restored / conflicted / …).
-        terminal-by-sid
+        ;; index the terminal settle EVENTS by [frame snapshot-id] so the apply
+        ;; row can pull the matching facets (committed / restored / … ). Keyed
+        ;; exactly as `optimistic-settlement-index` is and for the same reason
+        ;; (rf2-qqi7u); a bare snapshot-id let a FOREIGN frame's settle lend this
+        ;; apply the keys IT committed, which is the worse half of the collision
+        ;; — a wrong `:outcome` at least reads as a settlement, where a borrowed
+        ;; `:committed` list reads as this mutation's own evidence.
+        terminal-by-key
         (reduce (fn [acc ev]
                   (let [op (trace-op ev)]
                     (if (or (= op optimistic-reconcile-op) (= op optimistic-rollback-op))
                       (let [sid (:snapshot-id (trace-tags ev))]
-                        (cond-> acc (some? sid) (assoc sid ev)))
+                        (cond-> acc (some? sid) (assoc [(trace-frame ev) sid] ev)))
                       acc)))
                 {} buffer)]
     (->> buffer
@@ -1773,15 +1820,21 @@
                  (let [tags     (trace-tags ev)
                        sid      (:snapshot-id tags)
                        instance (:instance tags)
+                       ;; Every lookup below is scoped to THIS apply's own frame
+                       ;; (rf2-qqi7u). The buffer is deliberately cross-frame and
+                       ;; each of instance / work-id / generation / snapshot-id
+                       ;; is frame-local, so the frame is what makes an otherwise
+                       ;; exact-looking join actually exact.
+                       frame    (trace-frame ev)
                        ;; A settle op wins over a supersession row: an apply
                        ;; that DID reconcile or roll back has its own terminal,
                        ;; and a later reply for the same instance being
                        ;; suppressed says nothing about it.
-                       settled  (or (get settle-ix sid)
-                                    (get super-ix [:work instance (:work/id tags)])
-                                    (get super-ix [:gen instance (:generation tags)]))
+                       settled  (or (get settle-ix [frame sid])
+                                    (get super-ix [:work frame instance (:work/id tags)])
+                                    (get super-ix [:gen frame instance (:generation tags)]))
                        outcome  (:outcome settled :pending)
-                       term-ev  (get terminal-by-sid sid)
+                       term-ev  (get terminal-by-key [frame sid])
                        term     (trace-tags term-ev)
                        eg       (sensitive-eg
                                   identity
@@ -1982,8 +2035,10 @@
   `:rf.mutation/optimistic-reconciled` `:optimistic-keys`, minus its
   `:committed` keys and `:reconciliation-refetches`, minus the
   `:affected-keys` on the `:rf.mutation/succeeded` settlement of the same
-  instance and work id (the union survives that settlement row having left
-  the buffer, since both reconcile facets are subsets of it).
+  FRAME, instance and work id (the union survives that settlement row having
+  left the buffer, since both reconcile facets are subsets of it). The frame
+  is part of that identity because instance and work id are both frame-local
+  — rf2-qqi7u; see `optimistic-supersession-index` for the full reasoning.
 
   A key in a scope the write-side `:rf.warning/mutation-scope-mismatch`
   tripwire already named as `:other-scope` for the same mutation is left to
@@ -2009,11 +2064,17 @@
   ([trace-buffer] (optimistic-reach-lint trace-buffer nil))
   ([trace-buffer sensitive-rids]
   (let [buffer (or trace-buffer [])
+        ;; Keyed by [frame instance work-id] (rf2-qqi7u) — the same correction
+        ;; the two optimistic settlement indexes above carry, and needed here
+        ;; for the same reason: instance and work-id are both frame-local, so
+        ;; without the frame a settlement in ANOTHER frame answered for this
+        ;; one and the finding simply disappeared. That is the reassuring
+        ;; direction for a lint — silence reads as a clean panel.
         affected-by-work
         (reduce (fn [acc ev]
                   (if (= :rf.mutation/succeeded (trace-op ev))
                     (let [tags (trace-tags ev)]
-                      (update acc [(:instance tags) (:work/id tags)]
+                      (update acc [(trace-frame ev) (:instance tags) (:work/id tags)]
                               (fnil into #{}) (:affected-keys tags)))
                     acc))
                 {} buffer)
@@ -2029,7 +2090,8 @@
                       reached (-> #{}
                                   (into (:committed tags))
                                   (into (:reconciliation-refetches tags))
-                                  (into (get affected-by-work [instance (:work/id tags)])))
+                                  (into (get affected-by-work
+                                             [(trace-frame ev) instance (:work/id tags)])))
                       missing (->> (:optimistic-keys tags)
                                    (remove reached)
                                    (remove #(and (vector? %)
