@@ -48,7 +48,7 @@ that make them hard to debug from code alone:
 
 **The strategic move:** Xray's Dynamic tab chrome (cohesive sub-domains
 earn their own L4 lens — Routing per rf2-nrbs9, then Resources / Graph /
-Frames per EP-0016 / EP-0014 / EP-0013, then Fresco per rf2-hic-023 —
+Frames per EP-0016 / EP-0014 / EP-0023, then Fresco per rf2-hic-023 —
 the 10-tab inventory is [`018-Event-Spine.md`](018-Event-Spine.md) §5's;
 the Issues tab was removed per rf2-gbz39 Option (c), issues surfacing
 inline + via the event-row pink-wash + the always-on issues ribbon
@@ -987,7 +987,7 @@ clause), the findings carry the discussion that locked the opinion.
 - [`018-Event-Spine.md`](018-Event-Spine.md) — the 4-layer chrome
   contract; the spine sub; the 10-tab Dynamic inventory (Routing added per
   rf2-nrbs9; Resources / Graph / Frames added per EP-0016 / EP-0014 /
-  EP-0013; Fresco added per rf2-hic-023; Issues tab removed per
+  EP-0023; Fresco added per rf2-hic-023; Issues tab removed per
   rf2-gbz39 Option (c)); the L2 row anatomy, including the row badges
   retired under rf2-pjjwh.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — the Machines
