@@ -24,12 +24,12 @@ A **sectioned state inspector with inline diff** — the focused epoch's
 post-state, with its pre-state carried into the shared inspector for
 added, modified and removed annotations. APP STATE is separate from
 the reserved framework areas; the operator can expand any subtree
-without switching to another panel. Inspector path navigation opens
-the same shared popup machinery used elsewhere in Xray.
+without switching to another panel. Path navigation is the shared
+inspector's **zoom-into-node** gesture — double-click or `Enter`
+re-roots the tree onto a container and the breadcrumb zooms back
+(§Path interaction).
 
 This is the **single most-used Xray surface** after the Epoch panel.
-The 400ms yellow → transparent diff-flash on touched slices is the
-attention-cue that keeps the user oriented across cascades.
 
 ## Affordance
 
@@ -70,15 +70,18 @@ derives a changed-paths set via the canonical Editscript-A* engine
 - **Per-path projection** classifies each leaf as `:added` /
   `:modified` / `:removed` / `:same-shifted` and exposes the result
   as a `:flat-rows` channel of maps `{:path :op :before :after}`.
-- **Universal 4-tuple shape** at the call site — every `:diff`-lens
-  consumer (App-DB panel, Machine Inspector snapshot, Epoch HANDLER
-  `:db`) converts each row to `[path before after op]`, the shape the
-  view layer's row renderer destructures.
+- **The shared edn-inspector consumes the projection directly** — it
+  takes `value` + `before` and resolves each node's op out of the
+  projection, so there is no per-consumer row tuple. The former
+  `[path before after op]` shape went with the App-DB `:diff` lens
+  (rf2-vv3m6) and the Machine Inspector snapshot drill-in
+  (rf2-g2axio); nothing converts rows today.
 
 The framework's `:rf/epoch-record` does **not** pre-compute changed
-paths (the runtime stays cheap); Xray runs the diff on the panel's
-first mount per epoch, caches per `[frame-id epoch-id]`, and discards
-on epoch age-out.
+paths (the runtime stays cheap); Xray derives the diff at render time.
+The panel's read-model holds no diff cache — it re-derives from the
+live subs on every render, and the only memo in the chain is the
+inspector's per-mount projection memo (§Performance).
 
 ### Diff semantics: per-epoch delta (rf2-02j4r)
 
@@ -102,18 +105,20 @@ changed, never the cumulative change since.
 > record's `:db-before`/`:db-after` pair; the reversal was in which value
 > the *panel* presents as the current-state side.
 
-> **rf2-nfgps — frame-scoped cache key.** The per-epoch caches key on
-> the COMPOUND `[frame-id epoch-id]`, never `:epoch-id` alone. The
+> **rf2-nfgps — frame-scoped cache key (the caches themselves are
+> RETIRED, rf2-p53m2).** The per-epoch diff caches keyed on the
+> COMPOUND `[frame-id epoch-id]`, never `:epoch-id` alone, because the
 > framework's epoch contract guarantees `:epoch-id` is unique only
 > WITHIN a frame's history (the global-counter scheme that makes ids
 > incidentally process-unique today is an implementation detail, not a
 > spec promise). In a multi-frame app two frames can carry the same
-> `:epoch-id`; an id-only key would let one frame read another frame's
-> cached diff, and a frame-switch prune would evict a sibling frame's
-> live entries. Compounding `frame-id` keeps each frame's cache
-> isolated (no read-bleed, no cross-frame eviction), and the prune ages
-> out only the observed frame's stale keys — upholding the
-> frame-isolation invariant (frames are isolated contexts).
+> `:epoch-id`; an id-only key would have let one frame read another
+> frame's cached diff, and a frame-switch prune would have evicted a
+> sibling frame's live entries. Those three caches went with the dead
+> `:rf.xray/app-db-diff` sub family (rf2-p53m2) and **no diff cache
+> ships today**, so there is no key left to compound — which is also
+> what closed the rf2-zgrhw prune-growth risk. The rule is kept here
+> because it binds any future per-epoch cache, not because one exists.
 
 > **rf2-xuyac migration** (2026-05-27): the App-DB panel + Epoch
 > HANDLER `:db` `:diff` lenses previously routed through the
@@ -385,117 +390,84 @@ anchored the edit:
 
 ## Colour coding
 
-| Op | Visual |
-|---|---|
-| `:added` | Green left-border; key tagged `(added)`. |
-| `:modified` | Yellow left-border; `before` / `after` side-by-side. |
-| `:removed` | Red left-border; key tagged `(removed)`; value rendered struck-through. |
+Every change-bearing row carries the shared edn-inspector's three
+marks — a gutter glyph, a 2px left-edge stripe, and a row-background
+wash. No key is tagged with a literal `(added)` / `(removed)` word.
 
-The diff flash on epoch land is a 400ms tween (yellow → transparent)
-on each newly-touched slice. Respects `prefers-reduced-motion` — the
-tween becomes a static yellow border for 600ms.
-
-## Path-origin tags (rf2-s8r6c)
-
-Each diff slice header carries a **path-origin tag** identifying
-which step of the focused cascade wrote that path. The tag answers
-*"who wrote this?"* — critical when both the event handler's `:db`
-return and a downstream flow's `:output` touch overlapping paths in
-the same cascade.
-
-| Tag | Source | Visual |
+| Op | Glyph | Visual |
 |---|---|---|
-| `[fx :db]`        | The event handler's `:db` effect return.                                          | Green chip on the slice header. |
-| `[flow :flow-id]` | A flow's `:output` wrote this path during the cascade (see [`spec/013-Flows.md`](../../../spec/013-Flows.md)). | Violet chip on the slice header. |
-| `[mixed]`         | Multiple sources touched this path in this cascade (handler + flow, or multiple flows). | Yellow chip; hovering expands to the per-source breakdown. |
+| `:added` | `+` | Green stripe; green wash across the whole added subtree. |
+| `:modified` | `~` | Yellow stripe; yellow wash. A modified leaf scalar carries an inline `← was <prior>` annotation rather than a side-by-side pair. |
+| `:removed` | `-` | Red stripe; red wash; the value renders struck-through. |
+| `:children` | `◴` | No stripe and no wash — the change is below and the descendants carry the signal; a collapsed changed container carries the R3 `[N∆]` chip. |
 
-Tags are derived from the trace bus by partitioning the changed-path
-set per writer and union-tagging overlaps. A slice header reads like:
+`:same` and `:same-shifted` paint no glyph, no stripe and no wash — a
+`:same-shifted` survivor carries its `(was N)` suffix alone. The glyph
+paints the reserved `:diff-gutter` cyan-teal for every active op; the
+colour above lives in the stripe and the wash.
 
-```
-┌─ [:cart :totals :gross]   (modified)   [flow :cart/totals-flow] ─┐
-```
+**There is no diff flash.** A 400ms yellow → transparent tween on
+newly-touched slices was specified here and its `rf-xray-diff-flash`
+keyframes shipped in `theme/global_styles.cljs`, but no element ever
+carried the animation. The keyframes and the `:flash-duration-ms`
+motion token were deleted under rf2-y8doi.29 (2026-09-17);
+`theme/global_styles_cljs_test` and `theme/tokens_cljs_test` pin their
+absence, with the applied `rf-xray-fade-in` tab cross-fade as the
+control.
 
-When the focused cascade touches a path from a single source the tag
-is the green or violet chip; when both the handler and a flow touch
-the same path the chip turns yellow `[mixed]` and the hover surfaces
-both writers in cascade order.
+## Path interaction: zoom into a node (rf2-h71e0 · rf2-zl4rs)
 
-The implementation reads `:writer` markers carried on each trace-bus
-entry (Spec 009 §Writer attribution) — Xray does NOT re-derive
-writer identity from the diff; the runtime tags every writer at
-emission and Xray renders the tag.
+The panel mounts the shared edn-inspector with `:zoomable? true`, and
+zoom is the **only** path gesture: double-click a container — or press
+`Enter` while it is keyboard-focused — and the inspector re-roots onto
+that node. A breadcrumb above the body shows the path from the original
+root, each crumb zooms back to that level, and `Esc` zooms up. A single
+click on a key segment does nothing. The expand triangle owns its own
+double-click (rf2-6nw3g), so toggling a node never zooms it.
 
-## Clickable path segments (rf2-e9tb0)
+Zoom applies inside the single full+diff rendering: with a pre-image
+present the widget re-roots BOTH `value` and `before` along the zoom
+path, so the diff annotations keep painting relative to the focused
+subtree. The zoom path and the per-node expand overrides are both keyed
+by the panel's stable `:site-id` — `[:rf.xray/app-db <render-id>]`,
+qualified by the mount's instance name where the caller supplies one —
+so both survive a tab-switch round-trip (rf2-pvsxs · rf2-t3fz).
 
-For each diff path like `[:cart :items 0 :price]`, each segment is
-independently clickable:
+The gesture contract is
+[021 §10.0.11](021-Dynamic-Panel-Designs.md#10011-zoomable-opt--zoom-into-node--breadcrumb-rf2-h71e0-gesture-reworked-rf2-zl4rs);
+the panel-wide interaction model is
+[021 §10.5](021-Dynamic-Panel-Designs.md#105-interaction-model).
 
-- Click `:cart` → popup shows the value at `[:cart]`
-- Click `:items` → popup shows the value at `[:cart :items]`
-- Click `0` → popup shows the value at `[:cart :items 0]`
-- Click `:price` → popup shows the value at `[:cart :items 0 :price]`
-  (the leaf)
-
-The popup renders the value at the inspected path via Xray's
-existing data-inspector primitive — the same cljs-devtools-shaped
-expandable tree every L4 detail panel uses.
-
-### Popup reads the FOCUSED epoch, consistent with the panel body (rf2-jmucu)
-
-The value the popup renders is resolved against the **focused epoch's
-`:db-after`** — the *same image the panel body shows* (the
-`:rf.xray/app-db-current+diff` `:value`, per §Diff semantics above),
-**not** the live `target-frame-db`. The segment-inspector pops out of
-the panel body, so the two must agree at every scrub position:
-
-- **On-head** the focused epoch's `:db-after` *is* the live db, so the
-  popup shows current state — unchanged from the user's expectation.
-- **Off-head** (scrubbed back to an earlier epoch N) the popup shows
-  the value at the inspected path **in epoch N's own post-state**, the
-  same value the body is showing — with no later-event bleed.
-- **Cold boot / no focus** (no cascades yet) the `:value` falls back to
-  the live db, so the popup renders plain current-state — same as the
-  body's empty-state.
-
-Reading the popup against the *live* db instead (the pre-rf2-jmucu
-wiring) made the popup disagree with the body off-head: it surfaced
-everything later events did, the exact later-event-bleed class
-[rf2-02j4r](#diff-semantics-per-epoch-delta-rf2-02j4r) killed in the
-body. Routing the popup through `:rf.xray/app-db-current+diff`'s
-`:value` (rather than `:rf.xray/target-frame-db`) is the single seam
-that keeps the two surfaces identical.
-
-Discoverability: segments carry a dotted underline + pointer cursor
-on hover, and a `Inspect app-db at <prefix>` tooltip on hover. The
-underlying path colour stays accent-violet so the inline path still
-scans as a single phrase when the user isn't pointing at it.
-
-Three close affordances:
-
-  1. `Esc` while the popup is focused.
-  2. Click outside (backdrop) — the backdrop swallows clicks and
-     dispatches close; the dialog stops propagation so click-throughs
-     on its body don't close.
-  3. `✕` button in the header.
-
-The popup is a transient overlay (modal-light, not a full-window
-modal). The escape-hatch use case ('let me see app-db in its
-entirety') is served by clicking the leftmost segment of any
-breadcrumb — that path-prefix is `[<first-seg>]`, so to inspect the
-whole root the user clicks the root segment of the synthesised
-`(root)` breadcrumb on a `:children` section rooted at `[]`. The
-popup body then renders the entire `app-db` as an expandable tree.
+> **The click-to-inspect popup is RETIRED (rf2-y8doi.29, 2026-09-17).**
+> The rf2-e9tb0 design made every segment of a diff path a click target
+> that opened a segment-inspector popup at that prefix, and rf2-jmucu
+> resolved the popup against the focused epoch's `:db-after` rather than
+> the live `target-frame-db` so it could not disagree with the body
+> off-head. Nothing ever opened it — no view, sub or event in the tree
+> dispatched the open — so the popup view, its two exclusive suites, the
+> `:rf.xray/focus-slice-path` / `:rf.xray/clear-slice-focus` events and
+> the shell mount were all deleted. The reasoning survives in
+> §Diff semantics, which is where the focused-epoch rule now lives for
+> the body itself. This panel also deliberately declines the
+> edn-inspector's `:popup-affordance?` opt (rf2-7sdja, Mike's 2026-05-26
+> live-testing call): the side panel has the horizontal room to render
+> the whole tree in place.
 
 ## What this replaces (rf2-e9tb0)
 
 The pinned-watches strip was DROPPED when clickable path segments
 landed (Mike 2026-05-19 Q13). The diff already identifies changes
 surgically; the pin-this-up-front flow was redundant when any prefix
-of any diff path can be inspected with one click on its breadcrumb
+of any diff path could be inspected with one click on its breadcrumb
 segment. The `:rf.xray/pin-slice` / `:rf.xray/unpin-slice` /
 `:rf.xray/reorder-pinned-slices` events and the corresponding
-`:pinned-slices-store` slot are no longer registered.
+`:pinned-slices-store` slot are no longer registered, and neither are
+the `pin-path` / `unpin-path` / `reorder-paths` helpers.
+
+The clicking gesture that replaced them was itself retired unreached
+under rf2-y8doi.29 (§Path interaction), so neither affordance ships:
+the panel renders the whole value in place and zoom is how the
+operator narrows it.
 
 ## Reserved-keys group
 
@@ -506,15 +478,16 @@ SEPARATE **runtime-db partition** keyed by the reserved `:rf.runtime/*`
 namespace, catalogued in
 [Conventions §Reserved runtime-db keys](../../../spec/Conventions.md#reserved-runtime-db-keys)
 and [002-Frames §The two-partition frame contract](../../../spec/002-Frames.md).
-Xray's `[runtime]` group surfaces these six as operator-facing section
-labels; the underlying paths now live under the runtime-db partition's
+Xray's `[runtime]` group surfaces these **five** as operator-facing
+section labels — the whole of `app_db_diff_helpers/runtime-areas` — and
+the underlying paths live under the runtime-db partition's
 `:rf.runtime/*` roots (NOT app-db):
 
 | Section label | Underlying path (runtime-db partition) | Owner | One-line role |
 |---|---|---|---|
 | `:rf/machines` | `[:rf.runtime/machines :snapshots]` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
 | `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
-| `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :transition :error}`. |
+| `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :fragment :transition :error :nav-token}`, schema `:rf/route-slice` (Spec 012 §The `:rf/route` slice). |
 | `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
 | `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Written by the EP-0025 commit-plane `:sensitive` / `:large` classification effects (a `reg-event` returns them alongside `:db`, installed by `re-frame.elision/apply-classification-effects` under `:source :effect`, Spec 015 §Data classification); also fed by `reg-flow` outputs (`:source :flow`) and subsystem projection-relative declarations (routing / machines). Consulted by `rf/project-egress` at every wire-boundary emit. Durable app-db classification rides the commit-plane effects, NOT a schema-slot route — per [Spec 015 §Schemas describe shape](../../../spec/015-Data-Classification.md), a `reg-app-schema` `{:sensitive? true}` slot prop is no longer a nomination path into this registry (machine `[:schemas :data]` props and schema-validation-failure redaction are separate, schema-owned surfaces). |
 
@@ -541,23 +514,28 @@ section are updated in lockstep.
 └────────────────────────────────────────────────────┘
 ```
 
-These are informational; the panel surfaces them clearly marked so
-the programmer recognises them as runtime-owned and routes to the
-equivalent dedicated tab — e.g., clicking the `:rf/machines` row jumps
-to the Machines tab; clicking the `:rf/route` row jumps to the Routing
-tab. Segment-inspector clicks on a reserved-key path-prefix still
-work (the popup renders the value), but the panel surfaces a soft
-cue suggesting the equivalent tab.
+These are informational: the panel labels each section with its
+reserved `:rf/*` key so the programmer recognises the state as
+runtime-owned and knows to open the equivalent dedicated tab —
+Machines, Routing — for that subsystem's own view.
+
+**No cross-panel navigation ships from this panel, and no soft cue.**
+Clicking a reserved-area row jumps nowhere: `select-tab` appears
+nowhere in the panel's namespaces. A reserved-area section behaves
+exactly like the TOP section — expand, collapse, zoom.
 
 ## Full-tree escape hatch
 
-Per rf2-e9tb0 the explicit `Show full app-db tree ▸` row was dropped
-in favour of segment-inspector reuse — clicking the root segment of
-any breadcrumb opens the popup at the inspected path; chaining up
-from any diff section to the root is a one-click affordance.
+None is needed, because the panel never hid the tree. The TOP section
+IS the whole user-domain `app-db`, auto-expanded to the panel's
+`:default-expanded-depth` of 3 and expandable the rest of the way by
+hand; the reserved areas render as sibling sections beside it.
 
-The full tree is rarely needed; the slice-centric view answers most
-questions.
+The explicit `Show full app-db tree ▸` row was dropped under rf2-e9tb0
+in favour of the segment-inspector popup, and that popup was in turn
+retired unreached under rf2-y8doi.29. Nothing replaced either, and
+nothing needs to: zoom is what NARROWS the view, and zooming out (a
+breadcrumb crumb, or `Esc`) is what restores the whole tree.
 
 ## Redacted-paths-modified hint chip
 
@@ -577,8 +555,8 @@ contract is preserved (per `diff/engine.cljc` §Sentinel-aware
 modified handling). The developer is left with an empty diff and no
 signal that anything happened in the redacted slot.
 
-Xray surfaces a **separate-from-diff** signal: a muted-grey chip
-at the top of the diff body when count > 0.
+Xray surfaces a **separate-from-diff** signal: a muted-grey chip in
+the TOP section's header, beside the `app-db` title, when count > 0.
 
 ```
 [· 3 redacted paths modified]
@@ -608,31 +586,25 @@ figure when:
    on the raw (unprojected) in-process dbs.
 
 This is the **exact** count of declared-sensitive paths that mutated
-this cascade. Xray reads it directly from the record; no walk, no
-heuristic.
+this cascade, and it is the ONLY count. Xray reads the slot straight
+off the focused record — the same record `:value` and `:before` come
+from, so the chip can never describe a different epoch — and does no
+walk of its own.
 
-**Heuristic fallback (rf2-bz1cl).** Records that lack the egress slot
-(legacy snapshots, hand-rolled test fixtures, hosts that classified
-no `:sensitive` app-db path, so no sensitive-declarations
-registry exists) fall back to a Xray-side heuristic — paths `P` where:
-
-1. `(= :rf/redacted (get-in db-before P))`, AND
-2. `(= :rf/redacted (get-in db-after  P))`, AND
-3. `P`'s parent subtree is NOT `identical?` across `db-before` /
-   `db-after` (something in the enclosing subtree changed).
-
-Distinct paths are counted independently. The elision registry —
-post-EP-0001 (rf2-vzld77) at `[:rf.runtime/elision]` in the runtime-db
-partition, no longer in the app-db `:db-before` / `:db-after` the
-heuristic walks — is therefore naturally excluded; a host that still
-carries a stray reserved subtree in app-db has it skipped (the elision
-registry's own values may include `:rf/redacted` as
-documentation/sentinel form). Condition (3)
-is the structural-sharing tightener — without it every redacted slot
-in `app-db` would count for every cascade. The fallback is a tight
-upper bound; it may over-state if a sibling slot changed and the
-redacted slot was incidentally untouched. The exact framework count
-above is preferred whenever it is present.
+**There is no fallback, and that is deliberate.** A Xray-side
+heuristic was designed under rf2-bz1cl for records lacking the slot:
+count paths reading `:rf/redacted` on BOTH sides whose parent subtree
+is not `identical?` across the pair, as a tight upper bound. It was
+never implemented, and the chapter previously described it as though
+it shipped.
+[Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record)
+marks the count OPTIONAL and tells consumers to read an absent slot as
+0, which is exactly what the panel does: the chip renders only on a
+positive integer, so a legacy snapshot, a hand-rolled fixture or a
+host that classified nothing draws **no chip at all** rather than a
+`0` chip or a guessed one. On a privacy surface an approximate count
+is worth less than an honest silence, and re-proposing the heuristic
+should start from that.
 
 ## Read-only
 
@@ -643,10 +615,13 @@ truth; pokes from the debugger are out of scope.
 
 The user can:
 
-- Click a breadcrumb segment → opens the segment-inspector popup
-  (rf2-e9tb0)
+- Expand / collapse any container — click the `▸` / `▾` triangle, or
+  press `Space` on the focused row
+- Zoom into a container and back out — double-click or `Enter`, then a
+  breadcrumb crumb or `Esc` (§Path interaction)
 
-That is the whole list. The section-header affordance buttons this
+That is the whole list. The click-to-inspect popup that this list once
+named went unreached under rf2-y8doi.29; the section-header affordance buttons this
 bullet list once also named were dropped when the panel became a
 current-state inspector (rf2-okvit, recorded in the
 `panels/app_db_diff.cljs` namespace docstring); the universal
@@ -760,51 +735,62 @@ default rather than the off-box wire.
 > is the caller passing `raw? true` at the `local-render-value` call site,
 > not a change to this contract.
 
-## "Show me when this changed"
+## "Show me when this changed" — RETIRED UNBUILT (rf2-okvit · rf2-y8doi.29)
 
-The high-leverage right-click affordance. When invoked on any path:
+The design was a right-click affordance on any path: walk
+`epoch-history`, diff each epoch's `:db-before` / `:db-after`, list the
+epochs that touched the path, and rebase the event detail on click.
 
-1. Xray walks `epoch-history`, diffs each epoch's `:db-before` and
-   `:db-after`, finds epochs where the path was touched.
-2. The canvas pivots to a list:
+It was dropped from this panel when the panel became a current-state
+inspector (rf2-okvit, recorded in the `panels/app_db_diff.cljs`
+namespace docstring), which left the data half of it standing with no
+renderer: a sub, an event, and the `epochs-touching-path` /
+`path-touched?` / `op-at-path` / `event-of-epoch` walker in
+`app_db_diff_helpers.cljc`. Nothing subscribed the sub, so all of it
+was deleted under rf2-y8doi.29 (2026-09-17).
 
-   ```
-   Epochs that touched [:cart :items]:
-   ▸ epoch 14   :cart/add-item       added {:id 22 :qty 1}
-   ▸ epoch 11   :cart/clear          removed [{:id 7 :qty 1}]
-   ▸ epoch 8    :cart/add-item       added {:id 7 :qty 1}
-   ▸ epoch 3    :app/boot            set to []
-   ```
-
-3. Clicking an entry → event-detail rebases to that epoch.
-
-This is the affordance that turns "I notice this is wrong" into "show
-me when it became wrong" in two clicks. From a deep cascade, it's
-faster than re-reading the source.
+Per-path history is not a shipped Xray affordance. A single cascade's
+change is read in the Epoch panel's `:db` section; re-proposing this
+one means building the renderer, not reviving the walker.
 
 ## Performance
 
-- **Diff caching** per `[frame-id epoch-id]` (rf2-nfgps — frame-scoped
-  so two frames with overlapping epoch-ids never collide; see §Diff
-  engine). A second render of the same epoch is O(1).
-- **Slice virtualisation** for slices whose `after` value is large
-  (e.g., a 10k-entry vector). The slice mini-panel renders the head
-  and tail, with a `… 9970 entries …` ellipsis; click expands.
-- **Segment-inspector popup** resolves the inspected value via
-  `get-in` (O(path-depth)) against the live target-frame db; no
-  separate watch graph. Per-node expand-state is shared with the
-  data-inspector slot in `:rf/xray` app-db so a value the user
-  drilled into in the inspector stays drilled when reopened.
+- **No diff cache.** The read-model is purely reactive:
+  `:rf.xray/app-db-current+diff` resolves the focused record's
+  `:db-after` / `:db-before` and `:rf.xray/app-db-state` sections them
+  on each render, with no memo atom anywhere in the chain. rf2-p53m2
+  removed the three `[frame-id epoch-id]` caches along with the dead
+  sub family they served, which is also what closed the rf2-zgrhw
+  prune-growth risk — there is nothing left to age out.
+- **The projection memo is per-mount** (rf2-4p1vl). The edn-inspector
+  memoises its `engine/project` call in the per-mount store, keyed on
+  `identical?` of both inputs, so an expand toggle or a parent
+  re-render does not re-walk the pair; the memo is released with the
+  mount.
+- **Lazy DOM, not virtualisation.** A collapsed container renders none
+  of its children, auto-expansion is ceilinged at the panel's
+  `:default-expanded-depth` of 3, and recursion stops at the widget's
+  `:max-depth`. There is **no** slice virtualisation — no head/tail
+  windowing and no `… N entries …` row.
+- **Sticky expand + zoom.** Both key off the panel's stable `:site-id`
+  (rf2-pvsxs · rf2-t3fz), so a subtree the operator drilled into stays
+  drilled across a tab-switch round-trip.
 
 ## Empty state
 
-Before any dispatches:
+The empty state is a property of the VALUE, not of the dispatch count:
+the TOP section renders its empty body whenever the user-domain app-db
+is an empty map — the boot value, or a db carrying nothing but
+reserved `:rf*` keys.
 
 ```
-   app-db is at the boot value.
-   No diffs yet — every dispatch will land here with the slices
-   it touched.
+   app-db has no user-domain keys yet.
 ```
+
+The TOP section ALWAYS renders, even empty — it is the panel's anchor,
+and an empty user-domain app-db is itself operator information. Empty
+or absent reserved areas are filtered at projection time and draw no
+card at all (rf2-jcdvo).
 
 ## Vision
 
@@ -835,6 +821,31 @@ where does an event in frame A change values that frame B reads?"
 When multi-frame apps share substate (e.g. an auth slice mirrored across
 two frames), Xray renders the diff per-frame and shows where a write
 in one frame propagates to another.
+
+### Path-origin tags (rf2-s8r6c)
+
+**Bug class:** "Both the event handler's `:db` return and a downstream
+flow's `:output` touch this path in the same cascade — which one wrote
+the value I am looking at?"
+
+Each changed slice would carry a **path-origin tag** answering *"who
+wrote this?"*:
+
+| Tag | Source | Visual |
+|---|---|---|
+| `[fx :db]`        | The event handler's `:db` effect return.                                          | Green chip on the slice header. |
+| `[flow :flow-id]` | A flow's `:output` wrote this path during the cascade (see [`spec/013-Flows.md`](../../../spec/013-Flows.md)). | Violet chip on the slice header. |
+| `[mixed]`         | Multiple sources touched this path in this cascade (handler + flow, or multiple flows). | Yellow chip; hovering expands to the per-source breakdown. |
+
+**Neither half of this exists.** The chapter described it as shipped,
+reading `:writer` markers off each trace-bus entry under a Spec 009
+§Writer attribution section — but Spec 009 defines no such section and
+no writer attribution, the runtime stamps no `:writer` marker, and
+nothing in Xray renders a chip. Building it starts at the FRAMEWORK:
+the runtime must tag the writer at emission, because Xray cannot
+re-derive writer identity from the diff (a structural diff sees the
+resulting value, never who assoc'd it). Until that lands this is a
+wish, not a design under construction.
 
 ### Pin two epochs side-by-side
 
