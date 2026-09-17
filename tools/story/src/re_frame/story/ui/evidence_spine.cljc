@@ -26,7 +26,7 @@
   renders compact summaries and beat captions — it MUST NOT rebuild Xray's
   app-db diff, trace tree, views-invalidation, or epoch-detail panels. When
   the user wants the deep diagnostic it builds a focus COMMAND (which panel,
-  which epoch/cascade, which app-db path) plus opaque `:source` provenance
+  which epoch/cascade) plus opaque `:source` provenance
   and calls `day8.re-frame2-xray.core/focus!` — the host-facing focus
   entry point (spec/020 §2.1). Xray owns what each field means
   and routes it to its canonical `:rf.xray/*` write surfaces. The spine
@@ -289,25 +289,30 @@
 (defn build-focus-command
   "Build the focus command (spec/020 §2.1) for focusing `panel` from a beat
   with `coords` (`{:epoch-id … :dispatch-id …}`), carrying `source`
-  provenance and an optional app-db `path` to highlight. Pure data → data.
+  provenance. Pure data → data.
 
   Returns the §D3 command map `focus!` consumes:
 
-      {:panel <kw> :epoch-id … :dispatch-id … :path [k …] :source {…}}
+      {:panel <kw> :epoch-id … :dispatch-id … :source {…}}
 
   Only present coordinate keys are included (an empty-coords command is a
   well-formed panel-only focus — it flips the tab without an epoch pin, the
   graceful no-coords behaviour). `panel` defaults to `default-focus-panel`;
   an unknown panel falls back to the default so a typo doesn't land the
   unknown-tab stub. The returned command is data; the CLJS `focus!` fires
-  it."
-  ([panel coords source] (build-focus-command panel coords source nil))
-  ([panel coords source path]
-   (let [pan (if (contains? focus-panels panel) panel default-focus-panel)]
-     (cond-> {:panel pan :source source}
-       (some? (:epoch-id coords))    (assoc :epoch-id (:epoch-id coords))
-       (some? (:dispatch-id coords)) (assoc :dispatch-id (:dispatch-id coords))
-       (some? path)                  (assoc :path path)))))
+  it.
+
+  rf2-y8doi.29 — this used to carry a 4th `path` arg building a `:path`
+  key. Xray retired `:path` as a focus field (nothing rendered the slot it
+  wrote), and only this ns's own test ever passed the 4-arity: the live
+  caller `focus-beat!` always used the 3-arity, so `:path` was nil in
+  production. The arity is collapsed rather than left building a key Xray
+  ignores."
+  [panel coords source]
+  (let [pan (if (contains? focus-panels panel) panel default-focus-panel)]
+    (cond-> {:panel pan :source source}
+      (some? (:epoch-id coords))    (assoc :epoch-id (:epoch-id coords))
+      (some? (:dispatch-id coords)) (assoc :dispatch-id (:dispatch-id coords)))))
 
 (defn focus-availability
   "Decide whether a beat can drive a PRECISE Xray focus, and why not when it
