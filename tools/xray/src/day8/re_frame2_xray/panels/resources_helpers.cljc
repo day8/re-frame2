@@ -12,11 +12,16 @@
   under the JVM unit-test target and the CLJS view (`resources.cljs`)
   stays a thin hiccup renderer over these projections.
 
-  ## Bundle isolation + decoupling from the resources artefact
+  ## The Resources panel's decoupled read path
 
-  Xray does NOT `:require` anything under `implementation/resources/`.
-  Resources is a POST-V1 OPTIONAL artefact (Spec 016 §Implementation
-  status) and is NOT a hard dep of Xray. The panel reads everything
+  THIS ns `:require`s nothing under `implementation/resources/`, and
+  neither does the view over it — the projection works off registrar,
+  runtime-db and trace data alone. That is a fact about the PANEL's read
+  path, NOT about the Xray package: `tools/xray/deps.edn` declares
+  `day8/re-frame2-resources` at top level, and the Derivation-Graph tab —
+  a SEPARATE surface — `:require`s `re-frame.resources.tooling`
+  (rf2-1fc459). `tools/xray/spec/024-Resources-Panel.md` §Decoupling
+  keeps the two apart; do not collapse them. The panel reads everything
   decoupled, exactly the way the Routing tab reads the route slice and
   the Machine Inspector reads machine snapshots:
 
@@ -29,8 +34,8 @@
 
   The reserved key paths below are duplicated as small literal constants
   rather than read from `re-frame.resources.state` — duplicating three
-  reserved keywords is the bundle-isolation-safe price of not adding a
-  require edge from a tool into an optional artefact. They are the
+  reserved keywords is the price of keeping THIS projection free of a
+  `re-frame.resources.*` require edge. They are the
   reserved runtime-db keys fixed in [Conventions §Reserved runtime-db
   keys]; a drift would be caught by the panel's CLJS wiring test.
 
@@ -61,8 +66,8 @@
 (def resources-key
   "Reserved runtime-db key for the resource cache subtree
   (`:rf.runtime/resources`). Per Spec 016 §Cache home and write
-  authority. Duplicated literal — Xray does not require the resources
-  artefact (bundle isolation)."
+  authority. Duplicated literal — this ns does not require the resources
+  artefact (see the ns docstring's read-path note)."
   :rf.runtime/resources)
 
 (def work-ledger-key
@@ -111,8 +116,8 @@
   "Reserved runtime-db key for the routing slice subtree
   (`:rf.runtime/routing`). The route/resource graph reads the live
   `:current` route + the per-nav-token unsettled-blocking set from here
-  (Spec 016 §Route integration). Duplicated literal — Xray does not require
-  the routing artefact (bundle isolation); mirrors the literal the resources
+  (Spec 016 §Route integration). Duplicated literal — this ns does not
+  require the routing artefact; mirrors the literal the resources
   route integration uses (rf2-m5u3gt)."
   :rf.runtime/routing)
 
@@ -672,11 +677,11 @@
   sibling is the canonical one; this is the panel's copy, and the copy is
   a CHOICE rather than a necessity — `tools/README.md` permits a tool to
   `:require` from `implementation/`, and only the reverse is forbidden.
-  What it buys is the panel's decoupled read path: the Resources artefact
-  is POST-V1 OPTIONAL, and keeping this file free of a
-  `re-frame.resources.*` require edge is what lets an app that omits the
-  artefact still render the panel (see the ns docstring above and
-  `tools/xray/spec/024-Resources-Panel.md` §Decoupled reads). Spec 016's
+  What it buys is the panel's decoupled read path: this file carries no
+  `re-frame.resources.*` require edge, so the projection reads the
+  runtime-db shape rather than the artefact's API (see the ns docstring
+  above and `tools/xray/spec/024-Resources-Panel.md` §Decoupling — the
+  Xray PACKAGE does declare the artefact). Spec 016's
   claim enumerates four RUNTIME readers — the fresh-skip gate, the SSR
   projection, the stale-timer re-check and the `:stale?` sub — so a tool
   projection sits outside the set it governs.
