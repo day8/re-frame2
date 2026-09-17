@@ -920,8 +920,8 @@ classification sentinels render per §12.
 │                                                                                          │
 │ Path: [:cart :orders 0]   [Show full tree ▾]   [Copy path]                              │
 │   ↑     ↑       ↑                                                                       │
-│   each path segment is clickable; click opens the segment-inspector popup at that       │
-│   path-prefix (rf2-e9tb0). Hover shows a dotted underline + "Inspect app-db at <prefix>".│
+│   each crumb zooms the inspector back to that level; Esc zooms up (rf2-zl4rs).          │
+│   Double-click a container — or Enter — zooms in. A single click does nothing.           │
 │                                                                                          │
 │ ── Changed this cascade (4 slices) ─────────────────────────────────────────────────────│
 │                                                                                          │
@@ -957,7 +957,7 @@ classification sentinels render per §12.
 
 **Default disclosure:** changed slices only. Full-tree behind `[Show full tree ▾]`.
 
-**Clickable path segments (rf2-e9tb0):** every segment of every diff path is independently clickable; clicking opens a segment-inspector popup at that path-prefix. The popup renders the value at the inspected path via Xray's data-inspector primitive. The canonical contract lives in [`004-App-DB-Diff.md`](004-App-DB-Diff.md) §Clickable path segments. (The pinned-watches strip that earlier drafts described was dropped when clickable path segments landed — the diff already identifies changes surgically, and any prefix of any diff path can be inspected with one click on its breadcrumb segment.)
+**Path interaction — zoom, not click (rf2-h71e0 · rf2-zl4rs):** zoom is the only path gesture. Double-click a container — or press `Enter` while it is keyboard-focused — and the inspector re-roots onto that node; a breadcrumb above the body shows the path from the original root, each crumb zooms back to that level, and `Esc` zooms up. A single click on a key segment does nothing. The canonical contract lives in [`004-App-DB-Diff.md`](004-App-DB-Diff.md) §Path interaction: zoom into a node, and the gesture table is [`021-Dynamic-Panel-Designs.md` §10.5](021-Dynamic-Panel-Designs.md#105-interaction-model). (The rf2-e9tb0 clickable-path-segment popup this section once promised was deleted unreached under rf2-y8doi.29, 2026-09-17; the pinned-watches strip it had itself replaced stays dropped — see [`004-App-DB-Diff.md`](004-App-DB-Diff.md) §What this replaces.)
 
 **Diff colour ladder** (`inspect-diff` per [`004-App-DB-Diff.md`](004-App-DB-Diff.md)):
 
