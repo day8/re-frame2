@@ -945,6 +945,75 @@
    :rf.xray.static.flows/set-registered-flows-override-for-test
    :rf.xray.static.interceptors/set-registry-override-for-test))
 
+;; ---- (0) load-time registrar hygiene (rf2-y8doi.16) ---------------------
+;;
+;; The preload's foundation block is wrapped in
+;; `(when rf.interop/debug-enabled? …)`, which Closure folds away under
+;; `:advanced` + `goog.DEBUG=false`. That is the promise
+;; `tools/xray/spec/API.md` §Installation API,
+;; `tools/xray/spec/011-Launch-Modes.md` §Production posture,
+;; `tools/xray/README.md` §Keeping Xray out of your own release build and
+;; `spec/Tool-Pair.md` §The Xray renderer all make.
+;;
+;; A `:require`d namespace's TOP-LEVEL forms sit OUTSIDE that block. They
+;; run at ns-load, unconditionally, and a registrar write is a side effect
+;; no dead-code eliminator may remove — so a `reg-sub` / `reg-event` left
+;; at the top level of a widget namespace the orchestrator requires still
+;; mutates the HOST's process-global registrar in a `goog.DEBUG=false`
+;; bundle. That is live production registrar mutation, not bundle bytes,
+;; and it is what makes the four promises above false.
+;;
+;; The guard: every `:rf.xray.edn-inspector/*` registration is reached
+;; through `register-xray-handlers!` and through nothing else.
+;;
+;; The discrimination is exact and needs no planted fault. The `:each`
+;; fixture restores the registrar to its ns-LOAD baseline before each
+;; test, so a handler registered at ns-load IS visible here while one
+;; registered from an `install!` is NOT. Read off the registrar rather
+;; than a hand-written id list, so a NEW widget registration cannot be
+;; added at the top level without turning this red.
+
+(defn- edn-inspector-widget-ids
+  "Every live `:rf.xray.edn-inspector/*` registration of `kind`, as a set.
+  The namespace match is EXACT so the sibling
+  `:rf.xray.edn-inspector-popup/*` surface — orchestrator-installed via
+  `edn-inspector-popup/install!` since rf2-l4625 — cannot answer for the
+  widget's own."
+  [kind]
+  (->> (rf.registrar/registrations kind)
+       keys
+       (filter #(and (keyword? %)
+                     (= "rf.xray.edn-inspector" (namespace %))))
+       set))
+
+(defn- expected-widget-ids
+  "The widget's share of the maintained snapshot sets above — derived, so
+  this test needs no second hand-written id list to keep in step."
+  [snapshot]
+  (set (filter #(= "rf.xray.edn-inspector" (namespace %)) snapshot)))
+
+(deftest edn-inspector-widget-registers-only-via-register-xray-handlers
+  (testing "no :rf.xray.edn-inspector/* handler is registered at ns-load"
+    (is (= #{} (edn-inspector-widget-ids :sub))
+        (str "a :rf.xray.edn-inspector/* SUB is registered before "
+             "`register-xray-handlers!` ran, i.e. at ns-load. A top-level "
+             "`reg-sub` survives Closure DCE and writes into the host's "
+             "registrar in a goog.DEBUG=false bundle. Move it into the "
+             "widget ns's `install!` and call that from "
+             "`register-xray-handlers!`."))
+    (is (= #{} (edn-inspector-widget-ids :event))
+        (str "a :rf.xray.edn-inspector/* EVENT is registered before "
+             "`register-xray-handlers!` ran, i.e. at ns-load. Same "
+             "remedy as the sub case above.")))
+  (testing "and register-xray-handlers! installs the whole widget surface"
+    (registry/register-xray-handlers!)
+    (is (= (expected-widget-ids all-sub-names)
+           (edn-inspector-widget-ids :sub))
+        "edn-inspector widget sub drift — diff names the missing/extra ids")
+    (is (= (expected-widget-ids all-event-names)
+           (edn-inspector-widget-ids :event))
+        "edn-inspector widget event drift — diff names the missing/extra ids")))
+
 ;; ---- (1) smoke: every registered name resolves -------------------------
 
 (deftest registry-installs-every-sub
