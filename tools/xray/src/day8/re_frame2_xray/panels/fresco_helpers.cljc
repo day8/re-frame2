@@ -112,10 +112,35 @@
 
   Spec 009 §`:op-type` vocabulary puts four operations through the trace
   projection's `:subs` slot — `:rf.sub/run`, `:rf.sub/create`,
-  `:rf.sub/skip` and `:rf.sub/dispose` — and only the first two are work.
+  `:rf.sub/skip` and `:rf.sub/dispose` — and only the FIRST is work.
   `:rf.sub/skip` is a MEMO HIT: the input was `=` to last-seen, so the
   body was suppressed. `:rf.sub/dispose` is an eviction. Reading the slot
   without filtering the operation counts all four as recomputes.
+
+  **`:rf.sub/create` WAS in this set and is not work** (rf2-y8doi.26).
+  Spec 009 is explicit twice over: §199 calls it *a sub was registered
+  into the reactive graph (emitted at registration time, not first
+  reference)*, and §241 says it is fired by `reg-sub` / `reg-runtime-sub`
+  / `reg-frame-state-sub` immediately after the registrar write and is
+  *NOT a first-reference / first-deref signal* — the runtime emits nothing
+  on first materialisation of a sub's cache slot, which lives in
+  `:rf.sub/run`'s `:rf.sub/first-run?` tag instead. So no body ran, and a
+  create carries no `:rf.sub/elapsed-ms` because there is no duration to
+  carry.
+
+  The cost of having it here was not a slightly high count. A create
+  landed as an UNTIMED RUN, so a `reg-sub` evaluated inside a handler
+  scope made an otherwise quiet boundary read as *recomputes happened and
+  the measured half does not account for them* — `:unattributed` /
+  `:host-opaque`, whose remedy is *go and measure this in React
+  DevTools*. A registration sent the reader to another tool.
+
+  It joins `:rf.sub/dispose` rather than `:rf.sub/skip`: a skip is the
+  cell being CONSIDERED and answering without running, which is positive
+  evidence about the read; a create and an eviction are lifecycle events
+  that say nothing about whether this window searched anything. Neither is
+  counted anywhere — see [[sub-skip?]] for the distinction that IS worth
+  a counter.
 
   A literal set for the same reason [[consumed-evidence-schema]] is a
   literal: this namespace parses a wire shape, and a producer that grows
@@ -132,7 +157,7 @@
   slice reported the same event as an evidenced *subscription recomputed*
   (rf2-hic-037, merged-PR audit #8027). Two definitions of *did work
   happen* is what produced the disagreement, and a third would be worse."
-  #{:rf.sub/run :rf.sub/create})
+  #{:rf.sub/run})
 
 (defn sub-recompute?
   "True when trace event `ev` is a subscription RECOMPUTE — its

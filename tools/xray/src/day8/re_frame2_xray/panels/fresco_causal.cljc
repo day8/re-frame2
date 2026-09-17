@@ -241,8 +241,8 @@
   The roster is filtered on `hh/sub-recompute?`, which is the same
   predicate `fresco-advisor`'s timing fold asks of the same events. It
   was not: this link collected every `:subs` item carrying an
-  `:rf.sub/id`, and the projection's `:subs` slot holds `:rf.sub/skip` and
-  `:rf.sub/dispose` alongside `:rf.sub/run` and `:rf.sub/create` (Spec 009
+  `:rf.sub/id`, and the projection's `:subs` slot holds `:rf.sub/skip`,
+  `:rf.sub/create` and `:rf.sub/dispose` alongside `:rf.sub/run` (Spec 009
   §`:op-type` vocabulary). A memo hit therefore appeared in a roster
   labelled *subscriptions recomputed*, under an `evidenced` chip, while
   the advisor was correctly calling the same event a skip — one window,
@@ -272,8 +272,11 @@
           skip-ids  (into [] (distinct) (keep #(get-in % [:tags :rf.sub/id]) skips))
           skip-count (count skips)]
       {:id :subs-recomputed :ordinal 2 :label "subscriptions recomputed"
+       ;; `:rf.sub/run` ALONE since rf2-y8doi.26 — a `:rf.sub/create` is a
+       ;; REGISTRATION (Spec 009 §199, §241), so naming it here would
+       ;; promise the reader that this roster holds bodies that ran.
        :seam (str "the bundle's `:subs` RECOMPUTE events "
-                  "(`:rf.sub/run` / `:rf.sub/create`), keyed `:rf.sub/id`")
+                  "(`:rf.sub/run`), keyed `:rf.sub/id`")
        :basis :observation
        :evidenced? (boolean (or (seq named) (zero? unnamed)))
        ;; An empty roster with no unnamed runs is a genuine survey result:
@@ -308,9 +311,8 @@
 
                      :else
                      (str "no subscription recomputed in this dispatch. The "
-                          "bundle was surveyed and holds no `:rf.sub/run` or "
-                          "`:rf.sub/create` at all — a survey result, not an "
-                          "empty seam."))
+                          "bundle was surveyed and holds no `:rf.sub/run` at "
+                          "all — a survey result, not an empty seam."))
                    (when (pos? skip-count)
                      (str "The bundle also holds " skip-count " memo hit"
                           (when (not= 1 skip-count) "s")

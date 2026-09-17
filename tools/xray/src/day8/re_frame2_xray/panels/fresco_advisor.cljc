@@ -190,7 +190,12 @@
         (let [sid (get-in ev [:tags :rf.sub/id])
               k   [frame-id sid]]
           (cond
-            ;; RUN / CREATE — the body ran.
+            ;; RUN — the body ran. `:rf.sub/create` used to be read here
+            ;; too and is a REGISTRATION, not a run (rf2-y8doi.26): it
+            ;; carries no `:rf.sub/elapsed-ms` because nothing was timed,
+            ;; so it landed as an UNTIMED RUN and a `reg-sub` inside a
+            ;; handler scope pushed a quiet boundary to `:host-opaque`,
+            ;; whose remedy is another tool entirely.
             (hh/sub-recompute? ev)
             (if (nil? sid)
               ;; Work with no registration id joins to no subscription. It
@@ -216,11 +221,22 @@
               (update m ::unnamed-skips (fnil inc 0))
               (update-in m [k :memo-hits] (fnil inc 0)))
 
-            ;; `:rf.sub/dispose`, and any operation the vocabulary grows
-            ;; later: an eviction is neither work nor a memo hit, tagged or
-            ;; untagged, and a producer that adds a fifth operation must be
-            ;; a decision in `hh/sub-recompute-operations` rather than a
+            ;; `:rf.sub/create` and `:rf.sub/dispose`, and any operation
+            ;; the vocabulary grows later: a REGISTRATION and an EVICTION
+            ;; are each neither work nor a memo hit, tagged or untagged,
+            ;; and a producer that adds a fifth operation must be a
+            ;; decision in `hh/sub-recompute-operations` rather than a
             ;; silent reclassification here.
+            ;;
+            ;; Both arrive here silently — this arm returns the
+            ;; accumulator untouched, so neither shows up in any count.
+            ;; That is deliberate and it is a real choice rather than an
+            ;; oversight: a skip earns its own counter because it is
+            ;; evidence the cell was CONSIDERED, which changes what the
+            ;; classifier should tell the reader to do; a create and a
+            ;; dispose say nothing about whether this window searched
+            ;; anything, so a counter for them would be a number with no
+            ;; decision attached to it.
             :else m)))
       acc
       (:subs bundle))))

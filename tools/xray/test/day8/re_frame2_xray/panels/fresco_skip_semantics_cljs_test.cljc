@@ -201,15 +201,32 @@
         {:keys [row link2]} (both [[:app/main :a] [:app/main :b] [:app/main :c]
                                    [:app/main :d] [:app/main :e]]
                                   windows)]
-    (is (= 2 (get-in row [:axes :frequency :runs]))
-        "`:rf.sub/run` + `:rf.sub/create` — the two operations that mean work")
-    (is (= 2 (count (:holds link2)))
-        "and the slice's roster names exactly those two")
-    (is (= #{:a :b} (set (:holds link2))))
+    (is (= 1 (get-in row [:axes :frequency :runs]))
+        (str "`:rf.sub/run` ALONE — the one operation that means a body ran. "
+             "`:rf.sub/create` was in this set and is not work: Spec 009 §199 "
+             "and §241 put it at REGISTRATION time, fired by `reg-sub` / "
+             "`reg-runtime-sub` / `reg-frame-state-sub` immediately after the "
+             "registrar write, and say in terms that it is NOT a "
+             "first-reference or first-deref signal (rf2-y8doi.26)"))
+    (is (= 1 (count (:holds link2)))
+        "and the slice's roster names exactly that one")
+    (is (= #{:a} (set (:holds link2))))
 
     (is (= 2 (get-in row [:axes :frequency :memo-hits])))
     (is (= 2 (get-in link2 [:skipped :count]))
         "the memo hits agree too, on their own field in both views")
+
+    (testing "and `:rf.sub/create` is not a memo hit either — it is a THIRD thing"
+      (is (not (contains? (set (:holds link2)) :b))
+          (str "a registration is neither work nor a memo hit. Counting it as "
+               "work made a `reg-sub` inside a handler scope look like an "
+               "untimed recompute, which pushed an otherwise quiet boundary "
+               "to `:unattributed` / `:host-opaque` — sending the reader to "
+               "React DevTools over a registration"))
+      (is (zero? (get-in row [:attributable :edges 1 :runs]))
+          "the advisor prices the created edge at no work")
+      (is (zero? (get-in row [:attributable :edges 1 :memo-hits]))
+          "and at no memo hit — it is neither, exactly like an eviction"))
 
     (testing "and `:rf.sub/dispose` is neither — an eviction is not a recompute"
       (is (not (contains? (set (:holds link2)) :e))
@@ -272,14 +289,26 @@
 
   The absolute expectation is written out per row rather than only
   comparing the two views, because two views wrong the same way agree
-  perfectly. The untagged run and create rows are the controls that keep
-  the table from being satisfied by *everything untagged is zero* — they
-  MUST still count an unnamed run, which is the rule the repair had to
-  leave standing."
+  perfectly. The untagged RUN row is the control that keeps the table from
+  being satisfied by *everything untagged is zero* — it MUST still count
+  an unnamed run, which is the rule the repair had to leave standing.
+
+  **The untagged CREATE row used to be a second such control and is not
+  one any more** (rf2-y8doi.26): `:rf.sub/create` left
+  `hh/sub-recompute-operations`, so both create rows now read all zeros
+  like the dispose rows. That is a real loss of redundancy and is stated
+  rather than left for a reader to notice — the single surviving untagged
+  control is load-bearing, and deleting it would make this whole table
+  satisfiable by a fold that counted nothing at all."
   [[:rf.sub/run     true  {:named-runs 1 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
    [:rf.sub/run     false {:named-runs 0 :unnamed-runs 1 :named-skips 0 :unnamed-skips 0}]
-   [:rf.sub/create  true  {:named-runs 1 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
-   [:rf.sub/create  false {:named-runs 0 :unnamed-runs 1 :named-skips 0 :unnamed-skips 0}]
+   ;; A REGISTRATION IS NOT A RUN. Spec 009 §199 / §241: emitted at
+   ;; registration time by `reg-sub` / `reg-runtime-sub` /
+   ;; `reg-frame-state-sub`, explicitly NOT a first-reference signal — so
+   ;; the body did not run, tagged or untagged, and identity loss changes
+   ;; nothing about that. Zeros in both rows, exactly like an eviction.
+   [:rf.sub/create  true  {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
+   [:rf.sub/create  false {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
    [:rf.sub/skip    true  {:named-runs 0 :unnamed-runs 0 :named-skips 1 :unnamed-skips 0}]
    [:rf.sub/skip    false {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 1}]
    [:rf.sub/dispose true  {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
@@ -342,13 +371,24 @@
 (deftest the-shared-predicate-is-the-one-in-the-shared-algebra
   ;; The predicate is a public var in `fresco-helpers` precisely so both
   ;; derivations can consult it and a reader can see that they do.
-  (is (= #{:rf.sub/run :rf.sub/create} hh/sub-recompute-operations))
-  (doseq [op [:rf.sub/run :rf.sub/create]]
+  (is (= #{:rf.sub/run} hh/sub-recompute-operations)
+      (str "ONE operation means a body ran. `:rf.sub/create` was in this set "
+           "and Spec 009 §199 / §241 say it is a REGISTRATION — fired by "
+           "`reg-sub` / `reg-runtime-sub` / `reg-frame-state-sub` immediately "
+           "after the registrar write, and explicitly not a first-reference "
+           "or first-deref signal (rf2-y8doi.26)"))
+  (doseq [op [:rf.sub/run]]
     (is (true? (hh/sub-recompute? {:operation op})))
     (is (false? (hh/sub-skip? {:operation op}))))
-  (doseq [op [:rf.sub/skip :rf.sub/dispose]]
+  ;; THREE non-work operations now, and `:rf.sub/create` is the one that
+  ;; moved. It joins `:rf.sub/dispose` as a lifecycle event that is neither
+  ;; work nor a memo hit, rather than joining `:rf.sub/skip`, which is the
+  ;; cell being CONSIDERED and answering without running.
+  (doseq [op [:rf.sub/create :rf.sub/skip :rf.sub/dispose]]
     (is (false? (hh/sub-recompute? {:operation op}))))
   (is (true? (hh/sub-skip? {:operation :rf.sub/skip})))
+  (is (false? (hh/sub-skip? {:operation :rf.sub/create}))
+      "a registration is not a memo hit either — it is a third thing")
   (is (false? (hh/sub-skip? {:operation :rf.sub/dispose}))))
 
 ;; ---------------------------------------------------------------------------
@@ -366,6 +406,42 @@
     (is (string/includes? (:says cls) "events-retained"))
     (is (string/includes? (:says cls) "no recompute and no memo hit")
         "and it now names both absences, because both are absent")))
+
+(deftest a-REGISTRATION-only-window-is-CAPPED-and-never-host-opaque
+  ;; THE USER-VISIBLE CONSEQUENCE of dropping `:rf.sub/create` from the
+  ;; recompute set, and the symptom rf2-y8doi.26 was filed on: a `reg-sub`
+  ;; evaluated inside a handler scope emits a create into that dispatch's
+  ;; bundle. A create carries no `:rf.sub/elapsed-ms` — nothing ran, so
+  ;; there is no duration to carry — so as a "recompute" it landed as an
+  ;; UNTIMED RUN, which made `searched?` true and routed the boundary to
+  ;; `:unattributed` / `:host-opaque`: *the window was searched and the
+  ;; measured half does not account for this boundary … the owner is
+  ;; lowering, React or layout.*
+  ;;
+  ;; That is the most expensive sentence this classifier can print. It
+  ;; sends the reader out of Xray and into React DevTools to explain a
+  ;; boundary whose window contained one REGISTRATION and no work at all —
+  ;; and it reads as a confident finding, not as a gap.
+  (let [reg-only (:class (:row (both [[:app/main :a]]
+                                     {:app/main [(bundle 1 :e [(sub-ev :a nil :rf.sub/create)])]})))]
+    (is (= :nothing (:observed reg-only))
+        (str "a registration is not activity. Nothing in this window touched "
+             "the boundary's reads — no recompute and no memo hit"))
+    (is (= :cap (:basis reg-only))
+        "so the honest answer is the FREE remedy: widen the window")
+    (is (string/includes? (:says reg-only) "events-retained"))
+    (is (not (string/includes? (:says reg-only) "lowering, React or layout"))
+        (str "and emphatically NOT the change-of-instrument sentence — a "
+             "reader told to open React DevTools over a `reg-sub` has been "
+             "sent somewhere the answer cannot be"))
+
+    (testing "and it reads identically to a window that retained nothing at all"
+      ;; The point of the row: a create contributes NOTHING, so a
+      ;; registration-only window and an empty one are the same finding.
+      ;; Asserting the whole classification rather than one field, because
+      ;; a create leaking into any counter would show up here.
+      (is (= (:class (:row (both [[:app/main :a]] {:app/main []})))
+             reg-only)))))
 
 (deftest the-three-unattributed-states-are-pairwise-DISTINCT
   ;; `:cap`, `:host-opaque`-with-recomputes and `:host-opaque`-with-memo-hits
