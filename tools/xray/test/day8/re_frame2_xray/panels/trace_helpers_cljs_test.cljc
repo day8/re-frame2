@@ -336,13 +336,75 @@
     (is (= "computed" (h/what-happened {:operation :rf.flow/computed})))
     (is (= "snapshotted" (h/what-happened {:operation :rf.epoch/snapshotted}))))
   (testing "name-based default — the operation's terminal segment"
-    (is (= "run" (h/what-happened {:operation :rf.sub/run})))
+    (is (= "render" (h/what-happened {:operation :rf.view/render})))
     (is (= "scheduled" (h/what-happened {:operation :rf.machine.timer/scheduled}))))
   (testing "dashes fold to spaces (spec/023 §5 readable forms)"
     (is (= "skipped on platform"
            (h/what-happened {:operation :rf.cofx/skipped-on-platform}))))
   (testing "no operation → em-dash"
     (is (= "—" (h/what-happened {})))))
+
+;; ---- (4a) the derived SUB / VIEW verbs — spec/023 §5 (rf2-u7l6h) ------
+;;
+;; §5's SUB and VIEW rows are DERIVED verbs: three of them are a plain
+;; op rename, and two are a PAIR split by a boolean tag the substrate
+;; already stamps. Each assertion below pins ONE direction, and the two
+;; directions fail differently, so they want separate tests:
+;;
+;;   UNDER-APPLY — the derived verb is not produced and the row falls
+;;   back to the operation's terminal segment. INVISIBLE in the panel:
+;;   `run` and `rendered` are plausible-looking labels, so nothing on
+;;   screen says the verb is the coarse one. Pinned by asserting each
+;;   derived verb IS produced for its op (+ tag).
+;;
+;;   OVER-APPLY — a derived verb reaches a row it does not describe.
+;;   VISIBLE, and a lie: `recalculated` on a coeffect row, or `mounted`
+;;   on a render-START row, states something the trace never said.
+;;   Pinned by asserting neighbouring ops, and a discriminated op whose
+;;   tag is ABSENT, keep the terminal segment.
+
+(deftest derived-sub-verbs-are-produced
+  (testing "the three that are a plain op rename (under-apply)"
+    (is (= "created"   (h/what-happened {:operation :rf.sub/create})))
+    (is (= "cache-hit" (h/what-happened {:operation :rf.sub/skip})))
+    (is (= "disposed"  (h/what-happened {:operation :rf.sub/dispose}))))
+  (testing ":rf.sub/run splits on :rf.sub/value-changed? (under-apply)"
+    (is (= "recalculated"
+           (h/what-happened {:operation :rf.sub/run
+                             :tags      {:rf.sub/value-changed? true}})))
+    (is (= "ran-unchanged"
+           (h/what-happened {:operation :rf.sub/run
+                             :tags      {:rf.sub/value-changed? false}})))))
+
+(deftest derived-view-verbs-are-produced
+  (testing ":rf.view/rendered splits on :rf.view/mount? (under-apply)"
+    (is (= "mounted"
+           (h/what-happened {:operation :rf.view/rendered
+                             :tags      {:rf.view/mount? true}})))
+    (is (= "re-rendered"
+           (h/what-happened {:operation :rf.view/rendered
+                             :tags      {:rf.view/mount? false}}))))
+  (testing ":rf.view/unmounted already coincides with its §5 verb"
+    (is (= "unmounted" (h/what-happened {:operation :rf.view/unmounted})))))
+
+(deftest derived-verbs-do-not-over-apply
+  (testing "a discriminated op with the tag ABSENT keeps the terminal
+            segment rather than guessing a side — spec/009's pure
+            `compute-sub` form omits the attribution slots, so a
+            :rf.sub/run genuinely can arrive without the boolean"
+    (is (= "run" (h/what-happened {:operation :rf.sub/run})))
+    (is (= "run" (h/what-happened {:operation :rf.sub/run :tags {}})))
+    (is (= "rendered" (h/what-happened {:operation :rf.view/rendered}))))
+  (testing "the split is keyed on the OPERATION, not on its terminal
+            segment — :rf.cofx/run shares the `run` terminal with
+            :rf.sub/run and must keep its own explicit override"
+    (is (= "run" (h/what-happened {:operation :rf.cofx/run
+                                   :tags      {:rf.sub/value-changed? true}}))))
+  (testing "the mount discriminator rides :rf.view/rendered, NOT the
+            render-START :rf.view/render, whose spec/009 tags are
+            :frame + :rf.view/render-key only"
+    (is (= "render" (h/what-happened {:operation :rf.view/render
+                                      :tags      {:rf.view/mount? true}})))))
 
 ;; ---- (5) target / detail — spec/023 §3 / §5 ---------------------------
 
@@ -465,7 +527,10 @@
   (let [row (h/project-row (ev {:id 1 :op-type :rf.sub :operation :rf.sub/dispose
                                 :tags {:rf.sub/id :cart/preview}}))]
     (is (= :gone (:outcome-tier row)))
-    (is (= "dispose" (:verb row)))
+    ;; rf2-u7l6h — the row's verb is §5's `disposed`, while `outcome-tier`
+    ;; above still classifies off the OPERATION's terminal segment, so
+    ;; the two stay independent.
+    (is (= "disposed" (:verb row)))
     (is (= ":cart/preview" (:target row)))))
 
 ;; ---- (7) op-family band colour — retained left-border -----------------
