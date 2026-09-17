@@ -2,7 +2,7 @@
 
 > Bead **rf2-buor (P2 research).** Working draft for Mike to iterate on. **Not normative; not a port.** The exercise: imagine re-frame-10x's successor with re-frame2's instrumentation as the substrate and 2026-class devtools expectations as the bar. Be bold; flag what's speculative. (Historical working title: "re-frame-10x v2"; the rename to Xray was locked 2026-05-11.)
 >
-> Companion docs: [`re-frame-2-story-feature-set.md`](re-frame-2-story-feature-set.md) (rf2-m6tu) and [`re-frame-2-story-sota-refinement.md`](rf2-94b0). Substrate this consumes: [Spec 009 Instrumentation](../spec/009-Instrumentation.md), [Spec Tool-Pair](../spec/Tool-Pair.md), [Spec 002 Frames](../spec/002-Frames.md), [Spec 005 Machines](../spec/005-StateMachines.md), [Spec 013 Flows](../spec/013-Flows.md), [Spec 011 SSR](../spec/011-SSR.md), [Spec 010 Schemas](../spec/010-Schemas.md), [Spec 012 Routing](../spec/012-Routing.md), [Spec Dynamic-Architecture](../spec/Dynamic-Architecture.md).
+> Companion docs: [`re-frame-2-story-feature-set.md`](../../../story/spec/findings/re-frame-2-story-feature-set.md) (rf2-m6tu) and [`re-frame-2-story-sota-refinement.md`](../../../story/spec/findings/re-frame-2-story-sota-refinement.md) (rf2-94b0). Substrate this consumes: [Spec 009 Instrumentation](../../../../spec/009-Instrumentation.md), [Spec Tool-Pair](../../../../spec/Tool-Pair.md), [Spec 002 Frames](../../../../spec/002-Frames.md), [Spec 005 Machines](../../../../spec/005-StateMachines.md), [Spec 013 Flows](../../../../spec/013-Flows.md), [Spec 011 SSR](../../../../spec/011-SSR.md), [Spec 010 Schemas](../../../../spec/010-Schemas.md), [Spec 012 Routing](../../../../spec/012-Routing.md).
 >
 > **Superseded on production elision (rf2-qqn9, ruled 2026-09-06).** This draft's "zero production bytes / non-negotiable / CI verifies via `npm run test:elision`" line was wrong about Xray and is preserved only as the record of what was proposed. The shipped contract is build placement: see [`Principles.md`](../Principles.md) §Production posture is build placement. Do not build on the elision claims below.
 
@@ -36,7 +36,7 @@ v1 of 10x answered #1–#4 partially and #5 not really. The bar in 2026 is **all
 ### What jobs it does that nothing else does well
 
 - **Causal cascades across frames.** Redux DevTools is single-store; XState Inspector is per-machine; React DevTools is component-shaped. None of them shows the full cascade: dispatch → handler → fx → re-dispatch → machine transition → flow recompute → sub recompute → render. re-frame2 sees all of it; Xray *shows* all of it.
-- **Time-travel that survives schema evolution.** re-frame2's `restore-epoch` has six named failure modes (per [Tool-Pair §Time-travel](../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). Xray surfaces those failures structurally — "this rewind would break because schema `:auth` tightened since the snapshot."
+- **Time-travel that survives schema evolution.** re-frame2's `restore-epoch` has six named failure modes (per [Tool-Pair §Time-travel](../../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). Xray surfaces those failures structurally — "this rewind would break because schema `:auth` tightened since the snapshot."
 - **Live machine state on a stately-quality chart, embedded in the same surface as event traces.** Stately Inspector is great; it's also a separate tab in a separate tool. Xray unifies it with the event log so a click on `:rf.machine/transition` jumps to the chart with the source state pre-highlighted.
 - **SSR/hydration debugging.** The render-tree hash diff per epoch, server-vs-client view side-by-side. No JS debugger does this because none of the JS frameworks make hydration mismatches structurally observable.
 
@@ -58,9 +58,9 @@ v1 of 10x answered #1–#4 partially and #5 not really. The bar in 2026 is **all
 ### Where v1 hit limits — improve
 
 - **Single-frame assumption baked into the data shape.** v1 has `(rf/get-app-db)` and `(rf/sub :status)` — no frame parameter. Multi-frame apps fall off the model. v2 is frame-first: every panel has a frame picker; the epoch buffer is per-frame; the causality graph spans frames.
-- **No causal correlation across dispatch cascades.** v1 shows a flat event list; figuring out that event B was dispatched by event A's `:fx [[:dispatch [...]]]` requires reading the event handler. v2 has `:dispatch-id` / `:parent-dispatch-id` (per [Spec 009 §Dispatch correlation](../spec/009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)) — causality is data, not detective work.
+- **No causal correlation across dispatch cascades.** v1 shows a flat event list; figuring out that event B was dispatched by event A's `:fx [[:dispatch [...]]]` requires reading the event handler. v2 has `:dispatch-id` / `:parent-dispatch-id` (per [Spec 009 §Dispatch correlation](../../../../spec/009-Instrumentation.md#dispatch-correlation-rftracedispatch-id--rftraceparent-dispatch-id)) — causality is data, not detective work.
 - **App-db diff is shallow and slow on big dbs.** v1's diff highlights changed keys but doesn't handle deep nested change well; on a 50MB app-db it's noticeable. v2 uses structural-sharing diff (PersistentHashMap pointer-equality at each level) — O(changed paths), not O(db size).
-- **Subscription view is hard to read at scale.** v1 lists every sub run with timing; on a complex app this is hundreds of rows. v2 collapses by sub-id with hit/miss/recompute counts, expands to per-run on click, and uses `:rf/epoch-record`'s `:sub-runs` projection (per [Tool-Pair §Time-travel](../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) so the framework does the folding.
+- **Subscription view is hard to read at scale.** v1 lists every sub run with timing; on a complex app this is hundreds of rows. v2 collapses by sub-id with hit/miss/recompute counts, expands to per-run on click, and uses `:rf/epoch-record`'s `:sub-runs` projection (per [Tool-Pair §Time-travel](../../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) so the framework does the folding.
 - **The trace panel is a firehose.** v1's raw trace stream is hard to filter; the search is substring-y; long sessions get sluggish. v2 has structured filters (`:op-type`, `:operation`, `:frame`, `:dispatch-id`, `:origin`) routed off Spec 009's stable vocabulary, plus a saved-filter library.
 - **No notion of "what's broken right now."** v1 has no error feed. Failed dispatches surface as a console.error if you happen to be looking. v2 has a permanent **issues ribbon** (errors + warnings + schema violations + hydration mismatches) that flashes on new entries.
 - **Pop-out window is half-broken.** Cross-window input issues, focus-stealing, doesn't survive reload. v2's "pop out" is a real second window driven by `BroadcastChannel` (same browser, in-process).
@@ -99,19 +99,19 @@ The framework grew capabilities since v1 that fundamentally change what's debugg
 
 | re-frame2 capability | New tooling story |
 |---|---|
-| **Multi-frame** ([002](../spec/002-Frames.md)) | Per-frame panels with a frame picker; cross-frame causality graph; the same sub-id can have different values in different frames and the tool must show this. |
-| **Machines** ([005](../spec/005-StateMachines.md)) | Stately-quality state-chart per machine, live-highlighted; transition log keyed by machine; `:spawn-all` parallel-child viz; `:after` timer countdown indicators; microstep replay. |
-| **Flows** ([013](../spec/013-Flows.md)) | Flow dependency graph; per-flow recompute count; "this flow ran *N* times this session" heatmap; the `:rf.flow/skip` (rf2-719e value-equal recompute suppression) badge so devs can see when flows are correctly *not* running. |
-| **Source-coord stamping** ([001](../spec/001-Registration.md), [006](../spec/006-ReactiveSubstrate.md)) | **Click-to-source everywhere.** Every registered id, every DOM node (via `data-rf2-source-coord`), every machine guard/action/transition (via `:rf.machine/source-coords`). Source location surfaced as copyable `file:line` chips — the user opens the file in their editor of choice. No protocol-handler dependency. |
-| **Trace bus** ([009](../spec/009-Instrumentation.md)) | The substrate of everything. Open shape, stable vocabulary, `:op-type` discriminator. Xray does not invent its own trace shape — it consumes Spec 009. |
-| **Epoch history + `:rf/epoch-record` projections** ([Tool-Pair](../spec/Tool-Pair.md)) | First-class time-travel; per-frame epoch scrubber; pre-folded `:sub-runs` / `:renders` / `:effects` so the tool doesn't refold the raw trace. |
-| **`reset-frame-db!`** ([Tool-Pair §Pair-tool writes](../spec/Tool-Pair.md#pair-tool-writes--state-injection)) | "Edit app-db live" affordance — type a JSON value into the panel, the runtime takes it. Records a synthetic epoch so the change is undoable. |
+| **Multi-frame** ([002](../../../../spec/002-Frames.md)) | Per-frame panels with a frame picker; cross-frame causality graph; the same sub-id can have different values in different frames and the tool must show this. |
+| **Machines** ([005](../../../../spec/005-StateMachines.md)) | Stately-quality state-chart per machine, live-highlighted; transition log keyed by machine; `:spawn-all` parallel-child viz; `:after` timer countdown indicators; microstep replay. |
+| **Flows** ([013](../../../../spec/013-Flows.md)) | Flow dependency graph; per-flow recompute count; "this flow ran *N* times this session" heatmap; the `:rf.flow/skip` (rf2-719e value-equal recompute suppression) badge so devs can see when flows are correctly *not* running. |
+| **Source-coord stamping** ([001](../../../../spec/001-Registration.md), [006](../../../../spec/006-ReactiveSubstrate.md)) | **Click-to-source everywhere.** Every registered id, every DOM node (via `data-rf2-source-coord`), every machine guard/action/transition (via `:rf.machine/source-coords`). Source location surfaced as copyable `file:line` chips — the user opens the file in their editor of choice. No protocol-handler dependency. |
+| **Trace bus** ([009](../../../../spec/009-Instrumentation.md)) | The substrate of everything. Open shape, stable vocabulary, `:op-type` discriminator. Xray does not invent its own trace shape — it consumes Spec 009. |
+| **Epoch history + `:rf/epoch-record` projections** ([Tool-Pair](../../../../spec/Tool-Pair.md)) | First-class time-travel; per-frame epoch scrubber; pre-folded `:sub-runs` / `:renders` / `:effects` so the tool doesn't refold the raw trace. |
+| **`reset-frame-db!`** ([Tool-Pair §Pair-tool writes](../../../../spec/Tool-Pair.md#pair-tool-writes--state-injection)) | "Edit app-db live" affordance — type a JSON value into the panel, the runtime takes it. Records a synthetic epoch so the change is undoable. |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
 | **`register-epoch-listener!`** | The assembled-per-cascade listener is what Xray routes off; cheaper than raw-stream re-folding. |
 | **Tool-Pair surface** | Xray *and* re-frame-pair *and* Story consume the same primitives. No 10x dependency from the agent tools. Xray is a peer, not a parent. |
-| **Schemas (Malli)** ([010](../spec/010-Schemas.md)) | Real-time schema-violation feed with five named recovery modes; "the schema for this path is X" tooltip on every app-db key; live `app-schemas-digest` shown so devs notice schema drift between dev and SSR. |
-| **SSR + hydration** ([011](../spec/011-SSR.md)) | Hydration-mismatch debugger — server render tree vs client render tree, structural diff, click-to-source on the divergent node. The `:rf.ssr/hydration-mismatch` trace is the entry point. |
-| **Routing** ([012](../spec/012-Routing.md)) | URL ↔ frame state visualisation; the `:rf/route` slice rendered as a breadcrumb above the app-db tree; nav-token timeline showing stale-result suppression in flight. |
+| **Schemas (Malli)** ([010](../../../../spec/010-Schemas.md)) | Real-time schema-violation feed with five named recovery modes; "the schema for this path is X" tooltip on every app-db key; live `app-schemas-digest` shown so devs notice schema drift between dev and SSR. |
+| **SSR + hydration** ([011](../../../../spec/011-SSR.md)) | Hydration-mismatch debugger — server render tree vs client render tree, structural diff, click-to-source on the divergent node. The `:rf.ssr/hydration-mismatch` trace is the entry point. |
+| **Routing** ([012](../../../../spec/012-Routing.md)) | URL ↔ frame state visualisation; the `:rf/route` slice rendered as a breadcrumb above the app-db tree; nav-token timeline showing stale-result suppression in flight. |
 | **`:origin` opt on dispatch** | Filter the event log by actor ("show me only the dispatches Claude issued this session"). Pair-tool / Story / human dispatches are all distinguishable. |
 | **Performance API (`rf:*` `User Timing` measures)** | The performance ribbon reads `PerformanceObserver` directly — no re-frame2 API call needed; works in prod too if the opt-in flag is on. |
 | **Production-elision verifier** | Xray can run `npm run test:elision` in-process and show "your build will ship *N* bytes of dev-only sentinels" — i.e. detect leaks before deploy. |
@@ -145,7 +145,7 @@ A horizontal scrubber pinned to the bottom of the window. Drag left → app-db r
 
 - **Per-epoch step** — every dispatch produces an epoch you can scrub to; the app-db tree, the event detail panel, and the causality graph all rebase live as you move.
 - **Pinned snapshots** — at any epoch, click a pin icon to capture a labelled snapshot to the scrubber's chip strip. Useful for "this is the state I want to come back to."
-- **Schema-mismatch handling**: if a restore would fail (per the six failure modes in [Tool-Pair §Time-travel](../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)), the scrubber shows the failure as an overlay with a "try anyway" affordance that loads the snapshot via `reset-frame-db!` (which bypasses cascade and schema-validates against the *current* schemas).
+- **Schema-mismatch handling**: if a restore would fail (per the six failure modes in [Tool-Pair §Time-travel](../../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)), the scrubber shows the failure as an overlay with a "try anyway" affordance that loads the snapshot via `reset-frame-db!` (which bypasses cascade and schema-validates against the *current* schemas).
 
 *Trade-off:* the scrubber is bounded by `epoch-history` depth (default 50). Deeper sessions need to bump the depth in settings; beyond that, older epochs age out.
 
@@ -168,7 +168,7 @@ Open by default (per UX §12.2 lock). Toggled via `Ctrl+Shift+/`; user can close
 
 ### 4.4 Machine inspector with live state-chart highlighting
 
-Embedded XState-Inspector-quality visualisation. Built on the same primitives `tools/machines-viz/` will use ([per `tools/README.md`](../tools/README.md)). The relationship: Xray *embeds* machines-viz's chart component as a panel (registered via the cross-tool embedding contract, mirroring how Story embeds 10x's epoch panel — see §9).
+Embedded XState-Inspector-quality visualisation. Built on the same primitives `tools/machines-viz/` will use ([per `tools/README.md`](../../../README.md)). The relationship: Xray *embeds* machines-viz's chart component as a panel (registered via the cross-tool embedding contract, mirroring how Story embeds 10x's epoch panel — see §9).
 
 What you see:
 
@@ -178,7 +178,7 @@ What you see:
 - **`:spawn` / `:spawn-all` spawned children appear as smaller machines next to their parent**, each with their own state.
 - **`:after` timers show a countdown ring** on the source state.
 - **Transition history** ribbon below the chart: a scrubbable list of the last *N* `:rf.machine/transition` events; clicking one rewinds the chart to that microstep.
-- **Source-coord stamping** ([rf2-8bp3](../spec/Tool-Pair.md#state-machine-source-coord-stamping-rf2-8bp3)) means every clickable element jumps to source.
+- **Source-coord stamping** ([rf2-8bp3](../../../../spec/Tool-Pair.md#state-machine-source-coord-stamping)) means every clickable element jumps to source.
 
 *Trade-off:* this is dense if the machine is large. We adopt Stately's expand/collapse compound-state idiom; we also auto-pan to the active state.
 
@@ -221,7 +221,7 @@ Why this works for any app-db size: the panel **never tries to render the whole 
 A horizontal timeline along the bottom of the issues feed, one row per registered schema. When a schema validation fails:
 
 - A dot appears on that schema's row at the timestamp.
-- Colour encodes recovery: skip-handler / skip-fx / rollback-db / replaced-with-default / re-raised (the [Spec 010 §Per-step recovery](../spec/010-Schemas.md#per-step-recovery) categories).
+- Colour encodes recovery: skip-handler / skip-fx / rollback-db / replaced-with-default / re-raised (the [Spec 010 §Per-step recovery](../../../../spec/010-Schemas.md#per-step-recovery) categories).
 - Click the dot → side panel shows `:where`, `:path`, `:value`, the Malli explanation.
 - **Hover the dot** → tooltip shows a one-line cause ("at `[:auth :email]`, expected `:string`, got `nil`").
 
@@ -232,7 +232,7 @@ This is the kind of thing programmers don't realise is happening — silent sche
 Only visible when an SSR hydration runs. Shows:
 
 - A side-by-side render: server's render tree (deserialised from the payload) and the client's first render tree.
-- **Divergent nodes pulse red.** The server tree marks where the client's tree took a different shape; structural diff (per the [Spec 011 §Hydration equivalence rule](../spec/011-SSR.md#hydration-equivalence-rule-canonical)).
+- **Divergent nodes pulse red.** The server tree marks where the client's tree took a different shape; structural diff (per the [Spec 011 §Hydration equivalence rule](../../../../spec/011-SSR.md#hydration-equivalence-rule-canonical)).
 - The **render-tree hash** is shown for both sides at every parent so the divergence is bisectable.
 - A drop-down picks the failing node; the right pane shows source coords for the divergent view registration.
 
@@ -275,7 +275,7 @@ The default is "what just happened, in this frame, right now." No graph, no scru
 
 ### Frame switching
 
-The frame picker is a dropdown of `(rf/frame-ids)` (per [Spec 002 §Public registrar query API](../spec/002-Frames.md#the-public-registrar-query-api)). Switching:
+The frame picker is a dropdown of `(rf/frame-ids)` (per [Spec 002 §Public registrar query API](../../../../spec/002-Frames.md#the-public-registrar-query-api)). Switching:
 
 - Re-binds every panel's frame context.
 - The scrubber rebases on the new frame's `epoch-history`.
@@ -444,7 +444,7 @@ We follow v1's preload convention exactly — muscle memory transfer is free.
 
 ### Story embeds 10x's epoch panel (already decided)
 
-From [`re-frame-2-story-feature-set.md`](re-frame-2-story-feature-set.md) §6.7 and §4.4: Story registers a story-panel that embeds Xray's epoch panel as the variant's observability ribbon.
+From [`re-frame-2-story-feature-set.md`](../../../story/spec/findings/re-frame-2-story-feature-set.md) §6.7 and §4.4: Story registers a story-panel that embeds Xray's epoch panel as the variant's observability ribbon.
 
 **The embedding contract** (this design): every Xray panel exports a **`Panel`** React component (or hiccup-fn equivalent) that accepts:
 
@@ -525,7 +525,7 @@ Each as a §X.Y with my recommendation + the alternative.
 
 ### §10.6 Embedded vs free-standing relationship with machines-viz
 
-**Locked 2026-05-11: Xray embeds machines-viz's chart.** §9 covers this. Both ship from `tools/` with per-jar cadence (per [`tools/README.md`](../tools/README.md)); machines-viz is `re-frame2-machines-viz`; Xray deps in it at a `~> 1.x` version range.
+**Locked 2026-05-11: Xray embeds machines-viz's chart.** §9 covers this. Both ship from `tools/` with per-jar cadence (per [`tools/README.md`](../../../README.md)); machines-viz is `re-frame2-machines-viz`; Xray deps in it at a `~> 1.x` version range.
 
 ### §10.7 MCP shipping at v1.0 vs v1.1
 
