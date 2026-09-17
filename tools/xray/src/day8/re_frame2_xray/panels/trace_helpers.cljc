@@ -448,8 +448,11 @@
 ;;
 ;; Per spec/023 §5 each area has a verb taxonomy — the per-row "what
 ;; happened" state. We derive it from the operation's terminal segment
-;; with a small per-area override map for the readable forms (`handler
-;; ran`, `recalculated`, …).
+;; with a small override map for the operations whose readable form
+;; differs (`handler ran`, `unchanged`, …). The derived SUB/VIEW verbs
+;; (`recalculated`, `cache-hit`, `mounted`, …) are NOT produced here:
+;; they need a `value-changed?` / `mount?` read this namespace does not
+;; make, and spec/023 §5 marks closing that gap a code change.
 
 (def operation->verb
   "Explicit verb overrides for the operations whose readable verb isn't
@@ -468,9 +471,10 @@
 (defn what-happened
   "Build the per-row what-happened verb (spec/023 §5). Uses the explicit
   override map first, then falls back to the operation's terminal name
-  segment with `/` and dots folded to spaces (`:rf.sub/run` → `run`,
-  `:rf.machine.timer/scheduled` → `scheduled`). Pure data → string;
-  JVM-testable."
+  segment with hyphens folded to spaces (`:rf.sub/run` → `run`,
+  `:rf.machine.timer/scheduled` → `scheduled`,
+  `:rf.cofx/skipped-on-platform` → `skipped on platform`). Pure data →
+  string; JVM-testable."
   [{:keys [operation] :as _row-or-ev}]
   (or (get operation->verb operation)
       (when (keyword? operation)
