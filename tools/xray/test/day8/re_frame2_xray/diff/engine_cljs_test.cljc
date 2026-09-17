@@ -173,6 +173,109 @@
       ;; ancestor. With 2 leaves the [:user] container reaches 2.
       (is (= 2 (engine/change-count-at p [:user]))))))
 
+;; ---- R3 chip: shifts are not changes, removals are (rf2-y8doi.25) ------
+;;
+;; The `[N∆]` chip is the COLLAPSED-container signal — how many changes are
+;; hiding under this node. Two things were wrong with the count derived from
+;; `:path-ops` alone:
+;;
+;;   - a positional SHIFT is not a change. The element is the same element;
+;;     the operator already reads its move as the R6 `(was N)` suffix on the
+;;     element itself, so counting it again at every ancestor inflates the
+;;     chip by the length of the vector's tail.
+;;   - a vector REMOVAL *is* a change, but it lives off the after-path tree
+;;     on the `:vector-removals` channel (a removed element has no stable
+;;     after-path — see `vector-removals-at`), so a count taken over
+;;     `:path-ops` could not see it at all.
+;;
+;; The two directions fail differently and the second is the dangerous one: an
+;; over-count is a wrong number on screen, an under-count is silence.
+
+(deftest y8doi25-chip-counts-the-change-not-the-positional-shift
+  (testing "inserting ONE element is ONE change, not one per shifted survivor.
+            `[:a :b :c :d] → [:a :NEW :b :c :d]` shifts three survivors, so
+            the chip read 4. OVER-count — a wrong number the operator SEES."
+    (let [p (engine/project [:a :b :c :d] [:a :NEW :b :c :d])]
+      (is (= :added (engine/op-at p [1]))
+          "the insert itself still classifies")
+      (is (= :same-shifted (engine/op-at p [4]))
+          "and the survivors still carry their R6 `(was N)` suffix")
+      (is (= 1 (engine/change-count-at p [])))))
+
+  (testing "removing ONE element is ONE change, not one per shifted survivor.
+            `[:a :b :c :d] → [:a :c :d]` shifts two survivors, so the chip
+            read 2 — and both of those were the ONE removal counted sideways."
+    (let [p (engine/project [:a :b :c :d] [:a :c :d])]
+      (is (= [{:before-index 1 :before-value :b}]
+             (get-in p [:vector-removals []])))
+      (is (= 1 (engine/change-count-at p [])))))
+
+  (testing "a TAIL removal shifts nobody, so the container carried NO collapsed
+            signal at all — the UNDER-count direction, invisible to the
+            operator rather than merely wrong. The removal must reach the
+            vector AND every ancestor above it."
+    (let [p (engine/project {:xs [:a :b :c]} {:xs [:a :b]})]
+      (is (= [{:before-index 2 :before-value :c}]
+             (get-in p [:vector-removals [:xs]])))
+      (is (= :children (engine/op-at p [:xs]))
+          "the collapsed vector now says its subtree differs")
+      (is (= 1 (engine/change-count-at p [:xs])))
+      (is (= 1 (engine/change-count-at p [])))))
+
+  (testing "several removals at one parent count once EACH — `{:a [1 2 3]} →
+            {:a [1]}` is two removals, so the chip reads 2"
+    (let [p (engine/project {:a [1 2 3]} {:a [1]})]
+      (is (= 2 (count (get-in p [:vector-removals [:a]]))))
+      (is (= 2 (engine/change-count-at p [:a])))
+      (is (= 2 (engine/change-count-at p [])))))
+
+  (testing "a scattered removal counts its removals and ignores the shift it
+            caused — `[:a :b :c :d] → [:a :c]` drops two and shifts one"
+    (let [p (engine/project [:a :b :c :d] [:a :c])]
+      (is (= :same-shifted (engine/op-at p [1])))
+      (is (= 2 (engine/change-count-at p []))))))
+
+;; ---- No-op epoch: no walk at all (rf2-y8doi.25) -------------------------
+
+(deftest y8doi25-no-op-epoch-reclassifies-without-walking-the-db
+  (testing "an epoch whose two sides are `=` but not `identical?` — the
+            ORDINARY case once the on-box egress seam has rebuilt the value —
+            produces an EMPTY edit script, and the R5 wholly-changed
+            reclassification must then do NOTHING rather than walk every
+            container of the whole db twice.
+
+            Measured rather than argued: the only thing in the projection that
+            traverses the `:big` slot below is `mark-wholly-changed`'s
+            uniformity walk. Editscript compares that slot by identity (the
+            SAME object sits on both sides) and never descends, and nothing
+            else in `project` reads a path the empty edit script did not
+            name — so a non-zero realisation count is that walk and only that
+            walk."
+    (let [realised (atom 0)
+          big      (map (fn [i] (swap! realised inc) i) (range 5000))
+          before   {:big big :n 1}
+          after    {:big big :n 1}
+          p        (engine/project before after)]
+      (is (not (identical? before after))
+          "the two sides are distinct objects, so `project`'s identity
+           short-circuit does not apply")
+      (is (= {} (:path-ops p)))
+      (is (= {} (:container-ops p)))
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (zero? @realised)
+          (str "a no-op epoch realised " @realised
+               " of 5000 elements; it must realise none"))))
+
+  (testing "the guard is one-sided per op — a diff that ADDS but never REMOVES
+            still promotes its wholly-new subtree"
+    (let [p (engine/project {:a 1} {:a 1 :user {:id 7 :name "Ada"}})]
+      (is (contains? (:wholly-changed-roots p) [:user]))))
+
+  (testing "…and a diff that REMOVES but never ADDS still promotes its
+            wholly-removed subtree"
+    (let [p (engine/project {:a 1 :user {:id 7 :name "Ada"}} {:a 1})]
+      (is (contains? (:wholly-changed-roots p) [:user])))))
+
 ;; ---- Flat-rows shape ----------------------------------------------------
 
 (deftest flat-rows-feeds-pure-diff-mode
