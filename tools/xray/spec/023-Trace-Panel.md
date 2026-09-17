@@ -79,6 +79,22 @@ Errors / warnings are cross-cutting (§7): the stage column still labels the ste
 
 ## §5 What-happened verb taxonomy
 
+> **Status: PARTIALLY SHIPPED — this table is the target vocabulary, not the rendered strings.** What ships
+> (`trace_helpers/what-happened`) is the operation's **terminal name segment** with hyphens folded to spaces
+> — `:rf.sub/run` → `run`, `:rf.machine.timer/scheduled` → `scheduled` — except for **nine explicit
+> overrides** (`trace_helpers/operation->verb`): `:rf.event/dispatched` → `dispatched`,
+> `:rf.event/run-start` and `:rf.event/run-end` → `handler ran`, `:rf.event/db-changed` → `changed`,
+> `:rf.event/db-noop` → `unchanged`, `:rf.epoch/snapshotted` → `snapshotted`, `:rf.epoch/outcome` →
+> `outcome`, `:rf.cofx/run` → `run`, `:rf.flow/computed` → `computed`.
+>
+> So the EVENT, COEFFECT, DB, FLOW and EPOCH rows below read as written, and the rest fall through to the
+> terminal segment. In particular the **derived** SUB and VIEW verbs are NOT produced: `created` ·
+> `recalculated` · `ran-unchanged` · `cache-hit` · `disposed` render as `create` · `computed` · `run` ·
+> `skip` · `dispose`, and `mounted` · `re-rendered` · `skipped` render as `render` · `rendered` · `skip`
+> (`unmounted` happens to coincide). Those five derived labels need a `value-changed?` / `mount?` read the
+> verb function does not make; closing that gap is a code change, not a spec one. Appendix A's **Row label**
+> column carries the same target vocabulary and the same caveat.
+
 | Area | Verbs |
 |---|---|
 | EVENT | dispatched · handler-ran |
@@ -109,7 +125,7 @@ Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.fx/reg-flo
 
 ## §7 Errors & warnings
 
-Cross-cutting, **not a stage**. An `:rf.error/*` / `:rf.warning/*` op renders **inline at its chronological point** in the flat list, visually emphasised so failures stand out while scanning (and error vs warning distinguishable) — the row's left edge rides the severity colour over the stage colour; exact treatment delegated to Figma (§8). It carries the failing op's context (the `:rf.error/*` operation id + ex-data). The same diagnostics also populate the Issues panel ([`021`](./021-Dynamic-Panel-Designs.md) §8).
+Cross-cutting, **not a stage**. An `:rf.error/*` / `:rf.warning/*` op renders **inline at its chronological point** in the flat list, visually emphasised so failures stand out while scanning (and error vs warning distinguishable) — the row's left edge rides the severity colour over the stage colour; exact treatment delegated to Figma (§8). It carries the failing op's context (the `:rf.error/*` operation id + ex-data). The same diagnostics feed the **surviving issue surfaces** — the dedicated Issues tab and its aggregate panel were removed (rf2-gbz39 Option (c)), so there is no Issues panel to route to. The kept surfaces are the Epoch panel's inline per-step failures, the L2 event-row issue wash, and the always-on `:rf.xray/issues-ribbon` signal ([`016` §Issues](./016-Auxiliary-Panels.md#issues--the-dedicated-tab-was-removed-rf2-gbz39-option-c); the retired design is preserved at [`021`](./021-Dynamic-Panel-Designs.md) §8). The shared projection is `panels/issues_ribbon_helpers.cljc`, which survived the tab removal.
 
 ## §8 Visual encoding (delegated to Figma)
 
@@ -147,6 +163,15 @@ The stage column (DISPATCH / COEFFECT / EVENT HANDLER / FLOW / EFFECT HANDLERS /
 Per-op fields already on the epoch record / trace bus: views (`:rf.view/elapsed-ms`, `:triggered-by`/`:cause-subs`, `:mount?`/`:unmounted`/`:rendered`/`:skip`); subs (`:rf.sub/create`/`:run`/`:computed`/`:skip`/`:dispose`, `:value-changed?`); plus the full Spec-009 op vocabulary (event/cofx/db/fx/flow/machine/route/epoch/error/warning). The panel reads the epoch record's `:trace-events` (the focused-epoch scope resolved via `:rf.xray/focus` — [`018`](./018-Event-Spine.md), [`021`](./021-Dynamic-Panel-Designs.md) §5.2).
 
 **Per-step RESULTS (the data the arc must show, not just that a step ran):**
+
+> **Status: NOT SHIPPED.** The three bullets below are the target; the shipped `target/detail` cell
+> (`trace_helpers/target-detail`) renders the EVENT row as the **dispatched event vector alone** and the
+> FLOW row as **`flow-id → path`** alone. Neither the handler's returned `:rf.event/fx` / `:rf.event/coeffects`
+> nor the flow's `:result` / `:before` / `:input-values` reaches a row today — they ride the raw trace map,
+> so they are reachable by expanding the row into the edn-inspector (§3), just not summarised in the cell.
+> The DB bullet is the exception and **does** ship: §10.1's panel-side derivation renders the net per-path
+> diff under the `:rf.event/db-changed` row.
+
 - **Handler result** — its returned effects map: `:rf.event/fx` (incl. the handler's own `:db`) + `:rf.event/coeffects`. The EVENT "handler ran" row surfaces what the handler produced (its `:db` contribution *before* flows + the `:fx` it requested).
 - **Flow result** — `:rf.flow/computed` carries `:result` (computed value), `:before` (prior value), `:input-values`. The FLOW row renders the value + the `[:path] before → after` delta directly (no db-snapshot walk needed).
 - **Net db** — `:rf.event/db-changed` is the net installed diff (handler + flows combined). So the three contributions are distinguishable: handler-return (`:rf.event/fx` `:db`) → per-flow delta (`:rf.flow/computed` `:before`→`:result`) → net install (`:rf.event/db-changed`). No new trace fields required (rf2-u0zz5 must keep them distinct at the new emit points).
@@ -157,12 +182,21 @@ The `:rf.event/db-changed` trace event carries only `:event` + `:frame` — **no
 
 ## §11 Implementation dependencies
 
-1. **Timing instrumentation** (Spec 009) — run-start/run-end (or elapsed-ms) on sub / cofx / fx / flow / handler trace events, so §6 durations populate beyond views.
-2. **Visual design** — colour palette + styling for the §8 dimensions, to be produced in Figma.
+1. ~~**Timing instrumentation** (Spec 009) — run-start/run-end (or elapsed-ms) on sub / cofx / fx / flow / handler trace events, so §6 durations populate beyond views.~~ **LANDED.** The substrate stamps the canonical per-area elapsed tag on every family §6 names — `:rf.fx/elapsed-ms` (`re-frame.fx`), `:rf.cofx/elapsed-ms` (`re-frame.cofx`), `:rf.sub/elapsed-ms` (`re-frame.subs`), `:rf.event/elapsed-ms` (`re-frame.router`), `:rf.view/elapsed-ms` (`re-frame.views`) and the bare `:elapsed-ms` on flows (`re-frame.flows`) — and the panel's `duration-ms` reads all six before falling back to `—`. So §6 is a description of shipped behaviour, not a promise: durations populate well beyond views. (The same availability is the premise of [`028` §The instrument table](./028-Fresco-Advisor.md#the-instrument-table-and-the-refusal-that-follows-from-it), which rates `:rf.sub/elapsed-ms` **yes**.)
+2. **Visual design** — colour palette + styling for the §8 dimensions, to be produced in Figma. *(Still outstanding.)*
 
 ## §12 Child & nested epochs
 
 The panel renders **one** epoch's trace; work that produces *other* epochs is shown by relationship, never absorbed:
+
+> **Status: the first bullet ships; the two relationship affordances do NOT.** The flat list is oldest-first
+> fire order, so same-epoch work is inline by construction. But the trace panel renders **no child-epoch `↗`
+> and no `◂ from` breadcrumb**: the only `↗` on a trace row is the source-coord open-in-editor button, and
+> the `◂` glyph appears nowhere in the Xray sources. `trace_helpers/project-row` *does* project
+> `:parent-dispatch-id` off the `:rf.trace/parent-dispatch-id` tag, so the datum the breadcrumb needs is on
+> every row and unread — the gap is the render, not the projection. (The **Epoch** panel does resolve that
+> same id to a parent-epoch chip, so the pattern exists in-tree to copy.)
+
 - **Same-epoch work renders inline** — machine microsteps (`:always` / `:raise` cascades) and any synchronous sub-steps that share this epoch's `dispatch-id` are ordinary rows at their fire-order position (their stage column labels the step).
 - **Separate epochs render as a `↗` link** on the originating op row — `:dispatch` / `:dispatch-later` fx, async responses (`:http-xhrio` → on-success/on-failure), routing `:rf.route/handle-url-change`, and machine `:after` / spawn / timer-fired. The row shows the spawning op + the child epoch id; clicking jumps the panel to that epoch. The child's own trace is **not** inlined (it has its own focused-epoch scope).
 - **Parent breadcrumb** — the `:rf.epoch/snapshotted` row shows `◂ from #N :parent-event` when this epoch was spawned by another, so causality is traceable both directions.
@@ -184,6 +218,16 @@ The panel renders **one** epoch's trace; work that produces *other* epochs is sh
 ## §15 Cross-panel navigation (v1 map)
 
 Linkable rows carry a `↗` jump affordance to the relevant panel (restoring/extending the prior Trace behaviour). **v1 target map:**
+
+> **Status: only the last row of this map ships.** `source coords (any op) → open-in-editor` is live — the
+> `↗` button on the target/detail cell routes through the shared `coord-link/open-in-editor!`. **None of the
+> six panel jumps above it is wired**: `:rf.xray/select-tab` — the dispatch every cross-panel jump in this
+> devtool uses, and which the Epoch panel does use — appears **zero** times across the trace panel's three
+> sources. The map below therefore remains the behavioural target, not a description.
+>
+> One affordance ships that this map does **not** list: a `⟲` button on rows carrying a destroy/cancellation
+> marker, which opens the cancellation event-bundle (`:rf.xray/cancellation-cascade-open`). It is a
+> same-panel disclosure rather than a cross-panel jump, so it is noted here rather than added as a row.
 
 | Trace row | Jumps to |
 |---|---|
@@ -291,4 +335,4 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | **`:rf.warning/*`** (any) | inline (its stage) | WARNING | the `operation` id | context | — |
 | **Registration/boot** — `:rf.fx/reg-flow` · `:rf.fx/registered-platforms` · `:rf.cofx/registered-platforms` · `:rf.flow/registered` · `:rf.route/registered` · `:rf.machine.registrar/*` | — | — | OUT OF SCOPE (boot-time, not per-epoch) | — | — |
 
-> Generic rules: any `:rf.error/*` → ERROR row (emphasised, inline, → Issues panel); any `:rf.warning/*` → WARNING row (inline, → Issues). The implementer cross-checks this matrix against the live trace-emit sites; new ops get a row before shipping (the completeness contract, §1).
+> Generic rules: any `:rf.error/*` → ERROR row (emphasised, inline); any `:rf.warning/*` → WARNING row (inline). Both also feed the surviving issue surfaces — **not** an Issues panel, which was removed with its tab (rf2-gbz39 Option (c)); see §7. The implementer cross-checks this matrix against the live trace-emit sites; new ops get a row before shipping (the completeness contract, §1).
