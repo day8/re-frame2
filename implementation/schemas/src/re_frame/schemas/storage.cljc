@@ -387,8 +387,13 @@
   `reg-app-schema` / `reg-app-schemas` is invoked with a schema that is
   opaque — at its ROOT or at any NESTED child — to the pure-data walker
   (a compiled `m/schema` object / other non-vector, non-keyword value,
-  anywhere in the tree). Vector forms with no opaque descendant and bare
-  keywords do not warn — see `walker-introspectable?`.
+  anywhere in the tree; a local `{:registry ...}`; or an explicit
+  `[:ref ...]` reference form, rf2-3aafh). Vector forms with no opaque
+  descendant and bare keywords do not warn — see `walker-introspectable?`.
+
+  `:schema-kind` gains NO new value for the reference form: a root
+  `[:ref ...]` reports `:unknown`, exactly as a nested opaque value does.
+  The `:reason` string is what names the shape.
 
   Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
@@ -418,7 +423,10 @@
                      " value such as a compiled m/schema object), or a"
                      " vector-form schema embeds one as a NESTED child,"
                      " or it carries a local `{:registry ...}` whose"
-                     " referenced shapes the walk resolves nowhere."
+                     " referenced shapes the walk resolves nowhere, or it"
+                     " is (or embeds) an explicit `[:ref ...]` reference"
+                     " form, whose referenced shape the walk likewise"
+                     " resolves nowhere."
                      " The schema-walker (used for per-slot"
                      " `:sensitive?` / `:large?` extraction) can only"
                      " introspect vector-form Malli EDN — per-slot flags"
