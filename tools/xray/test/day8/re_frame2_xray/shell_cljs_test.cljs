@@ -1970,19 +1970,38 @@
 
 (deftest newer-events-marker-click-follows-head
   (testing "rf2-y8doi.30 — invoking the marker's :on-click dispatches
-            `:rf.xray/follow-head`; afterwards the spine is LIVE,
-            unpaused, at head, and the marker is gone."
+            `:rf.xray/follow-head` and nothing else; running that event
+            leaves the spine LIVE, unpaused, at head, and the marker
+            gone.
+
+            The two halves are asserted separately on purpose. The
+            marker's dispatcher is the frame-aware one the boundary
+            captures, and `rf/dispatch` is ASYNC — reading the spine
+            straight after `(handler nil)` reads the pre-click state and
+            would have graded the wiring on the router's timing. So the
+            WIRING is captured through `rf/dispatch-impl` (the suite's
+            own idiom, see `ribbon-prev-click-on-first-event-does-not-
+            dispatch`) and the EFFECT is then driven synchronously
+            through the production registry."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:first/event]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:second/event]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 1 :rf/default]))
+    (let [dispatches (atom [])]
+      (with-redefs [rf/dispatch-impl (fn
+                                       ([ev]       (swap! dispatches conj ev) nil)
+                                       ([ev _opts] (swap! dispatches conj ev) nil))]
+        (rf/with-frame :rf/xray
+          (let [marker  (newer-events-marker-in (dynamic-shell-tree/shell-view-tree))
+                handler (:on-click (second marker))]
+            (is (some? marker) "marker present before the click")
+            (is (fn? handler) "marker carries an :on-click")
+            (handler nil))))
+      (is (= [[:rf.xray/follow-head]] @dispatches)
+          "the click dispatches exactly `[:rf.xray/follow-head]`"))
     (rf/with-frame :rf/xray
-      (let [marker  (newer-events-marker-in (dynamic-shell-tree/shell-view-tree))
-            handler (:on-click (second marker))]
-        (is (some? marker) "marker present before the click")
-        (is (fn? handler) "marker carries an :on-click")
-        (handler nil)))
+      (rf/dispatch-sync [:rf.xray/follow-head]))
     (rf/with-frame :rf/xray
       (let [focus @(rf/subscribe [:rf.xray/focus])]
         (is (= :live (:mode focus)) "follow-head restores LIVE")
