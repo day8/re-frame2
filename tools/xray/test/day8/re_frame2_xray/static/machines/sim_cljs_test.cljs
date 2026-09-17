@@ -1032,11 +1032,30 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
-        (rf/dispatch-sync [:rf.xray.static.machines/sim-step
-                           {:machine-id :auth/login :event [:start]}])
-        (rf/dispatch-sync [:rf.xray.static.machines/sim-step
-                           {:machine-id :auth/login :event [:ok]}]))
+      ;; THE SUBJECT IS UNCHANGED — distinct React keys on per-step <li>
+      ;; children, across both substrates — and it needs MORE THAN ONE
+      ;; row to grade anything, so the count assertion below stays at 2.
+      ;;
+      ;; What changed is how the two rows are obtained (rf2-y8doi.21).
+      ;; This used to stub `machine-transition` with `ok-result`, which
+      ;; is a CONSTANT: the second step handed the sim back the very
+      ;; snapshot it was already holding — the stubbed engine reporting
+      ;; NO CHANGE. It yielded a second row only because `step-sim`
+      ;; folded every `:status :ok` as a transition, so this fixture was
+      ;; quietly depending on the defect that bead removes, and its two
+      ;; rows were identical in content (both `:authing` / `{:counter
+      ;; 1}`), differing only in `:event`.
+      ;;
+      ;; `fixture-definition` already declares `:idle --:start-->
+      ;; :authing --:ok--> :done`, so the REAL engine makes both steps
+      ;; genuine and DISTINCT transitions. Dropping the stub is strictly
+      ;; better evidence for a key-distinctness test than the stub ever
+      ;; was, and it keeps the count at 2 rather than weakening it to 1,
+      ;; which would leave this passing while grading almost nothing.
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
+                         {:machine-id :auth/login :event [:start]}])
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
+                         {:machine-id :auth/login :event [:ok]}])
       (let [tree (sim/SimRail rf/dispatch (sim-rail-values))
             rows (raw-find-all-by-testid-prefix
                    tree "rf-xray-static-machines-sim-audit-")
