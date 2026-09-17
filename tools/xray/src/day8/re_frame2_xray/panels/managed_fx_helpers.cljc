@@ -232,8 +232,8 @@
   stale-suppressions can none of them reach the bundle that issued the
   request.
 
-  TWO THINGS DO REACH IT, because both run inside the issuing fx handler's
-  own stack and so inherit the issuing scope's dispatch-id:
+  THREE THINGS DO REACH IT, because all three run inside the issuing fx
+  handler's own stack and so inherit the issuing scope's dispatch-id:
 
   1. A SYNCHRONOUS request-body-prep failure: a throwing `:body` thunk or
      an unencodable body fails inside the fx handler's stack, so its
@@ -249,10 +249,24 @@
      the id is what supersession IS. That row belongs to the PRIOR
      attempt, and `http-row-for-this-record?` excludes it.
 
+  3. The `:rf.http/aborted` an ALREADY-ABORTED EXTERNAL `:abort-signal`
+     fires at THIS attempt — on CLJS only. `run-attempt!` binds the
+     caller's signal to this handle's canonical abort-fn during attempt
+     setup; a signal that is ALREADY aborted fires that abort-fn
+     synchronously right there (`transport-cljs/bind-external-abort!`),
+     with reason `:user` and this record's own `:request-id`, and the
+     `(when-not @finalised? …)` guard below it then skips body prep and
+     the transport entirely. Like (1) this is THIS attempt's own outcome
+     and IS attributed — `http-row-for-this-record?` calls it the one
+     cancellation the issuing bundle genuinely witnesses about its own
+     attempt.
+
   THIS DOCSTRING USED TO SAY THE BODY-PREP FAILURE WAS THE ONE EXCEPTION.
   It was wrong about (2), and the cost was real: every debounced search
   request after the first read `ERROR · cancel: :request-id-superseded`
-  while being perfectly healthy.
+  while being perfectly healthy. It was then short by (3) until rf2-or16u,
+  which is the same failure one generation on: a hand-maintained
+  enumeration the producer had moved past.
 
   A cancellation can also arrive from a NON-HTTP effect in the same drain
   — an actor destroy walking its in-flight handles — naming a request this
