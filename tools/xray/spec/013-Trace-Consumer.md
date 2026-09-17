@@ -159,7 +159,8 @@ secondary-ring push or mirror dispatch:
    event MUST be **dropped** before any push. The collector MUST bump
    a per-frame suppressed-events counter (keyed by the event's
    `:tags :frame`, or `:global` when no frame scope is present) so
-   the shell's bottom rail can surface a `[● REDACTED N]` indicator.
+   the shell's L1 chrome ribbon can surface a `[● REDACTED N]`
+   indicator.
 3. If `:sensitive?` is `true` AND the egress profile reveals
    (`:rf.egress/local-raw`), the event passes through unchanged.
 
@@ -211,12 +212,49 @@ ENVELOPE intact — existence, `:op-type`, timing, source, handler/event
 ids and non-elided `:tags` — so a whole `:sensitive? true` event has to
 be dropped, not merely scrubbed.
 
+### One policy, three ingress paths (rf2-y8doi.13)
+
+The whole-event drop is not the trace path's alone. `config/suppress-
+sensitive?` is the single predicate, and three ingress paths share it
+rather than each carrying its own policy:
+
+1. **The listener path** — `collect-trace!` drops a sensitive event at
+   ingest, before any secondary-ring push or mirror dispatch, and bumps
+   the suppressed counter.
+2. **The read path** — `snapshot-from-rings` re-applies it to the merged
+   per-frame + frameless vector (§Read-side gate above), because the
+   framework's rings retain what the listener declined to push.
+3. **The epoch path** — `epoch/redact-history` gates every framework
+   epoch record on its way into Xray's `:epoch-history` slot. The same
+   trace events ride each `:rf/epoch-record`'s `:trace-events`, so a
+   gate on the trace path alone would leave them readable there. A
+   record whose `:rf.epoch/sensitive?` rollup is true is dropped whole;
+   each survivor's `:trace-events` has the same predicate applied, which
+   catches a record carrying no rollup. This path deliberately does NOT
+   bump the counter — `collect-trace!` already counted those events on
+   their way past the listener, and a second bump would double-count one
+   cascade against the `[● REDACTED N]` indicator.
+
+`trace-collector/bundles-for-frame` applies the same gate at BUNDLE
+grain — the per-frame event-bundle read the Fresco advisor and its
+causal slice consume, and what keeps §Read-side gate's "no second,
+seam-side trace reader" true. A bundle carrying ANY suppressed event is
+dropped WHOLE rather than scrubbed down to its survivors, for the reason
+[§Retroactive scrub](#retroactive-scrub-on-profile-narrowing) gives for
+the wholesale clear: a non-sensitive sub recompute or render in the same
+cascade can structurally reveal the value the sensitive event carried,
+and the bundle's `:subs` / `:renders` / `:effects` / `:dispatched`
+slots are projections of the same `:trace-events`.
+
+Every one of these is the identity under the trusted-local
+`:rf.egress/local-raw` opt-in.
+
 ### The suppressed-events counter
 
 The counter is keyed `frame-id → count` with a `:global` bucket for
 events without a frame scope (registration-time emits, outermost-
 dispatch lookup failures). Consumers MAY read either the total
-(across every bucket — what the bottom-rail indicator shows) or a
+(across every bucket — what the ribbon indicator shows) or a
 per-frame count. The counter is exposed under
 `:rf.xray/suppressed-sensitive-count` (a layer-1 sub reading
 `:suppressed-counters` off Xray's app-db).
@@ -235,7 +273,10 @@ Counters MUST reset alongside the trace surface; see
 [§Retroactive scrub](#retroactive-scrub-on-profile-narrowing) below.
 
 The redaction indicator's UI shape is owned by
-[`007-UX-IA.md`](./007-UX-IA.md) §Bottom rail; this doc owns the
+[`007-UX-IA.md`](./007-UX-IA.md) §L1 chrome ribbon — a silent-by-default
+functional surface painted only while its count is `> 0`, to the right
+of the Mode dropdown. There is no bottom rail to carry it: 007 §The
+4-layer chrome retired the pass-2 "L0" rail outright. This doc owns the
 counter contract.
 
 ## Frameless secondary ring
@@ -251,6 +292,16 @@ These are real events the user wants to see:
 - REPL evaluations producing `re-frame.trace/emit!` calls outside a
   dispatch.
 - `:rf.ssr/hydration-mismatch` events during SSR hydration.
+
+Custom host events land here through the framework's own public
+entrypoint, not through any Xray-side adapter: `rf/emit-trace-event!`
+(the re-export of `re-frame.trace/emit!` — [Spec 009 §Emitting trace
+events](../../../spec/009-Instrumentation.md#emitting-trace-events),
+[`API.md` §Tracing](../../../spec/API.md#tracing)) called outside a
+dispatch produces a frameless event, which skips the per-frame rings by
+the same B3 ruling and reaches this ring through the listener. A host
+bridging a non-re-frame2 source into the stream emits through that one
+surface and Xray reads the result like any other frameless event.
 
 The `:show-ungrouped?` settings toggle (per `rf2-r9lyy`, default OFF)
 surfaces these as a `:ungrouped` pseudo-cascade in the L2 event list.
@@ -352,7 +403,7 @@ NOT a one-way trapdoor — a sensitive cascade emitted while the profile
 revealed would otherwise remain visible after the user expected privacy
 restored.
 
-`trace-collector/retroactive-scrub!` drops all four places trace
+`trace-collector/retroactive-scrub!` drops all five places trace
 data lives:
 
 1. The framework's per-frame rings — via the 0-arity
@@ -360,7 +411,12 @@ data lives:
 2. Xray's frameless secondary ring — via `clear-frameless-ring!`.
 3. Xray's app-db `:trace-buffer` slot — via `:rf.xray/clear-trace-
    buffer`.
-4. The suppressed-counters — via `config/reset-suppressed-count!`.
+4. Xray's app-db `:epoch-history` slot — via `:rf.xray/sync-epoch-
+   history` with an empty vector (rf2-y8doi.13). The epoch path is a
+   trace ingress in its own right (§One policy, three ingress paths),
+   so a scrub that cleared only `:trace-buffer` would leave the same
+   events readable through the Epoch panel.
+5. The suppressed-counters — via `config/reset-suppressed-count!`.
 
 The clear is wholesale: non-sensitive history that was buffered
 alongside the sensitive cascade is also lost. This is the documented
@@ -692,7 +748,9 @@ enables:
   surface the in-flight HTTP, the spawned machines, the queued
   `:dispatch-later` arrivals at the moment of emission.
 
-The fattening is **opt-in via configure!** (`:trace/fatten? true`) and
+The fattening is **opt-in via `xray-config/configure!`**
+(`:rf.xray/trace-fatten? true` — the spelling
+[`015-Configuration.md`](./015-Configuration.md) §Vision carries) and
 elides in production. The runtime memory cost is significant (one
 reference per event); the developer cost when the feature is needed is
 prohibitive without it.
@@ -727,7 +785,7 @@ Trace → "Show wall-clock axis."
   hand-reaching into `[:tags :frame]` (rf2-7737vq).
 - [`Principles.md`](./Principles.md) §Observation only — no new
   runtime surfaces — the discipline that keeps Xray downstream.
-- [`007-UX-IA.md`](./007-UX-IA.md) §Bottom rail — the
+- [`007-UX-IA.md`](./007-UX-IA.md) §L1 chrome ribbon — the
   `[● REDACTED N]` indicator the suppressed-counter feeds.
 - [`API.md`](./API.md) §Trace / epoch surfaces — the consumer-facing
   surface enumeration.
