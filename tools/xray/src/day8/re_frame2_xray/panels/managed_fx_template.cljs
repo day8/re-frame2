@@ -655,9 +655,14 @@
       (when-not http?
         (section :wire     "WIRE TIMING"
                  "rf-xray-managed-fx-section-wire"     (wire-section record)))
-      ;; For HTTP the only thing RESPONSE can ever carry is the one
-      ;; failure that lands in this bundle — a synchronous body-prep
-      ;; failure — so the section appears exactly when there is one.
+      ;; For HTTP the only thing RESPONSE can ever carry is a failure
+      ;; this bundle witnessed about its own attempt — a synchronous
+      ;; body-prep failure, or (CLJS) an already-aborted external
+      ;; `:abort-signal` firing this attempt's own abort-fn during
+      ;; attempt setup — so the section appears exactly when `:failure`
+      ;; is non-nil. A superseded attempt's abort and a stranger's
+      ;; cancellation are excluded upstream (see
+      ;; `managed-fx-helpers/http-row-for-this-record?`) and leave it nil.
       (when (or (not http?) failure?)
         (section :response "RESPONSE"
                  "rf-xray-managed-fx-section-response" (response-section instance record)))

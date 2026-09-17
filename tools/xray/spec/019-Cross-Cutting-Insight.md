@@ -625,13 +625,24 @@ APP-DB SLICE TOUCHED — but two of the headline's links are
 essentially one HTTP fact — that the request went out — because almost
 every row the runtime emits afterwards comes from a transport callback
 with no handler scope, or from a different run's drain. So an HTTP record
-draws REQUEST and REPLY TARGET only, plus RESPONSE when a synchronous
-body-prep failure landed in this very bundle; its status reads `ISSUED`,
-not `OK`; and its phase / wire / response / duration fields are nil BY
-CONSTRUCTION rather than pending, since no later event could fill them in.
-The four surfaces whose end events DO land in-bundle keep all five
-sections. **REPLY TARGET is what the caller configured, not an observed
-delivery.**
+draws REQUEST and REPLY TARGET only, and its phase / wire / response /
+duration fields are nil BY CONSTRUCTION rather than pending, since no
+later event could fill them in. The four surfaces whose end events DO
+land in-bundle keep all five sections. **REPLY TARGET is what the caller
+configured, not an observed delivery.**
+
+**Two fields say which outcome you are looking at.** `ISSUED` is the
+ordinary no-failure outcome — the status such a record reads instead of
+`OK`, so `OK` can never mean "completed" by accident — and it draws no
+RESPONSE. A record carrying a failure this bundle witnessed about its
+own attempt reads `ERROR` instead, and RESPONSE is drawn over that
+failure detail. Two failures qualify, both of them running inside the
+issuing fx handler's own stack: a synchronous request-body-prep failure,
+and — on CLJS — an already-aborted external `:abort-signal` firing this
+attempt's own abort-fn during attempt setup. The abort an issuance fires
+at the attempt it SUPERSEDED, and a cancellation aimed at an unrelated
+request, are neither of them this record's: they leave it `ISSUED` with
+no RESPONSE.
 
 For WebSocket: same shape but for a frame's send/recv, plus connection
 state at issue time.
