@@ -510,7 +510,11 @@
              "whole subject is one dispatch"))
 
     (testing "and a focus the ring has EVICTED falls back rather than drawing an all-capped slice"
-      (let [evicted (inc (reduce max ids))
+      ;; `(or newest 0)` rather than `(reduce max ids)`: the non-vacuity
+      ;; assertion above REPORTS an empty ring, it does not stop the row,
+      ;; so an arithmetic throw here would bury that report under a broken
+      ;; fixture.
+      (let [evicted (inc (or newest 0))
             s       (slice! {:envelopes e :windows w :focus {:dispatch-id evicted}})]
         (is (= newest (get-in s [:scope :dispatch-id])))
         (is (true? (:evidenced? (link s :event)))
@@ -572,10 +576,17 @@
             hit       (slice! {:envelopes e :windows w})
             says-hit  (:says (link hit :values-changed))
             says-miss (:says (link (slice! {:envelopes e :windows renamed}) :values-changed))]
-        (is (some #{:hcaus/left} (:holds (link hit :subs-recomputed)))
-            (str "NON-VACUITY: link 2 really names this boundary's own "
-                 "registration on the unmodified window, so the two sentences "
-                 "below are 1-of-1 against 0-of-1 and not 0 against 0"))
+        ;; `:holds` is `hh/unknown` — a KEYWORD — when work happened that
+        ;; joins to no subscription, so the `coll?` guard is load-bearing
+        ;; rather than defensive: `some` over a keyword throws, and a
+        ;; throwing row reports a broken fixture where an assertion would
+        ;; have reported the finding.
+        (let [named (:holds (link hit :subs-recomputed))]
+          (is (and (coll? named) (some #{:hcaus/left} named))
+              (str "NON-VACUITY: link 2 really names this boundary's own "
+                   "registration on the unmodified window, so the two "
+                   "sentences below are 1-of-1 against 0-of-1 and not "
+                   "0 against 0")))
         (is (not= says-hit says-miss)
             (str "a count that reads the same whether or not the two rosters "
                  "share anything is not a measurement — and this is the "
