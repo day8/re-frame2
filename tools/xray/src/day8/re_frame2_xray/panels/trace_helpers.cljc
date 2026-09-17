@@ -1010,21 +1010,41 @@
 ;; tabs now diff the same projected pair, so they cannot disagree by
 ;; construction.
 ;;
-;; A declared-sensitive path therefore reads `:rf/redacted` on both sides,
-;; `diff-paths` sees them equal and emits NO TRIPLE — the row is absent
-;; rather than redacted-in-place. That is the elision contract behaving as
-;; `tools/xray/spec/004-App-DB-Diff.md` §Count semantics already describes
-;; for the App-DB tab ("both sides redacted ⇒ empty diff but something
-;; changed"), and it is why the SAME item adds the
-;; `:rf.epoch/redacted-modified-paths-count` chip on the App-DB tab: the
-;; suppressed signal is surfaced separately from the diff, never by
-;; weakening the projection.
+;; ## The path set comes from the RAW pair; the VALUES come from the
+;; ## PROJECTED pair — and that split is load-bearing in both directions
+;;
+;; The obvious shape is to project both dbs and diff the projected pair.
+;; It redacts correctly, and it destroys the signal: a declared-sensitive
+;; path reads `:rf/redacted` on BOTH sides, `diff-paths` classifies them
+;; EQUAL, and no triple is emitted at all — so a changed secret renders as
+;; NOTHING, indistinguishable from a slot that did not change. That is the
+;; exact blindness this item exists to remove from the App-DB tab
+;; (`tools/xray/spec/004-App-DB-Diff.md` §Count semantics: "both sides
+;; redacted ⇒ empty diff but something changed"), reproduced on the Trace
+;; tab while curing it.
+;;
+;; The other obvious shape — diff raw, then project each triple's values
+;; at its own path with `local-render-value-at` — keeps the signal and
+;; LEAKS. Measured on this tree: with `[:auth]` declared sensitive, a walk
+;; rooted at `[:auth :token]` returns the value VERBATIM, because the
+;; declaration sits ABOVE the walk root and the path-keyed match never
+;; fires. `[:auth]`-shaped declarations are the ordinary case, and
+;; `diff-paths` descends through maps to the leaf, so the two meet
+;; constantly.
+;;
+;; So: derive the CHANGED-PATH SET from the raw pair, where equality is
+;; honest and the set is complete; take each triple's VALUES out of the
+;; WHOLE-db projection, which is correct at every declaration depth
+;; (a declaration above, at, or below the triple's path all resolve).
+;; Rows survive, values are withheld, nothing leaks.
 ;;
 ;; Fail-closed, inherited whole from `local-render-value`: a nil /
-;; destroyed / never-registered observed frame redacts the WHOLE value
-;; rather than borrow the ambient frame's (Xray's own chrome frame's)
-;; empty policy — so both sides collapse to one sentinel and the diff is
-;; empty. An unresolvable frame loses the diff; it never leaks it.
+;; destroyed / never-registered observed frame redacts the WHOLE value, so
+;; every triple's values read `:rf/redacted` while the rows STAY. The
+;; operator still sees WHICH paths changed and is told plainly that the
+;; values are withheld. Fail-closed must not mean fail-silent — that was
+;; the defect in the first cut of this seam, and silence is the one
+;; failure a diff panel cannot afford.
 ;;
 ;; The ingest gate (`epoch/redact-history`, rf2-y8doi.13) is UPSTREAM of
 ;; this and does NOT make it redundant. That gate drops a record whole on
@@ -1036,30 +1056,51 @@
 ;; names), or one whose rollup was computed before the app classified the
 ;; path. Those are exactly the records this seam is the only guard for.
 
-(defn- redact-epoch-db
-  "Project `epoch-record`'s `:db-before` / `:db-after` through the on-box
-  local-render egress seam under `observed-frame`'s `:sensitive` /
-  `:large` policy, leaving every other slot untouched.
+(def ^:private redacted-sentinel
+  "The scalar `rf/project-egress` substitutes for a withheld slot. Named
+  once here so the sentinel-aware read below and the tests cannot fork
+  the spelling."
+  :rf/redacted)
 
-  This is the App-DB tab's seam applied to the Trace tab's inputs — the
-  same `local-render/local-render-value`, the same observed frame — so
-  the two tabs project one pair of values under one policy.
+(defn- projected-at
+  "Read `path` out of an ALREADY-PROJECTED db image, honouring the
+  redaction sentinel at ANY ancestor of `path`.
 
-  Only slots the record actually carries are projected: an absent
-  `:db-before` stays absent rather than being synthesised as a redacted
-  nil, so a record with no db projection diffs to `[]` exactly as it did
-  before.
+  `get-in` is wrong here, and wrong in the dangerous direction. When the
+  projection replaced an ANCESTOR of `path` with the sentinel — the
+  `[:auth]`-declared, `[:auth :token]`-changed case — the descendant no
+  longer exists in the image, so `get-in` answers `nil`, and `nil` renders
+  as a VALUE. The operator reads \"this path changed to nothing\" when the
+  truth is \"this path changed and you may not see it\". Walking instead
+  lets the sentinel short-circuit, which is the honest answer and the one
+  the shared edn-inspector already paints as a first-class chip.
 
-  nil-safe (a nil record passes through)."
-  [epoch-record observed-frame]
-  (if (nil? epoch-record)
-    epoch-record
-    (cond-> epoch-record
-      (contains? epoch-record :db-before)
-      (update :db-before local-render/local-render-value observed-frame)
+  Pure data → data."
+  [image path]
+  (loop [v image
+         p (seq path)]
+    (cond
+      (= redacted-sentinel v) redacted-sentinel
+      (nil? p)                v
+      :else                   (recur (get v (first p)) (next p)))))
 
-      (contains? epoch-record :db-after)
-      (update :db-after local-render/local-render-value observed-frame))))
+(defn- redact-triples
+  "Re-seat each triple's `:before` / `:after` on the PROJECTED images of
+  the db pair, leaving `:op` and `:path` — the signal — untouched.
+
+  Both slots are re-seated on every triple regardless of op. For `:added`
+  and `:removed` the absent side reads `nil` exactly as `diff-paths`
+  produced it, with one deliberate exception: under an ancestor redaction
+  it reads the sentinel instead, which is more truthful than `nil` (the
+  slot is withheld, not known-absent) and which no renderer reads anyway —
+  `db-diff-row` draws `before` only for `:modified` and `after` only for
+  `:modified` / `:added`."
+  [triples projected-before projected-after]
+  (mapv (fn [{:keys [path] :as triple}]
+          (assoc triple
+                 :before (projected-at projected-before path)
+                 :after  (projected-at projected-after  path)))
+        triples))
 
 (defn db-changed-diff-triples
   "Derive the per-path diff for a `:rf.event/db-changed` row from the
@@ -1071,16 +1112,34 @@
   pr-str. Returns `[]` when `db-before == db-after` (the no-changes
   case — empty diff section per spec/023 §APP-DB CHANGES).
 
-  Takes the record's db slots AS THEY STAND. It applies no egress policy
-  of its own, so the triples it returns carry whatever the record
-  carried: on the render path `project-feed-from-epoch`'s 3-arity has
-  already projected both slots through `redact-epoch-db`, and a caller
-  that reaches this fn directly with a RAW record is asking for the raw
-  values and must not render them.
+  ## The two arities (rf2-y8doi.14)
 
-  Pure data → data; JVM-testable."
-  [{:keys [db-before db-after] :as _epoch-record}]
-  (diff-h/diff-paths db-before db-after))
+  The 1-arity takes the record's db slots AS THEY STAND and applies no
+  egress policy, so its triples carry whatever the record carried. It is
+  the pure-data form; a caller that reaches it with a RAW record is
+  asking for the raw values and must not render them.
+
+  The 2-arity is the RENDER path. It derives the changed-path set from
+  the RAW pair — so equality is honest and no change is swallowed — then
+  re-seats each triple's values on the WHOLE-db projections of that pair
+  under `observed-frame`'s policy. `:op` and `:path` are never touched:
+  the row always renders, and only the values can be withheld. The block
+  comment above carries why neither half of that split can be dropped.
+
+  An empty diff short-circuits before either projection runs, so the
+  no-change epoch — the common one — pays nothing for the seam.
+
+  Pure data → data; the 2-arity reads the named frame's classification
+  registry through the egress seam and mutates nothing."
+  ([{:keys [db-before db-after] :as _epoch-record}]
+   (diff-h/diff-paths db-before db-after))
+  ([{:keys [db-before db-after] :as _epoch-record} observed-frame]
+   (let [triples (diff-h/diff-paths db-before db-after)]
+     (if (empty? triples)
+       triples
+       (redact-triples triples
+                       (local-render/local-render-value db-before observed-frame)
+                       (local-render/local-render-value db-after  observed-frame))))))
 
 (defn- attach-db-diff
   "Attach the per-path diff triples to every `:rf.event/db-changed` row
@@ -1099,11 +1158,11 @@
 ;; ---- epoch-scoped feed projection (the panel reads this) ----------------
 
 (defn- project-feed-from-epoch*
-  "The projection body, over a record whose db slots are ALREADY in the
-  form the caller wants rendered. Both public arities land here; the
-  redaction decision is made above it, once, so this fn can never be the
-  place a projection is accidentally skipped."
-  [epoch-record focus-status]
+  "The projection body. `diff-fn` is the one-arg derivation the caller's
+  arity chose — raw or frame-projected — so the egress decision is made
+  ONCE, above this fn, and this fn can never be the place a projection is
+  accidentally skipped."
+  [epoch-record focus-status diff-fn]
   (let [record-present? (= :focused focus-status)
         trace-events    (when record-present?
                           (:trace-events epoch-record))
@@ -1112,7 +1171,7 @@
         ;; derive, Mike-decided rf2-8q8i4 = (b)) and attach to each
         ;; db-changed row's `:db-diff` slot.
         db-diff         (when record-present?
-                          (db-changed-diff-triples epoch-record))
+                          (diff-fn epoch-record))
         raw-rows        (with-rel-times (project-rows (or trace-events [])))
         rows            (cond-> raw-rows
                           (some? db-diff) (attach-db-diff db-diff))
@@ -1173,11 +1232,12 @@
   ## The two arities (rf2-y8doi.14)
 
   The 3-arity is the PRODUCTION door: `observed-frame` is the frame Xray
-  is inspecting (`:rf.xray/observed-frame`), and the record's
-  `:db-before` / `:db-after` are projected under its `:sensitive` policy
-  through `redact-epoch-db` BEFORE the per-path diff is derived — the
-  same egress seam the App-DB tab applies at
-  `app_db_diff_subs/:rf.xray/app-db-state`. `:rf.xray/trace-feed` calls
+  is inspecting (`:rf.xray/observed-frame`), and each db-changed row's
+  per-path values are withheld under that frame's `:sensitive` policy
+  through the same on-box `local-render-value` seam the App-DB tab
+  applies at `app_db_diff_subs/:rf.xray/app-db-state`. The ROWS are
+  unaffected — a declared path still renders its glyph and its path, with
+  `:rf/redacted` where the values would be. `:rf.xray/trace-feed` calls
   this one.
 
   The 2-arity is the RAW pure-data form. It derives the diff from the
@@ -1189,10 +1249,12 @@
   Pure data → data (the 3-arity reads the named frame's classification
   registry through the egress seam; it mutates nothing)."
   ([epoch-record focus-status]
-   (project-feed-from-epoch* epoch-record focus-status))
+   (project-feed-from-epoch* epoch-record focus-status
+                             db-changed-diff-triples))
   ([epoch-record focus-status observed-frame]
-   (project-feed-from-epoch* (redact-epoch-db epoch-record observed-frame)
-                             focus-status)))
+   (project-feed-from-epoch* epoch-record focus-status
+                             (fn [record]
+                               (db-changed-diff-triples record observed-frame)))))
 
 ;; ---- React keys ---------------------------------------------------------
 
