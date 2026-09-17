@@ -68,9 +68,19 @@
               [:rf.xray/cancellation-cascade-popover-focus]
               [:rf.xray/focus]]}
     (fn [[buffer popover-focus spine-focus] _query]
+      ;; rf2-y8doi.15 — carry the focused FRAME, not the dispatch-id alone.
+      ;; Dispatch ids are unique only within a frame and Xray's buffer is
+      ;; every host frame's ring merged, so a dispatch-id-only focus let
+      ;; another frame's aborts fold into this cascade (and could anchor the
+      ;; popover on the wrong frame's destroy). Same frame-strict keying
+      ;; rf2-bz7flo gave the managed-fx and routing panels. An explicit frame
+      ;; on the popover focus wins; otherwise the spine's focused frame is
+      ;; supplied. A focus with no frame scopes nothing — the prior behaviour.
       (let [focus (or popover-focus
                       (when-let [d (:dispatch-id spine-focus)]
                         {:kind :dispatch-id :id d}))]
-        (h/extract-cascade buffer focus))))
+        (h/extract-cascade
+          buffer
+          (some-> focus (update :frame #(or % (:frame spine-focus))))))))
 
   nil)
