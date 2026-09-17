@@ -1571,12 +1571,20 @@
          ;; consequences + instance settlement).
          :continuations (h/mutation-continuations family-rows)
          ;; EP-0019 (slice 4b): the optimistic-mutation lifecycle — each
-         ;; `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its
-         ;; terminal settle (`:reconciled` commit / `:rolled-back`), so a
-         ;; developer SEES an optimistic apply, its snapshot, and whether it
+         ;; `:rf.mutation/optimistic-applied` paired by `[frame :snapshot-id]`
+         ;; with its terminal settle (`:reconciled` commit / `:rolled-back`), so
+         ;; a developer SEES an optimistic apply, its snapshot, and whether it
          ;; committed or rolled back (with the conflict outcome). The
          ;; `:optimistic-force-clobbers` are the loud `:force`-restored-over-a-
          ;; concurrent-write warnings.
+         ;;
+         ;; rf2-qqi7u — `family-rows` is deliberately CROSS-FRAME (the pre-filter
+         ;; narrows by op family, never by frame), and every identity these
+         ;; projections join on — instance, work-id, generation, snapshot-id — is
+         ;; frame-local. The frame therefore belongs in the join KEY rather than
+         ;; in a filter here: filtering the buffer to one frame would fix the
+         ;; collision by hiding every other frame's rows, which is not what this
+         ;; panel is for. The join keys carry it; this buffer stays whole.
          :optimistic-mutations (h/optimistic-lifecycle family-rows sensitive-rids)
          :optimistic-force-clobbers (h/optimistic-force-clobbers family-rows sensitive-rids)
          :cache-growth  (h/cache-growth instance-rows work-rows)

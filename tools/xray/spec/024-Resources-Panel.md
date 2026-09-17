@@ -444,11 +444,20 @@ stacked sections:
    STALE / superseded mutation reply produces NEITHER op (the inverse is
    discarded, never replayed — it appears as `:rf.mutation/stale-suppressed`
    instead), and that suppression row is what the `:superseded` outcome
-   reads off: the apply is joined to it on the mutation WORK identity —
-   the suppression row's `:rf.reply/work-id` against the apply's
-   `:work/id`, falling back to `[instance generation]` when one identity is
-   missing, never on instance alone, since a second apply for the same
-   instance genuinely in flight would then be mislabelled. An apply with
+   reads off: the apply is joined to it on the emitting FRAME plus the
+   mutation WORK identity — the suppression row's `:rf.reply/work-id`
+   against the apply's `:work/id`, falling back to `[instance generation]`
+   when one identity is missing, never on instance alone, since a second
+   apply for the same instance genuinely in flight would then be
+   mislabelled. The frame is part of that key, and of the `:snapshot-id`
+   key the terminal settle joins on, because every other element of both
+   is FRAME-LOCAL: a work-id's scoped key and generation carry no frame
+   identity, a mutation instance id is the caller's own value or one
+   derived from the frame's own monotone generation, and the
+   `:snapshot-id` is derived from that instance id plus that generation,
+   so it inherits the same collision rather than escaping it. The panel
+   reads ONE deliberately cross-frame buffer, so without the frame a
+   terminal in frame B settled frame A's apply. An apply with
    no terminal settle AND no suppression row is the one that stays
    `:pending`. The
    distinction mirrors slice-4a's `:optimistic?` derived sub at the lifecycle
@@ -583,13 +592,15 @@ plus the `:warning`-level `:rf.warning/optimistic-force-clobber` (emitted
 alongside a `:force` rollback that clobbered a concurrent write — carries
 `:mutation` `:instance` `:forced-keys` `:recovery :review-on-conflict`
 `:reason`). The consumer (`optimistic-lifecycle` / `optimistic-force-clobbers`)
-pairs each `:applied` with its terminal settle by `:snapshot-id` to drive the
-§6d **Optimistic mutations** section above. The settle is keyed on the
-recorded `:revision` + the work-id/generation acceptance verdict, never a
+pairs each `:applied` with its terminal settle by `[frame :snapshot-id]` to
+drive the §6d **Optimistic mutations** section above. The settle is keyed on
+the recorded `:revision` + the work-id/generation acceptance verdict, never a
 wall-clock race; a STALE / superseded reply emits NEITHER terminal op (the
 inverse is discarded), and the apply row is instead paired with that
-mutation's `:rf.mutation/stale-suppressed` row on the work identity and
-reads the fourth outcome `:superseded` (rf2-y8doi.15).
+mutation's `:rf.mutation/stale-suppressed` row on the frame + work identity
+and reads the fourth outcome `:superseded` (rf2-y8doi.15). Every one of these
+join keys carries the emitting frame, for the reason §6d gives: the buffer is
+cross-frame and the identities are not (rf2-qqi7u).
 
 `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/remove` /
 `:rf.resource/window-focused` / `:rf.resource/network-reconnected` /
