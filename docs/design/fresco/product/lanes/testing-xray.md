@@ -41,7 +41,7 @@ Xray and the AI pair consume the same versioned projection. Every envelope state
 
 Useful basis/loss states include:
 
-- `:opaque` / `:no-static-analysis` for facts an interpreted body cannot enumerate ahead of execution;
+- `:opaque` for facts an interpreted body cannot enumerate ahead of execution;
 - `:host-opaque` for raw React internals;
 - `:cap` for retention-window loss;
 - `:uncorrelated` when an event-to-render relationship cannot be established.
