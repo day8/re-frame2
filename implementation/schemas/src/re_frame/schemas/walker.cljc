@@ -488,14 +488,20 @@
 ;; pure-data walker cannot see. A Malli vector form is `[op props? & tail]`,
 ;; but the tail is a child SCHEMA only for STRUCTURAL ops. For LITERAL / config
 ;; ops the tail is DATA — `[:= 42]` holds the value `42`, `[:enum 1 2]` the
-;; members, `[:> 10]` a comparator bound, `[:re "x"]` a pattern, `[:ref ::k]`
-;; a reference — and the scalar primitives (`:int`, `:string`, …) carry no
+;; members, `[:> 10]` a comparator bound, `[:re "x"]` a pattern — and the
+;; scalar primitives (`:int`, `:string`, …) carry no
 ;; child schema at all. Recursing into those data operands is the rf2-3fc89f.12
 ;; bug: an ordinary literal (`42`, `"x"`) reaches the opaque `:else` and the
 ;; whole schema is false-flagged as carrying an opaque child. So the walk
 ;; projects the true child schemas per operator instead of treating every tail
 ;; element as a child. Classification is structural (no Malli/validator
 ;; introspection) and covers the shipped Malli 0.20.1 default registry.
+;;
+;; `[:ref ::k]` is the one data tail that does NOT make its form walkable
+;; (rf2-3aafh). Its tail is data, so the walk cannot descend it — but the
+;; shape it names holds the per-slot flags, so a clean walk here would report
+;; flag-free on a schema whose flags simply live elsewhere. It fails closed,
+;; on the opaque side, alongside a local `:registry`.
 
 ;; Ops whose children are `[head props? child-schema]` ENTRIES — the head is a
 ;; map key / dispatch value / branch name (data); only the entry tail is a real
@@ -522,11 +528,16 @@
     :-> :=> :function})
 
 ;; Ops whose vector tail is DATA (a comparator bound, `:=` / `:enum` members,
-;; a regex pattern, a predicate fn, a registry reference) or which carry no
-;; child schema at all (scalar primitives). The opacity walk MUST NOT descend
-;; into these — their tails are operands, not child schemas.
+;; a regex pattern, a predicate fn) or which carry no child schema at all
+;; (scalar primitives). The opacity walk MUST NOT descend into these — their
+;; tails are operands, not child schemas.
+;;
+;; `:ref` is deliberately NOT a member (rf2-3aafh). Its tail is data too, but
+;; being un-descendable is not the same as being flag-free: the referenced
+;; shape carries the per-slot flags and lives where the walk cannot reach it.
+;; It gets its own fail-closed arm in `opacity-child-schemas` instead.
 (def ^:private opacity-literal-ops
-  #{:= :not= :enum :< :<= :> :>= :re :fn :ref
+  #{:= :not= :enum :< :<= :> :>= :re :fn
     :any :boolean :double :float :int :keyword :nil
     :qualified-keyword :qualified-symbol :some :string :symbol :uuid})
 
@@ -544,6 +555,10 @@
   §The `:schema` value is opaque to re-frame reserves for the registered
   validator. Fail-closed over-redaction is the documented direction: the whole
   failure redacts and registration nudges once toward the walkable shape.
+
+  The explicit `[:ref …]` form fails closed for the same reason and by the
+  same route (rf2-3aafh) — a second spelling of the same unresolvable
+  reference, classified by its own arm in `opacity-child-schemas`.
 
   Returns boolean. Pure."
   [schema]
@@ -567,7 +582,8 @@
   to the opacity walk (see the operator-classification note above). Returns a
   sequence of child schemas for a known structural op, an empty sequence for a
   known literal / scalar op (its tail is data), or `::opaque` for a schema
-  carrying a local `:registry` or for an unclassified op — in both cases the
+  carrying a local `:registry`, for an explicit `[:ref …]` reference form
+  (rf2-3aafh), or for an unclassified op — in every case the
   walk cannot prove the schema's flags are reachable, so it fails closed."
   [schema]
   (let [op (nth schema 0)]
@@ -578,6 +594,13 @@
       ;; the ops it lands on are the walkable ones (`:schema` / `:map` / …)
       ;; whose classification would otherwise report a clean, flag-free walk.
       (schema-local-registry? schema)     ::opaque
+      ;; rf2-3aafh — an explicit `[:ref ::k]` is a reference whose target the
+      ;; pure-data walk resolves nowhere, so a `{:sensitive? true}` slot on the
+      ;; referenced shape is honoured by Malli and invisible here. Fail closed,
+      ;; like a local `:registry`. The BARE keyword (`::k`) stays walkable: a
+      ;; registry reference cannot be told from a primitive (`:string`), while
+      ;; `[:ref …]` can.
+      (= :ref op)                        ::opaque
       (contains? opacity-literal-ops op) []
       (contains? opacity-bare-ops op)    (schema-children schema)
       (contains? opacity-entry-ops op)
@@ -594,8 +617,11 @@
   primitive schema or a predicate shorthand that provably carries no per-slot
   props (the enclosing entry is the only place a flag could live, and the walk
   inspects that entry before its tail). Literal / config operands (`:=` value,
-  `:enum` members, comparator bounds, `:re` pattern, `:ref` target) are DATA,
-  not child schemas, so the projection never descends into them. Only ever
+  `:enum` members, comparator bounds, `:re` pattern) are DATA,
+  not child schemas, so the projection never descends into them. An explicit
+  `[:ref …]` is data-tailed too, but classifies `::opaque` rather than walkable
+  (rf2-3aafh): the shape it names carries the per-slot flags, and the walk
+  resolves it nowhere. Only ever
   called on a descended value, never on the caller's original root argument —
   see `schema-has-opaque-child?` for the root/nested split."
   [schema]
@@ -618,10 +644,13 @@
 
   The recursion is OPERATOR-AWARE (rf2-3fc89f.12): it descends only the true
   child-schema positions of each Malli operator. Literal / config operands
-  (`:=` value, `:enum` members, `:re` pattern, comparator bounds, `:ref`
-  target, scalar primitives) are DATA, not child schemas, so they are NOT
+  (`:=` value, `:enum` members, `:re` pattern, comparator bounds, scalar
+  primitives) are DATA, not child schemas, so they are NOT
   recursed into — an ordinary `[:= 42]` / `[:enum 1 2]` is fully walkable and
-  NOT opaque. An actual compiled value in a real schema position (a `:map`
+  NOT opaque. An explicit `[:ref …]` is the exception (rf2-3aafh): its tail is
+  data as well, but the shape it references holds the per-slot flags and the
+  pure-data walk resolves it nowhere, so it fails CLOSED like a local
+  `:registry`. An actual compiled value in a real schema position (a `:map`
   slot's tail, a container element, a `:map-of` key/value, a `:cat`/`:tuple`
   element, a `:multi`/`:orn` branch, …) still fails closed, as does a genuinely
   unknown operator shape, as does a local `:registry` at any depth

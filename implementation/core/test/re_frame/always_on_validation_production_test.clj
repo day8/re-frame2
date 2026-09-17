@@ -233,6 +233,99 @@
           (is (= :rf/default (:frame err))
               "and to the owning frame, so a shipper can route it"))))))
 
+;; ---- rf2-3aafh: an explicit `[:ref ...]` schema redacts on this surface ----
+;;
+;; This is the surface the rf2-3aafh ruling turned on. Everything else the
+;; sensitivity walker feeds is dev-only, behind `interop/debug-enabled?`; THIS
+;; one is always-on, so a walker that classified `[:ref ::k]` as
+;; walkable-and-flag-free shipped the failing value verbatim off-box in a
+;; PRODUCTION build — on the record an off-box shipper receives AND in the
+;; thrown `ex-data`, which is public error data.
+;;
+;; The reference target is deliberately UNREGISTERED. Real Malli throws
+;; `:malli.core/invalid-ref` on it, and `validate-recordable-value!` FAILS
+;; CLOSED on a throwing validator (`ok?` → false), so the emit is reached and
+;; the redaction decision is made by the walker against the declared schema —
+;; which is exactly the path under test. (Registering the target in Malli's
+;; DEFAULT registry would be a shared-process mutation and is not done here.)
+
+(deftest recordable-cofx-with-ref-schema-redacts-off-box-in-every-posture
+  (testing "rf2-3aafh — a recordable coeffect whose `reg-cofx` `:schema` is an
+            explicit `[:ref ...]` names a shape held in a registry the
+            pure-data walker never consults, so a `{:sensitive? true}` slot on
+            that shape is honoured by Malli and INVISIBLE to the walker. The
+            walker therefore fails CLOSED: the value-bearing slots scrub to
+            `:rf/redacted` and `:sensitive? true` is stamped, on BOTH off-box
+            surfaces, in dev AND under `-Dre-frame.debug=false`. Before
+            rf2-3aafh `:ref` sat in the walker's `opacity-literal-ops`, so
+            every assertion below shipped the secret instead."
+    (rf/reg-cofx :prod/ref-ctx
+      {:recordable? true :schema [:ref :fixture/user]}
+      (fn [] {:token "placeholder"}))
+    (rf/reg-event :prod/uses-ref-ctx
+      {:rf.cofx/requires [:prod/ref-ctx]}
+      (fn [{:keys [db]} _] {:db db}))
+    (let [records (atom nil)
+          ex      (atom nil)]
+      (reset! records
+              (record-always-on-errors
+                (fn []
+                  (reset! ex (try (rf/dispatch-sync
+                                    [:prod/uses-ref-ctx]
+                                    {:rf.cofx {:prod/ref-ctx
+                                               {:token "SECRET-REF-TOKEN"}}})
+                                  nil
+                                  (catch clojure.lang.ExceptionInfo e e))))))
+      (is (some? @ex) "the dispatch threw the recordable-value hard error")
+      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data @ex)))
+          "the throw is the specified always-on hard error")
+      (is (= :rf/redacted (:value (ex-data @ex)))
+          "THE THROW'S ex-data REDACTS — this is public error data, and the
+           referenced shape may declare the failing slot sensitive")
+      (is (true? (:sensitive? (ex-data @ex)))
+          "and is stamped :sensitive?, so a consumer can see it was withheld")
+      (is (not (str/includes? (pr-str (ex-data @ex)) "SECRET-REF-TOKEN"))
+          "NO raw recordable value survives anywhere in the thrown ex-data")
+      (let [err (record-of @records :rf.error/cofx-value-invalid)]
+        (is (some? err) "the always-on off-box record fired")
+        ;; The payload slot is NOT lifted onto the always-on record — that
+        ;; record names the dispatch, not the value (the same lifting
+        ;; behaviour the `:rf.cofx/id` comment above describes). So the
+        ;; payload-bearing off-box surface for this category is the THROW's
+        ;; ex-data, asserted above; this is the belt-and-braces sweep.
+        (is (nil? (:value err))
+            "the off-box record carries no payload slot to leak")
+        (is (not (str/includes? (pr-str err) "SECRET-REF-TOKEN"))
+            "no raw recordable value survives anywhere in the off-box record")))))
+
+(deftest recordable-cofx-with-plain-map-schema-rides-verbatim-control
+  (testing "rf2-3aafh — the CONTROL for the test above, in the same posture. A
+            plain walkable `[:map ...]` schema declaring NO sensitive slot is
+            fully introspectable, so its failing value rides VERBATIM and is
+            not stamped. Without this, 'everything redacts' would pass the test
+            above just as well as the fix does."
+    (rf/reg-cofx :prod/plain-ctx
+      {:recordable? true :schema [:map [:n :int]]}
+      (fn [] {:n 1}))
+    (rf/reg-event :prod/uses-plain-ctx
+      {:rf.cofx/requires [:prod/plain-ctx]}
+      (fn [{:keys [db]} _] {:db db}))
+    (let [ex (atom nil)]
+      (record-always-on-errors
+        (fn []
+          (reset! ex (try (rf/dispatch-sync
+                            [:prod/uses-plain-ctx]
+                            {:rf.cofx {:prod/plain-ctx {:n "not-an-int"}}})
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e)))))
+      (is (some? @ex) "the control dispatch threw for the same reason")
+      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data @ex))))
+      (is (= {:n "not-an-int"} (:value (ex-data @ex)))
+          "a walkable, non-sensitive schema's failing value rides verbatim —
+           the diagnostic stays useful")
+      (is (not (contains? (ex-data @ex) :sensitive?))
+          "and carries no :sensitive? stamp"))))
+
 (deftest conforming-recordable-value-still-folds-in-every-posture
   (testing "rf2-bza6e — the negative control for surface 1. A CONFORMING
             supplied value passes the always-on check and folds normally, so
