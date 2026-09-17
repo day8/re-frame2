@@ -972,11 +972,33 @@
       then renders the §10.7 evicted/blank placeholder rather than
       silently falling back to HEAD and showing the LATEST machine
       state, which lied about which epoch the operator was inspecting.
+    - focus pins a `:dispatch-id` but carries NO epoch-id → nil, never
+      the head (rf2-c4abp, the `:no-epoch` case of rf2-y8doi.19). See
+      below — this is the one the 2-arity could not see.
     - empty history → nil.
+
+  ## Why the pinned `:dispatch-id` has to travel (rf2-c4abp)
+
+  A focus the operator SET to an event bundle that settled no epoch
+  carries a nil `:epoch-id` — `spine/focus-event-bundle-reducer` stamps
+  it from `spine/epoch-id-for-event-bundle`, which answers nil for a
+  refused dispatch, a bundle still mid-build, a bundle whose epoch aged
+  out of the ring, and an `:ungrouped` pin alike. That is SHAPE-IDENTICAL
+  to the cold-start UNSET focus head-fallback exists to serve, so reading
+  `:epoch-id` alone cannot separate them and this helper answered the
+  HEAD for both: the Machines tab presented an unrelated event's machine
+  state as the selected event's, which is the same state-reconstruction
+  lie rf2-uo0rc.1 fixed for the evicted case.
+
+  Passing the pinned `:dispatch-id` into the shared resolver's 3-arity is
+  the whole fix — the algebra stays in `panels.shared.focus-resolver`, so
+  the Machine Inspector still resolves focus identically to every other L4
+  panel rather than growing a selection policy of its own. Head-fallback
+  is untouched for a genuinely unset focus.
 
   Pure fn — JVM-runnable."
   [epoch-history focus]
-  (focus/find-epoch-record (:epoch-id focus) epoch-history))
+  (focus/find-epoch-record (:epoch-id focus) (:dispatch-id focus) epoch-history))
 
 ;; ---- Dynamic-mode single-instance rule (rf2-8og3k, impl rf2-2n34o) ------
 ;;

@@ -814,6 +814,53 @@
       (is (nil? (h/focused-epoch-record history {:epoch-id 99}))
           "evicted pinned epoch must be nil (not the head record)"))))
 
+(deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
+  (testing "rf2-c4abp / rf2-y8doi.19 — the operator pinned an event bundle
+            that settled NO epoch. Focus then carries a `:dispatch-id` with
+            a nil `:epoch-id`, which is SHAPE-IDENTICAL to the cold-start
+            UNSET focus the rf2-h0120 head-fallback exists to serve — so
+            reading `:epoch-id` alone cannot tell the two apart, and this
+            helper answered the HEAD for both. That put a DIFFERENT event's
+            machine state under the operator's selection, with nothing on
+            screen saying so: the same class of state-reconstruction lie
+            rf2-uo0rc.1 fixed for the evicted case just above.
+
+            The pinned `:dispatch-id` is the discriminator. The Epoch panel
+            got it in rf2-y8doi.19; this is that discriminator reaching the
+            Machine Inspector, through the SAME shared resolver rather than
+            a parallel selection policy."
+    (let [history [{:epoch-id 5  :dispatch-id 5  :trace-events []}
+                   {:epoch-id 11 :dispatch-id 11 :trace-events [:x]}]]
+      (is (nil? (h/focused-epoch-record history {:dispatch-id 999 :epoch-id nil}))
+          (str "a pinned bundle that settled no epoch must resolve to NO "
+               "record — head-fallback here renders epoch 11's machine "
+               "state under a selection that is not epoch 11's"))
+      (is (nil? (h/focused-epoch-record history {:dispatch-id :ungrouped
+                                                 :epoch-id    nil}))
+          (str "an :ungrouped pin settles no epoch either "
+               "(spine/epoch-id-for-event-bundle) and must not head-fall-back")))))
+
+(deftest focused-epoch-record-rejects-only-the-pinned-no-epoch-shape
+  (testing "rf2-c4abp POSITIVE CONTROL — the discriminator must reject ONLY
+            the pinned-no-epoch shape. An UNSET focus still head-falls-back,
+            an ordinary pinned epoch still resolves to its own record, and
+            the evicted case is unchanged. Without this row the fix could
+            pass by breaking normal selection outright."
+    (let [history [{:epoch-id 5  :dispatch-id 5  :trace-events []}
+                   {:epoch-id 11 :dispatch-id 11 :trace-events [:x]}]]
+      (is (= 11 (:epoch-id (h/focused-epoch-record history nil)))
+          "nil focus still resolves the head (rf2-h0120)")
+      (is (= 11 (:epoch-id (h/focused-epoch-record history {})))
+          "an empty focus map still resolves the head")
+      (is (= 11 (:epoch-id (h/focused-epoch-record history {:epoch-id    nil
+                                                            :dispatch-id nil})))
+          "an explicitly nil :dispatch-id is still an UNSET focus")
+      (is (= 5 (:epoch-id (h/focused-epoch-record history {:epoch-id    5
+                                                           :dispatch-id 5})))
+          "an ordinary selected epoch still resolves to its own record")
+      (is (nil? (h/focused-epoch-record history {:epoch-id 99 :dispatch-id 99}))
+          "an evicted pinned epoch is unchanged — still nil (rf2-uo0rc.1)"))))
+
 ;; ---- focused-event-section-key (rf2-un3gfo) -----------------------------
 ;;
 ;; The per-machine focused-event section's React `:key` must be
