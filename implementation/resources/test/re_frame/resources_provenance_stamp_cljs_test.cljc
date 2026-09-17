@@ -24,9 +24,9 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources]
-   [re-frame.resources.mutation-registry :as rf.mutation-registry]
+   [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
    [re-frame.resources.registry :as rf.resources.registry]
-   [re-frame.resources.scope-registry :as rf.scope-registry]
+   [re-frame.resources.scope-registry :as rf.resources.scope-registry]
    [re-frame.source-coords :as rf.source-coords]
    [re-frame.source-store :as rf.source-store]))
 
@@ -91,8 +91,8 @@
   [kind id overrides]
   (case kind
     :resource       (rf.resources.registry/reg-resource id (resource-meta overrides) request-fn)
-    :mutation       (rf.mutation-registry/reg-mutation  id (mutation-meta overrides) request-fn)
-    :resource-scope (rf.scope-registry/reg-resource-scope id (scope-meta overrides) resolve-fn)))
+    :mutation       (rf.resources.mutation-registry/reg-mutation  id (mutation-meta overrides) request-fn)
+    :resource-scope (rf.resources.scope-registry/reg-resource-scope id (scope-meta overrides) resolve-fn)))
 
 (defn- provenance-keys
   "The source store's provenance keys for `(kind, id)` — what `:select-ns` reads."
