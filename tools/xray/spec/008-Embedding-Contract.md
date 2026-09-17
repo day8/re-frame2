@@ -319,12 +319,14 @@ establishes are normative for any host doing post-step focus-pinning:
   [`018-Event-Spine.md`](./018-Event-Spine.md) §6) — so repeated
   per-step focus never pins the spine into `:retro`.
 
-The runner registers the focus via `re-frame.core/register-epoch-
-listener!` (fired post-settle, so it observes the async child epoch the
-`[:run-step n]` handler's `:dispatch` fx produces, not the `:step`-only
-parent epoch) rather than calling `focus!` synchronously in the event
-handler. A focus-pinning host that wants "show me the result of what I
-just dispatched" follows the same post-settle-listener shape.
+The runner registers the focus via `(rf/register-listener! :epoch …)` —
+the stream-parameterized verb; there is deliberately no façade
+`register-epoch-listener!` export (retired rf2-9flalp). It fires
+post-settle, so it observes the async child epoch the `[:run-step n]`
+handler's `:dispatch` fx produces, not the `:step`-only parent epoch,
+rather than calling `focus!` synchronously in the event handler. A
+focus-pinning host that wants "show me the result of what I just
+dispatched" follows the same post-settle-listener shape.
 
 ## State isolation (Option-C frame-provider)
 
@@ -503,7 +505,7 @@ the render frame) — never a literal and never a bare global
 `rf/dispatch`. For a deeply-fanned tree of plain `defn` renderers (e.g.
 the Trace / Epoch / Machine panels), the canonical idiom is a
 **render-time `(rf/current-frame-id)` capture** in each leaf renderer
-(the helper runs inside the panel's `reg-view` render, so
+(the helper runs inside the panel's `defview` render, so
 `current-frame-id` resolves through the React-context tier), passed as a
 per-call `{:frame frame}` opt — cleaner than threading a `dispatch-fn`
 through every intermediate fn. For ops that fire after the dynamic frame
@@ -662,7 +664,10 @@ alternative is worse:
   §Parameterized shell frame-id; a guard rejects regressions and its
   `pending-migration` allowlist is empty.
 
-`shell-view-mode-of` is an EXAMPLE OF THIS SHAPE rather than an outstanding
+`shell-view-mode-of` — a PRIVATE helper in the mount test namespace
+(`tools/xray/test/day8/re_frame2_xray/mount_cljs_test.cljs`; it reads 0 under
+`tools/xray/src`, so it is no part of the mount surface a host meets) — is an
+EXAMPLE OF THIS SHAPE rather than an outstanding
 debt: the root swap re-derived its positional `[2 1]` index into a walk for
 the `shell/ShellView` head, and the only surviving `[2 1]` under `tools/xray`
 is inside the docstring explaining what it used to be.
@@ -767,10 +772,11 @@ in the tree today.
   `mount-<panel>!` aggregator surface is documented at
   [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract for
   internal use (shell composition, tests, future tools); it carries
-  `:frame` universally and `:instance-id` on `mount-app-db-diff!`
-  (rf2-2n8q), `mount-managed-fx!` (rf2-5ykm) and `mount-trace!`
-  (rf2-pua3) — the three panels whose view accepts it — and is not a
-  host-facing embed contract.
+  `:frame` universally and `:instance-id` on `mount-epoch-panel!`
+  (rf2-3ymg), `mount-app-db-diff!` (rf2-2n8q), `mount-trace!`
+  (rf2-pua3), `mount-machine-inspector!` (rf2-3ymg) and
+  `mount-managed-fx!` (rf2-5ykm) — the panels whose view accepts it —
+  and is not a host-facing embed contract.
 - **No two-way binding.** Beyond the `configure!` slots and the
   one-way **focus command** (§Host-facing focus API — the host pushes
   a focus *intent*, not arbitrary state, and Xray owns what it means),
@@ -790,7 +796,8 @@ v1.0 is **first-party panels only.** No plugin API, no panel registry.
 Third-party-extensible panels are a v2.0 design discussion.
 
 The current contract leaves room: every panel is already a
-self-contained component with a `Panel` reg-view + `install!` shape
+self-contained component with a `Panel` boundary (`rf.fresco/defview`)
++ `install!` shape
 (per [`Conventions.md`](./Conventions.md) §Panel facade + leaf split).
 A future plugin registry would `:require` a third-party namespace and
 register it under a new sidebar entry with the same `Panel` shape.
@@ -800,6 +807,21 @@ the embedding contract above is for the **canonical first-party
 shell**, not for any future third-party kind.
 
 ## Vision — Story ↔ Xray preset round-tripping
+
+> **UNBUILT, AND THE XRAY HALF OF ITS BASE WAS REMOVED.** This section and
+> the share-URL one below it are recorded design intent, not contract, and
+> they are NOT merely unimplemented — the Xray surface they were written
+> over has since been deleted. rf2-nugvv (2026-06-04) removed the whole
+> Xray share surface (`share.cljs`, its cascade-export and its on-load
+> restore), which is the same removal §Parameterized shell frame-id notes
+> in passing. Neither `{:xray/preset …}` nor `:pinned-dispatch-id` names a
+> live slot: each reads ZERO across the tree outside this page. The STORY
+> half does still ship — `variant-share-url` in
+> `tools/story/src/re_frame/story/share.cljc` — but nothing in Story reads
+> any `:xray/*` key, so both halves of the round-trip would have to be
+> built, not just re-wired. Read what follows as an idea kept on the record
+> to be weighed on its merits, never as a roadmap resting on standing
+> infrastructure.
 
 **Bug class:** "I built a Story variant that captures a specific
 debugging posture (filters set, tab selected, pinned epoch); when
