@@ -73,6 +73,21 @@
                       :mode        :retro
                       :frame       nil})}))
 
+;; rf2-c4abp — the PINNED-NO-EPOCH focus: the operator selected an event
+;; bundle that settled no epoch, so `spine/epoch-id-for-event-bundle`
+;; stamped `:epoch-id` nil while the pinned `:dispatch-id` survives. Seeded
+;; directly (same route as the evicted pin above) so the state is
+;; deterministic rather than dependent on which bundles happen to be in the
+;; ring. Registered ABOVE the fixture form for the rf2-h1vqa4 reason given
+;; there.
+(rf/reg-event
+  :day8.re-frame2-xray.panels.trace-view-cljs-test/seed-no-epoch-focus
+  (fn [{:keys [db]} _event]
+    {:db (assoc db :focus {:dispatch-id 999
+                      :epoch-id    nil
+                      :mode        :retro
+                      :frame       nil})}))
+
 (use-fixtures :each
   ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the inline
   ;; `make-reset-runtime-fixture` + `reset-all!` init into one owner:
@@ -642,6 +657,93 @@
         (is (= :epoch-evicted (:empty-kind feed)))
         (is (some? (find-by-testid tree "rf-xray-trace-empty-epoch-evicted")))
         (is (nil? (find-by-testid tree "rf-xray-trace-feed")))))))
+
+(deftest empty-state-no-epoch-renders-for-pinned-bundle-that-settled-nothing
+  (testing "rf2-c4abp / rf2-y8doi.19 — the operator pinned an event bundle
+            that settled NO epoch, so focus carries a :dispatch-id with a
+            nil :epoch-id. That is shape-identical to the cold-start UNSET
+            focus rf2-h0120's head-fallback serves, so reading :epoch-id
+            alone answered the HEAD: the Trace tab painted a complete,
+            plausible domino trail belonging to a DIFFERENT event under the
+            operator's selection, with nothing on screen saying so.
+
+            The feed must instead report :no-epoch and the panel must show
+            the cause-neutral empty state — the same line the Epoch panel
+            landed in rf2-y8doi.19, because the resolver cannot tell a
+            refusal from a mid-build bundle from an aged-out epoch from an
+            :ungrouped pin, and naming any one of them would be a fresh
+            falsehood on the other three."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      ;; A REAL epoch survives in the ring, and it carries rows. That is what
+      ;; makes this row discriminating: head-fallback has something to fall
+      ;; back TO, so the pre-fix failure is visible as epoch 1's rows rather
+      ;; than as an empty feed that happens to look right.
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-trace {:id 1 :op-type :rf.event
+                               :operation :rf.event/dispatched :dispatch-id 11})
+                    (mk-trace {:id 2 :op-type :rf.fx :operation :rf.fx/handled})])])
+      (rf/dispatch-sync
+        [:day8.re-frame2-xray.panels.trace-view-cljs-test/seed-no-epoch-focus])
+      (let [focus @(rf/subscribe [:rf.xray/focus])]
+        ;; Setup assertion — if `compose-focus` ever re-derived either slot
+        ;; this row would pass vacuously against a focus that is not the one
+        ;; under test.
+        (is (= 999 (:dispatch-id focus))
+            (str "test setup: the pinned :dispatch-id must survive composition. "
+                 "focus: " (pr-str focus)))
+        (is (nil? (:epoch-id focus))
+            (str "test setup: :epoch-id must stay nil — that nil beside a "
+                 "pinned :dispatch-id IS the state under test. focus: "
+                 (pr-str focus))))
+      (let [feed @(rf/subscribe [:rf.xray/trace-feed])
+            tree (rendered-tree)]
+        (is (= :no-epoch (:empty-kind feed))
+            (str "the feed must classify a pinned bundle that settled no "
+                 "epoch as :no-epoch. feed: "
+                 (pr-str (select-keys feed [:empty-kind :epoch-id :total]))))
+        (is (= [] (:rows feed))
+            "Trace projected the HEAD epoch's rows under a selection that is not that epoch's")
+        (is (nil? (:epoch-id feed))
+            "the feed leaked the head epoch's id for a focus that pins no epoch")
+        (is (some? (find-by-testid tree "rf-xray-trace-empty-no-epoch"))
+            "the panel must render the cause-neutral :no-epoch empty state")
+        (is (nil? (find-by-testid tree "rf-xray-trace-feed"))
+            "no arc may render for a selection that settled no epoch")))))
+
+(deftest trace-feed-empty-states-reject-only-the-pinned-no-epoch-shape
+  (testing "rf2-c4abp POSITIVE CONTROL — the discriminator must change
+            NOTHING else. An UNSET focus over a non-empty ring still
+            head-falls-back to the head epoch's rows (rf2-h0120), and an
+            ordinary selected epoch still projects its own. Without this row
+            the fix could pass by emptying the panel outright."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch 1 11
+                   [(mk-trace {:id 1 :op-type :rf.event
+                               :operation :rf.event/dispatched :dispatch-id 11})])
+         (mk-epoch 2 22
+                   [(mk-trace {:id 2 :op-type :rf.event
+                               :operation :rf.event/dispatched :dispatch-id 22})
+                    (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled})])])
+      ;; No focus dispatched at all — the cold-start head-fallback case.
+      (let [feed @(rf/subscribe [:rf.xray/trace-feed])]
+        (is (nil? (:empty-kind feed))
+            (str "an unset focus must still resolve the HEAD epoch, not "
+                 ":no-epoch. feed: "
+                 (pr-str (select-keys feed [:empty-kind :epoch-id :total]))))
+        (is (= 2 (:epoch-id feed)) "head-fallback must resolve the newest epoch")
+        (is (= #{2 3} (set (map :id (:rows feed))))
+            "head-fallback must project the head epoch's rows"))
+      ;; An ordinary selection is likewise untouched.
+      (focus! 11)
+      (let [feed @(rf/subscribe [:rf.xray/trace-feed])]
+        (is (nil? (:empty-kind feed))
+            "an ordinary selected epoch must not be classified :no-epoch")
+        (is (= 1 (:epoch-id feed)))
+        (is (= #{1} (set (map :id (:rows feed)))))))))
 
 ;; ---- (4) focused-epoch scope (refocus) ----------------------------------
 
