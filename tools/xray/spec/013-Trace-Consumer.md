@@ -193,10 +193,22 @@ origin. The two gates are genuinely symmetric — the listener gate
 keeps sensitive events out of the secondary ring + counter path; the
 read gate keeps retained-in-per-frame-ring sensitive events out of
 every downstream surface (`:trace-buffer`, L2, the trace panel, the
-app-db diff, the cascade export, and the MCP/snapshot surface). The
-read gate covers the steady-state read while the profile redacts;
+cascade export, and the MCP/snapshot surface). The read gate covers
+the steady-state read while the profile redacts;
 the [retroactive scrub](#retroactive-scrub-on-profile-narrowing) covers
 the reveal → redact narrowing by clearing the rings wholesale.
+
+**The app-db diff — the App-DB tab — is NOT one of them** (rf2-mg4u3).
+It reads no trace events at all: it renders the focused
+`:rf/epoch-record`'s `:db-after` / `:db-before` plus the
+`:frame-state-*` runtime partition, so its gates are the EPOCH path
+below (`epoch/redact-history`, which drops the whole record) and the
+render-side `local-render/local-render-value` egress projection for
+the declared-sensitive app-db paths `redact-history` explicitly
+cannot see. It was listed above until rf2-mg4u3; the only route it
+ever had to a trace event was `(:trace-events epoch-record)` in the
+path-click walker rf2-y8doi.29 deleted — the EPOCH path, never this
+one.
 
 Xray has no second, seam-side trace reader. The `get-trace-buffer` /
 `get-issues` accessors that once read the per-frame rings directly —
