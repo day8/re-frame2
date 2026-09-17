@@ -4040,7 +4040,7 @@
             `:epoch-id` from its `:dispatch-id`: looks up the supplied
             parent-dispatch-id in a precomputed
             `{dispatch-id → epoch-id}` index (rf2-x25e0; built once
-            per render via `dispatch-id->epoch-id-index`), returning
+            per render via `parent-epoch-index`), returning
             the matched record's `:epoch-id`. The view layer uses
             this to wire the `from fx · parent epoch #N` chrome on
             `:fx-dispatch` / `:fx-dispatch-later` DISPATCH steps."
@@ -4048,7 +4048,7 @@
                    {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}
                    {:epoch-id 43 :dispatch-id 9002 :trigger-event [:child]
                     :parent-dispatch-id 9001}]
-          index   (proj/dispatch-id->epoch-id-index history)]
+          index   (proj/parent-epoch-index history [9000 9001 9002])]
       (is (= 41 (proj/find-parent-epoch index 9000))
           "matches the first-class :dispatch-id slot")
       (is (= 42 (proj/find-parent-epoch index 9001))
@@ -4062,8 +4062,8 @@
       (is (nil? (proj/find-parent-epoch {} 9001))
           "empty index → nil"))))
 
-(deftest dispatch-id->epoch-id-index-test
-  (testing "rf2-x25e0 — `dispatch-id->epoch-id-index` builds the
+(deftest parent-epoch-index-test
+  (testing "rf2-x25e0 — `parent-epoch-index` builds the
             O(1) lookup map the view threads through `ctx`. Each
             record contributes via its first-class `:dispatch-id`
             slot (rf2-rly4a) AND via `dispatch-id-of-epoch`'s trace-
@@ -4072,16 +4072,87 @@
                    {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}
                    {:epoch-id 43 :dispatch-id 9002 :trigger-event [:child]
                     :parent-dispatch-id 9001}]
-          index   (proj/dispatch-id->epoch-id-index history)]
+          index   (proj/parent-epoch-index history [9000 9001 9002])]
       (is (= 41 (get index 9000)))
       (is (= 42 (get index 9001)))
       (is (= 43 (get index 9002)))
       (is (nil? (get index 99999))
           "absent key → nil")
-      (is (= {} (proj/dispatch-id->epoch-id-index []))
+      (is (= {} (proj/parent-epoch-index [] [9000]))
           "empty history → empty index")
-      (is (= {} (proj/dispatch-id->epoch-id-index nil))
-          "nil history → empty index"))))
+      (is (= {} (proj/parent-epoch-index nil [9000]))
+          "nil history → empty index")))
+
+  ;; rf2-y8doi.19 — the narrowing, and why it exists. The index is a SUB
+  ;; value now, and the whole-ring form it replaced gained an entry on
+  ;; every settled host event, so the panel reading it re-rendered on
+  ;; every host event however long the operator had been pinned to one
+  ;; epoch. `=`-equality across a settle is the property that stops it
+  ;; (spec/006 §Invalidation algorithm), so it is asserted here rather
+  ;; than left to be inferred from the narrowing.
+  (testing "rf2-y8doi.19 — the index carries ONLY the requested ids, and
+            is `=` across a settle that appends an unrelated epoch"
+    (let [history  [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}
+                    {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}]
+          settled  (conj history {:epoch-id 43 :dispatch-id 9002
+                                  :trigger-event [:unrelated]})
+          before   (proj/parent-epoch-index history [9001])
+          after    (proj/parent-epoch-index settled [9001])]
+      (is (= {9001 42} before)
+          "only the requested id — the other two records contribute nothing")
+      (is (= before after)
+          "a settle that appends an unrelated epoch leaves the narrow index
+           `=`, so the substrate's propagation collapse stops the re-render
+           there. The whole-ring form this replaced would have differed by
+           the new entry every single time.")
+      ;; The control, and it runs the other way: the SAME two histories
+      ;; DO differ once the new record is one the cascade asked about, so
+      ;; the equality above is the narrowing working and not the index
+      ;; being inert.
+      (is (not= (proj/parent-epoch-index history [9001 9002])
+                (proj/parent-epoch-index settled [9001 9002]))
+          "asking about the newly-settled id DOES move the index")))
+
+  (testing "rf2-y8doi.19 — an empty request answers `{}` without consulting
+            the ring, which is the common parentless cascade"
+    (is (= {} (proj/parent-epoch-index
+                [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}]
+                [])))
+    (is (= {} (proj/parent-epoch-index
+                [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}]
+                nil)))))
+
+(deftest parent-dispatch-ids-test
+  (testing "rf2-y8doi.19 — `parent-dispatch-ids` reads the DISPATCH step's
+            `:source-enrichment :parent-dispatch-id`, de-duplicates, and
+            answers a vector in cascade order. It is the query arg of the
+            `:rf.xray.epoch/parent-epoch-index` sub, and the sub cache is
+            value-keyed, so two renders of one cascade must produce an `=`
+            vector or they miss the cache."
+    (is (= [] (proj/parent-dispatch-ids []))
+        "no steps → no ids")
+    (is (= [] (proj/parent-dispatch-ids
+                [{:step :dispatch :badge :DISPATCH :source :ui}]))
+        "a parentless DISPATCH step contributes nothing")
+    (is (= [9001] (proj/parent-dispatch-ids
+                    [{:step :dispatch :badge :DISPATCH :source :fx-dispatch
+                      :source-enrichment {:parent-dispatch-id 9001}}
+                     {:step :handler :badge :HANDLER}]))
+        "the one parent id the cascade carries")
+    (is (= [9001] (proj/parent-dispatch-ids
+                    [{:step :dispatch :source-enrichment {:parent-dispatch-id 9001}}
+                     {:step :dispatch :source-enrichment {:parent-dispatch-id 9001}}]))
+        "de-duplicated")
+    (is (= [9001 9002] (proj/parent-dispatch-ids
+                         [{:step :dispatch :source-enrichment {:parent-dispatch-id 9001}}
+                          {:step :dispatch :source-enrichment {:parent-dispatch-id 9002}}]))
+        "cascade order preserved")
+    ;; Determinism is the whole contract here, so pin it directly rather
+    ;; than trusting that two reads of one vector look alike.
+    (let [steps [{:step :dispatch :source-enrichment {:parent-dispatch-id 9002}}
+                 {:step :dispatch :source-enrichment {:parent-dispatch-id 9001}}]]
+      (is (= (proj/parent-dispatch-ids steps) (proj/parent-dispatch-ids steps))
+          "same steps → `=` vector, so the sub cache hits across renders"))))
 
 (deftest project-attaches-app-db-violation-to-fx-db-row-test
   (testing "rf2-8resu / rf2-kt6js / rf2-j630b — top-level `project`
