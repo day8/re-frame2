@@ -281,22 +281,44 @@ run-to-completion drain).
 ### `:loaders-complete-when` default behaviour
 
 Variant body may include an optional `:loaders-complete-when` event
-predicate. Default behaviour:
+predicate. The runtime dispatch-syncs every `:loaders` event in turn —
+re-frame's run-to-completion drain settles before each `dispatch-sync`
+returns — and then evaluates the predicate **exactly once**, against
+the frame's app-db and the dispatched-events tape as they stand at
+that moment.
 
-- HTTP-flavoured fx (request → success/failure dispatch) is
-  "complete" when the response event has been dispatch-synced.
-- Long-lived fx (`:websocket`, `:interval`, `:firestore`, etc.) is
-  "complete" when the **first message arrives** (i.e. the first event
-  the fx dispatches into the frame is received). After that the loader
-  is considered complete and `:setup` proceeds.
-- Authors override either default via `:loaders-complete-when` — a
-  vector-of-event-vectors or a registered predicate-event id; the
-  predicate is invoked after each event drain settles; truthy result
-  means loaders-complete.
+The default, when the slot is absent or `nil`, returns **true**: once
+the `:loaders` events have dispatch-synced there is nothing left in
+flight, so the simple synchronous case (the 99% path) completes
+without the author writing anything.
 
-The default predicate is "first non-loader event seen by the frame, or
-loader's drain settles with no in-flight fx, whichever comes first."
-Authors override via the variant body. Stage 2 macro validates that
+The override forms are:
+
+- **a registered predicate-event id** — the runtime dispatch-syncs it,
+  then reads `[:rf.story/loaders-complete?]` from the frame's app-db.
+- **a vector of event vectors** — true when every listed event is
+  already on the frame's dispatched-events tape.
+- **a function** — called with the frame's app-db; its return value is
+  the result.
+
+A falsy result is not a retry and not a wait. It is the
+**Never-complete** failure mode (see
+[§Loader failure modes](#loader-failure-modes) below): the runtime
+records `:rf.error/loader-incomplete` and parks the lifecycle at
+`:loading`.
+
+**The runtime does not wait for an asynchronous first message or
+response.** It does not poll, does not re-evaluate on a later drain,
+and has no wall-clock deadline — the predicate is read once, and
+whatever is true at that moment decides the run. A loader whose
+readiness arrives asynchronously must therefore make that readiness
+observable *synchronously, inside the loader drain*. The supported
+route is to stub the effect with the `force-fx-stub` decorator (see
+[`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub`), so
+the response event dispatches within the drain; a variant that waits
+on the real network instead records `:rf.error/loader-incomplete`.
+
+Stage 2 macro validates that
 `:loaders-complete-when` resolves to a registered event id or is a
 literal data form (vector of event vectors). See
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
@@ -318,15 +340,17 @@ play sequence never runs; `(run-variant)` resolves with
 | **Reject** — loader emits a typed rejection | A `:loaders` event handler throws an `ex-info` whose `ex-data` carries a `:kind :loader-rejection` (or equivalent author-chosen marker). Same record-and-park path as Throw; the `:data` slot preserves the rejection's `ex-data` so test diagnostics can assert on it. | Machine transitions to `:error`. | Same shape as Throw, with `:error {:data {:kind :loader-rejection ...}}` round-tripped through `re-frame.core/project-egress` (per §Privacy above). | `:story.counter-matrix/loader-rejects` (handler `(throw (ex-info ... {:kind :loader-rejection}))`) |
 | **Never-complete** — loader drain settles but predicate stays false | `:loaders-complete-when` is a predicate event-id whose handler keeps `[:rf.story/loaders-complete?]` `false` indefinitely (or returns a vector-of-event-vectors that the runtime never observes drain). | Machine parks at `:loading`. The runtime records a deterministic assertion when the loader cascade has no further events to dispatch and the predicate is still false. | `{:assertion :rf.error/loader-incomplete :phase :phase-1-loaders :passed? false}` | `:story.counter-matrix/loader-never-completes` (predicate `:counter/loader-never-ready?` assoc's `:rf.story/loaders-complete? false`) |
 
-**Async timeout.** There is no built-in wall-clock timeout for phase 1.
-A variant whose `:loaders-complete-when` predicate genuinely awaits an
-async event (websocket first message, HTTP response) waits as long as
-the underlying fx takes. Authors who want a deterministic deadline
-should write a `:loaders-complete-when` that combines their async
-predicate with a timeout event (e.g. `[[:my.fixture/ready?] [:my.fixture/timeout-after 5000]]`)
-and emit `:rf.error/loader-incomplete` from the timeout handler.
-**Story does not own this knob** — wall-clock is the host's call;
-deterministic test surfaces use the Never-complete path above instead.
+**Async timeout.** There is no built-in wall-clock timeout for phase 1,
+and under the one-shot check there is nothing for one to do. A variant
+whose `:loaders-complete-when` predicate depends on an async event
+(websocket first message, HTTP response) does not wait for it: the
+predicate is read once, immediately after the loader drain, and is
+simply falsy at that moment — which routes to the Never-complete row
+above. **Story does not own a wall-clock knob** — wall-clock is the
+host's call, and deterministic test surfaces get their determinism
+from the one-shot check itself, by making the loader's readiness
+land inside the drain (per §`:loaders-complete-when` default
+behaviour above).
 
 **Cancellation.** Cancelling a variant mid-load (sidebar navigation,
 hot-reload, `destroy-variant!`) tears down the variant's frame; the
@@ -430,7 +454,13 @@ await handler return values. Authors writing async loader work
 should:
 
 1. Use `:loaders-complete-when` (a predicate-event or vector-of-events)
-   to hold the lifecycle in `:loading` until the async work settles, and
+   to state the readiness condition — but note that it is evaluated
+   once, right after the loader drain. Work that has not settled by
+   then does not resume the run when it later does: the lifecycle
+   parks at `:loading` and the runtime records
+   `:rf.error/loader-incomplete` (see Never-complete below). To
+   exercise the settled state, stub the effect with `force-fx-stub`
+   so it resolves inside the drain, and
 2. Dispatch a follow-up event from the promise's `.catch` handler that
    either re-raises (taking the Throw route above) or records its own
    assertion via `:rf.assert/*`.
@@ -454,13 +484,13 @@ resolves with `:lifecycle :loading` and the assertion vector
 populated.
 
 No built-in wall-clock timeout. The runtime evaluates the predicate
-exactly once per loader-cascade settlement; it does NOT poll. Authors
-who want a deterministic deadline write a `:loaders-complete-when`
-that combines the async predicate with a timeout event
-(e.g. `[[:my.fixture/ready?] [:my.fixture/timeout-after 5000]]`) and
-have their timeout handler assoc `:rf.story/loaders-complete? false`
-into the variant frame's app-db. Story does not own wall-clock; the
-host's timeout fx + a custom predicate-event is the supported pattern.
+exactly once per loader-cascade settlement; it does NOT poll. A
+timeout event cannot add a deadline to that: to be observed it would
+have to fire before the predicate is read, which means firing inside
+the loader drain — at which point it is not a timeout. Story does not
+own wall-clock. A loader whose readiness is genuinely asynchronous is
+handled by making it synchronous within the drain (per
+§`:loaders-complete-when` default behaviour above), not by a deadline.
 
 **`:loaders-complete-when` interaction with errors.** When a loader
 THROWS (or REJECTS), `:loaders-complete-when` is NOT evaluated — the
@@ -530,6 +560,10 @@ torn-down frame and may either no-op or surface as
 
    (story/reg-variant :story.feed/live
      {:loaders [[:feed/subscribe]]
+      ;; Read ONCE, right after the loader drain: :feed/first-tick-received
+      ;; must already be on the tape by then — stub the socket fx with
+      ;; force-fx-stub so the first tick dispatches inside the drain.
+      ;; Against a real socket this records :rf.error/loader-incomplete.
       :loaders-complete-when [[:feed/first-tick-received]]
       :script [[:dispatch-sync [:rf.assert/path-equals [:feed :latest] :some/expected]]]})
    ```

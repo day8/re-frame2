@@ -79,6 +79,13 @@ kaocha's reporter, etc. See [`004-Assertions.md`](004-Assertions.md).
 
 ### §loaders-complete-when-predicate — `:loaders-complete-when`
 
+**Status (2026-09).** The default behaviour decided below was never
+implemented. The shipped runtime evaluates the predicate once,
+synchronously, after the loader events have drained, and its default
+returns true unconditionally; nothing waits for a first message. This
+section records the 2026-05-11 call — see **Implication.** for the
+contract the runtime actually has.
+
 **Decision.** Variant body may include an optional
 `:loaders-complete-when` event predicate. Default behaviour:
 
@@ -97,21 +104,35 @@ The default-plus-override design keeps simple cases simple and makes
 the long-lived case explicit.
 
 **Implication.** Stage 3 (runtime) implements the four-phase
-lifecycle with the loader-complete check after each loader's drain.
-The default predicate is "first non-loader event seen by the frame,
-or loader's drain settles with no in-flight fx, whichever comes
-first." Stage 2 macro validates that `:loaders-complete-when`
-resolves to a registered event id or is a literal data form (vector
-of event vectors). See [`002-Runtime.md`](002-Runtime.md).
+lifecycle, but the loader-complete check is **one-shot**, not
+after-each-drain: the runtime dispatch-syncs every `:loaders` event,
+then evaluates `:loaders-complete-when` exactly once, against the
+frame's app-db and the dispatched-events tape. The default predicate
+returns **true** unconditionally — the heuristic default decided
+above (first non-loader event seen, or the drain settling with no
+in-flight fx) was never built, and no part of the runtime waits for a
+long-lived fx's first message. A falsy override is not a wait: it is
+the Never-complete failure mode, which records
+`:rf.error/loader-incomplete` and parks the lifecycle at `:loading`.
+Stage 2 macro validates that `:loaders-complete-when` resolves to a
+registered event id or is a literal data form (vector of event
+vectors). See [`002-Runtime.md`](002-Runtime.md).
 
-**Open flag.** The default ("first non-loader event seen, or drain
-settles") is a heuristic; the override is the safety valve. There's
-a future world where the default misfires (e.g. a websocket's first
-message is a heartbeat that isn't semantically "the data is ready").
-The override exists for exactly that case; authors who hit it should
-file a Pattern doc, not work around it in the variant body.
+**Open flag.** This flag applies to the decided-but-unbuilt heuristic
+default, not to the shipped one: an always-true default cannot
+misfire on a websocket whose first message is a heartbeat that isn't
+semantically "the data is ready", because it never inspects the
+message. Were the heuristic ever built, the override would be the
+safety valve for exactly that case. Authors who hit a readiness
+problem under the shipped one-shot check should file a Pattern doc,
+not work around it in the variant body.
 
 ### §both-workspace-persistence — local + transit
+
+**Status (2026-09).** Neither half of the decision below has shipped.
+This section records the call as it was made on 2026-05-11; it does
+not describe the tool. See **Implication.** for what the shell
+actually does.
 
 **Decision.** Workspace layouts persist **both** ways:
 
@@ -129,11 +150,18 @@ deliberate-share edits need a durable artefact. Local-storage is
 "where am I right now"; transit-exported is "this is the team layout
 for Friday's review."
 
-**Implication.** The render shell wires the local-storage save on
-every layout change and adds the "Save layout" affordance.
-`tools.story.workspace.transit/workspace->edn` returns the serialised
-form. See [`003-Render-Shell.md`](003-Render-Shell.md) §Workspace
-persistence.
+**Implication.** Neither mechanism was built. The render shell wires
+no local-storage layout save and offers no "Save layout" affordance;
+what persists locally is chrome preference — rail widths, mode tabs,
+toolbar, viewport, background — and not layout. The registered
+`story/reg-workspace` body IS the layout, and
+`re-frame.story/workspace->edn` returns that registered body; there is
+no `tools.story.workspace.transit` namespace, and the share surface is
+the address bar. Nobody has asked for either mechanism, so this stays
+a recorded decision rather than a roadmap item — a Story user wanting
+drag-rearrangeable workspaces with save-as is what would turn it into
+feature work. See [`003-Render-Shell.md`](003-Render-Shell.md)
+§Workspace persistence.
 
 ### §DCE-dev-only — registration is dev-only
 
