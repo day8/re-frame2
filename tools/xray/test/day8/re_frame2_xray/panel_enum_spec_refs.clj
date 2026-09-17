@@ -10,12 +10,38 @@
   compile-time filesystem.
 
   THE MECHANISM. Mirrors `re-frame.api-manifest.cljs-publics/
-  emit-cljs-only-rows`: this macro slurps the Xray spec markdown on the
+  emit-cljs-only-rows`: this macro reads the Xray spec markdown on the
   JVM side at macro-expansion time and emits the extracted set of
   `mount-<panel>!` names as a literal into the calling ClojureScript.
   The value the guard reconciles is therefore pinned to the same
   committed spec the human reads, with no runtime filesystem dependency
   and no fragile cross-classpath `require` of the CLJS spec surface.
+
+  THE READ IS RECORDED, WHICH IS THE WHOLE POINT OF THE READER IT GOES
+  THROUGH (rf2-uttbj, repairing rf2-863tl). Inlining a file at
+  macro-expansion time by itself HIDES it from the build: a `.md` is not
+  an input the ClojureScript compiler tracks, so the cached consumer
+  holds no edge back to the bytes this macro froze. Correct a drifted
+  spec row and the incremental compile reports `1 compiled` while the
+  guard goes on reconciling the PREVIOUS expansion — a verdict over a
+  projection nobody re-read, and it was measured failing in both
+  directions (a stale RED that survived its own fix, and a stale GREEN
+  over a spec the tree no longer contained). Reading through
+  `re-frame.build.spec-resource/slurp-resource` instead records each
+  file's classpath path and last-modified against the compiling
+  namespace, and shadow-cljs re-checks both before reusing that
+  namespace's cache: edit the spec, the guard recompiles, no cold
+  rebuild and no ritual. So [[spec-files]] holds classpath RESOURCE
+  names, relative to the `tools/xray/spec` `:source-path` root
+  `implementation/shadow-cljs.edn` carries for exactly this.
+
+  That reader is SHARED rather than reimplemented here: resolving
+  shadow's own reader is a cold-load race that two independent resolvers
+  lose however carefully each one guards itself — see the reader's
+  namespace docstring. It has a ClojureScript lane and no other, so
+  [[emit-spec-mount-fn-names]] hands its `&env` down and any other
+  caller is refused rather than quietly reaching the tree by a second,
+  unrecorded route.
 
   SCOPE. The spec is prose-heavy; a bare-token sweep would be all
   false-positive. We scope to exactly the `mount-<panel>!` lexical
@@ -28,8 +54,7 @@
   A `mount-<panel>!` named in either file MUST be in the single-source
   enum, and every enum mount fn MUST be named in the spec — the guard
   enforces both directions."
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]))
+  (:require [re-frame.build.spec-resource :as spec-resource]))
 
 (def ^:private mount-fn-re
   "The `mount-<panel>!` reference shape (007-UX-IA §The mount-fn
@@ -52,44 +77,34 @@
   #{"mount-issues-ribbon!"})
 
 (def ^:private spec-files
-  "Repo-relative paths of the Xray spec files that enumerate the
-  mountable panel set. Both are read at macro-expansion time."
-  ["tools/xray/spec/007-UX-IA.md"
-   "tools/xray/spec/008-Embedding-Contract.md"])
-
-(defn- find-repo-root
-  "Walk up from the build's `user.dir` until a directory containing
-  `tools/xray/spec/007-UX-IA.md` resolves — robust whether shadow runs
-  from `implementation/` (the consolidated `:node-test` build) or from
-  the xray artefact dir. Throws an actionable error when not found."
-  []
-  (loop [dir (io/file (System/getProperty "user.dir"))]
-    (when (nil? dir)
-      (throw (ex-info (str "panel-enum spec-refs: could not locate "
-                           "tools/xray/spec/007-UX-IA.md walking up from "
-                           (System/getProperty "user.dir"))
-                      {})))
-    (if (.exists (io/file dir "tools" "xray" "spec" "007-UX-IA.md"))
-      dir
-      (recur (.getParentFile dir)))))
+  "The Xray spec files that enumerate the mountable panel set, as
+  classpath RESOURCE names relative to the `tools/xray/spec`
+  `:source-path` root. Both are read at macro-expansion time, and both
+  reads are recorded against the compiling namespace — see the
+  namespace docstring."
+  ["007-UX-IA.md"
+   "008-Embedding-Contract.md"])
 
 (defn- spec-mount-fn-names
-  "Read every spec file and return the SET of distinct `mount-<panel>!`
-  names referenced across them, minus the curated removed-name
-  allowlist (deliberate removal-note mentions)."
-  []
-  (let [root (find-repo-root)]
-    (->> spec-files
-         (mapcat (fn [rel]
-                   (let [f (apply io/file root (str/split rel #"/"))]
-                     (re-seq mount-fn-re (slurp f)))))
-         (remove known-removed-names)
-         (into #{}))))
+  "Read every spec file in the ClojureScript macro-expansion environment
+  `env` and return the SET of distinct `mount-<panel>!` names referenced
+  across them, minus the curated removed-name allowlist (deliberate
+  removal-note mentions)."
+  [env]
+  (->> spec-files
+       (mapcat (fn [resource]
+                 (re-seq mount-fn-re
+                         (spec-resource/slurp-resource env resource))))
+       (remove known-removed-names)
+       (into #{})))
 
 (defmacro emit-spec-mount-fn-names
   "Expand to a literal set of the `mount-<panel>!` names referenced in
   the Xray API spec (read at macro-expansion time). The set the
   panel-enum guard reconciles against the single-source enum + the live
-  facade vars."
+  facade vars.
+
+  Each file read is recorded against the calling namespace, so an edit
+  to either spec file recompiles this call site."
   []
-  (spec-mount-fn-names))
+  (spec-mount-fn-names &env))
