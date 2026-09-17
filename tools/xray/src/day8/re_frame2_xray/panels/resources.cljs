@@ -87,10 +87,12 @@
 
   ## The migration bridge
 
-  [[Panel-bridge]] is how a still-`reg-view` shell — and the standalone
-  `panels/mount-resources!` embed — mounts a boundary. It is MIGRATION
-  SCAFFOLDING with a defined end: when the shell is itself a Fresco tree,
-  the L4 registry takes [[Panel]] directly and the bridge goes."
+  [[Panel-bridge]] is how the L4 registry — and the standalone
+  `panels/mount-resources!` embed — mounts a boundary. IT IS NOT
+  SCAFFOLDING and it STAYS (rf2-lect, ruled option 2): the shell is a
+  Fresco tree now and the bridge stayed anyway, because the shell still
+  reaches the panel across an `as-child` seam and `panels/mount-resources!`
+  reaches it through `render-panel!`, which rf2-l1jm keeps ratom-family."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -1614,7 +1616,11 @@
      ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
      ;; component (a Fresco boundary) and the shell mounts `:panel` as a
      ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; goes when the shell is a Fresco tree.
+     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
+     ;; and the bridge stayed anyway: the shell still reaches the panel
+     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
+     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+     ;; callable `:panel`.
      :panel Panel-bridge})
 
   nil)

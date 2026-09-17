@@ -61,9 +61,12 @@
   carries `:key` in the row's own attribute map rather than as vector
   metadata, which is the spelling both substrates read.
 
-  `Panel-bridge` is how a still-`reg-view` shell mounts a boundary. It is
-  MIGRATION SCAFFOLDING with a defined end: when the shell itself is a
-  Fresco tree, the L4 registry takes `Panel` directly and the bridge goes."
+  `Panel-bridge` is how the L4 registry mounts a boundary. IT IS NOT
+  SCAFFOLDING and it STAYS (rf2-lect, ruled option 2): the shell is a
+  Fresco tree now and the bridge stayed anyway, because the shell still
+  reaches the panel across an `as-child` seam, so `[(:panel tab)]` is a
+  Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+  callable `:panel`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -267,9 +270,11 @@
 ;; and no props ABI — the three things the spike's Arm A needed and the
 ;; ruling counted against it.
 ;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
-;; Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and
-;; both defs below are deleted. Nothing else in the tree references them.
+;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
+;; The shell is a Fresco tree now and both defs stayed anyway: the shell
+;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
+;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+;; callable `:panel`. Nothing else in the tree references them.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
@@ -326,7 +331,11 @@
      ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
      ;; component (a Fresco boundary) and the shell mounts `:panel` as a
      ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; goes when the shell is a Fresco tree.
+     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
+     ;; and the bridge stayed anyway: the shell still reaches the panel
+     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
+     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+     ;; callable `:panel`.
      :panel Panel-bridge})
 
   nil)

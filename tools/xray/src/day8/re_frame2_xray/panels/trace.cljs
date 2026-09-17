@@ -1311,5 +1311,9 @@
      ;; rf2-fcy5 — `Panel-bridge`, not `Panel`. `Panel` is now a React
      ;; component (a Fresco boundary) and the shell mounts `:panel` as a
      ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; goes when the shell is a Fresco tree.
+     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
+     ;; and the bridge stayed anyway: the shell still reaches the panel
+     ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
+     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+     ;; callable `:panel`.
      :panel Panel-bridge}))
