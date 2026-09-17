@@ -88,8 +88,10 @@
 
   ## Why the aggregator pattern
 
-  Each panel facade already follows the canonical shape — public
-  `Panel` reg-view + `install!` (per `tools/xray/spec/Conventions.md`
+  Each panel facade already follows the canonical shape — the panel's
+  root view is an `rf.fresco/defview` boundary, declared beside the
+  `rf.fresco/as-component` bridge a Reagent parent mounts it through,
+  plus `install!` (per `tools/xray/spec/Conventions.md`
   §Panel facade + leaf split). The mount-fns here are thin wrappers:
   they delegate the chrome (frame-provider, registry install, adapter
   render) to one place so every panel inherits the same contract by
