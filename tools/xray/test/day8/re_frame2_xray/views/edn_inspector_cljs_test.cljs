@@ -36,8 +36,19 @@
 ;; Fresh re-frame runtime per test so the click-to-toggle integration
 ;; test can fire `dispatch-sync` against the registered event handlers
 ;; end-to-end without leaking state between cases.
+;;
+;; `:init-fn` calls the widget's own `install!` on the just-reset
+;; registrar. Before rf2-y8doi.16 the `:rf.xray.edn-inspector/*` subs and
+;; events registered at ns-LOAD, so requiring `ei` was enough to put them
+;; in this suite's baseline. They now register from `install!` — reached
+;; in production from `registry/register-xray-handlers!` — so that a
+;; release bundle merely carrying the preload's bytes cannot mutate the
+;; host's process-global registrar. This suite installs the widget alone
+;; rather than pulling the whole orchestrator in for three event ids.
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn [] (ei/install!))}))
 
 ;; ---- helpers -------------------------------------------------------------
 

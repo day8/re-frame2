@@ -354,20 +354,24 @@
   real DOM."
   :rf.xray.edn-inspector/widths)
 
-(rf/reg-sub widths-slot
-  (fn [db _] (get db widths-slot)))
+(defn- install-widths!
+  "Register the measured-width slot's sub + events. Called from `install!`
+  below, never at ns-load — see `install!` for why."
+  []
+  (rf/reg-sub widths-slot
+    (fn [db _] (get db widths-slot)))
 
-(rf/reg-event :rf.xray.edn-inspector/set-width
-  (fn [{:keys [db]} [_ mount-id width-px]]
-    {:db (if (and (string? mount-id) (number? width-px) (pos? width-px))
-      (assoc-in db [widths-slot mount-id] (long width-px))
-      db)}))
+  (rf/reg-event :rf.xray.edn-inspector/set-width
+    (fn [{:keys [db]} [_ mount-id width-px]]
+      {:db (if (and (string? mount-id) (number? width-px) (pos? width-px))
+        (assoc-in db [widths-slot mount-id] (long width-px))
+        db)}))
 
-(rf/reg-event :rf.xray.edn-inspector/clear-width
-  (fn [{:keys [db]} [_ mount-id]]
-    {:db (if (and (string? mount-id) (some-> db (get widths-slot) (contains? mount-id)))
-      (update db widths-slot dissoc mount-id)
-      db)}))
+  (rf/reg-event :rf.xray.edn-inspector/clear-width
+    (fn [{:keys [db]} [_ mount-id]]
+      {:db (if (and (string? mount-id) (some-> db (get widths-slot) (contains? mount-id)))
+        (update db widths-slot dissoc mount-id)
+        db)})))
 
 ;; =========================================================================
 ;; zoom-into-node + breadcrumb navigation
@@ -410,40 +414,73 @@
   [panel-id mount-id]
   [panel-id mount-id])
 
-(rf/reg-sub zoom-slot
-  (fn [db _] (get db zoom-slot)))
+(defn- install-zoom!
+  "Register the zoom slot's sub + events. Called from `install!` below,
+  never at ns-load — see `install!` for why."
+  []
+  (rf/reg-sub zoom-slot
+    (fn [db _] (get db zoom-slot)))
 
-(rf/reg-event :rf.xray.edn-inspector/zoom-to
-  ;; Sets the zoom path for `[panel-id mount-id]` to `path`. An empty /
-  ;; nil path clears the zoom (renders the full tree).
-  (fn [{:keys [db]} [_ panel-id mount-id path]]
-    {:db (let [k (zoom-key panel-id mount-id)
-          p (vec path)]
-      (if (seq p)
-        (assoc-in db [zoom-slot k] p)
-        (update db zoom-slot dissoc k)))}))
+  (rf/reg-event :rf.xray.edn-inspector/zoom-to
+    ;; Sets the zoom path for `[panel-id mount-id]` to `path`. An empty /
+    ;; nil path clears the zoom (renders the full tree).
+    (fn [{:keys [db]} [_ panel-id mount-id path]]
+      {:db (let [k (zoom-key panel-id mount-id)
+            p (vec path)]
+        (if (seq p)
+          (assoc-in db [zoom-slot k] p)
+          (update db zoom-slot dissoc k)))}))
 
-(rf/reg-event :rf.xray.edn-inspector/zoom-up
-  ;; Pop one segment off the zoom path. No-op when no zoom is active.
-  (fn [{:keys [db]} [_ panel-id mount-id]]
-    {:db (let [k        (zoom-key panel-id mount-id)
-          current  (get-in db [zoom-slot k])
-          popped   (when (seq current) (vec (butlast current)))]
-      (cond
-        (nil? current)   db
-        (empty? popped)  (update db zoom-slot dissoc k)
-        :else            (assoc-in db [zoom-slot k] popped)))}))
+  (rf/reg-event :rf.xray.edn-inspector/zoom-up
+    ;; Pop one segment off the zoom path. No-op when no zoom is active.
+    (fn [{:keys [db]} [_ panel-id mount-id]]
+      {:db (let [k        (zoom-key panel-id mount-id)
+            current  (get-in db [zoom-slot k])
+            popped   (when (seq current) (vec (butlast current)))]
+        (cond
+          (nil? current)   db
+          (empty? popped)  (update db zoom-slot dissoc k)
+          :else            (assoc-in db [zoom-slot k] popped)))}))
 
-(rf/reg-event :rf.xray.edn-inspector/zoom-reset
-  ;; Clear the zoom for a specific mount. With no args (mount-unspecified)
-  ;; clear the entire slot — used by the panel-level reset affordance.
-  (fn [{:keys [db]} [_ panel-id mount-id]]
-    {:db (cond
-      (and panel-id mount-id)
-      (update db zoom-slot dissoc (zoom-key panel-id mount-id))
+  (rf/reg-event :rf.xray.edn-inspector/zoom-reset
+    ;; Clear the zoom for a specific mount. With no args (mount-unspecified)
+    ;; clear the entire slot — used by the panel-level reset affordance.
+    (fn [{:keys [db]} [_ panel-id mount-id]]
+      {:db (cond
+        (and panel-id mount-id)
+        (update db zoom-slot dissoc (zoom-key panel-id mount-id))
 
-      :else
-      (dissoc db zoom-slot))}))
+        :else
+        (dissoc db zoom-slot))})))
+
+;; ---- install! -------------------------------------------------------------
+
+(defn install!
+  "Install the widget's whole `:rf.xray.edn-inspector/*` registrar surface —
+  the expansion slot (owned by `views/edn-inspector-state`), the measured-
+  width slot and the zoom slot. Called from
+  `registry/register-xray-handlers!`, which is the ONLY caller.
+
+  Why a fn and not eleven top-level forms (rf2-y8doi.16): the preload's
+  foundation block is wrapped in `(when rf.interop/debug-enabled? …)` so
+  Closure folds it away under `:advanced` + `goog.DEBUG=false` — the
+  promise `tools/xray/spec/API.md` §Installation API,
+  `tools/xray/spec/011-Launch-Modes.md` §Production posture,
+  `tools/xray/README.md` and `spec/Tool-Pair.md` §The Xray renderer all
+  make. A `:require`d namespace's top-level forms sit OUTSIDE that block:
+  they run at ns-load unconditionally, and a registrar write is a side
+  effect no dead-code eliminator may remove. Left at the top level these
+  registrations therefore mutated the HOST's process-global registrar in
+  any bundle that merely carried the preload's bytes — live production
+  registrar mutation, which is what made those four promises false.
+
+  `registry_cljs_test.cljs` pins the property both ways: nothing in the
+  `rf.xray.edn-inspector` namespace is registered before this runs, and
+  the whole documented surface is registered after."
+  []
+  (state/install!)
+  (install-widths!)
+  (install-zoom!))
 
 (defn resolve-zoom-path
   "Pure projection — given the per-render zoom map, return the zoom
