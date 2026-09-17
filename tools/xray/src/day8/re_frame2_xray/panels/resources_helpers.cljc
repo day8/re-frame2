@@ -7,7 +7,7 @@
   Same contract as every other panel's `*_helpers.cljc`: the projection
   algebra (registry rows, live-instance rows, work-ledger rows, the
   route/resource graph, the lifecycle timeline, the invalidation graph,
-  the cache-growth view, and the two lints) is PURE data — no substrate,
+  the cache-growth view, and the lints) is PURE data — no substrate,
   no Reagent/UIx, no DOM. Keeping it here means the algebra runs
   under the JVM unit-test target and the CLJS view (`resources.cljs`)
   stays a thin hiccup renderer over these projections.
@@ -1902,7 +1902,7 @@
      :live-work         (count (remove :terminal? work-rows))}))
 
 ;; ---------------------------------------------------------------------------
-;; Lints (Spec 016 §Xray and AI tooling — the two lints + the audit list).
+;; Lints (Spec 016 §Xray and AI tooling — the lints + the audit list).
 ;; ---------------------------------------------------------------------------
 
 (defn global-scope-audit
