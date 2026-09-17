@@ -16,7 +16,7 @@ Make the five canonical questions ([`000-Vision.md`](000-Vision.md) §Why it exi
 
 1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (`Event History` label + nav cluster + `+ filter` + frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (filter pills + hidden-by-filters count). The events ribbon is hidden by default and animates open only once the first filter exists (rf2-pjjwh). The focus-dimension feature (focus button / focus-chip / per-row focus gutter / out-of-focus dimming) and the `Clear Filters` button were RETIRED per rf2-pjjwh — they were not in the Figma surface; row click still SELECTS the cascade and drives every panel.
 2. An **event list** that is the orienting timeline + canonical scrubber.
-3. A **tab bar** of 10 surfaces (Epoch / App-db / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco — the Issues tab was removed per rf2-gbz39 Option (c); the Resources / Graph / Frames tabs are the cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013, and Fresco is the evidence lens added per rf2-hic-023).
+3. A **tab bar** of 10 surfaces (Epoch / App-db / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco — the Issues tab was removed per rf2-gbz39 Option (c); the Resources / Graph / Frames tabs are the cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0023, and Fresco is the evidence lens added per rf2-hic-023).
 4. A **detail panel** whose content is always the current tab's projection of the focused event.
 
 Every selection event passes through a single spine sub — `:rf.xray/focus` — so every panel reading the spine rebinds atomically. No panel reads `(peek history)`; no panel carries its own `:selected-*-id` slot.
