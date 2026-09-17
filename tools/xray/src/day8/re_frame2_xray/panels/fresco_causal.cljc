@@ -133,6 +133,32 @@
                       :when (some #(= dispatch-id (:dispatch-id %)) bundles)]
                   fid))))
 
+(defn walked-dispatch
+  "Which dispatch this slice walks: the SPINE'S FOCUSED one when the ring
+  still holds it, else [[newest-dispatch]].
+
+  `focus` is `:rf.xray/focus`, Spec 018 §6's single selection axis. Its
+  *Atomicity contract* is the ruling and needs no new one: *No panel
+  maintains its own selection state; no panel reads `(peek history)`*, and
+  its per-layer table binds L4 detail content to `:dispatch-id`,
+  `:epoch-id` and `:frame`. [[newest-dispatch]] is `(peek history)` under
+  another name — which made the ONE view whose job is *one dispatch,
+  walked* the only Dynamic surface that moved under the reader on every
+  application dispatch. A developer who clicked an event on the spine and
+  opened Causal to walk it got whatever had happened since.
+
+  **Retention is checked through [[bundle-for]] rather than beside it**,
+  so *the ring holds this dispatch* has one definition here: a focus
+  pinned to a dispatch the ring has since evicted falls back to the newest
+  instead of drawing a slice whose every link is capped. A focus is a
+  selection, not a claim about the window, and this is the one place the
+  two meet."
+  [windows focus]
+  (let [did (:dispatch-id focus)]
+    (if (and (some? did) (bundle-for windows did))
+      did
+      (newest-dispatch windows))))
+
 (defn- explanation-for
   "The `explain-render` row for `boundary-key`, or nil."
   [explain boundary-key]
@@ -293,8 +319,29 @@
                           "running, so counting one as a recompute would "
                           "report work that did not happen."))]))})))
 
+(defn- recomputed-overlap
+  "How many of link 3's moved reads name a subscription link 2 said this
+  dispatch recomputed — or nil when there is nothing to count against.
+
+  **An OVERLAP, never a join, and the sentence it feeds has to say so.**
+  Two grains meet here and neither can be converted to the other: link 2
+  names REGISTRATIONS (Spec 009's ring tags `:rf.sub/id` and no query)
+  while link 3 names CELLS. So a read whose registration recomputed may
+  not be the cell that recomputed, and the count is an upper bound on an
+  association that has no id behind it either way — which is the 2→3 join
+  this namespace's docstring is built around.
+
+  It earns its place anyway: a slice whose recompute roster and whose
+  moved reads share nothing at all is a different situation from one where
+  they coincide exactly, and before this the reader had two adjacent lists
+  and no statement about their relationship in either direction."
+  [recomputed latest-reads]
+  (when (and (coll? recomputed) (coll? latest-reads))
+    (let [ids (set recomputed)]
+      (count (filter #(contains? ids (:sub-id %)) latest-reads)))))
+
 (defn- link-values
-  [ex]
+  [ex recomputed]
   (cond
     (nil? ex)
     {:id :values-changed :ordinal 3 :label "values changed"
@@ -334,9 +381,18 @@
                         "are printed adjacent because the chain runs that way, "
                         "not because this slice can show one caused the other. "
                         "Leads live on the Why view.")}
-     :says  (str "every commit re-stamps a moved cell's epoch, so the reads at "
-                 "this boundary's highest epoch are the ones whose values "
-                 "moved most recently — read off the table.")}))
+     :says  (let [reads   (:latest-reads ex)
+                  overlap (recomputed-overlap recomputed reads)]
+              (str "every commit re-stamps a moved cell's epoch, so the reads at "
+                   "this boundary's highest epoch are the ones whose values "
+                   "moved most recently — read off the table."
+                   (when overlap
+                     (str " " overlap " of " (count reads) " name a subscription "
+                          "link 2 says this dispatch recomputed — an OVERLAP and "
+                          "not a join: link 2 names registrations and these name "
+                          "CELLS, so a read whose registration ran need not be "
+                          "the cell that ran, and there is still no id linking "
+                          "either side to the other."))))}))
 
 (defn- link-notified
   [attribution ex]
@@ -368,8 +424,26 @@
                  "under this one's name.")}
 
     :else
-    (let [moved   (into #{} (map (juxt :frame-id :sub-id)) (:latest-reads ex))
-          matched (filter #(contains? moved [(:frame-id %) (:sub-id %)]) (:edges attribution))
+    ;; THE KEY IS THE CELL — `[frame-id sub-id query]` — and not the
+    ;; registration (rf2-y8doi.26). It was `[frame-id sub-id]`, so ONE
+    ;; moved cell matched EVERY parameterization of its registration and
+    ;; this link named all of their readers as notified. On a list of
+    ;; `[:todo/by-id n]` rows that is every row on the page reported as
+    ;; notified by a commit that touched one of them — and it is the
+    ;; reverse edge, the one link here that answers *who re-runs because
+    ;; of this*, so the fabrication lands on the question the slice exists
+    ;; to answer.
+    ;;
+    ;; The finer key is the producer's own and needs no new field:
+    ;; `edge-row` carries `:query` on every edge, and `explanation`'s
+    ;; `:latest-reads` carries it on every moved read for exactly this
+    ;; reason — its comment says `[:row 1]` and `[:row 2]` are one sub-id
+    ;; and two different reads, and that a Why view collapsing them would
+    ;; answer "`:row` moved" to a developer looking at eight rows. Link 4
+    ;; was that collapse, one link further on.
+    (let [moved   (into #{} (map (juxt :frame-id :sub-id :query)) (:latest-reads ex))
+          matched (filter #(contains? moved [(:frame-id %) (:sub-id %) (:query %)])
+                          (:edges attribution))
           readers (into [] (distinct) (mapcat :readers matched))]
       {:id :boundaries-notified :ordinal 4 :label "boundaries notified"
        :seam "the cells' reader arrays — the reverse edge `notify!` walks"
@@ -378,10 +452,12 @@
                :fan-out  (reduce + 0 (map #(or (:fan-out %) 0) matched))
                :cells    (mapv #(select-keys % [:frame-id :sub-id :query :fan-out]) matched)}
        :loss  nil
-       :joins {:on [:frame-id :sub-id] :status :evidenced
+       :joins {:on [:frame-id :sub-id :query] :status :evidenced
                :says (str "the moved reads and the cell table are keyed the "
-                          "same way, so this join is an equality on the "
-                          "producer's own identity rather than a correlation.")}
+                          "same way — on the CELL, arguments projected, which "
+                          "is the finest identity the egress policy allows — "
+                          "so this join is an equality on the producer's own "
+                          "identity rather than a correlation.")}
        :says  (str "a commit unions the dirty cells' readers and notifies "
                    "them, and the reader array IS that set — one slot per "
                    "reading boundary, maintained by the same commit and "
@@ -413,25 +489,35 @@
       (slice {:envelopes envelopes :windows windows
               :dispatch-id 41 :boundary-key [[:app/main :todo [:todo 7]]]})
 
-  `:dispatch-id` defaults to [[newest-dispatch]] — the most recent
-  interaction the ring still holds. `:boundary-key` has no default here:
-  the panel passes the advisor's top-ranked boundary, so the slice is
-  about the boundary the roster just pointed at.
+  `:dispatch-id` is the explicit override. Absent, the walked dispatch is
+  [[walked-dispatch]]'s — the SPINE'S focused dispatch when the ring holds
+  it, else the newest — so this view obeys Spec 018 §6's single selection
+  axis like every other L4 surface instead of tracking the head on its
+  own. `:focus` is `:rf.xray/focus` and may be absent, in which case the
+  answer is the newest retained dispatch as before. `:boundary-key` has no
+  default here: the panel passes the advisor's top-ranked boundary, so the
+  slice is about the boundary the roster just pointed at.
 
   The envelope's own `:loss` is `:uncorrelated` and its `:complete?` is
   false, and neither depends on how well the run went. Three links are
   host-opaque by construction and the 2→3 join has no id to make; a slice
   that reported itself complete because its first four links came back
   green would be claiming the chain, having evidenced its prefix."
-  [{:keys [envelopes windows dispatch-id boundary-key]}]
-  (let [did            (or dispatch-id (newest-dispatch windows))
+  [{:keys [envelopes windows dispatch-id boundary-key focus]}]
+  (let [did            (or dispatch-id (walked-dispatch windows focus))
         [fid bundle]   (when did (bundle-for windows did))
         frames         (if did (frames-touched windows did) [])
         ex             (explanation-for (:explain-render envelopes) boundary-key)
         attribution    (:read-attribution envelopes)
+        ;; Link 2 is built FIRST and link 3 reads its roster, so the
+        ;; overlap sentence quotes the roster this slice actually renders
+        ;; rather than re-deriving one beside it. A second derivation is
+        ;; how link 2 and the advisor came to give one window two public
+        ;; answers (audit #8027).
+        l2             (link-subs bundle)
         links          (into [(link-event fid bundle did frames)
-                              (link-subs bundle)
-                              (link-values ex)
+                              l2
+                              (link-values ex (:holds l2))
                               (link-notified attribution ex)]
                              (map-indexed (fn [i l] (link-host l (+ 5 i))))
                              host-opaque-links)]

@@ -256,6 +256,47 @@
     (is (= :derivation (:basis c)))
     (is (string/includes? (:says c) "oscillating"))))
 
+(deftest a-read-orders-finding-carries-its-own-UNCORRELATED-loss
+  ;; `:read-orders` is a FOLD COUNT and the producer says so: entries
+  ;; whose key arrays differ only in ORDER, and entries an egress policy
+  ;; folded onto one projected key, are one row, and `:read-orders` counts
+  ;; how many folded in. So `> 1` is at least three situations and only
+  ;; one of them is an oscillating read set — yet this arm stated that one
+  ;; as fact and routed to rung 2, recommending topology surgery on a
+  ;; signal its own producer documents as ambiguous.
+  ;;
+  ;; The arm and the rung STAY: whichever of the three it is, the read set
+  ;; is where to look, and every other classification available for this
+  ;; window is worse advice. What was missing is the qualification, and it
+  ;; goes in the field a classification already carries.
+  (let [c (classify-with (boundary [[:app/main :a]] :read-orders 4)
+                         {:app/main [(bundle 1 :e [(sub-ev :a nil)])]})]
+    (is (= :uncorrelated (:reason (:loss c)))
+        (str "a fold count is real and joins to nothing that says WHICH fold "
+             "it was — the textbook :uncorrelated state, and the panel already "
+             "renders a classification's loss as a chip beside the sentence"))
+    (doseq [candidate ["oscillating" "views' orders" "elided-argument"]]
+      (is (string/includes? (:says c) candidate)
+          (str "all three candidates must be named — a sentence naming one "
+               "of them is the fabrication this row exists to stop: "
+               candidate)))
+    (is (string/includes? (:says c) "does not say which"))
+
+    (testing "and the route is still rung 2, because the remedy is the same for all three"
+      (let [r (advisor/recommend c)]
+        (is (= :tune-topology (:route r)))
+        (is (= 2 (:rung r)))
+        (is (false? (:native? r)))))
+
+    (testing "while a MEASURED computation owner still carries no loss"
+      ;; The control. A loss stamped on every classification would say
+      ;; nothing; this one is stamped on the arm whose evidence is
+      ;; genuinely ambiguous and on no other.
+      (let [m (classify-with (boundary [[:app/main :heavy]])
+                             {:app/main [(bundle 1 :e [(sub-ev :heavy 8.0)])]})]
+        (is (= :computation (:owner m)))
+        (is (nil? (:loss m)))))))
+
 (deftest repeated-recomputes-for-negligible-work-are-a-topology-finding
   (let [c (classify-with (boundary [[:app/main :a]])
                          {:app/main (repeat 5 (bundle 1 :e [(sub-ev :a 0.05)]))})]
