@@ -11,6 +11,25 @@ the direction-setting design; 021 §5 documents what v1 ships, this doc
 documents the destination. Authority for the surrounding look-and-feel is
 the devtools reference `tools/xray/design-reference/xray_devtools_reference.cljs`.
 
+**Because this doc is the destination, most of it now describes shipped behaviour and some of it still does
+not — so read the status column before building against a section.** Every section that is not fully shipped
+carries a `Status:` block at its head saying which part is target and which is live; the sections below with
+no such block describe what renders today.
+
+| Section | Status |
+|---|---|
+| §2 Layout · §3 Row anatomy · §3a Stage + edge | **Ships.** Flat oldest-first list, no filtering; the six columns, the 3px stage edge, and row-click → inline edn-inspector all render. The op → stage mapping and the 13 area badges match the classifier row for row. |
+| §5 Verb taxonomy | **Partially ships** — see its Status block. |
+| §6 Duration / timing | **Ships.** All six per-area elapsed tags are emitted and read. |
+| §7 Errors & warnings | **Ships** (inline row, severity colour overriding the stage colour on the edge). |
+| §8 Visual encoding · §9 Canonical layout · §16 Worked shapes · §17 Design-system conformance | Design material: §8 is delegated to Figma, §9 and §16 are illustrative sketches rather than assertions about rendered pixels. |
+| §10 Data sources | Grounding ships; the **per-step RESULTS** block does not — see its Status block. |
+| §10.1 App-db changes · §10.2 Privacy | **Ship.** Panel-side `diff-paths` derivation, and all three privacy gates. |
+| §11 Implementation dependencies | Item 1 has landed; item 2 (Figma) is outstanding. |
+| §12 Child & nested epochs · §15 Cross-panel navigation | **Mostly NOT shipped** — see their Status blocks. |
+| §13 Outcomes & short-circuit · §14 States & responsive | **Ship** (outcome row, three empty states, ellipsis truncation, flexible target column). |
+| Appendix A | The op → row matrix holds; its **Row label** column carries §5's target vocabulary, with §5's caveat. |
+
 Cross-refs:
 - [`000-Vision.md`](./000-Vision.md) — the five canonical questions; the 10-tab Dynamic inventory
 - [`007-UX-IA.md`](./007-UX-IA.md) — typography, density, keyboard maps (still load-bearing)
@@ -34,7 +53,7 @@ The Trace panel's contract is **completeness**: it must surface *every* op-famil
 
 ## §2 Layout (flat list — rf2-aqusw)
 
-- **No top chrome.** No title bar, no filter bar, no summary/profile strip. The panel opens directly on the list.
+- **No top chrome.** No title bar, no filter bar, no summary/profile strip. The panel opens directly on the list. Two thin elements do render above the rows and neither is any of those three: a **column-widths header bar** (`rf-xray-trace-ops-header`) carrying the six column labels and the drag gutters for the shared `:rf.xray.trace/ops` table id — a resize affordance and column legend, and deliberately **not** sticky, so it scrolls away with the list and §14's "without sticky headers" holds; and, when an event-bundle is focused, a **3px status stripe** filled with that bundle's lifecycle colour (the same `event-status` vocabulary the L2 rows and the Event panel's header dot use), carrying no text.
 - **A single flat list — no hierarchy.** Every op the focused epoch emitted is one row, in strict fire order (oldest-first). There is **no envelope** and **no phase-band nesting** — the 4-band hierarchy was replaced (rf2-aqusw) because it was hard to scan. The epoch-lifecycle ops (`:rf.epoch/*` — snapshotted / outcome / restore / replay / db-replaced) render as **ordinary rows** in the flat list (no longer bracketed in an envelope); `:rf.epoch/outcome` carries the consumer-facing summary `:ok` / `:blocked` / `:error` per [Spec 009 §`:rf.epoch/*`](../../../spec/009-Instrumentation.md#op-type-vocabulary) (rf2-18g1w / rf2-jppad).
 - **Stage recovers the phase shape flatly (§3a).** The phase information the bands conveyed is recovered per-row by a **stage column** + a **colour-coded left edge** — each row names the Epoch-panel pipeline step it belongs to.
 - **Chronological** — every row carries a Δt from the epoch's first op; ordering is strict fire order.
@@ -179,6 +198,35 @@ Per-op fields already on the epoch record / trace bus: views (`:rf.view/elapsed-
 ### §10.1 APP-DB CHANGES — per-path diff is PANEL-SIDE DERIVED
 
 The `:rf.event/db-changed` trace event carries only `:event` + `:frame` — **no per-path diff payload on the event itself**. The per-path before→after rows the DB row presents (`+ [:path] new` / `~ [:path] old → new` / `- [:path]`) are **derived at render time** from the focused epoch record's `:db-before` / `:db-after` slots (already on every `:rf/epoch-record` per [`Spec 009`](../../../spec/009-Instrumentation.md) / [`spec/Spec-Schemas.md §:rf/epoch-record`](../../../spec/Spec-Schemas.md)). The derivation routes through the same structural-sharing engine the App-DB Diff tab and the Event-panel APP-DB CHANGES section consume (`app-db-diff-helpers/diff-paths`, [`004-App-DB-Diff.md §Changed-paths derivation`](./004-App-DB-Diff.md) — O(changed paths), not O(db size)). One engine, one shape; differences in rendering live in the view. When `db-before == db-after` the diff is `[]` and the DB row renders no per-path sub-list — the empty-diff case. Decision recorded on rf2-8q8i4 (panel-side derive, 2026-05-25); implementation tracked under rf2-b3zw2.
+
+### §10.2 Privacy — what reaches this panel, and what is withheld
+
+This panel prints raw application values: event vectors, effect arguments, subscription `old → new` pairs and
+app-db per-path diffs. Three gates stand between an application's declared-sensitive data and those cells, and
+they act at **different** points, so none of them makes the others redundant.
+
+- **At ingest — dropped, not scrubbed.** `trace_collector.cljs` gates every incoming trace event on the
+  substrate's `:sensitive?` flag before any ring push or mirror dispatch. Under the default
+  `:rf.egress/local-redacted` egress profile a sensitive event is **dropped**, and the collector bumps a
+  per-frame suppressed counter that the shell's bottom rail surfaces as `[● REDACTED N]` — so suppression is
+  visible rather than silent. An event **bundle** carrying any suppressed event is dropped **whole**: scrubbing
+  the one row is unsafe, because a non-sensitive sub recompute or view render in the same cascade can
+  structurally reveal the value. The full contract is [`013` §Privacy gate](./013-Trace-Consumer.md#privacy-gate).
+- **At history read.** `epoch/redact-history` drops any epoch record whose framework-stamped
+  `:rf.epoch/sensitive?` rollup is true, so a sensitive record never enters the history this panel focuses.
+- **At render, for the db rows.** §10.1's per-path diff re-seats each triple's `:before` / `:after` on
+  **whole-db projections** of the record's `db-before` / `db-after` under `:rf.xray/observed-frame`'s
+  classification policy — the same `local-render-value` seam the App-DB tab applies. `:op` and `:path` are
+  never touched, so the row **always renders**: the operator sees *which* paths changed and reads
+  `:rf/redacted` where a value is withheld. The read honours the sentinel at any **ancestor** of the path, so a
+  declared `[:auth]` correctly withholds a changed `[:auth :token]` instead of rendering it as `nil`. It is
+  fail-closed — a nil, destroyed or never-registered observed frame redacts every value while keeping every
+  row.
+
+**The render-side projection covers the db rows and only those.** The other cells — the event vector, the fx
+argument, the sub `old → new` — are protected by the two ingest gates, which remove the whole event or record
+rather than projecting it. That asymmetry is deliberate: a db diff is derived from slots the record must retain
+for replay, so it cannot be dropped at ingest without losing the epoch.
 
 ## §11 Implementation dependencies
 
