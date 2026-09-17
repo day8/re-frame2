@@ -1882,13 +1882,12 @@ composes at L2. See [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
 
 (rf2-gbz39 — the Issues tab + its `issues-ribbon/Panel` + `mount-issues-ribbon!` were removed per Mike's Option (c) ruling; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal. The `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source.)
 
-**Tier 2 — overlay / popup surfaces (3):** modal-light surfaces the
+**Tier 2 — overlay / popup surfaces (2):** modal-light surfaces the
 shell composes at its root, each self-gating on a `:rf.xray/*-open?`
 sub (closed-state cost is one subscribe + a `when` short-circuit).
 
 | Panel | View | Mount fn |
 |---|---|---|
-| App-DB segment-inspector popup | `app-db-segment-inspector/Popup`   | `mount-segment-inspector!` |
 | Cancellation-cascade side-panel | `cancellation-cascade/SidePanel`  | `mount-cancellation-cascade-side-panel!` |
 | Cancellation-cascade popover    | `cancellation-cascade/Popover`    | `mount-cancellation-cascade-popover!` |
 
