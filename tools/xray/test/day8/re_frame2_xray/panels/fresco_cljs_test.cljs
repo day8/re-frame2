@@ -298,14 +298,32 @@
     (release)))
 
 (deftest a-host-without-fresco-is-ABSENT-not-empty
+  ;; EVERY view, not the first one (rf2-y8doi.26). `:causal` was the
+  ;; exception and was wrong: `causal-view` never took the envelope, so
+  ;; `(nil? slice)` was its whole state model and every empty answered
+  ;; `:idle` — *the advisor named no boundary to trace*, which describes a
+  ;; Fresco application with nothing mounted. On a Reagent app, where the
+  ;; door answers nil and every other view says *No Fresco evidence on
+  ;; this host*, the one view that could not tell sent the reader looking
+  ;; for boundaries that cannot exist. Distinguishing those two states is
+  ;; the whole reason this panel has a presence model.
   (setup!)
   (with-redefs [reads/evidence (constantly {:mounted-boundaries nil
                                             :read-attribution   nil
                                             :intents            nil
                                             :explain-render     nil})]
-    (let [ids (testids (show! :mounted))]
-      (is (contains? ids "rf-xray-fresco-absent"))
-      (is (not (contains? ids "rf-xray-fresco-empty-mounted"))))))
+    (doseq [view [:mounted :attribution :intents :explain :advisor :causal]]
+      (let [ids (testids (show! view))]
+        (is (contains? ids "rf-xray-fresco-absent")
+            (str view " must say the door answered nil — not that its own "
+                 "roster came back empty, which is a different fact with a "
+                 "different remedy"))))
+
+    (testing "and no view substitutes its own empty-roster sentence for the absence"
+      (doseq [[view suffix] [[:mounted :causal] [:advisor :causal] [:causal :causal]
+                             [:causal :mounted] [:causal :advisor]]]
+        (is (not (contains? (testids (show! view)) (str "rf-xray-fresco-empty-" (name suffix))))
+            (str view " must not render the empty-" (name suffix) " copy"))))))
 
 (deftest an-unparseable-schema-is-MISMATCH-and-suppresses-rows
   (setup!)
