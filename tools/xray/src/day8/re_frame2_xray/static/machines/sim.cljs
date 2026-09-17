@@ -23,9 +23,13 @@
       <machine-id>]`; production registry is untouched. The runtime
       calls `rf.machines/machine-transition` — a pure fn — so the host
       frame's app-db is never touched.
-    - **Static posture**: Sim does NOT read the live snapshot; the seed
-      is the definition's declared `:initial` + `:data`. No live event
-      stream feeds into Sim; the user's Step button is the only input.
+    - **Static posture**: Sim does NOT read the live snapshot. The seed
+      is derived from the DEFINITION alone, through the engine's own
+      `build-initial-snapshot` — so a compound root opens at its leaf
+      and a parallel root at its region map, exactly where the runtime
+      would have opened, while `:entry` actions are still not run. No
+      live event stream feeds into Sim; the user's Step button is the
+      only input.
     - **Guards**: mock-`:data` form (the user types/picks the event
       vector + an optional EDN payload); guards evaluate against the
       cloned snapshot's `:data`. Failed guards surface inline; the
@@ -70,6 +74,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [re-frame.machines :as rf.machines]
+            [re-frame.machines.parallel :as rf.machines.parallel]
             [day8.re-frame2-xray.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-xray.static.machines.sim-helpers :as sim-h]
             [day8.re-frame2-xray.theme.tokens
@@ -101,6 +106,28 @@
        :error  {:kind        :rf.xray.static.machines.sim/engine-call-failed
                 :exception   (ex-message e)
                 :machines-on-classpath? false}})))
+
+(defn- build-sim-seed
+  "Seed the sim snapshot through the ENGINE's own initial-snapshot
+  builder (rf2-y8doi.21), so the sim opens where the runtime would have
+  opened: a compound root descends its `:initial` chain to a leaf path,
+  and a `:type :parallel` root gets its region→state map. Reading
+  `:initial` shallowly parked the sim on the compound node (every later
+  step then recording a phantom `:auth → :auth`) and returned nil for a
+  parallel root, which has no `:initial` at all.
+
+  `build-initial-snapshot` computes the initial STATE only — it is not
+  `apply-initial-entry-cascade`, so `:entry` actions are still NOT run
+  at bootstrap. That is the hermetic posture the rail advertises, and
+  it is unchanged by this.
+
+  Returns nil on any refusal so `sim-helpers/initial-snapshot` falls
+  back to its shallow read rather than the panel failing to open —
+  same defensive posture as `run-machine-transition` above."
+  [definition]
+  (try
+    (rf.machines.parallel/build-initial-snapshot definition {:bootstrap-pending? false})
+    (catch :default _ nil)))
 
 (defn- step-and-store
   "Fold ONE engine step against `machine-id`'s cloned sim snapshot and
@@ -196,7 +223,7 @@
   (rf/reg-event :rf.xray.static.machines/sim-start
     (fn [{:keys [db]} [_ {:keys [machine-id definition]}]]
       {:db (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id]
-        (sim-h/make-sim-state machine-id definition))}))
+        (sim-h/make-sim-state machine-id definition build-sim-seed))}))
 
   ;; Stop sim for `machine-id`. Removes the per-machine slot so the
   ;; clone is GC'd; production registry was never touched.
@@ -541,19 +568,34 @@
               (available-transition-row dispatch machine-id pending-event t)])))])
 
 (defn- error-toast
-  [{:keys [event reason]}]
-  [:div {:data-testid "rf-xray-static-machines-sim-error"
-         :style       {:padding "8px 10px"
-                       :margin "8px 0"
-                       :background "rgba(248, 113, 113, 0.12)"
-                       :border (str "1px solid " (:red tokens))
-                       :border-radius "4px"
-                       :color (:red tokens)
-                       :font-family mono-stack
-                       :font-size "11px"}}
-   [:strong {:style {:display "block" :margin-bottom "2px"}}
-    "Transition rejected"]
-   [:span (str (sim-h/format-event-display event) " — " reason)]])
+  "The rail's step diagnostic. Two kinds, deliberately styled apart
+  (rf2-y8doi.21): an ENGINE FAILURE is red, while a step the engine
+  simply declined is amber and headed `No change`.
+
+  Spec 005 §Transition resolution is explicit that an unhandled event
+  is an xstate-parity no-op rather than an error, and a declined guard
+  is ordinary machine behaviour — so calling either a failure would
+  swap one falsehood for another. The user still needs to be told that
+  nothing moved, which is the whole point: before this, a rejected step
+  silently grew a phantom `#N :open → :open` row instead."
+  [{:keys [event reason info]}]
+  (let [no-change? (= :rf.xray.static.machines.sim/no-change (:kind info))
+        hue        (if no-change? (:yellow tokens) (:red tokens))]
+    [:div {:data-testid "rf-xray-static-machines-sim-error"
+           :data-kind   (if no-change? "no-change" "error")
+           :style       {:padding "8px 10px"
+                         :margin "8px 0"
+                         :background (if no-change?
+                                       "rgba(250, 204, 21, 0.12)"
+                                       "rgba(248, 113, 113, 0.12)")
+                         :border (str "1px solid " hue)
+                         :border-radius "4px"
+                         :color hue
+                         :font-family mono-stack
+                         :font-size "11px"}}
+     [:strong {:style {:display "block" :margin-bottom "2px"}}
+      (if no-change? "No change" "Transition rejected")]
+     [:span (str (sim-h/format-event-display event) " — " reason)]]))
 
 (defn- audit-trail-row
   [idx {:keys [from to event]}]

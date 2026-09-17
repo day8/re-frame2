@@ -160,9 +160,33 @@
    :snapshot {:state :authing :data {:counter 1}}
    :fx []})
 
+;; rf2-y8doi.21: this was a HAND-WRITTEN
+;; `{:status :error :error {:reason :no-matching-transition}}` — a shape
+;; the engine never returns, twice over. `:no-matching-transition`
+;; appears nowhere in the machines artefact, and an event no transition
+;; matched is `:status :ok` with the snapshot unchanged, not an error.
+;; A REAL `:status :error` is the engine's own failed macrostep, so we
+;; obtain one from the producer by making an action throw.
+
+(def ^:private throwing-definition
+  {:initial :a
+   :data    {}
+   :actions {:boom (fn [_] (throw (ex-info "boom" {:why :fixture})))}
+   :states  {:a {:on {:go {:target :b :action :boom}}}
+             :b {}}})
+
 (def ^:private fail-result
-  {:status :error
-   :error {:reason :no-matching-transition}})
+  "An ACTUAL engine `:status :error`, obtained from the producer."
+  (rf.machines/machine-transition throwing-definition
+                                  {:state :a :data {}}
+                                  [:go]))
+
+(deftest fail-result-fixture-really-is-an-engine-error
+  (testing "the stubbed fail-Result is the engine's own shape"
+    (is (= :error (:status fail-result)))
+    (is (= :rf.error/machine-action-exception (get-in fail-result [:error :kind])))
+    (is (nil? (get-in fail-result [:error :reason]))
+        "the engine's :error map carries no :reason — the old fixture invented one")))
 
 ;; ---- (1) registry wiring ------------------------------------------------
 
@@ -317,6 +341,113 @@
         (is (= 1 (count (:audit-trail sim))))
         (is (= [:start] (-> sim :audit-trail last :event))
             "the clicked edge's event-id was coerced to the step vector")))))
+
+;; ---- a step the REAL engine declined (rf2-y8doi.21) ---------------------
+;;
+;; These deliberately do NOT `with-redefs` the engine: the point is what
+;; the real `machine-transition` returns for a declined step, folded
+;; through the real `step-and-store`.
+
+(def ^:private guarded-fixture-definition
+  "A guard reading `:data`, so the sim drives it both ways from ONE
+  definition. Flat, so the seed is uncontroversial."
+  {:initial :locked
+   :data    {:key? false}
+   :guards  {:has-key? (fn [{:keys [data]}] (boolean (:key? data)))}
+   :states  {:locked   {:on {:open {:target :unlocked :guard :has-key?}}}
+             :unlocked {}}})
+
+(deftest sim-step-declined-by-a-guard-records-no-phantom-row
+  (testing "a guard that declines comes back `:status :ok` with the
+            snapshot unchanged — the sim must NOT record that as a
+            `:locked → :locked` transition, and must say nothing moved"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition guarded-fixture-definition}])
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
+                         {:machine-id :auth/login :event [:open]}])
+      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
+        (is (= :locked (get-in sim [:snapshot :state]))
+            "snapshot unchanged — the engine is right")
+        (is (= [] (:audit-trail sim))
+            "NO phantom :locked → :locked row")
+        (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-last-transition]))
+            "and nothing for the chart to animate")
+        (is (= :rf.xray.static.machines.sim/no-change
+               (-> sim :last-error :info :kind)))))))
+
+(deftest sim-step-unhandled-event-records-no-phantom-row
+  (testing "an event the machine declares nowhere takes the same path"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition guarded-fixture-definition}])
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
+                         {:machine-id :auth/login :event [:no-such-event]}])
+      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
+        (is (= [] (:audit-trail sim)))
+        (is (= :rf.xray.static.machines.sim/no-change
+               (-> sim :last-error :info :kind)))))))
+
+(deftest sim-step-with-a-passing-guard-still-records-the-row
+  (testing "THE CONTROL — same definition, same event, guard satisfied:
+            the real transition must still be recorded, or the no-change
+            branch has swallowed it"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition (assoc guarded-fixture-definition
+                                             :data {:key? true})}])
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
+                         {:machine-id :auth/login :event [:open]}])
+      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
+        (is (= :unlocked (get-in sim [:snapshot :state])))
+        (is (= 1 (count (:audit-trail sim))))
+        (is (= {:from :locked :to :unlocked :event [:open]}
+               @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])))
+        (is (nil? (:last-error sim)))))))
+
+(deftest sim-start-seeds-a-compound-root-at-the-engine-leaf
+  (testing "a compound root opens at the leaf PATH the engine would have
+            opened at, not parked on the compound node"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync
+        [:rf.xray.static.machines/sim-start
+         {:machine-id :auth/login
+          :definition {:initial :auth
+                       :states  {:auth {:initial :form
+                                        :states  {:form    {:on {:submit :loading}}
+                                                  :loading {}}}
+                                 :done {}}}}])
+      (is (= [:auth :form]
+             @(rf/subscribe [:rf.xray.static.machines/sim-current-state]))))))
+
+(deftest sim-start-seeds-a-parallel-root-with-a-region-map
+  (testing "a `:type :parallel` root has no `:initial` at all, and used to
+            seed nil"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync
+        [:rf.xray.static.machines/sim-start
+         {:machine-id :auth/login
+          :definition {:type    :parallel
+                       :data    {}
+                       :regions {:form {:initial :editing
+                                        :states  {:editing {} :submitted {}}}
+                                 :net  {:initial :idle
+                                        :states  {:idle {} :busy {}}}}}}])
+      (is (= {:form :editing :net :idle}
+             @(rf/subscribe [:rf.xray.static.machines/sim-current-state]))))))
 
 (deftest sim-chart-edge-clicked-nil-event-is-noop
   (testing "rf2-u422r — clicking an inert (auto / non-fireable) edge with
