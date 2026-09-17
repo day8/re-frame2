@@ -535,7 +535,7 @@ reference:
 | `(re-frame.schemas/app-schemas {:frame f})` | Spec 010 | The schema-violation timeline rows. Answers `{path -> registration-metadata}`; `:frame` is required (rf2-kuky.84). |
 | `(rf.subs.tooling/sub-cache-snapshot frame-id)` (CLJS only) | Tool-Pair | The subscription graph. The `rf/sub-cache` facade alias was removed (rf2-80mmlf) — this is subscription TOOLING rather than an app-author front-porch read, so callers address the owning `re-frame.subs.tooling` namespace directly. |
 | `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by event-detail and trace surfaces (`:rf.*` single-root names per rf2-y4qpy). |
-| `:rf.event/origin` (in `:tags`) | Spec 009 | The colour-coding axis. |
+| `:rf.event/origin` (in `:tags`) | Spec 009 | The actor-origin tag (`:pair` for pair-tooling dispatches, `:app` by default). Lifted onto each projected trace row; no view renders or colour-codes by it today — see §Trace-event tags Xray emits. |
 | Source-coord metadata (`:ns` / `:line` / `:column` / `:file`) | Spec 001 / 006 | Click-to-source — see `Open in editor` below. |
 | `data-rf2-source-coord` DOM attribute | Spec 006 | DOM-level source-coord (for the rare cases where DOM event → source is needed). |
 
@@ -908,15 +908,45 @@ seed; ordinary user changes use the popup's per-knob write path.
 
 ## Trace-event tags Xray emits
 
-When Xray mutates the runtime (rewind, reset, re-dispatch), it
-emits trace events tagged `:rf.event/origin :xray` so its actions are
-visible in the trace stream. (Origins from MCP servers carry their own
-server-name tag — re-frame2-pair-mcp uses
-`:rf.event/origin :re-frame2-pair-mcp`.)
+**Xray stamps no origin tag of its own.** `:origin :xray` appears
+nowhere in `tools/xray/src`; Xray's own dispatches carry the framework
+default `:app`, exactly like application code. Nor is there a
+re-dispatch affordance that could stamp one — the `R` re-dispatch key
+is catalogued in [`007-UX-IA.md`](./007-UX-IA.md) §Trimmed pending
+demand as never wired, with no implementation at all — and the Epoch
+panel's rewind calls `(rf/restore-epoch! frame-id epoch-id)` directly
+rather than dispatching a tagged event.
 
-These ride the framework's existing `:rf.event/dispatched`,
-`:rf.epoch/restored`, etc. operations — no new operation kinds
-invented (per [`Principles.md`](./Principles.md) §Observation only).
+The origin tag Xray *reads* is the one the pair tooling sets. The
+`re-frame2-pair.runtime` dispatch helpers default to `{:origin :pair}`
+(per [Spec 002 §Dispatch origin tagging](../../../spec/002-Frames.md#dispatch-origin-tagging)),
+which the trace surface lifts onto every `:rf.event/dispatched` event
+under `:tags :rf.event/origin`; the pair MCP server's dispatch tool
+routes through those same helpers, so its events carry `:pair` too.
+**There is no `:re-frame2-pair-mcp` origin value** — filter for
+`:pair`. The axis is an open vocabulary (`:pair`, `:claude`, `:story`,
+`:test`, …), not a closed enum, and app dispatches carry the default
+`:app`.
+
+`:origin` is **distinct from `:source`**. `:origin` is the actor
+identity — *who* issued the dispatch. `:source` is the closed
+trigger-kind enum — *what woke the runtime* — and it is `:source`, not
+`:origin`, that the L2 event list's left-most SOURCE column renders
+(`router` / `http` / `fx-dispatch` / `after-timer` / …, with app-code
+sources labelled `ui`). `:pair` is not a `:source` value.
+
+`tools/xray/src/day8/re_frame2_xray/panels/trace_helpers.cljc` lifts an
+`:origin` slot onto each projected trace row, but no view reads it:
+nothing in Xray's chrome colour-codes or filters by origin today. An
+agent's dispatches are distinguishable in the raw trace stream by
+filtering `:tags :rf.event/origin` for `:pair`; they are not
+distinguishable by eye in the panel. This matches
+[`011-Launch-Modes.md`](./011-Launch-Modes.md) §Coexistence.
+
+Xray's own panel events ride the framework's existing
+`:rf.event/dispatched`, `:rf.epoch/restored`, etc. operations — no new
+operation kinds invented (per [`Principles.md`](./Principles.md)
+§Observation only).
 
 ## Versioning
 
