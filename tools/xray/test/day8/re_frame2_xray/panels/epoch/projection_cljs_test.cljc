@@ -788,6 +788,66 @@
       (is (= 2 (count (:fx r))))
       (is (= #{:db :navigate} (into #{} (map :fx-id (:fx r))))))))
 
+;; ---- :fx-vec — the PRODUCER shape (rf2-m2ye2) ---------------------------
+
+(deftest handler-row-fx-vec-producer-shape-test
+  (testing "rf2-m2ye2 — `:fx-vec` is read off the tag the PRODUCER actually
+            stamps. `re-frame.fx/do-fx` stamps `:rf.event/fx` as
+            `(:fx effects)` — the fx VECTOR-of-vectors, never the effects
+            MAP (`implementation/core/src/re_frame/fx.cljc`, the
+            `(assoc :rf.event/fx (:fx effects) …)` on the terminal
+            `:rf.fx/do-fx` marker). Measured live on the JVM: a handler
+            returning `{:db {:n 1} :fx [[:probe/noop 1]]}` put
+            `[[:probe/noop 1]]` in that slot, a PersistentVector.
+
+            Pre-rf2-m2ye2 the projection guarded on `(map? fx)`, so the slot
+            was nil for every real cascade and the HANDLER body's `:fx`
+            sub-section never rendered. EVERY do-fx fixture in this file
+            passed a MAP, which is exactly why nothing caught it — the
+            fixture-versus-producer drift rf2-y8doi.10 finding 1 names. This
+            test is deliberately the one that carries the producer shape."
+    (let [fx-vector [[:http/post {:url "/x"}] [:navigate {:to :home}]]
+          r         (proj/handler-row [(do-fx-ev fx-vector)
+                                       (db-changed-ev [])]
+                                      :cart/add)]
+      (is (= fx-vector (:fx-vec r))
+          "the producer-shaped :rf.event/fx vector lands in :fx-vec verbatim")
+      (is (= :effectful (:flavour r))
+          "the do-fx marker still classifies the flavour")))
+
+  (testing "rf2-m2ye2 — a handler that returned no `:fx` leaves the tag nil,
+            so `:fx-vec` stays nil and the view's `seq`-conditioned `:fx`
+            sub-section renders nothing"
+    (is (nil? (:fx-vec (proj/handler-row [(do-fx-ev nil) (db-changed-ev [])]
+                                         :counter-inc)))))
+
+  (testing "rf2-m2ye2 — the MAP carrier is FIXTURE-COMPAT, not a producer
+            shape. `handler-fx-vec` reads `:fx` out of a whole-effects-map
+            tag the way `fx-entries` beside it does, so the synthetic
+            fixtures in this file and in the panel gallery keep rendering;
+            but a MAP here means a fixture, never a cascade. The slot it
+            yields is the SAME fx vector either way — the two carriers are
+            one answer, which is why the reader has no business dissecting
+            the rest of the map (see `side-effects-no-other-tier-test`)."
+    (is (= [[:navigate "/x"]]
+           (:fx-vec (proj/handler-row [(do-fx-ev {:db {} :fx [[:navigate "/x"]]})
+                                       (db-changed-ev [])]
+                                      :navigate-to)))
+        "the map carrier surrenders the same :fx vector"))
+
+  (testing "rf2-m2ye2 — neither carrier surfaces anything BUT `:fx`. A map
+            carrying a legal EP-0025 classification effect yields the fx
+            vector alone; the classification key is not decomposed, not
+            reported, and has no slot on the handler row."
+    (let [r (proj/handler-row [(do-fx-ev {:db {}
+                                          :sensitive [[:creds :password]]
+                                          :fx [[:navigate "/x"]]})
+                               (db-changed-ev [])]
+                              :navigate-to)]
+      (is (= [[:navigate "/x"]] (:fx-vec r)))
+      (is (not (contains? r :other-effects))
+          "rf2-m2ye2 — the :other-effects slot is gone from the handler row"))))
+
 (deftest handler-row-reg-machine-test
   (testing "rf2-bhxtr — action-ran present → reg-machine flavour; the
             `:machine` block carries the SINGLE `:cascade` row vector (the
@@ -2514,7 +2574,8 @@
 ;; The rf2-kt6js 3-tier `:db` / `:fx` / other sub-step presentation became
 ;; a FLAT per-effect ledger (rf2-j630b): `proj/side-effects-step` returns
 ;; ONE `:rows` vec in EXECUTION order — synthesised `:db` row first (when
-;; present), then the `:fx`-vector rows in order, then `other` rows. NO
+;; present), then the `:fx`-vector rows in order. There is no `other`
+;; tier (rf2-m2ye2 deleted it — see `side-effects-no-other-tier-test`). NO
 ;; `:sub-kinds` slot. The single badge status is `proj/side-effects-badge-
 ;; status` (AND-of-rows; SKIPPED neutral); each row keeps the rf2-ahhgn
 ;; `:status`. See the projection ns's SIDE EFFECTS settle-first note for
@@ -2699,36 +2760,86 @@
                   :rows first)]
       (is (not (contains? row :attributed-to))))))
 
-;; ---- other (dropped top-level) rows (rf2-j630b) -------------------------
+;; ---- NO `other` tier (rf2-m2ye2) ----------------------------------------
+;;
+;; `other-effect-rows` is DELETED. It rendered every top-level effect key
+;; outside a hand-copied 3-key closed set as ":skipped — an effect the
+;; runtime ignored", and its true-positive population is empty. Measured
+;; live against the router on the JVM, both directions:
+;;
+;;   - `{:db {:n 1} :sensitive [[:creds :password]] :fx [[:probe/noop 1]]}`
+;;     is a LEGAL return. It commits (`:rf.event/db-changed` fired), emits
+;;     do-fx, and the framework applies the declaration — the frame's
+;;     `:sensitive-declarations` gained `[:creds :password]`. The 3-key
+;;     arithmetic nevertheless yields `{:sensitive …}`, i.e. the panel
+;;     accusing the runtime of ignoring an effect it demonstrably applied.
+;;     That IS the 3-vs-7 drift against `re-frame.events/closed-effect-map-keys`.
+;;
+;;   - `{:db {:n 2} :legacy/persist {:to :disk}}` — the population the tier
+;;     was WRITTEN for — is REFUSED pre-commit (rf2-04tx). Its ops run
+;;     `… :rf.event/db-pending → :rf.error/effect-map-shape →
+;;     :rf.event/run-end` with NO `:rf.fx/do-fx`, so it never reaches a do-fx
+;;     reader however that reader is repaired. The refusal surfaces instead
+;;     through `attach-unclassified-errors` (see the cascade-exception tests
+;;     at the foot of this file).
+;;
+;; These tests are the standing guard: they go RED the moment an `other`
+;; tier comes back.
 
-(deftest side-effects-other-rows-test
-  (testing "rf2-j630b — a top-level effect key beyond :db/:fx on the
-            handler's returned map is surfaced as a :skipped (not-run)
-            DIAGNOSTIC row at the END of the ledger. re-frame2's effect
-            map is the closed {:db :fx} shape — `run-fx-effects!` reads
-            only :fx — so any other key is DROPPED (never executed)."
-    (let [s    (proj/side-effects-step
-                 [(do-fx-ev {:db {:n 1}
-                             :fx [[:http/post {}]]
-                             :legacy/persist {:to :disk}})
-                  (db-changed-ev [])
-                  (fx-handled-ev :http/post {} 1.0)])
-          row  (row-with-id s :legacy/persist)]
-      (is (= [:db :http/post :legacy/persist] (ids-of s))
-          ":db first, :fx next, dropped `other` effect last")
-      (is (= :skipped (:status row)) "dropped effect = :skipped")
-      (is (= {:to :disk} (:value row)))
-      (is (= :ok (proj/side-effects-badge-status (:rows s)))
-          "a dropped (skipped) `other` row is neutral — badge stays ✓")))
-
-  (testing "rf2-j630b — the canonical {:db :fx} shape yields NO `other`
-            rows (the common case)"
+(deftest side-effects-no-other-tier-test
+  (testing "rf2-m2ye2 — the PRODUCER-shaped cascade: the ledger is the `:db`
+            row plus one row per `:fx` entry, and nothing else"
     (let [s (proj/side-effects-step
-              [(do-fx-ev {:db {:n 1} :fx [[:http/post {}]]})
+              [(do-fx-ev [[:http/post {}]])
                (db-changed-ev [])
                (fx-handled-ev :http/post {} 1.0)])]
       (is (= [:db :http/post] (ids-of s))
-          "closed {:db :fx} shape → no `other` rows"))))
+          "no fourth `other` tier")
+      (is (= :ok (proj/side-effects-badge-status (:rows s))))))
+
+  (testing "rf2-m2ye2 — THE FALSE ACCUSATION, pinned shut. A handler that
+            returned an EP-0025 commit-plane classification effect beside
+            `:db` and `:fx` gets NO `:sensitive` row: the framework applies
+            that effect with the `:db` write, so reporting it as ignored
+            slanders correct behaviour. Written against the MAP carrier on
+            purpose — that is the shape the deleted reader consumed, so this
+            reddens if an `other` tier is reintroduced in its old form."
+    (let [s (proj/side-effects-step
+              [(do-fx-ev {:db {:n 1}
+                          :sensitive [[:creds :password]]
+                          :fx [[:http/post {}]]})
+               (db-changed-ev [])
+               (fx-handled-ev :http/post {} 1.0)])]
+      (is (= [:db :http/post] (ids-of s))
+          "the classification effect is NOT a ledger row")
+      (is (nil? (row-with-id s :sensitive))
+          "no `:sensitive` row — the runtime applied it, it was not ignored")
+      (is (= :ok (proj/side-effects-badge-status (:rows s))))))
+
+  (testing "rf2-m2ye2 — the other three EP-0025 keys behave identically;
+            the four are one closed family, and a copy of the set that names
+            only three of the seven legal keys is what produced the
+            accusation above"
+    (doseq [k [:large :clear-sensitive :clear-large]]
+      (let [s (proj/side-effects-step
+                [(do-fx-ev {:db {:n 1} k [[:creds :password]]
+                            :fx [[:http/post {}]]})
+                 (db-changed-ev [])
+                 (fx-handled-ev :http/post {} 1.0)])]
+        (is (= [:db :http/post] (ids-of s))
+            (str "no ledger row for the legal classification effect " k)))))
+
+  (testing "rf2-m2ye2 — a genuinely FOREIGN top-level key is refused
+            pre-commit (rf2-04tx), so the cascade carries no do-fx and no
+            commit at all; the ledger is the step's OMITTED shape, not a
+            `:skipped` diagnostic row"
+    (is (nil? (proj/side-effects-step
+                [(dispatched-ev [:order/submit] :ui)
+                 (db-pending-ev {:n 1})
+                 (ev :error :rf.error/effect-map-shape
+                     {:rf.error/offending-key :legacy/persist})
+                 (run-end-ev 0.4)]))
+        "refused pre-commit → no :db row, no :fx rows, no `other` row")))
 
 ;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 (rf2-ff9b0d) --
 
@@ -2779,25 +2890,26 @@
           ":rf.db/runtime is NEVER a dropped/other row")
       (is (= :ok (proj/side-effects-badge-status (:rows s))))))
 
-  (testing "rf2-ff9b0d — :rf.db/runtime is a LEGAL closed-effect key,
-            EXCLUDED from `other-effects`; a true `other` key alongside
-            it still surfaces as a :skipped diagnostic"
+  (testing "rf2-ff9b0d — :rf.db/runtime is a LEGAL closed-effect key with
+            its own first-class state-effect row, never a dropped/`other`
+            diagnostic. rf2-m2ye2 — the `other` tier it used to be
+            contrasted against is gone; the contrast that survives is the
+            one that matters, a committed partition write reading ✓."
     (let [s    (proj/side-effects-step
                  [(do-fx-ev {:db {:n 1}
                              :rf.db/runtime {:machines {}}
-                             :fx [[:http/post {}]]
-                             :legacy/persist {:to :disk}})
+                             :fx [[:http/post {}]]})
                   (db-changed-ev [])
                   (frame-state-changed-ev #{:app-db :runtime-db})
                   (fx-handled-ev :http/post {} 1.0)])]
-      (is (= [:db :rf.db/runtime :http/post :legacy/persist] (ids-of s))
-          ":db, runtime-db, :fx, then the dropped `other` effect last")
+      (is (= [:db :rf.db/runtime :http/post] (ids-of s))
+          ":db, runtime-db, :fx — and nothing else")
       (is (= :ok (-> (row-with-id s :rf.db/runtime) :status))
           "runtime-db is a committed state effect, not `other`")
-      (is (= :skipped (-> (row-with-id s :legacy/persist) :status))
-          "the genuine `other` key is still flagged dropped/skipped")
+      (is (not= :skipped (-> (row-with-id s :rf.db/runtime) :status))
+          "a partition write is never a skipped diagnostic")
       (is (= :ok (proj/side-effects-badge-status (:rows s)))
-          "a skipped `other` row is neutral — badge stays ✓")))
+          "every row applied — badge stays ✓")))
 
   (testing "rf2-ff9b0d — a runtime-db schema-fail rollback (:where
             :machine-data, :rollback?) paints the runtime-db row ✗ and
