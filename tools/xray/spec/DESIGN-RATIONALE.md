@@ -973,12 +973,13 @@ hard-coded pixel value are reviewable bugs.
   settings sheets. Users learn ONE chord, get ALL the surface
   area; addon authors register actions into the palette
   registry, not into per-tab chrome.
-- **Tokens make Xray re-themable end-to-end.** The two canonical
-  duration tokens in Principles.md (`:flash-duration-ms` 400ms,
-  `:fade-duration-ms` 180ms) + the 4-px spacing grid + the
-  calc-anchored type scale + the named palette tokens are the
-  entire surface area. Anything outside this set is a bug;
-  anything inside is a knob.
+- **Tokens make Xray re-themable end-to-end.** The single
+  canonical duration token in Principles.md (`:fade-duration-ms`
+  180ms, the L4 tab cross-fade) + the `--rf-xray-motion-scale`
+  reduced-motion seam every duration interpolates through + the
+  4-px spacing grid + the calc-anchored type scale + the named
+  palette tokens are the entire surface area. Anything outside
+  this set is a bug; anything inside is a knob.
 
 ### Cross-reference
 
@@ -991,11 +992,13 @@ hard-coded pixel value are reviewable bugs.
 - **rf2-ybjkx** — Cmd-K palette as the single nav primitive
   (rather than addon-per-tab burger menus).
 - **Principles.md** §Animation communicates, not decorates — the
-  two canonical durations (`:flash-duration-ms`, the 400ms diff
-  flash; `:fade-duration-ms`, the 180ms tab cross-fade) that
-  motion tokens resolve to, and the single
-  `--rf-xray-motion-scale` reduced-motion seam they interpolate
-  through.
+  one canonical duration (`:fade-duration-ms`, the 180ms tab
+  cross-fade) that motion tokens resolve to, and the single
+  `--rf-xray-motion-scale` reduced-motion seam it interpolates
+  through. A second token, `:flash-duration-ms` (a 400ms diff
+  flash), was **retired** under rf2-y8doi.29 on 2026-09-17 along
+  with keyframes no element ever carried; it is history, not an
+  available knob.
 
 ### Date locked
 
