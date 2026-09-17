@@ -422,7 +422,8 @@ The panel observes; the framework records.
 
 | Surface | Spec | Use |
 |---|---|---|
-| `(re-frame.subs.tooling/sub-cache-snapshot frame-id)` (CLJS only) | Tool-Pair | The live cache map: per-`[query-v]` cached value, ref-count, input subs, layer (1 / 2 / 3+). Drives sub-status decoration. |
+| `(re-frame.subs.tooling/sub-topology)` | Tool-Pair | The static topology snapshot: which subs exist and what each declares as inputs. Read once per event-bundle to partition layer-1 from layer-2+ subs and to supply the inputs and code columns. |
+| `(re-frame.subs.tooling/sub-cache-snapshot frame-id)` (CLJS only) | Tool-Pair | The live cache map: per-`[query-v]` cached value, ref-count, input subs, layer (1 / 2 / 3+). **Not consumed by shipped Xray code — there is no call site anywhere under `tools/xray`, in `src`, `test` or `testbeds`.** Sub-status decoration is derived instead from the epoch's projected `:rf.sub/run` rows (`:first-run?` / `:changed?`), so the tab reads no live cache. |
 | `:rf/epoch-record :sub-runs` | [Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record) | Per-cascade `:sub-id` / `:query-v` / `:recomputed?` — every sub that re-ran. |
 | `:rf/epoch-record :renders` | Same | Per-cascade list of component-render entries; tagged with `:owning-frame` (per Spec 009 / render-tracker). |
 | `:rf/epoch-record :db-before` / `:db-after` | Same | Changed-paths derivation used to attribute layer-1 invalidations to specific `app-db` slices. |
