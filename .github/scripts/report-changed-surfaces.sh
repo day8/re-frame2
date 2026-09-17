@@ -1303,8 +1303,48 @@ else
         # the REASSURING direction, the missing row being a skipped gate rather
         # than a red one. `mcp_live` stays OFF: that is epoch's, for a live
         # fixture :local/root this artefact has no part in.
+        #
+        # rf2-17a0v — THE REMAINDER, AND IT IS DECIDED PER TREE. The suites'
+        # roster is TWELVE implementation files rather than two: the same
+        # `read-source` path reaches five under implementation/machines/src and
+        # four under implementation/resources/src. Two of the resources entries
+        # —  implementation/resources/src/re_frame/resources/events.cljc and
+        # implementation/resources/src/re_frame/resources/state.cljc — arrive
+        # through a THIRD suite the rf2-01dix work never saw,
+        # tools/mcp-conformance/wire-vocab/test/re_frame/mcp_conformance/infinite_trace_ops_test.clj,
+        # which pins the four EP-0021 `:rf.resource/*` ops and the loud-merge
+        # error as DATA in them. Both trees join HTTP on the same `src/*`
+        # scope, and the over-arm is as deliberate here as it is there: machines
+        # carries an UNROSTERED
+        # implementation/machines/src/re_frame/machines/reply.cljc holding more
+        # `:rf.reply/*` occurrences than any rostered file in that tree, and
+        # resources likewise carries
+        # implementation/resources/src/re_frame/resources/reply.cljc — so the
+        # suites' roster already trails the emitters and an enumeration here
+        # would drift on the next one.
+        #
+        # AND implementation/routing/src IS DELIBERATELY NOT ARMED, though
+        # reply_envelope_test.clj does roster
+        # implementation/routing/src/re_frame/routing/nav_token.cljc. Measured
+        # rather than reasoned. That suite's positive pin is `some` ACROSS its
+        # four emit sources, so a routing-confined rename cannot red it while
+        # the HTTP file still carries the literal — the wire-vocab suite ran
+        # GREEN against exactly that plant. The one assertion a routing-only
+        # diff CAN red is the per-file near-miss anti-pin, and
+        # implementation/routing/test/re_frame/routing_nav_token_test.clj reds
+        # on that same plant — inside implementation_jvm, which a routing/src
+        # diff already arms. Confirmed on the weakest key too
+        # (`:rf.reply/carried`, named once there against nine for work-id):
+        # still red. So arming routing would buy four MCP jobs and no
+        # discrimination the already-armed lane lacks. The machines and
+        # resources plants ran the OTHER way — their own artefact suites stayed
+        # green with counts identical to baseline while wire-vocab went red —
+        # which is why those two ARE armed and this one is not. Revisit if
+        # routing grows a second reply-envelope emitter, or if
+        # routing_nav_token_test.clj stops asserting these keys.
         case "$file" in
-          implementation/http/src/*) mcp_conformance=true ;;
+          implementation/http/src/*|implementation/machines/src/*|implementation/resources/src/*)
+            mcp_conformance=true ;;
         esac
         ;;
       implementation/fresco/*)
