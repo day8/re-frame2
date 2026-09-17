@@ -14,7 +14,7 @@
     (`:red-deep`, `:white`) exist.
   - `motion` carries the symbolic seam — `:scale-var-name` matches
     the CSS variable injected by `theme/global-styles/motion-css` +
-    canonical durations for diff-flash + tab fade.
+    the canonical tab-fade duration.
   - `duration-css` builds the `calc(<ms>ms * var(<var>, 1))` string
     consumers paste into their `animation-duration` slot."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -71,9 +71,13 @@
            (:scale-var-name t/motion)))))
 
 (deftest motion-durations-match-spec
-  (testing "rf2-5kfxe.2/3 — the canonical durations live here so the
-            renderer can read them rather than fork the number."
-    (is (= 400 (:flash-duration-ms t/motion)))
+  (testing "rf2-5kfxe.3 — the canonical duration lives here so the
+            renderer can read it rather than fork the number.
+            rf2-y8doi.29 retired `:flash-duration-ms` with the
+            never-applied diff-flash keyframes; `:fade-duration-ms`,
+            which the L4 tab cross-fade really does read, is the
+            control that this map is still populated at all."
+    (is (nil? (:flash-duration-ms t/motion)))
     (is (= 180 (:fade-duration-ms  t/motion)))))
 
 (deftest duration-css-builds-calc-with-seam

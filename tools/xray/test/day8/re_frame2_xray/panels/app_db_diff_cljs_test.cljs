@@ -32,13 +32,15 @@
      `:rf.xray/app-db-current+diff` subs (and the dead family stays
      gone).
 
-  2. **Focus events update Xray's frame.** `:rf.xray/focus-slice-path`
-     remains wired (the 'show me when this changed' walker dispatches it).
+  2. **The retired path-click handlers stay gone.** rf2-y8doi.29
+     deleted the segment-inspector popup, the 'show me when this
+     changed' sub and the slice-focus event pair — none of them had a
+     dispatcher or a subscriber in `tools/xray/src`. Each nil-assert
+     sits beside a positive control so absence cannot read as a failed
+     install.
 
   3. **Current-state inspector view** renders the section model and
      follows the picker-selected frame.
-
-  4. **Segment-inspector** events / state contract.
 
   ## Pure hiccup
 
@@ -225,17 +227,19 @@
     (registry/register-xray-handlers!)
     (is (some? (rf.registrar/handler :sub :rf.xray/target-frame-db)))
     (is (some? (rf.registrar/handler :sub :rf.xray/selected-epoch-record)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
     ;; rf2-okvit — the current-state inspector's section-model sub.
     (is (some? (rf.registrar/handler :sub :rf.xray/app-db-state)))
     ;; rf2-yng0y — the atomic current-state + before-image sub the panel
-    ;; pivots on (and the segment-inspector reads through, rf2-jmucu).
+    ;; pivots on.
     (is (some? (rf.registrar/handler :sub :rf.xray/app-db-current+diff)))
-    ;; rf2-e9tb0 — segment-inspector subs registered alongside.
-    (is (some? (rf.registrar/handler :sub :rf.xray/segment-inspector-open?)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/segment-inspector-path)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/segment-inspector-value)))
+    ;; rf2-y8doi.29 — the segment-inspector popup and the show-me-when
+    ;; walker's sub were deleted unreached; nothing in src dispatched the
+    ;; popup's opener or subscribed the walker's result.
+    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-open?)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-path)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-value)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
     ;; rf2-p53m2 — the dead composite diff family was pruned (no
     ;; production view consumer); guard against re-introduction.
     (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-diff)))
@@ -249,142 +253,29 @@
 (deftest registry-installs-app-db-diff-events
   (testing "register-xray-handlers! installs the Phase 5 events.
             Pin / unpin / reorder events were removed under rf2-e9tb0;
-            the segment-inspector open / close events landed in their
-            place. The two dispatcher-less clipboard copy events retired
+            the segment-inspector open / close events that landed in
+            their place went the same way under rf2-y8doi.29, unreached.
+            The two dispatcher-less clipboard copy events retired
             under rf2-6r9j.24 — the fx they rode survives, pinned below."
     (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
-    (is (some? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))
-    ;; rf2-e9tb0 — segment-inspector events registered.
-    (is (some? (rf.registrar/handler :event :rf.xray/open-segment-inspector)))
-    (is (some? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
+    ;; The positive control that the orchestrator really ran, so the
+    ;; nil-asserts below are absence rather than a failed install.
+    (is (some? (rf.registrar/handler :event :rf.xray/set-frame)))
     ;; Pin events are gone.
     (is (nil? (rf.registrar/handler :event :rf.xray/pin-slice)))
     (is (nil? (rf.registrar/handler :event :rf.xray/unpin-slice)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/reorder-pinned-slices)))))
+    (is (nil? (rf.registrar/handler :event :rf.xray/reorder-pinned-slices)))
+    ;; rf2-y8doi.29 — the path-click events.
+    (is (nil? (rf.registrar/handler :event :rf.xray/open-segment-inspector)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))))
 
 (deftest registry-installs-clipboard-fx
   (testing "register-xray-handlers! installs the :rf.xray.fx/copy-to-
             clipboard effect"
     (registry/register-xray-handlers!)
     (is (some? (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))))
-
-;; ---- (5) rf2-e9tb0 — segment-inspector events + state ------------------
-
-(deftest open-segment-inspector-writes-path-to-xray-frame
-  (testing "rf2-e9tb0 — :rf.xray/open-segment-inspector writes the
-            requested path into Xray's frame at :segment-inspector.
-            The path is normalised to a vector so callers can pass
-            seqs / lists / vectors interchangeably."
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/make-frame {:id :rf/default})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-segment-inspector
-                         (list :cart :items 0 :price)])
-      (is (= {:path [:cart :items 0 :price]}
-             (:segment-inspector (rf.frame/frame-app-db-value :rf/xray)))))))
-
-(deftest close-segment-inspector-drops-slot
-  (testing "rf2-e9tb0 — :rf.xray/close-segment-inspector dissocs the
-            slot so the popup reg-view's `when`-gate short-circuits"
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-segment-inspector [:cart]])
-      (is (some? (:segment-inspector (rf.frame/frame-app-db-value :rf/xray))))
-      (rf/dispatch-sync [:rf.xray/close-segment-inspector])
-      (is (nil? (:segment-inspector (rf.frame/frame-app-db-value :rf/xray)))))))
-
-(deftest segment-inspector-open?-tracks-slot-presence
-  (testing "rf2-e9tb0 — :rf.xray/segment-inspector-open? is true iff
-            the :segment-inspector slot is non-nil"
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (is (false? @(rf/subscribe [:rf.xray/segment-inspector-open?])))
-      (rf/dispatch-sync [:rf.xray/open-segment-inspector [:cart :items]])
-      (is (true? @(rf/subscribe [:rf.xray/segment-inspector-open?])))
-      (rf/dispatch-sync [:rf.xray/close-segment-inspector])
-      (is (false? @(rf/subscribe [:rf.xray/segment-inspector-open?]))))))
-
-(deftest segment-inspector-value-resolves-against-focused-epoch-value
-  (testing "rf2-e9tb0 / rf2-jmucu — :rf.xray/segment-inspector-value reads
-            through :rf.xray/app-db-current+diff's `:value` (the focused
-            epoch's `:db-after`, the same image the panel body shows) with
-            `get-in`, so the popup agrees with the body. With no epoch
-            history (this case) `:value` falls back to the live observed-
-            frame db, so the popup shows current state. Empty path yields
-            the whole value (root inspection). The OFF-HEAD consistency
-            invariant is pinned in app_db_segment_inspector_cljs_test."
-    (seed-xray! {:cart {:items [{:id 7 :qty 1}]
-                         :gross 42}
-                  :user "ada"}
-                 [])
-    (rf/with-frame :rf/xray
-      ;; Leaf at [:cart :gross]
-      (rf/dispatch-sync [:rf.xray/open-segment-inspector [:cart :gross]])
-      (is (= 42 @(rf/subscribe [:rf.xray/segment-inspector-value])))
-      ;; Sub-map at [:cart]
-      (rf/dispatch-sync [:rf.xray/open-segment-inspector [:cart]])
-      (is (= {:items [{:id 7 :qty 1}] :gross 42}
-             @(rf/subscribe [:rf.xray/segment-inspector-value])))
-      ;; Root: empty path → whole db.
-      (rf/dispatch-sync [:rf.xray/open-segment-inspector []])
-      (is (= {:cart {:items [{:id 7 :qty 1}] :gross 42}
-              :user "ada"}
-             @(rf/subscribe [:rf.xray/segment-inspector-value]))))))
-
-;; ---- (6) focus event + 'Show me when this changed' result ---------------
-
-(deftest focus-slice-path-event-writes-to-xray-frame
-  (testing ":rf.xray/focus-slice-path lands the path on :rf/xray's
-            :focused-slice-path"
-    (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]]))
-    (is (= [:cart :items]
-           (:focused-slice-path (rf.frame/frame-app-db-value :rf/xray))))))
-
-(deftest clear-slice-focus-event-drops-focus
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-slice-path [:any]])
-    (rf/dispatch-sync [:rf.xray/clear-slice-focus]))
-  (is (nil? (:focused-slice-path (rf.frame/frame-app-db-value :rf/xray)))))
-
-(deftest show-me-when-this-changed-result-filters-history
-  (testing ":rf.xray/show-me-when-this-changed-result walks
-            :rf.xray/epoch-history and returns only epochs that
-            touched the focused path.
-
-            Per spec §Changed-paths derivation the walker uses pointer-
-            equality at each level — we use `assoc-in` so the
-            unchanged :cart subtree keeps its PersistentHashMap
-            identity across epoch boundaries (mirrors how host
-            db-only reg-event handlers build successor app-dbs)."
-    (let [db-0 {}
-          db-1 (assoc-in db-0 [:cart :items] [])
-          db-2 (assoc-in db-1 [:cart :items] [{:id 7}])
-          db-3 (assoc    db-2 :user "ada")  ;; :cart identity preserved
-          hist [(mk-record :e-1 [:app/boot]     db-0 db-1)
-                (mk-record :e-2 [:cart/add-item] db-1 db-2)
-                (mk-record :e-3 [:user/login]    db-2 db-3)]]
-      (seed-xray! db-3 hist)
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]])
-        (let [hits @(rf/subscribe [:rf.xray/show-me-when-this-changed-result])
-              eids (mapv :epoch-id hits)]
-          (is (= [:e-2 :e-1] eids)
-              "newest-first; :e-3 didn't touch :cart :items"))))))
-
-(deftest show-me-when-this-changed-result-empty-when-no-focus
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  (rf/with-frame :rf/xray
-    (is (= [] @(rf/subscribe [:rf.xray/show-me-when-this-changed-result])))))
 
 ;; ---- (7) the off-box safe-egress projection (rf2-uo0rc.2 + rf2-7htk7) ----
 ;;
@@ -614,20 +505,6 @@
           (is (nil? (find-by-testid
                       tree (str "rf-xray-app-db-state-area-" (pr-str area))))
               (str "no placeholder card for empty reserved area " area)))))))
-
-(deftest focus-slice-path-event-still-wired
-  (testing "the :rf.xray/focus-slice-path event remains registered. UI
-            affordance moved off the slice mini-panel — same follow-on
-            as the pin button above."
-    (seed-xray! {:cart {:items [{:id 7}]}}
-                 [(mk-record :e-1 [:cart/add]
-                             {:cart {:items []}}
-                             {:cart {:items [{:id 7}]}})])
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]])
-      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
-        (is (= [:cart :items]
-               (:focused-slice-path xray-db)))))))
 
 ;; ---- rf2-fvplw — App-db panel follows picker / focused frame -----------
 

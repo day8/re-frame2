@@ -82,24 +82,18 @@
 
 ;; ---- motion css ---------------------------------------------------------
 
-(deftest motion-css-declares-diff-flash-keyframes
-  (testing "rf2-5kfxe.2 — diff-flash keyframes are present in the
-            injected stylesheet; the animation name matches the one
-            referenced by the diff renderer."
+(deftest motion-css-carries-no-diff-flash-keyframes
+  (testing "rf2-y8doi.29 — the `rf-xray-diff-flash` keyframes were
+            declared but applied to no element (their only consumer died
+            with the old diff renderer in cfe35682c5), so they went with
+            the rest of the unreachable path-click machinery. The
+            sibling `rf-xray-fade-in`, which IS applied by the L4 tab
+            wrapper in shell.cljs, is the control."
     (let [css @#'gs/motion-css]
-      (is (string? css))
-      (is (re-find #"@keyframes\s+rf-xray-diff-flash" css)
-          "keyframes block named rf-xray-diff-flash exists"))))
-
-(deftest motion-css-flash-decays-to-transparent
-  (testing "the keyframes geometry: yellow alpha hold at the front,
-            ease to transparent by 100%. The brief plateau (12%) gives
-            the wash a beat instead of an aimless linear fade."
-    (let [css @#'gs/motion-css]
-      ;; 20% alpha at 0% + 12%, alpha 0 at 100%.
-      (is (re-find #"0%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\.20\)" css))
-      (is (re-find #"12%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\.20\)" css))
-      (is (re-find #"100%\s*\{\s*background-color:\s*rgba\(251, 191, 36, 0\)" css)))))
+      (is (nil? (re-find #"rf-xray-diff-flash" css))
+          "no diff-flash keyframes remain")
+      (is (some? (re-find #"@keyframes\s+rf-xray-fade-in" css))
+          "control: the live fade-in keyframes are still declared"))))
 
 (deftest motion-css-declares-fade-in-keyframes
   (testing "rf2-5kfxe.3 — L4 tab cross-fade keyframes are present.

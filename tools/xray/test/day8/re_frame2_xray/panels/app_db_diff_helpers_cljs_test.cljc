@@ -29,12 +29,10 @@
        skips it entirely — assertable via an externally-mutated
        counter wired through a wrapper.
 
-    3. **Reserved-keys segregation.** `partition-reserved` splits
-       triples whose path roots in the reserved `:rf*` namespace family
-       (e.g. `:rf.runtime/*`) into a separate group.
-
-    4. **`epochs-touching-path` walks the history.** Returns only
-       epochs that touched the focused path, classified by op.
+    3. **Reserved-key filtering and the current-state section model.**
+       `user-domain-db` hides the reserved `:rf*` namespace family;
+       `runtime-areas` + `reserved-summary` project the runtime-db
+       partition; `current-state-sections` builds what the panel draws.
 
   ## rf2-e9tb0 — pin-store helpers dropped
 
@@ -154,15 +152,14 @@
 ;; routing / elision) moved OUT of app-db's `:rf/runtime` container into a
 ;; SEPARATE runtime-db partition keyed by the reserved `:rf.runtime/*`
 ;; namespace. The App-DB panel surfaces them as sections via the
-;; `runtime-areas` table (now pointing into the runtime-db partition); the
-;; reserved-keys partition / `reserved-path?` now key on the reserved
-;; `:rf*` NAMESPACE family (a normal app-db diff triple is never reserved).
-
-(deftest reserved-app-db-keys-is-empty-post-migration
-  (testing "EP-0001 (rf2-tj6w9l) — runtime subsystems moved to the
-            runtime-db partition, so app-db carries no reserved root key;
-            reserved-app-db-keys is empty"
-    (is (= #{} h/reserved-app-db-keys))))
+;; `runtime-areas` table (now pointing into the runtime-db partition), and
+;; `user-domain-db` hides the reserved `:rf*` NAMESPACE family from the TOP
+;; section (a normal app-db diff triple is never reserved).
+;;
+;; rf2-y8doi.29 — the `reserved-app-db-keys` / `reserved-path?` /
+;; `triple-path` / `partition-reserved` cluster went with the unreachable
+;; path-click machinery: nothing in `tools/xray/src` called any of them
+;; but each other. Their deftests went with them.
 
 (deftest runtime-areas-covers-the-six-subsystems-in-runtime-db
   (testing "runtime-areas maps each operator-facing area-id to its
@@ -178,18 +175,6 @@
     (is (not (some (fn [p] (= :rf/runtime (first p))) (vals h/runtime-areas)))
         "no runtime-area path roots in the retired app-db :rf/runtime container")))
 
-(deftest reserved-path-true-for-reserved-namespace-root
-  (testing "reserved-path? catches the reserved :rf*-namespace family; a
-            normal app-db triple is never reserved (EP-0001 rf2-tj6w9l —
-            runtime subsystems no longer live in app-db)"
-    (is (true?  (h/reserved-path? [:rf/runtime :machines])) ":rf/* root")
-    (is (true?  (h/reserved-path? [:rf.machine/foo])) ":rf.<subns>/* root")
-    (is (false? (h/reserved-path? [:cart :items])))
-    (is (false? (h/reserved-path? [:user :name]))
-        "an ordinary user-domain app-db path is not reserved")
-    (is (false? (h/reserved-path? [])))
-    (is (false? (h/reserved-path? nil)))))
-
 (deftest reserved-summary-renders-current-runtime-subsystems
   (testing "reserved-summary projects populated runtime subsystem
             sub-paths out of the RUNTIME-DB partition value into
@@ -204,21 +189,6 @@
               [:rf/route {:route-id :app/home}]]
              summary)))))
 
-(deftest partition-reserved-splits-on-reserved-namespace
-  (testing "partition-reserved separates triples whose path roots in the
-            reserved :rf* namespace family from the rest (EP-0001
-            rf2-tj6w9l — a normal app-db triple is non-reserved)"
-    (let [triples [{:op :modified :path [:cart :items] :before [] :after [1]}
-                   {:op :modified :path [:user :name] :before "ada" :after "ben"}
-                   {:op :added    :path [:rf.machine/transient :x] :before nil :after 1}]
-          {:keys [reserved non-reserved]}
-          (h/partition-reserved triples)]
-      (is (= 1 (count reserved)) "only the :rf.machine/* triple is reserved")
-      (is (= 2 (count non-reserved)) "the two user-domain triples are not")
-      (is (every? #(h/reserved-path? (:path %)) reserved))
-      (is (every? #(not (h/reserved-path? (:path %))) non-reserved)))))
-
-;; ---- (3b) current-state sectioning (rf2-okvit; EP-0001 rf2-tj6w9l) -------
 ;;
 ;; The app-db tab is a CURRENT-STATE inspector. `current-state-sections`
 ;; splits the frame's TWO partitions into:
@@ -485,72 +455,3 @@
       (is (= h/added (:before (area-by model :rf/route)))
           "rf2-227cz — an added route slot (absent before) → `added`,
            not `no-diff`"))))
-
-;; ---- (4) 'Show me when this changed' walker -----------------------------
-
-(defn- mk-record
-  "Build a minimal `:rf/epoch-record` for diff-walker tests. The
-  walker reads :epoch-id, :db-before, :db-after, and :trigger-event."
-  [epoch-id event db-before db-after]
-  {:epoch-id      epoch-id
-   :frame         :rf/default
-   :committed-at  0
-   :event-id      (first event)
-   :trigger-event event
-   :db-before     db-before
-   :db-after      db-after
-   :trace-events  []})
-
-(deftest path-touched-true-on-direct-change
-  (is (true?  (h/path-touched? {:a 1} {:a 2} [:a])))
-  (is (false? (h/path-touched? {:a 1} {:a 1} [:a])))
-  (is (true?  (h/path-touched? {:a {:b 1}} {:a {:b 2}} [:a :b]))))
-
-(deftest path-touched-false-on-unchanged-sibling
-  (testing "a change in a sibling subtree must NOT register as a touch
-            of the focused path"
-    (is (false? (h/path-touched? {:a {:b 1} :c 0}
-                                 {:a {:b 1} :c 1}
-                                 [:a :b])))))
-
-(deftest op-at-path-classifies-by-presence
-  (is (= :added    (h/op-at-path {} {:a 1} [:a])))
-  (is (= :removed  (h/op-at-path {:a 1} {} [:a])))
-  (is (= :modified (h/op-at-path {:a 1} {:a 2} [:a])))
-  (is (nil?        (h/op-at-path {:a 1} {:a 1} [:a]))
-      "unchanged path → nil"))
-
-(deftest epochs-touching-path-returns-newest-first
-  (testing "epochs-touching-path filters history to epochs that touched
-            the focused path; result is newest-first.
-
-            Per spec §Changed-paths derivation the walker is pointer-
-            equality-based; we use `assoc-in` / `update-in` here so the
-            unchanged subtree's :cart {:items ...} stays `identical?`
-            across epoch boundaries — same shape a real host runtime
-            produces via db-only reg-event handlers."
-    (let [db-0     {}
-          db-1     (assoc-in db-0 [:cart :items] [])
-          db-2     (assoc-in db-1 [:cart :items] [{:id 7}])
-          db-3     (assoc db-2 :user "ada")  ;; :cart stays identical?
-          db-4     (assoc-in db-3 [:cart :items] [])
-          history [(mk-record :e-1 [:app/boot]     db-0 db-1)
-                   (mk-record :e-2 [:cart/add-item] db-1 db-2)
-                   (mk-record :e-3 [:user/login]    db-2 db-3)
-                   (mk-record :e-4 [:cart/clear]    db-3 db-4)]
-          hits    (h/epochs-touching-path history [:cart :items])
-          eids    (mapv :epoch-id hits)]
-      (is (= [:e-4 :e-2 :e-1] eids)
-          "newest first; :e-3 (user/login) preserved :cart's identity, so
-           the pointer-equality walker correctly skips it")
-      (is (= :modified (:op (first hits))))
-      (is (= [:cart/clear] (:event (first hits)))
-          "event vector lifted off :trigger-event"))))
-
-(deftest epochs-touching-path-empty-history
-  (is (= [] (h/epochs-touching-path [] [:anywhere]))))
-
-(deftest epochs-touching-path-no-hits
-  (testing "when no epoch touched the path, returns an empty vector"
-    (let [history [(mk-record :e-1 [:a] {} {:other 1})]]
-      (is (= [] (h/epochs-touching-path history [:never :touched]))))))

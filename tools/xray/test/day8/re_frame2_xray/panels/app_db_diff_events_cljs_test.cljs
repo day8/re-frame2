@@ -3,17 +3,15 @@
 
   Calls the leaf's `install!` directly (NOT the umbrella
   `register-xray-handlers!`) so the leaf is pinned as an
-  independently usable install unit. Dispatches one happy-path
-  event and asserts the resulting :rf/xray app-db transition.
+  independently usable install unit, and asserts exactly which
+  handlers it does and does not register.
 
   rf2-e9tb0 — the pin / unpin / reorder events were removed when the
-  pinned-watches strip was superseded by the segment-inspector
-  popup. Only focus-slice-path + the clipboard fx remain on this
-  leaf; segment-inspector events live on the
-  `app-db-segment-inspector` leaf."
+  pinned-watches strip was superseded by the segment-inspector popup.
+  rf2-y8doi.29 then retired that popup unreached, and with it this
+  leaf's `:rf.xray/focus-slice-path` / `:rf.xray/clear-slice-focus`
+  pair. Only the clipboard fx remains on this leaf."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -24,18 +22,16 @@
 
 (deftest leaf-install-registers-events-and-fxs
   (events/install!)
-  (is (some? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
-  (is (some? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))
+  ;; The one surviving registration on this leaf — the POSITIVE control
+  ;; for the nil-asserts below, so a blanket "nothing installed" bug
+  ;; cannot make them pass vacuously.
   (is (some? (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))
   ;; rf2-e9tb0 — pin events were dropped at this leaf.
   (is (nil? (rf.registrar/handler :event :rf.xray/pin-slice)))
   (is (nil? (rf.registrar/handler :event :rf.xray/unpin-slice)))
-  (is (nil? (rf.registrar/handler :event :rf.xray/reorder-pinned-slices))))
-
-(deftest focus-slice-path-dispatch-writes-xray-frame
-  (events/install!)
-  (rf/make-frame {:id :rf/xray})
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]]))
-  (is (= [:cart :items]
-         (:focused-slice-path (rf.frame/frame-app-db-value :rf/xray)))))
+  (is (nil? (rf.registrar/handler :event :rf.xray/reorder-pinned-slices)))
+  ;; rf2-y8doi.29 — the slice-focus pair went with the segment-inspector
+  ;; popup: `:rf.xray/focus-slice-path` wrote `:focused-slice-path`, a
+  ;; slot whose only reader was a sub nothing subscribed.
+  (is (nil? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
+  (is (nil? (rf.registrar/handler :event :rf.xray/clear-slice-focus))))

@@ -238,7 +238,6 @@
    :rf.xray/view-scope-frame
    :rf.xray/view-scope-frame-slot
    :rf.xray/target-frame-slot
-   :rf.xray/focused-slice-path
    ;; rf2-ad7zx.9 — the `:rf.xray/issues-filters` sub was dropped with
    ;; the Issues panel's filter-chrome reconcile to the Figma design
    ;; (pure rows, no filtering — spec/021 §8.2).
@@ -275,11 +274,6 @@
    :rf.xray/now-ms
    ;; rf2-39n8h discovered — focused-frame slot consumed across panels.
    :rf.xray/observed-frame
-   ;; rf2-e9tb0 — App-DB segment-inspector popup subs.
-   :rf.xray/segment-inspector-open?
-   :rf.xray/segment-inspector-path
-   :rf.xray/segment-inspector-slot
-   :rf.xray/segment-inspector-value
    :rf.xray/palette-active-item
    :rf.xray/palette-cursor
    :rf.xray/palette-index
@@ -425,7 +419,6 @@
    ;; (`config/keybinding-enabled?`) is a bare process-global
    ;; `configure!` slot, not a persisted `:settings` key.
    :rf.xray/keybinding-enabled?
-   :rf.xray/show-me-when-this-changed-result
    :rf.xray/show-tool-frames?
    ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-event-bundle bucket.
    :rf.xray/show-ungrouped?
@@ -538,10 +531,7 @@
    ;; rf2-hga49 — clear the tab-ribbon Reset failure flash.
    :rf.xray/clear-reset-flash
    :rf.xray/clear-selected-dispatch-id
-   :rf.xray/clear-slice-focus
    :rf.xray/clear-trace-buffer
-   ;; rf2-e9tb0 — App-DB segment-inspector popup close event.
-   :rf.xray/close-segment-inspector
    ;; rf2-7dyi8 — drop every expanded trace-row id in one shot.
    :rf.xray/clear-trace-expand
    :rf.xray/close-edit-popup
@@ -619,7 +609,6 @@
    ;; DISPATCHED row reuses the spine's canonical `:rf.xray/focus-event`
    ;; (listed above); rf2-fsqlgz collapsed the former panel-local
    ;; duplicate onto it, so there is one registration.
-   :rf.xray/focus-slice-path
    ;; rf2-59e7k — Cancellation-cascade row-click jump (delegates into
    ;; :rf.xray/select-dispatch-id via the spine shim).
    :rf.xray/focus-trace-entry
@@ -655,8 +644,6 @@
    :rf.xray/note-sensitive-suppressed
    :rf.xray/open-edit-popup
    :rf.xray/open-in-editor
-   ;; rf2-e9tb0 — App-DB segment-inspector popup open event.
-   :rf.xray/open-segment-inspector
    :rf.xray/open-settings
    :rf.xray/palette-close
    :rf.xray/palette-cursor-down
@@ -1862,15 +1849,26 @@
 
 ;; rf2-e9tb0 — :rf.xray/pinned-slices-store sub was dropped when the
 ;; pinned-watches strip was superseded by the segment-inspector popup.
+;; rf2-y8doi.29 then retired that popup unreached, so its four subs
+;; (`open?` / `path` / `slot` / `value`), its open + close events and
+;; the slice-focus pair are gone from the rosters above too. The
+;; snapshot test is what pins their absence; this is the explicit read.
 
-(deftest sub-segment-inspector-defaults-closed
-  (testing "rf2-e9tb0 — :rf.xray/segment-inspector-open? defaults to
-            false on a fresh frame; :rf.xray/segment-inspector-path
-            defaults to nil"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (false? @(rf/subscribe [:rf.xray/segment-inspector-open?])))
-      (is (nil? @(rf/subscribe [:rf.xray/segment-inspector-path]))))))
+(deftest retired-path-click-handlers-stay-gone
+  (testing "rf2-y8doi.29 — the segment-inspector popup, the
+            show-me-when walker's sub and the slice-focus pair were
+            deleted unreached. `:rf.xray/epoch-history` is the positive
+            control that `register-xray-handlers!` really ran."
+    (registry/register-xray-handlers!)
+    (is (some? (rf.registrar/handler :sub :rf.xray/epoch-history))
+        "control: a live sub still resolves")
+    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-open?)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
+    (is (nil? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/open-segment-inspector)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
+    (is (nil? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))))
 
 ;; rf2-ad7zx.9 — `sub-issues-filters-default-disabled` was removed with
 ;; the Issues panel's filter-chrome reconcile to the Figma design (pure
@@ -2106,29 +2104,6 @@
       (is (true? @(rf/subscribe [:rf.xray/reactive-show-unchanged?])))
       (rf/dispatch-sync [:rf.xray/reactive-set-unchanged false])
       (is (false? @(rf/subscribe [:rf.xray/reactive-show-unchanged?]))))))
-
-(deftest event-segment-inspector-open-and-close
-  (testing "rf2-e9tb0 — :rf.xray/open-segment-inspector writes the
-            requested path into Xray's frame; close drops it. The
-            popup is then visible / invisible via the open? sub."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-segment-inspector [:users :count]])
-      (is (true? @(rf/subscribe [:rf.xray/segment-inspector-open?])))
-      (is (= [:users :count]
-             @(rf/subscribe [:rf.xray/segment-inspector-path])))
-      (rf/dispatch-sync [:rf.xray/close-segment-inspector])
-      (is (false? @(rf/subscribe [:rf.xray/segment-inspector-open?])))
-      (is (nil? @(rf/subscribe [:rf.xray/segment-inspector-path]))))))
-
-(deftest event-focus-slice-path-and-clear
-  (testing ":rf.xray/focus-slice-path + clear-slice-focus round-trip"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-slice-path [:a]])
-      (is (= [:a] @(rf/subscribe [:rf.xray/focused-slice-path])))
-      (rf/dispatch-sync [:rf.xray/clear-slice-focus])
-      (is (nil? @(rf/subscribe [:rf.xray/focused-slice-path]))))))
 
 (deftest event-select-machine-id-and-clear
   (testing ":rf.xray/select-machine-id + clear round-trip"
