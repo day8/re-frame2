@@ -5,8 +5,8 @@ runtime concerns** — SSR, Machines, Routes, Managed-Effects — without
 fragmenting the chrome: the 20-cell idiom matrix renders *inside* the
 existing Dynamic tabs (no idiom-area spawns its own tab). This is distinct
 from the cohesive-sub-domain rule, under which a few runtime sub-domains
-DID earn their own Dynamic tab (Routing · Resources · Graph · Frames) —
-see [`000-Vision.md`](000-Vision.md) §The tab inventory. Distils [the
+DID earn their own Dynamic tab (Routing · Resources · Graph · Frames ·
+Fresco) — see [`000-Vision.md`](000-Vision.md) §The tab inventory. Distils [the
 2026-05-18 cross-cutting design
 findings](#findings-anchor) into a normative reading: **5 visual idioms ×
 4 areas = a 20-cell matrix of features**, each anchored on a concrete
@@ -48,9 +48,11 @@ that make them hard to debug from code alone:
 
 **The strategic move:** Xray's Dynamic tab chrome (cohesive sub-domains
 earn their own L4 lens — Routing per rf2-nrbs9, then Resources / Graph /
-Frames per EP-0016 / EP-0014 / EP-0013; the Issues tab was removed per
-rf2-gbz39 Option (c), issues surfacing inline + via the event-row
-pink-wash + the always-on issues ribbon signal) does NOT need a new tab
+Frames per EP-0016 / EP-0014 / EP-0013, then Fresco per rf2-hic-023 —
+the 10-tab inventory is [`018-Event-Spine.md`](018-Event-Spine.md) §5's;
+the Issues tab was removed per rf2-gbz39 Option (c), issues surfacing
+inline + via the event-row pink-wash + the always-on issues ribbon
+signal) does NOT need a new tab
 *per cross-cutting idiom*. The four idiom-areas (SSR · Machines · Routes ·
 Managed-Effects) do not each spawn a tab; their cross-cutting
 content needs **deep specialised renderings inside the existing
@@ -270,6 +272,16 @@ consequences, laid out vertically." Cancellation is no longer a mystery;
 it's a diagram.
 
 **Affordance:** Machines tab — cancellation cascade visualiser (M-C3).
+The projection is **scoped to the focused frame** — anchor, aborts,
+teardowns and the decision row alike — because Xray's trace buffer is
+every host frame's ring MERGED while a `:rf.trace/dispatch-id` is unique
+only *within* a frame, so an unscoped walk folded frame B's aborts into
+frame A's cascade (rf2-y8doi.15). Two escapes are deliberate: a focus
+naming no frame scopes nothing, and an event carrying no frame tag is
+kept as unattributable rather than dropped as foreign — the
+actor-destroy abort the wall-clock fallback exists for is precisely such
+an emit.
+
 This is also a template for the SSR cancellation case — when an SSR
 request times out, the same cascade-waterfall idiom shows what cleanup
 ran (response slot dropped, request slot dropped, machine snapshots
@@ -557,7 +569,8 @@ response come back? Was the `:on-success` handler invoked? Did the handler
 write the right slice?
 
 **Insight Xray provides:** The **wire-boundary diff** in the Epoch panel's
-"EFFECTS HANDLERS RAN" section:
+"EFFECTS HANDLERS RAN" section — drawn here at its full design extent; the
+status note under the panel says which parts ship today:
 
 ```
 ┌─ :rf.http/managed  ·  POST /api/checkout/finalize ──────────────────────┐
@@ -584,10 +597,37 @@ write the right slice?
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The headline: **request → wire → response → handler → app-db slice
-touched** in one compact panel. The waterfall makes timing visible. The
-"Applied" section connects the http response to its downstream effect on
-app-db. **Privacy markers are visible at every layer.**
+The headline — the design target for all five surfaces — is **request →
+wire → response → handler → app-db slice touched** in one compact panel.
+The waterfall makes timing visible. The "Applied" section connects the
+http response to its downstream effect on app-db. **Privacy markers are
+visible at every layer.**
+
+**What ships, and what is still design (rf2-y8doi.18).** The five-section
+record panel ships — REQUEST · WIRE TIMING · RESPONSE · REPLY TARGET ·
+APP-DB SLICE TOUCHED — but two of the headline's links are
+**designed-not-built on every surface**:
+
+- **Wire.** No runtime producer stamps per-phase wire timing, so the
+  `issued → sent → received → decoded → on-success` waterfall drawn above
+  is unbuilt. The four non-HTTP surfaces draw a synthesised two-phase
+  `:issued → :elapsed` bar instead; absent even that, an explicit `n/a`.
+- **Applied.** No diff feed is wired into the record, so the section
+  reports app-db paths as UNTRACKED rather than measured-and-empty. That
+  distinction is load-bearing: an amber warning which read the empty list
+  as evidence fired on every healthy record, and was removed.
+
+**And the HTTP record is narrower again.** The issuing event-bundle holds
+essentially one HTTP fact — that the request went out — because almost
+every row the runtime emits afterwards comes from a transport callback
+with no handler scope, or from a different run's drain. So an HTTP record
+draws REQUEST and REPLY TARGET only, plus RESPONSE when a synchronous
+body-prep failure landed in this very bundle; its status reads `ISSUED`,
+not `OK`; and its phase / wire / response / duration fields are nil BY
+CONSTRUCTION rather than pending, since no later event could fill them in.
+The four surfaces whose end events DO land in-bundle keep all five
+sections. **REPLY TARGET is what the caller configured, not an observed
+delivery.**
 
 For WebSocket: same shape but for a frame's send/recv, plus connection
 state at issue time.
