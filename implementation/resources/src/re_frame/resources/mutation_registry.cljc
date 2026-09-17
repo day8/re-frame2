@@ -314,6 +314,12 @@
       mutation-id
       (rf.source-coords/merge-coords
         (merge {:doc (:doc mutation-spec)}
+               ;; rf2-nrc93 — forward the caller's image-selection stamp, as
+               ;; `reg-resource` does: this registrar map is the kind's own
+               ;; shape, so `:ns` / `:rf.provenance/ns` would otherwise be
+               ;; dropped before the source store sees it (Spec 001
+               ;; §Production elision contract).
+               (select-keys metadata [:ns :rf.provenance/ns])
                {:rf/mutation mutation-spec
                 :handler-fn  (:request mutation-spec)})))
     mutation-id))
