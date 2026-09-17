@@ -297,7 +297,7 @@ Custom host events land here through the framework's own public
 entrypoint, not through any Xray-side adapter: `rf/emit-trace-event!`
 (the re-export of `re-frame.trace/emit!` — [Spec 009 §Emitting trace
 events](../../../spec/009-Instrumentation.md#emitting-trace-events),
-[`API.md` §Tracing](../../../spec/API.md#tracing)) called outside a
+[`spec/API.md` §Tracing](../../../spec/API.md#tracing)) called outside a
 dispatch produces a frameless event, which skips the per-frame rings by
 the same B3 ruling and reaches this ring through the listener. A host
 bridging a non-re-frame2 source into the stream emits through that one
