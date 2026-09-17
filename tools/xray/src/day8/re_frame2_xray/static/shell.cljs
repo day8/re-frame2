@@ -630,8 +630,15 @@
 ;;
 ;; `surface-composer` IS a `rf.fresco/defview` now, so it heads
 ;; `[static-shell/surface {}]` directly and both defs are deleted. The
-;; ONE crossing into this tree moved up a level to `shell.cljs`'s own
-;; private `surface-bridge`, which is what `shell-view` — still the
-;; Reagent root the installed adapter renders — mounts. When the epic's
-;; coupling (1) is severed and `mount.cljs` owns a Fresco root, that last
-;; bridge goes too.
+;; crossing they carried is gone from the Dynamic side too: the epic's
+;; coupling (1) IS severed (rf2-k97c.3) — `mount.cljs` owns a
+;; `rf.fresco/client-root` and heads `shell.cljs`'s `ShellView` under
+;; its own frame-provider, never the installed adapter's `:render` — so
+;; `shell.cljs`'s own private `surface-bridge` went with it.
+;; `shell-view` is NOT a Reagent root and is not an `rf/reg-view`: it is
+;; the public `defn` a Reagent caller heads, answering the element
+;; `ShellView` lowers to.
+;;
+;; NOTHING HERE IS OWED A FURTHER DELETION. The `*-bridge` /
+;; `*-component` pairs that remain elsewhere are ruled to STAY
+;; (rf2-lect, option 2), so do not read this block as promising one.

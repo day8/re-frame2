@@ -5,7 +5,7 @@
   can't reach: `@font-face` declarations, `@keyframes`, the reduced-
   motion seam, per-theme CSS custom properties, and the atmospheric
   grain overlay. Public surface is one `install!` call from
-  `shell-view`.
+  `ShellView`.
 
   Idempotent — `defonce`-guarded *and* DOM-probed via fixed `id`
   attributes — so shadow-cljs `:after-load` reloads, repeated shell
@@ -30,13 +30,16 @@
   shell needs the fonts resolved; every animation downstream reads
   from the `:root` motion-scale seam) so they want their own lifetime
   + a clean test surface. Owning a dedicated ns also keeps the public
-  contract obvious: a single `install!` call from `shell-view`.
+  contract obvious: a single `install!` call from `ShellView`.
 
   ## Lifetime
 
-  `install!` is invoked once from `shell.cljs`'s `shell-view` reg-view
-  body. It guards against `js/document` being absent (node-test) and
-  uses fixed `id` attributes on the `<style>` nodes so a hot-reload
+  `install!` is invoked once from `shell.cljs`'s `ShellView` body — a
+  `rf.fresco/defview` boundary, not an `rf/reg-view` (rf2-k97c.3). The
+  public `shell-view` callable is a plain `defn` answering the element
+  `ShellView` lowers to, so a Reagent embed reaches this install
+  through it. It guards against `js/document` being absent (node-test)
+  and uses fixed `id` attributes on the `<style>` nodes so a hot-reload
   that resets the `defonce` atom would still no-op when the DOM node
   is already present."
   (:require [clojure.string :as string]
@@ -929,7 +932,7 @@
 ;; ## Bundle isolation
 ;;
 ;; This injection is part of the Xray global-styles preload path — it
-;; only runs from `shell-view`'s `install!`, which is dev-only (Xray is
+;; only runs from `ShellView`'s `install!`, which is dev-only (Xray is
 ;; gated behind `:devtools/preloads`). The string is plain CSS data, not
 ;; an `@xyflow/react` `:require`, so it carries none of the xyflow
 ;; internal-symbol strings the `check-bundle-isolation.cjs` sentinel
@@ -1634,11 +1637,13 @@
   nil)
 
 (defn install!
-  "Idempotent — call from `shell-view`'s reg-view body. Injects the
-  full Xray stylesheet set (see `install-into!`) into the host page's
-  `js/document` on first paint of the shell. The `defonce @installed?`
-  guard saves the per-render work; the per-style DOM probe inside each
-  injector is the real idempotency guarantee."
+  "Idempotent — call from `ShellView`'s body (`shell.cljs`), a
+  `rf.fresco/defview` boundary rather than an `rf/reg-view`
+  (rf2-k97c.3). Injects the full Xray stylesheet set (see
+  `install-into!`) into the host page's `js/document` on first paint
+  of the shell. The `defonce @installed?` guard saves the per-render
+  work; the per-style DOM probe inside each injector is the real
+  idempotency guarantee."
   []
   (when-not @installed?
     (when (exists? js/document)
