@@ -512,15 +512,21 @@
 ;; triples to every `:rf.event/db-changed` row's `:db-diff` slot so the
 ;; view stays dumb-and-pure.
 ;;
-;; rf2-y8doi.14 — and the values in those triples are ALREADY PROJECTED.
-;; `:rf.xray/trace-feed` runs the record's `:db-before` / `:db-after`
-;; through the on-box local-render egress seam under the observed frame's
-;; policy BEFORE `diff-paths` sees them, so a slot the frame declared
-;; `:sensitive` is equal on both sides and emits NO triple — the renderers
-;; below cannot print it. They stay dumb: handed projected values, never
-;; deciding policy. `trace_helpers/redact-epoch-db` carries why the row is
-;; ABSENT rather than shown as `:rf/redacted`, and which chip carries the
-;; suppressed signal.
+;; rf2-y8doi.14 — and the VALUES in those triples are ALREADY PROJECTED.
+;; `:rf.xray/trace-feed` re-seats each triple's `:before` / `:after` on
+;; the observed frame's on-box local-render projection of the db pair, so
+;; a slot the frame declared `:sensitive` arrives here as `:rf/redacted`
+;; and the renderers below cannot print it. They stay dumb: handed
+;; projected values, never deciding policy.
+;;
+;; `:op` and `:path` are NEVER withheld, so the row still renders — glyph,
+;; path and all — with the sentinel where the values would be. That is
+;; deliberate: redacting both sides BEFORE the diff would make
+;; `diff-paths` read them as equal and emit no row at all, and a changed
+;; secret rendering as NOTHING is the very blindness this item removes
+;; from the App-DB tab. `trace_helpers`' block comment above
+;; `db-changed-diff-triples` carries the full reasoning, including why the
+;; path-scoped alternative leaks.
 ;;
 ;; The row idiom (spec/021 §2.2 step 6 mockup):
 ;;

@@ -65,12 +65,18 @@
 (def ^:private secure-frame :trace-helpers.test/secure)
 (def ^:private plain-frame  :trace-helpers.test/plain)
 
-(defn- install-policy! []
+;; The THIRD frame declares the ANCESTOR `[:auth]` rather than the leaf.
+;; It is not a variation for completeness — it is the shape that defeated
+;; the path-scoped design (a walk rooted at `[:auth :token]` never matches
+;; a declaration sitting above it), and `diff-paths` descends through maps
+;; to the leaf, so the two meet whenever an app declares a whole subtree.
+(def ^:private ancestor-frame :trace-helpers.test/ancestor)
+
+(defn- declare-sensitive! [frame-id paths]
   ;; EP-0025: durable app-db classification rides the commit-plane
   ;; classification effects, not a frame annotation.
-  (rf.frame/swap-runtime-db! secure-frame
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:auth :token]]}))))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive paths}))))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -78,7 +84,9 @@
      :init-fn (fn []
                 (rf/make-frame {:id plain-frame})
                 (rf/make-frame {:id secure-frame})
-                (install-policy!))}))
+                (rf/make-frame {:id ancestor-frame})
+                (declare-sensitive! secure-frame   [[:auth :token]])
+                (declare-sensitive! ancestor-frame [[:auth]]))}))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -1116,8 +1124,9 @@
 
 (deftest project-feed-3-arity-redacts-the-declared-sensitive-path
   (testing "rf2-y8doi.14 — under the OBSERVED frame's policy the
-            declared-sensitive path emits no triple and the value reaches
-            no part of the feed"
+            declared-sensitive path still RENDERS ITS ROW, carrying the
+            sentinel where the values would be, and the values reach no
+            part of the feed"
     (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
                                              :focused
                                              secure-frame)
@@ -1125,13 +1134,50 @@
       (is (not (feed-carries-secret? feed))
           "no rendered slot of the feed may carry the declared-sensitive
            value")
-      (is (not (contains? by-path [:auth :token]))
-          "both sides project to :rf/redacted, so diff-paths sees them
-           equal and emits NO triple for the declared path")
+      (is (contains? by-path [:auth :token])
+          "THE ROW SURVIVES. Redacting before the diff would make
+           diff-paths read both sides as equal and emit nothing, and a
+           changed secret rendering as NOTHING is the blindness this item
+           removes from the App-DB tab — not a shape to reproduce here")
+      (is (= :rf/redacted (:before (get by-path [:auth :token]))))
+      (is (= :rf/redacted (:after  (get by-path [:auth :token]))))
+      (is (= :modified (:op (get by-path [:auth :token])))
+          "and :op survives too — the operator is told the slot CHANGED,
+           which is the whole signal the sentinel is protecting")
       (testing "CONTROL — the UNDECLARED sibling path is untouched, so the
                 seam is path-scoped rather than a blanket wipe"
         (is (contains? by-path [:ui :tab])
             "[:ui :tab] is not declared sensitive and must still diff")
+        (is (= :home (:before (get by-path [:ui :tab]))))
+        (is (= :cart (:after  (get by-path [:ui :tab]))))))))
+
+(deftest project-feed-3-arity-redacts-under-an-ANCESTOR-declaration
+  (testing "rf2-y8doi.14 — REGRESSION GUARD, and the reason this seam
+            projects the WHOLE db rather than each triple at its own path.
+
+            With `[:auth]` declared sensitive and `[:auth :token]` the
+            path that changed, the declaration sits ABOVE the changed
+            path. Measured on this tree: `local-render-value-at` rooted
+            at `[:auth :token]` returns the value VERBATIM in exactly this
+            case, because a path-keyed match never fires for a declaration
+            above the walk root. Whole-db projection resolves it; the
+            path-scoped shape leaks it"
+    (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
+                                             :focused
+                                             ancestor-frame)
+          by-path (db-diff-by-path feed)]
+      (is (not (feed-carries-secret? feed))
+          "an ANCESTOR declaration must withhold the descendant's value")
+      (is (contains? by-path [:auth :token])
+          "the row still renders — the path set comes from the RAW diff")
+      (is (= :rf/redacted (:before (get by-path [:auth :token])))
+          "and the sentinel, never nil: the projected image has no
+           descendant under a redacted ancestor, so a `get-in` would
+           answer nil and nil READS AS A VALUE — the operator would be
+           told the slot changed to nothing")
+      (is (= :rf/redacted (:after (get by-path [:auth :token]))))
+      (testing "CONTROL — the undeclared sibling is still untouched under
+                this frame too"
         (is (= :home (:before (get by-path [:ui :tab]))))
         (is (= :cart (:after  (get by-path [:ui :tab]))))))))
 
@@ -1150,12 +1196,19 @@
       (is (= secret-after  (:after  (get by-path [:auth :token]))))
       (is (contains? by-path [:ui :tab])))))
 
-(deftest project-feed-3-arity-fails-closed-on-an-unresolvable-frame
+(deftest project-feed-3-arity-fails-closed-but-not-silent
   (testing "a nil / never-registered observed frame must NOT fall through
             to the ambient frame's (Xray's own chrome frame's) empty
             policy. local-render-value stamps the id verbatim and takes
-            its fail-closed branch, so the WHOLE value redacts — an
-            unresolvable frame loses the diff, it never leaks it"
+            its fail-closed branch, so the WHOLE image redacts — and the
+            ROWS SURVIVE, every value reading the sentinel.
+
+            FAIL-CLOSED MUST NOT MEAN FAIL-SILENT. An earlier cut of this
+            seam redacted before diffing, so an unresolvable frame emptied
+            the diff entirely and the panel rendered nothing — identical
+            to an epoch that changed nothing. The operator must still be
+            able to see WHICH paths moved and be told the values are
+            withheld"
     (doseq [[label frame-id] [["never-registered" :trace-helpers.test/no-such-frame]
                               ["nil"              nil]]]
       (let [feed    (h/project-feed-from-epoch (sensitive-diff-epoch)
@@ -1164,9 +1217,15 @@
             by-path (db-diff-by-path feed)]
         (is (not (feed-carries-secret? feed))
             (str label " frame — no value may survive the fail-closed branch"))
-        (is (empty? by-path)
-            (str label " frame — both sides collapse to one sentinel, so
-                 the diff is empty"))))))
+        (is (contains? by-path [:auth :token])
+            (str label " frame — the row must SURVIVE; silence is the one
+                 failure a diff panel cannot afford"))
+        (is (contains? by-path [:ui :tab])
+            (str label " frame — including the undeclared path, which is
+                 withheld here only because the frame is unresolvable"))
+        (is (= :rf/redacted (:before (get by-path [:ui :tab])))
+            (str label " frame — and every value reads the sentinel"))
+        (is (= :rf/redacted (:after (get by-path [:auth :token]))))))))
 
 (deftest project-feed-3-arity-leaves-a-record-without-db-slots-alone
   (testing "a record carrying no :db-before / :db-after is not given
