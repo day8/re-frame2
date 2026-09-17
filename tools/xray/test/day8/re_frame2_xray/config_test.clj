@@ -558,20 +558,63 @@
           "the untouched :timestamp / :duration siblings survive a
            partial nested override"))))
 
-(deftest merge-known-sections-two-arg-arity-composes-layers
-  (testing "rf2-rr2yw3 — the 2-arg arity merges `src` over an explicit
-            `base` (not always `default-settings`), letting
-            `load-settings-from-storage!` compose the `hardcoded
-            defaults < configure! overrides < persisted Settings
-            overrides` merge order in one step"
-    (let [seeded (#'config/merge-known-sections
-                  config/default-settings {:general {:text-size 20}})
-          final  (#'config/merge-known-sections
-                  seeded {:general {:text-size 30}})]
-      (is (= 30 (get-in final [:general :text-size]))
-          "the later (persisted, in the real call chain) layer wins")
-      (is (= :right-rail (get-in final [:general :panel-position]))
-          "an untouched sibling in :general still carries the base's value"))))
+;; ---- the layered merge, through the REAL producer (rf2-y8doi.17) --------
+;;
+;; This row used to compose `#'config/merge-known-sections` by hand, twice,
+;; and assert that the second call won. That pinned arithmetic rather than
+;; behaviour: it would have passed unchanged while `configure!` dropped the
+;; persisted layer on the floor, which is exactly the defect rf2-y8doi.17
+;; fixed. It now drives `configure!` — the shipped entry point — and reads
+;; the live settings atom, per rf2-y8doi.10's rule that a fixture comes from
+;; the producer rather than from hand.
+;;
+;; The JVM can only see TWO of the three layers. `load-settings-from-
+;; storage!` and its reader are `#?(:cljs …)`-only — `(resolve
+;; 'day8.re-frame2-xray.config/load-settings-from-storage!)` answers nil
+;; under Clojure — so the persisted layer, and the order-independence that
+;; is the point of the fix, are pinned in
+;; `settings/persistence_cljs_test.cljs`
+;; (`preload-order-persisted-wins-over-later-configure`). What IS JVM-
+;; reachable is the `defaults < configure!` half plus the deep-merge
+;; semantics, and those are what this row owns.
+
+(deftest configure-settings-layers-the-seed-over-defaults
+  (testing "rf2-y8doi.17 — `configure! {:rf.xray/settings …}` lands the
+            host's seed OVER the compiled-in defaults, deeply, leaving
+            every key the seed does not name at its default"
+    (config/reset-settings!)
+    (config/configure!
+      {:rf.xray/settings {:general {:text-size             20
+                                    :event-list-col-widths {:source 100}}}})
+    (is (= 20 (config/get-setting :general :text-size))
+        "the seed's value is live immediately — no storage-backed load
+         needed for a synchronous read")
+    (is (= :right-rail (config/get-setting :general :panel-position))
+        "an untouched sibling in :general keeps the default")
+    (is (= :light (config/get-setting :theme nil))
+        "an untouched top-level section keeps the default")
+    (is (= {:source 100 :timestamp 76 :duration 60}
+           (config/get-setting :general :event-list-col-widths))
+        "the merge is DEEP — a partial nested override keeps its
+         siblings (rf2-8j3gyt), through the real entry point")
+    (config/reset-settings!)))
+
+(deftest configure-settings-recomputes-rather-than-accumulating
+  (testing "rf2-y8doi.17 — a second `configure!` replaces the seed
+            rather than layering on the first one's result, so the
+            answer is a function of the CURRENT seed and nothing else.
+            This is what lets `configure!` run at any point in the boot
+            sequence without the result depending on how many times it
+            has run."
+    (config/reset-settings!)
+    (config/configure! {:rf.xray/settings {:general {:text-size 20}}})
+    (config/configure! {:rf.xray/settings {:theme :dark}})
+    (is (= :dark (config/get-setting :theme nil))
+        "the second seed applied")
+    (is (= 13 (config/get-setting :general :text-size))
+        "and the first seed's text-size is GONE — it was never
+         persisted, and the seed is replaced wholesale")
+    (config/reset-settings!)))
 
 ;; ---- :rf.xray/settings seeds `configured-settings-seed` (rf2-rr2yw3) ----
 

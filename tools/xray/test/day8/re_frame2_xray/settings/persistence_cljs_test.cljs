@@ -173,27 +173,85 @@
   ;; rf2-3f2di B2 — the theme default is now `:light`.
   (is (= :light (config/get-setting :theme nil))))
 
-;; ---- configure! vs persisted Settings merge order (rf2-rr2yw3) --------
+;; ---- configure! vs persisted Settings merge order -----------------------
+;; ---- (rf2-rr2yw3, rf2-y8doi.17) -----------------------------------------
 ;;
 ;; Per spec/015-Configuration.md §`configure!` vs `init!` vs persisted
 ;; Settings: `hardcoded defaults < configure! overrides < persisted
-;; Settings overrides`. The documented boot order is host `configure!`
-;; THEN the preload's `load-settings-from-storage!`. Before the fix,
-;; `configure! {:rf.xray/settings ...}` unconditionally `reset!`ed AND
-;; persisted the bulk-config map, so a host calling `configure!` on
-;; EVERY boot (the documented pattern) permanently overwrote whatever
-;; the user had mutated via the Settings popup on the previous session
-;; — the very next `load-settings-from-storage!` call read back
-;; exactly what `configure!` had just clobbered localStorage with.
+;; Settings overrides`.
+;;
+;; BOTH ORDERS ARE PINNED BELOW, and the FIRST of the two is the one
+;; production actually takes. rf2-rr2yw3 fixed the case where the host's
+;; `configure!` lands first and the preload's
+;; `load-settings-from-storage!` second, by seeding
+;; `configured-settings-seed` for the load to merge the persisted payload
+;; over. But on the documented `:devtools/preloads` install path the host
+;; CANNOT get in first: shadow-cljs loads preloads ahead of the app's
+;; `:init-fn`, and `preload.cljs`'s load-time block calls
+;; `load-settings-from-storage!` right there — so the real sequence is
+;; LOAD, then `configure!`, and `configure!`'s unconditional `reset!`
+;; landed squarely on top of the user's persisted values, delivering the
+;; documented order INVERTED on the only path a shipped host takes
+;; (rf2-y8doi.17). `configure!` now recomputes the same three-layer merge
+;; instead of `reset!`-ing its own seed, which is what makes the two
+;; orders agree.
+
+(deftest preload-order-persisted-wins-over-later-configure
+  (testing "rf2-y8doi.17 — TRUE preload order. The preload's
+            `load-settings-from-storage!` runs FIRST (it is a load-time
+            side-effect of the preload namespace) and the host's
+            `configure!` SECOND (it runs in the app's `:init-fn`). The
+            user's persisted value must still win, and the host's seed
+            must still supply the keys the user never persisted."
+    ;; A PARTIAL persisted payload — the user has only ever changed the
+    ;; text size. Partial payloads are real: an older Xray writes a map
+    ;; without a newer key (`legacy-telemetry-key-is-silently-dropped`
+    ;; above covers the forward-compat half of the same shape).
+    (#'config/storage-set! config/settings-storage-key
+                           (pr-str {:general {:text-size 20}}))
+    ;; 1. The preload's load-time block.
+    (config/load-settings-from-storage!)
+    (is (= 20 (config/get-setting :general :text-size))
+        "precondition: the preload loaded the user's persisted value")
+    ;; 2. The host's `:init-fn` — strictly later than the preload.
+    (config/configure!
+      {:rf.xray/settings {:general {:text-size      15
+                                    :panel-position :fullscreen}}})
+    (is (= 20 (config/get-setting :general :text-size))
+        "the user's persisted 20 still wins over the host's 15, even
+         though `configure!` ran AFTER the load")
+    (is (= :fullscreen (config/get-setting :general :panel-position))
+        "the host's seed still supplies a key the user never persisted")
+    (is (= false (config/get-setting :general :auto-open-on-error?))
+        "a key neither layer names keeps the compiled-in default")))
+
+(deftest preload-order-leaves-the-persisted-payload-intact
+  (testing "rf2-y8doi.17 — and `configure!` arriving after the load must
+            not REWRITE storage either: a reload that runs only the
+            preload's load (no host `configure!` that session) must
+            still find the user's own value."
+    (#'config/storage-set! config/settings-storage-key
+                           (pr-str {:general {:text-size 20}}))
+    (config/load-settings-from-storage!)
+    (config/configure! {:rf.xray/settings {:general {:text-size 15}}})
+    ;; Next session: in-memory atom fresh, seed cleared, storage only.
+    (config/reset-settings!)
+    (is (nil? (storage-payload))
+        "precondition: reset-settings! cleared storage AND the seed")
+    (#'config/storage-set! config/settings-storage-key
+                           (pr-str {:general {:text-size 20}}))
+    (config/load-settings-from-storage!)
+    (is (= 20 (config/get-setting :general :text-size))
+        "the user's persisted value survived the earlier `configure!`")))
 
 (deftest configure-settings-does-not-clobber-persisted-user-mutation
-  (testing "rf2-rr2yw3 — a host that calls `configure!
-            {:rf.xray/settings ...}` on every boot must not permanently
-            overwrite a user's ALREADY-persisted Settings-popup
-            mutation. Reproduces the full two-boot sequence in the
-            documented order: configure! → user popup edit (persists)
-            → [reload] → configure! again → load-settings-from-
-            storage!."
+  (testing "rf2-rr2yw3 — the OTHER order, which a host reaches by
+            ordering its own preload ahead of Xray's: a host that calls
+            `configure! {:rf.xray/settings ...}` on every boot must not
+            permanently overwrite a user's ALREADY-persisted
+            Settings-popup mutation. Reproduces the full two-boot
+            sequence: configure! → user popup edit (persists) →
+            [reload] → configure! again → load-settings-from-storage!."
     ;; Boot 1: host configures a default; user tweaks the setting via
     ;; the popup, which persists through `update-setting!`.
     (config/configure! {:rf.xray/settings {:general {:text-size 15}}})
