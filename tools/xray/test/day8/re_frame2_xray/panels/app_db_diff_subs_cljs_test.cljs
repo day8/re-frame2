@@ -44,8 +44,13 @@
   (is (some? (rf.registrar/handler :sub :rf.xray/observed-frame)))
   (is (some? (rf.registrar/handler :sub :rf.xray/target-frame-db)))
   (is (some? (rf.registrar/handler :sub :rf.xray/selected-epoch-record)))
-  (is (some? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
-  (is (some? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
+  ;; rf2-y8doi.29 — the "show me when this changed" pair is gone: the
+  ;; result sub had no subscriber anywhere in src, and its only input
+  ;; beyond `:rf.xray/epoch-history` was the slice-focus slot whose
+  ;; writer went with it. The `some?` asserts above and below are the
+  ;; positive controls that `install!` really did run.
+  (is (nil? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
+  (is (nil? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
   ;; rf2-yng0y — the atomic current-state + focused-epoch before-image
   ;; sub the panel pivots on (collapses the former 5-deep focus chain so
   ;; `:before` / `:epoch-id` move together — no stale-`before` frame).

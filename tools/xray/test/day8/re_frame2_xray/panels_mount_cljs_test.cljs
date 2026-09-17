@@ -36,7 +36,6 @@
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-xray.panels.app-db-segment-inspector :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
@@ -163,17 +162,7 @@
 ;; pink-wash + the always-on issues ribbon signal — no standalone
 ;; Issues panel mount fn to cover.)
 
-;; ---- overlay / popup surfaces (3) --------------------------------------
-
-(deftest mount-segment-inspector-wraps-Popup-in-frame-provider
-  ;; rf2-k97c.3 — the expected head is `Popup-bridge`. It is still `=` to
-  ;; `Popup` (a `def` alias of the same value), so this row would pass
-  ;; either way; naming the bridge is what keeps the panel's migration from
-  ;; having to reopen this file.
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-segment-inspector! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) segment-inspector/Popup-bridge)))))
+;; ---- overlay / popup surfaces (2) --------------------------------------
 
 (deftest mount-cancellation-cascade-side-panel-wraps-SidePanel
   (let [[capture _ render-stub] (make-render-stub)]
@@ -812,7 +801,6 @@
                ["mount-trace!"                              panels/mount-trace!]
                ["mount-machine-inspector!"                  panels/mount-machine-inspector!]
                ["mount-routing!"                            panels/mount-routing!]
-               ["mount-segment-inspector!"                  panels/mount-segment-inspector!]
                ["mount-cancellation-cascade-side-panel!"    panels/mount-cancellation-cascade-side-panel!]
                ["mount-cancellation-cascade-popover!"       panels/mount-cancellation-cascade-popover!]
                ["mount-managed-fx!"                         panels/mount-managed-fx!]

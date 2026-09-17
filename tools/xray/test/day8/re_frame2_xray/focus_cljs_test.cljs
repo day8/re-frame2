@@ -8,7 +8,7 @@
      `:rf.xray/*` events, every field optional, ordering frame-first.
   2. **End-to-end focus** (`focus!`) — driving the command into the
      real registered Xray events focuses the right panel + epoch +
-     cascade + app-db path on Xray's spine / tab / path slots. Proves
+     cascade on Xray's spine / tab slots. Proves
      the command is host-agnostic: the same command shape drives Xray
      regardless of who sent it, and `:source` provenance round-trips
      untouched.
@@ -76,10 +76,6 @@
   (rf/with-frame :rf/xray
     @(rf/subscribe [:rf.xray/view-scope-frame])))
 
-(defn- focused-slice-path []
-  (rf/with-frame :rf/xray
-    @(rf/subscribe [:rf.xray/focused-slice-path])))
-
 ;; =========================================================================
 ;; (1) Pure translation — focus-command->dispatches
 ;; =========================================================================
@@ -109,13 +105,16 @@
             disambiguation) and supersedes a co-supplied :epoch-id"
     (is (= [[:rf.xray/select-frame :checkout]
             [:rf.xray/focus-event 17 :checkout]
-            [:rf.xray/select-tab :app-db]
-            [:rf.xray/focus-slice-path [:checkout :state]]]
+            [:rf.xray/select-tab :app-db]]
            (focus/focus-command->dispatches
              {:frame :checkout
               :panel :app-db
               :epoch-id 42
               :dispatch-id 17
+              ;; rf2-y8doi.29 — `:path` is retired and IGNORED; it is
+              ;; left in the command deliberately so this assert also
+              ;; pins that a stale host command still translates
+              ;; cleanly rather than erroring.
               :path [:checkout :state]
               :source {:kind :story/assertion}}))
         "no :focus-epoch emitted when :dispatch-id is present")))
@@ -125,9 +124,22 @@
          (focus/focus-command->dispatches {:epoch-id 42}))
       ":epoch-id is the lighter selector for callers without a cascade id"))
 
-(deftest path-only-highlights-slice
-  (is (= [[:rf.xray/focus-slice-path [:user :profile :name]]]
-         (focus/focus-command->dispatches {:path [:user :profile :name]}))))
+(deftest path-is-ignored
+  (testing "rf2-y8doi.29 — `:path` was a focus field until 2026-09-17,
+            mapping to `:rf.xray/focus-slice-path`. Nothing rendered the
+            slot that event wrote, so the field was retired with the rest
+            of the unreachable App-DB path-click machinery. `focus!`
+            stays PERMISSIVE: `:path` is now ignored exactly like any
+            other unknown key — no `:unknown-field` refusal."
+    (is (= [] (focus/focus-command->dispatches {:path [:user :profile :name]}))
+        "a path-only command is a well-formed no-op")
+    ;; The control: the same command with a live field beside the dead
+    ;; one still translates, so the `[]` above is `:path` being ignored
+    ;; rather than the translator being broken.
+    (is (= [[:rf.xray/select-tab :app-db]]
+           (focus/focus-command->dispatches
+             {:panel :app-db :path [:user :profile :name]}))
+        ":path contributes nothing beside a field that does")))
 
 (deftest valid-panels-is-the-tab-inventory
   ;; rf2-1sddi6 / rf2-7ed9ms — `valid-panels` MIRRORS the live Dynamic
@@ -175,8 +187,10 @@
    (cascade :c3 :checkout)])
 
 (deftest focus-app-db-panel-via-command
-  (testing "focusing app-db at a path from an assertion focuses the
-            right Xray panel + cascade + slice"
+  (testing "focusing app-db from an assertion focuses the right Xray
+            panel + cascade. The command still carries the retired
+            `:path` (rf2-y8doi.29) to pin that `focus!` stays permissive
+            about it: `:ok?` is true and no slice dispatch is applied."
     (setup-xray-frame!)
     (seed-cascades! fixture-cascades)
     (let [result (focus/focus! :checkout
@@ -195,7 +209,10 @@
       (is (= :c1 (:dispatch-id (focus-sub))) "spine pinned to the cascade")
       (is (= :checkout (:frame (focus-sub))) "spine bound to the host frame")
       (is (= :checkout (view-scope-frame)) "L2 view scope re-bound")
-      (is (= [:checkout :state] (focused-slice-path)) "App-db slice highlighted"))))
+      (is (not-any? #(= :rf.xray/focus-slice-path (first %)) (:applied result))
+          "the retired :path applies no dispatch")
+      (is (some #(= :rf.xray/select-tab (first %)) (:applied result))
+          "control: :applied is populated, so the assert above is not vacuous"))))
 
 (deftest focus-trace-panel-via-narrative-beat
   (testing "a narrative beat surfacing the trace panel for a frame"
