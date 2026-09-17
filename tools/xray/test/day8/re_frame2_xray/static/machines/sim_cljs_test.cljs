@@ -27,7 +27,8 @@
 
     7. **Sim rail** mounts when active + carries the testid hooks the
        design calls out (banner, event input, step button, reset button,
-       exit button, audit trail).
+       exit button, audit trail), and DISCLOSES in the rendered tree that
+       initial `:entry` actions were not run (rf2-00126).
 
     8. **Body auto-start** — `sim/body` dispatches `:sim-start` when no
        sim-state exists yet for the selected machine + definition.
@@ -580,6 +581,34 @@
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-step-button")))
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-reset-button")))
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-exit-button"))))))
+
+(deftest rail-discloses-that-initial-entry-actions-were-not-run
+  ;; rf2-00126 — `build-sim-seed` seeds through the engine's
+  ;; `build-initial-snapshot`, which computes the initial STATE and does
+  ;; NOT run `apply-initial-entry-cascade`. That difference from running
+  ;; the machine is invisible to the user unless the rail says so, and a
+  ;; source docstring claiming "the rail says so" is not a disclosure.
+  ;; Asserted on the RENDERED rail tree, not on the source text.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (override-machines!    [:auth/login])
+    (override-definitions! {:auth/login fixture-definition})
+    (select-static-machine! :auth/login)
+    (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                       {:machine-id :auth/login
+                        :definition fixture-definition}])
+    (let [tree   (sim/SimRail rf/dispatch (sim-rail-values))
+          notice (find-by-testid tree
+                                 "rf-xray-static-machines-sim-entry-notice")
+          text   (->> (hiccup-seq notice)
+                      (filter string?)
+                      (apply str))]
+      (is (some? notice)
+          "the active rail renders the initial-entry notice")
+      (is (re-find #"(?i)entry" text)
+          (str "the notice must name :entry actions; got: " (pr-str text)))
+      (is (re-find #"(?i)not run" text)
+          (str "the notice must say they were not run; got: " (pr-str text))))))
 
 (deftest rail-renders-available-transitions
   (setup-xray-frame!)
