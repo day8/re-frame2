@@ -1943,7 +1943,7 @@
        vec))
 
 (defn orphaned-owner-lint
-  "Orphaned-owner lint (Spec 016 §Xray — two lints / §Release authority):
+  "Orphaned-owner lint (Spec 016 §Xray and AI tooling / §Release authority):
   an app-minted `[:dashboard/opened …]` (or other app-kind) owner pinning an entry
   with no observed `:rf.resource/owner-released` for that owner in the
   trace. Route / machine / ssr owners are framework-released (route on
