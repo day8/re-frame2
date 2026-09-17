@@ -1228,23 +1228,36 @@
       (dispose-b)
       (is (zero? (count @(:listeners b)))))))
 
-(deftest install-popout-keydown-honours-the-config-slot
-  (testing "rf2-61i5 — an embed host that cleared
-            :rf.xray/keybinding-enabled? gets no pop-out listener either.
-            The slot is read at INSTALL time, matching attach!'s posture."
+(deftest install-popout-keydown-installs-regardless-of-the-config-slot
+  (testing "rf2-d6gna — REPLACES the rf2-61i5 row that pinned an install-time
+            REFUSAL on a cleared :rf.xray/keybinding-enabled?. Installation no
+            longer consults the slot at all: the listener goes on for the
+            window's lifetime and the HANDLER answers the slot per keystroke
+            (section 11 below). Pinning the refusal is precisely what made the
+            switch one-way and one-shot for a pop-out, so this row had to
+            change meaning rather than merely move."
     (let [{:keys [doc listeners]} (mk-stub-document)]
       (try
         (config/set-keybinding-enabled! false)
-        (is (nil? (keybinding/install-popout-keydown! doc))
-            "declined — nil rather than a disposer")
-        (is (zero? (count @listeners)) "nothing installed")
+        (let [dispose (keybinding/install-popout-keydown! doc)]
+          (is (fn? dispose)
+              "a disposer, not nil, with the slot false")
+          (is (= 1 (count @listeners))
+              "one capture-phase listener, exactly as when the slot is true")
+          (is (true? (:use-capture (first @listeners)))
+              "capture phase, as on the opener document")
+          (when (fn? dispose)
+            (dispose)
+            (is (zero? (count @listeners))
+                "and the disposer still removes the exact listener")))
         (finally
           (config/set-keybinding-enabled! true)))
-      ;; Control, sharing the shape: with the slot restored the SAME call on
-      ;; the SAME document installs — so the zero above is a refusal, not an
-      ;; installer that never works.
+      ;; Control, sharing the shape: the SAME call on the SAME document with
+      ;; the slot restored installs identically. It is what says the rows
+      ;; above are about the slot no longer gating installation, rather than
+      ;; about an installer that has stopped discriminating anything at all.
       (let [dispose (keybinding/install-popout-keydown! doc)]
-        (is (= 1 (count @listeners)) "installs once the slot is back on")
+        (is (= 1 (count @listeners)) "installs with the slot true too")
         (dispose)))))
 
 (deftest install-popout-keydown-refuses-a-nil-document
@@ -1263,3 +1276,126 @@
     (is (identical? keybinding/install-popout-keydown!
                     @@#'mount/popout-keydown-installer)
         "keybinding registered its installer into mount at load time")))
+
+;; ---- (11) the pop-out listener answers the LIVE slot (rf2-d6gna) ---------
+;;
+;; `:rf.xray/keybinding-enabled?` is reactive for the OPENER: the watch at the
+;; foot of `keybinding.cljs` calls `attach!` / `detach!` on every flip, so the
+;; listener's PRESENCE is the switch there. That watch cannot reach a pop-out
+;; listener — its lifetime belongs to `mount/popout!` and
+;; `teardown-popout-state!` — so while the pop-out read the slot only at
+;; INSTALL time the switch was one-way and one-shot in that window: one opened
+;; while the slot was true went on consuming `Cmd/Ctrl+K` and the spine after
+;; the host cleared it, and one opened while it was false stayed inert for the
+;; life of the window after the host restored it.
+;;
+;; The rows below drive the ACTUAL INSTALLED HANDLER — the fn object the stub
+;; document captured — and not `handle-keydown-on`. That siting is the whole
+;; point: the defect lives in the seam between a listener's lifetime and the
+;; flag, and a direct call to the shared handler cannot see it, which is why
+;; section 10's surface rows all passed while the bug shipped.
+;;
+;; Each row pairs its disabled reading with an enabled reading on the IDENTICAL
+;; event through the IDENTICAL listener, so a handler that had merely gone
+;; inert fails the enabled half rather than passing the disabled one.
+
+(defn- installed-popout-handler
+  "The fn `install-popout-keydown!` actually handed to `addEventListener` on
+  the stub document — the seam under test. nil when nothing was installed."
+  [listeners]
+  (:handler (first @listeners)))
+
+(defn- press-in-popout!
+  "Send `key-spec` through the installed pop-out `handler` and report what the
+  keystroke did: whether it was consumed, and what it left on `:rf/xray`'s
+  router queue. Reads the queue the way `xray-queued-events`' own docstring
+  prescribes — a `with-redefs` spy on `rf/dispatch` does not reach the
+  compiled call site under `:node-test`."
+  [handler key-spec]
+  (let [before                            (count (xray-queued-events))
+        {:keys [event prevented stopped]} (mk-shell-key-event key-spec)]
+    (handler event)
+    {:prevented @prevented
+     :stopped   @stopped
+     :queued    (vec (drop before (xray-queued-events)))}))
+
+(deftest popout-handler-goes-quiet-when-the-slot-is-cleared
+  (testing "rf2-d6gna — a pop-out installed while the slot was true must stop
+            consuming keys the moment the host clears it, and resume when the
+            host restores it. One listener, never reinstalled, read three
+            times."
+    (setup-xray-runtime!)
+    (let [{:keys [doc listeners]} (mk-stub-document)
+          dispose                 (keybinding/install-popout-keydown! doc)
+          handler                 (installed-popout-handler listeners)
+          chord                   {:key "k" :code "KeyK" :ctrl? true}]
+      (try
+        (is (fn? dispose)     "precondition: slot true, so a listener installed")
+        (is (= 1 (count @listeners)) "precondition: exactly one listener")
+        ;; (a) ENABLED — the control, and it shares the shape of the target in
+        ;; every particular: same handler, same event, only the slot differs.
+        (let [{:keys [prevented queued]} (press-in-popout! handler chord)]
+          (is (true? prevented)
+              "enabled: Cmd/Ctrl+K is consumed in the pop-out")
+          (is (= [[:rf.xray/palette-toggle]] queued)
+              "enabled: and the palette toggle is dispatched on :rf/xray"))
+        ;; (b) DISABLED — the defect. The listener is still installed; the
+        ;; handler must decline without touching the event.
+        (config/set-keybinding-enabled! false)
+        (is (= 1 (count @listeners))
+            "the slot does not remove the listener — the disposer owns that")
+        (let [{:keys [prevented stopped queued]} (press-in-popout! handler chord)]
+          (is (false? prevented) "disabled: the pop-out must not preventDefault")
+          (is (false? stopped)   "disabled: nor stopPropagation")
+          (is (= [] queued)      "disabled: and must dispatch nothing"))
+        ;; (c) ENABLED AGAIN — the second direction, on the same fn object.
+        (config/set-keybinding-enabled! true)
+        (let [{:keys [prevented queued]} (press-in-popout! handler chord)]
+          (is (true? prevented)
+              "re-enabled: the very same listener is live again")
+          (is (= [[:rf.xray/palette-toggle]] queued)
+              "re-enabled: and dispatches once more"))
+        (finally
+          (config/set-keybinding-enabled! true)
+          (when (fn? dispose) (dispose)))))))
+
+(deftest popout-opened-while-disabled-goes-live-when-the-slot-returns
+  (testing "rf2-d6gna — the other direction, and the one an install-time read
+            could not express at all: a pop-out opened while the host had the
+            slot cleared installs its listener anyway and starts answering the
+            moment the slot comes back. Before this bead nothing was installed,
+            so that window was keyboard-less for its whole lifetime however the
+            slot moved afterwards."
+    (setup-xray-runtime!)
+    (let [{:keys [doc listeners]} (mk-stub-document)
+          step                    {:key "j" :code "KeyJ"}]
+      (try
+        (config/set-keybinding-enabled! false)
+        (let [dispose (keybinding/install-popout-keydown! doc)
+              handler (installed-popout-handler listeners)]
+          (is (fn? dispose)
+              "a disposer even with the slot false — mount stores one per
+               pop-out either way, and nil made the window unrecoverable")
+          (is (= 1 (count @listeners))
+              "the listener is installed for the window's lifetime")
+          (is (fn? handler)
+              "and it is a real handler — the seam the rows below drive")
+          (when (fn? handler)
+            ;; Still disabled — the control for the row beneath it: the same
+            ;; handler on the same event must decline while the slot is false.
+            (let [{:keys [prevented queued]} (press-in-popout! handler step)]
+              (is (false? prevented) "still disabled: j is not consumed")
+              (is (= [] queued)      "still disabled: and queues nothing"))
+            (config/set-keybinding-enabled! true)
+            (let [{:keys [prevented queued]} (press-in-popout! handler step)]
+              (is (true? prevented)
+                  "enabled: the listener installed under a false slot is live")
+              (is (= [[:rf.xray/focus-event-prev]] queued)
+                  "enabled: and drives the spine on :rf/xray")))
+          (when (fn? dispose)
+            (dispose)
+            (is (zero? (count @listeners))
+                "the disposer removes the listener it installed under a
+                 false slot — the teardown path is not special-cased")))
+        (finally
+          (config/set-keybinding-enabled! true))))))
