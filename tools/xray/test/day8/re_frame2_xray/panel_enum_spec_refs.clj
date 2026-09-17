@@ -24,16 +24,15 @@
   holds no edge back to the bytes this macro froze. Correct a drifted
   spec row and the incremental compile reports `1 compiled` while the
   guard goes on reconciling the PREVIOUS expansion — a verdict over a
-  projection nobody re-read, and it was measured failing in both
-  directions (a stale RED that survived its own fix, and a stale GREEN
-  over a spec the tree no longer contained). Reading through
+  projection nobody re-read, measured failing in both directions (a
+  stale RED that survived its own fix, and a stale GREEN over a spec
+  the tree no longer contained). Reading through
   `re-frame.build.spec-resource/slurp-resource` instead records each
   file's classpath path and last-modified against the compiling
   namespace, and shadow-cljs re-checks both before reusing that
   namespace's cache: edit the spec, the guard recompiles, no cold
-  rebuild and no ritual. So [[spec-files]] holds classpath RESOURCE
-  names, relative to the `tools/xray/spec` `:source-path` root
-  `implementation/shadow-cljs.edn` carries for exactly this.
+  rebuild and no ritual. `tools/xray/spec` is a shadow-cljs
+  `:source-path` for exactly this.
 
   That reader is SHARED rather than reimplemented here: resolving
   shadow's own reader is a cold-load race that two independent resolvers
@@ -54,7 +53,8 @@
   A `mount-<panel>!` named in either file MUST be in the single-source
   enum, and every enum mount fn MUST be named in the spec — the guard
   enforces both directions."
-  (:require [re-frame.build.spec-resource :as spec-resource]))
+  (:require [clojure.string :as str]
+            [re-frame.build.spec-resource :as spec-resource]))
 
 (def ^:private mount-fn-re
   "The `mount-<panel>!` reference shape (007-UX-IA §The mount-fn
@@ -76,14 +76,40 @@
       removal note that explains where issues surface now."
   #{"mount-issues-ribbon!"})
 
+(def ^:private spec-root
+  "The shadow-cljs `:source-path` the spec files below are resolvable
+  under, as a repo-relative prefix. The one place that root is spelled
+  outside `implementation/shadow-cljs.edn`, and the only reason it is
+  spelled at all is [[spec-files]]'s contract below."
+  "tools/xray/spec/")
+
 (def ^:private spec-files
   "The Xray spec files that enumerate the mountable panel set, as
-  classpath RESOURCE names relative to the `tools/xray/spec`
-  `:source-path` root. Both are read at macro-expansion time, and both
-  reads are recorded against the compiling namespace — see the
-  namespace docstring."
-  ["007-UX-IA.md"
-   "008-Embedding-Contract.md"])
+  REPO-RELATIVE paths. Both are read at macro-expansion time, through
+  [[spec-resource-name]], and both reads are recorded against the
+  compiling namespace — see the namespace docstring.
+
+  REPO-RELATIVE RATHER THAN THE RESOURCE NAMES THE READ ACTUALLY TAKES,
+  AND THAT IS A CONTRACT RATHER THAN A HABIT: the surface classifier's
+  Xray arm (rf2-6ng7) reads THIS vector to prove that each file it names
+  arms `cljs_node_test`, which is what makes an Xray spec edit schedule
+  the lane that grades it. Reduce these to bare resource names and the
+  classifier mirror goes red — and the coverage it guards goes with it,
+  since a spec-only edit would stop arming the node lane."
+  ["tools/xray/spec/007-UX-IA.md"
+   "tools/xray/spec/008-Embedding-Contract.md"])
+
+(defn- spec-resource-name
+  "`rel` as the classpath resource name the recording read takes —
+  i.e. with the [[spec-root]] prefix stripped. Refuses a path outside
+  that root rather than resolving it somewhere else on the classpath."
+  [rel]
+  (when-not (str/starts-with? rel spec-root)
+    (throw (ex-info (str "panel-enum spec-refs: " rel " is not under the "
+                         spec-root " classpath root, so the recording read "
+                         "cannot address it.")
+                    {:rel rel :spec-root spec-root})))
+  (subs rel (count spec-root)))
 
 (defn- spec-mount-fn-names
   "Read every spec file in the ClojureScript macro-expansion environment
@@ -92,9 +118,10 @@
   removal-note mentions)."
   [env]
   (->> spec-files
-       (mapcat (fn [resource]
+       (mapcat (fn [rel]
                  (re-seq mount-fn-re
-                         (spec-resource/slurp-resource env resource))))
+                         (spec-resource/slurp-resource
+                          env (spec-resource-name rel)))))
        (remove known-removed-names)
        (into #{})))
 
