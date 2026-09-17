@@ -46,10 +46,12 @@
   and no app-db slice to draw, and the record says `ISSUED` rather than
   `OK`.
 
-  Two rows DO reach the issuing bundle, because both run inside the issuing
-  fx handler's own stack: a synchronous request-body-prep failure, and the
-  `:rf.http/aborted` an issuance fires at the attempt it SUPERSEDES
-  (rf2-n3sx9). Which of them belongs to which record is
+  Three rows DO reach the issuing bundle, because all three run inside the
+  issuing fx handler's own stack: a synchronous request-body-prep failure;
+  the `:rf.http/aborted` an issuance fires at the attempt it SUPERSEDES
+  (rf2-n3sx9); and (CLJS) the `:rf.http/aborted` an already-aborted
+  external `:abort-signal` fires at THIS attempt's own abort-fn during
+  attempt setup. Which of them belongs to which record is
   `managed-fx-helpers/http-row-for-this-record?`'s call, not this ns's —
   see `managed-fx-helpers/http-adapter`.
 
