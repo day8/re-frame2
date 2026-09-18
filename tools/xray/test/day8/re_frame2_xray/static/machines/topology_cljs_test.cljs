@@ -15,6 +15,7 @@
   its var so the `[machine-canvas/Chart {...}]` mount survives as data
   (a raw tree-seq, no fn-component expansion, finds its props)."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.static.machines.topology :as topology]))
 
@@ -99,3 +100,36 @@
       (is (some? props) "the chart wrapper still mounts machine-canvas/Chart")
       (is (nil? (:context-band props))
           "no shape → :context-band is nil (Context panel stays hidden)"))))
+
+(deftest topology-toolbar-renders-no-inert-popout-affordance
+  (testing "rf2-h6ooa — the toolbar's 'Pop out' button dispatched
+            `:rf.xray.static.machines/open-chart-popout`, whose handler is a
+            registered NO-OP (no pop-out window exists), so clicking a
+            promised control silently did nothing. Hide it until it does
+            something: the RENDERED toolbar carries no pop-out affordance,
+            and no control in it dispatches the no-op event.
+
+            The toolbar is rendered through its private var with a
+            RECORDING dispatch and EXPANDED the way Reagent mounts it (every
+            fn head invoked), so a control nested under a fn component is
+            visible to the walk."
+    (let [dispatched (atom [])
+          tree       (rf.test-helpers/expand-tree
+                       (#'topology/chart-toolbar
+                         #(swap! dispatched conj %)
+                         {:machine-id :door/main :source-coord nil}))]
+      (is (some? (rf.test-helpers/find-by-testid
+                   tree "rf-xray-static-machines-topology-toolbar"))
+          "NON-VACUITY: the toolbar itself rendered, so the absence below is
+           a statement about its contents")
+      (is (nil? (rf.test-helpers/find-by-testid
+                  tree "rf-xray-static-machines-topology-popout"))
+          "the inert pop-out affordance is absent from the rendered toolbar")
+      (doseq [node (tree-seq (some-fn vector? seq?) seq tree)
+              :let [on-click (:on-click (rf.test-helpers/attrs node))]
+              :when (fn? on-click)]
+        (on-click nil))
+      (is (not-any? #(= :rf.xray.static.machines/open-chart-popout (first %))
+                    @dispatched)
+          "clicking every rendered toolbar control dispatches nothing into
+           the no-op pop-out handler"))))
