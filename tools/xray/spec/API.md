@@ -319,7 +319,7 @@ authoritative list.
 | `day8.re-frame2-xray.core` | `core.cljs` | The canonical re-exports above (`init!`, `open!`, `open-overlay!`, `close!`, `toggle!`, `popout!`, `status`, `target-frame`, `set-target-frame!`, `focus!` + `valid-focus-panels` (the Story→Xray focus entry point, rf2-crtmq), `load-theme!`, plus the four highest-traffic config setters re-exported for boot-time convenience: `configure!`, `set-auto-open!`, `set-editor!`, `set-egress-profile!`). |
 | `day8.re-frame2-xray.focus` | `focus.cljc` | The host-facing **focus command** API (rf2-crtmq): `focus!` (the entry point, re-exported through `core`), `focus-command->dispatches` (pure command→`:rf.xray/*`-events translation; JVM-runnable), `valid-panels` + `panel-aliases` + `normalize-panel`. **`valid-panels` mirrors the LIVE Dynamic L4 tab registry** (`#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :fresco}` — one per shipped tab; rf2-1sddi6 / rf2-7ed9ms aligned it to the registry so a host can no longer focus `:routes` onto an unknown-tab stub or be denied the shipped `:resources` / `:derivation-graph` / `:module-view` tabs, and rf2-hic-023's `:fresco` tab is focusable on the same footing; `:routes` is accepted as a host-friendly alias normalising to `:routing`; rf2-gbz39 removed `:issues` with the Issues tab per Option (c)). The channel Story uses to focus an embedded Xray panel/epoch/path from a beat or assertion. Full contract in [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Host-facing focus API. |
 | `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 standalone-mountable Dynamic `Panel` exports — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `resources/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 10 tabs). The three remaining Dynamic tabs — `derivation_graph/Panel` (Graph, EP-0014), `module_view/Panel` (Frames, EP-0023) and `fresco/Panel` (Fresco, rf2-hic-023) — are **L4-only registry tabs**: focusable via `focus!` but with no standalone `mount-*!` facade (shell-internal). rf2-gbz39 removed `issues-ribbon/Panel` + `mount-issues-ribbon!` per Mike's Option (c) ruling — the Issues tab + its aggregate panel were removed; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (the `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
-| `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-egress-profile!`, `set-filter-seed!`, `set-filters-storage-key!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
+| `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-egress-profile!`, `set-filter-seed!`, `set-filters-auto-hide-error-overrides!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-xray.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — for a host that wants the listener gone WITHOUT declaring the slot, or that must remove it from a mount-time hook it does not own. A `configure!` flip of `:rf.xray/keybinding-enabled?` is self-acting at any point in the boot sequence (rf2-y8doi.17 watches the slot), so calling `detach!` alongside the flip is harmless — merely redundant. |
 | `window.day8.re_frame2_xray.*` | `preload.cljs` | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_xray.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. The preload's install sits inside its `(when interop/debug-enabled? …)` block, so a `goog.DEBUG=false` build folds that install away; `init!` installs the same globals with no such gate. |
 
@@ -669,9 +669,9 @@ Closes on `Esc`, click-outside, or invocation of any item.
 | Reduced-motion override | `:cycle-reduced-motion` verb | Three-state cycle `:os → :always → :never` that overrides `prefers-reduced-motion: reduce` via the `--rf-xray-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
 | Mode-aware filter | `:modes` set per item | Every palette item carries `#{:dynamic}` / `#{:static}` / `#{:dynamic :static}`; the aggregator (`palette/sources/by-mode-pred`) filters by membership against the active `:rf.xray/mode`. Items missing `:modes` fall through to both modes. |
 
-The six chord-reachable command verbs that ship post-rf2-ybjkx —
+The five command verbs that ship post-rf2-ybjkx —
 `:toggle-theme`, `:cycle-reduced-motion`, `:snapshot-app-db`,
-`:jump-to-settings`, `:toggle-mode`, `:clear-epoch-history` — are
+`:jump-to-settings`, `:toggle-mode` — are
 catalogued at
 `tools/xray/src/day8/re_frame2_xray/palette/sources.cljc`
 §`command-items` and enumerated normatively in §Command palette
@@ -687,8 +687,8 @@ shape, and close behaviour.
 
 ### Command palette verbs (catalogue)
 
-The palette ships ten command items: six mode-agnostic verbs
-(surface in both Dynamic and Static modes), three Dynamic-only verbs
+The palette ships nine command items: six mode-agnostic verbs
+(surface in both Dynamic and Static modes), two Dynamic-only verbs
 (scoped to the event-coupled spine), and one palette-internal verb
 (`:close-palette` — `Esc` keybind echo). Each row below mirrors the
 literal map shape in
@@ -696,7 +696,7 @@ literal map shape in
 §`command-items`; the spec is normative, the source is the load-bearing
 catalogue.
 
-#### Mode-agnostic verbs (Dynamic + Static — the six "chord-reachable" verbs from rf2-ybjkx)
+#### Mode-agnostic verbs (Dynamic + Static — the six chord-reachable verbs)
 
 | Verb id | Label | Hint | Action | Notes |
 |---|---|---|---|---|
@@ -712,8 +712,15 @@ catalogue.
 | Verb id | Label | Hint | Action | Notes |
 |---|---|---|---|---|
 | `:clear-trace-buffer` | Clear trace buffer | `drops Xray's ring buffer` | `[:palette/clear-trace-buffer]` | Runs the retroactive trace scrub: clears the framework's per-frame and frameless trace rings and Xray's mirrored trace buffer. Dynamic-only — Static mode has no spine. |
-| `:clear-epoch-history` | Clear epoch history | `drops Xray's epoch snapshots` | `[:palette/clear-epoch-history]` | Clears Xray's own `:epoch-history` app-db slot, not the framework's epoch ring or trace rings. It does not promise that a later history sync cannot repopulate the slot. Dynamic-only. |
 | `:reset-suppressed-counters` | Reset redacted-events counter | `clears the REDACTED N indicator` | `[:palette/reset-suppressed-counters]` | Clears the `REDACTED N` overlay counter that surfaces when filters elide events. Dynamic-only. |
+
+A third Dynamic-only verb, `:clear-epoch-history`, was **retired under
+rf2-y8doi.27**. It cleared Xray's own `:epoch-history` app-db slot, which
+mirrors the framework's epoch history rather than owning it, so the next
+recorded epoch re-seeded the slot wholesale and the verb undid itself
+within one event. `:clear-trace-buffer` is the real scrub; a verb that
+genuinely cleared the substrate's epoch ring would need a Tool-Pair
+ruling, which Xray does not hold.
 
 #### Palette-internal verb
 

@@ -103,7 +103,7 @@ Where:
 - `<knob>` — the specific dial within the cluster
   (`-storage-key`, `-enabled?`, `-auto-hide-events`, …).
 
-The flat hyphenated shape (`:rf.xray/filters-storage-key`,
+The flat hyphenated shape (`:rf.xray/filters-auto-hide-error-overrides?`,
 `:rf.xray/keybinding-enabled?`) is the canonical v1 form. Reading
 `rg ':rf.xray/<cluster>'` enumerates every knob in a cluster; IDE
 completion against `:rf.xray/<cluster>-` reveals the dials without
@@ -130,7 +130,7 @@ column, jump to the linked section, find the knob.
 | **Launch** | `:rf.xray/` | `:rf.xray/auto-open?` | `:rf.xray/launch-restore-visibility?`, `:rf.xray/launch-popout-geometry` | [`§:rf.xray/auto-open?`](#rfxrayauto-open) + [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
 | **Keybinding** | `:rf.xray/` | `:rf.xray/keybinding-enabled?` | `:rf.xray/keybinding-handle-keys?`, `:rf.xray/keybinding-bindings` | [`§:rf.xray/keybinding-enabled?`](#rfxraykeybinding-enabled) |
 | **Settings popup (bulk-set)** | `:rf.xray/` | `:rf.xray/settings` (carries `:general`, `:theme`, `:buffer`, `:diff`) | — | [`§:rf.xray/settings`](#rfxraysettings) |
-| **Filters** | `:rf.xray/` | `:rf.xray/filters`, `:rf.xray/filters-storage-key`, `:rf.xray/filters-auto-hide-error-overrides?` | `:rf.xray/filters-auto-hide-events`, `:rf.xray/filters-auto-hide-event-ns` | [`§:rf.xray/filters`](#rfxrayfilters) + [`§:rf.xray/filters-storage-key`](#rfxrayfilters-storage-key) + [`§Error overrides`](#rfxrayfilters-auto-hide-error-overrides) |
+| **Filters** | `:rf.xray/` | `:rf.xray/filters`, `:rf.xray/filters-auto-hide-error-overrides?` | `:rf.xray/filters-auto-hide-events`, `:rf.xray/filters-auto-hide-event-ns` | [`§:rf.xray/filters`](#rfxrayfilters) + [`§Error overrides`](#rfxrayfilters-auto-hide-error-overrides) |
 | **Buffer depths** | `:rf.xray/` | (via `:rf.xray/settings` `:buffer` slot) | `:rf.xray/buffer-retained-epochs` (process-global escape hatch) | [Vision §Must-haves](#vision--full-configure-key-inventory-30-keys) |
 | **Render / inspector** | `:rf.xray/` | — | `:rf.xray/render-ns-aliases`, `:rf.xray/render-alias-namespaces?`, `:rf.xray/render-auto-expand-below`, `:rf.xray/render-uuids-as` | [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
 | **Trace collection** | `:rf.xray/` | — | `:rf.xray/trace-collect-when`, `:rf.xray/trace-fatten?` | [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
@@ -541,7 +541,6 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
              :events-list-height-px   200         ; L2/L3 resize seam
              :auto-open-on-error?     false
              :density                 :cosy       ; :cosy | :compact
-             :show-tool-frames?       false       ; reveal tool frames in L1 picker
              :show-unchanged-subs?    false
              :show-ungrouped?         false
              :epoch-history           50          ; per-frame epoch ring depth
@@ -555,20 +554,25 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
  :buffer    {:events-retained 50}}                ; per-frame trace-ring event count
 ```
 
-The `:general` slot carries three knobs introduced by rf2-ttnst:
+The `:general` slot carries two knobs introduced by rf2-ttnst:
 
 - `:density` — `:cosy` (default) or `:compact`. Drives the Views
   detail rows + App-db diff rows vertical rhythm. The `:comfy` tier
   catalogued earlier in spec/007-UX-IA.md §Density slider is dropped
   in v1; persisted `:comfy` values from prior schemas are treated as
   `:cosy` by the `:rf.xray/density` convenience sub.
-- `:show-tool-frames?` — boolean. When `true` the L1 frame-picker
-  dropdown reveals `:rf/xray` + `:rf/re-frame2-pair`. Default `false` per
-  spec/007-UX-IA.md §Frame-observation isolation invariants §I1.
 - `:long-keyword-threshold` — integer (chars). Fully-qualified
   keywords longer than the threshold elide in compact list cells.
   Default `24`, was previously a fixed constant; now user-tuneable
   per spec/007-UX-IA.md §Long-keyword treatment.
+
+A third, `:show-tool-frames?`, was **removed under rf2-y8doi.27**. Its
+Settings UI had gone earlier and nothing replaced it, so no surface
+could write the slot and its two readers hardcoded `false` — a slot no
+surface can write is not an override waiting to be re-enabled. The
+frame-observation isolation invariant it appeared to relax is enforced
+where it always was, by `frame-switcher/internal-frames`,
+unconditionally.
 
 The `:buffer` slot carries the buffer-depth tunable surfaced in the
 Buffer tab:
@@ -675,11 +679,15 @@ testbeds that need a known starting point for reproducibility.
 
 > **Transient user filters vs the explicit host seed (rf2-swclw,
 > rf2-fhtes).** The IN/OUT pills, the muted-event-id set, and the frame
-> view-scope are **transient exploration filters**: they persist via
-> localStorage *within* a session but RESET on every load —
-> `mount.cljs/::reset-transient-filters` does not hydrate them and clears
-> the stored value so a stale filter can never silently hide rows on
-> reload (rf2-jvghz; an inspector must show the truth). Durable view prefs
+> view-scope are **transient exploration filters**: a fresh load starts
+> fully unfiltered, so a stale filter can never silently hide rows on
+> reload (rf2-jvghz; an inspector must show the truth).
+> `mount.cljs/::reset-transient-filters` hydrates none of them, and for
+> the two that still carry a localStorage slot — the mute set and the
+> frame pin — it additionally CLEARS the stored value so storage matches
+> what the user sees. The IN/OUT pills need no clear at all: rf2-y8doi.27
+> deleted their persistence layer outright, so reset-on-load now holds by
+> construction rather than by cleanup. Durable view prefs
 > (the persisted Settings shape below — mode, density, panel layout)
 > hydrate on boot via their own hooks. The `:rf.xray/filters` seed is a
 > THIRD, distinct category: an EXPLICIT host boot baseline the programmer
@@ -690,29 +698,16 @@ testbeds that need a known starting point for reproducibility.
 > unfiltered. It is neither durable user-filter persistence nor an
 > unreachable first-install-only value.
 
-### `:rf.xray/filters-storage-key`
-
-The localStorage key the filter persistence layer reads / writes.
-
-| Value | Meaning |
-|---|---|
-| String | Use this key for round-trip. Hosts that run multiple Xray instances in the same browser session (e.g. Story testbeds) override so each instance keeps its own pill state. |
-| `nil` | Reset to default. |
-
-Default: `"re-frame2.xray.filters.v1"` (versioned so future schema
-changes can ignore stale payloads).
-
-The storage key and the `:rf.xray/filters` seed are independent axes.
-This key governs the **transient user-pill** localStorage round-trip
-(within-session writes + the load-time reset cleanup); the seed is a
-separate in-memory boot baseline whose *hook* never touches this key —
-it neither reads nor writes localStorage (rf2-fhtes). The seed value
-is still not durable across loads: once it lands, a later pill edit
-persists the whole `:active-filters` set (seeded pills included) under
-this key, until the next load's reset clears that storage and reapplies
-the baseline. When both are passed in one call the storage key is set first, but the
-ordering does not affect the seed — it lands via `mount.cljs`'s
-`::seed-configured-filters` hook, not through this key.
+> **Removed — `:rf.xray/filters-storage-key` (rf2-y8doi.27).** The key
+> named the localStorage slot (`re-frame2.xray.filters.v1`) that the
+> IN/OUT-pill persistence layer read and wrote. That layer is gone: the
+> pills are transient by policy (above), so the store had a writer and no
+> reader and every load cleared it. The `:rf.xray/filters` seed was always
+> a separate axis — an in-memory boot baseline whose hook never touched
+> localStorage (rf2-fhtes) — and is unaffected. Hosts running several Xray
+> instances in one browser session no longer need the key to isolate their
+> pills; there is nothing left to collide. `set-filters-storage-key!` went
+> with it.
 
 ### `:rf.xray/filters-auto-hide-error-overrides?`
 

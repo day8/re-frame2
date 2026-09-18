@@ -449,8 +449,9 @@ Every setter SHOULD honour these constraints:
 Setter names track the underlying `configure!` key, which carries the
 namespacing convention (see [`015-Configuration.md`](./015-Configuration.md)
 §Configuration keys). The longer-key setters
-(`set-layout-host-selector!` at 23 chars, `set-filters-storage-key!` at
-22) are the necessary cost of clarity; abbreviation is forbidden —
+(`set-filters-auto-hide-error-overrides!` at 38 chars,
+`set-layout-host-selector!` at 25) are the necessary cost of clarity;
+abbreviation is forbidden —
 `set-lhs!` reads as line-noise. The compact spelling already lives at
 the `configure!` key (`:rf.xray/layout-host-selector` is the
 user-facing surface; the setter is internal-host helper).

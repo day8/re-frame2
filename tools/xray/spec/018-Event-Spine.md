@@ -131,7 +131,7 @@ Three event handlers drive the lifecycle:
 
 The user's mode choice survives reloads via localStorage under the canonical key **`xray.mode`** (a bare string — `"dynamic"` or `"static"`). A bare string keeps the slot cheap to read + cheap to inspect from browser devtools; modes are an enum, not a structured value. Unknown / malformed values normalise back to `:dynamic` (the conservative default — the existing chrome).
 
-The namespace prefix is `xray.mode` (not `re-frame2.xray.mode.v1`) deliberately — it mirrors the spec-published name from the rf2-o5f5f findings doc, is short, and reads naturally in browser devtools. The filter-persistence slot uses the longer versioned form because its shape may evolve; the mode slot is a fixed enum, so versioning would be overkill.
+The namespace prefix is `xray.mode` (not `re-frame2.xray.mode.v1`) deliberately — it mirrors the spec-published name from the rf2-o5f5f findings doc, is short, and reads naturally in browser devtools. The settings slot (`re-frame2.xray.settings.v1`) uses the longer versioned form because its shape may evolve; the mode slot is a fixed enum, so versioning would be overkill.
 
 Sub-surface slots (e.g. Static Machines' selected-id and per-machine sub-mode) ride their own localStorage keys under the `xray.static.*` prefix — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface.
 
@@ -1348,15 +1348,7 @@ Rationale: pre-alpha posture (per the masterpiece principle). Silent mutation of
 
 The dialog filters on **`event-id` only** — it is the implicit, only scope. The matcher (`filters/matcher.cljc`) consults the pill's `:pattern` against the cascade's event-id. Earlier drafts shipped a "Match scope" section (`event-id` / `event-args` / `source-coord` / `tags` checkboxes) as speculative scaffolding for a future widening pass; the three wider scopes were never matched, only stored. Per the pre-alpha masterpiece posture (no non-functional UI, no shims) that section and all its plumbing were removed: the pill shape reduces to `{:pattern <kw-or-str>}`. Surface-aware predicates (machine / http-correlation / fx) arrive as distinct typed-predicate **kinds** via right-click affordances on other panels (`filters/typed_predicates.cljc`), not as a scope-widening of this dialog.
 
-### Filter persistence — write-through, reset-on-load (rf2-swclw)
-
-Ribbon pills round-trip through localStorage per host-app under a
-Xray-namespaced key. **v1 storage key:** `"re-frame2.xray.filters.v1"`
-(versioned so future schema changes can ignore stale payloads).
-Configurable via `(xray-config/configure! {:rf.xray/filters-storage-key "<key>"})`
-per [`015-Configuration.md`](015-Configuration.md) — hosts that run
-multiple Xray instances in the same browser session (Story testbeds)
-override so each instance keeps its own pill state.
+### Filter reset-on-load (rf2-swclw)
 
 **Transient filters RESET on every load (rf2-swclw).** The IN/OUT pills,
 the muted-event-id set, and the frame pin are **session-scoped
@@ -1366,13 +1358,22 @@ events and made the inspector look broken — rf2-jvghz; an inspector's
 prime directive is to show the truth). The first-mount hook
 (`mount.cljs/::reset-transient-filters`) does NOT hydrate these slots
 (so each starts at its registry default — empty pills / empty mute set /
-unpinned frame) AND clears each slot's stale localStorage value so the
-storage matches what the user sees and a phantom value can never
-resurface. Only **durable view prefs** (Dynamic/Static mode, density,
-panel layout) hydrate on load via their own hooks. The persist fx still
-writes pills through to localStorage *within* a session so a mid-session
-mutation survives a sub-recompute; it is the LOAD that resets, not the
-write that stops.
+unpinned frame). For the two that still carry a localStorage slot — the
+mute set and the frame pin — it additionally clears the stale stored
+value so storage matches what the user sees and a phantom value can
+never resurface. Only **durable view prefs** (Dynamic/Static mode,
+density, panel layout) hydrate on load via their own hooks.
+
+**The IN/OUT pills have no persistence layer at all since rf2-y8doi.27.**
+They previously round-tripped through a versioned localStorage slot
+(`re-frame2.xray.filters.v1`), configurable via a
+`:rf.xray/filters-storage-key` key; because the reset above meant every
+load discarded whatever had been written, that store had a writer and no
+reader, and it was deleted along with the key and the `persist` fx.
+Reset-on-load now holds **by construction** rather than by cleanup, and
+there is no per-instance pill state for co-resident Xray instances to
+collide over. Pills still live in `:active-filters` for the duration of a
+session; it is only the durable slot that is gone.
 
 A host-supplied seed via `(xray-config/configure! {:rf.xray/filters {:in […] :out […]}})` is a distinct category from the transient user filters above: it is the host's EXPLICIT boot baseline. `mount.cljs`'s `::seed-configured-filters` first-mount hook — which runs immediately AFTER `::reset-transient-filters` — re-applies a non-empty seed to `:active-filters` on **every** load, ignoring localStorage entirely (rf2-fhtes). So the host's opted-in posture always wins over a user's stale session filters and never depends on a genuinely-empty first install; it is neither durable user-filter persistence nor an unreachable first-install-only value. Per the [`Empty defaults`](#empty-defaults--recommended-quick-add) policy above, Xray itself ships with `nil` seed (first-session honesty) — a `nil` seed keeps the first paint fully unfiltered.
 
@@ -1744,7 +1745,12 @@ Every Settings popup field maps to a `(xray-config/configure! {…})` key. See [
 
 - `:rf.xray/filters` `{:in […] :out […]}` — IN/OUT pill seeds.
 - `:rf.xray/filters-auto-hide-error-overrides?` — bool, default `true`.
-- `:rf.xray/picker-show-tool-frames?` — bool, default `false`.
+
+(An earlier draft of this list also carried a picker tool-frames key.
+No such key was ever implemented under that spelling, and the
+`:show-tool-frames?` settings slot that was its nearest real
+counterpart was removed under rf2-y8doi.27 — see
+[`015-Configuration.md`](015-Configuration.md) §`:rf.xray/settings`.)
 
 ---
 
