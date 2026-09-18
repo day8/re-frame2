@@ -100,7 +100,7 @@
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
-  The shell is wrapped in `[rf/frame-provider {:frame :rf/xray}]`.
+  The shell is wrapped in `[rf.fresco/frame-provider {:frame :rf/xray}]`.
   Every `subscribe` / `dispatch` inside the shell resolves to the
   `:rf/xray` frame; the host's `:rf/default` is untouched. Xray's
   own registrations under `:rf.xray/*` operate against `:rf/xray`'s
@@ -3216,7 +3216,7 @@
 
 (defn shell-view-tree
   "The shell's outer envelope — the root `<div>`, the
-  `rf/frame-provider`, the left-edge resize handle and the seven
+  `rf.fresco/frame-provider`, the left-edge resize handle and the seven
   shell-root modal / popover mounts — as a pure function of its resolved
   opts, the live lens mode and its ONE already-composed surface node.
 

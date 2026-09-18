@@ -45,11 +45,12 @@
 
   ## Lazy `:rf/xray` frame registration
 
-  The Xray shell wraps every panel in `[rf/frame-provider {:frame
-  :rf/xray} …]` and every panel is `reg-view`-wrapped so subscribes
-  resolve through the React-context tier to the named frame. For that
-  routing to land in the registered `:rf/xray` frame, the frame must
-  exist. The preload runs before the host installs a substrate adapter,
+  The Xray shell heads its whole tree under `[rf.fresco/frame-provider
+  {:frame :rf/xray} …]` and every panel is an `rf.fresco/defview`
+  boundary, so subscribes resolve through the React-context tier to the
+  named frame. For that routing to land in the registered `:rf/xray`
+  frame, the frame must exist. The preload runs before the host
+  installs a substrate adapter,
   so first mount performs registration and seeding after adapter
   readiness. The operation is idempotent."
   (:require [re-frame.core :as rf]

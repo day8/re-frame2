@@ -157,8 +157,8 @@
 
   Since rf2-d9ln it is the migration bridge rather than the view:
   Reagent-shaped hiccup interoping to the React component [[ModalView]]
-  presents as. The shell's enclosing `rf/frame-provider` is what puts
-  the instance frame in React context for it.
+  presents as. The shell's enclosing `rf.fresco/frame-provider` is
+  what puts the instance frame in React context for it.
 
   The open/closed gate is inside [[ModalView]], so this is always
   mounted and renders nothing while the popup is closed — the same

@@ -571,9 +571,9 @@
   `shell-view-tree` is a Fresco tree since rf2-k97c.3 and CALLS this fn
   rather than heading it. This is the T5 bridge: [[handle-component]] is
   mounted through `[:>]`, the interop escape a Reagent parent needs and
-  Fresco accepts, and the shell's enclosing `rf/frame-provider` is what
-  puts the instance frame in React context for it. No second root, no
-  adapter-kind branch, no props ABI.
+  Fresco accepts, and the shell's enclosing `rf.fresco/frame-provider`
+  is what puts the instance frame in React context for it. No second
+  root, no adapter-kind branch, no props ABI.
 
   THE MODE GATE IS HERE rather than in the boundary, and it has to be:
   `mode` is a KEYWORD, `as-component`'s contract round-trips prop names
