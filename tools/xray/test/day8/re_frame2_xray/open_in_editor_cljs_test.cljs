@@ -394,8 +394,8 @@
 
 (deftest open-in-editor-event-accepts-wrapped-shape
   (testing "rf2-g5q8d — dispatching with `{:source-coord coord}` (the
-            trace / issues-ribbon / mcp-server panels' shape) produces
-            the same fx as the bare-coord form"
+            shape the shared `coord-chip` / `coord-link` dispatch sites
+            emit) produces the same fx as the bare-coord form"
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
@@ -405,11 +405,12 @@
           "the wrapper shape unwraps + resolves the same way"))))
 
 (deftest open-in-editor-event-parses-display-string-coord
-  (testing "rf2-g5q8d — the three trace-style panels (trace, issues-
-            ribbon, mcp-server) project the structured coord to a
-            `\"file:line\"` display string at projection time; the
-            handler parses the display string back to the structured
-            form so the URI build works end-to-end. This is the
+  (testing "rf2-g5q8d — the Trace panel projects the structured coord
+            to a `\"file:line\"` display string at projection time
+            (the other two trace-style panels of the rf2-3vucz audit,
+            issues-ribbon and mcp-server, are gone); the handler
+            parses the display string back to the structured form so
+            the URI build works end-to-end. This is the
             single-failure path that landed the load-bearing UX in
             the rf2-3vucz audit."
     (setup!)
@@ -542,8 +543,9 @@
 (deftest open-in-editor-event-applies-project-root-prefix
   (testing "rf2-5m5n2 — the event-fx's URI reflects the configured
             project-root (same source of truth as `open-chip`'s
-            `:href`), so the four panels' dispatch path resolves
-            relative source-coords to absolute on-disk URIs"
+            `:href`), so the shared `coord-chip` / `coord-link`
+            dispatch path resolves relative source-coords to absolute
+            on-disk URIs"
     (setup!)
     (config/set-project-root! "C:/Users/me/code/my-app")
     (rf/with-frame :rf/xray

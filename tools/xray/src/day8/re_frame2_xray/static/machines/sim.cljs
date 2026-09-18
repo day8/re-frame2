@@ -35,7 +35,9 @@
       cloned snapshot's `:data`. Failed guards surface inline; the
       snapshot stays put.
     - **Reset** preserves sim mode but rewinds the snapshot to the
-      declared initial.
+      seed the slot opened with — the engine-built initial snapshot
+      above (a compound root's leaf, a parallel root's region map),
+      not the definition's declared `:initial`.
     - **Exit** disposes the per-machine sim slot and flips the strip's
       sub-mode back to `:topology`.
 

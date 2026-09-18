@@ -29,10 +29,11 @@
   cap-transitions`. Eight long-list panels silently iterated whole
   row vectors with `for`, exploding DOM mount + React-reconciliation
   cost once the trace ring filled. Promoting the cap to a shared
-  helper closes that gap — every long-list panel applies the same
+  helper closes that gap for every panel that adopts it — the same
   cap at the same boundary, with the same `:over-cap?` /
   `:hidden-count` shape so the view can render a consistent overflow
-  affordance."
+  affordance. Adoption is not universal: the callers of `cap-rows`
+  ARE the roster (`panels.fresco` and `panels.resources` today)."
   (:refer-clojure :exclude [cap-rows]))
 
 (defn now-ms
@@ -58,10 +59,12 @@
 (def panel-row-cap
   "The 200-row-per-panel rendering cap pinned in
   `tools/xray/spec/007-UX-IA.md` §Performance budget L611-612 and
-  asserted by `test/.../perf_budget_cljs_test.cljc:88-92`. Every
-  long-list panel applies this cap at its row-rendering boundary
-  before handing rows to the view, so DOM mount count is bounded
-  regardless of how deep the underlying derivation grows."
+  asserted by `test/.../perf_budget_cljs_test.cljc:88-92`. A panel
+  that adopts it applies it through `cap-rows` at its row-rendering
+  boundary before handing rows to the view, so that panel's DOM mount
+  count is bounded regardless of how deep the underlying derivation
+  grows. Not every long-list panel does — `cap-rows`' callers are the
+  roster (see the ns docstring)."
   200)
 
 (defn cap-rows

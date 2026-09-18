@@ -2558,9 +2558,10 @@
   outside a drain / REPL evals). Without the filter the L2 list
   rendered a leading `<no event>` placeholder row that leaked the
   projection's internal bucket into the user-facing event timeline.
-  Other panels (Performance, etc.) keep reading
-  `:rf.xray/event-bundles` directly so the bucket remains available where
-  it is meaningful.
+  Every other reader of `:rf.xray/event-bundles` itself still gets the
+  unfiltered vector — the sub's comment in `registry.cljs` says who
+  those readers are — so the bucket remains available where it is
+  meaningful.
 
   Per rf2-ieg6d Bug 1 the focused row carries a `:ref` callback that
   scrolls it into view when (a) focus has just moved to a new id AND

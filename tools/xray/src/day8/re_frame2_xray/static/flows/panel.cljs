@@ -23,7 +23,8 @@
 
   Reads the registered flows through the public introspection surface
   `re-frame.flows/flows-snapshot` (Tool-Pair.md §public APIs; spec/014
-  catalogues `:rf.xray/registered-flows` as `rf.flows/flows-snapshot`).
+  catalogues the reading sub, `:rf.xray.static.flows/registered-flows`,
+  as `rf.flows/flows-snapshot`).
   Since rf2-en00bk the per-frame `flows` atom is the SOLE store; the
   registrar `:flow` kind is RESERVED-but-empty (no write), so the old
   `(rf/registrations {:source :store :kind :flow})` read now returns `{}` (an empty catalogue).

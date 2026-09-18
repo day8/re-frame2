@@ -14,10 +14,11 @@
     `:rf.xray/select-tab :machines`     — surface the Dynamic Machines tab
     `:rf.xray/select-machine-id <mid>`  — focus the panel on this machine
 
-  Three dispatches; one click. Mode B/C auto-detect (Mode B for 2-8
-  instances, Mode C for ≥8 per consolidated-design §0ter.3) is the
-  Dynamic panel's responsibility — the static-side JUMP just lands the
-  selection.
+  Three dispatches; one click. There is no Mode A/B/C auto-detection
+  on the Dynamic side to defer to: rf2-y9xmf collapsed the Dynamic
+  Machines panel to a single event-driven lens, so no live-instance-count
+  thresholds exist, and the third dispatch is what lands the selection
+  (next section).
 
   ## The third dispatch LANDS the selection (rf2-y8doi.23)
 
