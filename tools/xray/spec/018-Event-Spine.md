@@ -117,7 +117,7 @@ Two app-db slots on the `:rf/xray` frame carry the mode user-state:
 | Slot | Type | Default | Notes |
 |---|---|---|---|
 | `:rf.xray/mode` | `:dynamic` \| `:static` | `:dynamic` | Active mode. Drives the surface composer in `shell.cljs`. |
-| `:rf.xray.static/selected-tab` | `:machines` \| `:routes` \| `:schemas` \| `:flows` \| `:interceptors` | `:machines` | Static-scoped tab choice. **Separate from the Dynamic `:rf.xray/active-tab` slot** so flipping modes preserves both choices. |
+| `:rf.xray.static/selected-tab` | `:machines` \| `:routes` \| `:schemas` \| `:flows` \| `:interceptors` | `:machines` | Static-scoped tab choice. **Separate from the Dynamic `:rf.xray/selected-tab` slot** so flipping modes preserves both choices. (This row named it `:rf.xray/active-tab`; no such id is registered anywhere in `tools/xray/src` or its tests — the Dynamic slot is and has been `:rf.xray/selected-tab`, which is also the keyword the §5 tab table's `Registry id` column lands on.) |
 
 Three event handlers drive the lifecycle:
 
@@ -149,7 +149,9 @@ The rule is stated here because it governs the vocabulary: single letters stay s
 
 ### Frame isolation
 
-Same discipline as the Dynamic chrome (per §8 Frame-observation isolation invariants). The Static surface composer inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame :rf/xray}]`; every subscribe + dispatch inside the surface resolves to `:rf/xray`. Each subscribing region is `reg-view`-registered so its rendered component carries `:contextType frame-context` (rf2-in6l2 + Spec 000 §Plain Reagent fns do not pick up the surrounding frame).
+Same discipline as the Dynamic chrome (per §8 Frame-observation isolation invariants). The Static surface composer is wrapped in a frame provider for `:rf/xray`; every subscribe + dispatch inside the surface resolves to `:rf/xray`.
+
+**The mechanism is `rf.fresco/defview` boundaries, not `reg-view` registration (corrected 2026-09-18).** This paragraph named `[rf/frame-provider …]` as the enclosing provider and said each subscribing region is `reg-view`-registered so its component carries `:contextType frame-context`. The shell writes neither today: after the rf2-k97c.3 root swap the enclosing provider is **`rf.fresco/frame-provider`**, and the Static surface's four regions (ribbon, tab bar, detail panel, surface composer) are **`rf.fresco/defview` boundaries** reading through `rf.fresco/sub` and dispatching through `(:dispatch (rf/capture-frame))`. The ISOLATION GUARANTEE is unchanged, and so is the reason it holds — the frame is resolved from REACT CONTEXT, the same context both `rf/frame-provider` and `rf.fresco/frame-provider` write, which is why the chrome renders identically under a Reagent parent's provider. What changed is only which construct writes it. (rf2-in6l2 + Spec 000 §Plain Reagent fns do not pick up the surrounding frame remains the reason a bare `defn` is not enough.)
 
 ### See also
 
@@ -167,14 +169,26 @@ stays compact and reads as a single concern:
 
 ### L1 chrome ribbon (`rf-xray-ribbon`, 40px)
 
-Carries only scope selectors (left) and chrome actions (right):
+Carries the spine label + nav + add-filter affordance (left) and the
+scope selectors, indicators and chrome actions (right):
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Frame** | left | `Frame ▾` dropdown — ALWAYS rendered (rf2-ad7zx.12); the selected value is surfaced INSIDE the option list (the active option carries a `✓`), not inlined on the button. Interactive whenever ≥1 frame is available (rf2-ad7zx.14): a single-frame host gets a working 1-entry dropdown listing that lone frame; only the zero-frame state disables the control. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Mode** | left | `Dynamic ▾` / `Static ▾` **dropdown** (`<select>`) — compact, understated; shares the frame picker's control weight (rf2-4vp5j). The dropdown's active option + `data-active-mode` carry the mode SIGNAL; the chrome silhouette (4-layer Dynamic / 3-layer Static) is the second signal. | `Cmd/Ctrl-Shift-M` |
+| **Label + nav + add** | left | `Event History` label · the `[◀ ▶ ⏭]` nav cluster · the `+ filter` button (which collapses to zero width once the events ribbon owns the `[+]` — rf2-8zd80). | `j` · `k` · `Shift+G` |
+| **Frame** | **right** | `Frame ▾` dropdown — ALWAYS rendered (rf2-ad7zx.12); the selected value is surfaced INSIDE the option list (the active option carries a `✓`), not inlined on the button. Interactive whenever ≥1 frame is available (rf2-ad7zx.14): a single-frame host gets a working 1-entry dropdown listing that lone frame; only the zero-frame state disables the control. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter). Tool frames are excluded UNCONDITIONALLY (§8 I1) — there is no toggle. | — |
+| **Mode** | **right** | `Dynamic ▾` / `Static ▾` **dropdown** (`<select>`) — compact, understated; shares the frame picker's control weight (rf2-4vp5j). The dropdown's active option + `data-active-mode` carry the mode SIGNAL; the chrome silhouette (4-layer Dynamic / 3-layer Static) is the second signal. | `Cmd/Ctrl-Shift-M` |
 | **Indicators** | right | Silent-by-default `🔇 N` mute indicator + `● N` REDACTED indicator (each painted only when its count > 0). | — |
-| **Right-icons** | right | `⚙` settings popup · `✕` close shell | `,` or `s` · `Esc` |
+| **Right-icons** | right | Theme toggle (sun/moon) · `⛶` pop-out · `⚙` settings popup · `✕` close shell — see §Right-icon behaviour below | `,` or `s` |
+
+**Cluster sides corrected 2026-09-18.** This table read `left` for Frame
+and Mode for as long as the two-ribbon redesign has been specified. The
+shipped `ribbon-tree` puts both in the RIGHT cluster, between the label /
+nav / add cluster on the left and the indicators + icon buttons: the
+right cluster's children are, in order, the frame switcher, the mode
+dropdown, the mute + REDACTED indicators, the theme toggle and the
+right-icons group. `Esc` was also listed here as the close-shell key; it
+is not one (§11 — `Esc` dismisses the open-in-editor hint toast and
+nothing else; `Ctrl+Shift+C` is the shell-visibility toggle).
 
 ### L1.5 events ribbon (`rf-xray-events-ribbon`, distinct `bg-2`)
 
@@ -188,7 +202,7 @@ nav cluster + `+ filter` add affordance live UP on the chrome ribbon
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
 | **Label** | left | `↳ filters:` | — |
-| **Filter pills** | left | `[+ :auth/* ✎]` IN pills (green) + `[× :mouse-move ✎]` OUT pills (red) + a `+` add-filter icon. Click any pill → edit popup; each pill's `✕` removes it. | `/` focus add-pill |
+| **Filter pills** | left | Green-bordered IN pills + red-bordered OUT pills (no leading mode glyph — see §7 §Pill visual contract) + a `[ + ]` add-filter icon. Click a pill body → edit popup; each pill's trailing `×` removes it. | — (this cell read `/` focus add-pill; `/` is one of the keys trimmed under rf2-f7748x and `keybinding.cljs` binds none) |
 | **Hidden** | far right | `N events filtered out` (only when N > 0). | — |
 
 ### Mode is a DROPDOWN (rf2-4vp5j supersedes the "mode pill dropped" note)
@@ -225,19 +239,22 @@ The default contents are the host app's frames, single-select. Example with thre
 └────────────────────────┘
 ```
 
-**Excludes `:rf/xray` (and any future tool frames like `:rf/re-frame2-pair`) by default.** See [§8 Frame-observation isolation invariants](#8-frame-observation-isolation-invariants).
+**Excludes `:rf/xray` (and any future tool frames like `:rf/re-frame2-pair`) UNCONDITIONALLY.** See [§8 Frame-observation isolation invariants](#8-frame-observation-isolation-invariants).
 
-When the Settings "Show tool frames in picker" power-user toggle is on, tool frames are appended under a `── Power user ──` divider:
-
-```
-┌────────────────────────┐
-│ ✓ :rf/default          │
-│   :app/dialog          │
-│   :app/sidebar         │
-│ ── Power user ──       │
-│   :rf/xray            │
-└────────────────────────┘
-```
+> **The "Show tool frames in picker" power-user toggle is GONE, and there
+> is no re-include path (2026-09-18).** Mike removed the toggle's UI on
+> **2026-05-27**; rf2-y8doi.27 later removed the orphaned
+> `:show-tool-frames?` settings slot it had left behind, plus the
+> `show-tool-frames?` re-include arity of `distinct-frames`. **Date the
+> removal from 2026-05-27, not from the slot cleanup** — the cleanup
+> looks like the removal and is four months younger than it. The
+> exclusion set is `frame-switcher/internal-frames`
+> (`#{:rf/xray :rf/re-frame2-pair}`) and the filter is unconditional:
+> there is no toggle, no setting to read, and no `── Power user ──`
+> divider in the option list. (The `── Power user ──` divider in the
+> **Settings popup** survives — see §9 — because the `:ungrouped` opt-in
+> below it is a power-user surface too; it heads that section now, not an
+> empty one. Do not read its survival as the picker toggle's.)
 
 Single-frame apps still get the full `Frame ▾` dropdown — it is interactive and opens a 1-entry list naming that lone frame (rf2-ad7zx.14). The earlier "collapse to a flat label" behaviour is gone (rf2-ad7zx.12 always renders the dropdown). Only a zero-frame state disables the overlaid `<select>` (no inert popup).
 
@@ -481,8 +498,8 @@ The Epoch panel (L4 when active) is the OTHER home for the dropped detail. The t
 | Action | Result |
 |---|---|
 | **Click row** | `:rf.xray/focus-event <id>` + flip `:mode → :retro`; detail panel updates per active tab |
-| **Double-click row** | Focus + pivot L3 to Epoch panel (= click row then press `e`) |
-| **`o` while row focused** | Open source coord in editor (per [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol matrix) |
+| **Double-click row** | **Designed, not built** (2026-09-18). The only `on-double-click` on the L2 surface is the COLUMN DIVIDER's width reset (`:rf.xray/reset-event-list-col-width`); no row handler pivots L3 to the Epoch panel. The Epoch tab is reached by clicking it, or by the palette's tab-jump verb. |
+| **`o` while row focused** | **Not built.** `o` is one of the keys trimmed under rf2-f7748x (see §11) — `keybinding.cljs` binds no `o`. The source coord opens by clicking the coord chip itself (per [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol matrix). |
 | **`Ctrl+click` row** | Copy cascade-id to clipboard — **designed, not built** (2026-09-06, rf2-mv9e). Nothing in `tools/xray/src` writes a cascade-id to the clipboard, and the Epoch panel's row handlers carry no `Ctrl` branch. Value-free (an id, not a value), so it is not an egress site and is not covered by the B.9 lock — it is simply unbuilt. |
 | **Right-click row** | Context menu (see [§7 Filter system — right-click context menu](#7-filter-system)) |
 | **Hover badge** | Category tooltip (see Row badges table) |
@@ -493,10 +510,32 @@ The Epoch panel (L4 when active) is the OTHER home for the dropped detail. The t
 | Selection state | New event arrives | Behaviour |
 |---|---|---|
 | Selection = head | New event arrives | Selection auto-advances to new head; auto-scroll to bottom; mode stays LIVE |
-| Selection = older row | New event arrives | Selection STAYS on older row; auto-scroll suspends; sticky `↓ N new events — press ⏭ to follow` marker pins at bottom edge; mode = RETRO |
+| Selection = older row | New event arrives | Selection STAYS on older row; auto-scroll suspends; the sticky newer-events marker pins at the bottom edge; mode = RETRO |
 | Mode = LIVE (paused) | New event arrives | Buffer keeps collecting; visible list stops auto-scrolling; same sticky marker |
 
 The LIVE/sticky split is the chrome's load-bearing temporal behaviour. New arrivals must not steal focus during retro investigation.
+
+**The marker is BUILT (rf2-y8doi.30), and its copy is not the copy this
+section used to specify.** `shell.cljs`'s `newer-events-marker` renders a
+sticky one-line strip at the bottom edge of the L2 scroll box; clicking
+it dispatches `:rf.xray/follow-head` — the same event the `»` control and
+the `Shift+G` / `l` keys fire. The rendered text is
+
+```
+↓ N newer events — » to follow
+```
+
+singular (`newer event`) at one, and with the digit dropped altogether
+when the count is nil or zero, because `newer-event-count` returns nil
+for an evicted RETRO pin and the marker will not print a number the spine
+cannot stand behind. This section previously specified
+`↓ N new events — press ⏭ to follow`; the built marker says `»` because
+that is the glyph the chrome actually paints on the fast-forward control
+(`ribbon-nav-cluster`'s `rf-xray-nav-head`, title "Fast-forward to latest
+(G)"), so the copy names the control the user can see. **The count is
+taken over the spine's focusable event-bundles, never over the filtered
+list the L2 renders** — index arithmetic over the filtered vector can
+read zero while newer events genuinely exist.
 
 ### Row expansion
 
@@ -508,10 +547,22 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ### Empty states
 
-- **No events yet (cold start):** "Click around your app — every dispatch will land here."
-- **Buffer empty after explicit clear:** "Buffer cleared. New events will appear here."
-- **All cascades match a filter:** "All N cascades match active filters — show all, or change filter set" with two buttons.
-- **No cascades in selected frame:** "No events in `:app/dialog` — pick another frame, or trigger one in your app."
+**ONE empty state ships, and it is deliberately terse (measured
+2026-09-18).** When the L2 list has no rows, `shell.cljs` renders a
+single `rf-xray-event-list-empty` div reading:
+
+```
+No events.
+```
+
+— with no column header above it, and no case analysis. The four
+cause-specific empty states earlier drafts of this section specified
+(cold start · buffer cleared · everything filtered out · nothing in the
+selected frame) were **never built**, and none of them should be read as
+pending work: Xray cannot tell those four apart from the L2 vector alone,
+and the silent-by-default posture (rf2-g3ghh) prefers one honest line to
+four confident ones. The "N events filtered out" ribbon warning (§7)
+already covers the filtered case from the surface that knows the answer.
 
 ---
 
@@ -537,9 +588,9 @@ is accepted as a host-friendly alias normalising to `:routing`):
 | 1 | **Epoch** | `e` | `:epoch` | Numbered vertical cascade of the focused epoch's pipeline (DISPATCH · COEFFECTS · HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS, conditional per the trace stream); supersedes the retired Event/Handler panel per rf2-5gl5r. | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1 + this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Epoch tab |
 | 2 | **App-db** | `a` | `:app-db` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
 | 3 | **Views** | `v` | `:views` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
-| 4 | **Trace** | `t` | `:trace` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
+| 4 | **Trace** | `t` | `:trace` | The focused EPOCH's raw `:trace-events` slice, rendered as plain-language rows. **No filtering UI at all** — the focused epoch IS the scope (rf2-o6yqq + rf2-gkczt removed the trace-type chips, the local IN/OUT pills and the clear control). | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
 | 5 | **Machines** | `m` | `:machines` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.xray.static.machines/sim-*`, view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
-| 6 | **Routing** (label "Routes") | `r` | `:routing` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. The id is `:routing`; the tab RENDERS as "Routes" (matching the Static Routes catalogue tab). | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
+| 6 | **Routing** (label "Routes") | `r` | `:routing` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. **Simulate-URL is NOT here** — it was promoted to the Static Routes panel under rf2-o5f5f.3 (see §5.6). The id is `:routing`; the tab RENDERS as "Routes" (matching the Static Routes catalogue tab). | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
 | 7 | **Resources** | `s` | `:resources` | Server-state / resource cache lens (EP-0016): registry · instances · in-flight work · invalidations · the route→resource graph · scope-resolver audit. Cohesive sub-domain earns its own L4 tab (Mike's cohesive-sub-domain ruling). | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Xray and AI tooling |
 | 8 | **Graph** | `g` | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014 prop-3, rf2-9ett2d). **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
 | 9 | **Frames** | `u` | `:module-view` | The EP-0023 **`image -> frame`** PUBLIC model (rf2-wtg9z4 · rf2-32siq3.12): each live image-loaded frame as an execution context carrying its resolved image's `[kind id]` descriptors with per-descriptor provenance; the same `(kind id)` resolves differently in frames running different images. A process not using image-loaded frames shows the honest no-image caption. (The retired EP-0013 realm / app-value / module substrate this tab once also surfaced was **deleted in full**.) **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
@@ -575,7 +626,7 @@ noise that flagged the Xray events-list as a problem.)
 - **Dormant tab:** `text-disabled` + `○`; clickable → empty state.
 - **Count flash on LIVE update:** count flashes violet 200ms then settles. No continuous spinner.
 
-Single-row at all widths. Below 800px labels truncate to 3 chars (`Eve App Vie Tra Mac Can Rou Iss`); counts always full. Below 560px the strip scrolls horizontally.
+Single-row at all widths. Below 800px labels truncate to 3 chars; counts always full. Below 560px the strip scrolls horizontally. (The worked truncation example this line used to carry — `Eve App Vie Tra Mac Can Rou Iss` — was an eight-tab strip from a superseded inventory: it opened on the Event/Handler tab retired under rf2-5gl5r, closed on the Issues tab removed under rf2-gbz39 Option (c), and omitted Resources, Graph, Frames and Fresco. The live inventory is the ten-row table above; an example that has to be re-derived on every tab landing is worse than none.)
 
 ### Tab strip ARIA
 
@@ -631,7 +682,7 @@ chrome affordances besides the tabs:
 
 ### Detail panel layout
 
-L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). All value displays in the detail panel use the cljs-devtools-shaped renderer (`theme/data_inspector.cljc`):
+L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). All value displays in the detail panel use the cljs-devtools-shaped renderer, whose three verbs are:
 
 - `inspect <value>` — expandable hero
 - `inspect-inline <value>` — one-line tail-elided
@@ -639,7 +690,38 @@ L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). Al
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
-### §5.1 Epoch panel content — the 9-section event lens (rf2-5gl5r)
+**The renderer's home is the edn-inspector widget, not `theme.data-inspector` (corrected 2026-09-18).** This paragraph cited `theme/data_inspector.cljc`, a namespace **deleted** in the rf2-q3dzw phase-5 cleanup — sentinel chrome and the three verbs live inside the edn-inspector widget now ([`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §10). Nothing under `tools/xray/src/day8/re_frame2_xray/theme/` carries a data inspector today.
+
+### §5.1 Epoch panel content — the event lens (rf2-5gl5r)
+
+> **[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1
+> is the NORMATIVE home for the cascade's SHAPE (2026-09-18).** Which
+> steps exist, what drives each one, what each is conditional on, the
+> badge inventory and the dynamic numbering are specified there and
+> graded against the code there. Read this section for the panel's place
+> in the L4 tab set and for the per-section CONTENT contracts that 021
+> does not carry (the RECORDABLE COEFFECTS privacy ruling, the FLOWS
+> read-path recovery, the edge-case table). **Where the two disagree
+> about the step list, 021 §9.1 wins.**
+>
+> **The shipped cascade is DISPATCH → RECORDABLE COEFFECTS → COEFFECT(s)
+> → INTERCEPTORS → HANDLER → FLOW → SIDE EFFECTS → SUBSCRIPTIONS →
+> VIEWS**, each conditional, dynamically numbered over only the steps
+> that surfaced (`panels/epoch/projection.cljc`; badge inventory in
+> `panels/epoch/badge.cljc`). Two differences from the nine-section list
+> this section grew up describing are load-bearing rather than cosmetic,
+> and both are corrected inline below:
+>
+> 1. **There is no standalone EVENT section.** No `:EVENT` badge is
+>    emitted and none is in the inventory; the dispatched event vector
+>    rides the DISPATCH step.
+> 2. **EFFECTS RETURNED and EFFECTS HANDLERS RAN are ONE step**, the
+>    flat SIDE EFFECTS ledger (rf2-j630b), whose badge renders as
+>    `EFFECT HANDLERS`.
+>
+> And the reactive trailing edge is IN the panel, not routed away from
+> it: **SUBSCRIPTIONS and VIEWS are cascade steps.** See §What the Epoch
+> panel does NOT carry at the end of this section.
 
 Shipped layout per rf2-zh2qc + rf2-jhhqt + rf2-lo37i + rf2-9fyn40 (rf2-jhhqt
 swaps DISPATCH SITE before EVENT per Mike's Q1 verbatim and adds the COEFFECTS
@@ -650,8 +732,18 @@ renamed from WORLD INPUTS by EP-0017 §9). FLOWS sits
 RIGHT AFTER the HANDLER — flows fire at the outermost `:after` interceptor,
 reshaping the pending `:db` before it commits, so the lens reads in true
 pipeline order (handler → flows → committed effects → fx-handlers).
-Top-of-panel: a single-line cascade-outcome summary; below: nine stacked
-sections that read top-to-bottom as the developer scans.
+Top-of-panel: a single-line cascade-outcome summary; below: the stacked
+sections that surfaced for this epoch, read top-to-bottom as the developer
+scans.
+
+**The wireframe below is a DESIGN SKETCH kept for the per-section
+reading rhythm, not a rendering (2026-09-18).** It still draws a
+standalone `▼ EVENT` block and splits `▼ EFFECTS RETURNED` from
+`▼ EFFECTS HANDLERS RAN`; the shipped panel does neither (see the
+normative-home note above). It also stops short of the SUBSCRIPTIONS and
+VIEWS steps the panel renders. Take the step list from
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1.3 and
+the badge inventory from §9.1.4.
 
 ```
 ┌─ Event lens · :cart/add-item                              ✓ ok · 11ms · #347 · SSR✓ ┐
@@ -716,7 +808,13 @@ sections that read top-to-bottom as the developer scans.
   `:rf.ssr/hydrated` / `:rf.ssr/hydration-complete`; omitted for
   purely-client-side cascades.
 
-#### The 9 sections (Mike's verbatim order, rf2-jhhqt + rf2-lo37i + rf2-9fyn40)
+#### The sections (Mike's verbatim order, rf2-jhhqt + rf2-lo37i + rf2-9fyn40)
+
+The numbering below is this section's own reading order, kept because
+several entries cross-reference it. It is NOT the panel's step
+numbering, which is assigned dynamically over only the steps that
+surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
+§9.1.3.
 
 1. **DISPATCH SITE** — source-coord chip + `via :source · origin :origin`
    caption. Reads `:rf.trace/call-site` off the `:rf.event/dispatched`
@@ -785,8 +883,13 @@ sections that read top-to-bottom as the developer scans.
      (the app's `:counter/delta`, a subsystem's `:rf.route/location`, …),
      not PII, so it rides verbatim as the row label; only the VALUE is
      summarized.
-2. **EVENT** — the dispatched event vector via `inspector/inspect`.
-   Always present.
+2. **EVENT — NOT A SECTION OF ITS OWN (corrected 2026-09-18).** The
+   dispatched event vector renders via `inspector/inspect` as part of the
+   DISPATCH step; there is no separate EVENT block and no `:EVENT` badge
+   — the projection emits none and the badge inventory
+   ([`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
+   §9.1.4) has no such member. The entry is kept in place so the
+   numbering the entries below cross-reference does not shift.
 3. **COEFFECTS** — the **ambient grade** (EP-0017 §1): declared coeffects
    whose value-returning supplier ran at context assembly and was NOT
    recorded (display preferences, diagnostics, host-transient reads). The
@@ -805,7 +908,8 @@ sections that read top-to-bottom as the developer scans.
    per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler` ids)
    as a belt-and-braces fallback.
 5. **HANDLER** — `reg-event · src/file.cljs:N [code]`. Per
-   Q2: does NOT duplicate the event-id (already shown in §2). Reads
+   Q2: does NOT duplicate the event-id (the DISPATCH step already
+   carries the dispatched event vector — see entry 2). Reads
    `(rf/handler-meta {:source :store :kind :event :id id})`.
 6. **FLOWS** — silent-by-default when no flows fired (rf2-lo37i —
    peer section sitting RIGHT AFTER the handler, before the
@@ -841,7 +945,16 @@ sections that read top-to-bottom as the developer scans.
    [spec/013-Flows.md §Dirty-check semantics](../../../spec/013-Flows.md#dirty-check-semantics))
    are NOT rendered as rows — a flow that didn't recompute did not
    touch app-db, so it stays out of the cascade-detail by default.
-7. **EFFECTS RETURNED** — silent-by-default when neither `:db` nor `:fx`
+> **Entries 7 and 8 are ONE shipped step (corrected 2026-09-18).** The
+> panel renders a single flat **SIDE EFFECTS** ledger (rf2-j630b; step
+> `:side-effects`, badge label `EFFECT HANDLERS`) carrying both what the
+> handler returned and what each fx-handler did, one row per effect. The
+> two entries are kept apart below because the content contracts they
+> state are both live; read them as two halves of one step, not two
+> stacked sections.
+
+7. **EFFECTS RETURNED** (the returned half of the SIDE EFFECTS ledger) —
+   silent-by-default when neither `:db` nor `:fx`
    was returned. Reads `:fx` + `:db-present?` off the `:event/do-fx`
    trace's `:tags` (rf2-twt7m Change 2). `:db` is shown as
    `<… changed; see App-db tab …>` — the diff itself lives in the
@@ -850,7 +963,8 @@ sections that read top-to-bottom as the developer scans.
    `:rf.ssr/hydrated`, an additional `:rf.ssr/hydration-outcome` row
    renders with the `{:duration-ms :subs-ran :mismatches}` payload +
    (when mismatches > 0) a hydration-bisector affordance. (Pre rf2-gbz39 this jumped to the Issues tab; that tab was removed under Option (c), so the bisector surfaces inline / via the Routing + Epoch lenses.)
-8. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
+8. **EFFECTS HANDLERS RAN** (the ran half of the same SIDE EFFECTS
+   ledger) — silent-by-default when no fx ran. One
    row per `:rf.fx/handled` (or override / skipped / exception) trace:
    fx-id chip + duration + status caption. For `:dispatch` the
    queued child event renders inline as `→ queued [:foo …]`. For
@@ -906,10 +1020,22 @@ sections that read top-to-bottom as the developer scans.
   tab; that tab was removed under Option (c) precisely so the exception
   reads inline at the failing step rather than behind a separate tab.)
 
-#### What's dropped from the Epoch panel
+#### What the Epoch panel does NOT carry
 
-- **subs ran** → Views tab.
-- **renders** → Views tab.
+> **The reactive trailing edge is NOT dropped, and this list said it was
+> (corrected 2026-09-18).** This section read "**subs ran** → Views tab"
+> and "**renders** → Views tab". The shipped panel emits a
+> **SUBSCRIPTIONS** step (driven by `:rf.sub/run` / `:rf.sub/skip`) and a
+> **VIEWS** step (driven by `:rf.view/render`) as ordinary conditional
+> cascade steps, both in the badge inventory. The routing-away rule
+> belonged to the **retired** Event/Handler panel (021 §2), which sent
+> the reactive edge to its own Reactive tab; the Epoch panel that
+> superseded it under rf2-5gl5r renders the WHOLE chain in fire order,
+> which 021 §9.1.2 states as the point of the supersession. The Views
+> tab still exists and still owns the per-view / per-sub lens
+> ([`012-Views.md`](012-Views.md)) — what is false is that the Epoch
+> panel withholds the steps.
+
 - **`:other` errors / warnings / machine transitions** → errors surface
   inline in the Epoch panel's "Exception Thrown" block + the L2 event-row
   pink-wash + the issues ribbon signal (the Issues tab was removed per
@@ -989,7 +1115,7 @@ when handler + downstream flow touch overlapping paths.
 
 **Per-leaf classification rendering:** see §12.
 
-**Path navigator:** breadcrumb above the diff (visible always). Click any path segment in the body → breadcrumb updates + scrolls. `Copy path` would copy the Clojure form (`[:cart :orders 0]`) — **designed, not built** (2026-09-06, rf2-mv9e); see the note under the §5.2 mockup above.
+**Path navigator:** the breadcrumb above the body is the ZOOM trail, not a click target for body segments — it appears once a container has been zoomed into, and each crumb zooms back to that level. **A single click on a path segment in the body does nothing** (rf2-zl4rs), so this paragraph's former "Click any path segment in the body → breadcrumb updates + scrolls" contradicted the Path-interaction rule three paragraphs above it and is struck (2026-09-18); nothing in `panels/app_db_diff.cljs` handles a segment click. `Copy path` would copy the Clojure form (`[:cart :orders 0]`) — **designed, not built** (2026-09-06, rf2-mv9e); see the note under the §5.2 mockup above.
 
 **Full-tree disclosure:** `[Show full tree ▾]` expands an `inspect`-rendered full app-db tree below the changed slices. Same renderer (so classification sentinels render uniformly). Default-collapsed nested maps; expand carets per node. Slow for huge databases — the renderer auto-collapses per node via the inspector's depth/width heuristics (`:default-expanded-depth`, default 8; `:max-depth`, default 16; `:max-inline-width`, default 60) rather than a single branch-factor threshold.
 
@@ -997,31 +1123,27 @@ when handler + downstream flow touch overlapping paths.
 - No changes this cascade: "No app-db changes this cascade. (Handler was effects-only or read-only.)"
 - First cascade after page load: "First cascade — no before-state to diff against. Showing full tree." Auto-expands full-tree.
 
-### §5.3 Trace tab content (filtered firehose)
+### §5.3 Trace tab content (per-epoch raw ops)
 
-```
-┌─ Trace tab toolbar ─────────────────────────────────────────────────────────────────────┐
-│ Types:  [● event]  [○ sub]  [● fx]  [○ render]  [○ machine]  [● warning]                │
-│ Pills:  [+ :auth/* ✎]  [× :mouse-move ✎]  [+]                                           │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
-```
+> **The Trace tab has NO filtering UI, and this section specified a
+> toolbar for four months after it went (corrected 2026-09-18).** The
+> toolbar wireframe, the six trace-type toggle chips with their
+> default-on set, and the tab-local IN/OUT pill row are all **struck** —
+> rf2-o6yqq + rf2-gkczt removed every filtering control from this panel
+> along with its header row, and §7 below has said so since. The panel
+> is scoped to the **focused epoch's `:trace-events`**, resolved through
+> the shared `panels.shared.focus-resolver` exactly as App-DB Diff
+> resolves its own; the focused epoch IS the scope, and the per-row
+> payload-expand affordance is the drill-down. The canonical layout
+> contract is
+> [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §5.2.
+>
+> (This section's title also read "filtered firehose". It is neither a
+> firehose — the global trace bus scoped by `:dispatch-id` was the PRIOR
+> shape, and it dropped the async reactive rows, whose dispatch-id is
+> nil — nor filtered.)
 
-**Trace-type toggle row.** Six chips, each a toggle:
-
-| Chip | Default | Covers |
-|---|---|---|
-| `event` | **ON** | event-dispatch, event-handler-start/end, interceptor-pipeline entries |
-| `sub` | OFF | sub-create, sub-compute (cached + recomputed), sub-dispose |
-| `fx` | OFF | fx-dispatch, fx-handler-start/end, fx-result |
-| `render` | OFF | render-start/end, mount/unmount, ratom-deref attribution |
-| `machine` | OFF | machine-transition, guard-evaluate, action-fire, spawn/destroy |
-| `warning` | **ON** | warnings + errors emitted via Spec 009 trace bus |
-
-**Default-on set: events + warnings.** Higher-level tabs (Event for fx, Views for renders+subs, Machines for transitions) cover the typical cases; defaulting all-on reproduces the original firehose. **Errors are ALWAYS ON** regardless of the warning chip (explicit error gate added to UI) — hiding errors via a filter creates the silent-failure footgun.
-
-**IN/OUT pills row.** Same pill UX as the ribbon (§3 + §7). Pill scope here is `:trace-axis-id` by default; widened via pill-edit popup checkboxes. **Trace pills are LOCAL to the Trace tab** (don't share state with ribbon pills — ribbon pills filter the event list; trace pills filter trace entries inside one cascade).
-
-**Severity colouring:**
+**Severity colouring** (retained — this is rendering, not filtering):
 
 | Severity | Treatment |
 |---|---|
@@ -1041,6 +1163,14 @@ x 16:42:14.713.501  fx:result        :http/post failed: 500                    8
 ```
 
 Virtualised list (overscan 20). See [`013-Trace-Consumer.md`](013-Trace-Consumer.md) for the underlying trace-bus contract.
+
+**The row sketch above pre-dates the Figma reconciliation.** Shipped rows
+render each op as a **plain-language line** (`dispatched [:counter-inc]`,
+`db changed [:counter] 1 → 2`) with a relative `t+0.0ms` stamp and a 3px
+op-family left border, not as the raw `event:dispatch` / `sub:recompute`
+op-type text drawn here — see
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §5.2,
+which owns that contract.
 
 ### §5.4 Issue surfacing (the former Issues tab — REMOVED per rf2-gbz39 Option (c))
 
@@ -1080,7 +1210,22 @@ Briefly (rf2-y9xmf): the Dynamic panel is **event-driven only**. It is BLANK whe
 
 Promoted from "lives in App-db + Trace" to its own lens tab per Mike's design call (2026-05-18) — the 6th tab (it was the 7th before the Issues tab was removed per rf2-gbz39 Option (c)). The full content contract lives in [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab; this section locks the L4 detail-panel switch entry + the lens model the Event-Spine asserts.
 
-**FLAT lens model (rf2-lq0ef).** The Routing tab opens to a **flat, focused-event lens** — current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route against the entered URL using the 6-rule `:rf.route/rank` tuple, with the **rank explainer** surfaced inline (which rule decided each rank position). The legacy URL-depth route TREE as the orientation surface is **gone** — URL-depth nesting was hard to scan, and `Simulate-URL` + the 6-rule rank explainer together answer the *"what would this URL match?"* orientation question better than a static tree ever did.
+**FLAT lens model (rf2-lq0ef).** The Routing tab opens to a **flat, focused-event lens** — current matched route + params/query/fragment + the per-focused-event `◆ HERE` / `◆ FROM` / `◆ TO` markers below. The legacy URL-depth route TREE as the orientation surface is **gone** — URL-depth nesting was hard to scan.
+
+> **Simulate-URL is a STATIC-surface affordance, not a Dynamic one
+> (corrected 2026-09-18).** This section specified the Simulate-URL
+> input and its 6-rule `:rf.route/rank` explainer as part of the Dynamic
+> Routing lens. They were **promoted to the Static Routes panel** under
+> rf2-o5f5f.3 along with the browse and search slots; the whole family
+> now lives under `:rf.xray.static.routes/*`, installed by the Static
+> Routes panel, and `panels/routing.cljs` carries none of it. The split
+> is deliberate and is stated at the top of the Static panel: **Static
+> gets BROWSE** (flat catalogue + Simulate-URL + per-row inline expand +
+> the hermetic Simulate-navigation preview); **Dynamic gets the
+> FOCUSED-EVENT LENS** (FROM/TO markers when the focused event triggered
+> navigation, otherwise an empty state). See
+> [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines
+> surface for the sibling shape of the same two-verbs-two-homes rule.
 
 **Per-focused-event highlighting** (parallel to the Machines tab's focused-event lens):
 
@@ -1094,7 +1239,7 @@ When `◆ TO` is set, `◆ HERE` collapses into it — TO is the new HERE. When 
 
 **Detection contract:** the panel scans the focused cascade's trace events for the routing lifecycle emits (per [`spec/012-Routing.md`](../../../spec/012-Routing.md) §Trace events — emitted in the order allocated → deactivated? → activated?, inside both `:rf.route/navigate` and `:rf.route/handle-url-change`). Both ids are read off the cascade, **never the live slice**: the `:rf.route.nav-token/allocated` emit's `:tags :route-id` is the TO; the `:rf.route/deactivated` emit's `:tags :route-id` is the FROM. The runtime emits `deactivated` only on a cross-route nav, so first navigations and same-route re-navigations (which emit none) correctly collapse FROM to nil. Deriving FROM from the cascade rather than the live slice keeps the marker time-independent — focusing an older A→B epoch still shows FROM A / TO B after the app has navigated elsewhere (rf2-m9rx6). The live slice's `:id` drives only the HERE / current-orientation marker.
 
-**Below the active route:** params + query + fragment rendered as a labelled grid so the lens always shows the same skeleton (predictable scanning); absent slots render as `—`. The Simulate-URL input + ranked candidate list lives below the params block — see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Simulate-URL contract for the data shape and interaction rules.
+**Below the active route:** params + query + fragment rendered as a labelled grid so the lens always shows the same skeleton (predictable scanning); absent slots render as `—`. (The Simulate-URL input + ranked candidate list this paragraph placed below the params block moved to the Static Routes panel with the rest of the Simulate-URL family — see the correction above. [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Simulate-URL contract still owns the data shape and interaction rules.)
 
 **Silent state.** When the host app registers no routes the panel renders only the header + a terse `No routes registered.` one-liner. No `(none)` placeholder, no marketing copy (silent-by-default per rf2-g3ghh).
 
@@ -1115,8 +1260,11 @@ The single-axis selection that every layer reads from.
  :frame       <frame-id>      ; frame the cascade ran in
  :mode        :live | :retro  ; :live tracks head; :retro pins
  :head?       <bool>          ; true when :dispatch-id is the latest cascade
- :previewing? <bool>}         ; true while user hovers without committing
+ :previewing? <bool>          ; true while user hovers without committing
+ :paused?     <bool>}         ; true while LIVE auto-follow is suspended
 ```
+
+**`:paused?` is a seventh slot, and this shape omitted it.** `spine/compose-focus` returns it on every composition, and it is load-bearing rather than incidental: in `:live` mode the effective `:dispatch-id` is ALWAYS the current head, and `:paused?` is what suspends that auto-track so the operator can hold an event-bundle while new traffic arrives. `:mode` alone cannot express it — a paused spine is still `:live`, which is why the §11 `Space` binding is *pause/resume LIVE* and not a mode flip. Resuming (`:rf.xray/follow-head` / `:rf.xray/toggle-live-pause`) snaps back to head.
 
 ### Spine events
 
@@ -1235,14 +1383,27 @@ ACTIVE FILTERS = (match-any-IN) AND NOT (match-any-OUT)
 
 ### Pill visual contract
 
-| Mode | Glyph | Border colour | Example |
+| Mode | Leading glyph | Border colour | Example |
 |---|---|---|---|
-| filter-IN | `+` | green | `[+ :auth/* ✎]` |
-| filter-OUT | `×` | magenta | `[× :mouse-move ✎]` |
-| add-new | trailing `+` | tertiary outline | `[+]` |
-| overflow | `…N more ▾` | tertiary | `[…3 more ▾]` |
+| filter-IN | **none** | green | `[:auth/* ✎ ×]` |
+| filter-OUT | **none** | **red** | `[:mouse-move ✎ ×]` |
+| add-new | `[ + ]` | tertiary, **dashed** | `[ + ]` |
 
-Pill `✎` icon (pencil) = "click to edit." Whole pill is the clickable target.
+**Corrected 2026-09-18, three ways.** (1) **There is no leading mode
+glyph.** `filters/pills.cljs` renders the label with no `+` / `×` prefix
+— *"the border colour carries the include/exclude signal"* — so the
+`[+ :auth/* ✎]` and `[× :mouse-move ✎]` spellings used as examples
+throughout this document are shorthand for the mode, not renderings.
+(Kind-specific typed-predicate pills DO carry a glyph prefix, rendered
+as `<glyph>: <label>`; that is a different axis from IN/OUT.) (2) The
+OUT border is **red**, not magenta. (3) The **overflow pill is not
+built** — nothing renders a `…N more ▾` affordance; the row overflows
+horizontally instead.
+
+The `✎` pencil sits at the end of the pill body = "click to edit"; a
+vertical divider then separates a dedicated `×` remove button, which has
+its own hit-area. The pill BODY is the edit target; the `×` is the
+remove target.
 
 ### Add-filter dialog (click-pill → edit popup)
 
@@ -1275,7 +1436,10 @@ trailing-`+` / `:add` source) reads exactly:
   IN/OUT slot semantics are unchanged (§7 matcher algebra).
 - **`Match events containing` field** accepts: exact keyword
   (`:auth/login`), glob (`:auth/*`, `:order.cart/*`), namespace
-  (`:order/*` matches namespace `order`), substring (`/login`). The
+  (`:order/*` matches namespace `order`), **bare keyword (`:auth` —
+  exact-OR-namespace: it matches the event-id `:auth` AND every
+  event-id whose namespace is `auth`, and nothing else, so `:authors/x`
+  does not match)**, substring (`/login`). The
   input placeholder is `:auth/*, :mouse-move, /login`; the two-line
   helper under it reads `Matches keywords, namespaces, globs, or
   text.` then `Examples: :auth/*, :auth, :mouse-move, /login`.
@@ -1287,54 +1451,61 @@ trailing-`+` / `:add` source) reads exactly:
 
 ### Right-click event-row → context menu
 
+**v1 ships TWO items (measured 2026-09-18).** `spine_filters.cljs`'s
+`row-context-menu-tree` renders a header row naming the event-id, then:
+
 ```
 ┌──────────────────────────────────────────────────┐
-│ ◯ Open source in editor                          │
-│ ◯ Copy event id                                  │
-│ ◯ Copy event vector                              │
-│ ─                                                │
-│ ◯ Pin this cascade                               │
-│ ◯ Re-dispatch                                    │
-│ ─                                                │
-│ Filter-OUT (hide):                               │
-│ ◯ × Hide events with id :order/submit            │
-│ ◯ × Hide events from ns :order/*                 │
-│ ─                                                │
-│ Filter-IN (show only):                           │
-│ ◯ + Show only events with id :order/submit       │
-│ ◯ + Show only events from ns :order/*            │
-│ ─                                                │
-│ Contextual:                                      │
-│ ◯ + Show only events from machine :form          │  ← when row has machine badge
-│ ◯ + Show only HTTP events                        │  ← when row has HTTP badge
-│ ◯ + Show only errored events                     │  ← when row has error gutter
+│ :order/submit                                    │  ← header; the row's event-id
+├──────────────────────────────────────────────────┤
+│ Mute :order/submit                               │  → :rf.xray/mute-event-id
+│ Always hide this event-type…                     │  → :rf.xray/hide-event-type
 └──────────────────────────────────────────────────┘
 ```
 
-No confirm — both IN and OUT are reversible.
+- **`Mute <event-id>`** — one-step mute. The row leaves the spine and
+  the ribbon's `🔇 N` indicator increments; reversible per-row or in
+  bulk through the mute manager modal (rf2-ikuwt).
+- **`Always hide this event-type…`** — opens the OUT-filter edit popup
+  pre-filled with this event-id, source `:context` (see §v1 ships below).
+  The ellipsis is doing work: this item does not commit anything.
+
+`Esc` closes the menu; so does a click on the backdrop. No confirm on
+either item — mute and OUT are both reversible.
+
+> **The nine-item wireframe this section carried is struck (2026-09-18).**
+> It drew `Open source in editor`, `Copy event id`, `Copy event vector`,
+> `Pin this cascade`, `Re-dispatch` and six filter rows split across
+> Filter-OUT / Filter-IN / Contextual groups. **None of those nine is
+> built on this menu.** (Xray does write the clipboard elsewhere — the
+> palette's `Snapshot app-db` verb and Static Machines' `Copy Mermaid`
+> both ride `:rf.xray.fx/copy-to-clipboard` — so read this as "no copy
+> item on the row menu", not as "Xray cannot copy".) Meanwhile the
+> `Mute` item, which the wireframe did not carry at all, is the one that
+> DID land. The wireframe was wrong in both directions at once, which is
+> why it is replaced rather than annotated.
 
 ### Empty defaults + Recommended quick-add
 
 Ship empty by default — no shipping `:mouse-move` filtered out, because there's no universally-noisy event in re-frame's universe. Surfacing missing events on first session is worse than noisy first session that prompts the user to filter.
 
-The Settings popup (§9) and the empty-list empty state both offer a **Recommended filters** quick-add:
-
-```
-Recommended filters for high-frequency apps:
-  ☐ :mouse-move        (pointer-coord events; very high volume)
-  ☐ :anim-frame        (requestAnimationFrame ticks)
-  ☐ :resize            (window resize coalescing)
-  ☐ :pointermove       (modern pointer events)
-  ☐ :scroll            (scroll events; often debounce-triggered)
-
-[Apply selected]   [Apply all]   [Cancel]
-```
-
-User CHOSE to load them. First session is honest about what's filtered.
+> **The Recommended-filters quick-add is DESIGNED, NOT BUILT, and both
+> of its homes are gone (2026-09-18).** This section specified a
+> checkbox list of five high-frequency event-ids with
+> `[Apply selected]` / `[Apply all]` / `[Cancel]`, offered from the
+> Settings popup and from the empty-list empty state. Nothing under
+> `tools/xray/src` renders it, and neither host survives: the Settings
+> **Filters tab was retired under rf2-wknb3** (its only widget
+> dispatched an unregistered event — see §9), and the L2 empty state is
+> one terse `No events.` line (§4 §Empty states). The **ship-empty
+> policy above is unaffected and stays** — it is the reason the
+> quick-add was wanted, not something the quick-add delivered, and the
+> `#empty-defaults--recommended-quick-add` anchor is kept because other
+> sections link to it.
 
 ### Auto-filter chip strip (data-classification)
 
-Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under the default `:rf.egress/local-redacted` egress profile), Xray's chrome surfaces the count via per-row redaction markers + Settings → Diagnostics — NOT as an auto-filter chip. (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Xray does not auto-add filters on the user's behalf.
+Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under the default `:rf.egress/local-redacted` egress profile), Xray's chrome surfaces the count via the per-row redaction markers and the ribbon's `● N` REDACTED indicator — NOT as an auto-filter chip. (**There is no Settings → Diagnostics tab**, and this sentence named one: the Settings popup ships four sections — General, Keybindings, Buffer, Diff — per §9. Corrected 2026-09-18.) (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Xray does not auto-add filters on the user's behalf.
 
 ### v1 ships: right-click → edit-popup (NOT silent append)
 
@@ -1463,7 +1634,7 @@ Every consumer (event list, scrubber, issues ribbon signal, palette verbs) reads
 
 | # | Invariant | Enforcement |
 |---|---|---|
-| **I1** | **Frame picker excludes `:rf/xray`** from the inspectable-frame list by default. Internal frames (`:rf/xray`, future `:rf/re-frame2-pair`) are filtered out at the available-frames consumer in `frame_switcher.cljs` (the chrome-ribbon frame dropdown). | Settings popup (§9) carries a power-user toggle **"Show tool frames in picker"** under View → Power user (off by default; off in fresh installs; on only when a framework dev is debugging Xray itself). |
+| **I1** | **Frame picker excludes `:rf/xray`** from the inspectable-frame list — **unconditionally**. Internal frames (`:rf/xray`, future `:rf/re-frame2-pair`) are filtered out at the available-frames consumer in `frame_switcher.cljs` (the chrome-ribbon frame dropdown). | The set `frame-switcher/internal-frames` **is the whole promise**: `#{:rf/xray :rf/re-frame2-pair}`, applied by `distinct-frames` and `head-frame` with no toggle behind it and no setting to read. The "Show tool frames in picker" power-user toggle that this cell used to name as the enforcement was removed **2026-05-27**, and rf2-y8doi.27 removed the orphaned `:show-tool-frames?` slot and the re-include arity rather than leave the tree describing an override it could not perform. |
 | **I2** | **No Xray UI view reads from `:rf/xray` for data purposes.** Subscribes inside a Xray view that need host-app data MUST target the selected frame (`(rf/sub :the-sub :frame (sub :rf.xray/focus.frame))` form). Subscribes targeting Xray's own state (selection, mode, filters, settings) are fine but never appear in any inspected-data panel. | Code review + dev-time lint: a predicate added to `tools/xray/src/.../shell.cljs` mount path walks the registered sub graph and asserts no Xray-namespaced sub feeds an inspected-data panel's render path. Throws useful error during dev mount; no-op in production. |
 | **I3** | **Views panel render-attribution is scoped to the selected frame ONLY.** The frame's per-cascade render projection must filter component-render entries to those whose owning frame matches `:rf.xray/focus.frame`. Xray's own React subtrees must not bleed in even when both frames mount under the same `react-dom` root. | Implementation: render tracker tags each component-render with `:owning-frame` at capture time; Views panel reads `(filter #(= (:owning-frame %) frame) renders)`. |
 | **I4** | **Test gate — Xray-self-observation is disallowed by CI.** Feature test: drive a host app + Xray, trigger Xray-internal renders, assert the inspected frame's surfaces do NOT include any Xray-namespaced component. | Lives in `tools/xray/test/day8/re_frame2_xray/panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs` (the focused-frame / cross-frame isolation gate) + `self_noise_cljs_test.cljc` (the `xray-internal-event?` / `collect-trace` drop logic that keeps Xray's own sub-reads + view-renders out of the inspected stream). Runs under `npm run test:cljs`. **Failure blocks merge.** |
@@ -1479,12 +1650,16 @@ The browser feature gate that asserts I1 + I3 + I4 together is the canonical iso
 5. Trigger a Xray-internal hover (e.g. hover an event row, which causes Xray's hover-render).
 6. Open Views tab.
 7. **Assert I3:** Views panel for `:rf/default` does NOT include any component whose namespace starts with `day8.re-frame2-xray`.
-8. Open Settings popup → View → Power user → toggle "Show tool frames in picker" ON.
-9. Re-open ribbon's frame dropdown.
-10. **Assert I1 (inverse):** option list NOW includes `:rf/xray` under a `── Power user ──` divider.
+
+> **Steps 8–10 are struck (2026-09-18).** They drove the Settings popup
+> to toggle "Show tool frames in picker" ON, re-opened the dropdown and
+> asserted `:rf/xray` NOW appeared under a `── Power user ──` divider —
+> an **inverse assertion for an affordance that no longer exists**. The
+> exclusion is unconditional, so there is no inverse to assert, and the
+> sequence stops at step 7.
 
 **Gate names (current).** The isolation invariants are gated by these shipped tests:
-- **I1 (picker excludes `:rf/xray`):** `tools/xray/test/day8/re_frame2_xray/frame_switcher_cljs_test.cljs` — `internal-frames-includes-xray-and-pair` + `distinct-frames-excludes-internal-frames-by-default` assert the tool-frame filter and the power-user toggle's inverse. Runs under `npm run test:cljs`.
+- **I1 (picker excludes `:rf/xray`):** `tools/xray/test/day8/re_frame2_xray/frame_switcher_cljs_test.cljs` — `internal-frames-includes-xray-and-pair` pins the filter set's membership and `distinct-frames-excludes-internal-frames-unconditionally` pins that the filter has no re-include path. Runs under `npm run test:cljs`. (This bullet named the second test `distinct-frames-excludes-internal-frames-by-default`; it was renamed with the removal, and `-by-default` was exactly the word that stopped being true.)
 - **I3 / I4 (Xray-internal renders stay out of inspected-frame surfaces):** `tools/xray/test/day8/re_frame2_xray/panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs` (focused-frame tracking + cross-frame isolation) backed by `self_noise_cljs_test.cljc` (the `xray-internal-event?` / `collect-trace` drop predicates). Runs under `npm run test:cljs`. **Failure blocks merge.**
 
 **Lint I2 — PLANNED / NOT YET SHIPPED.** The dev-time lint predicate (a mount-path predicate in `shell.cljs` that walks the registered sub graph and asserts no Xray-namespaced sub feeds an inspected-data render path) and its unit test (`sub_graph_lint_test.cljs`) **do not exist yet** — there is no `lint` predicate in `shell.cljs` and no `sub_graph_lint_test.cljs` in the test tree. I2 is enforced today only by code review + the `self_noise` drop logic, NOT by a dedicated lint gate. This is true missing coverage, not a renamed gate.
@@ -1655,12 +1830,14 @@ epoch resolved).
 
 **Trigger:** `,` key OR `s` key OR click ribbon `⚙` icon.
 
-**Shape: modal overlay** (NOT a dedicated panel). Centred floating panel at 560×640 default; backdrop dim (15% black) but Xray visible underneath. Closes on `Esc`, click outside, or click `✕` in panel header. Settings persist immediately on change (no Apply/Cancel — every toggle/field writes through to `(xray-config/configure! …)` on commit).
+**Shape: modal overlay** (NOT a dedicated panel). **600px wide, capped at 92vw and 84vh**, horizontally centred and pinned near the top (8vh from it) rather than vertically centred; the backdrop is `rgba(0,0,0,0.55)` with a 2px blur, so Xray stays visible underneath. Closes on `Esc`, click outside, or click `✕` in panel header. Settings persist immediately on change (no Apply/Cancel — every toggle/field writes through to `(xray-config/configure! …)` on commit).
+
+*(Geometry corrected 2026-09-18: this paragraph specified `560×640` and a `15% black` backdrop. The dialog has no fixed height — it is content-sized under an 84vh cap so the Keybindings table can scroll inside it — and the dim is more than three times what was written.)*
 
 **Why modal not panel:**
 
 1. Settings is **transient** — open, tweak, close — not browsed. Modals fit transient workflows; panels fit ongoing reference.
-2. Modal **preserves the user's last-active tab** — they don't lose context.
+2. Modal **leaves the user's L3 tab where it was** — overlaying the chrome costs no context, where a dedicated panel would have pulled focus off the tab they were reading. (Read this about the **L3 tab underneath**, which is what it was always about. It is NOT a claim about the popup's OWN section tab: `:rf.xray/settings-open` and `:rf.xray/settings-toggle` both write `:settings-active-tab :general`, so the popup opens on **General** every time, discarding whichever section was last read. That is deliberate — General is the default-on-open per §Wireframe below — but the earlier wording "preserves the user's last-active tab" read as a promise it never made and the popup does not keep.)
 3. Dedicated panel would force a tab-bar slot — tab count would creep back up (the L1 tab inventory is hard-won; adding Settings would make one more).
 4. Modal pattern matches Cmd-K palette (also transient overlay) — consistent affordance class.
 
@@ -1672,28 +1849,56 @@ epoch resolved).
 │                                                                    │
 │ ─ General ──────────────────────────────────────────────────────   │
 │                                                                    │
-│ Text size              [────●────]  13 px                          │
-│ Panel width            [────●────]  480 px                         │
-│ Panel position         ◉ Right rail  ○ Popout  ○ Fullscreen        │
-│ Density                ◉ Cosy        ○ Compact                     │
+│ Panel position         ◉ Right rail (inline)  ○ Fullscreen overlay │
 │ Auto-open on error     ☐                                           │
-│ Long-keyword threshold [────●────]  60 chars                       │
+│ Epoch history          [────●────]  50                             │
+│ Click-to-source opens  ◉ (host default)  ○ VS Code  ○ Cursor  …    │
 │                                                                    │
 │ ── Power user ──                                                   │
-│ ☐ Show tool frames in picker                                       │
-│ ☐ Use system colors  (HCM override; :general :use-system-colors?)  │
+│ ☐ Show :ungrouped pseudo-event-bundle events                       │
+│ ☐ Always show unchanged subs in the Views panel                    │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
 A top tab strip (NOT left-rail navigation) drives which body section
-renders. Tabs are equal-weight; **General** is the default-on-open.
+renders. Tabs are equal-weight; **General** is the default-on-open (and
+the popup resets to it on every open — see §Why modal not panel above).
+
+> **Seven widgets left this wireframe and it kept drawing all of them
+> (corrected 2026-09-18).** Removed **2026-05-27** in Mike's UX-cleanup
+> pass: the **Text-size slider** (defaults suffice), the **Panel-width
+> input** (drag the resize handle — rf2-x8h9y; double-click resets), the
+> **Density radio** (Cosy / Compact were visually indistinguishable in
+> practice), the **Long-keyword-threshold input** (zero consumers
+> outside the settings UI itself), the **"Show tool frames in picker"
+> toggle** (see §8 I1 and below), and the **"Use system colors" HCM
+> override** (the OS-level `@media (forced-colors: active)` detection
+> works automatically; the manual in-app override was redundant noise).
+> Separately, rf2-czcg5 dropped the **`○ Popout`** option from the
+> Panel-position radio — pop-out is launched from the chrome's visible
+> `⛶` button and the programmatic `(xray/popout!)` API, so the radio
+> ships two options, not three.
+>
+> **Every one of those setting SLOTS survives in config** (`:general
+> :text-size`, `:panel-width-px`, `:density`, `:long-keyword-threshold`,
+> `:use-system-colors?`), along with the effects that honour them, so a
+> host default still applies and a future UI can re-expose them without
+> a migration. **A surviving slot is not a surviving widget** — the
+> `:show-tool-frames?` slot is the one that did NOT survive, precisely
+> because nothing could write it (rf2-y8doi.27).
+>
+> Three widgets arrived and were never drawn here: the **epoch-history
+> slider** (relocated back to General on 2026-05-27 after rf2-pu9sb had
+> moved it to Buffer), the **editor override** (rf2-dudqz), and the two
+> power-user checkboxes — **Show `:ungrouped`** (rf2-r9lyy) and **Always
+> show unchanged subs** (spec/021 §3.4 pin).
 
 ### Sections (top tab strip; per-tab body)
 
 | Section | Content |
 |---|---|
-| **General** (default) | Text-size slider · Panel-width slider · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen`) · Density radio (`:cosy` / `:compact`; the `:comfy` tier was dropped per 015 §Density) · Auto-open-on-error checkbox · Long-keyword treatment threshold · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/xray` etc. in ribbon picker; only useful when debugging Xray itself) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot stays `:general :use-system-colors?`) |
+| **General** (default) | Panel-position radio (`:right-rail` / `:fullscreen`) · Auto-open-on-error checkbox · Epoch-history slider (`:general :epoch-history`, default 50 — retained epochs per frame; trace evicts with its epoch) · Editor override (`Click-to-source links open in …`, rf2-dudqz) · **`── Power user ──` divider** · `Show :ungrouped pseudo-event-bundle events` (rf2-r9lyy, OFF by default) · `Always show unchanged subs in the Views panel` (spec/021 §3.4 pin). See the removals note under §Wireframe for the seven widgets this cell used to list. |
 | **Keybindings** | Read-only chord table (every binding the global keydown listener captures) · `Handle keys?` master toggle. v1 ships READ-ONLY; the per-row chord editor + reset-to-defaults UI is the v1.1 follow-on. |
 | **Buffer** | `:buffer/events-retained <int>` (default 50; writes through to `(rf/configure! {:trace-buffer {:events-retained N}})` per rf2-5u03ig) · "Clear buffer now" button (confirm modal). The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig. |
 | **Diff** | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; the app-db diff engine itself is Editscript A* per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1.5.1 with no user-tuneable knobs — the prior section-grouping engine was retired wholesale per rf2-7is22) |
@@ -1731,13 +1936,34 @@ auto-open-watcher semantics are in
   (`config/reset-settings!`); the "Clear buffer now" affordance under
   the Buffer tab covers the only destructive op users have asked for.
 
-### "Show tool frames in picker" toggle
+### "Show tool frames in picker" toggle — REMOVED 2026-05-27
 
-- **Section:** General → Power user (the View tab from earlier drafts was folded into General per rf2-ttnst, and the toggle has always read from the `:general` settings slot).
-- **Sub-section:** Power user (visually separated by `── Power user ──` divider).
-- **Label:** "Show tool frames in picker" (literal).
-- **Sub-label:** "Reveals `:rf/xray` (and `:rf/re-frame2-pair` etc.) in the ribbon's frame dropdown. Only useful when debugging Xray itself."
-- **Default:** OFF. Persists per host-app via localStorage. NOT included in factory-reset's standard reset (framework devs who turned it on will want it stable across resets) — separate "Reset power-user toggles" button.
+**The toggle is gone and nothing replaces it.** Mike removed its UI on
+**2026-05-27** in the same pass that took the text-size and panel-width
+widgets. rf2-y8doi.27 then removed the orphaned `:show-tool-frames?`
+setting slot it had left behind, and with it the `show-tool-frames?`
+re-include arity of `frame-switcher/distinct-frames` — *a slot no
+surface could write is not an override waiting to be re-enabled, it is
+a promise the tree cannot keep.*
+
+This subsection used to specify the toggle's section, label, sub-label
+and an OFF default that survived factory reset behind a separate "Reset
+power-user toggles" button. **None of that describes anything**: there
+is no toggle, no slot, no per-host persistence for one, and no
+power-user reset button. The §8 I1 invariant it existed to relax is
+enforced where it always was — by `frame-switcher/internal-frames`,
+unconditionally.
+
+**Date it from 2026-05-27, not from the slot cleanup.** The cleanup is
+the more recent and more visible event, and reading it as the removal
+puts the toggle alive for four months after it went — which is exactly
+how this subsection, §3's Frame dropdown, §8's I1 row and test contract,
+§9's wireframe and sections table, and §13's Settings row all went on
+describing it.
+
+**The `── Power user ──` divider STAYS**, and is not residue: the
+`:ungrouped` opt-in below it is a power-user surface too, so the divider
+heads that section now rather than an empty one.
 
 ### configure! API mapping
 
@@ -1820,7 +2046,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 |---|---|---|---|---|
 | `:rf/redacted` (bare) | `[● REDACTED 1]` magenta | NO | Path of redaction · mark owner (frame / event-handler / sub / fx / cofx / machine / flow / resource) · local count | One-way disclosure of STRUCTURE only (path + owner). **NO "reveal value" button.** **NO fetch handle.** The value is GONE at the source. |
 | `:rf/redacted {:bytes N}` | `[● REDACTED · N bytes]` magenta | NO | Same as above + size | Same as above; size disclosed (helps debug "is the redacted thing big enough to be the problem?") |
-| `:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}` | `[● ELIDED · N bytes]` yellow | YES | Path · mark source · byte size · `:hint` text · `:type` (`:map`/`:vector`/`:set`/`:string`/`:scalar`) | Popover with `:hint` text + **"Fetch full value" button**. Fetch routes via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md) (round-trips the marker's `:handle`). Size-warned via confirm modal when bytes > threshold (default 100KB). |
+| `:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}` | `[● ELIDED · N bytes]` yellow | YES | Path · mark source · byte size · `:hint` text · `:type` (`:map`/`:vector`/`:set`/`:string`/`:scalar`) | **DESIGNED, NOT BUILT** (2026-09-18) — the chip is static and non-interactive today. The designed affordance: popover with `:hint` text + **"Fetch full value" button** routing via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md) (round-trips the marker's `:handle`), size-warned via confirm modal when bytes > threshold (default 100KB). See §Size-warned drill below. |
 
 ### Per-surface enumeration
 
@@ -1850,6 +2076,20 @@ The two sentinels MUST have different affordances or the model collapses:
 - `:rf.size/large-elided` = size-elided, on-box, yellow, fetch-on-click.
 
 ### Size-warned drill (`:rf.size/large-elided`)
+
+> **"Fetch full value" is DESIGNED, NOT BUILT (2026-09-18).** Nothing
+> under `tools/xray/src` renders a Fetch-full-value button or routes a
+> `:handle` through `get-path`. The `[● ELIDED · N bytes]` chip is a
+> **static, non-interactive** display in v1; the `:handle` is carried
+> for the drill-in affordance, and the popup overlay infrastructure the
+> reveal would ride on HAS landed (rf2-s0x6x / rf2-l4625), but the chip
+> is **not yet wired** to it — see
+> [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §10,
+> which owns the sentinel-chrome contract and says so. (The original
+> click-to-reveal path lived in the `theme.data-inspector` ns deleted
+> under rf2-q3dzw.) The contract below therefore reads as the DESIGN the
+> follow-on implements, not as shipped behaviour; the **confirm-modal
+> threshold rule is part of that design**, so it is unbuilt with it.
 
 Click `[● ELIDED · N bytes]` → popover with `:hint` text + "Fetch full value" button that round-trips the marker's `:handle` through `get-path`. When `N > :large/fetch-warn-threshold-bytes` (default 100KB), the click first surfaces a confirm modal:
 
@@ -1906,7 +2146,7 @@ Coverage is enumerated in [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matr
 | **Data classification rendering** | `tools/xray/test/.../sensitive_trace_cljs_test.cljc` (+ `views/edn_inspector_cljs_test.cljs` for the size-elided drill affordance) — asserts `:rf/redacted` opaque (no reveal button); asserts `:rf.size/large-elided` drillable; asserts combination semantics; asserts the sentinel-suppression path. No single `classification_rendering` gate; coverage is split across the sensitive-trace + edn-inspector tests |
 | **Frame-isolation invariants** | I1 → `tools/xray/test/.../frame_switcher_cljs_test.cljs` (picker excludes `:rf/xray`); I3/I4 → `panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs` + `self_noise_cljs_test.cljc` (Xray-internal renders stay out of the inspected frame's surfaces); runs under `npm run test:cljs`; **failure blocks merge** |
 | **Sub-graph isolation lint (I2) — PLANNED / NOT YET SHIPPED** | The dev-time lint predicate in `shell.cljs` and its `sub_graph_lint_test.cljs` do not exist yet (no `lint` predicate in `shell.cljs`, no such test file). I2 is enforced today by code review + the `self_noise` drop logic only — true missing coverage, NOT a renamed gate |
-| **Settings modal popup** | `tools/xray/test/.../settings/popup_cljs_test.cljs` (+ `settings/popup_dispatch_routing_cljs_test.cljs`) — asserts modal open/close via `,`/`s`/`⚙`/`Esc`/outside-click; asserts section navigation; asserts fields map to a configure! key; asserts "Show tool frames in picker" toggle flips the picker option list |
+| **Settings modal popup** | `tools/xray/test/.../settings/popup_cljs_test.cljs` (+ `settings/popup_dispatch_routing_cljs_test.cljs`) — asserts modal open/close via `,`/`s`/`⚙`/`Esc`/outside-click; asserts section navigation; asserts fields map to a configure! key. (The fourth claim this row carried — that the suite asserts a "Show tool frames in picker" toggle flips the picker option list — is **struck 2026-09-18**: the toggle was removed 2026-05-27 and rf2-y8doi.27 removed the slot behind it, so there is no such assertion to make. The picker's unconditional exclusion is gated in the frame-switcher suite instead — see §8 §Gate names.) |
 
 The [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) rows for the dropped panels (AI co-pilot, MCP server, Performance, Subs) are deleted per the spec rewrite.
 
