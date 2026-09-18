@@ -1194,6 +1194,15 @@ epoch-per-event (§1.1), one epoch = one event, so the focused epoch's
   (rf2-o6yqq made Trace the FIRST L4 panel with no film-strip header;
   rf2-6r9j.16 made it the rule — no L4 panel mounts one. See §5.5.)
 
+> **Superseded — rf2-aqusw.** The row design from here to the mockup (plain-language lines,
+> op-family colour bands, the collapsible reactive-aftermath group, causal nesting) is the
+> v1 shape and is historical. The panel now renders the flat six-column list specified in
+> [`023-Trace-Panel.md` §2](023-Trace-Panel.md#2-layout-flat-list--rf2-aqusw) (Δt · stage ·
+> area badge · what-happened · target/detail · duration), its stage column and left edge
+> taken from the Epoch panel's badge taxonomy. No reactive-aftermath group ships — there is
+> no `:rf.xray/trace-expanded-group-ids` sub — and `:rf.xray/trace-feed` carries no `:nodes`
+> tree.
+
 **Readable rows (Figma design — rf2-ad7zx).** Reconciled to
 `tools/xray/design-reference/xray_devtools_reference.cljs` (the `trace-panel` component), the
 later iteration. Each op renders
@@ -1236,24 +1245,28 @@ lifecycle vocabulary across the whole devtool. Expanded payload uses the
 edn-inspector renderer's `browse` variant (§10).
 
 **Empty states** (focus-resolver statuses + the empty-epoch case):
-`:no-events` ("No events.") · `:no-focus` ("No focused event.",
-defensive) · `:epoch-evicted` ("This epoch has been evicted from the
-history buffer.").
+`:no-events` ("No events.") · `:no-focus` ("Select an event to see
+its trace arc.") · `:no-epoch` ("The selected event settled no
+epoch." — the same cause-neutral line as the Epoch panel, §9.1.3) ·
+`:epoch-evicted` ("This epoch has been evicted from the history
+buffer.").
 
 ### §5.3 Queries
 
 | Sub | Reads |
 |---|---|
-| `:rf.xray/trace-feed` | The focused epoch record's `:trace-events`, resolved via `:rf.xray/focus` (`:epoch-id`) + `:rf.xray/epoch-history`. No filtering. Returns `{:rows :nodes :total :rendered :epoch-id :empty-kind}` (`:rendered` = `:total` since there is no filter). `:rows` is the flat oldest-first projection (each row carries `:op-family` · `:rel-time` · `:duration-ms` · `:parent-dispatch-id`). `:nodes` is the structural display tree the view paints: contiguous reactive emits fold into one `:reactive-group` node (`{:summary {:subs N :renders M} :children [...]}`), and every node carries a causal-nesting `:depth` (rf2-ad7zx.8). |
+| `:rf.xray/trace-feed` | The focused epoch record's `:trace-events`, resolved via `:rf.xray/focus` (`:epoch-id`, plus its `:dispatch-id` to tell `:no-epoch` apart) + `:rf.xray/epoch-history`, with `:rf.xray/observed-frame` as the redaction seam. No filtering. Returns `{:rows :envelope :outcome :bands :total :rendered :epoch-id :empty-kind}` (`:rendered` = `:total` since there is no filter). The view reads only `:rows` (the flat oldest-first list) and `:empty-kind`; `:envelope` / `:outcome` / `:bands` are retained for other consumers and tests, not rendered. There is no `:nodes` tree (rf2-aqusw). |
 | `:rf.xray/trace-expanded-row-ids` | The set of trace `:id`s whose payload is expanded inline (per-row click). |
-| `:rf.xray/trace-expanded-group-ids` | The set of reactive-aftermath group ids that are expanded (group click — rf2-ad7zx.8). |
+
+(A `:rf.xray/trace-expanded-group-ids` row for the reactive-aftermath group was listed here; no
+such sub or group ships.)
 
 ### §5.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
 | Row → expand payload | Inline in panel (no nav — toggles membership in `:rf.xray/trace-expanded-row-ids`) |
-| Reactive-aftermath group → expand | Inline in panel (no nav — toggles membership in `:rf.xray/trace-expanded-group-ids`, revealing the collapsed `:rf.sub/run` / `:rf.view/render` children; rf2-ad7zx.8) |
+| Reactive-aftermath group → expand | **Not built** — the flat list (rf2-aqusw) has no group to expand |
 | Source-coord chip | Opens the source coord in the editor (`:rf.xray/open-in-editor`) |
 | Right-click a destroy-event row / `⟲ cascade` button | Opens the cancellation-cascade popover for that row's dispatch-id |
 
@@ -4119,10 +4132,19 @@ reach for `[edn-inspector value opts]` directly.
 
 - `:panel-id` — distinguishes per-panel expansion state. Defaults
   `:rf.xray.edn-inspector/anon`.
-- `:default-expanded-depth` — first-render expansion depth before
-  operator clicks. Defaults `2`.
-- `:max-inline-width` — character budget before forced-vertical
-  layout. Defaults `60`.
+- `:default-expanded-depth` — an expand CEILING, not a trigger
+  (rf2-kbdk8). Defaults `8` (`default-ceiling-depth`). Once the
+  column width is measured, the width-first heuristic decides: a
+  container whose inline form fits the column renders inline and does
+  not auto-expand; one that overflows auto-expands, but never past this
+  depth — deeper levels show a collapsed `▸ {…N keys}` summary. Before
+  any width measurement arrives the legacy depth path runs (expand
+  below the depth; at exactly the depth, expand when ≤ 10 children).
+  Call sites that pass a small value (`1`, `2`) are using it as that
+  fallback / ceiling. See §10.4.
+- `:max-inline-width` — character budget for the COLLAPSED-PREVIEW
+  one-liner (`▸ {:a 1, :b 2, …}`); the inline-vs-tree decision itself
+  reads the measured column width. Defaults `60`.
 - `:max-depth` — hard cap on recursion depth; deeper levels render
   `{…}` collapsed and click expands one level. Defaults `16`.
 - `:before` (rf2-q3dzw · rf2-e28r3) — the prior value to annotate
@@ -4199,11 +4221,13 @@ re-break what phase 1 lands. All five are tested in
 `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_cljs_test.cljs`.
 
 1. **Per-type colours via CSS variables.** Each leaf type maps to a
-   distinct token (keyword `:accent`, string `:syntax-string`,
-   number `:syntax-number`, boolean `:syntax-keyword`, nil
-   `:text-tertiary`, symbol `:magenta`, uuid/regex `:info`, fn
-   `:text-tertiary italic`). Theme-aware via CSS variables — no
-   per-theme code path, no re-render needed for theme switch.
+   distinct token — the rf2-79ojx One Dark / One Light `syntax-*`
+   family ([022 §Syntax highlighting](022-Design-Tokens.md#syntax-highlighting-one-dark--one-light-rf2-79ojx)):
+   keyword `:syntax-keyword`, string `:syntax-string`, number
+   `:syntax-number`, boolean `:syntax-boolean`, nil `:syntax-nil`,
+   symbol `:syntax-symbol`; uuid/regex `:info`, fn `:text-tertiary`
+   italic. Theme-aware via CSS variables — no per-theme code path, no
+   re-render needed for theme switch.
 
 2. **Distinct bracket styling per collection kind.** Map `{…}` /
    vector `[…]` / list `(…)` / set `#{…}` / map-entry `[…]` /
@@ -4321,8 +4345,11 @@ is the in-bundle Clojure source-text highlighter for the Event
 panel's HANDLER slot — distinct from the value renderer (cljs-
 devtools never owned this, and the in-bundle tokenizer + zprint
 pre-format pipeline survives the rf2-oqa60 cut-over unchanged).
-Token colours follow the Figma `.syntax-*` block: keywords red,
-strings blue/green, numbers blue, comments muted-italic.
+Token colours follow [022 §Syntax highlighting](022-Design-Tokens.md#syntax-highlighting-one-dark--one-light-rf2-79ojx)
+— keywords, strings and numbers on the rf2-79ojx `syntax-*` family
+(magenta / green / orange), comments and brackets `text-tertiary`,
+builtins / macro heads `accent`. That palette deliberately departs from
+the Figma `.syntax-*` block (keyword red, string and number blue).
 
 #### §10.0.6 `IXrayEdnInspector` custom-formatters protocol (phase 7 · D7=a · rf2-0qrcr)
 
@@ -4347,12 +4374,15 @@ the built-in classifier has no better fallback for than `pr-str`.
 - `-xray-render-body` returns hiccup for the expanded body, or
   `nil` for a header-only render (no expanded body, no toggle).
 
-`opts` carries the same per-node context the built-in renderer
-sees — `:panel-id`, `:mount-id`, `:path`, `:depth`,
-`:expansion-map`, plus the per-widget `:default-expanded-depth` /
-`:max-inline-width` / `:max-depth`. The original argument map is
-also threaded under `:node-opts` for consumers that want to recurse
-the built-in renderer on sub-values via `edn-inspector/render-node`.
+`opts` carries a REDUCED per-node context — `:value`, `:panel-id`,
+`:mount-id`, `:path`, `:depth`, `:expansion-map` — with the
+per-widget knobs (`:default-expanded-depth` / `:max-inline-width` /
+`:max-depth`, …) NESTED under `:opts`, not at the top level. The same
+map is also threaded under `:node-opts` for consumers that want to
+recurse the built-in renderer on sub-values via
+`edn-inspector/render-node`. It carries no `:dispatch-fn`, so toggles
+inside such a recursion dispatch through the global `rf/dispatch`
+fallback rather than the mount's captured frame.
 
 **Dispatch order** (in `render-node`):
 
@@ -4371,7 +4401,8 @@ built-in renderer rather than blanking the inspector.
 **Boundary** — the protocol is the ONLY public extension seam
 in the widget. Consumers do NOT extend interactions through this
 protocol (the locked B.9 / rf2-sndui model ships exactly one
-path-click interaction); the seam is purely for value rendering.
+path interaction — the zoom gesture, §10.5); the seam is purely for
+value rendering.
 
 **Worked example** — a domain `Money` type that wants to render
 as a single chip with the amount + currency, but expand to show
@@ -4392,11 +4423,17 @@ the underlying ledger entries:
      (str amount " " currency)])
   (-xray-render-body [_ opts]
     [day8.re-frame2-xray.views.edn-inspector/render-node
-     (assoc opts :value ledger)]))
+     (-> opts
+         (assoc :value ledger)
+         (update :path conj :ledger))]))
 ```
 
-Mounted via `[edn-inspector some-money-instance]` — the chip shows
-collapsed; click expands to the ledger as a normal map view.
+The `(update :path conj :ledger)` matters: `opts` carries the PARENT
+node's `:path`, and recursing with it unchanged gives the ledger the
+parent's testid and expansion key. Mounted via
+`[edn-inspector some-money-instance]`, the chip and the ledger body
+render together — a protocol node carries no toggle and renders open
+(§10.0.9).
 
 **Tests** — `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_protocol_cljs_test.cljs`
 pins: (a) built-in types still route through the built-in dispatch
@@ -4509,8 +4546,9 @@ Registration is a single line in `registry.cljs`:
 
 …idempotent per the orchestrator's `compare-and-set!` sentinel.
 The shell-side mount sits in `shell.cljs`'s overlay block,
-INSIDE the `rf/frame-provider
-{:frame :rf/xray}` wrapper so subscribes resolve to Xray's frame.
+INSIDE the shell's `rf.fresco/frame-provider {:frame frame-id}`
+wrapper so subscribes resolve to that Xray instance's frame — the
+same frame the §10.0.7.2 affordance dispatches into (rf2-r0o63).
 
 ##### §10.0.7.2 Per-panel "open in popup" affordance (rf2-l4625 · rf2-7sdja)
 
@@ -4533,13 +4571,16 @@ Mechanics:
   is enabled).
 - Click dispatches
   `[:rf.xray.edn-inspector-popup/open popup-mount-id {:value v :opts o}]`
-  against `:rf/xray` **explicitly** via the established
-  `(rf/dispatch event {:frame :rf/xray})` pattern (rf2-7sdja).
-  This pins the dispatch frame regardless of where the widget
-  mounts — popup state is Xray-global (the popup-stack-view
-  subscribes only against `:rf/xray`), unlike expansion state
-  which is per-frame and uses the reg-view-injected frame-bound
-  `dispatch`.
+  through the widget's lexically-CAPTURED frame-bound dispatcher
+  (`popup-affordance-button`'s `dispatch-fn`, the `dispatch` the
+  surrounding `reg-view` body injects), so the write lands on the
+  SURROUNDING Xray instance frame — the frame whose shell-mounted
+  popup-stack view reads it (§10.0.7.1). **rf2-r0o63 supersedes the
+  rf2-7sdja pin** that dispatched against a bare `{:frame :rf/xray}`:
+  that worked for one shell but made the popup stack a singleton, so
+  two shells would have clobbered each other's popups. The dispatcher
+  falls back to `rf/dispatch` when a test renders the button with no
+  `reg-view` ancestor.
 - `popup-mount-id` is derived from the edn-inspector's own
   mount-id (`"ddp-" + mount-id`) — stable per call-site mount,
   so re-clicking the affordance **raises** the existing popup
@@ -4555,14 +4596,18 @@ popup-mount-id`. The button carries
 `:aria-label "Open in popup"` for assistive tech.
 
 Enabled call sites (panels where the inline widget is genuinely
-cramped):
+cramped) — ONE ships:
 
 | Panel                                  | Site                                              | Rationale                                                                            |
 |----------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------------------|
-| `panels/machine_canvas.cljs`           | snapshot drill-in                                 | Machine snapshots carry deeply-nested `:data` maps                                   |
-| `panels/machine_inspector.cljs`        | per-phase snapshot block                          | Same as canvas — per-machine `:data` maps                                            |
-| `panels/reactive_panel_view.cljs`      | per-sub value row                                 | Sub values can be the full domain projection (cart, users, route tree, …)            |
 | `panels/trace.cljs`                    | per-row payload expand                            | Trace rows expand within the row's narrow column; tags + payload maps are cramped    |
+
+The other three sites this table once listed are gone with the surfaces
+they sat on: the Machine Inspector's snapshot drill-in was removed by
+rf2-g2axio, its canvas-side companion by rf2-bcub (a tombstone in
+`panels/machine_canvas.cljs` records both), and the Views panel's
+per-sub value rows went with its SUB VALUES section (rf2-uz3wm,
+§10.0.4).
 
 App-DB does NOT use the affordance (rf2-7sdja — Mike's live-testing
 call 2026-05-26). The side panel has plenty of horizontal room; the
@@ -4601,23 +4646,30 @@ expand/collapse, AND applies diff annotations — one source of truth.
 
 **Diff ops**:
 
-| op          | trigger                                   | glyph | colour token   |
-|-------------|-------------------------------------------|-------|----------------|
-| `:added`    | `:before` is `::missing`                  | `+`   | `:green`       |
-| `:removed`  | `:value`  is `::missing`                  | `-`   | `:red`         |
-| `:modified` | both exist; differ (leaf-level)           | `~`   | `:yellow`      |
-| `:children` | container with changed descendant         | `◴`   | `:accent`      |
-| `:same`     | values equal                              | ` `   | `:text-tertiary` |
+| op              | trigger                                   | glyph | glyph colour     | row wash               | 2px stripe               |
+|-----------------|-------------------------------------------|-------|------------------|------------------------|--------------------------|
+| `:added`        | slot absent on the before side            | `+`   | `:diff-gutter`   | `:diff-added-wash`     | `:diff-added-stripe`     |
+| `:removed`      | slot absent on the after side             | `-`   | `:diff-gutter`   | `:diff-removed-wash`   | `:diff-removed-stripe`   |
+| `:modified`     | both exist; differ (leaf-level)           | `~`   | `:diff-gutter`   | `:diff-modified-wash`  | `:diff-modified-stripe`  |
+| `:children`     | container with changed descendant         | `◴`   | `:diff-gutter`   | none                   | none                     |
+| `:same-shifted` | equal, but moved index (R6)               | ` `   | `:text-tertiary` | none                   | none                     |
+| `:same`         | values equal                              | ` `   | `:text-tertiary` | none                   | none                     |
 
-The op classification is pure data via `ei/diff-op` (public for
-tests). The `::missing` marker (`ei/missing-sentinel`) distinguishes
-"slot absent on this side of the diff" from a real `nil` value.
+The glyph colour is ONE reserved cyan-teal `:diff-gutter` for every active op — deliberately
+outside every `:syntax-*` hue so diff state never collides with per-token type colour; the op
+reads from the glyph SHAPE, the wash and the stripe (rf2-awqts). Classification is the diff
+engine's pure projection (`day8.re-frame2-xray.diff.engine` — `engine/project` over the
+before/after pair, looked up per path with `engine/op-at`), not a function in the inspector ns.
+The walker's `::missing` marker (`ei/missing-sentinel`) distinguishes "slot absent on this
+side of the diff" from a real `nil` value; the engine keeps its own
+`engine/missing-sentinel` (§10.0.13).
 
 **Gutter row**: each diff'd node renders inside a `gutter-row`
-wrapper — a 3px left border in the op's colour + a glyph span +
-the rendered hiccup. `:same` rows render with a transparent border
-+ blank glyph so non-diff renders share the same shape (no layout
-jitter between modes).
+wrapper — the glyph span + a low-alpha per-op row wash + a 2px
+per-op left-edge stripe around the rendered hiccup. `:same` rows
+render with a transparent stripe, no wash and a blank glyph so
+non-diff renders share the same shape (no layout jitter between
+modes).
 
 **Change annotation**: modified leaves carry an inline
 `← was <prior>` chip rendered in `:text-secondary` /
@@ -4628,14 +4680,15 @@ rendered value.
 descendant ignores the default-expand depth heuristic — it always
 opens so the operator never has to drill to find the change.
 Implementation: `default-expanded?` takes a `:has-changed-descendant?`
-flag (derived from `changed-descendant?`) which wins over the
-depth/size table.
+flag — set when the container's own projected op is a change (neither
+`:same` nor `:same-shifted`) — which wins over the depth/width
+heuristic.
 
-**Map / sequential alignment**: in diff mode the children loop walks
-the UNION of keys (for maps) or the index range (for sequentials)
-so removed slots surface as struck-through rows. Sets render as
-plain browse — set-element diff is structurally ambiguous without a
-key contract.
+**Map / sequential / set alignment**: in diff mode the children loop
+(`children-of-pair`) walks the UNION of keys (for maps), the index
+range (for sequentials) and the UNION of members (for sets, sorted by
+`pr-str` for a stable order), so removed slots and members surface as
+struck-through rows. Sets are diffed, not rendered as plain browse.
 
 **Sentinels in diff mode**: the spec/015 sentinels keep their chip
 chrome regardless of mode. A modified `:rf/redacted` slot still
@@ -4644,13 +4697,15 @@ no chip-reveal leakage.
 
 **Test pins** — `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_cljs_test.cljs`:
 
-1. `diff-op` classifies the canonical 4 ops + `:same`.
-2. `changed-descendant?` walks maps + sequentials + returns
-   primitive boolean.
-3. Gutter glyph + tone-key mappings are stable
-   (`op->gutter-glyph`, `op->gutter-tone-key`).
+1. Op classification is pinned in the diff engine's own suite
+   (`tools/xray/test/day8/re_frame2_xray/diff/engine_cljs_test.cljc`),
+   not here.
+2. A diff'd leaf keeps its `:syntax-*` token colour
+   (`diff-leaf-preserves-syntax-token-colour`).
+3. The row wrapper carries the per-op wash + stripe attributes
+   (`diff-row-wrapper-carries-wash-and-stripe-attrs`).
 4. Modified leaves carry the `← was <prior>` annotation
-   chip.
+   chip (`diff-modified-leaf-emits-changed-from-annotation`).
 5. Deep modified leaves force the ancestor chain open
    (`diff-forces-ancestor-chain-open-over-changed-descendant`).
 6. The public widget's outer container carries `data-rf-mode
@@ -4668,10 +4723,16 @@ automatically when `views.edn-inspector` is required.
 included carries a clear win over `pr-str`; the rest stay on the
 built-in dispatch.
 
-| Type           | Header (collapsed)            | Body (expanded)              | Title (hover)        |
+| Type           | Header                        | Body                         | Title (hover)        |
 |----------------|-------------------------------|------------------------------|----------------------|
 | `cljs.core/UUID` | `#uuid "…<last-8>"`         | `#uuid "<full-36-char>"`     | full canonical form  |
 | `js/Date` (`inst?`) | `#inst "<relative>"`     | `#inst "<ISO-8601>"`         | full ISO             |
+
+**Header and body render together.** A protocol node paints no `▸` / `▾` toggle and defaults
+OPEN (`render-protocol-node`), so the compact header and the full body both show — there is no
+collapsed-vs-expanded state for the operator to flip. `uuid-body-rendered-when-expanded` in
+`edn_inspector_default_formatters_cljs_test.cljs` pins the body rendering with no operator
+action. (Documented as shipped, rf2-y8doi.48.)
 
 **Relative-time formatter** — pure-data buckets, no library dep:
 
@@ -4875,7 +4936,10 @@ carries:
 dispatches **nothing** — so a double-click _on the triangle_ never
 bubbles to the container's `:on-double-click` zoom. Zoom-in only fires
 on a double-click in the container body **outside** the triangle; the
-triangle is purely an expand/collapse control.
+triangle is purely an expand/collapse control. Its keyboard half
+matches (rf2-y8doi.24): bare `Enter` or `Space` on the focused triangle
+TOGGLES it and `stopPropagation`s, so the container's Enter-to-zoom
+handler below never sees that keypress.
 
 **Breadcrumb structure** — when a zoom is active, a row above the body
 renders `<home> › <seg1> › <seg2> › …`. Each segment is a clickable
@@ -5102,15 +5166,39 @@ and carries no `before`. Test surface:
    nesting renders depth-first; only visible nodes hit the DOM. Escape
    hatch: per-node "show as `pr-str`" toggle for very large data.
 
+   **Partly not built (rf2-y8doi.48).** The width-first heuristic (§10.4)
+   means a collapsed container shows an inline preview
+   (`▸ {:a 1, :b 2, …}`) or renders fully inline when it fits the
+   column; the bare `{N keys}` form is only the fallback when no preview
+   fits (§10.0.2 property 3). The per-node "show as `pr-str`" escape
+   hatch does not exist. The lock text above is kept as written.
+
 2. **Inline diff highlighting** — for the focused epoch view, changed
    values are highlighted IN PLACE (left-margin marker + accent color +
    annotation `← was <prior-value>`). Unchanged values dim.
    **No side-by-side before|after** — diff is annotation on a single
    rendered state.
 
-3. **Minimal type coloring** — keywords get a single accent color
-   (the only colored type). Strings / numbers / nil / booleans render
-   mono. Aids EDN-shape recognition without color-noise.
+3. **Syntax type coloring** — scalar leaves read the One Dark / One
+   Light `syntax-*` family: keyword magenta · string green · number
+   orange · boolean gold · nil grey (plus symbol blue), so the five
+   scalar types span at least four hue families, per
+   [022 §Syntax highlighting](022-Design-Tokens.md#syntax-highlighting-one-dark--one-light-rf2-79ojx).
+   Collection brackets and the diff chrome stay off those hues (§10.0.8).
+   Aids EDN-shape recognition by reading like a syntax-highlighted
+   editor.
+
+   **Amended 2026-09-18 under rf2-y8doi.48 — the colour rule, and only
+   that.** This lock read "**Minimal type coloring** — keywords get a
+   single accent color (the only colored type). Strings / numbers /
+   nil / booleans render mono. Aids EDN-shape recognition without
+   color-noise." rf2-79ojx replaced that single-accent scheme with the
+   `syntax-*` palette above, the inspector's tests pin it in both
+   themes, and 022 §Syntax highlighting was amended to it under
+   rf2-y8doi.49; this item now states what ships. The lazy tree, the
+   inline-diff model and the path interaction (items 1, 2, 4) are
+   unchanged by this amendment. Reverting rf2-79ojx is the alternative
+   to this amendment, not a consequence of it.
 
 4. **Paths** — key/path segments are **not** single-click targets.
    **The only path interaction is zoom:** double-click or `Enter` on a
@@ -5161,42 +5249,59 @@ Sparse case — bare scalar (string fx result):
 
 ### §10.3 Keyword accent color (B.9 spec · orange identity — rf2-ad7zx)
 
-**Decision: the single `accent`** (GitHub blue — the locked identity per
-[022-Design-Tokens](022-Design-Tokens.md) + [007 §Colour system](007-UX-IA.md#colour-system)).
-EDN keyword **data values** are the single coloured type in the renderer; they read in the mode
-accent, keeping the keyword token visually consistent across L1 filter pills, L2 spine rows, L3
-tab labels, and L4 data values. (The prior `:accent-violet #7C5CFF` keyword tone is retired with
-the violet → orange identity change.)
+**Decision (amended — see below): keywords read `syntax-keyword`** (One Dark magenta / One
+Light magenta), one of the rf2-79ojx `syntax-*` family every scalar type now reads (§10.1(3);
+[022 §Syntax highlighting](022-Design-Tokens.md#syntax-highlighting-one-dark--one-light-rf2-79ojx)).
+The mode `accent` stays the chrome's identity colour — L1 filter pills, L3 tab labels, the L4
+stripe — and no longer colours data values.
 
-Other types render in `text-primary` (`#E8EAF0`), monospaced. Dimmed
-unchanged values render in `dim` / `text-tertiary`.
+Unchanged values in a diff render dim (`:text-tertiary`).
 
-The diff annotation (`← was <prior>`) renders in
-`:text-secondary` at 80% size (12px @ cosy density).
+The diff annotation (`← was <prior>`) renders in `:text-secondary`, 11px italic sans.
 
-The left-gutter diff glyph follows the cascade-gutter token mapping (§007 / §022): `+` green
-(`success`) · `-` red (`error`) · `~` amber (`warning`) · `◴` mode accent · space tertiary.
+The left-gutter diff glyph is ONE colour for every active op — the reserved cyan-teal
+`:diff-gutter`, outside every `syntax-*` hue — and the op is carried by the glyph shape
+(`+` · `-` · `~` · `◴`) plus a per-op row wash and 2px stripe (§10.0.8). A space glyph reads
+`:text-tertiary`.
 
-> **Note:** the **code-block** syntax highlighter (§10.0 `code-block`, the Event-panel HANDLER
-> source slot) is a separate surface — code keywords/strings/numbers render per the syntax
-> theme (the Figma export's `syntax-*` classes), not the data-value keyword accent here.
+**Amended 2026-09-18 under rf2-y8doi.48 — the data-value colour rule, and only that.** This
+section read: "**Decision: the single `accent`** (GitHub blue — the locked identity per
+022-Design-Tokens + 007 §Colour system). EDN keyword **data values** are the single coloured
+type in the renderer; they read in the mode accent, keeping the keyword token visually
+consistent across L1 filter pills, L2 spine rows, L3 tab labels, and L4 data values. (The prior
+`:accent-violet #7C5CFF` keyword tone is retired with the violet → orange identity change.)
+Other types render in `text-primary` (`#E8EAF0`), monospaced." — and it gave the gutter glyphs
+per-op colours (`+` green · `-` red · `~` amber · `◴` accent). rf2-79ojx moved data values onto
+the `syntax-*` palette and the diff chrome onto `:diff-gutter` + wash + stripe; 022 was amended
+to match under rf2-y8doi.49. The chrome's single-accent identity is unchanged.
+
+> **Note:** the **code-block** syntax highlighter (§10.0.5, the HANDLER source slot) reads the
+> same `syntax-*` family for keywords / strings / numbers, with comments and brackets
+> `text-tertiary` and builtins `accent` (022 §Syntax highlighting).
 
 ### §10.4 Lazy-expansion heuristic
 
-| Depth | Size | Default state |
-|---|---|---|
-| ≤ 2 | any | Expanded |
-| 3 | ≤ 10 children | Expanded |
-| 3 | > 10 children | Collapsed (`{N keys}` placeholder) |
-| ≥ 4 | any | Collapsed |
+**Width first, depth as a ceiling (rf2-kbdk8).** Once the widget has measured its column
+(`default-expanded?` in `views/edn_inspector.cljs`):
 
-Changed children always force the ancestor chain open — operator never
-has to expand to find the change. (Implementation: `:diff?` flag on each
-node; if true, parent chain `:default-expanded?` true.)
+| Condition | Default state |
+|---|---|
+| The container's inline form fits the column | Rendered inline, not expanded |
+| It overflows, and depth < `:default-expanded-depth` (default **8**) | Expanded |
+| It overflows at or past that depth | Collapsed (`▸` preview / `{…N keys}` summary) |
 
-Per-panel override: panels MAY set `:default-depth` to override (App-db
-defaults to depth-3-collapsed; Event payload defaults to depth-2-expanded
-because event payloads are typically shallow + small).
+Before a width measurement arrives the legacy depth path runs instead: expand below
+`:default-expanded-depth`, and at exactly that depth expand only when the container has ≤ 10
+children. The old fixed table (≤ 2 expanded · 3 expanded when ≤ 10 children · ≥ 4 collapsed)
+was that fallback at a default of `2`; it is no longer the default behaviour.
+
+**Diff posture (rf2-fqcdd).** With a pre-image present, the width/depth heuristic is
+suppressed for unchanged subtrees: the root expands, a container expands only when it is an
+ancestor of a change (`:has-changed-descendant?`), and everything else collapses — so the
+operator never has to expand to find a change, and sees nothing else by default.
+
+Per-panel override: call sites pass `:default-expanded-depth` (the SIDE EFFECTS args and the
+Trace row payload use `1`; HANDLER's `:fx` section uses `16` — §9.1.10.6).
 
 Per-node operator override (sticky): clicking expand/collapse persists
 to `:rf.xray.edn-inspector/expansion {<path>}` so the operator's
@@ -5227,8 +5332,8 @@ menus are explicitly OUT. Operator learns one gesture; applies it everywhere.
 | **Click node header** (▸ / ▾) | Toggle expand/collapse (lazy disclosure only — not navigation) |
 | **Double-click / `Enter` on a container** | Zoom into that node (§10.0.11): the inspector re-roots onto it, a breadcrumb appears and each crumb zooms back, `Esc` zooms up. **This is the only path interaction — a single click on a key segment does nothing.** |
 | **Hover changed-row** | Subtle background shift only (no popover). The annotation `← was <prior>` is already rendered inline; hover does not reveal additional metadata. |
-| **Keyboard `Space`** on focused row | Toggle expand/collapse (same as click on node header) |
-| **Keyboard `Enter`** on a focused non-root container | Zoom in (same as double-click) |
+| **Keyboard `Space` / `Enter`** on the focused expand triangle | Toggle expand/collapse (same as click on node header). The triangle owns these keys and stops them bubbling, so they never zoom (rf2-y8doi.24) |
+| **Keyboard `Enter`** on a focused non-root container (outside its triangle) | Zoom in (same as double-click) |
 
 **Explicitly NOT supported (per locked decision):**
 
@@ -5325,9 +5430,9 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 
 | Sub-decision | Pick | Notes |
 |---|---|---|
-| Unchanged subs in cascade | **Dim, collapsed by default with "Show N unchanged"** | §3.4. Toggle in Settings → View. |
+| Unchanged subs in cascade | **Dim, collapsed by default with "Show N unchanged"** | §3.4. Always-expand pin in Settings → General (`:show-unchanged-subs?`); there is no Settings → View tab. |
 | Meta-epoch section ordering | **Fixed order: the L3 tab `:order` — Epoch > app-db > Views > Trace > Machine > Routes > Resources > Graph > Frames > Fresco** | Matches the L3 tab order. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
-| Epoch panel section default-expansion | **All cascade steps expanded by default; collapsible per-step via header click; collapse-all keyboard `[`** | The Epoch panel IS the handling-pipeline view — collapsing by default would hide the punch. |
+| Epoch panel section default-expansion | **All cascade steps expanded by default; collapsible per-step via header click** (the `[` collapse-all key this row named never shipped — `keybinding.cljs` binds no `[`) | The Epoch panel IS the handling-pipeline view — collapsing by default would hide the punch. |
 | Dispatch-origin display on L2 rows | **Short text label prefix** (`user · :checkout/submit`) | No icon-only or coloured chip — keeps L2 row scannable. Matches the existing L1 ribbon density. |
 | Pattern view (4th lens) | **Post-v1, untracked note** (see trigger below) | The 3-lens model (handling / reactive / state) is sufficient for MVP. |
 
@@ -5614,7 +5719,7 @@ grid — every gap / pad value is a multiple of 4. This grid is already
 implicit across the existing panels; §17.1.1 catalogues it so per-panel
 implementations stop guessing.
 
-| Token (proposed) | Pixels | Use |
+| Token | Pixels | Use |
 |---|---|---|
 | `:gap-0` | 0 | Adjacent inline glyphs (e.g. diff-glyph + value) |
 | `:gap-1` | 4px | Tight inline gap (icon → label inside a chip) |
@@ -5628,9 +5733,10 @@ Padding inside cards (e.g. the canvas frame around each per-machine
 xyflow render) is `:gap-3` (12px) — workstation density, not consumer
 breathing room.
 
-Catalogued as a follow-on bead candidate (§17.5) — currently the
-spacing values are scattered as inline `:padding "10px"` and
-`:margin "8px 0"` literals across the panels.
+The scale SHIPS as `theme/tokens/spacing` (`:gap-0` … `:gap-6`,
+rf2-ezx8w). Few surfaces read it yet — most panels still carry inline
+`:padding "10px"` / `:margin "8px 0"` literals, and migrating them is
+the remaining half of the §17.5 spacing candidate.
 
 #### §17.1.2 Typography hierarchy
 
@@ -5666,8 +5772,8 @@ to the Figma export + the locked tokens in [022-Design-Tokens](022-Design-Tokens
 
 | Role | Token | Note |
 |---|---|---|
-| **Keyword accent** (data values · the only colored type) | `accent` | per §10.3 + 022 — the single GitHub-blue accent |
-| **Changed-value highlight** (left-margin marker + accent color) | `changed` (= `accent`) + cascade-gutter glyph (`+` green / `-` red / `~` amber / `◴` accent) | gutter glyph is the structural signal; the accent is the row tint |
+| **Data-value type colours** (keyword · string · number · boolean · nil · symbol) | the `syntax-*` family (rf2-79ojx) | per §10.1(3) / §10.3 (both amended under rf2-y8doi.48) + 022 §Syntax highlighting — keywords no longer take `accent` |
+| **Changed-value highlight** (edn-inspector diff rows) | per-op `:diff-*-wash` row tint + 2px `:diff-*-stripe`; glyph (`+` / `-` / `~` / `◴`) in the single `:diff-gutter` teal | §10.0.8. (`changed` = `accent` still marks changed nodes elsewhere, e.g. the §3.2 graph.) |
 | **Dim-for-unchanged values** | `unchanged` / `dim` (`:text-tertiary`) | per 022 — `unchanged` is an alias of `dim` |
 | **Settled-success** (fx settled, no error) | `success` (`#3fb950` / `#1a7f37`) | per 022 |
 | **Settled-error** (fx settled with error · issues panel ERROR) | `error` (`#f85149`) for ink; `:red-deep` (`#a83a3a`) for button fills | per 022 |
@@ -5724,7 +5830,7 @@ The mockups in §1-§9 already pick these. §17.1.5 binds them.
 | 🌐 | HTTP request lifecycle touched (managed-HTTP settle / response) | `:orange` |
 | ⚡ | fx-emit child — dispatched from a parent's `do-fx` | `:magenta` |
 | 💧 | SSR hydration phase | `:cyan` |
-| 🌊 | A flow recomputed | `accent` (mode accent) |
+| 🌊 | Websocket-sourced dispatch (`:source :websocket` — a source-prefix glyph like `💧`, not an activity badge; no flow glyph exists) | `accent` (mode accent) |
 | ⏲ | Timer-triggered dispatch | `:text-tertiary` |
 
 Emoji glyphs are deliberate (consistent with existing Xray
@@ -5782,7 +5888,7 @@ swapped.
 | State | Visual change | Notes |
 |---|---|---|
 | **Default** | No mod; sits at panel base color (`:bg-2`) | The 90% case |
-| **Hover** | Background shifts to `:bg-active` (`#2A2F3D`); transition `120ms ease-out` | NO tooltip pop on hover (per the "co-visible over expand-to-see" principle) — exceptions: the App-db hover popover (§4.4) and the long-keyword 200ms-delayed tooltip (§007) |
+| **Hover** | Background shifts to `:bg-active` (`#2a2a2a` dark / `#e8e8e8` light — the same value as `hover`, §17.1.3); transition `120ms ease-out` | NO tooltip pop on hover (per the "co-visible over expand-to-see" principle) — exceptions: the App-db hover popover (§4.4) and the long-keyword 200ms-delayed tooltip (§007) |
 | **Focus** | Background as hover + 2px focus-ring outline color `#FBBF24` (the global focus-visible amber from rf2-fxde5); outline-offset 2px; under HCM remaps to `Highlight` | The focus-ring is the existing global Xray convention — panels inherit it for free. NEVER suppress `:focus-visible` per-panel. |
 | **Pressed** | Background as hover, transformed `translateY(1px)` for the duration of the click (~60ms); visual feedback only — no layout shift | Applied to clickable rows (the film-strip buttons this also named are retired — §5.5) |
 | **Disabled** | Foreground at `:text-tertiary`; cursor `not-allowed`; tabindex removed | E.g. "Next ▶" at end of L2 spine; "Open in editor" when source unavailable |
@@ -5822,7 +5928,7 @@ table the implementer reads at panel-build time:
 
 | Panel | Default lines-per-screen | Default expansion |
 |---|---|---|
-| Event (§2) | ~28-40 visible | Steps 1-6 ALL expanded (the pipeline IS the punch); collapse-all keyboard `[` toggles all |
+| Event (§2) | ~28-40 visible | Steps 1-6 ALL expanded (the pipeline IS the punch); no collapse-all key ships (`keybinding.cljs` binds no `[`) |
 | Reactive (§3) | ~24-32 visible | Cascade tree fully expanded; unchanged subs collapsed under footer `[Show N unchanged subs ▾]` |
 | App-db (§4) | ~30-50 visible | DIFF zone: changed paths fully expanded. STATE zone: depth-3-collapsed per §10.4 |
 | Trace (§5) | ~30-60 visible | Each op row collapsed (single line); per-row expand reveals payload via §10 renderer at depth-2-expanded |
@@ -6049,8 +6155,9 @@ already drafted in §13.
   + inline diff + keyword accent + clickable paths.* New ns
   `tools/xray/src/day8/re_frame2_xray/edn_inspector/render.cljs` per
   §10 + §17.1.3 palette mapping + §17.2 interaction-state matrix. The
-  only path-interaction is cross-panel propagation (§10.5) (retired
-  unbuilt, rf2-y8doi.29). Gates: all Dynamic panels.
+  only path interaction is the zoom gesture (§10.5); the cross-panel
+  propagation this bullet once named was retired unbuilt
+  (rf2-y8doi.29). Gates: all Dynamic panels.
 
 - **rf2-?????** — *Xray: apply forced-colors palette token coverage to
   all L4 panel borders + accents.* (The "+ film-strip chevrons" clause is
@@ -6060,10 +6167,11 @@ already drafted in §13.
   Windows HCM renders the new chrome correctly. Gates: panel-by-panel
   visual polish.
 
-- **rf2-?????** — *Xray: spacing-scale tokens.* Catalogue `:gap-0`
-  through `:gap-6` per §17.1.1 in `theme/tokens.cljc` and migrate the
-  ~50 inline `:padding "10px"` / `:margin "8px 0"` literals across the
-  panels to the tokenised values. Mechanical sweep; isolated surface.
+- **HALF DONE (rf2-ezx8w)** — *Xray: spacing-scale tokens.* The
+  catalogue half shipped: `:gap-0` through `:gap-6` live in
+  `theme/tokens.cljc` as `spacing`. The migration half has not: most
+  inline `:padding "10px"` / `:margin "8px 0"` literals across the
+  panels still bypass the tokens. Mechanical sweep; isolated surface.
 
 - **DONE (retired · rf2-h7nqh / rf2-6r9j.16)** — *Xray: film-strip header
   component.* Originally sketched as a single reusable
