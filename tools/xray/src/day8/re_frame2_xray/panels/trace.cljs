@@ -1250,15 +1250,10 @@
   ;; pinned `:dispatch-id` into the 3-arities (what rf2-y8doi.19 landed for
   ;; the Epoch panel) is what separates them.
   ;;
-  ;; The `:empty-kind` override below is deliberate and is the ONE place
-  ;; this panel decides its own empty-state vocabulary rather than taking
-  ;; it from the projector. `project-feed-from-epoch` maps `:no-focus` and
-  ;; `:epoch-evicted` through and falls any other non-`:focused` status to
-  ;; `:no-events` — which for this status would assert that a focused epoch
-  ;; ran and emitted nothing, when in truth no epoch was resolved at all.
-  ;; The projector is the natural long-term home for the mapping; it was
-  ;; left alone here because `trace_helpers.cljc` is outside this change's
-  ;; fence, and moving it there is a pure lift with no behaviour change.
+  ;; The `:no-epoch` `:empty-kind` comes from `project-feed-from-epoch`
+  ;; itself, like every other status (rf2-p766c). It must never read
+  ;; `:no-events`, which would assert that a focused epoch ran and emitted
+  ;; nothing when in truth no epoch was resolved at all.
   ;;
   ;; rf2-y8doi.14 — THE THIRD INPUT IS THE REDACTION SEAM, not a data axis.
   ;; `:rf.xray/observed-frame` names the frame whose `:sensitive` policy
@@ -1288,8 +1283,7 @@
             record            (focus/find-epoch-record focus-epoch-id
                                                        focus-dispatch-id
                                                        epoch-history)]
-        (cond-> (h/project-feed-from-epoch record focus-status observed-frame)
-          (= :no-epoch focus-status) (assoc :empty-kind :no-epoch)))))
+        (h/project-feed-from-epoch record focus-status observed-frame))))
 
   ;; ---- focused event-bundle (rf2-wcfsy) -----------------------------------
   ;;
