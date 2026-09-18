@@ -1218,8 +1218,10 @@
     ;;
     ;; The open-in-editor install is cross-panel — its
     ;; `:rf.xray/open-in-editor` event-fx + `:rf.xray.fx/open-in-editor` fx are
-    ;; dispatched from trace, mcp-server, and the
-    ;; hydration debugger. Installed alongside the
+    ;; dispatched only from the shared `panels.shared.coord-chip` and
+    ;; `panels.shared.coord-link` affordances, so their requirers ARE the
+    ;; roster (Trace, Epoch and Reactive today — see
+    ;; `open-in-editor/install!`). Installed alongside the
     ;; per-panel installs so the registration order matches the
     ;; per-panel pattern.
 

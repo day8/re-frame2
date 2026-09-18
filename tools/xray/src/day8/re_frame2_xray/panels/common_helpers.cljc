@@ -11,8 +11,10 @@
       boundary so DOM mount count stays bounded regardless of how
       deep the underlying derivation grows.
     - `format-time-hms` — render ms-since-epoch as `HH:MM:SS.mmm`;
-      shared across the trace / routes / issues-ribbon / mcp-server
-      ribbons so all four feeds share an identical visual clock.
+      the one clock body. Panel helpers re-export it as `format-time`
+      rather than re-implement it, so those re-exports ARE the roster
+      (`trace-helpers` and `issues-ribbon-helpers` today) — read them
+      rather than a list of feeds restated here.
     - `dispatch-id-of-epoch` — resolve an `:rf/epoch-record`'s settling
       event-bundle-id by walking its `:trace-events`. Shared by
       time-travel-helpers; previously duplicated as
@@ -105,11 +107,11 @@
 
 (defn format-time-hms
   "Render `t` (ms-since-epoch) as `HH:MM:SS.mmm`. Pure-ish — uses the
-  platform Date constructor. Canonical shared formatter — the trace,
-  routes, issues-ribbon and mcp-server feeds all share this clock so
-  the four ribbons read with an identical visual rhythm. JVM-testable
-  iff the caller passes a stable time (the runtime clock differs by
-  JVM vs. browser locale but the algebra is identical).
+  platform Date constructor. Canonical shared formatter — panel helpers
+  re-export it as `format-time` (roster in the ns docstring) so every
+  surface showing this clock reads with an identical visual rhythm.
+  JVM-testable iff the caller passes a stable time (the runtime clock
+  differs by JVM vs. browser locale but the algebra is identical).
 
   Returns nil when `t` is not a number, so views can render an em-dash
   on missing timestamps without guarding the call site."

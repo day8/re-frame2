@@ -4,12 +4,15 @@
 
   ## Why this lives in its own ns
 
-  Every long-list panel (trace, issues-ribbon, mcp-server, performance,
-  event-detail, subscriptions, effects, flows) caps row rendering at
-  the 200-row budget pinned in `tools/xray/spec/007-UX-IA.md`
-  §Performance budget. When the cap drops rows the view must surface
-  a uniform 'N more hidden — narrow the filter to see more' affordance
-  so the user knows their data is bigger than what's on screen.
+  A long-list panel caps row rendering at the 200-row budget pinned in
+  `tools/xray/spec/007-UX-IA.md` §Performance budget. When the cap
+  drops rows the view must surface a uniform 'N more hidden — narrow
+  the filter to see more' affordance so the user knows their data is
+  bigger than what's on screen. The panels that do this require this
+  ns, so its requirers ARE the roster (`panels.fresco` and
+  `panels.resources` today) — read those rather than a list restated
+  here. The eight-panel list this sentence used to carry had drifted
+  so far that neither of today's requirers was on it.
 
   The indicator is pure hiccup; a `.cljc` ns lets the JVM test target
   assert against the rendered shape without a CLJS runtime.
@@ -24,9 +27,10 @@
 
   ## capped-list builder
 
-  Eight panels share the same cap-list-then-append-overflow shape.
-  `capped-list` folds the boilerplate into one fn so the per-panel
-  view stays focused on the row hiccup."
+  `capped-list` folds the cap-list-then-append-overflow shape into one
+  fn so a per-panel view stays focused on the row hiccup. Neither
+  requirer above calls it today: both call `overflow-row` directly
+  after `common-helpers/cap-rows`."
   (:require [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack]]))
