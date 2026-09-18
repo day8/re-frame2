@@ -6,9 +6,9 @@
 
   The L2 event list reads `:rf.xray/filtered-event-bundles` (filtered) while
   the raw stream lives on `:rf.xray/event-bundles`. When filters suppress
-  rows — for example a persisted `:machine` IN-pill from
-  `re-frame2.xray.filters.v1` in localStorage — the indicator makes the
-  suppression visible so the list never reads as a broken tool.
+  rows — for example a `:machine` IN-pill narrowing the list to one
+  machine — the indicator makes the suppression visible so the list
+  never reads as a broken tool.
 
   This ns is the pure data primitive behind the affordance: given the
   raw + filtered visible-event-bundle counts and the active filter state,
