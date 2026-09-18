@@ -79,9 +79,13 @@
 
   ## Frame isolation
 
-  Same discipline as the Dynamic shell. The Static shell is wrapped
-  in `[rf/frame-provider {:frame :rf/xray}]`; every subscribe +
-  dispatch inside the shell resolves to `:rf/xray`.
+  Same discipline as the Dynamic shell — INHERITED from it rather than
+  re-established here. This ns owns no provider: [[surface]] renders
+  inside the Dynamic shell's outer envelope, the
+  `[rf.fresco/frame-provider {:frame :rf/xray}]` that `shell.cljs`'s
+  `shell-view-tree` builds (see [[surface]]'s own docstring). Every
+  subscribe + dispatch inside the Static chrome therefore resolves to
+  `:rf/xray`.
 
   ## Substrate (rf2-k97c.3)
 

@@ -83,9 +83,11 @@
   "Parse a `\"file:line\"` (or bare `\"file\"`) display string into the
   structured source-coord map shape `rf.source-coords.editor-uri/editor-uri` expects.
 
-  Three panel-side projection helpers (trace_helpers, issues_ribbon_
-  helpers, mcp_server_helpers) flatten the structured coord to a
+  Two panel-side projection helpers (`trace_helpers.cljc`,
+  `issues_ribbon_helpers.cljc`) flatten the structured coord to a
   display string at projection time so the row's chip can render it.
+  (This named a third, `mcp_server_helpers`, until the rf2-qy0nu
+  8-dead-panel sweep took that panel — no such ns exists in the tree.)
   When the user clicks the chip, the dispatch ships that display
   string — the handler has to walk back to the structured form to
   build the editor URI.
@@ -110,13 +112,18 @@
 
   Accepts (in order of preference):
 
-    - A bare structured map `{:file ... :line ...}` (the hydration
-      debugger panel's dispatch shape).
+    - A bare structured map `{:file ... :line ...}` (defensive — this
+      was the hydration-debugger panel's shape until the rf2-qy0nu
+      sweep deleted that panel, and nothing dispatches it BARE today.
+      It is still the shape the wrapper below carries, so this branch
+      stays live as the unwrapped tail of that path.)
     - A wrapper map `{:source-coord <coord>}` where `<coord>` is
-      either a structured map OR a `\"file:line\"` display string
-      (the trace / issues-ribbon / mcp-server panels' dispatch
-      shape — projection helpers flatten the coord at row-projection
-      time so the chip can render `\"x.cljs:42\"`).
+      either a structured map OR a `\"file:line\"` display string.
+      THIS is the live shape: the two shared affordances
+      (`panels.shared.coord-chip`, `panels.shared.coord-link`) own the
+      only dispatch sites in the tree and both emit it. Projection
+      helpers flatten the coord at row-projection time so the chip can
+      render `\"x.cljs:42\"`.
     - A bare display string `\"file:line\"` (defensive — no panel
       currently dispatches this directly, but the parser handles it).
 
@@ -362,9 +369,15 @@
 
   Registers two framework primitives:
 
-    - `:rf.xray/open-in-editor` reg-event — the dispatch shape the
-      four panels (trace, issues-ribbon, mcp-server, hydration-
-      debugger) use when their source-coord affordance is clicked.
+    - `:rf.xray/open-in-editor` reg-event — the dispatch shape a panel
+      uses when its source-coord affordance is clicked. The affordance
+      is SHARED: `panels.shared.coord-chip` and
+      `panels.shared.coord-link` carry the only dispatch sites in the
+      tree, so their requirers ARE the roster (Trace, Epoch and
+      Reactive today). Read those rather than a list restated here —
+      this sentence named four panels, three of which the rf2-qy0nu
+      8-dead-panel sweep and the rf2-gbz39 Issues-tab removal had
+      already taken.
       The handler unwraps the payload, resolves the URI, and returns
       `{:fx [[:rf.xray.fx/open-in-editor {:uri ...}]]}`. The dispatch lands in
       the trace bus as a first-class observable operation under the

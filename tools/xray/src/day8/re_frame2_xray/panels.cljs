@@ -12,9 +12,10 @@
   contract.** The mount fns are stable (the shell + tests depend on
   them; hosts MAY use them) but carry NO v1.0 host-facing-contract
   guarantee — the props vocabulary is two keys wide and one of them is
-  only two panels': `:frame` (every mount fn, defaulting to `:rf/xray`)
-  and `:instance-id` (`mount-app-db-diff!` and `mount-managed-fx!` — see
-  §`:instance-id` opt below). The v1.0 host-facing embed
+  only some panels': `:frame` (every mount fn, defaulting to `:rf/xray`)
+  and `:instance-id` (`mount-epoch-panel!`, `mount-app-db-diff!`,
+  `mount-trace!`, `mount-machine-inspector!` and `mount-managed-fx!` —
+  see §`:instance-id` opt below). The v1.0 host-facing embed
   contract is the **full-shell** embed per
   `tools/xray/spec/008-Embedding-Contract.md` §Full-shell embed
   contract. This matches the status stated in
@@ -143,7 +144,13 @@
   Xray's own UI state, while the panel-internal frame-selection sub
   (`:rf.xray/observed-frame`) drives the data axis.
 
-  ## `:instance-id` opt — `mount-app-db-diff!` and `mount-managed-fx!`
+  ## `:instance-id` opt — the mount fns whose panel view takes it
+
+  The mount fns below are the roster, and each one's own docstring
+  carries its `opts :instance-id` clause: read those rather than a
+  count restated here (the rf2-jy64 lesson — a stated number drifts
+  the moment a panel joins, and this section named TWO while five
+  mount fns forwarded the key).
 
   Two mounts under two DIFFERENT `:frame`s are already told apart:
   rf2-d2aj keys the edn-inspector's per-mount store by `[frame-id
@@ -179,14 +186,25 @@
   moves. Measured on a real two-container commit in
   `panels/trace_mount_instance_id_dom_cljs_test`.
 
+  rf2-3ymg — `mount-epoch-panel!` and `mount-machine-inspector!` take the
+  SAME key, and they are why this section must not state a count. Epoch
+  needs it because the key qualifies the `:mount-id` of every one of that
+  panel's `edn-inspector` heads, which two Epoch panels over one focused
+  epoch otherwise compose identically. The Machine inspector needs it for
+  a narrower case: its UNNAMED collision with an Epoch panel is repaired
+  statically inside `machine-inspector/instance-token`, so the opt is only
+  for two standalone MACHINE INSPECTORS sharing one `:frame`. Each fn's
+  own docstring carries the full account.
+
   It is SOME panels' opt rather than the surface's, and deliberately so:
   it is only meaningful where a panel's view accepts it, and handing a
   props map to a panel whose view takes none is an arity error rather
   than an ignored key. `render-panel!`'s `props` argument is the seam —
-  see its docstring. The three panels that take it each own their own
-  normaliser (`app-db-diff-state/instance-token`,
-  `managed-fx-template/instance-token`, `trace/instance-token`) so a
-  refusal names the caller's own panel.
+  see its docstring. Each panel that takes it owns its own normaliser
+  (`epoch-view/instance-token`, `app-db-diff-state/instance-token`,
+  `trace/instance-token`, `machine-inspector/instance-token`,
+  `managed-fx-template/instance-token`) so a refusal names the caller's
+  own panel.
 
   See `tools/xray/spec/007-UX-IA.md` §Mountable panel contract and
   `tools/xray/spec/008-Embedding-Contract.md` for the full
@@ -289,9 +307,12 @@
     provider at all — each one's docstring says its isolation comes
     from the ENCLOSING provider, which is this one.
   - `props` — OPTIONAL (rf2-2n8q), and it is the PANEL's props map, not
-    the mount opts. nil — every caller but `mount-app-db-diff!`,
-    `mount-managed-fx!` (rf2-5ykm) and `mount-trace!` (rf2-pua3), and
-    those three only when the caller named an instance — mounts
+    the mount opts. nil — every caller but the `:instance-id` roster
+    (`mount-epoch-panel!` / `mount-machine-inspector!` (rf2-3ymg),
+    `mount-app-db-diff!` (rf2-2n8q), `mount-trace!` (rf2-pua3),
+    `mount-managed-fx!` (rf2-5ykm) — see the ns docstring's
+    §`:instance-id` opt), and those only when the caller named an
+    instance — mounts
     `[panel-view]`, the element this fn has always built. A map mounts
     `[panel-view props]`. The caller decides, because only the caller
     knows whether its panel's view takes props at all — and what a stray

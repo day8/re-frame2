@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.keybinding
   "Global Ctrl+Shift+C key listener. Per spec/007-UX-IA.md §Global
-  shortcuts the toggle key is `Ctrl+Shift+C`.
+  chords the toggle key is `Ctrl+Shift+C`.
 
   ## Idempotency
 
@@ -312,7 +312,7 @@
         :rf.xray/focus-event-next
 
         ;; , or s — toggle Settings popup. Per spec/007-UX-IA.md
-        ;; §Global shortcuts both bindings open the modal (the spec
+        ;; §Shell spine keys both bindings open the modal (the spec
         ;; lists "`,` or `s`"). The popup carries its own ESC/click-
         ;; outside close handlers so re-pressing the same key while
         ;; the modal is open is not required (and is intercepted by
