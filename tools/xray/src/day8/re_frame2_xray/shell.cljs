@@ -3120,8 +3120,9 @@
   substrates for no gain. That bead migrated the WHOLE file, so the
   condition is discharged — `resize-handle/seam-handle-view` is an
   ordinary BOUNDARY HEAD here and the `as-element` crossing is gone.
-  `Handle` keeps a bridge in its own file because [[shell-view]] is
-  still Reagent; the seam needs none, because this view is not.
+  `Handle` keeps a bridge in its own file because a Reagent parent
+  still heads it on purpose (rf2-lect, ruled option 2); the seam needs
+  none, because this view heads it directly.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[surface-composer]] mounts it with none, so it is destructured
@@ -3187,8 +3188,9 @@
   deleted — its own comment named this as the condition
   (\"when `shell.cljs` is itself a Fresco tree, `surface-composer` heads
   `surface` directly, `[:>]` goes\"). One crossing remains for the whole
-  Dynamic tree and it now sits one level UP, at [[shell-view]], which is
-  still the Reagent root the installed adapter renders.
+  Dynamic tree and it now sits one level UP, at [[shell-view]], the
+  public callable Reagent callers still mount through — Xray's own mount
+  heads [[ShellView]] through a Fresco root it owns and crosses nothing.
 
   ONE READ, ONE BOUNDARY, and it is the right place for it: the mode
   read swaps the entire surface, so nothing below needs to see it.
