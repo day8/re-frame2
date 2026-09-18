@@ -10,20 +10,21 @@
   ## Pattern syntax
 
   Spec/018 §7 calls out four supported pattern shapes; this matcher
-  implements three first-class shapes (exact / prefix-glob / namespace)
-  + the substring fallback:
+  implements three first-class shapes (exact / prefix-glob / bare
+  keyword, which is exact-OR-namespace) + the substring fallback:
 
   | Shape       | Example          | Matches                                   |
   |-------------|------------------|-------------------------------------------|
   | exact kw    | `:auth/login`    | event-id equal to the keyword             |
   | prefix glob | `:auth/*`        | event-id whose `(str id)` starts with `:auth/` |
-  | namespace   | `:order`         | event-id whose namespace = `\"order\"`    |
+  | bare kw     | `:auth`          | event-id `:auth` OR any event-id whose namespace = `\"auth\"` |
   | substring   | `/login`         | event-id whose `(str id)` contains `/login` |
 
   Patterns may be supplied as keywords (`:auth/login`, `:auth/*`) or as
-  strings (`\":auth/*\"`, `\"login\"`). Strings without a leading `:`
-  fall through to substring; strings with a leading `:` are normalised
-  to keywords first.
+  strings (`\":auth/*\"`, `\"auth/*\"`, `\"login\"`). Strings with a
+  leading `:` are normalised to keywords first; a colon-less string
+  ending in `*` is a prefix glob (`\"auth/*\"` behaves as `:auth/*`);
+  any other colon-less string falls through to substring.
 
   ## Match composition (spec/018 §7)
 
@@ -48,32 +49,49 @@
 
 (defn- normalise-pattern
   "Coerce a pattern (keyword or string) into the canonical match shape.
-  Returns `{:kind <:exact|:prefix|:substring|:never> :pattern <data>}`.
+  Returns
+  `{:kind <:exact|:exact-or-ns|:prefix|:substring|:never> :pattern <data>}`.
 
   Per spec/018 §7 the supported pattern shapes are:
 
-    | input form    | example          | kind       |
-    |---------------|------------------|------------|
-    | exact kw      | `:auth/login`    | :exact     |
-    | prefix glob   | `:auth/*`        | :prefix    |
-    | bare kw       | `:mouse-move`    | :exact     |
-    | str with `:`  | `\":auth/*\"`    | (parses)   |
-    | bare str      | `\"/login\"`     | :substring |
-    | empty / nil   |                  | :never     |
+    | input form      | example          | kind         |
+    |-----------------|------------------|--------------|
+    | qualified kw    | `:auth/login`    | :exact       |
+    | prefix glob     | `:auth/*`        | :prefix      |
+    | bare kw         | `:auth`          | :exact-or-ns |
+    | str with `:`    | `\":auth/*\"`    | (parses)     |
+    | bare str + `*`  | `\"auth/*\"`     | :prefix      |
+    | bare str        | `\"/login\"`     | :substring   |
+    | empty / nil     |                  | :never       |
 
-  Note: a bare unqualified keyword (e.g. `:mouse-move`) compiles to
-  `:exact`, NOT to a namespace matcher. The bare-keyword case is the
-  natural 'block this specific event-id' input — spec/018 §7's example
-  `[× :mouse-move]` lands there. Namespace-style matching is achieved
-  via the glob form (`:foo/*`)."
+  ## Why a bare keyword is exact-OR-namespace (rf2-y8doi.27)
+
+  A bare unqualified keyword is the one pill shape a user types for
+  two different intents, and the dialog's own copy promises both:
+  `:auth` reads as 'the `auth` namespace' to anyone who has seen a
+  qualified event-id, and as 'this specific event-id' to anyone
+  filtering an unqualified one. Compiling it to `:exact` alone made
+  the dialog's `:auth` example match nothing at all — the L2 list
+  silently emptied, which is the failure an inspector may not have.
+
+  So a bare keyword matches EITHER reading: `:auth` matches the
+  event-id `:auth` and every event-id whose namespace is `\"auth\"`
+  (`:auth/login`), and nothing else — `:authors/x` is a different
+  namespace and does not match. Spec/018 §7's example pill
+  `[× :mouse-move]` still blocks `:mouse-move`; nothing dispatches
+  under a `mouse-move` namespace, so the union costs it nothing.
+  A qualified keyword (`:auth/login`) is unambiguous and stays
+  `:exact`; the glob form (`:auth/*`) stays the way to say
+  'namespace, and only namespace'."
   [pattern]
   (cond
     (keyword? pattern)
     (let [s (str pattern)]
-      (if (glob? s)
+      (cond
         ;; `:auth/*` → prefix `":auth/"`. Drop the trailing `*`.
-        {:kind :prefix :pattern (subs s 0 (dec (count s)))}
-        {:kind :exact :pattern pattern}))
+        (glob? s)            {:kind :prefix :pattern (subs s 0 (dec (count s)))}
+        (namespace pattern)  {:kind :exact :pattern pattern}
+        :else                {:kind :exact-or-ns :pattern pattern}))
 
     (string? pattern)
     (cond
@@ -84,6 +102,15 @@
 
       (str/starts-with? pattern ":")
       (recur (keyword (subs pattern 1)))
+
+      ;; A colon-less glob is the same intent as the keyword glob —
+      ;; the user dropped the `:` the event-id carries. Route it
+      ;; through the keyword branch so `"auth/*"` and `:auth/*`
+      ;; compile identically; without this it fell to `:substring`
+      ;; and matched nothing, because no `(str event-id)` contains
+      ;; a literal `*`.
+      (glob? pattern)
+      (recur (keyword pattern))
 
       :else
       {:kind :substring :pattern pattern})
@@ -97,10 +124,13 @@
   "True iff `event-id` matches the compiled `pattern-spec` (output of
   `normalise-pattern`).
 
-  - `:exact`      — keyword equality
-  - `:prefix`     — `(str event-id)` starts with the prefix
-  - `:substring`  — `(str event-id)` contains the substring
-  - `:never`      — always false (blank / malformed pill)
+  - `:exact`       — keyword equality
+  - `:exact-or-ns` — keyword equality OR `event-id`'s namespace equals
+                     the bare pattern's name (`:auth` ⇒ `:auth` and
+                     `:auth/login`, but not `:authors/x`)
+  - `:prefix`      — `(str event-id)` starts with the prefix
+  - `:substring`   — `(str event-id)` contains the substring
+  - `:never`       — always false (blank / malformed pill)
 
   `event-id` may be nil (an unrouted event-bundle carrying no event); nil
   never matches."
@@ -109,6 +139,14 @@
     (nil? event-id) false
     (= :never kind) false
     (= :exact kind) (= event-id pattern)
+
+    (= :exact-or-ns kind)
+    ;; The namespace arm is guarded on `keyword?` because an event-id
+    ;; is not required to be one — `(namespace 42)` throws, where the
+    ;; `:prefix` / `:substring` arms below only ever `str` it.
+    (or (= event-id pattern)
+        (and (keyword? event-id)
+             (= (namespace event-id) (name pattern))))
 
     (= :prefix kind)
     (let [s (str event-id)]

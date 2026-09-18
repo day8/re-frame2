@@ -109,45 +109,37 @@
         "switching focus to :rf/xray is not a meaningful palette op")))
 
 ;; rf2-anbabs — the palette frame source must honour the SAME exclusion
-;; the ribbon picker applies: the FULL internal-frames set (not just
-;; :rf/xray) and the `show-tool-frames?` toggle (spec/018 §8 I1).
+;; the ribbon picker applies: the FULL internal-frames set, not just
+;; :rf/xray (spec/018 §8 I1).
 
 (def internal-frames-set #{:rf/xray :rf/re-frame2-pair})
 
-(deftest frame-items-excludes-full-internal-set-by-default
+(deftest frame-items-excludes-full-internal-set
   (let [frames [:rf/default :rf/xray :app/main :rf/re-frame2-pair]
-        items  (sources/frame-items frames internal-frames-set false)
+        items  (sources/frame-items frames internal-frames-set)
         ids    (set (map :id items))]
     (is (= #{:rf/default :app/main} ids)
         "both :rf/xray AND :rf/re-frame2-pair are excluded (matches distinct-frames)")))
 
-(deftest frame-items-show-tool-frames-reincludes
-  (let [frames [:rf/default :rf/xray :app/main :rf/re-frame2-pair]
-        items  (sources/frame-items frames internal-frames-set true)
-        ids    (set (map :id items))]
-    (is (= #{:rf/default :rf/xray :app/main :rf/re-frame2-pair} ids)
-        "show-tool-frames? true re-includes the tool frames (ribbon power-user parity)")))
-
 (deftest build-index-frame-source-honours-internal-frames
   ;; End-to-end through build-index: a registered tool frame is hidden
-  ;; from the palette's frame source with the toggle OFF (the I1 leak
-  ;; this bead fixes) and surfaced with it ON.
+  ;; from the palette's frame source (the I1 leak rf2-anbabs fixed).
+  ;;
+  ;; rf2-y8doi.27 removed the `:show-tool-frames?` half of this test
+  ;; along with the setting: the re-include branch was reachable only
+  ;; from a test, because the Settings UI that wrote the slot went on
+  ;; 2026-05-27 and production always passed `false`.
   (let [frames    [:rf/default :app/main :rf/re-frame2-pair]
         frame-ids (fn [index] (->> index
                                    (filter #(= :frame (:source %)))
                                    (map :id) set))
-        off (frame-ids (sources/build-index {:frame-ids         frames
-                                             :internal-frames   internal-frames-set
-                                             :show-tool-frames? false}))
-        on  (frame-ids (sources/build-index {:frame-ids         frames
-                                             :internal-frames   internal-frames-set
-                                             :show-tool-frames? true}))]
-    (is (not (contains? off :rf/re-frame2-pair))
-        "tool frame hidden from the palette frame source with the toggle OFF")
-    (is (contains? off :rf/default)
-        "real user frames still surface")
-    (is (contains? on :rf/re-frame2-pair)
-        "tool frame re-included with the toggle ON")))
+        ids (frame-ids (sources/build-index {:frame-ids       frames
+                                             :internal-frames internal-frames-set}))]
+    (is (not (contains? ids :rf/re-frame2-pair))
+        "tool frame hidden from the palette frame source")
+    (is (contains? ids :rf/default)
+        "control — real user frames still surface, so the exclusion above
+         is an exclusion and not an empty frame source")))
 
 (deftest handler-items-include-meta
   (let [items (sources/handler-items sample-handlers)
@@ -174,16 +166,28 @@
 
 (deftest command-items-include-rf2-ybjkx-verbs
   ;; rf2-ybjkx — new commands per the bead's scope: theme toggle,
-  ;; reduced-motion cycle, snapshot, jump-to-settings, toggle-mode,
-  ;; clear-epoch-history.
+  ;; reduced-motion cycle, snapshot, jump-to-settings, toggle-mode.
   (let [items (sources/command-items)
         ids   (set (map :id items))]
     (is (contains? ids :toggle-theme))
     (is (contains? ids :cycle-reduced-motion))
     (is (contains? ids :snapshot-app-db))
     (is (contains? ids :jump-to-settings))
-    (is (contains? ids :toggle-mode))
-    (is (contains? ids :clear-epoch-history))))
+    (is (contains? ids :toggle-mode))))
+
+(deftest command-items-carry-no-clear-epoch-history-verb
+  (testing "rf2-y8doi.27 — the `:clear-epoch-history` verb is GONE. It
+            cleared Xray's `:epoch-history` MIRROR, which the next
+            recorded epoch re-seeded wholesale, so it lasted one event.
+            The control is the sibling verb that DID survive: if this
+            assertion ever passed because `command-items` returned
+            nothing, `:clear-trace-buffer` would be absent too."
+    (let [ids (set (map :id (sources/command-items)))]
+      (is (not (contains? ids :clear-epoch-history))
+          "the index carries no :clear-epoch-history verb")
+      (is (contains? ids :clear-trace-buffer)
+          "control — the real buffer scrub is still indexed, so the
+           absence above is a removal and not an empty index"))))
 
 (deftest command-items-carry-modes-set
   (let [items (sources/command-items)]

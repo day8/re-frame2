@@ -15,10 +15,10 @@
     shell-view root so the popup overlays the chrome and panels;
     mounting there also keeps the popup's reads inside the `:rf/xray`
     frame-provider's React context.
-  - `install!` — orchestrator that installs the subs / events / fxs
-    + the persistence fx. It does NOT hydrate on load: the transient
-    pills reset every load and the host seed lands via `mount.cljs`'s
-    `::seed-configured-filters` first-mount hook.
+  - `install!` — orchestrator that installs the subs / events / fxs.
+    There is nothing to hydrate: the user's pills are transient and
+    start at the registry default every load; the host seed lands via
+    `mount.cljs`'s `::seed-configured-filters` first-mount hook.
 
   ## What does NOT live here
 
@@ -28,16 +28,27 @@
     fn CALLED from the `events-ribbon` Fresco boundary, not a
     `reg-view`.
   - Pattern matching is in `filters/matcher.cljc` (JVM-portable).
-  - localStorage round-trip is in `filters/persistence.cljs`."
+
+  ## There is no localStorage round-trip (rf2-y8doi.27)
+
+  `filters/persistence.cljs` was DELETED. Every pill mutation used to
+  emit a `:rf.xray.filters/persist` fx that wrote `:active-filters` to
+  localStorage — and nothing in `src` ever read it back, because
+  reset-on-load (rf2-swclw / rf2-fhtes) requires that a stale pill set
+  never restore. So the write half survived the read half's deliberate
+  removal and became a store with no reader, cleared on the very next
+  load by the hook that guarantees the reset. Reset-on-load is now
+  trivially true: the slot simply starts at its registry default.
+
+  The host-configured `:rf.xray/filters` SEED is a different thing and
+  it stays — an in-memory boot baseline, never persisted."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.filters.error-override :as error-override]
             [day8.re-frame2-xray.filters.hidden :as hidden]
             [day8.re-frame2-xray.filters.matcher :as matcher]
-            [day8.re-frame2-xray.filters.persistence :as persistence]
             [day8.re-frame2-xray.filters.typed-predicates :as typed]
             [day8.re-frame2-xray.spine-filters :as spine-filters]))
 
@@ -160,53 +171,22 @@
   [:> Modal-component {}])
 
 ;; ---- hydration ---------------------------------------------------------
-
-(defn hydrate!
-  "The localStorage-preferring DATA LAYER for `:active-filters`. Drives
-  the localStorage / seed / empty resolution order:
-
-    1. localStorage value (the user's last-session pill set);
-    2. host-supplied seed via `(xray-config/configure! {:rf.xray/filters …})`
-       — used only when localStorage is empty so a seed never clobbers
-       a user's hand-tuned set;
-    3. registry default empty shape `{:in [] :out []}` per
-       'Empty defaults' (first-session honesty).
-
-  ## NOT the production init path (rf2-fhtes)
-
-  This fn is DELIBERATELY NOT on the production `ensure-xray-frame!`
-  path: the USER's persisted pills are a transient exploration filter
-  that MUST reset on every load (`mount.cljs`'s `::reset-transient-
-  filters`), so restoring localStorage here on boot would resurrect the
-  stale set the reset exists to kill. The host-configured SEED lands via
-  a distinct seed-only hook (`mount.cljs`'s `::seed-configured-filters`)
-  that ignores localStorage entirely. `hydrate!` is retained for its
-  existing data-layer callers — the persistence round-trip tests, and
-  hosts that deliberately opt back into localStorage-restoring behaviour.
-
-  Re-entrant + idempotent because:
-
-  - the load + seed reads are pure;
-  - the hydrate dispatch is a wholesale `(assoc db :active-filters …)`
-    so re-running with the same source produces the same slot;
-  - the frame guard short-circuits when `:rf/xray` is not yet registered.
-
-  Returns nil. No-op when no source has any pills."
-  []
-  (let [loaded (persistence/load)
-        seed   (config/get-filter-seed)
-        chosen (cond
-                 (or (seq (:in loaded)) (seq (:out loaded))) loaded
-                 (and seed (or (seq (:in seed)) (seq (:out seed)))) seed
-                 :else nil)]
-    (when (and chosen
-               ;; require the :rf/xray frame to exist; if not, the
-               ;; first `ensure-xray-frame!` call will re-invoke
-               ;; this fn.
-               (some? (rf.frame/frame :rf/xray)))
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/hydrate-filters chosen]))
-      nil)))
+;;
+;; There is none, and that is the point (rf2-y8doi.27).
+;;
+;; `hydrate!` used to resolve `:active-filters` in the order
+;; localStorage -> host seed -> empty. It was DELIBERATELY kept off the
+;; production `ensure-xray-frame!` path (rf2-fhtes), because restoring
+;; the user's persisted pills on boot would resurrect exactly the stale
+;; filter that reset-on-load exists to kill. Its only surviving callers
+;; were the two persistence round-trip test namespaces, which called it
+;; by hand -- so the fn's whole remaining purpose was to be exercised by
+;; the tests that exercised it. A census of `src` found ZERO callers.
+;;
+;; It went with `filters/persistence.cljs`. The host-configured seed --
+;; the one resolution step that was ever load-bearing -- is applied by
+;; `mount.cljs`'s `::seed-configured-filters` first-mount hook, which
+;; reads `config/get-filter-seed` and never touches localStorage.
 
 ;; ---- install -----------------------------------------------------------
 
@@ -252,7 +232,8 @@
               `:rf.xray/filter-by-http-correlation`,
               `:rf.xray/filter-by-fx`.
 
-    - Effects: `:rf.xray.filters/persist` — localStorage write fx.
+    - Effects: NONE. The `:rf.xray.filters/persist` localStorage write
+      fx went with `filters/persistence.cljs` (rf2-y8doi.27).
 
     - Side-effect: NONE — install does NOT hydrate `:active-filters`
       from localStorage (rf2-fhtes). The slot starts at its registry
@@ -265,7 +246,9 @@
   resolves in declaration order)."
   []
   ;; ---- fx ---------------------------------------------------------------
-  (persistence/install-fx!)
+  ;;
+  ;; None. The `:rf.xray.filters/persist` fx was removed with
+  ;; `filters/persistence.cljs` (rf2-y8doi.27) — see the ns docstring.
 
   ;; ---- subs -------------------------------------------------------------
   ;;
@@ -477,8 +460,7 @@
                   (update-in without-old [:active-filters mode]
                              (fnil conj []) pill))
                 final-db (close-popup next-db)]
-            {:db final-db
-             :fx [[:rf.xray.filters/persist (get final-db :active-filters)]]})))))
+            {:db final-db})))))
 
   (rf/reg-event :rf.xray/delete-edit-popup
     (fn [{:keys [db]} _event]
@@ -493,8 +475,7 @@
                                            (vec (concat (subvec v 0 (min idx (count v)))
                                                         (subvec v (min (inc idx) (count v))))))))
                             (close-popup))]
-            {:db next-db
-             :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})
+            {:db next-db}
           {:db (close-popup db)}))))
 
   ;; (The `:rf.xray/clear-all-filters` bulk-reset event was REMOVED with
@@ -542,23 +523,20 @@
     (fn [{:keys [db]} [_ machine-id]]
       (let [pill    {:kind :machine :params {:machine-id machine-id}}
             next-db (append-typed-pill db :in pill)]
-        {:db next-db
-         :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
+        {:db next-db})))
 
   (rf/reg-event :rf.xray/filter-by-http-correlation
     (fn [{:keys [db]} [_ correlation-id]]
       (let [pill    {:kind :http-correlation
                      :params {:correlation-id correlation-id}}
             next-db (append-typed-pill db :in pill)]
-        {:db next-db
-         :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
+        {:db next-db})))
 
   (rf/reg-event :rf.xray/filter-by-fx
     (fn [{:keys [db]} [_ fx-id]]
       (let [pill    {:kind :fx :params {:fx-id fx-id}}
             next-db (append-typed-pill db :in pill)]
-        {:db next-db
-         :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
+        {:db next-db})))
 
   ;; ---- load: hydrate from localStorage --------------------------------
 
@@ -584,8 +562,8 @@
   ;; user-filter persistence and NOT an unreachable first-install-only
   ;; promise; `nil` (the default) stays fully unfiltered.
   ;;
-  ;; `hydrate!` / `load` remain as the localStorage-preferring data layer
-  ;; (exercised by the persistence round-trip tests + reachable by hosts
-  ;; that opt back in), but neither the user's persisted pills nor
-  ;; `hydrate!` itself restore on the production init path.
+  ;; There is no localStorage layer left to restore FROM: rf2-y8doi.27
+  ;; deleted `filters/persistence.cljs` outright, so the reset is now a
+  ;; property of the slot's registry default rather than of a hook that
+  ;; races a writer.
   nil)

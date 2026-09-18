@@ -102,13 +102,13 @@
                   :cosy)]
         (if (#{:cosy :compact} d) d :cosy))))
 
-  ;; rf2-ttnst — convenience sub: should the L1 frame-picker dropdown
-  ;; include tool frames (`:rf/xray`, `:rf/re-frame2-pair`)? OFF by default
-  ;; per spec/007-UX-IA.md §Frame-observation isolation invariant I1.
-  (rf/reg-sub :rf.xray/show-tool-frames?
-    (fn [db _query]
-      (boolean (or (get-in db [:settings :general :show-tool-frames?])
-                   (config/get-setting :general :show-tool-frames?)))))
+  ;; (`:rf.xray/show-tool-frames?` was REMOVED here — rf2-y8doi.27. The
+  ;; rf2-ttnst toggle's Settings UI was removed on 2026-05-27 and the
+  ;; slot was left behind, so this sub could only ever read the default
+  ;; `false`: nothing in the tree wrote `[:settings :general
+  ;; :show-tool-frames?]`, and the two readers hardcoded `false` anyway.
+  ;; The tool-frame exclusion the picker actually honours is
+  ;; `frame-switcher/internal-frames`, which needs no setting.)
 
   ;; rf2-r9lyy — convenience sub: should the L2 event list surface
   ;; the `:ungrouped` pseudo-event-bundle bucket (registry-time emits /

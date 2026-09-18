@@ -9,13 +9,11 @@
   (config/set-auto-open! true)
   (config/set-project-root! nil)
   (config/set-filter-seed! nil)
-  (config/set-filters-storage-key! nil)
   (test-fn)
   (config/set-editor! :vscode)
   (config/set-auto-open! true)
   (config/set-project-root! nil)
-  (config/set-filter-seed! nil)
-  (config/set-filters-storage-key! nil))
+  (config/set-filter-seed! nil))
 
 (use-fixtures :each reset-editor)
 
@@ -312,29 +310,14 @@
   (is (= {:in [{:pattern :seeded}] :out []}
          (config/get-filter-seed))))
 
-(deftest default-filters-storage-key-is-stable
-  (testing "the published default key must not drift — host stylesheets
-            and Story testbeds reference the literal string"
-    (is (= "re-frame2.xray.filters.v1"
-           (config/get-filters-storage-key)))))
-
-(deftest set-filters-storage-key-round-trips
-  (config/set-filters-storage-key! "myhost.filters.v1")
-  (is (= "myhost.filters.v1" (config/get-filters-storage-key)))
-  (config/set-filters-storage-key! nil)
-  (is (= "re-frame2.xray.filters.v1"
-         (config/get-filters-storage-key))
-      "nil resets to the default"))
-
-(deftest configure-passes-filters-storage-key-through
-  (config/configure! {:rf.xray/filters-storage-key "story.testbed.a.filters"})
-  (is (= "story.testbed.a.filters"
-         (config/get-filters-storage-key))))
-
-(deftest configure-without-storage-key-leaves-key-untouched
-  (config/set-filters-storage-key! "myhost.filters")
-  (config/configure! {:rf.xray/editor :cursor})
-  (is (= "myhost.filters" (config/get-filters-storage-key))))
+;; (The four `filters-storage-key` deftests were REMOVED with the knob —
+;; rf2-y8doi.27. They pinned the default key, the nil-reset, and the
+;; `configure!` round-trip for a localStorage layer that no longer
+;; exists: Xray's IN/OUT pills are transient by policy (rf2-swclw), so
+;; the persistence layer the key named had a writer and no reader.
+;;
+;; `configure-without-filters-leaves-seed-untouched` above is the
+;; surviving `contains?`-gating pin for this part of `configure!`.
 
 ;; ---- panel-width (rf2-x8h9y resize handle) -----------------------------
 
