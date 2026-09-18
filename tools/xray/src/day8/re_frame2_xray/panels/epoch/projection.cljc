@@ -2865,6 +2865,13 @@
       ;; carried no frame tag.
       (some? (:frame tags))
       (assoc :frame (:frame tags))
+      ;; rf2-tspmp — an `:app-db` failure's registration ROOT. The producer
+      ;; stamps the failing LEAF as `:path` and the root it was registered at
+      ;; as `:registered-path` (Spec 010 §When schemas are checked), and only
+      ;; the root names a registration, so the view's `schema check` link
+      ;; reads this slot. Absent on surfaces whose trace carries no such tag.
+      (some? (:registered-path tags))
+      (assoc :registered-path (:registered-path tags))
       (= :rf.schema/violation op-kw)
       (assoc :pre-reload-schema  (:pre-reload-schema tags)
              :post-reload-schema (:post-reload-schema tags)))))
