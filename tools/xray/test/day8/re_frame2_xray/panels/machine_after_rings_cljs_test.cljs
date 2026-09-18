@@ -7,7 +7,10 @@
     1. Registry wires the rings sub family + the tick/hover/now-ms
        event family.
     2. `:rf.xray/active-timers-for-focused-machine` composes trace
-       buffer + selected machine + now-ms into an active-timers vector.
+       buffer + the FOCUSED-EVENT record's machine + the target frame
+       into an active-timers vector. Buffer-keyed since rf2-y8doi.23 —
+       the now-keyed eviction is `overlay-tree`'s, and row (5e) is what
+       pins it.
     3. `:rf.xray/now-ms` is driven by the timer-tick event AND by the
        test-only override slot.
     4. `:rf.xray/timer-hover` writes / clears the slot.
@@ -29,6 +32,11 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
+            ;; rf2-y8doi.23 — `cancelled-retention-ms` is read from the
+            ;; helper rather than retyped, so the row below cannot drift
+            ;; from the window it is pinning.
+            [day8.re-frame2-xray.panels.machine-after-rings-helpers
+             :as rings-h]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as mv-after-rings]))
 
@@ -62,6 +70,38 @@
 (defn- pin-now-ms! [ms]
   (rf/dispatch-sync [:rf.xray/set-now-ms-override-for-test ms]))
 
+(defn- focus-machine!
+  "Seed a one-epoch history whose cascade carries a
+  `:rf.machine/transition` for `machine-id`, so
+  `:rf.xray/machine-transitions-for-focused-event` answers a record
+  targeting it and the rings sub folds for THAT machine.
+
+  rf2-y8doi.23 — the rows below used to need nothing but
+  `override-machines!`, because the rings sub read `:selected-id` off
+  `:rf.xray/machine-inspector-data`, whose default is the
+  ALPHABETICALLY-FIRST registered machine. That default is precisely the
+  defect: the Dynamic panel has bound to the focused event's first
+  transition record since rf2-y9xmf and reads no picker, so with two
+  machines registered the rings described one machine while the chart
+  drew another. The sub now reads the focused record, which is why every
+  row that wants a ring has to say which machine is focused.
+
+  The trace shape is the producer's — `:rf.machine/transition` with the
+  `:before` / `:after` snapshot pair `commit-or-finalize` emits, which is
+  what `transition-record-from-trace` reads. Same fixture shape the
+  prev/next rows in `machine_inspector_view_cljs_test` use."
+  [machine-id]
+  (rf/dispatch-sync
+    [:rf.xray/set-epoch-history-for-test
+     [{:epoch-id 1
+       :trace-events
+       [{:id 1 :time 10 :operation :rf.machine/transition
+         :tags {:machine-id           machine-id
+                :before               {:state :idle :data {}}
+                :after                {:state :authing :data {}}
+                :event                [:auth/submit]
+                :rf.trace/dispatch-id "d-1"}}]}]]))
+
 (defn- push-scheduled!
   [id machine-id state delay epoch]
   (trace-collector/seed-trace-for-test!
@@ -82,6 +122,16 @@
             :state state
             :epoch epoch
             :fired? true}}))
+
+(defn- push-cancelled!
+  [id machine-id state epoch]
+  (trace-collector/seed-trace-for-test!
+    {:id id :time id
+     :operation :rf.machine.timer/cancelled
+     :tags {:machine-id machine-id
+            :state state
+            :epoch epoch
+            :reason :on-exit}}))
 
 (def ^:private fixture-definition
   {:initial :idle
@@ -112,17 +162,55 @@
 
 ;; ---- (2) active-timers composite ---------------------------------------
 
-(deftest active-timers-empty-when-no-selection
+(deftest active-timers-empty-when-nothing-is-focused
+  ;; rf2-y8doi.23 — was `active-timers-empty-when-no-selection`. There is
+  ;; no selection to be empty of any more: the sub reads the focused
+  ;; event's record, and an empty epoch history focuses nothing.
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (override-machines! [])
     (is (= [] @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])))))
+
+(deftest active-timers-follow-the-focused-machine-not-the-alphabetical-first
+  (testing "rf2-y8doi.23 — TWO machines registered, the timer armed on
+            `:auth/main`, and the focused event targets `:checkout`. The
+            rings sub must answer for the machine the CHART is drawing —
+            `:checkout` — which has no armed timer, so ZERO rings.
+
+            Before the fix it read `(:selected-id mi-data)`, and with no
+            picker set that is `pick-selected`'s fallback: the first row
+            of an ALPHABETICALLY sorted list, i.e. `:auth/main`. So the
+            panel drew `:checkout`'s topology with `:auth/main`'s
+            countdown ring swept over it — a ring belonging to a machine
+            not on screen, keyed to a state node that happens to share a
+            name or, worse, silently mis-anchored."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/main :checkout])
+      (override-definitions! {:auth/main fixture-definition
+                              :checkout  fixture-definition})
+      (pin-now-ms! 2000)
+      (push-scheduled! 1000 :auth/main :idle 5000 0)
+
+      (focus-machine! :checkout)
+      (is (= [] @(rf/subscribe [:rf.xray/active-timers-for-focused-machine]))
+          "the focused machine has no armed timer, so no rings — even
+           though `:auth/main` sorts first and does have one")
+
+      (testing "and the control, so the zero is absence rather than a
+                broken sub: focus the machine that DOES have the timer"
+        (focus-machine! :auth/main)
+        (let [active @(rf/subscribe
+                        [:rf.xray/active-timers-for-focused-machine])]
+          (is (= 1 (count active)))
+          (is (= :auth/main (-> active first :machine-id))))))))
 
 (deftest active-timers-folds-scheduled-into-armed
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
+    (focus-machine!        :auth/login)
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
     (let [active @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])]
@@ -136,6 +224,7 @@
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
+    (focus-machine!        :auth/login)
     (pin-now-ms! 7000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
     (push-fired!     6000 :auth/login :idle 0)
@@ -237,6 +326,7 @@
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
+    (focus-machine!        :auth/login)
     (pin-now-ms! 1000)
     (is (nil? (overlay-tree)))))
 
@@ -245,6 +335,7 @@
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
+    (focus-machine!        :auth/login)
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
     (let [tree  (overlay-tree)
@@ -270,6 +361,7 @@
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
+    (focus-machine!        :auth/login)
     (pin-now-ms! 7000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
     (push-fired!     6000 :auth/login :idle 0)
@@ -282,6 +374,7 @@
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
+    (focus-machine!        :auth/login)
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle    5000 0)
     (push-scheduled! 1500 :auth/login :authing 3000 0)
@@ -289,11 +382,50 @@
       (is (= 2 (count specs)))
       (is (= #{"idle" "authing"} (set (map :node-id specs)))))))
 
+;; ---- (5e) cancelled-ring retention (rf2-y8doi.23) ----------------------
+
+(deftest overlay-evicts-a-cancelled-ring-once-its-retention-window-passes
+  (testing "rf2-y8doi.23 — a `:cancelled` ring is a MOMENTARY fade +
+            diagonal cross. It had no retention at all: the projection
+            returned every cancelled record the buffer held, so a state
+            the operator entered and left left a PERMANENT grey crossed
+            ring, one per visit — and the machines-viz overlay keys a ring
+            by its `:node-id` (`^{:key node-id}`), so all of them sat
+            under ONE React key.
+
+            The eviction runs in `overlay-tree`, against the SAME anchor
+            `resolve-now-ms` hands the ring geometry — so a retrospective
+            chart ages its rings at the instant it is frozen at rather
+            than at the live clock."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (focus-machine!        :auth/login)
+      (push-scheduled! 1000 :auth/login :idle 5000 0)
+      (push-cancelled! 2000 :auth/login :idle 0)
+
+      (pin-now-ms! (+ 2000 rings-h/cancelled-retention-ms))
+      (let [specs (-> (overlay-tree) delegated-props :ring-specs)]
+        (is (= 1 (count specs)) "still on screen at the retention boundary")
+        (is (true? (-> specs first :cancelled?))
+            "and it renders as the crossed-out treatment"))
+
+      (pin-now-ms! (+ 2000 rings-h/cancelled-retention-ms 1))
+      (is (nil? (overlay-tree))
+          "one ms later it is gone, and with no other ring the whole
+           overlay layer drops out")
+
+      (pin-now-ms! 600000)
+      (is (nil? (overlay-tree))
+          "and it never returns — bounded, not permanent"))))
+
 (deftest overlay-on-hover-keys-timer-hover-by-node-id
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
+    (focus-machine!        :auth/login)
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
     (let [props    (-> (overlay-tree) delegated-props)
@@ -352,6 +484,7 @@
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
       (override-definitions! {:auth/login fixture-definition})
+      (focus-machine!        :auth/login)
       (pin-now-ms! 9999)
       (push-scheduled! 1000 :auth/login :idle 5000 0)
       ;; Focus defaults to the head event-bundle when nothing has
@@ -421,6 +554,7 @@
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
       (override-definitions! {:auth/login fixture-definition})
+      (focus-machine!        :auth/login)
       (pin-now-ms! 2000)
       (push-scheduled! 1000 :auth/login :idle 5000 0)
       (let [hiccup-child  (delegated-child (overlay-tree))
@@ -474,6 +608,7 @@
     (let [on-hover (rf/with-frame :rf/xray
                      (override-machines!    [:auth/login])
                      (override-definitions! {:auth/login fixture-definition})
+                     (focus-machine!        :auth/login)
                      (pin-now-ms! 2000)
                      (push-scheduled! 1000 :auth/login :idle 5000 0)
                      (:on-hover (delegated-props (overlay-tree))))]

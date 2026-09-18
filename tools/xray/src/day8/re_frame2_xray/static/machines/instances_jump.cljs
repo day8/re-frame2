@@ -17,10 +17,24 @@
   Three dispatches; one click. Mode B/C auto-detect (Mode B for 2-8
   instances, Mode C for ≥8 per consolidated-design §0ter.3) is the
   Dynamic panel's responsibility — the static-side JUMP just lands the
-  selection; the post-collapse Dynamic Machines panel runs event-driven
-  off the focused event, so the selected-machine-id slot drives the
-  Sim engine + the jump/focus landing (per `panels/machine_inspector.
-  cljs/select-machine-id`)."
+  selection.
+
+  ## The third dispatch LANDS the selection (rf2-y8doi.23)
+
+  It used only to RECORD it. The post-collapse Dynamic Machines panel
+  (rf2-y9xmf) is an event-driven lens bound to the FOCUSED EPOCH's first
+  transition record and reads no picker, so writing the
+  `:selected-machine-id` slot changed nothing on screen and the operator
+  landed on whichever machine the spine happened to be pointing at —
+  while spec/003 §Instances promises they land \"with this machine
+  pre-selected\".
+
+  `:rf.xray/select-machine-id` now also moves the spine focus to the
+  newest epoch touching the machine, through the same walk Prev/Next
+  uses. Nothing changes on this side: the JUMP's shape, its three
+  dispatches and its frame-aware `dispatch-fn` are what they were, and
+  the slot is still written (the Sim engine and the cancellation-cascade
+  composite read it)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
