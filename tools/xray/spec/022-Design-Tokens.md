@@ -207,7 +207,8 @@ Carry meaning through the **strongest channel first**; treat pictographic icons 
   emission in `theme/global-styles`). The Dynamic/Static mode root class no longer flips the
   accent. Consumers read `(:accent tokens)` etc. so a re-skin is a token-table edit. The
   tables above name the tokens with a documented role; for the full key set (the chrome-ribbon
-  band, the diff row chrome and a few more) read the palettes in `tokens.cljc`. The
+  band, the diff row chrome and a few more) read the two palettes in Xray's own
+  `tools/xray/src/day8/re_frame2_xray/theme/tokens.cljc`. The
   machines-viz chart (`tools/machines-viz/.../theme/tokens.cljc`) mirrors this palette at the
   values level (drift-gate `xray-and-machines-viz-*-palettes-match-values`, rf2-z7ms8) so the
   chart paints the same colours whether embedded by Xray or standalone.
