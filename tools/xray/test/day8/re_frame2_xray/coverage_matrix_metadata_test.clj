@@ -37,6 +37,10 @@
     coverage/deferred mapping: every catalogued id has an entry and
     every entry names a real catalogued id, so ADDING or REMOVING a
     bug-class fails until the mapping is updated (017 §Vision).
+  - Every TEST FILE the spec cites as an owning gate exists under
+    `tools/xray/test/` (rf2-y8doi.28). The names guard above never looked
+    at the files, so the Owning-gate column went on citing ten suites that
+    did not exist, one of them under a \"Failure blocks merge\" promise.
 
   Runs in the fast `clojure -M:test` JVM gate (it slurps committed
   markdown + the scenarios CJS at test time — same posture as the
@@ -200,6 +204,38 @@
                   "F.1" "F.2" "F.3" "F.4" "F.5" "F.6" "F.7" "F.8" "F.9" "F.10" "F.11"]]
           [id :deferred])))
 
+;; ---- cited test files ----------------------------------------------------
+
+(def ^:private xray-test-rel ["tools" "xray" "test"])
+
+(defn- cited-test-files
+  "Every test file the spec cites: each backticked token ending
+  `_test.clj` / `_test.cljs` / `_test.cljc`, spelled in full
+  (`tools/xray/test/day8/…`), elided (`tools/xray/test/.../x_test.cljs`)
+  or bare (`static/routes/panel_cljs_test.cljs`)."
+  []
+  (->> (re-seq #"`([^`\s]*_test\.clj[sc]?)`" (slurp-rel matrix-spec-rel))
+       (map second)
+       distinct))
+
+(defn- xray-test-files
+  "Every file under `tools/xray/test/`, as a `/`-joined path relative to it."
+  []
+  (let [root (.toPath (apply io/file (find-repo-root) xray-test-rel))]
+    (->> (file-seq (.toFile root))
+         (filter #(.isFile ^java.io.File %))
+         (map #(str/replace (str (.relativize root (.toPath ^java.io.File %))) "\\" "/")))))
+
+(defn- cite-resolves?
+  "A cite resolves when some file under `tools/xray/test/` IS it or ENDS with
+  it once the `tools/xray/test/` prefix and any `.../` elision are dropped —
+  so `.../machines/sim_test.cljs` must name a real `machines/sim_test.cljs`."
+  [files cite]
+  (let [suffix (-> cite
+                   (str/replace #"^tools/xray/test/" "")
+                   (str/replace #"^\.\.\./" ""))]
+    (boolean (some #(or (= % suffix) (str/ends-with? % (str "/" suffix))) files))))
+
 ;; ---- tests --------------------------------------------------------------
 
 (deftest spec-and-scenarios-resolve
@@ -281,3 +317,21 @@
                " — remove them from bug-class-coverage")))
     (testing "every status is a recognised verdict"
       (is (every? #{:covered :deferred} (vals bug-class-coverage))))))
+
+(deftest every-cited-test-file-exists
+  (testing "every test file 017 names as an owning gate exists under
+            tools/xray/test — a row cannot claim a suite nobody wrote"
+    (let [files   (xray-test-files)
+          cites   (cited-test-files)
+          missing (remove #(cite-resolves? files %) cites)]
+      ;; Controls both ways, so a zero below means absence rather than an
+      ;; extraction or a resolver that sees nothing.
+      (is (seq cites) "the extraction found test-file cites in 017")
+      (is (some #(cite-resolves? files %) cites)
+          "at least one cite resolves, so the resolver can see the tree")
+      (is (not (cite-resolves? files "tools/xray/test/.../no_such_suite_test.cljs"))
+          "a cite naming no file does not resolve")
+      (is (empty? missing)
+          (str "017 cites test files that do not exist under tools/xray/test: "
+               (str/join ", " (sort missing))
+               " — cite the suite that really owns the row, or say \"none yet\"")))))
