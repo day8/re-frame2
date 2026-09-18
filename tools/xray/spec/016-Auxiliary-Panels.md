@@ -11,17 +11,22 @@ reverse-engineer `tools/xray/src/day8/re_frame2_xray/panels/*.cljs`.
 
 The per-tab content this doc covers:
 
-| Tab content | `:rf.xray/panels.*` | Source / phase |
+| Tab content | Namespace (`day8.re-frame2-xray.panels.*`) | Source / phase |
 |---|---|---|
 | Epoch tab content (numbered cascade) | `epoch-panel` | rf2-sc3r1; supersedes the retired Event/Handler panel per rf2-5gl5r (see §9.1 of [`021`](./021-Dynamic-Panel-Designs.md)). Carries the inline issue surfacing (exception block + schema-fail step) per rf2-gbz39 Option (c) |
-| Routing tab content (6th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Routing tab below |
-| Flows (lives in Views tab "Re-rendered" group) | `flows` | Phase 5 (rf2-83irn); see §Flows content below |
+| Routing tab content (6th tab) | `routing` | rf2-nrbs9 — promoted from "lives in App-db + Trace" to its own L3 lens tab; see §Dynamic Routing below |
 
-## 11-panel inventory (rf2-crhr8 + rf2-3r3ao; rf2-gbz39; rf2-y8doi.29)
+Flows have no tab or namespace of their own in Dynamic mode: a flow that
+fired is a FLOW step of the Epoch cascade (§Flows content below). The
+Static **Schemas**, **Flows** and **Interceptors** tabs have no section in
+this chapter; [`007-UX-IA.md` §Static mode](./007-UX-IA.md#sub-tab-inventory-static-l3)
+owns them.
+
+## 12-panel inventory (rf2-crhr8 + rf2-3r3ao; rf2-gbz39; rf2-y8doi.29)
 
 Every Xray panel is independently mountable per
 [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract. The
-4-tier surface inventory totals 11 panels — 9 independently
+4-tier surface inventory totals 12 panels — 10 independently
 mountable, 2 internal sub-components. (The Issues tab + its
 `issues-ribbon/Panel` were removed per rf2-gbz39 Option (c) — Mike
 RULED the dedicated aggregate tab away; issues surface inline in the
@@ -32,8 +37,12 @@ a mountable panel. The `app-db-segment-inspector/Popup` overlay was
 deleted unreached under rf2-y8doi.29, 2026-09-17 — nothing in the tree
 ever dispatched its open, and zoom is now the App-db panel's only path
 gesture per [`004-App-DB-Diff.md`](./004-App-DB-Diff.md) §Path
-interaction: zoom into a node.) The canonical Panel-component
-mount paths and L3-tab backing (when applicable) are:
+interaction: zoom into a node.) The canonical roster is
+[`007-UX-IA.md` §Mountable surface inventory](./007-UX-IA.md#mountable-surface-inventory),
+the one the `panel-enum` guard reconciles; it also counts the embeddable
+event spine and the master `mount-shell!` entry, which this table leaves
+out. The canonical Panel-component mount paths and L3-tab backing (when
+applicable) are:
 
 | # | Tier | Panel | Mount path (`day8.re-frame2-xray.panels.*`) | Backs L3 tab |
 |---|---|---|---|---|
@@ -43,11 +52,22 @@ mount paths and L3-tab backing (when applicable) are:
 | 4  | 1 | Trace tab            | `trace/Panel`                       | Trace |
 | 5  | 1 | Machines tab         | `machine-inspector/Panel`           | Machines |
 | 6  | 1 | Routing tab          | `routing/Panel`                     | Routing |
-| 7  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
-| 8  | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
-| 9  | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount — no current panel embeds it (rf2-5gl5r retired the Event/Handler tab that originally hosted it). Consumers mount directly per the embedding contract ([`008-Embedding-Contract.md`](008-Embedding-Contract.md)). |
-| 10 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
-| 11 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
+| 7  | 1 | Resources tab        | `resources/Panel`                   | Resources |
+| 8  | 2 | Cancellation-cascade side-panel    | `cancellation-cascade/SidePanel`        | — (overlay) |
+| 9  | 2 | Cancellation-cascade popover       | `cancellation-cascade/Popover`          | — (overlay) |
+| 10 | 3 | Managed-fx records list            | `panels/ManagedFxList`                  | standalone mount — no current panel embeds it (rf2-5gl5r retired the Event/Handler tab that originally hosted it). Consumers mount directly per the embedding contract ([`008-Embedding-Contract.md`](008-Embedding-Contract.md)). |
+| 11 | 4 | After-rings overlay                | `machine-after-rings/AfterRingsOverlay` | sub of Machines tab |
+| 12 | 4 | Sim side-rail                      | `static.machines.sim/SimRail`           | sub of Machines tab |
+
+Three further Dynamic tabs are **L4-only**: registered with
+`reg-l4-tab!` and rendered only inside the shell, with no `mount-*!` fn,
+so they are not counted above — **Graph** (`derivation-graph`,
+[`025-Derivation-Graph-Panel.md`](./025-Derivation-Graph-Panel.md)),
+**Frames** (`module-view`,
+[`026-Module-View-Panel.md`](./026-Module-View-Panel.md)) and **Fresco**
+(`fresco`, [`027-Fresco-Evidence.md`](./027-Fresco-Evidence.md)). The
+Resources tab's content contract is
+[`024-Resources-Panel.md`](./024-Resources-Panel.md).
 
 Panel-by-panel detail (subs / events / interactions) lives in the
 sections below. Tier 4 sub-components are geometry-coupled to
@@ -144,73 +164,59 @@ All tab content shares the cross-panel substrate:
 ## Effects content — folded into Epoch panel
 
 The pre-rewrite Effects panel is GONE. Its content folds into the
-**Epoch panel** (tab 1 of 7) as the **"EFFECTS HANDLERS RAN"** section
-of the numbered cascade — see
-[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1
-for the canonical Epoch-panel design and
-[`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 for the per-event
-pipeline projection. (The folded content originally targeted the
-Event/Handler tab; rf2-5gl5r retired that panel and the Epoch panel
-now hosts the "fx handlers that ran" rows.)
+**Epoch panel** (the leftmost Dynamic tab) as the **SIDE EFFECTS** step
+of the numbered cascade — one flat per-effect ledger, badge
+`:SIDE-EFFECTS`, which renders as `EFFECT HANDLERS`. The step roster,
+order and badges are specified in
+[`021-Dynamic-Panel-Designs.md` §9.1](./021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1)
+and not restated here; [`018-Event-Spine.md`](./018-Event-Spine.md)
+§5.1 carries the per-event pipeline projection. (The folded content
+originally targeted the Event/Handler tab; rf2-5gl5r retired that panel
+and the Epoch panel now hosts the "fx handlers that ran" rows.)
 
-Per-fx invocation status (`:error` / `:overridden` / `:skipped` /
-`:ok`) renders as inline chips next to the fx-id in that section.
-Aggregate "registered fxs" data (which historically lived in the
-Effects panel) is reachable via the Cmd-K palette under the `:fx`
-source — registered handler ids + invocation counts. No standalone
-tab.
+Per-fx invocation status (`:ok` / `:error` / `:overridden` /
+`:skipped`) renders as the leading status glyph on each fx row of that
+step. Registered fx handlers are reachable through the Cmd-K palette's
+`:handler` source, which indexes the host's `:event` / `:sub` / `:fx` /
+`:cofx` registrations by id and source coordinate; it carries no
+invocation counts. No standalone tab.
 
-## Flows content — Epoch panel FLOW section (rf2-lo37i)
+## Flows content — Epoch panel FLOW step (rf2-lo37i)
 
-The pre-rewrite Flows panel is GONE. Flows surface as a dedicated
-**section of the Epoch panel placed RIGHT AFTER the HANDLER** — flows
-fire at the outermost `:after` interceptor, reshaping the pending
-`:db` before it commits, so the FLOW section precedes EFFECTS
-RETURNED / EFFECTS HANDLERS RAN. The canonical home for per-cascade
-flow firings is [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
-§9.1 (Epoch panel) + [`018-Event-Spine.md`](./018-Event-Spine.md) §5.1
-(per-event pipeline projection). (rf2-lo37i originally added this
+The pre-rewrite Flows panel is GONE. A flow that fired is a **FLOW
+step** of the Epoch panel's numbered cascade — one step per flow,
+placed RIGHT AFTER the HANDLER and before SIDE EFFECTS, because flows
+fire at the outermost `:after` interceptor and reshape the pending
+`:db` before it commits. Each step names the flow (a click-to-source
+link when the registration carries a source coordinate) and renders the
+flow's own contribution as a `:db` diff scoped to its output path.
+[`021-Dynamic-Panel-Designs.md` §9.1](./021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1)
+owns the step roster and order; [`018-Event-Spine.md`](./018-Event-Spine.md)
+§5.1 carries the FLOWS content contract. (rf2-lo37i originally added this
 section to the Event/Handler tab; rf2-5gl5r retired that panel — the
-section now lives in the Epoch panel's numbered cascade.) For each
-flow that fired during the focused cascade the FLOW section lists,
-in cascade order:
+section now lives in the Epoch panel's numbered cascade.)
 
-- `wrote <path>` — the flow's `:output` write target with the
-  after-value rendered inline.
-- `read <input-path-1> <input-path-2> …` — the flow's `:inputs`,
-  shown so the reader can see which paths caused the recompute.
-
-The FLOWS section sits between the HANDLER and the EFFECTS RETURNED /
-EFFECTS HANDLERS RAN sections under the per-run view —
-mirroring the runtime order where flows transform the pending db
-before it commits and before any fx run (see 018 §5.1 wireframe + row
-contract).
-
-A **secondary** appearance is in the **Views tab** "Re-rendered"
-group (cross-cutting): when a flow's downstream sub appears in a
-view's *Rerendered because* list (per
-[`012-Views.md`](./012-Views.md) §Three-group layout Re-rendered),
-the sub-id carries a `⊳` flow-glyph prefix that distinguishes
-flow-output subs from hand-written subs. Click-through from the
-Views entry jumps to the Epoch panel's FLOW section for that cascade.
-
-A registered-flows-overview is reachable via the Cmd-K palette under
-the `:flow` source: flow-id, inputs, output path, last recompute. No
-standalone tab.
+Registered flows are browsed in the **Static Flows tab** (mnemonic
+`f`), which [`007-UX-IA.md` §Static mode](./007-UX-IA.md#sub-tab-inventory-static-l3)
+owns. The Cmd-K palette has no flow source. The `⊳` glyph an earlier
+draft promised on flow-output subs in the Views tab, with a click-through
+to the FLOW step, was never built.
 
 ## Recordable-coeffect content — Epoch panel RECORDABLE COEFFECTS section (rf2-9fyn40 · EP-0010 · EP-0017 §9)
 
 The dispatch envelope's flat recordable-coeffect map `:rf.cofx` surfaces as
-a dedicated **RECORDABLE COEFFECTS section of the Epoch panel placed RIGHT
-AFTER DISPATCH SITE** — the EP-0010 "where did this state value come from?"
+a dedicated **RECORDABLE COEFFECTS step of the Epoch panel placed RIGHT
+AFTER DISPATCH** — the EP-0010 "where did this state value come from?"
 answer (the explicit time / id / randomness facts the fold consumed, so a
 durable write reads as a function of prior frame-state PLUS recorded tokens
 rather than ambient host reads). The section shows the handler's **declared
 recordable leaves** (EP-0017 §9 — the most user-relevant facts on the
-token). The canonical home for the per-cascade section is
-[`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 (section 1a — the
-9-section event lens). **Silent-by-default** when the focused cascade
-surfaced no `:rf.cofx` map.
+token). The step's place in the cascade is
+[`021-Dynamic-Panel-Designs.md` §9.1](./021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1)'s
+to specify; its content contract is
+[`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 (section 1a).
+**Silent-by-default** when the focused cascade surfaced no `:rf.cofx`
+map.
 
 > EP-0017 §9 renamed this surface from **WORLD INPUTS** (the
 > `:rf.world/inputs` nested map keyed `:time-ms`) to **RECORDABLE
@@ -342,8 +348,8 @@ list browse-all surface with hermetic Simulate-URL preview.
   rank on URL pattern).
 - **Per-row chips**: route-id + path + doc, with letter badges
   (`M` / `L` / `T` / `P`) for routes carrying `:on-match` /
-  `:can-leave` / `:tags` / `:parent`. Click the row chevron to
-  expand inline.
+  `:can-leave` / `:tags` / `:parent`. Click anywhere on the row (or
+  press Enter / Space when it has focus) to expand inline.
 - **Substring search** across route-id + path + doc.
 - **Simulate-URL** — paste a URL, the panel ranks every matching
   route by its 6-rule `:rf.route/rank` tuple and highlights the
@@ -490,19 +496,24 @@ ranks the matching candidates by `:rf.route/rank` descending — the
 same order `match-url` walks the registry table. The first candidate
 is the winner.
 
-**Input normalisation (rf2-6nx8y).** The input is pasted by a human and
-is commonly copied wholesale from the browser address bar — an
-**absolute** URL with a `scheme://authority` origin. The simulator
-normalises an absolute (or protocol-relative `//host/…`) URL to its
-`pathname` — dropping the scheme + authority (userinfo / host / port) —
-*before* the query/fragment strip, so a pasted
+**Input normalisation (rf2-6nx8y, rf2-y8doi.22).** The input is pasted
+by a human and is commonly copied wholesale from the browser address
+bar — an **absolute** URL with a `scheme://authority` origin. The
+simulator works out the path the way `match-url` does: the `#fragment`
+splits off first, then the `?query`. Only then does it drop an origin —
+the scheme + authority (userinfo / host / port) — and only when the
+remaining path BEGINS with `scheme://` or `//`. So a pasted
 `https://app.example/cart?source=email#step-1` matches the registered
-`/cart` pattern. A **relative** input (`/cart`, `cart/`, `?x`, `#y`) is
-left untouched; only a `scheme://` (or leading `//`) marks an origin, so
-a relative path that legitimately contains a `:` segment is not mistaken
-for a scheme. `match-url` itself does not need this step (it only ever
-sees host-relative URLs from `location`); the simulator adds it because
-its source is human-pasted.
+`/cart` pattern; a relative path carrying a `:`, or even a `://`, after
+its start (`/a:b/cart`, `/go/https://x`) is left as it is; and a redirect
+target in the query (`/login?next=https://app.example/cart`) is gone
+before the origin check runs, so it simulates as `/login`. The path then
+goes through `canonical-route-pattern` — the trailing-slash
+canonicalisation the framework applies to an incoming path and to an
+author's pattern alike, so `/cart//` is `/cart` — and an empty path
+reads as `/`. `match-url` itself does not need the origin step (it only
+ever sees host-relative URLs from `location`); the simulator adds it
+because its source is human-pasted.
 
 The result block surfaces:
 
@@ -515,14 +526,19 @@ The result block surfaces:
 
 Query coercion and `:params` / `:query` schema validation are out of
 scope for the simulator — the lens is about exposing the rank
-cascade, not full match semantics.
+cascade, not full match semantics. One consequence is worth naming: a
+malformed `%`-escape in the query or the fragment makes `match-url`
+fail closed (the whole URL is a route-miss), while the simulator
+discards both unread and can still report a winner.
 
 ### Active route slice — params + query + fragment
 
 **Historical flat-list layout.** The following grid belonged to the
-pre-topology lens. The current Current route section shows the route id,
-params, and matched path; query/fragment remain inspectable in the
-runtime-state and trace data rather than a promised three-row grid.
+pre-topology lens. The current Current route section shows the route id
+and params, the query and fragment when the slice carries them, and a
+readiness chip (the slice's `:transition`, with its `:error` as the
+chip's tooltip). It shows no matched path, because the slice carries
+none (rf2-y8doi.22).
 
 Below the catalogue the panel renders a labelled grid for the active
 slice:
@@ -555,8 +571,8 @@ projects the single nav-event that pertains to the focused cascade.
 ### Vision (future)
 
 - **Nav-token timeline (swimlanes)** popover trigger from the tab.
-- **`:on-match` chain explicit** in the Epoch panel's "EFFECTS HANDLERS
-  RAN" section when the focused cascade is a routing cascade
+- **`:on-match` chain explicit** in the Epoch panel's SIDE EFFECTS
+  step when the focused cascade is a routing cascade
   (already noted under §Epoch panel — `:on-match` event chain (Routes)
   later in this doc).
 - **Route-chain visualiser** — the `:parent`-chain walk for nested
@@ -590,14 +606,20 @@ backfills what v1 actually ships.
 
 ### v1 tab inventory
 
-| Tab | What it carries |
-|---|---|
-| **General** (default) | Density radio (`:compact` / `:cosy`, the `--rf-xray-font-size` type-scale anchor) · Panel-position radio (`:right-rail` / `:fullscreen`; popout has its own chrome button and `popout!` API) · "Auto-open Xray when an issue is observed" checkbox · Additional visibility, motion, colour, history and editor preferences. Text-size and panel-width remain configurable slots, not popup widgets; width defaults to 560 and is adjusted by the drag handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance). |
+The popup ships four tabs — **General** (default) · **Keybindings** ·
+**Buffer** · **Diff** — and [`018-Event-Spine.md` §9](./018-Event-Spine.md#9-settings-popup)
+§Sections is the roster of the controls each one carries. This chapter
+does not restate it: a second copy is how this one went on listing a
+Density radio that the 2026-05-27 cleanup had removed. Text-size,
+panel-width and density remain configurable slots with no popup widget
+(see §Defaults below); width defaults to 560 and is adjusted by the drag
+handle per [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance).
+
 The Filters tab was retired per rf2-wknb3 — full pill management lives in the top-ribbon filter strip (`filters/pills.cljs`, per [`018-Event-Spine.md`](./018-Event-Spine.md) §7), the per-pill edit popup (`filters/edit_popup.cljs`, `:rf.xray.filters/edit-popup-*` events), and the mute manager modal (rf2-ikuwt). The settings tab's only widget was an "Open auto-filter UI" button dispatching `:rf.xray.filters/open` — an event with no handler registered anywhere — plus a static explainer paragraph. With the management surfaces all canonical elsewhere, the discoverability pointer was redundant.
 
-The Theme tab was retired per rf2-ou3pn — the top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is now the canonical light/dark affordance. Both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event; the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to **General → Power user** — the setting slot has always been `:general :use-system-colors?`; only its cosmetic home in the Theme section is gone with the tab.
+The Theme tab was retired per rf2-ou3pn — the top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is now the canonical light/dark affordance. Both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event; the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to **General → Power user**, and the 2026-05-27 cleanup then removed it there too (the OS-level `forced-colors` detection covers the case); the `:general :use-system-colors?` slot survives with no widget.
 
-**v1 ships:** the General tab visible above, plus Keybindings, Buffer, and Diff (catalogued in [`018-Event-Spine.md`](./018-Event-Spine.md) §9). The Theme tab was retired per rf2-ou3pn and the Filters tab per rf2-wknb3 — see the notes immediately under the table. Nothing further is deferred: per
+**v1 ships:** General, Keybindings, Buffer and Diff (catalogued in [`018-Event-Spine.md`](./018-Event-Spine.md) §9). The Theme tab was retired per rf2-ou3pn and the Filters tab per rf2-wknb3 — see the two notes above. Nothing further is deferred: per
 [`018-Event-Spine.md`](./018-Event-Spine.md) §9, **Popout** folded
 into General's Panel-position radio (no own tab) and **Actions** was
 dropped (factory-reset stays code-only). A Telemetry tab shipped briefly in the initial popup landing
@@ -608,24 +630,28 @@ When telemetry actually ships, the tab returns with real wiring.
 
 ### Two CSS custom properties — `--rf-xray-text-size` vs `--rf-xray-font-size`
 
-The General tab carries two independently-tracked CSS custom properties.
-They are NOT the same var and they drive different surfaces:
+Two independently-tracked CSS custom properties sit behind General's
+type settings. Neither has a popup control any more — the Text-size
+slider and the Density radio both went in the 2026-05-27 cleanup
+([`018-Event-Spine.md` §9](./018-Event-Spine.md#9-settings-popup)) —
+but both slots, their write paths and their persistence survive, so a
+host-configured value still applies. They are NOT the same var and they
+drive different surfaces:
 
-| CSS var | Knob | Surface | Origin |
+| CSS var | Slot | Surface | Origin |
 |---|---|---|---|
-| `--rf-xray-text-size` | Text-size slider (10–18 px; default 13) | Xray surfaces that opt-in read `var(--rf-xray-text-size, 13px)` directly — primarily the event-list rows and a small set of inline-style call sites. | Pre-existing user knob |
-| `--rf-xray-font-size` | Density radio (`:compact` 12 / `:cosy` 13 / `:comfy` 14 — `:comfy` catalogued for forward-compat, not surfaced in v1) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`. Flipping the var rescales every typographic surface in lockstep on the next paint. | rf2-n8i2c / PR #1571 |
+| `--rf-xray-text-size` | `:general :text-size` (px; default 13 — the removed slider's 10–18 range is not enforced) | Xray surfaces that opt-in read `var(--rf-xray-text-size, 13px)` directly — primarily the event-list rows and a small set of inline-style call sites. | Pre-existing user knob |
+| `--rf-xray-font-size` | `:general :density` (`:compact` 12 / `:cosy` 13 / `:comfy` 14 — `:comfy` catalogued for forward-compat) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`. Flipping the var rescales every typographic surface in lockstep on the next paint. | rf2-n8i2c / PR #1571 |
 
 Each var has its own write path
 (`settings/effects/apply-text-size!` for `--rf-xray-text-size`;
 `settings/effects/apply-density-font-size!` for `--rf-xray-font-size`)
 and they are persisted as separate settings slots
-(`:general :text-size` and `:general :density`). The two knobs are
-deliberately decoupled — a user who wants tighter row rhythm without
-shrinking the type scale flips density to `:compact` while leaving
-text-size at 13; a user who wants larger event-list rows without
-rescaling the rest of the chrome bumps text-size while leaving
-density at `:cosy`.
+(`:general :text-size` and `:general :density`). The two slots are
+deliberately decoupled — tighter row rhythm without shrinking the type
+scale is density `:compact` with text-size left at 13; larger
+event-list rows without rescaling the rest of the chrome is a larger
+text-size with density left at `:cosy`.
 
 ### Defaults
 
@@ -756,7 +782,7 @@ op with a UI affordance is "Clear buffer now" under the Buffer tab.
 UI updated incorrectly. What went over the wire? What came back? What
 did the handler apply?"
 
-The Epoch panel's "EFFECTS HANDLERS RAN" section grows a **rich expand
+The Epoch panel's SIDE EFFECTS step grows a **rich expand
 block per managed-effect fx** showing the entire wire interaction:
 request payload (post-elision) → wire transit (status / headers /
 timing waterfall) → response → handler dispatched → app-db slice
@@ -765,7 +791,7 @@ touched. One template; five surfaces (HTTP, WebSocket, machine
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.1.
 
 <!-- TODO(rf2-yylmr): future-design — the wire-boundary record-panel
-embed point under the Epoch panel's "EFFECTS HANDLERS RAN" section
+embed point under the Epoch panel's SIDE EFFECTS step
 needs an explicit micro-spec when implementation lands; the prior
 "fx handlers that ran" anchor was Event-tab-relative. -->
 
@@ -773,7 +799,7 @@ needs an explicit micro-spec when implementation lands; the prior
 
 When the focused cascade is a routing cascade
 (`:rf.route/navigate` or `:rf.route/handle-url-change`), the Epoch
-panel's "EFFECTS HANDLERS RAN" section adds a dedicated `:on-match`
+panel's SIDE EFFECTS step adds a dedicated `:on-match`
 dispatch chain sub-section showing each fire-and-forget loader event and
 its drain duration. `:on-match` is fire-and-forget (EP-0037 R1): a
 throwing loader is an ordinary Spec 009 `:rf.error/handler-exception`
@@ -785,7 +811,7 @@ changes route readiness. See
 
 When an `:rf.http/managed` retried, surface the per-attempt timeline
 (attempt id · result · category · backoff interval · total elapsed)
-under the fx row in the Epoch panel's "EFFECTS HANDLERS RAN" section.
+under the fx row in the Epoch panel's SIDE EFFECTS step.
 See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 F.3.
 
@@ -842,7 +868,7 @@ at the top of the App-db tab under a `[reserved]` group banner,
 always-expanded, with each sub-key on its own line. See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.11.
 
-Note that the Routing tab (§Routing tab above, rf2-nrbs9) is the
+Note that the Routing tab (§Dynamic Routing above, rf2-nrbs9) is the
 primary lens for routing — including the route tree, current match,
 and FROM/TO nav transitions. The App-db slice pin is the raw-data
 echo for users who want to inspect the slice alongside other app-db
@@ -907,8 +933,7 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
 - [`018-Event-Spine.md`](./018-Event-Spine.md) — 4-layer chrome,
   spine binding (`:rf.xray/focus`), per-tab content placement,
   Settings popup, data-classification rendering contract.
-- [`012-Views.md`](./012-Views.md) — Views tab content (where Flows
-  surface).
+- [`012-Views.md`](./012-Views.md) — Views tab content.
 - [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) — the trace ring every tab
   filters from.
 - [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) — the
@@ -918,10 +943,10 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
   entries Chrome DevTools' Performance tab renders (cross-link
   replacing the dropped Performance panel).
 - [`spec/002-Frames.md`](../../../spec/002-Frames.md) §`reg-fx`,
-  §`:fx-overrides` — what the Epoch panel's "EFFECTS HANDLERS RAN"
-  section surfaces.
-- [`spec/013-Flows.md`](../../../spec/013-Flows.md) — what the Views
-  tab surfaces (under "Re-rendered" group).
+  §`:fx-overrides` — what the Epoch panel's SIDE EFFECTS step
+  surfaces.
+- [`spec/013-Flows.md`](../../../spec/013-Flows.md) — what the Epoch
+  panel's FLOW step and the Static Flows tab surface.
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the
   framework substrate the Routing tab projects: the registrar
   (`reg-route` + `(rf/registrations {:source :store :kind :route})`), the current-route
