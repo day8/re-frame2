@@ -368,7 +368,7 @@ the chrome actions at the far right.
 |---|---|---|---|
 | **Logo** | left | `❖ Xray` wordmark — the brand anchor, the single blue `accent`, semibold. | — |
 | **Frame** | left | `Frame ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Mode** | left | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the dropdown's active option + `data-active-mode` carry the mode signal (the chrome stripe is the single blue accent in both modes — rf2-ad7zx.13). | `Cmd/Ctrl-Shift-M` |
+| **Mode** | left | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the dropdown's active option + `data-active-mode` carry the mode signal (there is no per-mode accent colour — rf2-ad7zx.13 collapsed the palette to a single `accent`). | `Cmd/Ctrl-Shift-M` |
 | **Right-icons** | right | `⚙` settings popup · `✕` close shell (`:rf.xray/close-shell`). `⛶` popout is omitted (reserved for the second-window UX — silent by default). | `,` or `s` · `Esc` |
 
 The silent-by-default `🔇 N` mute + `● N` REDACTED indicators are **functional surfaces painted
@@ -981,7 +981,7 @@ Borders:   subtle #2a2a2a  · default #373737 (Figma --devtools-border)
 
 Text:      primary #e6edf3 (Figma --devtools-text)  · secondary #adbac7  · tertiary #8b949e (Figma --devtools-text-muted)
 
-Accents:   blue    #539bf5  ACCENT — active tab, chrome stripe, selected, focus ring, changed (the identity — rf2-ad7zx.13)
+Accents:   blue    #539bf5  ACCENT — active tab, L4 header stripe, selected, focus ring, changed (the identity — rf2-ad7zx.13)
            info    #79c0ff  fixed cool categorical blue; :story / :test origin; spine-paused; syntax-number
            indigo  #5570FF  :pair-origin
            green   #3fb950  success, additions, machine-active
@@ -999,8 +999,8 @@ Perf:      fast     #3fb950  (<16ms)
 **Accent identity = GitHub-style blue (rf2-ad7zx.13).** The accent is the single GitHub blue
 (`#539bf5` dark / `#0969da` light) the Figma export ships (the `devtools-css` block embedded in
 `design-reference/xray_devtools_reference.cljs`).
-There is **one** accent — active tab, chrome stripe, active states, focus ring, the L4 header
-stripe, and the logo / wordmark all read it. The **Dynamic / Static MODE stays functional** (it
+There is **one** accent — active tab, active states, focus ring, the L4 header stripe, and the
+logo / wordmark all read it. The **Dynamic / Static MODE stays functional** (it
 gates motion) but **no longer drives accent colour**: the shell reads the same blue in either
 mode. The earlier orange-identity scheme (an always-orange `brand` + per-mode orange/cyan accent
 swap) is **removed**. Every accent is a single CSS-custom-property token, so the identity is a
@@ -1089,8 +1089,8 @@ the unread `theme/tokens/panel-icon` map behind them.)
 
 The helper `theme/tokens/accent-stripe-style` emits the inline-style map (`:border-left "3px
 solid <accent>"` + `:padding-left "10px"`); per-panel call sites merge it into the `<h1>`
-`:style`. This is the same accent as the chrome's 2-px ribbon-edge stripe (§Static mode below) —
-the L1 stripe is the accent at chrome, this is the accent at the L4 header.
+`:style`. This L4 header stripe is the only accent stripe Xray paints: the chrome ribbon's 2-px
+left-edge stripe was removed (rf2-4yemd — see §Mode-signal mechanism below).
 
 (rf2-4v67l — `:chrome-a11y` was dropped alongside the panel itself.
 A11y dogfooding is now Story's concern per rf2-18t6p + rf2-qgms1.)
@@ -2094,10 +2094,11 @@ each tab button's `title`; the letters are not keys (§Trimmed pending
 demand), and the tab is reached by click or by the mode-aware
 command-palette tab-jump verb (§Mode-aware command surface).
 
-### Mode-signal mechanism (4 stacked signals)
+### Mode-signal mechanism
 
-The user reads Static at a glance via four stacked signals — together
-they telegraph the mode without the user needing to look at the dropdown:
+The user reads Static at a glance via stacked chrome signals. The
+catalogue below is retained as written; where the mechanism an entry
+names was removed, the entry says so.
 
 1. **Mode dropdown** at chrome-ribbon-left — a compact `<select>`
    (`Dynamic ▾` / `Static ▾`), rf2-4vp5j (replaced the old 160px
@@ -2107,10 +2108,15 @@ they telegraph the mode without the user needing to look at the dropdown:
    chord and dropdown share the handler. The mode SIGNAL is carried by
    the dropdown's active option + `data-active-mode` (the stripe is the
    single accent in both modes — rf2-ad7zx.13).
-2. **2-px left-edge ribbon stripe** — the single `accent` (**GitHub blue**)
-   in both modes (per §Colour system + [022-Design-Tokens](022-Design-Tokens.md);
-   rf2-ad7zx.13 — the Figma export carries one accent, no per-mode colour
-   swap). The stripe is a one-token chrome-edge accent.
+2. **2-px left-edge ribbon stripe — REMOVED; it signals nothing.**
+   rf2-4yemd took it off the Dynamic ribbon on 2026-05-24, Mike having
+   reported the blue left edge as absent from the Figma authority;
+   rf2-y8doi.30 took off the Static mirror. Both absences are pinned —
+   `chrome-ribbon-has-no-left-edge-stripe` and
+   `static-ribbon-has-no-left-edge-stripe`. There are no
+   `:accent-violet` / `:cyan` tokens left to paint it with either:
+   rf2-ad7zx.13 collapsed the palette to a single `accent`. The mode
+   signal is carried by entry 1.
 3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-active
    pulse + 180ms tab fade. Static drops the continuous pulses entirely
    and collapses the 180ms tab fade to instant (so cluster swaps land
@@ -2208,19 +2214,20 @@ resolved by the active-mode dispatch, not by renaming. Mnemonic
 collisions across modes (`m` · `r`) need no resolver at all: the
 letters are tab LABELS rather than keys (§Trimmed pending demand), so
 the only thing a collision costs is that the reader must know which
-mode is active — which the 4 stacked mode signals already tell them.
+mode is active — which the mode dropdown and the chrome silhouette
+already tell them.
 
 **Shared-token rule.** Design tokens — colours, spacing, typography,
 motion — live ONCE in the HCM token registry (`theme/tokens.cljc`,
 `theme/global-styles/*`) and apply across both modes. Visual cohesion
 between Dynamic and Static is achieved at the token layer, not by
-shell-ns reuse. The mode-signal mechanism (mode dropdown, 2-px ribbon
-stripe, motion-dampening, chrome silhouette — see §Mode-signal mechanism
+shell-ns reuse. The mode-signal mechanism (mode dropdown,
+motion-dampening, chrome silhouette — see §Mode-signal mechanism
 above) reads from tokens. Post rf2-ad7zx.13 both shells paint the same
-single `accent` (GitHub blue) stripe — the divergence is in motion +
-chrome silhouette, NOT in stripe colour (the Figma export carries one
-accent). **Zero new tokens introduced per mode** is the standing
-constraint.
+single `accent` (GitHub blue) — there is no per-mode colour swap, so
+the divergence is in motion + chrome silhouette (the Figma export
+carries one accent). **Zero new tokens introduced per mode** is the
+standing constraint.
 
 **Cycle-avoidance rule.** When one shell needs to reach into another
 mode's chrome (the canonical case today: Static's ribbon needs the

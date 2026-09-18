@@ -79,7 +79,7 @@ Layers are stacked top-to-bottom; only L2/L3 has a user-draggable resize handle.
 
 ## §2.5 Static surface (3-layer chrome)
 
-Xray exposes **two modes** per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — the **Dynamic** surface specified in §2 above (event-coupled spine + 4-layer chrome) and a peer **Static** surface (event-INDEPENDENT registry browse + 3-layer chrome). This section owns the Static architectural contract; visual-language details (mode pill widget chrome, edge stripe colour tokens, motion dampening durations) live in [`007-UX-IA.md`](007-UX-IA.md) §Static mode.
+Xray exposes **two modes** per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — the **Dynamic** surface specified in §2 above (event-coupled spine + 4-layer chrome) and a peer **Static** surface (event-INDEPENDENT registry browse + 3-layer chrome). This section owns the Static architectural contract; visual-language details (mode dropdown widget chrome, motion dampening durations) live in [`007-UX-IA.md`](007-UX-IA.md) §Static mode.
 
 ### 3-layer silhouette
 
@@ -104,7 +104,7 @@ The user reads "Static" at a glance via **four stacked signals**; together they 
 | # | Signal | Dynamic | Static |
 |---|---|---|---|
 | 1 | **Mode dropdown** at chrome-ribbon-left — a compact `<select>` (rf2-4vp5j; replaced the old 160px two-segment radio pill) sharing the frame picker's control weight. Lives in BOTH modes (it's the toggle, not the indicator). | `Dynamic ▾` | `Static ▾` |
-| 2 | **2-px left-edge ribbon stripe.** | `:accent-violet` | `:cyan` (existing palette token — zero new tokens) |
+| 2 | **2-px left-edge ribbon stripe — REMOVED; it signals nothing.** rf2-4yemd took it off the Dynamic ribbon on 2026-05-24 (the blue left edge was absent from the Figma authority); rf2-y8doi.30 took off the Static mirror. Both absences are pinned (`chrome-ribbon-has-no-left-edge-stripe`, `static-ribbon-has-no-left-edge-stripe`), and rf2-ad7zx.13 left no `:accent-violet` / `:cyan` tokens to paint it with. | — (removed) | — (removed) |
 | 3 | **Motion dampening.** | 180ms tab fade (no continuous pulse — the LIVE pulse was never built, rf2-pjjwh; the machine-active pulse was refused, rf2-2sez0) | Tab fade collapses to 0ms instant. Honours `prefers-reduced-motion: reduce` via `--rf-xray-motion-scale`. |
 | 4 | **Chrome silhouette.** | 4-layer (L1 · L2 · L3 · L4) | 3-layer (L1 · L3 · L4 — no spine) |
 
@@ -154,7 +154,7 @@ Same discipline as the Dynamic chrome (per §8 Frame-observation isolation invar
 ### See also
 
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 — the direction-setting decision behind Two modes (Dynamic + Static).
-- [`007-UX-IA.md`](007-UX-IA.md) §Static mode — visual-language details (mode pill widget chrome, edge stripe colour tokens, motion dampening durations, sub-tab mnemonics, design language).
+- [`007-UX-IA.md`](007-UX-IA.md) §Static mode — visual-language details (mode dropdown widget chrome, motion dampening durations, sub-tab mnemonics, design language).
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface — concrete Static Machines surface description (4-mode sub-strip · Topology · Sim body (rf2-r4nao — landed) · Instances JUMP · Cascade dimmed).
 
 ---
@@ -172,7 +172,7 @@ Carries only scope selectors (left) and chrome actions (right):
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
 | **Frame** | left | `Frame ▾` dropdown — ALWAYS rendered (rf2-ad7zx.12); the selected value is surfaced INSIDE the option list (the active option carries a `✓`), not inlined on the button. Interactive whenever ≥1 frame is available (rf2-ad7zx.14): a single-frame host gets a working 1-entry dropdown listing that lone frame; only the zero-frame state disables the control. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Mode** | left | `Dynamic ▾` / `Static ▾` **dropdown** (`<select>`) — compact, understated; shares the frame picker's control weight (rf2-4vp5j). The 2-px left-edge accent stripe (violet Dynamic / cyan Static) carries the mode SIGNAL so the control itself recedes. | `Cmd/Ctrl-Shift-M` |
+| **Mode** | left | `Dynamic ▾` / `Static ▾` **dropdown** (`<select>`) — compact, understated; shares the frame picker's control weight (rf2-4vp5j). The dropdown's active option + `data-active-mode` carry the mode SIGNAL; the chrome silhouette (4-layer Dynamic / 3-layer Static) is the second signal. | `Cmd/Ctrl-Shift-M` |
 | **Indicators** | right | Silent-by-default `🔇 N` mute indicator + `● N` REDACTED indicator (each painted only when its count > 0). | — |
 | **Right-icons** | right | `⚙` settings popup · `✕` close shell | `,` or `s` · `Esc` |
 

@@ -1416,10 +1416,13 @@
       ;; ribbon's first Reagent island until that slice. See
       ;; [[ribbon-tree]]'s docstring.
       frame-switcher*
-      ;; Dynamic/Static dropdown (rf2-4vp5j) — compact, understated; the
-      ;; accent stripe carries the mode signal so the control stays
-      ;; quiet. Always rendered (the `:rf.xray/static-mode?` feature
-      ;; gate was removed per rf2-8l3uk).
+      ;; Dynamic/Static dropdown (rf2-4vp5j) — compact, understated; its
+      ;; active option + `data-active-mode` carry the mode signal, so the
+      ;; control stays quiet without help from chrome. (rf2-3lvo4 — this
+      ;; comment said an `accent stripe` carried it; there is no
+      ;; left-edge stripe, per [[ribbon]]'s docstring below.) Always
+      ;; rendered (the `:rf.xray/static-mode?` feature gate was removed
+      ;; per rf2-8l3uk).
       ;; rf2-k97c.3 — the second boundary, and the second island deleted.
       mode-pill*
       ;; rf2-ikuwt — mute indicator (🔇 N) renders inline next to the
