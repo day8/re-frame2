@@ -131,7 +131,7 @@
                  surfaces them; the detail panel (L4) renders the
                  epoch panel with the head cascade focused."
      :setup      (chrome-setup
-                   {:trace-buffer (fixtures/n-cascades 6)
+                   {:trace-buffer (fixtures/cascades 6)
                     :selected-tab :epoch})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
@@ -142,7 +142,7 @@
                  buffer has cascades; epoch-history has the five-key-
                  change buffer; the detail panel renders app-db-diff."
      :setup      (chrome-setup
-                   {:trace-buffer  (fixtures/n-cascades 3)
+                   {:trace-buffer  (fixtures/cascades 3)
                     :epoch-history (fixtures-app-db/five-key-changes-buffer)
                     :selected-tab  :app-db})
      :tags       #{:dev :state/small}
@@ -156,7 +156,7 @@
                  panel surfaces the no-renders branch — a real
                  production state worth pinning."
      :setup      (chrome-setup
-                   {:trace-buffer  (fixtures/n-cascades 2)
+                   {:trace-buffer  (fixtures/cascades 2)
                     :epoch-history (fixtures-app-db/single-key-change-buffer)
                     :selected-tab  :views})
      :tags       #{:dev :state/small}
@@ -180,7 +180,7 @@
                  :no-machines empty-state — a real production state
                  worth pinning in the gallery."
      :setup      (chrome-setup
-                   {:trace-buffer (fixtures/n-cascades 2)
+                   {:trace-buffer (fixtures/cascades 2)
                     :selected-tab :machines})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
@@ -211,7 +211,7 @@
                  cascades; spine auto-focuses on head; mode pill
                  renders as `● LIVE`."
      :setup      (chrome-setup
-                   {:trace-buffer (fixtures/n-cascades 4)
+                   {:trace-buffer (fixtures/cascades 4)
                     :selected-tab :epoch})
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
@@ -223,7 +223,7 @@
                  collecting but auto-scrolling stops. Mode pill
                  renders as `● LIVE (paused)`."
      :setup      (chrome-setup
-                   {:trace-buffer (fixtures/n-cascades 4)
+                   {:trace-buffer (fixtures/cascades 4)
                     :paused?      true
                     :selected-tab :epoch})
      :tags       #{:dev :state/special}
@@ -236,7 +236,7 @@
                  nav cluster + frame picker + mode pill + right
                  icons."
      :setup      (chrome-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :filters      {:in [] :out []}})
      :tags       #{:dev :state/small}
@@ -250,7 +250,7 @@
                  green, OUT pills tint magenta; each carries an `✎`
                  edit affordance."
      :setup      (chrome-setup
-                   {:trace-buffer (fixtures/n-cascades 4)
+                   {:trace-buffer (fixtures/cascades 4)
                     :selected-tab :epoch
                     :filters      {:in  [{:pattern ":cart/*"}
                                          {:pattern ":auth/*"}]

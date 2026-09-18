@@ -27,9 +27,15 @@ Run from `implementation/`:
 npm run test:xray-feature-gate
 ```
 
-The gate is occasional/pre-PR only. It is not part of default CI. Green runs
-print a compact summary; failures flush browser console/page errors, Xray
-state, the last trace rows, load stats when applicable, and a screenshot path.
+The gate runs in two tiers. `npm run test:xray-feature-gate:smoke` runs on
+every PR that changes a Story or Xray surface (`test.yml`, gated on the
+`story_xray_browser` surface) and executes only the scenarios tagged
+`smoke: true` in `scenarios.cjs`; the gate prints the live scenario/surface
+pair on each run. The full sweep above runs nightly in `expensive-tests.yml`,
+so a scenario without the tag first runs there — run the full gate locally
+before merging one. Green runs print a compact summary; failures flush
+browser console/page errors, Xray state, the last trace rows, load stats when
+applicable, and a screenshot path.
 
 ## Current slice
 

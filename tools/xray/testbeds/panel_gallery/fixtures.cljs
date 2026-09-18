@@ -1,5 +1,6 @@
 (ns panel-gallery.fixtures
-  "Pure fixture builders for the Xray panel gallery.
+  "Trace-buffer seeds for the Xray panel gallery's chrome, settings and
+  filters variants.
 
   Story variants seed state by firing REAL Xray init events
   (`:rf.xray/sync-trace-buffer`, `:rf.xray/select-dispatch-id`)
@@ -8,79 +9,58 @@
   `tools/story/spec/002-Runtime.md` §Coexistence with hosting
   application state.
 
-  This namespace exposes pure builder functions that synthesize
-  trace-event vectors shaped exactly as
-  `re-frame.trace.projection/group-by-event` projects them:
+  ## Built from the canonical builders, not typed here
 
-      {:id <int>
-       :op-type   :rf.event | :fx | :rf.sub/run | :view | :error | :warning | ...
-       :operation :rf.event/dispatched | :rf.event/run-start | :rf.event/run-end | :rf.fx/do-fx | :rf.fx/handled | ...
-       :tags      {:rf.trace/dispatch-id <int>
-                   :rf.event/v       <event-vec>     ;; on :rf.event/dispatched
-                   :rf.trace/phase       :run-start | :run-end
-                   :rf.fx/id       <kw>            ;; on :rf.event/fx
-                   :rf.sub/id      <kw>            ;; on :rf.sub/run
-                   :rf.view/render-key  [<view-id> <args>] ;; on :view
-                   :frame       <frame-id>}}
+  Every event comes from `day8.re-frame2-xray.test-helpers.trace-event-builders`
+  (rf2-tyivx), the one namespace that mirrors the substrate's emit shapes,
+  and is then given the envelope `trace/emit!` stamps on every emit inside
+  a dispatch run: a unique `:id`, a `:time`, and the run's
+  `:rf.trace/dispatch-id` + `:frame` under `:tags`.
 
-  The `cascade-evs` helper template is the gallery's single shared
-  fixture surface, so any future panel projection change has one place
-  to drive variant seeds from.
+  That envelope is the whole point. `re-frame.trace.projection/group-by-event`
+  groups the L2 event list by `[:tags :rf.trace/dispatch-id]`, and an event
+  without one lands in the `:ungrouped` bucket the L2 list hides. The
+  hand-typed template this replaced put `:dispatch-id` under `:tags`, so
+  every seeded cascade grouped to `:ungrouped` and all seventeen variants
+  that seed from here painted an EMPTY event list while their docs promised
+  rows (rf2-y8doi.28). `panel_gallery_trace_fixtures_cljs_test` now pins
+  that these seeds project to one visible L2 row per cascade.
 
   Builders return plain vectors; the variant `:setup` slot wraps each
-  in `[:rf.xray/sync-trace-buffer <buffer>]` for the seed dispatch.")
+  in `[:rf.xray/sync-trace-buffer <buffer>]` for the seed dispatch."
+  (:require [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
 
-;; ---- domino-row builders ------------------------------------------------
-;;
-;; Eight-event template per cascade — one of each row a focused-epoch
-;; panel renders. id-base lets a caller stack many cascades without id
-;; collision. Optional frame-id rides on every emit so cross-frame
-;; cascades surface a panel's `:frame` annotation in its cascade list.
+(defn- in-run
+  "Stamp a builder event with the envelope `trace/emit!` gives an emit inside
+  dispatch run `dispatch-id` on `frame-id`."
+  [ev id dispatch-id frame-id]
+  (-> ev
+      (assoc :id id :time (* 10 id))
+      (update :tags assoc :rf.trace/dispatch-id dispatch-id :frame frame-id)))
 
-(defn cascade-evs
-  "Synthesize the eight trace events for a single cascade. The canonical
-  gallery seed template.
-
-  Returns a vector of trace-event maps shaped per
-  `re-frame.trace.projection/group-by-event`."
+(defn cascade
+  "The trace events of ONE dispatch run of `event-vec`: dispatched, handler
+  run-end, the fx pass and its two handled fx, one sub run and one view
+  render. `id-base` lets a caller stack many cascades without id collision."
   ([dispatch-id event-vec id-base]
-   (cascade-evs dispatch-id event-vec id-base nil))
+   (cascade dispatch-id event-vec id-base :rf/default))
   ([dispatch-id event-vec id-base frame-id]
-   (let [tag (cond-> {:dispatch-id dispatch-id}
-               frame-id (assoc :frame frame-id))]
-     [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
-       :tags (assoc tag :rf.event/v event-vec)}
-      {:id (+ id-base 2) :op-type :rf.event :operation :rf.event/run-start
-       :tags (assoc tag :rf.trace/phase :run-start)}
-      {:id (+ id-base 3) :op-type :rf.event :operation :rf.event/run-end
-       :tags (assoc tag :rf.trace/phase :run-end :duration-ms 4)}
-      {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/do-fx
-       :tags tag}
-      {:id (+ id-base 5) :op-type :rf.fx :operation :rf.fx/handled
-       :tags (assoc tag :rf.fx/id :db)}
-      {:id (+ id-base 6) :op-type :rf.fx :operation :rf.fx/handled
-       :tags (assoc tag :rf.fx/id :dispatch)}
-      {:id (+ id-base 7) :op-type :rf.sub :operation :rf.sub/run
-       :tags (assoc tag :rf.sub/id :sub/foo)}
-      {:id (+ id-base 8) :op-type :rf.view :operation :rf.view/render
-       :tags (assoc tag :rf.view/render-key [:app/root nil])}])))
+   (->> [(teb/dispatched-ev event-vec :ui)
+         (teb/run-end-ev 4)
+         (teb/do-fx-ev {:db {} :fx [[:dispatch [:demo/next]]]})
+         (teb/fx-handled-ev :db {} 0)
+         (teb/fx-handled-ev :dispatch [:demo/next] 0)
+         (teb/sub-run-ev [:sub/foo] true nil 1 1)
+         (teb/view-rendered-ev :app/root [[:sub/foo]] 1
+                               {:render-key [:app/root nil]})]
+        (map-indexed (fn [i ev] (in-run ev (+ id-base i 1) dispatch-id frame-id)))
+        vec)))
 
-;; ---- buffer builders ----------------------------------------------------
-;;
-;; Each builder returns the trace-buffer vector ready to be passed
-;; verbatim to `:rf.xray/sync-trace-buffer`. The seed event in
-;; `core.cljs` writes the vector into the variant frame's app-db
-;; under `:trace-buffer`; the `:rf.xray/trace-buffer` sub then reads
-;; it on the standard reactive path.
-
-(defn n-cascades
-  "Build `n` shallow cascades, each with the canonical 8-row template
-  and a unique `:dispatch-id` / event vector. Useful for cascade-list
-  variants where the panel renders one row per cascade."
+(defn cascades
+  "`n` cascades, each a distinct dispatch run of `[:demo/event-N i]` — one L2
+  event-list row apiece. The seed the chrome, settings and filters variants
+  pass to `:rf.xray/sync-trace-buffer`."
   [n]
   (->> (range n)
-       (mapcat (fn [i]
-                 (cascade-evs (+ 100 i)
-                              [:demo/event-N i]
-                              (* (inc i) 50))))
+       (mapcat (fn [i] (cascade (+ 100 i) [:demo/event-N i] (* (inc i) 50))))
        vec))

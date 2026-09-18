@@ -19,13 +19,21 @@
        yields the panel's data map — non-empty rows for the populated
        variants, the `:no-events` empty-kind for the empty variant.
 
+  It also pins the chrome / settings / filters seeds in
+  `panel-gallery.fixtures` (rf2-y8doi.28): those feed the L2 event list
+  through `:rf.xray/sync-trace-buffer`, and they must project to one
+  visible L2 row per cascade through the SAME grouping the shell uses.
+
   Pure data → data; no React, no live runtime. The testbed namespace
   is on shadow's `:source-paths` so the `:node-test` build's
   `cljs-test$` regex discovers this file."
   (:require [cljs.test :refer-macros [deftest is testing are]]
+            [panel-gallery.fixtures :as gallery-fx]
             [panel-gallery.fixtures-trace :as fx]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
-            [day8.re-frame2-xray.panels.trace-helpers :as h]))
+            [day8.re-frame2-xray.panels.trace-helpers :as h]
+            [day8.re-frame2-xray.self-noise :as self-noise]
+            [day8.re-frame2-xray.spine :as spine]))
 
 (defn- feed-from-history
   "Mirror `:rf.xray/trace-feed` (trace.cljs install!) with no focus
@@ -93,6 +101,21 @@
       (is (= 7 (count rows)) "the flow epoch's trail is 7 rows")
       (is (contains? op-types :rf.flow/computed)
           "the focused epoch surfaces the flow op-type"))))
+
+(deftest chrome-seeds-project-one-l2-row-per-cascade
+  (testing "rf2-y8doi.28 — the seventeen chrome / settings / filters
+            variants seed `(gallery-fx/cascades n)`; grouped the way the
+            `:rf.xray/event-bundles` sub groups it, that is n L2-visible
+            rows, not one hidden `:ungrouped` bucket"
+    (let [bundles (self-noise/filtered-event-bundles (gallery-fx/cascades 3))
+          visible (spine/focusable-event-bundles bundles)]
+      (is (= [[:demo/event-N 0] [:demo/event-N 1] [:demo/event-N 2]]
+             (mapv :event visible))
+          "one visible row per seeded cascade, oldest first")
+      (is (not-any? #(= :ungrouped (:dispatch-id %)) bundles)
+          "no seeded event falls into the hidden :ungrouped bucket")
+      (is (every? :handler visible)
+          "each row carries its handler run-end, so the seed rides the canonical op names"))))
 
 (deftest source-coord-variant-rows-carry-source-coord
   (testing "the source-coord variant's projected rows carry a :source-coord string"
