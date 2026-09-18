@@ -9,7 +9,8 @@
 > **Authority:** the **Figma design wins on look + brand** (Mike: keep the Figma design, don't
 > go off script). This doc — the GitHub-style blue/neutral identity, type scale,
 > visual-encoding — is downstream of the **Figma export** (the `devtools-css` block embedded in
-> `tools/xray/design-reference/xray_devtools_reference.cljs`) and takes precedence on anything *visible*.
+> `tools/xray/design-reference/xray_devtools_reference.cljs`) and takes precedence on anything *visible* —
+> **syntax colour excepted** (§Syntax highlighting: a deliberate departure, rf2-79ojx).
 > [007-UX-IA §Colour system](007-UX-IA.md#colour-system) keeps the **functional semantic accents**
 > the framework needs but the mock didn't render (redacted, pair-origin, perf tiers) + the
 > CSS-custom-property surface. Keep in sync; on the visible chrome the **Figma design wins**.
@@ -23,7 +24,7 @@ hard requirement, not an accident.
 
 **Single accent — no per-mode colour swap:**
 - There is **one** `accent` (GitHub blue): active tab, the chrome stripe, active/selected
-  states, focus ring, the L4 panel header stripe, and `changed`/recompute highlights all read it.
+  states, focus ring, the L4 panel header stripe, and the changed / recompute highlight all read it.
 - The **Dynamic / Static MODE stays a functional mode** (it gates motion — Static collapses the
   180ms tab fade to instant; there are no continuous pulses for it to drop — the machine-active
   one was refused under rf2-2sez0 and the LIVE one never built). It **no longer drives accent
@@ -72,9 +73,7 @@ one edit per token.
 | `warning` | warnings (also drives the filter "N hidden" chrome) | `#d29922` | `#9a6700` |
 | `advisory` | advisories — the lowest Issues severity (calm, cool blue) | `#79c0ff` | `#0550ae` |
 | `success` | success / diff-added | `#3fb950` | `#1a7f37` |
-| `info` | fixed cool categorical blue — distinct from `accent` (spine-paused, sub-run, route-from, syntax-number, the machine TO-highlight) | `#79c0ff` | `#0550ae` |
-| `changed` | a value/sub **changed/recomputed** (alias of `accent`, used sparingly) | *= accent* | *= accent* |
-| `unchanged` | unchanged / short-circuited (alias of `dim`) | *= dim* | *= dim* |
+| `info` | fixed cool categorical blue — distinct from `accent` (spine-paused, sub-run, route-from, the machine TO-highlight, EDN-inspector uuid / regex values) | `#79c0ff` | `#0550ae` |
 
 `error`/`warning`/`success` = the Figma `--devtools-error` / `--devtools-warning` /
 `--devtools-success`.
@@ -85,7 +84,8 @@ one edit per token.
   selected / changed) and `info` is a **fixed categorical** cool blue used where a surface needs
   to read as a distinct peer of the primary accent (the in-flight head rides `accent`; the
   paused head rides `info`; the dispatch op-family rides `accent`, the db / sub families ride
-  `info`). `info` shares `advisory`'s hue — both are the GitHub syntax-number blue.
+  `info`). `info` shares `advisory`'s hue — both are GitHub Primer's syntax-number blue, the
+  Figma block's number colour; Xray's own number colour is `syntax-number` (§Syntax highlighting).
 - **app-db diff:** added → `success`, removed → `error`, changed → `warning` (reuse the
   semantic tokens; no new colours).
 - **Low-opacity row washes:** a few surfaces tint a whole ROW rather than colour text — the
@@ -106,9 +106,9 @@ one edit per token.
   `>` caret in a fixed 10px gutter the focused row paints (background-INDEPENDENT), and a now-PALER
   `bg-issue-row` (alpha lowered to ~10% dark / ~12% light, moved in lock-step) so the darker grey
   reads through the wash. See [`018-Event-Spine.md`](018-Event-Spine.md) §Selected-row visibility.
-- **Views / recompute:** changed/recomputed highlight → `changed` (= `accent`); unchanged /
-  short-circuited → `unchanged` (= `dim`). Use the accent sparingly (the changed node, not whole
-  rows) so the UI doesn't over-saturate.
+- **Views / recompute:** changed/recomputed highlight → `accent`; unchanged / short-circuited →
+  `dim`. There is no separate `changed` / `unchanged` token — read `accent` and `dim` directly. Use
+  the accent sparingly (the changed node, not whole rows) so the UI doesn't over-saturate.
 
 ### Functional categorical hues (carve-out)
 
@@ -135,27 +135,52 @@ lightness) restores the operator's ability to distinguish the two cascade steps 
 glance. Source of truth: `tools/xray/src/day8/re_frame2_xray/theme/tokens.cljc`
 (`:magenta` + `:magenta-pink` keys in both the dark and light maps).
 
-### Syntax highlighting (Figma `devtools-css` block)
+### Syntax highlighting (One Dark / One Light, rf2-79ojx)
 
-EDN / Clojure source rendering reads:
+EDN values (the EDN inspector) and Clojure source text (the handler-source code block) read a
+dedicated `syntax-*` family taken from **One Dark / One Light**, the lineage behind Calva's
+default theme, so a Clojure programmer's eye reads the inspector as syntax-highlighted. The five
+scalar types span at least four hue families (keyword magenta · string green · number orange ·
+boolean gold · nil grey); the inspector's tests pin that against both palettes.
 
-| role | dark | light |
-|---|---|---|
-| keyword | `accent` (`#539bf5`) | `accent` (`#0969da`) |
-| string | `green` (`#3fb950`) | `green` (`#1a7f37`) |
-| number | `info` (`#79c0ff`) | `info` (`#0550ae`) |
-| comment | `text-tertiary` | `text-tertiary` |
+| role | token | dark | light | read by |
+|---|---|---|---|---|
+| keyword | `syntax-keyword` | `#c678dd` | `#a626a4` | values + source |
+| string | `syntax-string` | `#98c379` | `#50a14f` | values + source |
+| number | `syntax-number` | `#d19a66` | `#986801` | values + source |
+| boolean | `syntax-boolean` | `#e5c07b` | `#c18401` | values |
+| nil | `syntax-nil` | `#7f848e` | `#a0a1a7` | values |
+| symbol | `syntax-symbol` | `#61afef` | `#4078f2` | values |
+
+Everything else comes from the chrome palette. Source text: comments and brackets
+`text-tertiary`, builtins / macro heads (`defn`, `let`, `reg-event`, …) `accent`, and the rest —
+plain symbols and `true` / `false` / `nil` — `text-primary`. Values: uuid / regex `info`, fns
+`text-tertiary` italic.
+
+**A deliberate departure from the Figma export.** The Figma `devtools-css` block's `.syntax-*`
+classes are GitHub Primer's (keyword red; string and number both blue), and this table used to
+read keyword `accent`, number `info`: three of five scalar types in the blue family, told apart
+by luminance alone, so the inspector read as monochrome. rf2-79ojx replaced that with the palette
+above. On syntax colour the Figma design does **not** win.
 
 ## Type scale (anchored at 13px)
 
 | token | px | use |
 |---|---|---|
+| `display` | 14 | section headings |
 | `body` | 13 | default UI text (anchor) |
 | `body-tight` | 12 | header chrome, ribbons |
+| `mono-body` | 12 | code / EDN in dense mono rows |
 | `caption` | 11 | hints, secondary labels |
 | `micro` | 10 | badges, tabs |
 
-Sans-serif for UI; **monospace for code / EDN values**.
+The px column is the default. Every size is `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`,
+so overriding `--rf-xray-font-size` rescales the whole scale in lock-step.
+
+Faces: sans-serif (Inter, `sans-stack`) for UI; **monospace (JetBrains Mono, `mono-stack`) for
+code / EDN values**; a Fraunces serif display face (`display-stack`), whose one consumer today is
+the static machines' definition-detail title, set at `body` size. The `display` size and the
+display face are independent.
 
 ## Visual encoding (applies to every panel)
 
@@ -163,8 +188,8 @@ Carry meaning through the **strongest channel first**; treat pictographic icons 
 *secondary* reinforcement, never the primary signal:
 
 - **Node state** (recomputed vs unchanged) → **colour + emphasis on the node**: changed =
-  `changed` (the accent) / filled; unchanged = `unchanged` (`dim`) / outline. A short text
-  tag only if colour alone is ambiguous.
+  `accent` / filled; unchanged = `dim` / outline. A short text tag only if colour alone is
+  ambiguous.
 - **A relationship / short-circuit** → **edge style** (a cut/short-circuited dependency is a
   dashed + greyed edge), not a glyph beside it.
 - **A count / sharing fact** → topology (multiple edges) + a small **`×N`** number.
@@ -181,6 +206,8 @@ Carry meaning through the **strongest channel first**; treat pictographic icons 
 - **Where they live.** `tools/xray/.../theme/tokens.cljc` (+ the runtime CSS-custom-property
   emission in `theme/global-styles`). The Dynamic/Static mode root class no longer flips the
   accent. Consumers read `(:accent tokens)` etc. so a re-skin is a token-table edit. The
+  tables above name the tokens with a documented role; for the full key set (the chrome-ribbon
+  band, the diff row chrome and a few more) read the palettes in `tokens.cljc`. The
   machines-viz chart (`tools/machines-viz/.../theme/tokens.cljc`) mirrors this palette at the
   values level (drift-gate `xray-and-machines-viz-*-palettes-match-values`, rf2-z7ms8) so the
   chart paints the same colours whether embedded by Xray or standalone.
