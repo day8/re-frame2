@@ -53,7 +53,8 @@
 
   Each row carries an `open` source-coord chip (when the registered
   metadata surfaces `:file` / `:line`): `open-in-editor/open-chip`, the
-  same chip the Static Machines and Static Routes rows carry. A click
+  same chip the Static Machines panel and the Static Routes row expand
+  carry. A click
   goes through `open-in-editor/chip-click!` — it opens the editor
   directly when one is configured (the dev-server endpoint first, then
   the editor URI) and shows the editor-hint toast when none is. It

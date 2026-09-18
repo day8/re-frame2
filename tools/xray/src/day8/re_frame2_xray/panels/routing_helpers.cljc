@@ -289,9 +289,10 @@
   slot shape is the slice the framework's `:rf.route/navigate` writes
   into the target frame's runtime-db at `[:rf.runtime/routing :current]`
   (EP-0001 rf2-vzld77 — the route slice is framework-owned runtime-db
-  state, NOT app data): exactly the keys `re-frame.routing.events/
-  merge-route-slice` writes, `{:route-id :params :query :fragment
-  :transition :error :nav-token}`, so a developer following it finds
+  state, NOT app data): exactly the keys
+  `re-frame.routing.events/merge-route-slice` writes, `{:route-id
+  :params :query :fragment :transition :error :nav-token}`, so a
+  developer following it finds
   those keys where real navigation puts them (rf2-y8doi.22 — it used to
   carry an `:id` and a `:path` the slice never holds). The preview fills
   the two it can derive, `:route-id` and the matched `:params`; the rest
