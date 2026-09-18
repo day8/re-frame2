@@ -336,9 +336,10 @@
   (rf/reg-event :rf.xray.static.machines/state-clicked
     (fn [{:keys [db]} [_ _payload]] {:db db}))
 
-  ;; Open-chart-popout — same posture: registered as a no-op slot so
-  ;; the affordance has a landing handler. The pop-out window
-  ;; orchestration rides the second-window UX bead.
+  ;; Open-chart-popout — a reserved no-op slot. The pop-out window
+  ;; orchestration is not built, so `topology.cljs` renders NO pop-out
+  ;; button and nothing dispatches this today (rf2-h6ooa); the id stays
+  ;; registered for the affordance that returns once the window exists.
   (rf/reg-event :rf.xray.static.machines/open-chart-popout
     (fn [{:keys [db]} [_ _machine-id]] {:db db}))
 

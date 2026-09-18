@@ -463,11 +463,14 @@
                                   "rf-xray-machine-canvas-view-mode-toggle"))
             "the retired view-mode toggle never mounts on static")))))
 
-(deftest topology-mode-keeps-popout-and-source-coord-affordances
-  (testing "The Static panel's existing 'open in popout' affordance +
-            source-coord chip still live in the chart-toolbar ABOVE
-            the canvas — they did not absorb into the canvas's own
-            controls toolbar."
+(deftest topology-mode-keeps-toolbar-without-inert-popout
+  (testing "The Static panel's chart-toolbar (source-coord chip) still
+            lives ABOVE the canvas — it did not absorb into the canvas's
+            own controls toolbar.
+
+            rf2-h6ooa — and the 'Pop out' affordance is ABSENT: its
+            handler is a registered no-op (no pop-out window exists), so
+            the button is hidden until it does something."
     (xray-setup!)
     (seed-machines! [:m/a])
     (seed-definitions! {:m/a {:initial :idle
@@ -478,9 +481,9 @@
         (is (some? (rf.test-helpers/find-by-testid tree
                                    "rf-xray-static-machines-topology-toolbar"))
             "static chart-toolbar still mounts above the canvas")
-        (is (some? (rf.test-helpers/find-by-testid tree
-                                   "rf-xray-static-machines-topology-popout"))
-            "Pop-out affordance still present")))))
+        (is (nil? (rf.test-helpers/find-by-testid tree
+                                  "rf-xray-static-machines-topology-popout"))
+            "the inert pop-out affordance is not rendered")))))
 
 ;; -------------------------------------------------------------------------
 ;; (12) Public install — install-fx + hydrate

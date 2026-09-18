@@ -721,10 +721,10 @@
             and everything inside it renders under REAGENT rather than under
             Fresco's codec.
 
-            The three toolbar nodes below exist ONLY if Reagent expanded fn
-            HEADS (`[chart-toolbar …]`, `[popout-affordance …]`, `[chart …]`
-            in `topology.cljs`), each of which Fresco's codec would refuse
-            outright as HD-016; and the canvas host exists only if
+            The nodes below exist ONLY if Reagent expanded fn HEADS
+            (`[chart-toolbar …]`, `[chart …]` in `topology.cljs`), each of
+            which Fresco's codec would refuse outright as HD-016; and the
+            canvas host exists only if
             `machine-canvas/Chart` — an `rf/reg-view`, which grades
             `:invalid` in a Fresco head position exactly as a plain `defn`
             does — rendered too, resolving its own frame from the SAME React
@@ -749,14 +749,17 @@
                 "and `[chart-toolbar …]`, a PLAIN FN in hiccup head position,
                  rendered inside it — Fresco's codec would have refused that
                  head, so this node is the crossing itself")
-            (is (some? (testid container "rf-xray-static-machines-topology-popout"))
-                "as did `[popout-affordance …]` one level deeper, so the island
-                 is a whole Reagent subtree rather than one converted node")
+            (is (nil? (testid container "rf-xray-static-machines-topology-popout"))
+                "rf2-h6ooa — the inert pop-out affordance is NOT committed: its
+                 handler is a registered no-op, so the toolbar hides it until
+                 it does something")
             (is (some? (testid container "rf-xray-machine-canvas-host"))
-                "and `machine-canvas/Chart` — an `rf/reg-view`, the head shape
-                 the codec grades `:invalid` down the same arm as a plain
-                 `defn` — rendered its canvas host, so a reg-view survives
-                 inside the island and resolves its frame from React context")
+                "and `machine-canvas/Chart` — an `rf/reg-view` one level deeper,
+                 under `[chart …]`, the head shape the codec grades `:invalid`
+                 down the same arm as a plain `defn` — rendered its canvas
+                 host, so the island is a whole Reagent subtree rather than one
+                 converted node, and a reg-view survives inside it and resolves
+                 its frame from React context")
             (is (nil? (testid container "rf-xray-static-machines-topology-no-definition"))
                 "NON-VACUITY: the no-definition hint is ABSENT, so the chart
                  arm is the arm that ran")
