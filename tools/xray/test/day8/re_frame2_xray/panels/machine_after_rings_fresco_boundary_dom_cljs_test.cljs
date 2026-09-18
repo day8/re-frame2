@@ -196,6 +196,26 @@
                      {:auth/login fixture-definition}] {:frame :rf/xray})
   (rf/dispatch-sync [:rf.xray/set-now-ms-override-for-test 2000]
                     {:frame :rf/xray})
+  ;; rf2-y8doi.23 — AND SAY WHICH MACHINE IS FOCUSED. The rings sub used
+  ;; to take its machine from `:rf.xray/machine-inspector-data`'s
+  ;; `:selected-id`, whose no-picker default is the ALPHABETICALLY-first
+  ;; registered machine — which is why registering one machine used to be
+  ;; enough here. That default was the defect: the Dynamic panel binds to
+  ;; the FOCUSED EVENT's first transition record and reads no picker, so
+  ;; with two machines registered the rings described one machine while
+  ;; the chart drew another. The sub now reads the focused record, so a
+  ;; row that wants a ring has to focus a machine.
+  (rf/dispatch-sync
+    [:rf.xray/set-epoch-history-for-test
+     [{:epoch-id 1
+       :trace-events
+       [{:id 1 :time 10 :operation :rf.machine/transition
+         :tags {:machine-id           :auth/login
+                :before               {:state :idle :data {}}
+                :after                {:state :authing :data {}}
+                :event                [:auth/submit]
+                :rf.trace/dispatch-id "d-1"}}]}]]
+    {:frame :rf/xray})
   (trace-collector/seed-trace-for-test!
     {:id 1000 :time 1000
      :operation :rf.machine.timer/scheduled
@@ -412,9 +432,12 @@
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_        (setup!)
             ;; Give the composite a DEFINED answer in the application
-            ;; frame — `active-timers-empty-when-no-selection` in the node
-            ;; suite pins that an empty machine override yields `[]` rather
-            ;; than throwing. No timer is seeded: the trace snapshot only
+            ;; frame — `active-timers-empty-when-nothing-is-focused` in
+            ;; the node suite pins that an unfocused panel yields `[]`
+            ;; rather than throwing (rf2-y8doi.23 renamed that row: there
+            ;; is no selection to be empty of any more, since the sub
+            ;; reads the focused event's record). No timer is seeded here
+            ;; either way: the trace snapshot only
             ;; ever lands in `:rf/xray`'s slot (see `seed-one-armed-timer!`),
             ;; so there would be nothing to paint here in any case, and this
             ;; row's precondition is the READ rather than the DOM.

@@ -89,18 +89,30 @@
   The trace shape is the producer's — `:rf.machine/transition` with the
   `:before` / `:after` snapshot pair `commit-or-finalize` emits, which is
   what `transition-record-from-trace` reads. Same fixture shape the
-  prev/next rows in `machine_inspector_view_cljs_test` use."
-  [machine-id]
-  (rf/dispatch-sync
-    [:rf.xray/set-epoch-history-for-test
-     [{:epoch-id 1
-       :trace-events
-       [{:id 1 :time 10 :operation :rf.machine/transition
-         :tags {:machine-id           machine-id
-                :before               {:state :idle :data {}}
-                :after                {:state :authing :data {}}
-                :event                [:auth/submit]
-                :rf.trace/dispatch-id "d-1"}}]}]]))
+  prev/next rows in `machine_inspector_view_cljs_test` use.
+
+  `dispatch-id` is the seeded epoch's SETTLING event-bundle id, and the
+  2-arity exists for exactly one row. `:rf.xray/focus` is the COMPOSED
+  focus: in LIVE + unpaused mode `compose-focus` derives `:epoch-id`
+  from the head event-bundle's settling epoch and ignores the stored
+  slot. A row that also seeds a `:rf.event/dispatched` trace therefore
+  gets a head bundle, and unless THIS epoch is the one that bundle
+  settles into, `focused-epoch-record` answers nil and the panel sees no
+  machine at all. `spine/epoch-id-for-event-bundle` makes the link
+  through `common/dispatch-id-of-epoch`, which walks `:trace-events` for
+  the first `:rf.trace/dispatch-id` — so the two ids have to agree."
+  ([machine-id] (focus-machine! machine-id "d-1"))
+  ([machine-id dispatch-id]
+   (rf/dispatch-sync
+     [:rf.xray/set-epoch-history-for-test
+      [{:epoch-id 1
+        :trace-events
+        [{:id 1 :time 10 :operation :rf.machine/transition
+          :tags {:machine-id           machine-id
+                 :before               {:state :idle :data {}}
+                 :after                {:state :authing :data {}}
+                 :event                [:auth/submit]
+                 :rf.trace/dispatch-id dispatch-id}}]}]])))
 
 (defn- push-scheduled!
   [id machine-id state delay epoch]
@@ -484,7 +496,11 @@
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
       (override-definitions! {:auth/login fixture-definition})
-      (focus-machine!        :auth/login)
+      ;; Settle the seeded epoch into the SAME event-bundle the
+      ;; dispatched trace below mints (`:rf.trace/dispatch-id 1`), so the
+      ;; composed focus's LIVE head-tracking lands on this epoch rather
+      ;; than on one that does not exist. See `focus-machine!`.
+      (focus-machine!        :auth/login 1)
       (pin-now-ms! 9999)
       (push-scheduled! 1000 :auth/login :idle 5000 0)
       ;; Focus defaults to the head event-bundle when nothing has
