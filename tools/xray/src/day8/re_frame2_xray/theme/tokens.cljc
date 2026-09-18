@@ -524,9 +524,11 @@
   rendering at BODY type-scale, not a heading.
 
   This read \"only L4 panel <h1>s reach for this face\" until
-  rf2-09c8s. Those headings are GONE — `[:h1` occurs zero times across
-  `tools/xray/src` (controls: `[:h2` 5, `[:div` 466) — so the scope
-  named a surface that no longer exists.
+  rf2-09c8s. Those headings are GONE — `[:h1` occurs zero times in
+  the CODE of `tools/xray/src`, comments and strings stripped
+  (controls: `[:h2` 5, `[:div` 456); the only raw hits are prose
+  quoting the needle, this sentence among them — so the scope named a
+  surface that no longer exists.
 
   Fallback chain: `ui-serif` is the modern serif system pointer
   (Safari/Chrome resolve it to the platform's native serif —
