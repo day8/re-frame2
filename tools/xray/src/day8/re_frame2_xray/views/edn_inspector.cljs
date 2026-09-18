@@ -545,12 +545,20 @@
   (instance? cljs.core/MapEntry v))
 
 (defn record?*
-  "True for a defrecord instance. CLJS records carry the
-  `cljs$lang$type` static field."
+  "True for a defrecord instance. Delegates to `cljs.core/record?`,
+  which tests `IRecord` satisfaction — the only reliable record
+  predicate on this host. The `*` suffix avoids shadowing the core
+  name for callers that `:refer` it, matching `map-entry?*` above.
+
+  It read `(.-cljs$lang$type v)` off the INSTANCE until rf2-y8doi.24.
+  `defrecord` sets that static field on the CONSTRUCTOR function, and
+  a property set on a constructor is not on its prototype, so no
+  instance ever carries it: the predicate answered false for every
+  record, `collection-kind` classified them `:map`, and the whole
+  `:record` render path below — `delim`, `record-tag`'s `#tag` prefix,
+  `children-of`, `child-count`, `children-of-pair` — was unreachable."
   [v]
-  (and (map? v)
-       (try (some? (.-cljs$lang$type v))
-            (catch :default _ false))))
+  (record? v))
 
 (defn collection-kind
   "Classify a value into one of #{:map :vector :list :set :map-entry
@@ -793,6 +801,67 @@
        glyph]
       [:span {:style gutter-body-style} body]])))
 
+;; =========================================================================
+;; bounded printing + counting (rf2-y8doi.24)
+;; =========================================================================
+;;
+;; The inspector renders whatever is in app-db, and app-db may hold an
+;; INFINITE lazy seq — `(range)` under one key is enough. Every bare
+;; `pr-str` and every bare `count` on such a value never returns, which
+;; does not present as an error: the tab simply freezes. The two
+;; helpers below are the bounded forms; the rule is that no preview,
+;; annotation or child-count path may use the bare versions.
+;;
+;; These bound the WORK, not the ANSWER. Where the answer must stay
+;; exact for a value that is genuinely small — the inline-width
+;; estimate — see `estimated-inline-px`, which decides with a bounded
+;; walk and only then measures exactly.
+
+(def ^:private preview-print-length
+  "`*print-length*` for every preview / annotation print. Well past
+  what a one-line chip can show, so the bound is invisible on real
+  values and only bites on a runaway one."
+  32)
+
+(def ^:private preview-print-level
+  "`*print-level*` for every preview / annotation print — a deeply
+  nested value is unreadable inline long before this depth."
+  6)
+
+(defn- safe-pr-str
+  "`pr-str` that always returns: bounded by `*print-length*` /
+  `*print-level*`, so an infinite seq prints its first
+  `preview-print-length` elements and stops. The `catch` fallback runs
+  INSIDE the binding, because `str` on a collection prints through the
+  same vars and would otherwise be the unbounded call this exists to
+  remove."
+  [v]
+  (binding [*print-length* preview-print-length
+            *print-level*  preview-print-level]
+    (try (pr-str v) (catch :default _ (str v)))))
+
+(def ^:private count-bound
+  "Element ceiling for every 'how many children' question. Matches the
+  `(take 1001)` bound `child-count` has always carried, so a header
+  count and a walker's row count agree on the same ceiling."
+  1001)
+
+(defn- bounded-count*
+  "`count` that never realises more than `count-bound` elements. O(1)
+  and EXACT for anything `counted?` — vectors, maps, sets, records —
+  so the bound only costs anything on a lazy seq, which is the only
+  shape that can be infinite.
+
+  Delegates to `cljs.core/bounded-count`, which already implements
+  exactly this; the wrapper adds the arity these call sites want and
+  the `catch`, since a broken `seq` impl must degrade to 0 rather than
+  blank the inspector. The `*` suffix avoids shadowing the core name,
+  per `map-entry?*` and `record?*` above."
+  [v]
+  (try
+    (bounded-count count-bound v)
+    (catch :default _ 0)))
+
 (def ^:private change-annotation-style
   "Style for the inline `← was <prior>` chip rendered to the
   right of a diff'd leaf."
@@ -808,8 +877,7 @@
   [before]
   [:span {:data-rf-diff-annotation "1"
           :style change-annotation-style}
-   (str "← was " (try (pr-str before)
-                      (catch :default _ (str before))))])
+   (str "← was " (safe-pr-str before))])
 
 ;; =========================================================================
 ;; scalar rendering (no expansion)
@@ -896,7 +964,7 @@
     :sentinel-redacted
     [:span {:data-rf-type "rf-redacted"
             :data-testid  "rf-xray-edn-inspector-redacted"
-            :title        "Redacted — not revealable (spec/015)"
+            :title        "Redacted — not revealable"
             :style {:display       "inline-flex"
                     :align-items   "center"
                     :gap           "4px"
@@ -915,7 +983,7 @@
     (let [{:keys [bytes]} (val (first v))]
       [:span {:data-rf-type "rf-redacted-size"
               :data-testid  "rf-xray-edn-inspector-redacted-size"
-              :title        "Redacted with size — not revealable (spec/015)"
+              :title        "Redacted with size — not revealable"
               :style {:display       "inline-flex"
                       :align-items   "center"
                       :gap           "4px"
@@ -942,7 +1010,7 @@
     (let [{:keys [bytes type hint]} (val (first v))]
       [:span {:data-rf-type "rf-size-large-elided"
               :data-testid  "rf-xray-edn-inspector-large"
-              :title        (cond-> "Large value elided (spec/015)"
+              :title        (cond-> "Large value elided"
                               type (str " · " (name type))
                               hint (str "\n" hint))
               :style {:display       "inline-flex"
@@ -1059,13 +1127,13 @@
     :sentinel-large           "large"
     (:map :vector :list :seq :set :map-entry :record)
     (let [{:keys [open close]} (delim (collection-kind v))
-          n (try (count v) (catch :default _ 0))
+          n (bounded-count* v)
           noun (case (collection-kind v)
                  :map " keys"
                  :record " keys"
                  " items")]
       (str open "…" n noun close))
-    (try (pr-str v) (catch :default _ (str v))))))
+    (safe-pr-str v))))
 
 (defn inline-preview-string
   "Build a one-line preview of a collection. Returns a string; not
@@ -1082,8 +1150,8 @@
   (let [kind (collection-kind v)
         {:keys [open close]} (delim kind)
         fallback-n  (cond
-                      (= kind :map) (count v)
-                      (coll? v)     (try (count v) (catch :default _ 0))
+                      (= kind :map) (bounded-count* v)
+                      (coll? v)     (bounded-count* v)
                       :else         0)
         fallback-noun (case kind
                         :map     " keys"
@@ -1268,8 +1336,12 @@
         :else nil))
 
     (:vector :list :seq)
-    (let [a-vec (when (sequential? after)  (vec after))
-          b-vec (when (sequential? before) (vec before))]
+    ;; rf2-y8doi.24 — `(take count-bound …)` before `vec`, the same
+    ;; bound `child-count` carries. A bare `vec` of an infinite lazy
+    ;; seq never returns, and this walker runs on both sides of every
+    ;; diff'd sequential.
+    (let [a-vec (when (sequential? after)  (vec (take count-bound after)))
+          b-vec (when (sequential? before) (vec (take count-bound before)))]
       (cond
         (and a-vec b-vec)
         (let [n (max (count a-vec) (count b-vec))]
@@ -1426,12 +1498,15 @@
         b (count b)
         :else 0))
     (:vector :list :seq)
+    ;; rf2-y8doi.24 — `bounded-count`, matching `children-of-pair`'s
+    ;; `(take count-bound …)` so the header count and the row count
+    ;; agree; a bare `count` of an infinite lazy seq never returns.
     (let [a (when (sequential? after)  after)
           b (when (sequential? before) before)]
       (cond
-        (and a b) (max (count (vec a)) (count (vec b)))
-        a (count (vec a))
-        b (count (vec b))
+        (and a b) (max (bounded-count* a) (bounded-count* b))
+        a (bounded-count* a)
+        b (bounded-count* b)
         :else 0))
     :set
     (let [a (when (set? after)  after)
@@ -1453,7 +1528,7 @@
     :vector     (count v)
     :set        (count v)
     :map-entry  2
-    (:list :seq) (try (count (take 1001 v)) (catch :default _ 0))
+    (:list :seq) (bounded-count* v)
     0))
 
 (defn- key-segment
@@ -1526,16 +1601,93 @@
   Public so tests can assert the new default without re-deriving it."
   8)
 
+(def inline-estimate-char-cap
+  "Default character ceiling for the inline-width walk when no explicit
+  budget is supplied. 4096 chars is ~28,672px at `mono-char-width-px`
+  — two orders of magnitude past any real column — so a value that
+  reaches it can never be made to fit, and stopping there costs no
+  accuracy that `would-fit-inline?` can observe. Public so tests can
+  pin the ceiling without re-deriving it."
+  4096)
+
+(defn- estimate-chars!
+  "Accumulate `value`'s inline character count into the volatile
+  `total`, STOPPING as soon as the running total passes `cap`.
+
+  Every element contributes at least one character, so the walk
+  terminates after at most `cap` steps whatever it is handed — an
+  infinite lazy seq included. That is the whole point: `pr-str` on
+  `(range)` never returns.
+
+  Scalars are measured by their own `pr-str` (exact); containers are
+  charged 2 for the delimiters and 1 per element gap. That undercounts
+  a map's `\", \"` separator by one per entry and omits a record's
+  `#tag` prefix, which is why this is the DECIDER and not the answer —
+  `estimated-inline-px` measures exactly once this says the value is
+  small enough to measure."
+  [value total cap]
+  (when (<= @total cap)
+    (if-not (coll? value)
+      (vswap! total + (count (try (pr-str value)
+                                  (catch :default _ (str value)))))
+      (let [entries? (map? value)]
+        (vswap! total + 2)
+        (loop [xs (seq value)]
+          (when (and xs (<= @total cap))
+            (let [x (first xs)]
+              (if entries?
+                ;; `first`/`second` rather than `key`/`val`: a record's
+                ;; entries present as 2-vectors on this host.
+                (do (estimate-chars! (first x) total cap)
+                    (vswap! total + 1)
+                    (estimate-chars! (second x) total cap))
+                (estimate-chars! x total cap))
+              (vswap! total + 1)
+              (recur (next xs)))))))))
+
 (defn estimated-inline-px
   "Estimate the inline-rendered width of `value` in CSS pixels. Pure
-  function — `pr-str` length × `mono-char-width-px`. Returns 0 when
-  `pr-str` throws (cyclic value, broken pr-method). Public so tests
-  + future width-aware callers can probe the estimate without re-
-  deriving the math."
-  [value]
-  (try
-    (* mono-char-width-px (count (pr-str value)))
-    (catch :default _ 0)))
+  function. Returns 0 when the measurement throws (cyclic value,
+  broken pr-method).
+
+  ## rf2-y8doi.24 — decide with a bounded walk, then measure exactly
+
+  This was `(* mono-char-width-px (count (pr-str value)))`, and it
+  runs on EVERY render to answer a yes/no question (does the inline
+  form fit the column?). Two costs: it serialised the whole subtree —
+  the entire app-db, per render, to decide a boolean — and on an
+  infinite lazy seq it never returned at all, freezing the tab with no
+  error anywhere.
+
+  So `estimate-chars!` walks first and bails the moment the running
+  count passes the budget. Under budget, the value is provably small
+  and `pr-str` is both safe and cheap, so the answer stays EXACTLY
+  `char-count × mono-char-width-px` as before — no existing estimate
+  moves. Over budget, the result SATURATES to `cap × mono-char-width-
+  px`, which is deliberately far wider than any column: the saturated
+  answer can only ever read as 'does not fit', never as 'fits'. An
+  estimate that capped LOW would be the dangerous direction — it would
+  render a huge value inline and overflow the column.
+
+  `budget-px` (2-arity) lets `would-fit-inline?` bail at the real
+  column width rather than the generous default ceiling. Public so
+  tests + width-aware callers can probe the estimate without
+  re-deriving the math."
+  ([value] (estimated-inline-px value nil))
+  ([value budget-px]
+   (try
+     (let [cap   (if (and (number? budget-px) (pos? budget-px))
+                   (min inline-estimate-char-cap
+                        (inc (quot budget-px mono-char-width-px)))
+                   inline-estimate-char-cap)
+           total (volatile! 0)]
+       (estimate-chars! value total cap)
+       (if (> @total cap)
+         ;; Saturate: wider than the budget by construction, so every
+         ;; caller reads 'does not fit' without the exact width.
+         (* mono-char-width-px inline-estimate-char-cap)
+         (* mono-char-width-px (count (pr-str value)))))
+     (catch :default _ 0))))
 
 (defn would-fit-inline?
   "True when the estimated inline width of `value` fits the
@@ -1549,7 +1701,12 @@
   (boolean
     (and (number? available-width-px)
          (pos? available-width-px)
-         (<= (+ (estimated-inline-px value) safety-margin-px)
+         ;; rf2-y8doi.24 — hand the column width down as the walk's
+         ;; budget, so a value far too wide to fit stops being measured
+         ;; the moment it passes the column rather than being
+         ;; serialised in full to say so.
+         (<= (+ (estimated-inline-px value available-width-px)
+                safety-margin-px)
              available-width-px))))
 
 (defn default-expanded?
@@ -1845,6 +2002,39 @@
     (.preventDefault e)
     (.stopPropagation e)))
 
+(defn- toggle-keydown
+  "`:on-key-down` for the `▸`/`▾` toggle glyph, the keyboard sibling of
+  `swallow-dblclick` above (rf2-y8doi.24).
+
+  The triangle announces itself as `role=\"button\"` with `tabIndex 0`,
+  so a keyboard user tabs to it and presses Enter expecting the node to
+  expand. Without this handler the keydown bubbles to the enclosing
+  zoomable container's `:on-key-down` (`zoom-trigger-attrs`) and the
+  inspector RE-ROOTS instead — the announced affordance and the actual
+  behaviour disagreed. Space did nothing at all: a `<span>` with
+  `role=\"button\"` gets no synthetic click from the UA the way a real
+  `<button>` does.
+
+  Bare Enter / Space only — any modifier passes through untouched so
+  the surrounding spine bindings keep working, exactly as
+  `zoom-trigger-attrs` leaves them. `preventDefault` suppresses Space's
+  native page-scroll; `stopPropagation` is what keeps the zoom handler
+  off this gesture.
+
+  `\" \"` is the modern `KeyboardEvent.key` for Space; `\"Spacebar\"`
+  is the legacy spelling older engines still emit."
+  [toggle-fn]
+  (fn [^js e]
+    (when (and e
+               (contains? #{"Enter" " " "Spacebar"} (.-key e))
+               (not (.-ctrlKey e))
+               (not (.-metaKey e))
+               (not (.-altKey e))
+               (not (.-shiftKey e)))
+      (.preventDefault e)
+      (.stopPropagation e)
+      (toggle-fn e))))
+
 (defn- collapsed-summary
   "Right-of-triangle summary for a collapsed collection. Shows an
   inline preview if any first elements fit; falls back to the
@@ -2049,6 +2239,7 @@
     (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
              [:span {:on-click   toggle-fn
                      :on-double-click swallow-dblclick
+                     :on-key-down (toggle-keydown toggle-fn)
                      :role       "button"
                      :tabIndex   0
                      :aria-expanded false
@@ -2112,6 +2303,7 @@
     (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
              [:span {:on-click   toggle-fn
                      :on-double-click swallow-dblclick
+                     :on-key-down (toggle-keydown toggle-fn)
                      :role       "button"
                      :tabIndex   0
                      :aria-expanded true
@@ -2138,6 +2330,7 @@
       (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
                [:span {:on-click   toggle-fn
                        :on-double-click swallow-dblclick
+                       :on-key-down (toggle-keydown toggle-fn)
                        :role       "button"
                        :tabIndex   0
                        :aria-expanded false
@@ -2720,6 +2913,39 @@
                   :style body-block-style}
             body])]))))
 
+(defn- leaf-diff-op
+  "The diff op for one scalar leaf — `:added` / `:removed` /
+  `:modified` / `:same` / `:same-shifted` / `:children`.
+
+  Extracted from `render-leaf-with-diff` under rf2-y8doi.24 so the
+  protocol seam in `render-node` can ask the SAME question the
+  renderer will answer with, rather than re-deriving it and drifting.
+  Pure.
+
+  rf2-8pfkk — the STRUCTURAL sentinel is authoritative for one-sided
+  slots, OVERRIDING the projection. A slot whose `value` is
+  `::missing` does not exist in the after-tree — that is the
+  definition of a removal, full stop; symmetric for `before`
+  `::missing` (an addition). The projection's per-path op CANNOT be
+  trusted to agree: the engine anchors a `dissoc`-to-`{}` as a
+  `:children`/`:removed` op on the surviving PARENT path and leaves
+  the removed child slot classified `:children` (it has its own
+  `:container-ops` entry for the ghost subtree). Without this override
+  the leaf fell through `case op`'s default branch and rendered
+  `(render-scalar ::missing)` — leaking the internal sentinel keyword
+  (`:day8…edn-inspector/missing`) into the output.
+  `removed-ancestor?` carries the same force down a removed container
+  ghost so every descendant reads `:removed` (the symmetric of
+  rf2-bufw2's `:added` inheritance)."
+  [{:keys [value before projection path removed-ancestor?]}]
+  (cond
+    removed-ancestor?    :removed
+    (= value ::missing)  :removed
+    (= before ::missing) (if (= value ::missing) :same :added)
+    projection           (engine/op-at projection (vec (or path [])))
+    (= before value)     :same
+    :else                :modified))
+
 (defn- render-leaf-with-diff
   "Render a scalar leaf, wrapped in the diff row chrome when `diff?`
   is truthy. Returns hiccup; the gutter-row wrapper paints wash +
@@ -2769,33 +2995,25 @@
   change (R2 key add/remove) reads as a single banded row. Without
   suppression, the inner wash overlaps the outer cell wash and the
   value half reads darker than the key half. Only the gutter glyph
-  and per-token text colour remain on the leaf side."
-  [{:keys [value before diff? projection path slot-anchored? removed-ancestor?]}]
+  and per-token text colour remain on the leaf side.
+
+  ## rf2-y8doi.24 — `:scalar-fn`
+
+  The token renderer for the PRESENT value, defaulting to
+  `render-scalar`. `render-node` passes a variant that consults
+  `IXrayEdnInspector` first, so a value with a consumer formatter (a
+  uuid, a `js/Date`) keeps its custom header while still wearing the
+  diff row chrome. It used to have to choose: the protocol seam sat
+  ahead of the diff `cond` and won outright, so every modified uuid
+  and inst leaf rendered with NO `~` glyph and NO `← was` chip."
+  [{:keys [value before diff? projection path slot-anchored? removed-ancestor?
+           scalar-fn]
+    :or   {scalar-fn render-scalar}}]
   (if-not diff?
-    (render-scalar value)
-    (let [;; rf2-8pfkk — the STRUCTURAL sentinel is authoritative for
-          ;; one-sided slots, OVERRIDING the projection. A slot whose
-          ;; `value` is `::missing` does not exist in the after-tree —
-          ;; that is the definition of a removal, full stop; symmetric
-          ;; for `before` `::missing` (an addition). The projection's
-          ;; per-path op CANNOT be trusted to agree: the engine anchors
-          ;; a `dissoc`-to-`{}` as a `:children`/`:removed` op on the
-          ;; surviving PARENT path and leaves the removed child slot
-          ;; classified `:children` (it has its own `:container-ops`
-          ;; entry for the ghost subtree). Without this override the
-          ;; leaf fell through `case op`'s default branch and rendered
-          ;; `(render-scalar ::missing)` — leaking the internal sentinel
-          ;; keyword (`:day8…edn-inspector/missing`) into the output.
-          ;; `removed-ancestor?` carries the same force down a removed
-          ;; container ghost so every descendant reads `:removed` (the
-          ;; symmetric of rf2-bufw2's `:added` inheritance).
-          op (cond
-               removed-ancestor?    :removed
-               (= value ::missing)  :removed
-               (= before ::missing) (if (= value ::missing) :same :added)
-               projection           (engine/op-at projection (vec (or path [])))
-               (= before value)     :same
-               :else                :modified)
+    (scalar-fn value)
+    (let [op (leaf-diff-op {:value value :before before
+                            :projection projection :path path
+                            :removed-ancestor? removed-ancestor?})
           ;; rf2-8pfkk — the value actually painted is always the
           ;; PRESENT side of the (before, value) pair. `::missing` is an
           ;; internal absence marker, not a value, so it must never be
@@ -2839,7 +3057,7 @@
         :added
         (gutter-row :added
                     [:span {:data-rf-diff-op "added"}
-                     (render-scalar value)]
+                     (scalar-fn value)]
                     chrome-opts)
         :removed
         ;; The struck-through value is the PRESENT side: the BEFORE side
@@ -2851,7 +3069,7 @@
         (gutter-row :removed
                     [:span {:data-rf-diff-op "removed"
                             :style {:text-decoration "line-through"}}
-                     (render-scalar present-value)]
+                     (scalar-fn present-value)]
                     chrome-opts)
         :modified
         (gutter-row :modified
@@ -2860,7 +3078,7 @@
                                     :align-items "baseline"
                                     :flex-wrap "wrap"
                                     :gap "4px"}}
-                     (render-scalar value)
+                     (scalar-fn value)
                      ;; R8 curated suffix for one-sided redaction; R7
                      ;; mini-rendered suffix for type changes; R1
                      ;; default for plain scalar mods.
@@ -2916,7 +3134,7 @@
                             :style {:display "inline-flex"
                                     :align-items "baseline"
                                     :gap "8px"}}
-                     (render-scalar present-value)
+                     (scalar-fn present-value)
                      ;; R6: `(was N)` muted suffix.
                      (when was-index
                        [:span {:data-rf-diff-was-index (str was-index)
@@ -2930,14 +3148,14 @@
         (gutter-row :same
                     [:span {:data-rf-diff-op "same"
                             :style {:color (:text-tertiary tokens)}}
-                     (render-scalar present-value)]
+                     (scalar-fn present-value)]
                     chrome-opts)
         ;; Default — paint as :same so unknown ops degrade gracefully.
         ;; `present-value` keeps the internal `::missing` sentinel out of
         ;; the output even if an unexpected op ever reaches here.
         (gutter-row :same
                     [:span {:data-rf-diff-op (name op)}
-                     (render-scalar present-value)]
+                     (scalar-fn present-value)]
                     chrome-opts)))))
 
 (defn render-node
@@ -2990,19 +3208,54 @@
   [{:keys [value before diff? projection panel-id mount-id path depth expansion-map
            dispatch-fn zoomable? zoom-path-prefix opts slot-anchored? removed-ancestor?]
     :or   {depth 0 path [] zoom-path-prefix []}}]
-  (or
+  (let [;; rf2-y8doi.24 — the protocol seam and diff mode used to be
+        ;; mutually exclusive, and the protocol won. It sat ahead of
+        ;; the `cond` below as a bare `or`, so ANY value with an
+        ;; `IXrayEdnInspector` formatter short-circuited the diff
+        ;; render entirely — and the widget ships default formatters
+        ;; for uuid and `js/Date` (see
+        ;; `views.edn-inspector-default-formatters`), which is every
+        ;; `:session-id` and every `:updated-at` in a typical app-db.
+        ;; A changed one rendered its pretty custom header with no `~`
+        ;; glyph, no wash, no stripe and no `← was` chip: invisible in
+        ;; the one mode whose whole job is showing what changed.
+        ;;
+        ;; The seam now yields whenever the leaf is actually part of a
+        ;; change, and the diff renderer takes the consumer's header as
+        ;; its `:scalar-fn` — so the custom rendering survives INSIDE
+        ;; the diff chrome rather than instead of it. An unchanged leaf
+        ;; (`:same`) keeps the plain protocol node, which is both
+        ;; cheaper and what the operator already knows.
+        proto-node-opts  {:value value
+                          :panel-id panel-id
+                          :mount-id mount-id
+                          :path path
+                          :depth depth
+                          :expansion-map expansion-map
+                          :opts opts}
+        ;; Token renderer for a leaf: the consumer's header when the
+        ;; value has one, else the built-in coloured token. `::missing`
+        ;; is an absence marker, never a value, so it never reaches a
+        ;; consumer impl.
+        leaf-scalar-fn   (fn [v]
+                           (or (when (and (not= v ::missing)
+                                          (ddp/satisfies-xray-edn-inspector? v))
+                                 (ddp/xray-render-header
+                                   v (assoc proto-node-opts :value v)))
+                               (render-scalar v)))
+        protocol-wins?   (and (not= value ::missing)
+                              (ddp/satisfies-xray-edn-inspector? value)
+                              (or (not diff?)
+                                  (= :same (leaf-diff-op
+                                             {:value value :before before
+                                              :projection projection :path path
+                                              :removed-ancestor? removed-ancestor?}))))]
+   (or
     ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
     ;; result falls through to built-ins. Bound to the same testid
     ;; contract as the built-in renderer so panel chrome doesn't shift.
-    (when (and (not= value ::missing)
-               (ddp/satisfies-xray-edn-inspector? value))
-      (render-protocol-node {:value value
-                             :panel-id panel-id
-                             :mount-id mount-id
-                             :path path
-                             :depth depth
-                             :expansion-map expansion-map
-                             :opts opts}))
+    (when protocol-wins?
+      (render-protocol-node proto-node-opts))
     (cond
       ;; rf2-8pfkk — inside a removed container ghost. The `before` side
       ;; was collapsed to `::missing` when we re-rooted the ghost as
@@ -3031,7 +3284,8 @@
           (render-leaf-with-diff {:value value :before ::missing :diff? true
                                   :projection projection :path path
                                   :slot-anchored? slot-anchored?
-                                  :removed-ancestor? true})))
+                                  :removed-ancestor? true
+                                  :scalar-fn leaf-scalar-fn})))
 
       ;; Diff mode: removed slot — render the prior value struck-through
       ;; IN PLACE (the universal diff idiom). The `value` side is
@@ -3065,7 +3319,8 @@
                              :removed-ancestor? true})
           (render-leaf-with-diff {:value ::missing :before before :diff? true
                                   :projection projection :path path
-                                  :slot-anchored? slot-anchored?})))
+                                  :slot-anchored? slot-anchored?
+                                  :scalar-fn leaf-scalar-fn})))
 
       ;; Diff mode: added slot at a container → render the new
       ;; container in green via the normal recursive path with `op
@@ -3089,7 +3344,8 @@
                              :projection projection})
           (render-leaf-with-diff {:value value :before ::missing :diff? true
                                   :projection projection :path path
-                                  :slot-anchored? slot-anchored?})))
+                                  :slot-anchored? slot-anchored?
+                                  :scalar-fn leaf-scalar-fn})))
 
       :else
       (let [kind (collection-kind value)]
@@ -3113,7 +3369,8 @@
                                   :diff? (boolean diff?)
                                   :projection projection
                                   :path path
-                                  :slot-anchored? slot-anchored?}))))))
+                                  :slot-anchored? slot-anchored?
+                                  :scalar-fn leaf-scalar-fn})))))))
 
 ;; =========================================================================
 ;; mount-id generator + public entry — edn-inspector (form-2 component)
@@ -3518,7 +3775,15 @@
     {:data-rf-zoom-target "1"
      :tab-index           0
      :aria-label          (str "Zoom into " (pr-str path))
-     :title               "Double-click or press Enter to zoom into this node"
+     ;; rf2-y8doi.24 — was "Double-click or press Enter to zoom into
+     ;; this node". `tools/xray/spec/Conventions.md` §Tooltip
+     ;; discipline: tooltips carry SHORTCUTS, not descriptions, and its
+     ;; own good example is the bare `"Re-run (R)"` keybinding form.
+     ;; The gesture is genuinely non-obvious and has no iconographic
+     ;; alternative (the `⊙` button was removed), so §The rule keeps a
+     ;; tooltip here — it is the narration that goes, not the hint.
+     ;; The `aria-label` above already carries the semantics for AT.
+     :title               "Zoom in (Enter)"
      :on-double-click     (fn [^js e]
                             (when e
                               ;; Suppress the native double-click text
@@ -4349,7 +4614,7 @@
   ([value] (mini value 80))
   ([value max-len]
    (let [kind (collection-kind value)
-         pr-text (try (pr-str value) (catch :default _ (str value)))
+         pr-text (safe-pr-str value)
          truncated (if (<= (count pr-text) max-len)
                      pr-text
                      (str (subs pr-text 0 max-len) "…"))]
