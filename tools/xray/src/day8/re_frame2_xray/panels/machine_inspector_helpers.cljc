@@ -14,25 +14,37 @@
 
   ## What this panel surfaces (per tools/xray/spec/003-Machine-Inspector.md)
 
-  Per spec/003-Machine-Inspector.md the panel's minimum surface is:
+  Per 003 §Post-collapse Dynamic panel shape the panel is event-driven:
+  it binds to the machine the FOCUSED EVENT targets and renders the
+  prev/next nav, the shared event-handler mini-pipeline and the
+  topology chart, or else one of two empty states (no machines
+  registered; `empty-state-text`).
 
-    1. **Machine picker** — a dropdown over the registered machine-ids
-       (Spec 005 §Querying machines). Switching the selection re-binds the chart
-       to the new machine. Each picker
-       option shows machine-id + current-state.
+    1. **Machine picker** — REMOVED by rf2-y9xmf (003 §What is NOT in
+       the Dynamic panel post-rf2-y9xmf). The machine comes from the
+       focused event: `project-focused-event-transitions` folds its
+       cascade and `pick-focused-transition` takes the first record.
+       `pick-selected` still resolves `project-data`'s `:selected-id`
+       from the `:selected-machine-id` slot (else the first row), but
+       the panel reads nothing from `project-data` except
+       `:empty-kind`.
 
-    2. **MachineChart placeholder** — a `[viz/MachineChart {...}]`
-       embed per `tools/machines-viz/spec/API.md`. **At v1 the
-       `tools/machines-viz/` implementation does not exist** (only the
-       spec scaffold landed via rf2-x50eu). The panel mounts a
-       placeholder that renders the prop summary as text — the
-       contract is what matters here. When the impl lands the
-       placeholder swaps for the real component without touching the
-       panel chrome.
+    2. **MachineChart** — the real machines-viz component, not a
+       placeholder. `panels/machine_canvas.cljs` requires
+       `day8.re-frame2-machines-viz.chart` and wraps its
+       `MachineChart`; `machine_inspector.cljs`'s
+       `focused-event-section` mounts that as
+       `machine-canvas/Chart-view`, building its props from the
+       focused-event record. `chart-props` (below) is not on that path:
+       it fills `project-data`'s `:chart-props` slot, which no view
+       reads.
 
-    3. **Active state** — read off `[:rf/machine <id>]` (Spec 005
-       §Subscribing to machines via the :rf/machine sub), surfaced on
-       the picker row + in the placeholder's prop summary.
+    3. **Active state** — highlighted on the chart from the
+       focused-event record: `:from-highlight` / `:to-highlight` for a
+       transition, `:current-state` for a birth or a no-op. The live
+       snapshots still reach `project-data` (each row's `:state`, and
+       the `:current-state-override` in `chart-props`), but no view
+       renders either.
 
     4. **Transition history ribbon** — REMOVED by rf2-y9xmf, with the
        rest of the Dynamic panel's ribbons. `project-transitions` still
@@ -44,11 +56,11 @@
 
     - No source-coord jumps (the cross-panel jump API hasn't
       stabilised yet — same as the routes panel's v1 deferral).
-    - No `:spawn-all` viz / `:after` countdown rings — those live in
-      `tools/machines-viz/` per Spec 003 §Embedding posture. This panel
+    - No `:spawn-all` viz / `:after` countdown rings drawn here — those
+      live in `tools/machines-viz/` (`chart/overlays/`). This panel
       embeds the component; the rendering is the component's job. The
-      placeholder simply surfaces the props the real component would
-      consume.
+      `:after` rings reach the chart through
+      `panels/machine_after_rings.cljs`.
     - No share affordance (rf2-nugvv removed it — the Machine panel was
       the sole UI entry point to the Xray share modal).
 
@@ -106,7 +118,10 @@
 ;; ---- canonical operation taxonomy ---------------------------------------
 
 (def transition-operations
-  "Trace operations the transition-history ribbon surfaces. Per
+  "Trace operations `transition-event?` counts as a machine transition.
+  The focused-event lens (`project-focused-event-transitions`), the
+  prev/next nav's epoch walk in `machine_inspector.cljs` and
+  `project-transitions` all filter on it. Per
   spec/005-StateMachines.md + spec/009-Instrumentation.md the runtime
   emits `:rf.machine/transition` for outer transitions and
   `:rf.machine.microstep/transition` for `:always`-driven
@@ -296,13 +311,17 @@
       :auto-pan?
       :current-state-override
 
-  At v1 the panel only fills the required props + the live-snapshot
-  override (so the placeholder can render the active state without
-  reaching back through the framework). Callback wiring (jump to
-  source, scrub transition history) lands when machines-viz ships.
+  This fn fills only `:machine-id`, `:frame-id`, the live-snapshot
+  `:current-state-override` and `:definition`, and wires no callbacks.
+  Its output lands in `project-data`'s `:chart-props` slot, which no
+  view reads. The chart the panel does render is machines-viz's
+  `MachineChart`, mounted through `machine-canvas/Chart-view` by
+  `machine_inspector.cljs`'s `focused-event-section`, which builds its
+  props from the focused-event record. Its callback is wired there:
+  `:on-state-click` dispatches `:rf.xray/machine-state-clicked`, whose
+  handler is a no-op.
 
-  Returns nil when there is no selected machine — the placeholder
-  renders the empty-chart state in that case."
+  Returns nil when there is no selected machine."
   [selected-row frame-id]
   (when selected-row
     (let [{:keys [machine-id state data definition]} selected-row]
@@ -352,9 +371,9 @@
                    (and (transition-event? ev)
                         (= machine-id (machine-id-of ev)))))
          (map transition-row)
-         ;; Newest first — the ribbon scrolls right-to-left in the
-         ;; view, but the data side leads with the most recent so
-         ;; the head element is the freshest transition.
+         ;; Newest first, so the head element is the freshest
+         ;; transition — the order 003 gave the retired ribbon. No
+         ;; view renders it (see the docstring).
          (sort-by (fn [{:keys [id time]}]
                     ;; Prefer :id when present (stable, monotonic per
                     ;; Spec 009); fall back to :time. Negate for
