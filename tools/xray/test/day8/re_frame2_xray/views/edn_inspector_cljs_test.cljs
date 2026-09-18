@@ -3203,13 +3203,27 @@
   ;; would render it inline, and the column would overflow — a worse
   ;; bug than the freeze. Saturating HIGH can only ever read as
   ;; "does not fit".
+  ;;
+  ;; The 100000px case is here because it caught the first cut of this
+  ;; fix, which saturated at a finite `inline-estimate-char-cap × 7`
+  ;; = 28,672px and called that "wider than any column". It is not,
+  ;; and `would-fit-inline?` reported a `(range)` as FITTING. No
+  ;; finite ceiling out-runs every argument a caller might pass, so
+  ;; the over-budget answer is `##Inf`.
   (is (false? (ei/would-fit-inline? {:a (range)} 966))
       "an infinite seq does not fit a real column")
   (is (false? (ei/would-fit-inline? {:a (range)} 100000))
       "nor an absurd one")
-  (is (= (* ei/mono-char-width-px ei/inline-estimate-char-cap)
-         (ei/estimated-inline-px (range)))
-      "it saturates at the documented ceiling rather than answering small"))
+  (is (false? (ei/would-fit-inline? {:a (range)} 1e12))
+      "nor one no display could have")
+  (is (= ##Inf (ei/estimated-inline-px (range)))
+      "over budget the estimate is unbounded, not a large finite number")
+  (testing "a merely LARGE finite value saturates the same way"
+    ;; Past the char cap the widget declines to render inline whatever
+    ;; the column — that is the product decision, not just a guard.
+    (is (= ##Inf (ei/estimated-inline-px (vec (range 5000))))
+        "5000 elements is past `inline-estimate-char-cap` characters")
+    (is (false? (ei/would-fit-inline? (vec (range 5000)) 100000)))))
 
 (deftest bounded-estimate-leaves-ordinary-values-EXACT
   ;; The control, and the reason the walk decides but `pr-str`
