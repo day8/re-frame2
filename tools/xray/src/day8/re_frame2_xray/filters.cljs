@@ -508,11 +508,22 @@
 
   ;; ---- typed-predicate add events -------------------------------------
   ;;
-  ;; Right-click affordances on the Machines / managed-fx panels fire
-  ;; these events to append a typed-predicate IN pill directly — no
-  ;; popup round-trip because the pattern is fully determined by the
-  ;; clicked row (machine-id / correlation-id / fx-id). The user can
-  ;; remove the pill via the standard `×` button on the pill cluster.
+  ;; Right-click affordances on the managed-fx panel fire these events
+  ;; to append a typed-predicate IN pill directly — no popup round-trip
+  ;; because the pattern is fully determined by the clicked row
+  ;; (correlation-id / fx-id). The user can remove the pill via the
+  ;; standard `×` button on the pill cluster.
+  ;;
+  ;; `:rf.xray/filter-by-machine` is the exception, and it is NOT a
+  ;; retirement: nothing in `tools/xray/src` dispatches it because the
+  ;; two surfaces spec/020 §6 names as its sources — the Machine
+  ;; inspector's picker chrome and the focused-event lens header — were
+  ;; specified and NEVER BUILT. The picker itself is live (spec/003
+  ;; §Selection and switching); what was never built is the right-click
+  ;; affordance ON it. So the `:machine` pill kind is unreachable from
+  ;; the UI, and the event is kept rather than retired — its matcher,
+  ;; label and glyph are complete, so it stays the wiring point for
+  ;; whichever surface lands the affordance.
   ;;
   ;; Each event idempotently appends via the file-level
   ;; `append-typed-pill` helper — a duplicate add (same params)
@@ -538,7 +549,12 @@
             next-db (append-typed-pill db :in pill)]
         {:db next-db})))
 
-  ;; ---- load: hydrate from localStorage --------------------------------
+  ;; ---- load: apply the host-configured filter seed ---------------------
+  ;;
+  ;; The single `:active-filters` write seam. Despite the `hydrate-`
+  ;; name it reads NO localStorage: the only production dispatch is
+  ;; `mount.cljs`'s `::seed-configured-filters` first-mount hook handing
+  ;; over the host's `:rf.xray/filters` seed (rf2-fhtes).
 
   (rf/reg-event :rf.xray/hydrate-filters
     {:rf.trace/no-emit? true}
@@ -549,9 +565,10 @@
   ;; NO hydrate on install. The USER's IN/OUT pills are a TRANSIENT
   ;; exploration filter — they reset to unfiltered on every page load so
   ;; a fresh session never silently carries a stale filter. The slot
-  ;; starts at its registry default `{:in [] :out []}` and
-  ;; `mount.cljs`'s `::reset-transient-filters` first-mount hook clears
-  ;; the stale localStorage slot so storage matches.
+  ;; simply starts at its registry default `{:in [] :out []}`; there is
+  ;; no pills slot left for `mount.cljs`'s `::reset-transient-filters`
+  ;; first-mount hook to clear — it clears the mute and frame-pin slots,
+  ;; which DO still persist — so reset-on-load holds by construction.
   ;;
   ;; A host-configured `:rf.xray/filters` seed is the ONE exception, and
   ;; it is honoured NOT here but on the real production mount path:
