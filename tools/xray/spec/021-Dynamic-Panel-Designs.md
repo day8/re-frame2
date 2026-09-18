@@ -3372,7 +3372,8 @@ carrying, top to bottom:
    schema's resolved source-coord. Coord resolution varies by
    `:where`: `:app-db` reads `(re-frame.schemas/app-schema-meta {:frame f :path path})`
    (per rf2-mg6ya); other `:where` values read
-   `(rf/handler-meta {:source :store :kind :schema :id failing-id})`. Missing coord →
+   `(rf/handler-meta {:source :store :kind :schema :id failing-id})` — a read that never
+   resolves as shipped (see **Inline link → coord resolution** below). Missing coord →
    the link degrades to plain inline text inside the sentence
    (sentence still reads cleanly). Per-`:where` prose templates
    live in [§violation-prose-template](#violation-prose-template).
@@ -3459,7 +3460,10 @@ resolves to the schema's source-coord, NOT the handler's:
   `reg-app-schema`. Returns `{:file :line}` or nil.
 - `:fx-args` / `:sub-return` / `:event` / `:cofx` →
   `(rf/handler-meta {:source :store :kind :schema :id failing-id})` — the registration meta
-  carrying the `:schema` slot is the click target.
+  carrying the `:schema` slot is the intended click target. **As shipped this read never
+  resolves:** `:schema` is not a registrar kind (§9.1.6.1's closed fourteen), so
+  `rf/handler-meta` throws `:rf.error/unknown-registry-kind`, the view's `try` returns nil, and
+  for these four `:where` values the link always renders as plain text (rf2-y8doi.48).
 - Coord missing (registration wasn't stamped, or `handler-meta`
   unavailable) → the prose still renders, with `schema check`
   as plain inline text rather than a clickable affordance.
