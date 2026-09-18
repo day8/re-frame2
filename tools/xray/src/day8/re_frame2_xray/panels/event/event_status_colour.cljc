@@ -32,43 +32,48 @@
   semantic anchors; the colour anchors are chosen from the existing
   Xray palette so no new tokens are introduced):
 
-      Status            Token            Hex (dark)  When
-      ----------------  ---------------  ----------  -----------------------
-      :in-flight        :accent          #539bf5     event-bundle still building
-                                                     (LIVE head, not yet
-                                                     settled). The single
-                                                     accent (GitHub blue) —
-                                                     the LIVE head IS the
-                                                     current-epoch accent
-                                                     (§007).
-      :settled-success  :green           #3fb950     handler ran, no
-                                                     exception, no warnings.
-      :settled-error    :red             #F87171     handler threw, or an
-                                                     :rf.error/* trace
-                                                     landed in the event-bundle.
-      :paused-by-tool   :info            #79c0ff     spine paused
-                                                     (LIVE+paused) — e.g.
-                                                     a tool has claimed
-                                                     the buffer. TanStack
-                                                     uses purple for
-                                                     paused; the in-flight
-                                                     head owns the primary
-                                                     accent, so paused picks
-                                                     the fixed cool blue
-                                                     `:info` as a distinct
-                                                     peer. Magenta is
-                                                     reserved for the `▥`
-                                                     whole-redacted row
-                                                     marker.
-      :stale            :yellow          #FBBF24     event-bundle replayed via
-                                                     time-travel / RETRO
-                                                     mode. The TanStack
-                                                     analog is the
-                                                     `isStale` flag; in
-                                                     Xray, an event-bundle in
-                                                     RETRO mode is the
-                                                     state being inspected
-                                                     out of LIVE order.
+      Status            Token            When
+      ----------------  ---------------  -----------------------
+      :in-flight        :accent          event-bundle still building
+                                         (LIVE head, not yet
+                                         settled). The single
+                                         accent (GitHub blue) —
+                                         the LIVE head IS the
+                                         current-epoch accent
+                                         (§007).
+      :settled-success  :green           handler ran, no
+                                         exception, no warnings.
+      :settled-error    :red             handler threw, or an
+                                         :rf.error/* trace
+                                         landed in the event-bundle.
+      :paused-by-tool   :info            spine paused
+                                         (LIVE+paused) — e.g.
+                                         a tool has claimed
+                                         the buffer. TanStack
+                                         uses purple for
+                                         paused; the in-flight
+                                         head owns the primary
+                                         accent, so paused picks
+                                         the fixed cool blue
+                                         `:info` as a distinct
+                                         peer. Magenta is
+                                         reserved for the `▥`
+                                         whole-redacted row
+                                         marker.
+      :stale            :yellow          event-bundle replayed via
+                                         time-travel / RETRO
+                                         mode. The TanStack
+                                         analog is the
+                                         `isStale` flag; in
+                                         Xray, an event-bundle in
+                                         RETRO mode is the
+                                         state being inspected
+                                         out of LIVE order.
+
+  The Token column names a key of `theme/tokens`. Each theme's hex for
+  it lives in `tokens.cljc`'s `dark-palette` / `light-palette`, and
+  this table deliberately keeps no copy: the one it had drifted, listing
+  `:yellow` as `#FBBF24`, a value in neither palette.
 
   ## Input shape
 
