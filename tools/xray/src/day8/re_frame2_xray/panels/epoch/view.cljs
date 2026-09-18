@@ -6210,9 +6210,10 @@
   The FRAME each read resolves against comes from React context, which
   the enclosing frame boundary writes: `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context, so this boundary
-  resolves `:rf/xray` identically under today's Reagent-rendered shell
-  and under the Fresco root Xray will own. It never consults
-  `:adapter/current-component`, the hook a foreign root cannot answer.
+  resolves `:rf/xray` identically under the Fresco root Xray owns today
+  and under an `rf/frame-provider` a Reagent parent writes. It never
+  consults `:adapter/current-component`, the hook a foreign root cannot
+  answer.
 
   ## Why there is no second boundary below this one
 

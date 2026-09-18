@@ -54,8 +54,9 @@
   a first-paint smoke test cannot see. The FRAME they resolve against
   comes from React context, which the enclosing frame boundary writes;
   `rf/frame-provider` and `rf.fresco/frame-provider` write the SAME
-  context, so this resolves `:rf/xray` identically under today's
-  Reagent-rendered shell and under the Fresco root Xray will own.
+  context, so this resolves `:rf/xray` identically under the Fresco root
+  Xray owns today and under an `rf/frame-provider` a Reagent parent
+  writes.
 
   THE THREE INNER READS SIT INSIDE THE `when` DELIBERATELY. `sub` is
   legal anywhere in a body and records its edge where the read happens,

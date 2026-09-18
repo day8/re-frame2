@@ -1275,8 +1275,8 @@
   the enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context (core's
   `re-frame.adapter.context/frame-context`) — so this boundary resolves
-  `:rf/xray` identically under today's Reagent-rendered shell and under
-  the Fresco root Xray will own. It never consults
+  `:rf/xray` identically under the Fresco root Xray owns today and under
+  an `rf/frame-provider` a Reagent parent writes. It never consults
   `:adapter/current-component`, which is the hook a foreign root cannot
   answer.
 

@@ -66,8 +66,8 @@
   test cannot see. The FRAME it resolves against comes from React context,
   which the enclosing frame boundary writes; `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context, so this resolves
-  `:rf/xray` identically under today's Reagent-rendered shell and under
-  the Fresco root Xray will own.
+  `:rf/xray` identically under the Fresco root Xray owns today and under
+  an `rf/frame-provider` a Reagent parent writes.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and

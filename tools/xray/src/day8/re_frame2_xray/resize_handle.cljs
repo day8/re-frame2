@@ -524,9 +524,10 @@
   The READ is `rf.fresco/sub`, a plain call the shipped collector
   records an edge for — no deref and no reaction owned by the installed
   adapter. The FRAME it resolves against comes from React context,
-  which the enclosing `rf/frame-provider` in `shell.cljs` writes, so it
-  resolves the instance frame identically under today's
-  Reagent-rendered shell and under the Fresco root Xray will own.
+  which `shell.cljs`'s enclosing `rf.fresco/frame-provider` writes —
+  the SAME context `rf/frame-provider` writes — so it resolves the
+  instance frame identically under the Fresco root Xray owns today and
+  under an `rf/frame-provider` a Reagent parent writes.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which replaces the `dispatch` name `reg-view` used to inject

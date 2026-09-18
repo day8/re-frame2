@@ -67,8 +67,8 @@
   ## Frame isolation
 
   The FRAME comes from React context, which the enclosing frame boundary
-  writes — `rf/frame-provider` (today's Reagent-rendered Static shell)
-  and `rf.fresco/frame-provider` write the SAME context, so the reads
+  writes — `rf.fresco/frame-provider` (the Fresco tree the Static shell
+  is today) and `rf/frame-provider` write the SAME context, so the reads
   resolve `:rf/xray` under either root. Nothing here consults
   `:adapter/current-component`, the hook a foreign root cannot answer.
 
