@@ -14,13 +14,15 @@
 
   ## Lens model (post-rf2-lq0ef reshape)
 
-  The lens is a **flat catalogue sorted by `:path`** — never a tree.
-  The audit (`ai/findings/2026-05-19-routing-inheritance-audit.md`
+  The Static catalogue is a **flat list sorted by `:path`** — never a
+  URL-prefix tree. The audit (`ai/findings/2026-05-19-routing-inheritance-audit.md`
   verdict B) found that the previous URL-path-segmentation indentation
   was decorative: routes are flat in the spec + impl, `:parent` plays
   no role in matching, and the match-resolver is structural
   (6-rule rank on URL pattern). The previous tree conflated URL-prefix
-  similarity with semantic hierarchy.
+  similarity with semantic hierarchy. (The Dynamic lens's route table,
+  `project-topology`, nests by the explicit `:parent` metadata instead —
+  rf2-3kjlo.)
 
   The flat-list shape mirrors the contract. The load-bearing
   interactive surface is **Simulate-URL** — paste a URL and see the
@@ -39,28 +41,20 @@
     live slice — keeps the marker honest about the SELECTED epoch's
     transition regardless of where the app has navigated since
     (rf2-m9rx6).
-  - Show params + query + fragment for the active route.
+  - Show params + query + fragment + readiness for the active route —
+    the slice's own keys (`{:route-id :params :query :fragment
+    :transition :error :nav-token}`, written by
+    `re-frame.routing.events/merge-route-slice`).
   - When the app has no routes registered: every projection helper
     returns the silent shape (`{:routes [] :silent? true}`) and the
     view honours silent-by-default per rf2-g3ghh.
 
   ## Data shape contract
 
-  The composite the view consumes:
-
-      {:silent?    <bool>             ;; true when no routes registered
-       :routes     [<row> ...]        ;; flat, sorted by :path
-       :current    <route-slice>      ;; the active :rf/route slice
-       :from-id    <route-id-or-nil>  ;; nav origin when the focused
-                                      ;; event-bundle caused navigation
-       :to-id      <route-id-or-nil>  ;; nav destination when the
-                                      ;; focused event-bundle caused navigation
-       :navigated? <bool>             ;; true iff the focused event-bundle
-                                      ;; carries a :rf.route.nav-token/
-                                      ;; allocated trace event
-       :query      <string-or-nil>    ;; substring filter applied to rows
-       :sim-url    <string-or-nil>    ;; URL pasted into the simulator
-       :sim-result <map-or-nil>}      ;; result of simulate-url for sim-url
+  Two view-facing composites, one per lens, each documented on its fn:
+  `project-static-data` (the Static catalogue: rows + search +
+  Simulate-URL) and `project-topology-data` (the Dynamic lens: the
+  `:parent` tree + the focused event-bundle's overlay + the live slice).
 
   Each `<row>` is:
 
@@ -141,92 +135,64 @@
 ;; rank tuples, not just the winner — that's the load-bearing
 ;; interactive surface that exposes the 6-rule event-bundle.
 
+(def ^:private scheme-marker
+  "A `scheme://` at the very START of the input (RFC 3986 scheme syntax).
+  The start is the only place a scheme can sit, and anchoring there is
+  what stops a `://` later in the string — a redirect target in
+  `?next=https://…`, or a path segment — reading as an origin."
+  #"^[A-Za-z][A-Za-z0-9+.\-]*://")
+
 (defn- strip-origin
-  "Reduce an ABSOLUTE URL (`https://app.example/cart?x#y`) or a
-  protocol-relative one (`//app.example/cart`) to its `pathname +
-  search + fragment` — i.e. drop the `scheme://authority` origin so the
-  remainder is what the browser's `location.pathname + .search + .hash`
-  would yield. A RELATIVE input (`/cart`, `cart/`, `?x`, `#y`, `\"\"`) is
-  returned unchanged — it carries no origin to strip.
+  "Reduce an ABSOLUTE path (`https://app.example/cart`) or a
+  protocol-relative one (`//app.example/cart`) to its `pathname` — drop
+  the `scheme://authority` origin so the remainder is what the browser's
+  `location.pathname` would yield. Anything else is RELATIVE (`/cart`,
+  `cart/`, `/a:b/cart`, `/go/https://x`, `\"\"`) and comes back
+  unchanged: only a LEADING `scheme://` or `//` marks an origin, so a
+  relative path that legitimately carries a `:` or even a `://` is never
+  mistaken for one.
+
+  Runs on the path portion alone — [[url-path]] has already split the
+  query and fragment off — so the authority ends at the first `/`, and
+  an origin with no path after it (`https://app.example`) reduces to `\"\"`.
 
   Pure string parsing — JVM + CLJS portable; no `js/URL` (the helper ns
-  is `.cljc` and runs under `clojure -M:test`). The origin is everything
-  up to (but excluding) the FIRST `/`, `?`, or `#` that follows the
-  `scheme://` (or bare `//`) marker; the path begins at that delimiter.
-  An origin with no following path (`https://app.example`) reduces to the
-  empty string, which the caller then normalises to `\"/\"`.
+  is `.cljc` and runs under `clojure -M:test`).
 
-  rf2-6nx8y — the simulator's `split-url` previously stripped only the
-  query + fragment, so an absolute URL pasted from the browser address
-  bar (`https://app.example/cart?source=email#step-1`) was matched as the
-  path `https://app.example/cart` and patterns like `/cart` never
-  matched. The UI/spec says to paste a URL, and the common copy-paste
-  workflow yields an absolute URL — so the simulator normalises the
-  origin away first."
-  [s]
-  (let [scheme-rel? (str/starts-with? s "//")
-        after-scheme (cond
-                       scheme-rel?
-                       (subs s 2)
-                       ;; `scheme://authority…` — find the `://` marker.
-                       :else
-                       (let [idx (str/index-of s "://")]
-                         (when idx (subs s (+ idx 3)))))]
-    (if (nil? after-scheme)
-      ;; No origin marker → relative input, return verbatim.
-      s
-      ;; `after-scheme` is `authority + path?query#frag`. The path begins
-      ;; at the first `/`, `?`, or `#`; everything before it is the
-      ;; authority (host[:port], userinfo) and is dropped.
-      (let [delim (->> [(str/index-of after-scheme "/")
-                        (str/index-of after-scheme "?")
-                        (str/index-of after-scheme "#")]
-                       (remove nil?)
-                       (reduce min ##Inf))]
-        (if (= delim ##Inf)
-          ;; Authority only (`https://app.example`) — no path.
-          ""
-          (subs after-scheme delim))))))
+  rf2-6nx8y added the origin strip, because a URL pasted from the address
+  bar never matched. rf2-y8doi.22 anchored it: it used to read the FIRST
+  `://` anywhere as the scheme marker, so `/login?next=https://app.example/cart`
+  simulated as `/cart`."
+  [path]
+  (let [after-origin (if (str/starts-with? path "//")
+                       (subs path 2)
+                       (when-let [marker (re-find scheme-marker path)]
+                         (subs path (count marker))))]
+    (if (nil? after-origin)
+      path
+      (if-let [slash (str/index-of after-origin "/")]
+        (subs after-origin slash)
+        ""))))
 
-(defn- split-url
-  "Strip the origin (scheme + authority), then fragment + query off a
-  URL string, returning just the path segment. Mirrors the splitting
-  `match-url` performs before invoking `match-against`, PLUS an
-  absolute-URL normalisation step `match-url` itself does not need
-  (it only ever sees host-relative URLs from the browser's
-  `location`): the simulator's input is pasted by a human, commonly
-  copied wholesale from the address bar, so an absolute URL is
-  normalised to its `pathname` first (rf2-6nx8y).
+(defn- url-path
+  "The path `match-url` would match for `url`, which it gets the way
+  `match-url` gets it: the fragment splits off first, then the query
+  (Spec 012 §Fragments — neither participates in matching), and the path
+  is canonicalised with `rf.routing.match/canonical-route-pattern` — the
+  same trailing-slash loop the framework runs on both an incoming path
+  and an author's pattern, so `/cart//` is `/cart` here as it is there.
 
-  Order: origin → fragment → query.
-
-    - Origin (`scheme://authority`) is dropped via `strip-origin` so
-      `https://app.example/cart?x#y` reduces to `/cart?x#y` before the
-      query/fragment strip; a relative input is untouched.
-    - Fragments are dropped (do not participate in matching per Spec 012
-      §Fragments).
-    - Query strings are dropped (route patterns match against the path
-      only)."
+  Adds ONE step `match-url` does not need: the simulator's input is pasted
+  by a human, commonly the whole address-bar URL, so an absolute or
+  protocol-relative path loses its origin ([[strip-origin]]) before
+  canonicalising. `match-url` only ever sees host-relative URLs."
   [url]
   (when (string? url)
-    (let [path-qs-frag (strip-origin url)
-          [no-frag]    (str/split path-qs-frag #"#" 2)
-          [path]       (str/split no-frag #"\?" 2)]
-      (cond
-        (str/blank? path) "/"
-        :else             path))))
-
-(defn- normalize-path
-  "Strip a trailing slash from a multi-segment path so `/cart/` and
-  `/cart` both match the same pattern. Single `/` is preserved.
-  Mirrors `normalize-match-path` in re-frame.routing — the simulator
-  must use the same normalization so its results match what
-  match-url would actually return."
-  [path]
-  (cond
-    (or (nil? path) (= "/" path)) (or path "/")
-    (and (str/ends-with? path "/") (< 1 (count path))) (subs path 0 (dec (count path)))
-    :else path))
+    (let [[no-frag] (str/split url #"#" 2)
+          [path]    (str/split no-frag #"\?" 2)
+          pathname  (strip-origin path)]
+      (rf.routing.match/canonical-route-pattern
+        (if (str/blank? pathname) "/" pathname)))))
 
 (defn- compile-pattern-on-demand
   "If a registrar entry was seeded without `:rf.route/compiled` (e.g.
@@ -268,7 +234,7 @@
        :winner     nil}
 
       :else
-      (let [path (normalize-path (split-url trimmed))
+      (let [path (url-path trimmed)
             candidates
             (->> routes-map
                  (keep (fn [[id meta]]
@@ -320,11 +286,18 @@
        :unknown?        <bool>}          ;; true when route-id not registered
 
   Hermetic — no dispatch, no fx, no runtime-db / app-db mutation. The
-  shape mirrors what the framework's `:rf.route/navigate` handler would
-  write into the target frame's runtime-db at
-  `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice
-  is framework-owned runtime-db state, NOT app data) so the user can
-  reason about the event-bundle without triggering it.
+  slot shape is the slice the framework's `:rf.route/navigate` writes
+  into the target frame's runtime-db at `[:rf.runtime/routing :current]`
+  (EP-0001 rf2-vzld77 — the route slice is framework-owned runtime-db
+  state, NOT app data): exactly the keys `re-frame.routing.events/
+  merge-route-slice` writes, `{:route-id :params :query :fragment
+  :transition :error :nav-token}`, so a developer following it finds
+  those keys where real navigation puts them (rf2-y8doi.22 — it used to
+  carry an `:id` and a `:path` the slice never holds). The preview fills
+  the two it can derive, `:route-id` and the matched `:params`; the rest
+  stay nil because only a real navigation supplies them — query coercion
+  and the fragment are outside the simulator's scope, and readiness and
+  the nav-token are assigned at commit.
 
   When `route-id` is not in `routes-map` returns `{:unknown? true
   :route-id route-id}` — the view surfaces this as an unregistered
@@ -345,14 +318,18 @@
            ;; params. Mirror the simulator's path normalization so the row
            ;; preview agrees with what `match-against` would resolve.
            sim-path (when (and url (not (str/blank? url)))
-                      (normalize-path (split-url (str/trim url))))
+                      (url-path (str/trim url)))
            compiled (compile-pattern-on-demand meta)
            params   (when (and sim-path compiled)
                       (rf.routing.match/match-against compiled sim-path))
            matched? (some? params)
-           slot     (cond-> {:id route-id}
-                      (some? path)   (assoc :path path)
-                      (some? params) (assoc :params params))]
+           slot     {:route-id   route-id
+                     :params     params
+                     :query      nil
+                     :fragment   nil
+                     :transition nil
+                     :error      nil
+                     :nav-token  nil}]
        {:route-id        route-id
         :path            path
         :url             url
@@ -802,44 +779,6 @@
          :events (event-bundle-event-vectors event-bundle)
          :match  (when (= :on-match phase)
                    (:params current-slice))}))))
-
-;; ---- composite projection ----------------------------------------------
-
-(defn project-data
-  "The view-facing composite. Folds the registered-routes map +
-  current route slice + focused event-bundle + UI controls (search query +
-  Simulate-URL) into the shape the panel consumes (see ns doc §Data
-  shape contract).
-
-  Inputs are all pre-projected by the registry sub layer; this fn is
-  pure data → data so it slots into the JVM unit-test target.
-
-  Silent-by-default per rf2-g3ghh: when no routes are registered the
-  fn returns `{:silent? true :routes [] ...}` and the view renders
-  the empty section (no `(none)` placeholder)."
-  ([routes-map current-slice focused-event-bundle]
-   (project-data routes-map current-slice focused-event-bundle nil nil))
-  ([routes-map current-slice focused-event-bundle query sim-url]
-   (let [rows         (project-routes routes-map)
-         silent?      (empty? rows)
-         nav          (from-to-from-event-bundle focused-event-bundle)
-         decorated    (assign-markers rows
-                                      (assoc nav
-                                        :current-id (:route-id current-slice)))
-         filtered     (filter-rows decorated query)
-         sim-result   (when (and sim-url (not (str/blank? sim-url)))
-                        (simulate-url routes-map sim-url))]
-     {:silent?       silent?
-      :routes        filtered
-      :total-routes  (count rows)
-      :filtered?     (not= (count rows) (count filtered))
-      :current       current-slice
-      :from-id       (:from-id nav)
-      :to-id         (:to-id nav)
-      :navigated?    (:navigated? nav)
-      :query         query
-      :sim-url       sim-url
-      :sim-result    sim-result})))
 
 ;; ---- topology-plus-overlay composite (rf2-3kjlo) -----------------------
 

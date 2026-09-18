@@ -154,6 +154,25 @@
         (is (= "true" (:data-winner (second winner)))
             "winner row carries data-winner=\"true\"")))))
 
+(deftest simulate-url-redirect-url-crowns-the-route-it-names-rf2-y8doi-22
+  (testing "a redirect-style URL (`?next=https://…`) resolves to its own path
+            in the result block — it used to crown the route named INSIDE its
+            query, which read as a clean win"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
+                         (assoc cart-routes :route/login {:path "/login"})]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url
+                         "/login?next=https://app.example/cart"]
+                        {:frame :rf/xray})
+      (let [tree   (panel-tree)
+            winner (find-by-testid tree "rf-xray-static-routes-sim-candidate-route/login")]
+        (is (some? winner) "the /login row is a candidate")
+        (is (= "true" (:data-winner (second winner))) "and it is the winner")
+        (is (nil? (find-by-testid tree "rf-xray-static-routes-sim-candidate-route/cart"))
+            "/cart, named only inside the query, is not a candidate at all")))))
+
 (deftest simulate-url-renders-result-block-on-no-match
   (testing "result block still surfaces when no routes match — informs the user"
     (setup-xray-frame!)

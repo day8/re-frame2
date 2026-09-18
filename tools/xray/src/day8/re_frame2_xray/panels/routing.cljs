@@ -15,7 +15,7 @@
   identity, and the Figma `RoutesPanel` opens the same way):
 
       │ CURRENT ROUTE                                                   │
-      │   :user/profile    params {:id 42}    /users/42                 │
+      │   :user/profile  params {:id 42}  query {:tab \"posts\"}  idle    │
       │ ─────────────────────────────────────────────────────────────  │
       │ NAVIGATION THIS EPOCH    (event-driven · quiet when not a nav)  │
       │   :dashboard ──► :user/profile  params {:id 42}  transitioned   │
@@ -34,10 +34,13 @@
 
   ## Section 1 — CURRENT ROUTE (always shown)
 
-  The active route **id** (mode-accent, bold), its **params**, and the
-  **matched path / URL**. The 'where am I'. Renders even when the
-  focused epoch carried no navigation. When the host has no active
-  route slice the section reads a calm caption.
+  The active route **id** (mode-accent, bold), its **params**, its
+  **query** and **fragment** when present, and a **readiness** chip (the
+  slice's `:transition`, with its `:error` on the chip). The 'where am I'.
+  Every field is a key of the slice the router writes — there is no
+  matched path to show, because the slice carries none. Renders even
+  when the focused epoch carried no navigation. When the host has no
+  active route slice the section reads a calm caption.
 
   ## Section 2 — NAVIGATION THIS EPOCH (event-driven lens)
 
@@ -169,13 +172,33 @@
 
 ;; ---- §1 CURRENT ROUTE ---------------------------------------------------
 
+(defn- readiness-colour
+  "The chip colour for a slice's `:transition` — Spec 012's resource-derived
+  readiness projection, `:idle` / `:loading` / `:error`."
+  [transition]
+  (case transition
+    :loading (:info tokens)
+    :error   (:error tokens)
+    (:text-tertiary tokens)))
+
 (defn- current-route-section
-  "§1 — the active route id (mode-accent, bold), its params, and the
-  matched path. Always renders. When no active slice is present reads a
-  calm caption (the host has no current route)."
+  "§1 — the active route id (mode-accent, bold), its params, query and
+  fragment when the slice carries them, and a readiness chip. Always
+  renders. When no active slice is present reads a calm caption (the host
+  has no current route).
+
+  Reads the slice's OWN keys — `{:route-id :params :query :fragment
+  :transition :error :nav-token}`, written by
+  `re-frame.routing.events/merge-route-slice` (rf2-y8doi.22). It used to
+  read a `:path` the router never writes, so the matched-path span was
+  dead in production and the query, fragment and readiness never showed;
+  a route whose readiness was `:error` looked like any other. The query
+  renders with `pr-str` and no sort, so its keys keep the order the
+  router's array-map gave them (rf2-c5cub)."
   [{:keys [current]}]
-  (let [{:keys [route-id params path]} current
-        id route-id]
+  (let [{:keys [route-id params query fragment transition error]} current
+        id route-id
+        muted {:color (:text-tertiary tokens)}]
     (section
       {:first? true :testid "rf-xray-routing-current"}
       (section-caption "Current route" "rf-xray-routing-current-caption")
@@ -197,13 +220,30 @@
                  :style       {:color       mode-accent
                                :font-weight 600}}
           (str id)]
-         [:span {:style {:color (:text-tertiary tokens)}} "params"]
+         [:span {:style muted} "params"]
          [:span {:data-testid "rf-xray-routing-current-params"}
           (pr-str (or params {}))]
-         (when path
-           [:span {:data-testid "rf-xray-routing-current-path"
-                   :style       {:color (:text-tertiary tokens)}}
-            path])]))))
+         (when (seq query)
+           [:<>
+            [:span {:style muted} "query"]
+            [:span {:data-testid "rf-xray-routing-current-query"}
+             (pr-str query)]])
+         (when (seq fragment)
+           [:span {:data-testid "rf-xray-routing-current-fragment"
+                   :style       muted}
+            (str "#" fragment)])
+         (when transition
+           [:span {:data-testid "rf-xray-routing-current-readiness"
+                   :title       (when (some? error) (pr-str error))
+                   :style       {:color       (readiness-colour transition)
+                                 :font-family sans-stack
+                                 :font-size   "10px"
+                                 :font-weight 600
+                                 :padding     "1px 5px"
+                                 :border      (str "1px solid "
+                                                   (readiness-colour transition))
+                                 :border-radius "3px"}}
+            (name transition)])]))))
 
 ;; ---- §2 NAVIGATION THIS EPOCH -------------------------------------------
 
@@ -481,7 +521,8 @@
   `:rf.xray/routing-tab-data` composite's VALUE — three stacked
   sections per spec/021 §7.2 (reconciled to RoutesPanel), top → bottom:
 
-    1. CURRENT ROUTE          — active id + params + matched path.
+    1. CURRENT ROUTE          — active id + params + query + fragment
+                                + readiness.
     2. NAVIGATION THIS EPOCH  — FROM ──► TO + params + outcome
                                 (quiet when the focused event isn't a nav).
     3. ROUTE TABLE            — the full registered route graph as a

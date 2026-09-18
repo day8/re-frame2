@@ -7,11 +7,11 @@
   in-place (no master-detail split). Surfaces:
 
     - pattern (the registered URL pattern)
-    - matched-keys (segment / wildcard / catch-all / optional keys
-      derived from the pattern at registration time)
+    - matched-keys (the pattern's capture names — segment, splat and
+      optional-group params — as the registrar compiled them)
     - handler chip (the registered `:on-match` event vector)
     - schema (when `:params` / `:query` Malli schemas are registered)
-    - source-coord chip (`open-in-editor`-style coord)
+    - source-coord chip (Xray's `open-in-editor` chip)
     - the hermetic 'Simulate navigation' button — clicking it toggles
       the per-row `simulate_nav/preview` surface (no real dispatch).
 
@@ -22,13 +22,19 @@
   pure data (lives in `routing_helpers`) so JVM tests cover the
   contract.
 
-  ## Source coords
+  ## What the registrar writes
 
-  Source-coord rendering reuses Xray's `open-in-editor` chip
-  rendering when the registrar meta carries the optional
-  `:rf.route/registered-at` slot. Absent → no chip (silent-by-
-  default)."
+  Both registrar-derived sections read what `reg-route` actually stores
+  (rf2-y8doi.22): the capture names are the compiled form's `:names`
+  (`(:names (:rf.route/compiled meta))`, the key the framework's own
+  readers use), and the source coord is the standard `:file` / `:line`
+  pair `reg-route` merges into the metadata (Spec 001), rendered through
+  `open-in-editor/open-chip` exactly as the Static Schemas panel renders
+  it. Absent → no section / no chip (silent-by-default). The expand used
+  to read `:keys` and `:rf.route/registered-at`, neither of which the
+  registrar writes, so both were dead against a real host."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.static.routes.simulate-nav :as sim-nav]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
@@ -88,18 +94,19 @@
        (chip (str ev-id) (:accent tokens))])))
 
 (defn- segment-keys-from-meta
-  "Extract segment keys from the route meta's `:rf.route/compiled`
-  parser output when present. Falls back to `nil` so the view shows
-  no entry when the compiled form isn't seeded (test fixtures that
-  pass bare `{:path ...}` maps)."
+  "The pattern's capture names off the registrar's compiled form —
+  `parse-pattern`'s `:names`, as keywords, the keys a match's `:params`
+  carries. nil when the compiled form isn't seeded (test fixtures that
+  pass bare `{:path ...}` maps), so the view shows no entry."
   [meta]
-  (when-let [compiled (:rf.route/compiled meta)]
-    (:keys compiled)))
+  (some->> (:rf.route/compiled meta) :names (mapv keyword)))
 
 (defn jump-button
   "Cross-link chip `→ Dynamic Routing` per the parent-epic findings
-  §4.4 — fires the cross-link event the registry installs so the
-  user lands on the Dynamic Routing lens scoped to this route.
+  §4.4 — fires the cross-link event the registry installs, which flips
+  Xray to Dynamic mode on the Routing lens. It does not scope the lens to
+  this route (the handler ignores the id), so the title promises only
+  the flip (rf2-y8doi.22).
 
   `dispatch` is threaded from the routes `Panel` boundary
   (this button renders inside the Reagent island and cannot recover the
@@ -113,7 +120,7 @@
                            (.stopPropagation e)
                            (dispatch [:rf.xray.static.routes/jump-to-dynamic
                                       route-id]))
-            :title       "Open Dynamic Routing scoped to this route"
+            :title       "Open the Dynamic Routing lens"
             :style       {:background    "transparent"
                           :border        (str "1px solid " (:accent tokens))
                           :border-radius "3px"
@@ -150,15 +157,15 @@
    (if sim-open? "Hide preview" "Simulate navigation")])
 
 (defn- source-coord-chip
-  "Render the `:rf.route/registered-at` source coord when present."
+  "The registration's source coord — the `:file` / `:line` / `:ns`
+  `reg-route` merges into the metadata — as Xray's `open-in-editor` chip,
+  the same one the Static Schemas rows carry. nil when the metadata has
+  no `:file` (a programmatic registration, or a production build that
+  strips coords)."
   [meta]
-  (when-let [coord (:rf.route/registered-at meta)]
-    [:span {:data-testid "rf-xray-static-routes-source-coord"
-            :style       {:font-family mono-stack
-                          :font-size   "10px"
-                          :color       (:text-tertiary tokens)
-                          :margin-left "8px"}}
-     (str (:file coord) ":" (:line coord))]))
+  (let [coord (select-keys meta [:file :line :column :ns])]
+    (when (:file coord)
+      (open-in-editor/open-chip coord))))
 
 (defn render
   "Render the per-row expand surface for `row` (a routing-helpers

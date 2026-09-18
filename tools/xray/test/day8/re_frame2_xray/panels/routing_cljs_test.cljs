@@ -9,7 +9,9 @@
   §7.2, top → bottom:
 
     1. CURRENT ROUTE          — active id (mode-accent, bold) + params
-                                + matched path. Always shown.
+                                + query + fragment + readiness, read
+                                off a slice a real navigation wrote.
+                                Always shown.
     2. NAVIGATION THIS EPOCH  — FROM ──► TO + params + outcome chip
                                 (coloured by result). Quiet caption
                                 ('No route activity in this epoch.')
@@ -51,6 +53,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.routing]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.palette.subs :as palette-subs]
@@ -149,6 +152,28 @@
    :op-type   :rf.event
    :operation :rf.route/deactivated
    :tags      {:route-id route-id}})
+
+(defn- navigated-slice!
+  "The route slice ONE real `:rf.route/navigate` writes into `:rf/default`'s
+  runtime-db at `[:rf.runtime/routing :current]`, read back off the frame.
+
+  The CURRENT ROUTE rows used to feed a hand-typed slice carrying `:path`
+  (and, in one row, `:id`) — keys the router never writes — so the panel's
+  `(when path …)` branch passed here and was dead in production
+  (rf2-y8doi.22). Taking the slice from the producer is what stops the
+  fixture and the panel agreeing on a shape nothing emits. Registers
+  `route-id` for real; the reset fixture rolls it back."
+  [route-id pattern request]
+  (rf/reg-route route-id {} pattern)
+  (rf/dispatch-sync [:rf.route/navigate (assoc request :to route-id)]
+                    {:frame :rf/default})
+  (get-in (rf.frame/frame-runtime-db-value :rf/default)
+          [:rf.runtime/routing :current]))
+
+(defn- real-route-entry
+  "`route-id`'s registrar entry exactly as the registrar holds it."
+  [route-id]
+  (select-keys (rf/registrations {:source :store :kind :route}) [route-id]))
 
 ;; ---- (1) registry wiring + tab inventory --------------------------------
 
@@ -255,25 +280,62 @@
                     tree "rf-xray-routing-table-row-cart-chevron"))
             "leaf route :route/cart renders no disclosure chevron")))))
 
-(deftest current-route-section-shows-id-params-path
-  (testing "§1 surfaces the active id, params, and matched path"
+(deftest current-route-section-shows-the-slice-the-router-writes
+  (testing "§1 surfaces the active id, params, query, fragment and readiness of
+            a slice ONE real navigation wrote (rf2-y8doi.22)"
     (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:route-id :route/cart :params {:id 42} :path "/cart"}]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)
-            id   (find-by-testid tree "rf-xray-routing-current-id")
-            params (find-by-testid tree "rf-xray-routing-current-params")
-            path (find-by-testid tree "rf-xray-routing-current-path")]
-        (is (some? id) "current id present")
-        (is (re-find #":route/cart" (node-text id)) "id text shows :route/cart")
-        (is (some? params) "current params present")
-        (is (re-find #":id 42" (node-text params)) "params text shows {:id 42}")
-        (is (some? path) "matched path present")
-        (is (re-find #"/cart" (node-text path)) "path text shows /cart")))))
+    (let [slice (navigated-slice! ::order "/routing-cljs-test/orders/:order-id"
+                                  {:params   {:order-id "ord-1234"}
+                                   :query    {:source "cart"}
+                                   :fragment "step-3"})]
+      (is (= ::order (:route-id slice))
+          "PRECONDITION: the navigation landed — otherwise nothing below is the router's")
+      (is (seq (:query slice)) "PRECONDITION: the navigation wrote a query")
+      (is (some? (:fragment slice)) "PRECONDITION: the navigation wrote a fragment")
+      (is (some? (:transition slice)) "PRECONDITION: the navigation wrote a readiness")
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
+                           (real-route-entry ::order)]
+                          {:frame :rf/xray})
+        (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test slice]
+                          {:frame :rf/xray})
+        (let [tree      (panel-tree)
+              text-of   #(some-> (find-by-testid tree %) node-text)]
+          (is (= (str ::order) (text-of "rf-xray-routing-current-id")))
+          (is (= (pr-str (:params slice)) (text-of "rf-xray-routing-current-params")))
+          (is (= (pr-str (:query slice)) (text-of "rf-xray-routing-current-query"))
+              "the query renders as the router wrote it — pr-str, unsorted")
+          (is (= (str "#" (:fragment slice)) (text-of "rf-xray-routing-current-fragment")))
+          (is (= (name (:transition slice)) (text-of "rf-xray-routing-current-readiness"))
+              "the readiness chip names the slice's :transition")
+          (is (nil? (find-by-testid tree "rf-xray-routing-current-path"))
+              "no matched-path span: the slice carries no :path to show")))
+      (testing "an :error readiness is visible, with the error on the chip"
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
+                             (assoc slice :transition :error
+                                          :error {:reason :plan-failed})]
+                            {:frame :rf/xray})
+          (let [chip (find-by-testid (panel-tree) "rf-xray-routing-current-readiness")]
+            (is (= "error" (node-text chip)))
+            (is (= (pr-str {:reason :plan-failed}) (:title (second chip)))
+                "the chip's title carries the slice's :error")))))))
+
+(deftest current-route-section-omits-query-and-fragment-the-slice-lacks
+  (testing "a navigation with no query and no fragment renders neither row"
+    (setup-xray-frame!)
+    (let [slice (navigated-slice! ::plain "/routing-cljs-test/plain" {})]
+      (is (= ::plain (:route-id slice)) "PRECONDITION: the navigation landed")
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
+                           (real-route-entry ::plain)]
+                          {:frame :rf/xray})
+        (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test slice]
+                          {:frame :rf/xray})
+        (let [tree (panel-tree)]
+          (is (some? (find-by-testid tree "rf-xray-routing-current-id")))
+          (is (nil? (find-by-testid tree "rf-xray-routing-current-query")))
+          (is (nil? (find-by-testid tree "rf-xray-routing-current-fragment"))))))))
 
 (deftest panel-renders-silent-when-no-routes
   (testing "no routes registered → silent caption + no sections"
@@ -324,13 +386,17 @@
 (deftest panel-paints-to-marker-and-outcome-when-cascade-navigated
   (testing "nav-token emit → :to marker on the table row + NAVIGATION FROM/TO + transitioned outcome"
     (setup-xray-frame!)
+    ;; The live slice is a real navigation's (rf2-y8doi.22) — this row used
+    ;; to type `{:id …}`, a key the router never writes, so its CURRENT ROUTE
+    ;; read "No active route." without anything noticing.
+    (let [slice (navigated-slice! ::confirm "/routing-cljs-test/confirm"
+                                  {:query {:source "cart"}})]
+      (is (= ::confirm (:route-id slice)) "PRECONDITION: the navigation landed")
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test slice]
+                          {:frame :rf/xray})))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id     :route/confirm
-                          :params {:order-id "ord-1234"}
-                          :query  {:source "cart"}}]
                         {:frame :rf/xray})
       (let [nav-event (nav-allocated :route/confirm)
             buffer [{:id 99 :op-type :rf.event :operation :rf.event/dispatched

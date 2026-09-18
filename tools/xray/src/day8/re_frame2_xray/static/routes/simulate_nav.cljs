@@ -13,7 +13,9 @@
     - the registered `:on-match` event vector;
     - the expected runtime-db route slice
       (`[:rf.runtime/routing :current ...]`, EP-0001 — the
-      framework-owned route slice lives in runtime-db, not app-db) shape.
+      framework-owned route slice lives in runtime-db, not app-db) shape:
+      the slice's own `{:route-id :params :query :fragment :transition
+      :error :nav-token}` keys (rf2-y8doi.22).
 
   The hermetic posture is the spec point — Xray is a lens, not a
   remote control. Real navigation lives behind `:rf.route/navigate`
@@ -87,7 +89,8 @@
                         :margin-bottom "4px"}}
          "Hermetic preview — nothing is dispatched. Shows what would land "
          "in the framework's runtime-db route slice if the host navigated "
-         "to this route."]
+         "to this route; the fields only a real navigation fills (query, "
+         "fragment, readiness, nav-token) read nil."]
         (field-row {:label  "Path"
                     :value  (or (:path pv) "—")
                     :mono?  true

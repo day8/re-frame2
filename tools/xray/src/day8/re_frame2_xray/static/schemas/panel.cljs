@@ -51,10 +51,15 @@
 
   ## Jump-to-source
 
-  Each row carries a source-coord chip (when the registered metadata
-  surfaces `:file` / `:line`). Click dispatches
-  `:rf.xray/open-in-editor` — the same affordance the Trace + Issues
-  panels use.
+  Each row carries an `open` source-coord chip (when the registered
+  metadata surfaces `:file` / `:line`): `open-in-editor/open-chip`, the
+  same chip the Static Machines and Static Routes rows carry. A click
+  goes through `open-in-editor/chip-click!` — it opens the editor
+  directly when one is configured (the dev-server endpoint first, then
+  the editor URI) and shows the editor-hint toast when none is. It
+  dispatches no `:rf.xray/open-in-editor`: that event is dispatched only
+  through `panels.shared.coord-chip` / `coord-link`, whose requirers are
+  its roster, and this panel requires neither.
 
   ## State slots (all under `:rf.xray.static.schemas/*`)
 
@@ -82,6 +87,7 @@
             [re-frame.schemas :as rf.schemas]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
@@ -170,14 +176,25 @@
   [rows query]
   (search-box/filter-rows row-haystack rows query))
 
+(defn- host-registrations
+  "`registrations-map` without Xray's OWN `:rf.xray*` registrations, which
+  share the process source store with the host's — the same filter the
+  Static Interceptors catalogue applies, kept here for symmetry
+  (rf2-y8doi.22). No Xray event or sub carries a `:schema` today, so it
+  changes no row yet; it keeps one from appearing the day one does."
+  [registrations-map]
+  (into {} (remove (comp self-noise/xray-internal-event-id? key)) registrations-map))
+
 (defn project-data
   "View-facing composite. `frame-id` scopes the per-frame app-db
   schemas to the picker's observed frame (nil = every frame; see
   `scope-app-schemas-to-frame`); event-schema + sub-schema rows are
-  process-global and always included."
+  process-global and always included, less Xray's own registrations."
   [schemas-by-frame events-map subs-map frame-id query]
   (let [scoped   (scope-app-schemas-to-frame schemas-by-frame frame-id)
-        rows     (project-rows scoped events-map subs-map)
+        rows     (project-rows scoped
+                               (host-registrations events-map)
+                               (host-registrations subs-map))
         silent?  (empty? rows)
         filtered (filter-rows rows query)]
     {:silent?   silent?

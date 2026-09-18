@@ -32,7 +32,9 @@
   ## Data source
 
   Walks `(rf/registrations {:source :store :kind :event})` and harvests the
-  `:interceptors` chain from each entry; collapses by `:id` so an
+  `:interceptors` chain from each entry — after dropping Xray's own
+  `:rf.xray*` events, which share the process source store with the
+  host's (rf2-y8doi.22) — and collapses by `:id` so an
   interceptor that appears on many chains shows up once with the count
   of chains it appears on. A REFERENCE entry contributes its referenced
   id (a `[id arg]` ref contributes the head keyword); an inline value
@@ -68,6 +70,7 @@
             [re-frame.fresco :as rf.fresco]
             [re-frame.interceptor-registry :as rf.interceptor-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
@@ -204,11 +207,21 @@
   [rows query]
   (search-box/filter-rows row-haystack rows query))
 
+(defn- host-registrations
+  "`registrations-map` without Xray's OWN registrations. The process source
+  store holds Xray's `:rf.xray*` events beside the host's, each carrying the
+  framework-appended `:rf/event-handler`, so an unfiltered catalogue counted
+  Xray's own events as host chains and was never cold-empty (rf2-y8doi.22).
+  The identity is the one the Dynamic side drops self-noise by
+  (`self-noise/xray-internal-event-id?`)."
+  [registrations-map]
+  (into {} (remove (comp self-noise/xray-internal-event-id? key)) registrations-map))
+
 (defn project-data
-  "Project the interceptor rows for the browse from the `(rf/registrations {:source :store :kind :event})` map — collapses each event's `:interceptors` chain into a flat,
+  "Project the interceptor rows for the browse from the `(rf/registrations {:source :store :kind :event})` map — drops Xray's own events, collapses each remaining event's `:interceptors` chain into a flat,
   per-id catalogue and filters by `query`."
   [registrations-map query]
-  (let [rows     (collect-interceptors registrations-map)
+  (let [rows     (collect-interceptors (host-registrations registrations-map))
         silent?  (empty? rows)
         filtered (filter-rows rows query)]
     {:silent?      silent?

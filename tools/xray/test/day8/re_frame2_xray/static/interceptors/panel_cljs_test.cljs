@@ -2,6 +2,7 @@
   "CLJS wiring + view tests for the Static Interceptors sub-tab
   (rf2-o5f5f.6)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -222,6 +223,52 @@
       [:rf.xray.static.interceptors/set-registry-override-for-test {}])
     (let [tree (panel-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty"))))))
+
+(deftest panel-is-cold-empty-for-a-host-with-no-events-rf2-y8doi-22
+  (testing "rf2-y8doi.22 — Xray's OWN event registrations are not host chains.
+            They sit in the same process source store as the host's, each
+            carrying the framework-appended `:rf/event-handler`, so a host
+            with ZERO events used to read `:rf/event-handler default x<~160>`
+            and never reach the cold-empty state.
+
+            The registrations fed in are the store's own rows for every
+            event whose recorded source file lies in Xray's `src` tree —
+            taken from the producer, not typed by hand, and not selected by
+            the id predicate the fix uses."
+    (setup-xray!)
+    (let [xray-own (into {}
+                         (filter (fn [[_id meta]]
+                                   (some-> (:file meta)
+                                           (str/replace "\\" "/")
+                                           (str/includes? "tools/xray/src/"))))
+                         (rf/registrations {:source :store :kind :event}))]
+      (is (contains? xray-own :rf.xray/focus-event)
+          "PRECONDITION: Xray's production events are in the store")
+      (is (contains? xray-own :rf.xray.static.interceptors/set-query)
+          "PRECONDITION: including this panel's own")
+      (is (seq (panel/collect-interceptors xray-own))
+          "PRECONDITION: those registrations carry interceptor chains, so an
+           unfiltered catalogue has rows to show")
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync
+          [:rf.xray.static.interceptors/set-registry-override-for-test xray-own])
+        (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])
+              tree (panel-tree)]
+          (is (true? (:silent? data))
+              (str "no host events → silent; got " (:total data) " rows"))
+          (is (some? (rf.test-helpers/find-by-testid
+                       tree "rf-xray-static-interceptors-empty"))
+              "the cold-empty state renders"))
+        (testing "and a host's own events beside them still count, exactly as alone"
+          (rf/dispatch-sync
+            [:rf.xray.static.interceptors/set-registry-override-for-test
+             (merge xray-own sample-events-with-chains)])
+          (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])]
+            (is (= (:total (panel/project-data sample-events-with-chains nil))
+                   (:total data)))
+            (is (= 2 (:chain-count (some #(when (= :rf/event-handler (:id %)) %)
+                                         (:interceptors data))))
+                "`:rf/event-handler` counts the host's two chains, not Xray's")))))))
 
 (deftest panel-renders-rows-from-override
   (setup-xray!)
