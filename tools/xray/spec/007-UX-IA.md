@@ -1633,7 +1633,7 @@ wired in `keybinding.cljs`. See §Trimmed pending demand.)
 
 ### Command verbs (rf2-ybjkx)
 
-The palette catalogues these verbs as `:command` source items. Six
+The palette catalogues these verbs as `:command` source items. Five
 of them ship post-rf2-ybjkx:
 
 | Command id | Label | Modes | Action |
@@ -1643,7 +1643,12 @@ of them ship post-rf2-ybjkx:
 | `:snapshot-app-db` | Snapshot app-db | `#{:dynamic :static}` | Dumps the focused frame's app-db to the JS console + clipboard for sharing. Both are off-box sinks, so the payload is routed through `egress/egress-value` first (pinned to the focused frame) — sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, fail-closed; the verb has no raw opt-in (rf2-mxzgg). |
 | `:jump-to-settings` | Jump to Settings | `#{:dynamic :static}` | Equivalent to the `,` / `s` bare-key shortcut; available from the palette so the user can fuzzy-find the gesture without leaving the keyboard. |
 | `:toggle-mode` | Toggle mode (Dynamic ↔ Static) | `#{:dynamic :static}` | Chord parity with `Cmd-Shift-M`; flips `:rf.xray/mode` between `:dynamic` and `:static`. |
-| `:clear-epoch-history` | Clear epoch history | `#{:dynamic}` | Drops Xray's epoch snapshots (Dynamic-only — no epoch concept under Static). |
+
+A sixth, `:clear-epoch-history`, was **retired under rf2-y8doi.27**: it
+cleared Xray's `:epoch-history` slot, which is a MIRROR of the
+framework's epoch history rather than the store, so the next recorded
+epoch re-seeded the slot wholesale and the verb undid itself within one
+event. The Buffer tab's `Clear buffer now` is the real scrub.
 
 Pre-rf2-ybjkx verbs (clear-trace-buffer, reset-suppressed-counters,
 open-popout, …) continue to surface under their original `:modes`

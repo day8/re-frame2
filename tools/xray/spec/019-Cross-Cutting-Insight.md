@@ -1046,7 +1046,7 @@ clause), the findings carry the discussion that locked the opinion.
 - [`015-Configuration.md`](015-Configuration.md) — the `configure!` keys.
   The canonical v1 shape is flat and hyphenated under one reserved
   namespace — `:rf.xray/editor`, `:rf.xray/filters`,
-  `:rf.xray/filters-storage-key`, `:rf.xray/keybinding-enabled?`,
+  `:rf.xray/keybinding-enabled?`,
   `:rf.xray/settings` (which carries the `:theme`, `:general`, `:buffer`
   and `:diff` slots) — not the `:<cluster>/<knob>` spelling an earlier
   draft of this list used. The sub-namespaced `:rf.xray.<cluster>/<knob>`

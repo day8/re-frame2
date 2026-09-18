@@ -136,26 +136,30 @@ Each typed-add event is idempotent: a duplicate add (same params)
 collapses to a no-op so multiple right-clicks don't pile up duplicate
 pills.
 
-## §7 Persistence — write-through, reset-on-load (rf2-swclw)
-
-`filters/persistence.cljs` round-trips the whole `:active-filters`
-slot — typed pills survive a localStorage write/load because
-`pr-str` / `read-string` handle the `:kind` / `:params` shape natively.
-No version bump on the storage key (`re-frame2.xray.filters.v1`) —
-the shape is additive (legacy `{:pattern ...}` still loads through the
-canonicaliser).
+## §7 Reset-on-load (rf2-swclw)
 
 **Pills RESET on every load (rf2-swclw).** The IN/OUT pills are a
 **transient exploration filter**, so the first-mount hook
-(`mount.cljs/::reset-transient-filters`) does NOT hydrate the slot from
-localStorage AND clears the stale stored value — a fresh page load starts
-fully unfiltered (so a stale pill can never silently hide rows and make
-the inspector look broken — rf2-jvghz). The persist fx still writes pills
-through *within* a session; it is the LOAD that resets. The muted-event-id
-set and the frame view-scope follow the same reset-on-load discipline.
-Only durable view prefs (mode, density, layout) hydrate. See
+(`mount.cljs/::reset-transient-filters`) does NOT hydrate the
+`:active-filters` slot — a fresh page load starts fully unfiltered (so a
+stale pill can never silently hide rows and make the inspector look
+broken — rf2-jvghz). The muted-event-id set and the frame view-scope
+follow the same reset-on-load discipline, and for those two, which do
+still carry a localStorage slot, the hook additionally clears the stale
+stored value. Only durable view prefs (mode, density, layout) hydrate.
+
+**The pills carry no persistence layer at all (rf2-y8doi.27).** They
+previously round-tripped through `filters/persistence.cljs` into a
+versioned localStorage slot (`re-frame2.xray.filters.v1`); since the
+reset above discarded whatever had been written on every load, that
+store had a writer and no reader, and the namespace, the storage-key
+config knob and the `persist` fx were all deleted. **The reset-on-load
+policy is unchanged — it is the REASON the layer could go, and it now
+holds by construction rather than by cleanup.** Typed pills therefore
+need no serialisation contract: they live in `:active-filters` for the
+duration of a session and nothing writes them to disk. See
 [`015-Configuration.md` §Transient vs durable state](015-Configuration.md)
-+ [`018-Event-Spine.md` §Filter persistence](018-Event-Spine.md).
++ [`018-Event-Spine.md` §Filter reset-on-load](018-Event-Spine.md).
 
 ## §8 "N events filtered out" indicator (rf2-jvghz / rf2-pjjwh)
 
