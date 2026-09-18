@@ -120,6 +120,49 @@
   (is (= :map     (ei/collection-kind {})))
   (is (= :vector  (ei/collection-kind []))))
 
+;; rf2-y8doi.24 — defrecords classify as `:record`, not `:map`.
+;;
+;; `record?*` read `(.-cljs$lang$type v)` off the INSTANCE. `defrecord`
+;; sets that static field on the CONSTRUCTOR function, and a property
+;; set on a constructor is not on its prototype, so no instance ever
+;; carried it — the predicate answered false for every record in
+;; existence. `collection-kind` fell through to `(map? v) :map`, and
+;; the whole `:record` render path below it (`delim`, `record-tag`'s
+;; `#tag` prefix, `children-of`, `child-count`, the `:record` arms of
+;; `children-of-pair` / `diff-pair-count`) was dead code that had
+;; never once executed.
+
+(defrecord R [a])
+
+(deftest classify-records
+  (let [r (->R 1)]
+    (is (= :record (ei/collection-kind r))
+        "a defrecord instance classifies as :record")
+    (is (= :map (ei/collection-kind (into {} r)))
+        "and the same data as a plain map still classifies as :map — the
+         control, so `:record` is not simply answering for everything")
+    (is (= :record (ei/collection-kind (assoc r :extra 2)))
+        "a record with an extra field is still a record")
+    (is (= :map (ei/collection-kind (dissoc r :a)))
+        "dissoc'ing a declared field demotes it to a plain map, per
+         cljs.core/record? — the widget follows the host, it does not
+         second-guess it")))
+
+(deftest records-render-with-their-tag
+  ;; The user-visible payoff: `#R{:a 1}` rather than `{:a 1}`. Every
+  ;; defrecord in app-db was losing its tag.
+  (let [h (ei/render-node {:value (->R 1)
+                           :panel-id :test
+                           :mount-id "m1"
+                           :path []
+                           :depth 0
+                           :expansion-map {}
+                           :opts {}})]
+    (is (some? (find-attr h :data-rf-kind "record"))
+        "renders through the :record container path")
+    (is (str/includes? (collect-text h) "#")
+        "and the `#<tag>` record prefix is painted")))
+
 (deftest classify-sentinels
   (testing "redacted bare keyword"
     (is (= :sentinel-redacted (ei/collection-kind :rf/redacted))))
@@ -3127,6 +3170,115 @@
              (ei/estimated-inline-px big-value))
           "nested compound value estimate matches pr-str-length × 7"))))
 
+;; ---- rf2-y8doi.24 — the estimate is BOUNDED -----------------------------
+;;
+;; `estimated-inline-px` was `(* mono-char-width-px (count (pr-str
+;; value)))` and runs on EVERY render to answer a yes/no question. Two
+;; costs: it serialised the whole subtree — the entire app-db, per
+;; render, to decide a boolean — and on an infinite lazy seq it never
+;; returned at all, freezing the tab with no error anywhere.
+;;
+;; Note the shape of these tests: every assertion is on a value that
+;; either terminates by construction or is proven to terminate by the
+;; assertion itself returning. NOTHING here takes an unbounded prefix
+;; of an infinite seq, because a test that hangs takes the whole gate
+;; with it and presents as infrastructure trouble rather than as a
+;; failure.
+
+(deftest estimated-inline-px-returns-on-an-infinite-seq
+  (testing "the value the item names: `(range)` at one key"
+    (is (number? (ei/estimated-inline-px {:a (range)}))
+        "returns at all — this is the whole assertion; it used to hang")
+    (is (pos? (ei/estimated-inline-px {:a (range)}))
+        "and answers a positive width"))
+  (testing "bare, nested, and beside real data"
+    (is (number? (ei/estimated-inline-px (range))))
+    (is (number? (ei/estimated-inline-px [1 2 (repeat :x)])))
+    (is (number? (ei/estimated-inline-px {:a {:b {:c (iterate inc 0)}}})))
+    (is (number? (ei/estimated-inline-px (cycle [1 2 3]))))))
+
+(deftest infinite-seq-saturates-HIGH-so-it-never-reads-as-fitting
+  ;; The direction matters more than the number. An estimate that
+  ;; capped LOW would report a runaway value as narrow, the widget
+  ;; would render it inline, and the column would overflow — a worse
+  ;; bug than the freeze. Saturating HIGH can only ever read as
+  ;; "does not fit".
+  (is (false? (ei/would-fit-inline? {:a (range)} 966))
+      "an infinite seq does not fit a real column")
+  (is (false? (ei/would-fit-inline? {:a (range)} 100000))
+      "nor an absurd one")
+  (is (= (* ei/mono-char-width-px ei/inline-estimate-char-cap)
+         (ei/estimated-inline-px (range)))
+      "it saturates at the documented ceiling rather than answering small"))
+
+(deftest bounded-estimate-leaves-ordinary-values-EXACT
+  ;; The control, and the reason the walk decides but `pr-str`
+  ;; measures: no existing estimate may move.
+  (doseq [v [{:a 1}
+             nil
+             "a string"
+             :kw
+             [1 2 3]
+             #{:a :b}
+             {:a {:b {:c [1 2 3]}}}
+             (list 1 2 3)
+             [:ws/connection [:rf.machine.timer/after-elapsed
+                              2501 [:active :authenticating]]]]]
+    (is (= (* ei/mono-char-width-px (count (pr-str v)))
+           (ei/estimated-inline-px v))
+        (str "exact for " (pr-str v))))
+  (testing "a large but FINITE value is still measured exactly"
+    (let [v (vec (range 200))]
+      (is (= (* ei/mono-char-width-px (count (pr-str v)))
+             (ei/estimated-inline-px v))
+          "200 elements sits under the char cap, so the answer is exact"))))
+
+(deftest preview-and-annotation-paths-return-on-an-infinite-seq
+  ;; `estimated-inline-px` is not the only unbounded print on a render
+  ;; path — `mini`, the `← was` chip and the collapsed-collection
+  ;; preview all `pr-str`'d or `count`ed without a bound.
+  (is (vector? (ei/mini (range)))
+      "`mini` returns on an infinite seq")
+  (is (vector? (ei/mini {:a (range)} 40))
+      "including nested under a key")
+  (is (string? (ei/inline-preview-string (range) 3 60))
+      "the collapsed-collection preview returns")
+  (is (string? (ei/inline-preview-string {:a (range)} 3 60))
+      "and so does one whose CHILD is infinite")
+  (testing "the `← was` chip, reached through a diff'd SCALAR leaf whose
+            prior value is the infinite seq"
+    (let [h (ei/render-node {:value 1
+                             :before (range)
+                             :diff? true
+                             :panel-id :test :mount-id "m1" :path [:k] :depth 0
+                             :expansion-map {} :opts {}})]
+      (is (some? (find-attr h :data-rf-diff-op "modified"))
+          "it renders as a modified leaf")
+      (is (str/includes? (collect-text h) "← was")
+          "and the `← was` chip is built from a BOUNDED print of the
+           infinite prior value")))
+  (testing "the diff walkers, which take both sides"
+    ;; `count` FORCES the walk — `some?` on a lazy seq would pass
+    ;; without exercising anything.
+    (is (number? (count (ei/children-of-pair (range) [1 2 3] :vector)))
+        "`children-of-pair` returns when the BEFORE side is infinite")
+    (is (number? (count (ei/children-of-pair [1 2 3] (range) :vector)))
+        "and when the AFTER side is")))
+
+(deftest an-infinite-seq-renders-rather-than-freezing
+  ;; End to end: the whole point. An app-db with `(range)` under one
+  ;; key produces hiccup instead of locking the tab.
+  (let [h (ei/render-node {:value {:ok 1 :runaway (range)}
+                           :panel-id :test
+                           :mount-id "m1"
+                           :path []
+                           :depth 0
+                           :expansion-map {}
+                           :opts {}})]
+    (is (vector? h) "renders to hiccup")
+    (is (str/includes? (collect-text h) ":ok")
+        "and the sibling keys are still readable")))
+
 (deftest would-fit-inline-fits-when-estimate-plus-margin-le-available
   (testing "rf2-kbdk8 — `would-fit-inline?` gate"
     ;; A short value pr-strs to ~10 chars × 7px = 70px + 16px margin = 86px.
@@ -3604,6 +3756,130 @@
           "double-click handler present")
       (is (fn? (:on-key-down attrs))
           "key-down handler present (Enter zooms in)"))))
+
+;; ---- rf2-y8doi.24 — Enter/Space on the triangle TOGGLES ----------------
+;;
+;; The toggle triangle announces itself `role="button"` with
+;; `tabIndex 0`, so a keyboard user tabs to it and presses Enter
+;; expecting the node to open. It carried no `:on-key-down`, so the
+;; keydown bubbled to the enclosing zoomable container's handler
+;; (`zoom-trigger-attrs`) and the inspector RE-ROOTED instead: the
+;; announced affordance and the actual behaviour disagreed. Space did
+;; nothing at all — a `<span>` with `role="button"` gets no synthetic
+;; click from the UA the way a real `<button>` does.
+;;
+;; These drive the handler directly with a stub event, which is the
+;; instrument this suite already uses for `:on-click`.
+
+(defn- key-event
+  "Minimal `KeyboardEvent` stand-in. Records whether the handler called
+  `preventDefault` / `stopPropagation`, because `stopPropagation` is
+  the whole mechanism keeping the zoom handler off this gesture."
+  [k]
+  (let [prevented (atom false)
+        stopped   (atom false)]
+    {:event #js {:key k
+                 :ctrlKey false :metaKey false :altKey false :shiftKey false
+                 :preventDefault  (fn [] (reset! prevented true))
+                 :stopPropagation (fn [] (reset! stopped true))}
+     :prevented prevented
+     :stopped   stopped}))
+
+(defn- modified-key-event
+  [k modifier]
+  #js {:key k
+       :ctrlKey (= modifier :ctrl) :metaKey (= modifier :meta)
+       :altKey (= modifier :alt)   :shiftKey (= modifier :shift)
+       :preventDefault  (fn [])
+       :stopPropagation (fn [])})
+
+(defn- toggle-span-keydown
+  "The toggle triangle's `:on-key-down`, from a zoomable render — the
+  configuration in which the bug bit."
+  []
+  (let [h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                           :panel-id :test
+                           :mount-id "m1"
+                           :path [:x]
+                           :depth 5
+                           :expansion-map {}
+                           :zoomable? true
+                           :zoom-path-prefix []
+                           :dispatch-fn (fn [_])
+                           :opts {:default-expanded-depth 1}})
+        tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")]
+    (-> tog second :on-key-down)))
+
+(deftest toggle-triangle-carries-a-keydown-handler
+  (is (fn? (toggle-span-keydown))
+      "the `role=button` triangle carries an :on-key-down of its own"))
+
+(deftest enter-on-toggle-toggles-and-does-not-zoom
+  (let [captured (atom [])
+        h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                           :panel-id :test
+                           :mount-id "m1"
+                           :path [:x]
+                           :depth 5
+                           :expansion-map {}
+                           :zoomable? true
+                           :zoom-path-prefix []
+                           :dispatch-fn (fn [event-v] (swap! captured conj event-v))
+                           :opts {:default-expanded-depth 1}})
+        tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
+        on-key-down (-> tog second :on-key-down)
+        {:keys [event prevented stopped]} (key-event "Enter")]
+    (on-key-down event)
+    (is (= 1 (count @captured))
+        "exactly one event dispatched")
+    (is (= :rf.xray.edn-inspector/toggle-node (ffirst @captured))
+        "Enter on the triangle TOGGLES the node")
+    (is (not-any? #(= :rf.xray.edn-inspector/zoom-to (first %)) @captured)
+        "and does NOT zoom — the defect was that it did exactly this")
+    (is @stopped
+        "stopPropagation is what keeps the enclosing zoom handler off the
+         gesture, so it is part of the contract, not an implementation detail")
+    (is @prevented
+        "preventDefault suppresses the UA's own handling")))
+
+(deftest space-on-toggle-toggles
+  (doseq [k [" " "Spacebar"]]
+    (let [captured (atom [])
+          h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                             :panel-id :test
+                             :mount-id "m1"
+                             :path [:x]
+                             :depth 5
+                             :expansion-map {}
+                             :zoomable? true
+                             :dispatch-fn (fn [event-v] (swap! captured conj event-v))
+                             :opts {:default-expanded-depth 1}})
+          tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
+          {:keys [event]} (key-event k)]
+      ((-> tog second :on-key-down) event)
+      (is (= 1 (count @captured))
+          (str "Space (key " (pr-str k) ") toggles — it did nothing at all before"))
+      (is (= :rf.xray.edn-inspector/toggle-node (ffirst @captured))))))
+
+(deftest other-keys-and-modified-enter-pass-through-untouched
+  ;; The surrounding spine bindings (j/k/L/G, Esc-zoom-out) must keep
+  ;; working, exactly as `zoom-trigger-attrs` leaves them.
+  (let [on-key-down (toggle-span-keydown)]
+    (doseq [k ["j" "k" "Escape" "Tab" "ArrowDown"]]
+      (let [captured (atom [])
+            h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                               :panel-id :test :mount-id "m1" :path [:x] :depth 5
+                               :expansion-map {} :zoomable? true
+                               :dispatch-fn (fn [e] (swap! captured conj e))
+                               :opts {:default-expanded-depth 1}})
+            tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
+            {:keys [event]} (key-event k)]
+        ((-> tog second :on-key-down) event)
+        (is (zero? (count @captured))
+            (str "`" k "` passes through the triangle untouched"))))
+    (doseq [modifier [:ctrl :meta :alt :shift]]
+      (is (nil? (on-key-down (modified-key-event "Enter" modifier)))
+          (str "Enter + " (name modifier) " is not the bare gesture and is ignored")))))
 
 (deftest zoomable-skips-zoom-target-at-root
   ;; The root displayed node (relative path `[]`) is NOT a zoom target —

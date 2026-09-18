@@ -160,15 +160,31 @@
           "focus-visible rule scoped to the palette backdrop (palette
            mounts outside the shell roots so it needs its own scope)"))))
 
-(deftest motion-css-focus-visible-uses-warm-amber-token
-  (testing "rf2-fxde5 — the ring colour is `#FBBF24` (token
-            `:yellow` from `theme/tokens.cljc`) — warm amber matching
-            Xray's design language and Story's amber focus-ring
-            convention. 2px outline + 2px offset is the documented
-            high-contrast hit threshold."
+(deftest motion-css-focus-visible-uses-the-accent-token
+  (testing "rf2-y8doi.24 — the ring reads `--rf-xray-accent`, so it
+            resolves per theme at paint time.
+
+            It was a hardcoded `#FBBF24`, and this test asserted that
+            hex while describing it as \"token `:yellow` from
+            `theme/tokens.cljc`\" — a claim the palettes refute:
+            `:yellow` is `#d29922` dark / `#9a6700` light, and
+            `#FBBF24` appears nowhere in `tokens.cljc` at all. So the
+            ring painted a colour in neither palette, at roughly 1.8:1
+            against the light theme, which is under any contrast floor
+            for a focus indicator.
+
+            `022-Design-Tokens.md`'s token table names `accent` as the
+            single source for \"active tab · chrome stripe · selected
+            states · FOCUS RING · L4 header stripe\", so the accent is
+            what the spec asked for all along.
+
+            2px outline + 2px offset is the documented high-contrast
+            hit threshold."
     (let [css @#'gs/motion-css]
-      (is (re-find #"outline:\s*2px\s+solid\s+#FBBF24" css)
-          "2px solid amber outline")
+      (is (re-find #"outline:\s*2px\s+solid\s+var\(--rf-xray-accent\)" css)
+          "2px solid accent outline")
+      (is (not (re-find #"#FBBF24" css))
+          "and the off-palette amber hex is gone from the stylesheet")
       (is (re-find #"outline-offset:\s*2px" css)
           "2px outline-offset so the ring doesn't graze the element"))))
 
@@ -197,10 +213,10 @@
           "forced-colors media query is present"))))
 
 (deftest motion-css-forced-colors-maps-focus-ring-to-highlight
-  (testing "rf2-wxepo — the global :focus-visible amber outline
-            (#FBBF24) overrides to `Highlight` under HCM so keyboard-
-            only users see the user's selected-emphasis hue rather
-            than the UA's forced override of the amber hex."
+  (testing "rf2-wxepo — the global :focus-visible accent outline
+            overrides to `Highlight` under HCM so keyboard-only users
+            see the user's selected-emphasis hue rather than the UA's
+            forced override of the author colour."
     (let [css @#'gs/motion-css]
       (is (re-find #"outline-color:\s*Highlight" css)
           "focus-visible outline-color is Highlight inside the block"))))

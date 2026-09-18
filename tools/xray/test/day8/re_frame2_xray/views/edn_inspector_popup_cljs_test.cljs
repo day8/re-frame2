@@ -562,3 +562,99 @@
   (let [tree (popup-stack-tree)]
     (is (= 3 (-> tree second :data-rf-popup-count))
         "popup-count attribute reflects stack depth")))
+
+;; =========================================================================
+;; rf2-y8doi.24 — the popup FORWARDS its opts
+;; =========================================================================
+;;
+;; `popup-chrome` used to destructure five known keys out of `opts` and
+;; hand the embedded widget a freshly-built FOUR-key map. Everything
+;; else the caller passed was dropped on the floor — `:zoomable?`,
+;; `:card?`, `:header`, `:added?`, `:before`.
+;;
+;; The opts really are present by then: `popup-affordance-button` in
+;; `views.edn-inspector` forwards the originating mount's whole opts
+;; map into the open payload. The popup was the only thing discarding
+;; them, so a value you popped out PRECISELY BECAUSE it was cramped
+;; arrived stripped of the affordances the cramped mount had.
+;;
+;; `:inspector` is the seam these tests drive: `popup-chrome` takes a
+;; 3-arg `(fn [mount-id value opts])` for the embedded widget's head,
+;; so a capturing stub reads exactly what the widget would have been
+;; handed.
+
+(defn- forwarded-opts
+  "The opts map `popup-chrome` hands the embedded widget, captured
+  through the `:inspector` seam."
+  [opts]
+  (let [captured (atom ::never-called)]
+    (edn-inspector-popup/popup-chrome
+      {:mount-id    "m1"
+       :value       {:foo :bar}
+       :opts        opts
+       :positioning :fixed
+       :stack-pos   0
+       :inspector   (fn [_mount-id _value widget-opts]
+                      (reset! captured widget-opts)
+                      [:span "stub"])})
+    @captured))
+
+(deftest popup-forwards-arbitrary-widget-opts
+  (let [out (forwarded-opts {:zoomable? true
+                             :card? true
+                             :header "Payload"
+                             :added? true
+                             :max-inline-width 120})]
+    (is (map? out) "the inspector seam was called with an opts map")
+    (is (true? (:zoomable? out))
+        ":zoomable? reaches the widget — the item's named example")
+    (is (true? (:card? out))     ":card? reaches the widget")
+    (is (= "Payload" (:header out)) ":header reaches the widget")
+    (is (true? (:added? out))    ":added? reaches the widget")
+    (is (= 120 (:max-inline-width out))
+        "an explicitly-passed width still wins")))
+
+(deftest popup-defers-to-the-widgets-own-expansion-ceiling
+  ;; The item's other half: the popup hardcoded a `:default-expanded-
+  ;; depth` of 2 while the widget's own ceiling is 8, so the ROOMY
+  ;; popup auto-expanded LESS than the cramped inline mount it was
+  ;; opened from — exactly backwards.
+  (let [out (forwarded-opts {})]
+    (is (nil? (:default-expanded-depth out))
+        "no caller value — the popup passes no depth, so the widget
+         applies its own ceiling rather than the popup's old hardcoded 2"))
+  (let [out (forwarded-opts {:default-expanded-depth 3})]
+    (is (= 3 (:default-expanded-depth out))
+        "a caller who DOES ask for a depth still gets it")))
+
+(deftest popup-never-offers-to-open-itself-in-a-popup
+  (is (false? (:popup-affordance? (forwarded-opts {})))
+      "forced false by default")
+  (is (false? (:popup-affordance? (forwarded-opts {:popup-affordance? true})))
+      "and forced false even when the caller asks for it — a popup
+       inside a popup is not a thing"))
+
+(deftest popup-isolates-expansion-state-from-the-mount-it-came-from
+  ;; Two keys are deliberately NOT forwarded as-is, and both exist to
+  ;; keep the popup's expansion/zoom state off the panel underneath
+  ;; (which almost certainly mounts the same value at the same path).
+  (testing ":panel-id is REPLACED with one derived from the mount-id"
+    (let [out (forwarded-opts {:panel-id :rf.xray/app-db})]
+      (is (= :rf.xray.edn-inspector-popup/app-db-m1 (:panel-id out))
+          "derived from the caller's panel-id AND the mount-id")))
+  (testing ":site-id is DROPPED, and has to be"
+    ;; The widget keys expansion and zoom on `(or site-id mount-id)`,
+    ;; so a forwarded `:site-id` would out-rank the derived panel-id
+    ;; above and silently re-collide the popup with its origin.
+    (let [out (forwarded-opts {:site-id "app-db-top" :zoomable? true})]
+      (is (nil? (:site-id out))
+          ":site-id does not reach the widget")
+      (is (true? (:zoomable? out))
+          "and dropping it does not disturb its neighbours — the control"))))
+
+(deftest popup-forwards-nil-opts-safely
+  (let [out (forwarded-opts nil)]
+    (is (map? out) "a nil opts map still produces a map")
+    (is (false? (:popup-affordance? out)))
+    (is (= :rf.xray.edn-inspector-popup/anon-m1 (:panel-id out))
+        "and falls back to the default panel-id")))
