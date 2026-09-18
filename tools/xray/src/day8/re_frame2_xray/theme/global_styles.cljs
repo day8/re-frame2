@@ -48,8 +48,8 @@
 ;; ---- font loading (rf2-5kfxe.1 + rf2-5kfxe.1 follow-up) ----------------
 ;;
 ;; Inter + JetBrains Mono are the brand faces per spec/007 §Typography;
-;; Fraunces (rf2-5kfxe.9) is the variable serif display face for L4
-;; panel <h1>s. They appear in `tokens/sans-stack` + `tokens/mono-stack`
+;; Fraunces (rf2-5kfxe.9) is the variable serif display face reached
+;; through `tokens/display-stack`. They appear in `tokens/sans-stack` + `tokens/mono-stack`
 ;; + `tokens/display-stack` as the FIRST entries of their fallback
 ;; cascades — when an OS-installed copy is present the page renders in
 ;; the brand face; otherwise the cascade falls through to the platform
@@ -111,9 +111,19 @@
 
   - Inter — weights 400 / 500 / 600 / 700 (chrome, labels, prose).
   - JetBrains Mono — weights 400 / 500 / 600 / 700 (code, EDN).
-  - Fraunces — weights 500 / 600 / 700 / 900 (L4 panel `<h1>` only,
-    rf2-5kfxe.9). Variable optical-size axis 9-144 isn't expressible
-    in a `local()` reference so the per-weight family names are used.
+  - Fraunces — weights 500 / 600 / 700 / 900, requested for whatever
+    reaches `tokens/display-stack` (rf2-5kfxe.9). Variable optical-size
+    axis 9-144 isn't expressible in a `local()` reference so the
+    per-weight family names are used.
+
+    This read \"L4 panel `<h1>` only\" until rf2-y8doi.24. Those
+    headings are GONE — `[:h1` occurs zero times across
+    `tools/xray/src` (controls: `[:h2` 5, `[:div` 464), the large
+    Machine-panel `h1` having been removed under rf2-6xezz on
+    2026-05-21 — so the scope named a surface that no longer exists.
+    The one live `display-stack` consumer today is the static
+    machines' definition-detail title, which is a `<div>` rendering at
+    BODY type-scale by deliberate choice, not a heading.
 
   `font-display: swap` is set on every rule so when a webfont DOES
   resolve (via consumer opt-in `url()` layering) the fallback renders
@@ -456,17 +466,28 @@
     ;; line 107). Without this rule keyboard-only users have no
     ;; reliable focus indicator anywhere in Xray.
     ;;
-    ;; Token: `:yellow #FBBF24` from `theme/tokens.cljc` — the warm
-    ;; amber matches Xray's design language (sibling to Story's
-    ;; `#F5A524` amber focus ring at `theme/motion.cljc:173`). 2px
-    ;; outline + 2px offset is the documented high-contrast hit
+    ;; rf2-y8doi.24 — the ring is the ACCENT, read through
+    ;; `--rf-xray-accent` so it resolves per theme at paint time (the
+    ;; same var the event-list seam's focus ring below already uses).
+    ;;
+    ;; It was a hardcoded `#FBBF24`, described here as "token `:yellow`
+    ;; from `theme/tokens.cljc`" — and that hex appears NOWHERE in
+    ;; `tokens.cljc`: `:yellow` is `#d29922` dark / `#9a6700` light. So
+    ;; the ring painted a colour in neither palette, at roughly 1.8:1
+    ;; against the light theme, which is under any contrast floor for a
+    ;; focus indicator. `022-Design-Tokens.md`'s token table names
+    ;; `accent` as the single source for "active tab · chrome stripe ·
+    ;; selected states · FOCUS RING · L4 header stripe", so the accent
+    ;; is what the spec asked for all along.
+    ;;
+    ;; 2px outline + 2px offset is the documented high-contrast hit
     ;; threshold. `:focus-visible` (rather than `:focus`) ensures
     ;; the ring only paints for keyboard navigation, not mouse
     ;; clicks — matches platform expectations.
     "[data-testid=\"rf-xray-shell\"] *:focus-visible,\n"
     "[data-testid=\"rf-xray-static-shell\"] *:focus-visible,\n"
     "[data-testid=\"rf-xray-palette-backdrop\"] *:focus-visible {\n"
-    "  outline: 2px solid #FBBF24;\n"
+    "  outline: 2px solid var(--rf-xray-accent);\n"
     "  outline-offset: 2px;\n"
     "  border-radius: 3px;\n"
     "}\n"
@@ -481,8 +502,9 @@
     ;;   - L2 row gutter causal-chain thread (1px accent inset)
     ;;   - L4 panel header accent stripes (3px left border — the single
     ;;     GitHub-blue accent, rf2-ad7zx.13)
-    ;;   - Focus-visible amber outline (the #FBBF24 hex above; the UA
-    ;;     forces this to its own Highlight regardless of author intent)
+    ;;   - Focus-visible accent outline (the `--rf-xray-accent` ring
+    ;;     above; the UA forces this to its own Highlight regardless of
+    ;;     author intent)
     ;;   - Secondary / tertiary text (drifted greys collapse to a
     ;;     single CanvasText hue)
     ;;

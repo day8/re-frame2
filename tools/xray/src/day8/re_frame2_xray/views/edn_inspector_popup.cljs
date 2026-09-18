@@ -27,22 +27,39 @@
   to sit here too, a form-2 wrapper minting its own `mount-id`. It is
   GONE: zero mounts tree-wide, and nothing but its own tests called it.
 
-  `opts` (the `:opts` half of the open payload; all keys optional):
+  `opts` (the `:opts` half of the open payload; all keys optional).
 
-  - `:title`             — header label. Defaults `\"Inspect\"`.
-  - `:panel-id`          — passed straight through to the embedded
-                           `[edn-inspector value …]` so the popup's
-                           expansion state is keyed under its own
-                           `panel-id` (defaults to `:rf.xray.data-
+  **Every key is FORWARDED to the embedded widget** (rf2-y8doi.24) —
+  `views.edn-inspector`'s own docstring is the roster, and the popup
+  deliberately keeps no allow-list of its own so a new widget opt needs
+  no edit here. Three keys the popup reads or rewrites on the way
+  through:
+
+  - `:title`             — header label, consumed by the popup chrome
+                           itself. Defaults `\"Inspect\"`.
+  - `:panel-id`          — the BASIS for the embedded widget's
+                           `panel-id`, not the value passed on: the
+                           popup derives `rf.xray.edn-inspector-popup/
+                           <panel-id>-<mount-id>` so its expansion
+                           state is isolated from the mount it was
+                           opened from (defaults to `:rf.xray.data-
                            display-popup/anon`).
-  - `:default-expanded-depth` / `:max-inline-width` / `:max-depth` —
-                           forwarded to the wrapped widget.
+  - `:site-id`           — DROPPED, and it has to be. The widget keys
+                           expansion and zoom on `(or site-id
+                           mount-id)`, so forwarding it would out-rank
+                           the derived `panel-id` above and re-collide
+                           the popup with its originating mount.
   - `:on-close`          — optional 0-arg fn called when the popup
                            closes (X / Esc / backdrop). The default
                            `:on-close` dispatches
                            `[:rf.xray.edn-inspector-popup/close mount-id]`
                            against the `:rf/xray` frame so the popup
                            closes itself via the registered handler.
+
+  `:popup-affordance?` is forced `false` — a popup does not offer to
+  open itself in a popup. `:default-expanded-depth` is NOT defaulted
+  here: omit it and the widget applies its own
+  `ei/default-ceiling-depth`.
 
   ## Per-popup mount-id
 
@@ -452,13 +469,9 @@
                  [[fresco-inspector]]. See the section comment above."
   [{:keys [mount-id value opts positioning stack-pos inspector]
     :or   {inspector reagent-inspector}}]
-  (let [{:keys [title panel-id default-expanded-depth
-                max-inline-width max-depth on-close]
+  (let [{:keys [title panel-id on-close]
          :or   {title "Inspect"
-                panel-id default-panel-id
-                default-expanded-depth 2
-                max-inline-width 60
-                max-depth 16}} opts
+                panel-id default-panel-id}} opts
         ;; Capture the surrounding instance frame at render time so the
         ;; deferred close handlers dispatch into it, not a
         ;; `:rf/xray` literal. popup-chrome renders inside the panels'
@@ -515,14 +528,47 @@
        ;;
        ;; rf2-k97c.3 — CALLED rather than headed, so the lane's head
        ;; (Reagent `reg-view` or Fresco boundary) is the caller's to
-       ;; choose. The opts map below is unchanged and is what both
-       ;; lanes carry.
+       ;; choose. Both lanes carry the same opts map.
+       ;;
+       ;; rf2-y8doi.24 — FORWARD the caller's opts rather than rebuild
+       ;; them. This used to hand the widget a fixed four-key map, so
+       ;; every other opt the caller passed was silently dropped on the
+       ;; floor — `:zoomable?`, `:card?`, `:header`, `:added?`,
+       ;; `:before`. `popup-affordance-button` already forwards the
+       ;; mount's whole opts map into the open payload, so the opts ARE
+       ;; here; the popup was the only thing discarding them, and a
+       ;; value you popped out precisely because it was cramped lost
+       ;; the affordances the inline mount had.
+       ;;
+       ;; Two keys are deliberately NOT forwarded:
+       ;;
+       ;; - `:panel-id` is REPLACED with one derived from the mount-id,
+       ;;   so the popup's expansion state is isolated from the panel
+       ;;   underneath (which almost certainly mounts the same value at
+       ;;   the same path).
+       ;; - `:site-id` is DROPPED for that same reason, and it has to
+       ;;   be: the widget's expansion/zoom key is `(or site-id
+       ;;   mount-id)`, so a forwarded `:site-id` would out-rank the
+       ;;   derived panel-id and re-collide the popup with the mount it
+       ;;   was opened from — silently undoing the isolation above.
+       ;;
+       ;; `:popup-affordance? false` stops a popup offering to open
+       ;; itself in a popup. The button already sets it; asserting it
+       ;; here covers the callers that dispatch
+       ;; `:rf.xray.edn-inspector-popup/open` directly.
+       ;;
+       ;; `:default-expanded-depth` now simply passes through when the
+       ;; caller set one. The old `:or` default of 2 was the defect the
+       ;; item names: the widget's own ceiling is
+       ;; `ei/default-ceiling-depth` (8), so the ROOMY popup
+       ;; auto-expanded less than the cramped inline mount it was
+       ;; opened from.
        (inspector mount-id value
-                  {:panel-id (keyword "rf.xray.edn-inspector-popup"
-                                      (str (name panel-id) "-" mount-id))
-                   :default-expanded-depth default-expanded-depth
-                   :max-inline-width       max-inline-width
-                   :max-depth              max-depth})])))
+                  (-> (or opts {})
+                      (dissoc :site-id)
+                      (assoc :panel-id (keyword "rf.xray.edn-inspector-popup"
+                                                (str (name panel-id) "-" mount-id))
+                             :popup-affordance? false)))])))
 
 ;; =========================================================================
 ;; stack view — renders every open popup over the active panel
