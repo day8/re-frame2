@@ -1391,9 +1391,10 @@ not target a state machine"** — no topology, no machine name, no "current ●"
 Dynamic panel is single-instance and event-driven (003 §Dynamic mode), so there is no
 "every registered machine, last-known state" view to fall back to.
 
-An event that DOES target a machine but moves no state — a birth, or a guard-blocked /
-unhandled no-op — is not Case B: it renders the Case C shape with the resting state
-highlighted and no fired edge (003 §Machine birth, §Guard-blocked / unhandled no-op).
+An event that DOES target a machine without a from→to transition — a birth (entry into the
+initial state), or a guard-blocked / unhandled no-op — is not Case B either: it renders the
+Case C shape with the resting state highlighted (003 §Machine birth, §Guard-blocked /
+unhandled no-op).
 
 The design this case used to carry — a topology per registered machine with the last-known
 state annotated `current ●` (rf2-dbi87) — is not mounted: its renderer,
