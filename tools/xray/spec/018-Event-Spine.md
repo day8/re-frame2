@@ -586,7 +586,7 @@ is accepted as a host-friendly alias normalising to `:routing`):
 | # | Tab | Mnem | Registry id | What it shows for the focused event | Spec |
 |---|---|---|---|---|---|
 | 1 | **Epoch** | `e` | `:epoch` | Numbered vertical cascade of the focused epoch's pipeline (DISPATCH · COEFFECTS · HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS, conditional per the trace stream); supersedes the retired Event/Handler panel per rf2-5gl5r. | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1 + this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Epoch tab |
-| 2 | **App-db** | `a` | `:app-db` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
+| 2 | **App-db** | `a` | `:app-db` | Diff `:db-before` vs `:db-after` — slice-first · zoom-into-a-container with a breadcrumb trail (rf2-h71e0 · rf2-zl4rs; a single click on a path segment does nothing, and the rf2-e9tb0 clickable-segment popup was deleted unreached under rf2-y8doi.29) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
 | 3 | **Views** | `v` | `:views` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
 | 4 | **Trace** | `t` | `:trace` | The focused EPOCH's raw `:trace-events` slice, rendered as plain-language rows. **No filtering UI at all** — the focused epoch IS the scope (rf2-o6yqq + rf2-gkczt removed the trace-type chips, the local IN/OUT pills and the clear control). | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
 | 5 | **Machines** | `m` | `:machines` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.xray.static.machines/sim-*`, view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
@@ -945,6 +945,7 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
    [spec/013-Flows.md §Dirty-check semantics](../../../spec/013-Flows.md#dirty-check-semantics))
    are NOT rendered as rows — a flow that didn't recompute did not
    touch app-db, so it stays out of the cascade-detail by default.
+
 > **Entries 7 and 8 are ONE shipped step (corrected 2026-09-18).** The
 > panel renders a single flat **SIDE EFFECTS** ledger (rf2-j630b; step
 > `:side-effects`, badge label `EFFECT HANDLERS`) carrying both what the
@@ -1865,8 +1866,9 @@ A top tab strip (NOT left-rail navigation) drives which body section
 renders. Tabs are equal-weight; **General** is the default-on-open (and
 the popup resets to it on every open — see §Why modal not panel above).
 
-> **Seven widgets left this wireframe and it kept drawing all of them
-> (corrected 2026-09-18).** Removed **2026-05-27** in Mike's UX-cleanup
+> **SIX widgets left this wireframe and a seventh control lost an
+> option, and it kept drawing all of them (corrected 2026-09-18).**
+> Removed **2026-05-27** in Mike's UX-cleanup
 > pass: the **Text-size slider** (defaults suffice), the **Panel-width
 > input** (drag the resize handle — rf2-x8h9y; double-click resets), the
 > **Density radio** (Cosy / Compact were visually indistinguishable in
@@ -1888,7 +1890,7 @@ the popup resets to it on every open — see §Why modal not panel above).
 > `:show-tool-frames?` slot is the one that did NOT survive, precisely
 > because nothing could write it (rf2-y8doi.27).
 >
-> Three widgets arrived and were never drawn here: the **epoch-history
+> Four controls arrived and were never drawn here: the **epoch-history
 > slider** (relocated back to General on 2026-05-27 after rf2-pu9sb had
 > moved it to Buffer), the **editor override** (rf2-dudqz), and the two
 > power-user checkboxes — **Show `:ungrouped`** (rf2-r9lyy) and **Always
@@ -1898,7 +1900,7 @@ the popup resets to it on every open — see §Why modal not panel above).
 
 | Section | Content |
 |---|---|
-| **General** (default) | Panel-position radio (`:right-rail` / `:fullscreen`) · Auto-open-on-error checkbox · Epoch-history slider (`:general :epoch-history`, default 50 — retained epochs per frame; trace evicts with its epoch) · Editor override (`Click-to-source links open in …`, rf2-dudqz) · **`── Power user ──` divider** · `Show :ungrouped pseudo-event-bundle events` (rf2-r9lyy, OFF by default) · `Always show unchanged subs in the Views panel` (spec/021 §3.4 pin). See the removals note under §Wireframe for the seven widgets this cell used to list. |
+| **General** (default) | Panel-position radio (`:right-rail` / `:fullscreen`) · Auto-open-on-error checkbox · Epoch-history slider (`:general :epoch-history`, default 50 — retained epochs per frame; trace evicts with its epoch) · Editor override (`Click-to-source links open in …`, rf2-dudqz) · **`── Power user ──` divider** · `Show :ungrouped pseudo-event-bundle events` (rf2-r9lyy, OFF by default) · `Always show unchanged subs in the Views panel` (spec/021 §3.4 pin). See the removals note under §Wireframe for the widgets this cell used to list and no longer should. |
 | **Keybindings** | Read-only chord table (every binding the global keydown listener captures) · `Handle keys?` master toggle. v1 ships READ-ONLY; the per-row chord editor + reset-to-defaults UI is the v1.1 follow-on. |
 | **Buffer** | `:buffer/events-retained <int>` (default 50; writes through to `(rf/configure! {:trace-buffer {:events-retained N}})` per rf2-5u03ig) · "Clear buffer now" button (confirm modal). The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig. |
 | **Diff** | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; the app-db diff engine itself is Editscript A* per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1.5.1 with no user-tuneable knobs — the prior section-grouping engine was retired wholesale per rf2-7is22) |
