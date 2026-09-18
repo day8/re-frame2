@@ -186,10 +186,11 @@ Story path instead.
 
 ### `:rf.xray/editor`
 
-The 'Open in editor' click-to-source target. Drives every panel that
-surfaces a source-coord (event-detail hero, machine inspector chips,
-hydration debugger rows, trace panel rows — per
-[`API.md`](./API.md) §Open in editor).
+The 'Open in editor' click-to-source target. Drives every surface that
+renders a source-coord — the Epoch panel's event-detail hero and
+interceptor rows, the reactive panel's `[code]` chip, the Trace
+panel's per-event rows, and Static mode's machine / schema / route
+catalogue rows (per [`API.md`](./API.md) §Open in editor).
 
 | Value | URI scheme | Notes |
 |---|---|---|
@@ -414,7 +415,13 @@ next trace event without re-registering the listener (per
 
 **Reveal is an auditable operator act** (Spec 015 §Cross-tool grain):
 widening to `:rf.egress/local-raw` emits a `:rf.xray/egress-reveal` trace
-op so the reveal is trace-visible rather than a silent local flip.
+event (`config.cljc/set-egress-profile!`, fail-soft and CLJS-only) so the
+reveal is recorded rather than being a silent local flip. It is emitted
+FRAMELESS and under an `:op-type` of `:rf.xray`, which is outside
+[Spec 009 §`:op-type` vocabulary](../../../spec/009-Instrumentation.md#op-type-vocabulary)'s
+closed set — so it reaches Xray's frameless secondary ring (and the L2
+`:show-ungrouped?` bucket that surfaces it) but is NOT shown by the
+epoch-scoped Trace panel today, and no test pins the emit.
 Narrowing back to `:rf.egress/local-redacted` triggers the retroactive
 scrub (the reveal is NOT a one-way trapdoor — see
 [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Retroactive-scrub),
@@ -463,21 +470,31 @@ unchanged for the default path and for explicit opens.
 Controls whether `keybinding/attach!` installs Xray's global,
 capture-phase `keydown` listener. The listener handles Xray's
 spec-published shortcuts: `Ctrl+Shift+C` (shell toggle), `Cmd/Ctrl+K`
-(command palette), and the unmodified spine bindings
-(`Space` / `L` / `j` / `k` / `G` / `c` / `Esc`). It calls
+(command palette), `Cmd/Ctrl+Shift+M` (Dynamic ↔ Static mode), the
+unmodified spine bindings (`Space` / `l` / `Shift+G` / `j` / `k` /
+`,` / `s` — `keybinding.cljs`'s `spine-key-id` is the roster, and it
+deliberately states no count), and a contextual `Esc` that fires only
+while the open-in-editor hint toast is open. It calls
 `stopPropagation()` for the keys it consumes so host bindings further
 down the propagation path don't double-fire.
 
 | Value | Meaning |
 |---|---|
-| `true` | Default. `keybinding/attach!` installs the listener; the standalone Xray shell behaves exactly as it did pre-rf2-4eyik. |
-| `false` | Suppress installation entirely. `keybinding/attach!` short-circuits to a no-op; the sentinel does not flip; no listener lands on `js/document`. |
+| `true` | Default. The listener is installed (by `keybinding/attach!` at load time, or by the watch below when the slot flips back); the standalone Xray shell behaves exactly as it did pre-rf2-4eyik. |
+| `false` | No global listener on `js/document`. `keybinding/attach!` short-circuits to a no-op when the slot is already `false`; a flip that arrives after the listener is attached removes it. |
 | `nil` | Reset to default (`true`). |
 
-Hosts MUST set this BEFORE the Xray preload runs (the preload calls
-`keybinding/attach!` at adapter-ready time). Setting it afterwards is
-a no-op on the already-attached listener unless the host explicitly
-calls `keybinding/detach!` (see below).
+**The flip is self-acting at any point in the boot sequence, so host
+boot ordering does not change what the host has to call.**
+`keybinding.cljs` watches this slot (rf2-y8doi.17) and attaches /
+detaches the global listener on every genuine change, both directions
+idempotent through the `attached-state` CAS. That watch is what makes
+the slot mean what it says on the `:devtools/preloads` path, which is
+the documented install route: shadow-cljs loads preloads before the
+app's `:init-fn`, so the preload has already called
+`keybinding/attach!` by the time the host's `configure!` runs, and a
+slot read only at attach time was a silent no-op for every host that
+took that route.
 
 The slot exists for embed hosts (per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — Story
@@ -491,8 +508,8 @@ discovered via rf2-drprn.
 #### `keybinding/detach!` — public escape hatch (rf2-ycrt2)
 
 `day8.re-frame2-xray.keybinding/detach!` is the public companion to
-`attach!` for embed hosts whose mount lifecycle runs AFTER Xray's
-preload. The contract:
+`attach!` — the hatch for removing the listener WITHOUT declaring the
+slot. The contract:
 
 ```clojure
 (require '[day8.re-frame2-xray.keybinding :as xray-keybinding])
@@ -509,24 +526,21 @@ preload. The contract:
   leaking listeners.
 - **Safe in any host**. Guarded on `(exists? js/document)`.
 
-When to call: embed hosts that flip `:rf.xray/keybinding-enabled?` to
-`false` from a **mount-time** hook (not boot-time) must follow the
-slot flip with `detach!`. The slot alone is read only at attach time;
-without `detach!` the listener Xray's preload installed under the
-default-true posture stays on `js/document` and continues consuming
-keypresses despite the intent declaration. Per rf2-ycrt2 (rf2-q7who.1
-runtime follow-on). Story's `ensure-xray-mounted!` is the canonical
-example: it calls `disable-keybinding!` (slot flip) then
-`detach-keybinding!` (runtime removal) on every variant-selection
-edge.
+When to call: a host that flips `:rf.xray/keybinding-enabled?` needs
+nothing further — the watch described above removes the listener for
+it, whenever the flip lands. `detach!` is for the host that wants the
+listener gone WITHOUT declaring the slot, or that must remove it from
+a mount-time hook it does not own. Per rf2-ycrt2 (rf2-q7who.1 runtime
+follow-on), corrected by rf2-y8doi.17. Calling it alongside a slot
+flip is harmless — merely redundant, since both sides are idempotent —
+which is what Story's `re-frame.story.xray-preset/wire-cross-host!`
+does today: `disable-keybinding!` (slot flip) then
+`detach-keybinding!` (explicit removal), belt-and-braces.
 
-Boot-time hosts (those that call
-`configure! {:rf.xray/keybinding-enabled? false}` BEFORE Xray's
-preload runs) do NOT need to call `detach!` —
-their slot flip lands before `attach!` reads it, the short-circuit
-fires, and no listener is ever installed. `detach!` exists for the
-mount-time lifecycle the slot's attach-time-only read cannot cover
-alone.
+`detach!` removes what `attach!` installed on the OPENER document and
+deliberately reaches no further: a pop-out window's listener belongs
+to the pop-out's own lifecycle and re-reads this slot per keystroke.
+So clearing the slot is the route that quiets both surfaces.
 
 ### `:rf.xray/settings`
 
@@ -645,11 +659,23 @@ position, etc.).
 > ALWAYS seeds the live map (so a host's posture is visible even with
 > no storage-backed load ever running — tests, harnesses), but only
 > PERSISTS it when localStorage is still empty. `load-settings-from-
-> storage!` (run later, per the documented boot order) deep-merges
-> whatever IS in localStorage over `default-settings` seeded with the
-> `configure!` map, so a returning user's persisted values always win
-> for the keys they've touched, while a fresh key the host newly
-> configures still lands for everyone else.
+> storage!` deep-merges whatever IS in localStorage over
+> `default-settings` seeded with the `configure!` map, so a returning
+> user's persisted values always win for the keys they've touched,
+> while a fresh key the host newly configures still lands for everyone
+> else.
+>
+> **Order-independent since rf2-y8doi.17.** Seeding alone was not
+> enough: the live atom was still reset to defaults-plus-seed with the
+> persisted layer dropped, which is harmless only if
+> `load-settings-from-storage!` runs AFTERWARDS — and on the
+> `:devtools/preloads` path, the route every shipped host takes, it
+> does not. shadow-cljs loads preloads before the app's `:init-fn`, so
+> the preload's load has already run by the time the host calls
+> `configure!`, and the reset landed ON TOP of the user's values: the
+> documented order delivered inverted. `configure!` now recomputes the
+> live map by re-reading the persisted payload and re-merging it above
+> the seed, so the result is the same whichever of the two runs first.
 
 Default-defining shape, per-knob rationale and the localStorage key
 are normatively documented in
@@ -807,11 +833,16 @@ the panels that drive them; this doc enumerates only the
 configuration-derived slot (`:suppressed-counters`) because it is the
 visible bridge between `configure!` and the reactive surface.
 
-**Frame is registered trace-disabled (rf2-2qaqh).** Xray registers its
-own frame with the framework's `:rf.trace/frame-no-emit?` frame-config:
+**Frame is registered trace-disabled (rf2-2qaqh).** Xray SEATS its own
+frame as an EP-0023 image-loaded frame and asserts the framework's
+`:rf.trace/frame-no-emit?` gate alongside it, in one place —
+`seat-xray-frame!` in
+`tools/xray/src/day8/re_frame2_xray/panels/image_view_reads.cljs`,
+driven by `mount.cljs`'s `ensure-xray-frame!`:
 
 ```clojure
-(rf/make-frame {:id :rf/xray :rf.trace/frame-no-emit? true})   ;; mount.cljs/ensure-xray-frame!
+(rf.live-frame/make-frame {:id :rf/xray :images [(xray-image)]})
+(rf.trace/set-frame-no-emit! :rf/xray true)
 ```
 
 This marks `:rf/xray` a tool / inspector frame: the framework's `emit!`
@@ -819,9 +850,14 @@ This marks `:rf/xray` a tool / inspector frame: the framework's `emit!`
 so Xray's own UI reactivity (`:rf.sub/run` + `:rf.view/render` on every
 panel render) emits NO trace and never floods the shared ring it
 inspects. It is the frame-scoped sibling of the handler-scoped
-`:rf.trace/no-emit?`; honoured on every `make-frame` (re-)registration so
-the gate survives hot-reload. This config is NOT a `configure!` key — it
-is a framework `make-frame` option Xray sets internally. See
+`:rf.trace/no-emit?`. The flag is frame-keyed trace state owned by
+`re-frame.trace`, independent of the frame's image generation — the
+EP-0023 constructor honours only frame-creation opts (`:id` /
+`:images` / `:initial-events` / …) and would reject it as a
+record-config key — so it is set through `set-frame-no-emit!` on
+EVERY seat and re-seat, and the gate survives hot-reload. This is NOT
+a `configure!` key; it is framework-owned frame state Xray sets
+internally. See
 [framework API §`:rf.trace/frame-no-emit?`](../../../spec/API.md) +
 [`013-Trace-Consumer.md` §Framework-side: emission suppressed at source](./013-Trace-Consumer.md#framework-side-emission-suppressed-at-source). (Xray
 adds a second, ingest-side belt-and-braces drop for the residual cases
@@ -844,7 +880,7 @@ ownership rule below locks the contract for pre-alpha and forward.
 | Surface | Role | Mutability | Lifetime |
 |---|---|---|---|
 | `(xray-config/configure! {…})` | Static boot config — defaults, feature flags, host-environment wiring (editor target, project root, layout-host selector, auto-open, keybinding enabled, filter seed, …). | Host-code-mutable at boot; immutable from the user's perspective. | Process-global atoms; one set of values per host load. |
-| `(xray/init! opts)` | Manual installation hook, alternative to `:preloads`; opening/mounting is a separate verb. Accepted options are `:target-frame`, `:theme`, `:density`, and `:buffer-depths {:epoch N}`. The Settings options address `:theme`, `[:general :density]`, and `[:general :epoch-history]`; target selection addresses Xray frame state. Aspirational AI/sidebar/launcher/keybinding-map slots are not accepted by either this hook or the shipped Settings map. Idempotent installation. | Host-code-driven; once-per-load. | Installation plus explicit option writes, not a new independent Settings instance. |
+| `(xray/init! opts)` | Manual installation hook, alternative to `:preloads`; opening/mounting is a separate verb. Loads the user's persisted Settings and applies them FIRST (rf2-y8doi.17), in the same position the preload's boot block does, then installs. Accepted options are `:target-frame`, `:theme`, `:density`, and `:buffer-depths {:epoch N}`. The Settings options address `:theme`, `[:general :density]`, and `[:general :epoch-history]`; target selection addresses Xray frame state. Aspirational AI/sidebar/launcher/keybinding-map slots are not accepted by either this hook or the shipped Settings map. Idempotent installation. | Host-code-driven; once-per-load. | Installation plus explicit option writes, not a new independent Settings instance. |
 | Persisted Settings (`localStorage` slot `re-frame2.xray.settings.v1`) | User-mutable overrides in the four slots `:general`, `:theme`, `:diff`, `:buffer`, as enumerated in [§`:rf.xray/settings`](#rfxraysettings). The popup and ribbon/resize controls write this map. Target selection and the separate `xray.mode` preference do not live in it. | User-mutable; round-trips through localStorage. | Survives reload until cleared; unreadable payloads fall back in memory. |
 
 **Merge order (lowest precedence first):**
@@ -856,22 +892,31 @@ hardcoded defaults  <  configure! overrides  <  persisted Settings overrides
 `init!` receives the **merged** config. Concretely:
 
 1. Xray's compiled-in defaults seed every knob.
-2. `configure!` writes overlay onto the process-global atoms before
-   `init!` runs (or any `:preloads`-driven mount). Hosts that want a
-   non-default starting value for a Settings-shape key (e.g. an
-   embed that defaults to `:theme :dark`) MAY pass it through
-   `configure!`; the value lands as the new default for any user
-   who has not yet mutated that key via the Settings popup.
+2. `configure!` writes overlay onto the process-global atoms. Hosts
+   that want a non-default starting value for a Settings-shape key
+   (e.g. an embed that defaults to `:theme :dark`) MAY pass it
+   through `configure!`; the value lands as the new default for any
+   user who has not yet mutated that key via the Settings popup.
+   **This step's position in wall-clock boot order does not matter**
+   — on the `:devtools/preloads` path the host's `configure!` call
+   necessarily runs AFTER the preload's load-time block, step 3
+   included, and the merge order still holds (see the Implementation
+   note below).
 3. The persisted Settings shape, loaded from localStorage on boot,
    then overlays whichever keys the user has previously mutated. A
    user toggling `:theme :light` once continues to see Light on
    every subsequent reload regardless of what the host wrote via
-   `configure!`.
+   `configure!`. **BOTH install routes perform this load** — the
+   preload's boot block, and `init!` itself (rf2-y8doi.17; before
+   that fix `init!` never loaded them, so a manually-installed host
+   saw compiled-in defaults however much the user had saved).
 4. `init!` reads the fully-merged config when it wires the panel's
    per-instance state machine; `init! opts` is the last-mile shape
    passed to that wiring (test harnesses, Story testbeds, and
    embedding hosts that need to inject a specific shape at mount
-   time without round-tripping through atoms).
+   time without round-tripping through atoms). The opts are written
+   LAST, so for the keys they name they win over the persisted
+   values — which is exactly what a per-mount pin is for.
 
 **Implementation (rf2-rr2yw3).** For the `:rf.xray/settings` bulk-config
 key specifically (`config.cljc`), step 2 is realised by seeding
@@ -880,7 +925,10 @@ live settings atom AND the localStorage payload — the earlier
 behaviour, which broke this exact order), and step 3 by
 `load-settings-from-storage!` deep-merging the persisted payload OVER
 `(merge-known-sections default-settings @configured-settings-seed)`.
-See `:rf.xray/settings` above for the full reconciliation.
+rf2-y8doi.17 completed it: `configure!` recomputes the live map through
+the same resolution, so whichever of the two runs first, the result is
+the order above. See `:rf.xray/settings` above for the full
+reconciliation.
 
 **Consequence.** A key like `:theme` legally appears on all three
 surfaces — that is by design, not by accident. The host's
@@ -917,16 +965,27 @@ MAY assign them semantics.
   unchanged.
 
 Note: `:theme` is **no longer reserved** — it now lives inside the
-`:rf.xray/settings` map (see above) and is reachable via the Settings
-popup's Theme tab or `(configure! {:rf.xray/settings {:theme :light}})`.
+`:rf.xray/settings` map (see above) and is reachable via the chrome
+ribbon's sun/moon toggle or
+`(configure! {:rf.xray/settings {:theme :light}})`. There is no
+Settings-popup Theme tab: rf2-ou3pn dropped it as pure redundancy
+(both surfaces dispatched the identical
+`[:rf.xray/settings-update :theme nil <kw>]`), leaving the ribbon
+toggle canonical — per [`007-UX-IA.md`](./007-UX-IA.md) §Settings
+popup, "Dropped from earlier drafts".
 
 ## Vision — full configure! key inventory (30+ keys)
 
-v1 ships ~6 host-supplied keys (`:rf.xray/editor` /
-`:rf.xray/project-root` / `:rf.xray/layout-host-selector` /
-`:rf.xray/auto-open?` / `:rf.xray/keybinding-enabled?` /
-`:rf.xray/egress-profile`) plus the `:rf.xray/filters` seed
-slot. All Xray knobs follow the `:rf.xray/*` convention; each
+v1 ships NINE host-supplied keys — `:rf.xray/editor`,
+`:rf.xray/project-root`, `:rf.xray/layout-host-selector`,
+`:rf.xray/auto-open?`, `:rf.xray/keybinding-enabled?`,
+`:rf.xray/egress-profile`, `:rf.xray/settings`, `:rf.xray/filters`
+and `:rf.xray/filters-auto-hide-error-overrides?`. That is the same
+set the [§Cluster catalogue](#cluster-catalogue) table enumerates and
+the same set `configure!`'s own argument destructuring accepts; the
+three lists move together. (It was ten until rf2-y8doi.27 deleted
+`:rf.xray/filters-storage-key` — see §`:rf.xray/filters`.)
+All Xray knobs follow the `:rf.xray/*` convention; each
 re-frame2 tool reserves its own `:rf.<tool>/*` segment via
 [`spec/Conventions.md`](../../../spec/Conventions.md) (Story's
 `:rf.story/*`, etc.) — there is no cross-tool shared reservation,
@@ -995,13 +1054,29 @@ All forthcoming keys follow the `:rf.xray/*` convention.
 
 ### Recovery action (not a key)
 
-- `(xray-config/factory-reset!)` — wipes every
-  `day8.re-frame2-xray.*` localStorage key + resets in-memory atoms.
-  Red button in the Settings popup; CLI escape hatch for "I broke
-  something and don't know what to fix."
+- `(xray-config/factory-reset!)` — wipe every Xray localStorage key +
+  reset the in-memory atoms. NOT SHIPPED: what exists today is
+  `config/reset-settings!`, which resets the settings atom, clears the
+  `configure!` seed and removes the ONE `re-frame2.xray.settings.v1`
+  slot. The red-button UI is dropped — factory-reset stays code-only
+  per [`007-UX-IA.md`](./007-UX-IA.md) §Settings popup, "Dropped from
+  earlier drafts" — so this entry is the wider CLI escape hatch for
+  "I broke something and don't know what to fix", not a missing
+  button.
 
-The full destination is auditable against `tools/xray/test/.../config_cljc_test.cljc`
-which enforces no slot is forgotten when the surface grows.
+  Whatever ships has to enumerate **two key families**, because Xray's
+  localStorage keys carry no single prefix: the versioned
+  `re-frame2.xray.<name>.v1` slots (Settings, the frame pin, palette
+  recents, event-list column widths) and the bare, unversioned
+  `xray.<name>` slots (mode, the muted-event-id set, the Static-mode
+  machine slots, the machine-canvas collapse map). The
+  `day8.re-frame2-xray.*` prefix an earlier revision of this section
+  promised matches NONE of them — it is the Clojure namespace root,
+  never a storage prefix.
+
+The full destination is auditable against
+`tools/xray/test/day8/re_frame2_xray/config_test.clj`, which enforces
+that no slot is forgotten when the surface grows.
 
 <a id="findings"></a>
 
