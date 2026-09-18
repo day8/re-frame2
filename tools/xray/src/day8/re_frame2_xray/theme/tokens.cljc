@@ -7,8 +7,8 @@
   of the dark-theme palette plus the `mono-stack` + `sans-stack` font
   defs. Drift had already started — `:orange` was unique to the
   performance panel (since deleted, in the rf2-qy0nu sweep) even
-  though `spec/007-UX-IA.md` §Colour system
-  catalogues it as part of the canonical perf scale. One source of
+  though `spec/007-UX-IA.md` §Colour system catalogues it as part of
+  the canonical perf scale. One source of
   truth — this ns — removes the duplication and makes the v1.0
   CSS-variable migration a one-file change.
 
@@ -782,8 +782,8 @@
   callers are the roster (the static machines' definition-detail
   title `<div>` today). It named the panel's `<h1>` until rf2-09c8s,
   but no Xray view renders an `<h1>` (see [[display-stack]]). Inline
-  style so per-panel call sites stay
-  small + the stripe is co-located with the header chrome.
+  style so per-panel call sites stay small + the stripe is co-located
+  with the header chrome.
 
   `tab` is the L4 tab keyword (`:event` / `:app-db` / …). Returns a
   map merge-able into an existing `:style`. Per rf2-5kfxe.8."
