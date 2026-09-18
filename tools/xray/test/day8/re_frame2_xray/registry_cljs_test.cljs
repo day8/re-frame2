@@ -1937,6 +1937,194 @@
         (is (= 0 (:rendered data)))
         (is (= :no-focus (:empty-kind data)))))))
 
+;; ---- rf2-hiri8 — the PINNED-NO-EPOCH focus ------------------------------
+;;
+;; A focus the operator SET to an event bundle that settled no epoch carries
+;; a nil `:epoch-id` beside a pinned `:dispatch-id` —
+;; `spine/epoch-id-for-event-bundle` answers nil for a dispatch refused before
+;; any handler ran, for a bundle still mid-build, for a bundle whose epoch
+;; aged out of the ring, and for an `:ungrouped` pin alike. That shape is
+;; IDENTICAL to the cold-start UNSET focus rf2-h0120's head-fallback exists to
+;; serve, so a consumer reading `:epoch-id` alone gets the HEAD record back and
+;; projects a DIFFERENT event's state underneath the operator's selection.
+;;
+;; The shared resolver's 3-arities (rf2-y8doi.19) take the pinned
+;; `:dispatch-id` and separate the two. rf2-c4abp threaded it through Trace and
+;; the Machine Inspector; the two rows below cover the consumers that were
+;; still reading `:epoch-id` alone — `:rf.xray/issues-ribbon` (this file) and
+;; `:rf.xray/reactive-data` (the Views panel).
+;;
+;; The spine slots are seeded DIRECTLY, which is the route
+;; `evicted_epoch_all_panels_cljs_test` uses for its pinned-evicted state: the
+;; focus under test is then deterministic rather than dependent on which
+;; bundles happen to be in the ring, and it sidesteps
+;; `:rf.xray/sync-epoch-history`, which STAMPS `[:focus :epoch-id]` from the
+;; head record and so cannot express "history, but no epoch focused".
+
+(def ^:private pin-dispatch-id
+  "The pinned `:dispatch-id` of a bundle that settled no epoch. Deliberately
+  NOT any `:dispatch-id` in `pin-history`, so nothing can resolve it to a
+  record by accident."
+  999)
+
+(def ^:private pin-history
+  "A single REAL epoch survives in the ring, carrying an issue-bearing trace
+  event, a sub-run and a render. That is what makes the rows below
+  discriminating: head-fallback has something to fall back TO, so the pre-fix
+  failure surfaces as epoch 11's issues / cascade rather than as an empty
+  projection that happens to look right."
+  [{:epoch-id      11
+    :dispatch-id   11
+    :event         [:test/event]
+    :db-before     {}
+    :db-after      {}
+    :sub-runs      [{:sub-id :counter/value :recomputed? true :value-changed? true}]
+    :renders       [{:render-key [:counter-view 0]}]
+    :trace-events  [{:id 1 :op-type :error :operation :rf.error/handler-threw
+                     :tags {}}
+                    {:operation :rf.view/rendered
+                     :tags {:rf.view/id          :counter-view
+                            :rf.view/render-key  [:counter-view 0]
+                            :rf.view/mount?      false
+                            :rf.view/deref-subs  [[:counter/value]]}}]}])
+
+(defn- install-pin-seeder!
+  "Register the test-local spine seeder. Registration is process-global while
+  the dispatch below is frame-scoped, so this is called OUTSIDE
+  `rf/with-frame` — and re-registered per test rather than at load time, so a
+  fixture registrar reset cannot leave it missing."
+  []
+  (rf/reg-event ::seed-focus+history
+    (fn [{:keys [db]} [_ focus history]]
+      {:db (-> db
+               (assoc :epoch-history (vec history))
+               (assoc :focus focus))})))
+
+(defn- seed-focus+history!
+  "Seed both spine slots in ONE write. Must be called inside
+  `(rf/with-frame :rf/xray ...)`."
+  [focus history]
+  (rf/dispatch-sync [::seed-focus+history focus (vec history)]))
+
+(defn- pin-focus
+  "A RETRO focus pinning `dispatch-id` with `epoch-id`. `:frame` nil keeps the
+  composite frame-unscoped, matching the seeded history."
+  [dispatch-id epoch-id]
+  {:mode :retro :dispatch-id dispatch-id :epoch-id epoch-id :frame nil})
+
+(deftest sub-issues-ribbon-rejects-pinned-bundle-that-settled-no-epoch
+  (testing "rf2-hiri8 — `:rf.xray/issues-ribbon` takes the WHOLE focus map as
+            an input and then destructured `:epoch-id` alone, throwing the
+            pinned `:dispatch-id` away. So a bundle that settled no epoch fell
+            through to head-fallback and the ribbon projected the HEAD epoch's
+            issues under the operator's selection — and this composite is the
+            auto-open-on-error SIGNAL (settings/effects.cljs), so the lie is
+            not merely cosmetic: the watcher fires on an unrelated epoch's
+            issues. Passing the discriminator into the shared resolver's
+            3-arities resolves no record and reports the cause-neutral
+            `:no-epoch`."
+    (setup-xray-frame!)
+    (install-pin-seeder!)
+    (rf/with-frame :rf/xray
+      (seed-focus+history! (pin-focus pin-dispatch-id nil) pin-history)
+      (let [focus @(rf/subscribe [:rf.xray/focus])]
+        ;; Setup assertions — without these the row could pass vacuously
+        ;; against a focus `compose-focus` re-derived into some other shape.
+        (is (= pin-dispatch-id (:dispatch-id focus))
+            (str "test setup: the pinned :dispatch-id must survive "
+                 "composition. focus: " (pr-str focus)))
+        (is (nil? (:epoch-id focus))
+            (str "test setup: :epoch-id must stay nil — that nil beside a "
+                 "pinned :dispatch-id IS the state under test. focus: "
+                 (pr-str focus))))
+      (let [data @(rf/subscribe [:rf.xray/issues-ribbon])]
+        (is (= [] (:issues data))
+            (str "the ribbon projected the HEAD epoch's issues under a "
+                 "selection that is not that epoch's. data: "
+                 (pr-str (select-keys data [:total :epoch-id :empty-kind]))))
+        (is (= 0 (:total data))
+            "issue COUNT is what the auto-open watcher reads — it must be 0")
+        (is (nil? (:epoch-id data))
+            "the feed leaked the head epoch's id for a focus pinning no epoch")
+        (is (= :no-epoch (:empty-kind data))
+            (str "the ribbon must classify a pinned bundle that settled no "
+                 "epoch as :no-epoch, not as :no-issues — which would assert "
+                 "a focused epoch ran and emitted nothing, when in truth no "
+                 "epoch resolved at all"))))))
+
+(deftest sub-issues-ribbon-rejects-only-the-pinned-no-epoch-shape
+  (testing "rf2-hiri8 POSITIVE CONTROL — the discriminator must change NOTHING
+            else. Without this row the fix could pass by emptying the ribbon
+            outright: an UNSET focus over a non-empty ring must still
+            head-fall-back (rf2-h0120), and an ordinary pinned epoch must still
+            project its own issues."
+    (setup-xray-frame!)
+    (install-pin-seeder!)
+    (rf/with-frame :rf/xray
+      ;; (a) unset focus — nothing pinned at all, history non-empty.
+      (seed-focus+history! (pin-focus nil nil) pin-history)
+      (let [data @(rf/subscribe [:rf.xray/issues-ribbon])]
+        (is (= 1 (:total data))
+            (str "an unset focus must still head-fall-back to epoch 11's "
+                 "issues. data: "
+                 (pr-str (select-keys data [:total :epoch-id :empty-kind]))))
+        (is (= 11 (:epoch-id data)) "head-fallback must resolve epoch 11")
+        (is (nil? (:empty-kind data)) "an unset focus is not :no-epoch"))
+      ;; (b) an ordinary selected epoch that DOES resolve.
+      (seed-focus+history! (pin-focus 11 11) pin-history)
+      (let [data @(rf/subscribe [:rf.xray/issues-ribbon])]
+        (is (= 1 (:total data))
+            "a real pinned epoch must still project its own issues")
+        (is (= 11 (:epoch-id data)) "the pinned epoch's id must survive")
+        (is (nil? (:empty-kind data))
+            "a resolved epoch carrying an issue has no empty-kind")))))
+
+(deftest sub-reactive-data-rejects-pinned-bundle-that-settled-no-epoch
+  (testing "rf2-hiri8 — the Views composite `:rf.xray/reactive-data` reads the
+            whole focus map and passed only `(:epoch-id focus)` to its
+            `focused-epoch-record` helper, so the pinned `:dispatch-id` was
+            discarded AT THE CALL. Pre-fix the panel rendered the HEAD epoch's
+            cascade while the composite's own `:dispatch-id` slot still
+            reported the operator's pin — the two disagreeing about one
+            selection. This is the `:no-epoch` sibling of the pinned-EVICTED
+            case rf2-uo0rc.1 fixed for this same panel."
+    (setup-xray-frame!)
+    (install-pin-seeder!)
+    (rf/with-frame :rf/xray
+      (seed-focus+history! (pin-focus pin-dispatch-id nil) pin-history)
+      (let [data @(rf/subscribe [:rf.xray/reactive-data])]
+        (is (false? (:has-event-bundle? data))
+            (str "Views showed a cascade for a bundle that settled NO epoch. "
+                 "data: "
+                 (pr-str (select-keys data [:has-event-bundle? :dispatch-id]))))
+        (is (empty? (:subs-ran data))
+            "Views projected sub-runs from the head record on a no-epoch pin")
+        (is (empty? (:view-rows data))
+            "Views projected view-rows from the head record on a no-epoch pin")
+        (is (= pin-dispatch-id (:dispatch-id data))
+            (str "the composite must still report the operator's pin — it is "
+                 "the disagreement between this slot and the projection that "
+                 "made the pre-fix render a lie rather than merely stale"))))))
+
+(deftest sub-reactive-data-rejects-only-the-pinned-no-epoch-shape
+  (testing "rf2-hiri8 POSITIVE CONTROL for Views — an UNSET focus over a
+            non-empty ring still head-falls-back to the head epoch's cascade,
+            and an ordinary pinned epoch still projects its own."
+    (setup-xray-frame!)
+    (install-pin-seeder!)
+    (rf/with-frame :rf/xray
+      (seed-focus+history! (pin-focus nil nil) pin-history)
+      (let [data @(rf/subscribe [:rf.xray/reactive-data])]
+        (is (true? (:has-event-bundle? data))
+            "an unset focus must still head-fall-back to epoch 11's cascade")
+        (is (seq (:subs-ran data)) "head-fallback must project epoch 11's subs"))
+      (seed-focus+history! (pin-focus 11 11) pin-history)
+      (let [data @(rf/subscribe [:rf.xray/reactive-data])]
+        (is (true? (:has-event-bundle? data))
+            "a real pinned epoch must still project its own cascade")
+        (is (seq (:subs-ran data))
+            "a real pinned epoch must still project its own subs")))))
+
 (deftest sub-trace-feed-shape-on-empty-buffer
   (testing ":rf.xray/trace-feed returns :no-focus empty-kind initially
             (rf2-td380 — epoch-scoped: no focused epoch + empty history

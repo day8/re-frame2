@@ -943,19 +943,56 @@
     ;; algebra runs under the JVM test target.
     ;;
     ;; Per spec/021 §1.2 the projection is focused-epoch-scoped — it
-    ;; joins `:rf.xray/focus`'s `:epoch-id` against the per-frame
-    ;; `:rf.xray/epoch-history`, classifies focus status (no-focus /
-    ;; focused / evicted; head-fallback), looks up the epoch
-    ;; record, and threads it through `project-feed`.
+    ;; joins `:rf.xray/focus`'s `:epoch-id` AND its pinned `:dispatch-id`
+    ;; against the per-frame `:rf.xray/epoch-history`, classifies focus
+    ;; status (no-focus / no-epoch / focused / evicted; head-fallback),
+    ;; looks up the epoch record, and threads it through `project-feed`.
+    ;;
+    ;; rf2-hiri8 — THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
+    ;; second data axis. This sub took the whole focus map as an input and
+    ;; then read `:epoch-id` alone, throwing the pin away. A focus the
+    ;; operator SET to an event bundle that settled no epoch carries a nil
+    ;; `:epoch-id` (`spine/epoch-id-for-event-bundle` answers nil for a
+    ;; dispatch refused before any handler ran, a bundle still mid-build, a
+    ;; bundle whose epoch aged out, and an `:ungrouped` pin alike), which is
+    ;; SHAPE-IDENTICAL to the cold-start UNSET focus that rf2-h0120's
+    ;; head-fallback exists to serve. So the 2-arities could not tell the
+    ;; two apart and answered the HEAD for both, and this ribbon projected
+    ;; a DIFFERENT event's issues underneath the operator's selection.
+    ;;
+    ;; That is not merely cosmetic here, because this composite has no
+    ;; rendered consumer: it is the auto-open-on-error SIGNAL, and
+    ;; `install-auto-open-watcher!` fires on `(count (:issues …))` going
+    ;; non-zero — so the head epoch's issues could pop Xray open while the
+    ;; operator's own selection had settled nothing at all.
+    ;;
+    ;; Passing the pin into the 3-arities (what rf2-y8doi.19 landed for the
+    ;; Epoch panel and rf2-c4abp threaded through Trace + the Machine
+    ;; Inspector) is what separates them.
+    ;;
+    ;; The `:empty-kind` override below is this sub deciding its own
+    ;; empty-state vocabulary rather than taking it from the projector, for
+    ;; the same reason rf2-c4abp gave for `:rf.xray/trace-feed`:
+    ;; `project-feed` maps `:no-focus` and `:epoch-evicted` through and
+    ;; falls any other non-`:focused` status to `:no-issues` — which for
+    ;; this status would assert that a focused epoch ran and carried no
+    ;; issues, when in truth no epoch was resolved at all. The projector is
+    ;; the natural long-term home for the mapping; it is left alone here
+    ;; because `issues_ribbon_helpers.cljc` is outside this change's fence,
+    ;; and lifting it there is a pure follow-on with no behaviour change.
     (rf/reg-sub :rf.xray/issues-ribbon
       {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
       (fn [[focus epoch-history] _query]
-        (let [focus-epoch-id (:epoch-id focus)
-              focus-status   (issues-helpers/resolve-focus-status focus-epoch-id
-                                                                   epoch-history)
-              record         (issues-helpers/find-epoch-record focus-epoch-id
-                                                               epoch-history)]
-          (issues-helpers/project-feed record focus-status))))
+        (let [focus-epoch-id    (:epoch-id focus)
+              focus-dispatch-id (:dispatch-id focus)
+              focus-status      (issues-helpers/resolve-focus-status focus-epoch-id
+                                                                     focus-dispatch-id
+                                                                     epoch-history)
+              record            (issues-helpers/find-epoch-record focus-epoch-id
+                                                                  focus-dispatch-id
+                                                                  epoch-history)]
+          (cond-> (issues-helpers/project-feed record focus-status)
+            (= :no-epoch focus-status) (assoc :empty-kind :no-epoch)))))
 
     ;; ---- Static-mode chrome ---------------------------------------
     ;;

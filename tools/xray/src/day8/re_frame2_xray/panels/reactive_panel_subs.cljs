@@ -146,9 +146,30 @@
       empty/§10.7-evicted placeholder rather than silently falling back
       to HEAD and showing the LATEST event-bundle, which lied about which
       epoch the operator was inspecting.
-    - empty history → nil."
-  [epoch-history epoch-id]
-  (focus/find-epoch-record epoch-id epoch-history))
+    - empty history → nil.
+
+  ## The pinned bundle that settled no epoch (rf2-hiri8)
+
+  The 3-arity additionally takes the focus's pinned `dispatch-id` and
+  resolves to NO record — never the head — when `epoch-id` is nil while a
+  `dispatch-id` is pinned. That is the SAME class of lie the evicted case
+  above already refuses, one discriminator short: a focus the operator SET
+  to an event bundle that settled no epoch carries a nil `epoch-id`
+  (`spine/epoch-id-for-event-bundle` answers nil for a dispatch refused
+  before any handler ran, a bundle still mid-build, a bundle whose epoch
+  aged out, and an `:ungrouped` pin alike), which is shape-identical to the
+  UNSET focus the head-fallback above exists to serve. Head-fallback is for
+  an unset focus; handing the head to a caller who pinned a bundle that
+  settled nothing renders one event's cascade under another event's row.
+
+  The 2-arity is unchanged and cannot answer that case, having nothing to
+  answer it from — it stays the form
+  `install-legacy-reactive-data-sub-for-test!` calls, which models
+  PREDECESSOR code on purpose and must not be `fixed`."
+  ([epoch-history epoch-id]
+   (focused-epoch-record epoch-history epoch-id nil))
+  ([epoch-history epoch-id dispatch-id]
+   (focus/find-epoch-record epoch-id dispatch-id epoch-history)))
 
 (defn- op-kw
   "Trace-event op keyword. The substrate's `:rf/*` ops carry the kw on
@@ -662,7 +683,15 @@
               [:rf.xray/reactive-show-unchanged?]
               [:rf.xray/setting :general :show-unchanged-subs?]]}
     (fn [[focus history panel-unchanged? config-unchanged?] _query]
-      (let [record   (focused-epoch-record history (:epoch-id focus))
+      ;; rf2-hiri8 — pass the PINNED `:dispatch-id` as well as the
+      ;; `:epoch-id`. Reading `:epoch-id` alone discarded the discriminator
+      ;; at this call, so a bundle that settled no epoch head-fell-back and
+      ;; the panel projected the HEAD epoch's cascade while `:dispatch-id`
+      ;; below still reported the operator's pin — one composite's two
+      ;; halves disagreeing about one selection.
+      (let [record   (focused-epoch-record history
+                                           (:epoch-id focus)
+                                           (:dispatch-id focus))
             ;; Static topology snapshot — read once per event-bundle. Free
             ;; (registry-only); used to partition L1 / L2+ subs and
             ;; supply the inputs + code columns. Defensive try so a
