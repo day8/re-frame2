@@ -523,15 +523,22 @@
 ;;              ✓ ran        (`:rf.fx/handled`)
 ;;              ↺ overridden (`:rf.fx/override-applied`)
 ;;              – skipped    (`:rf.fx/skipped-on-platform`; NEUTRAL)
-;;   other  — a TOP-LEVEL effect key OUTSIDE the closed set on the returned
-;;            map, LAST in the ledger. re-frame2's effect map is the closed
-;;            `{:db :fx :rf.db/runtime}` shape; the runtime DROPS any key
-;;            beyond it, so the row renders the muted `–` not-run diagnostic
-;;            (NEUTRAL). `:rf.db/runtime` is NOT an "other" key — it is a
-;;            committed runtime-db state effect with its own row.
+;;
+;; rf2-qlvui — there is NO `other` tier in this ledger and this fixture no
+;; longer demos one. It used to carry a stray top-level `:analytics` key,
+;; described here as "an effect the runtime drops" and rendered as a muted
+;; `–` not-run row. THAT TAUGHT THE OPPOSITE OF WHAT THE RUNTIME DOES: a
+;; top-level key outside `re-frame.events/closed-effect-map-keys` is REFUSED
+;; PRE-COMMIT (rf2-04tx) and never reaches do-fx at all, so it is never a
+;; not-run row; the refusal surfaces instead as the
+;; `:rf.error/effect-map-shape` row `attach-unclassified-errors` lands on
+;; this step. rf2-m2ye2 deleted the producer (`other-effect-rows`) at
+;; ed3755729c — see the tombstone in `side-effects-step`'s docstring in
+;; projection.cljc. `:rf.db/runtime` was never an "other" key either: it is
+;; a committed runtime-db state effect with its own row.
 ;;
 ;; The single SIDE EFFECTS badge is the AND-of-rows: this all-actioned
-;; ledger (the skipped + dropped rows are neutral) reads ✓.
+;; ledger (the skipped row is neutral) reads ✓.
 ;;
 ;; rf2-4wywy — db snapshots + t1 so the HANDLER `:db` FULL+DIFF block
 ;; renders alongside the SIDE EFFECTS `:db` ✓ row.
@@ -539,10 +546,14 @@
 (defn effectful-history
   "`:effectful` cascade (a `reg-event` handler that returns `:db` + a
   three-entry `:fx` vector — a ran effect, an overridden effect, a platform-skipped
-  effect) + a stray top-level `:analytics` effect the runtime drops.
+  effect).
   Exercises the SIDE EFFECTS flat ledger (rf2-j630b) — the `:db` →
-  app-db row, each per-effect glyph variant, and the `other` not-run
-  diagnostic — under one ✓/✗ badge."
+  app-db row and each per-effect glyph variant — under one ✓/✗ badge.
+
+  rf2-qlvui dropped the stray top-level `:analytics` key this fixture
+  used to return. It demoed an `other` not-run row that no longer
+  exists, and the runtime REFUSES such a map pre-commit rather than
+  dropping the effect — see the note above."
   []
   (single-epoch-history
     {:epoch-id  2
@@ -553,14 +564,16 @@
      [(dispatched-ev [:order/submit {:order-id 42}] :ui)
       (db-pending-ev {:order {:status :submitting}})
       (db-changed-ev [[[:order :status] :draft :submitting :modified]])
-      ;; The handler returned {:db .. :fx [[..] [..] [..]] :analytics ..}.
-      ;; The `:db` + `:fx` entries drive the per-effect rows; `:analytics`
-      ;; is the closed-shape-violating top-level key the runtime drops.
+      ;; The handler returned {:db .. :fx [[..] [..] [..]]}.
+      ;; The `:db` + `:fx` entries drive the per-effect rows. The
+      ;; `:analytics/track` entry below is an ORDINARY `:fx` entry (it
+      ;; demos the overridden glyph); it is not to be confused with the
+      ;; closed-shape-violating TOP-LEVEL `:analytics` key rf2-qlvui
+      ;; removed from this return map.
       (do-fx-ev {:db       ::placeholder
                  :fx       [[:http/post {:url "/api/orders" :body {:order-id 42}}]
                             [:analytics/track {:event :order-submitted}]
-                            [:clipboard/write {:text "ORDER-42"}]]
-                 :analytics {:event :order-submitted}})
+                            [:clipboard/write {:text "ORDER-42"}]]})
       ;; :db commit (✓) — recorded by db-changed above; the per-fx rows:
       (fx-handled-ev :http/post {:url "/api/orders"} 3.4)
       ;; analytics/track was diverted by a dev-time override (↺).

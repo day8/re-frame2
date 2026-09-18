@@ -2547,33 +2547,31 @@
             pair-debug 2026-05-27 the per-fx-row list shape is
             retired in favour of a single edn-inspector mount.
 
-            The `:other-effects` section (return map minus :db and
-            :fx) is also covered here — both sections mount the
-            edn-inspector with `:default-expanded-depth 16`."
+            rf2-qlvui — the companion `other` section (the return map
+            minus `:db` and `:fx`) is NOT covered here, because it no
+            longer exists. It went with the projection slot that fed
+            it (rf2-m2ye2, ed3755729c). The assertions that used to pin
+            it passed on an `:other-effects` fixture the projection
+            cannot produce — the fixture-versus-producer drift that kept
+            the dead path looking alive — so they are deleted rather
+            than re-pointed. `projection_cljs_test.cljc` carries the
+            regression pin that keeps the producer from returning."
     (let [tree    (view/render-handler-step
                     {:step :handler :badge :HANDLER :step-number 3
                      :flavour :effectful :event-id :do/it
                      :fx-vec  [[:dispatch [:foo 1]]
                                [:http/get {:url "/x"}]]
-                     :other-effects {:navigate "/home"}
                      :machine nil})
-          fx-sec  (find-by-testid tree "rf-xray-epoch-handler-fx")
-          oth-sec (find-by-testid tree "rf-xray-epoch-handler-other")]
+          fx-sec  (find-by-testid tree "rf-xray-epoch-handler-fx")]
       (is (some? fx-sec)
           "the :fx section mounts when fx-vec is non-empty")
       (is (pos? (count (ei-mounts fx-sec)))
           "the :fx section mounts an edn-inspector")
-      (is (some? oth-sec)
-          "the other section mounts when other-effects is non-empty")
-      (is (pos? (count (ei-mounts oth-sec)))
-          "the other section mounts an edn-inspector")
       ;; rf2-5t8y8 — sub-header carries an at-a-glance entry-count chip
-      ;; on both `:fx` and `other` (was lost during the rf2-p2zy0
-      ;; edn-inspector migration).
+      ;; on `:fx` (was lost during the rf2-p2zy0 edn-inspector
+      ;; migration).
       (is (string/includes? (text-content fx-sec) "2 entries")
-          "the :fx sub-header carries the entry-count chip")
-      (is (string/includes? (text-content oth-sec) "1 entry")
-          "the other sub-header carries the singular entry chip"))))
+          "the :fx sub-header carries the entry-count chip"))))
 
 (deftest side-effects-fx-args-route-through-edn-inspector-test
   (testing "rf2-ef2hy — an :fx ledger row's args render through the

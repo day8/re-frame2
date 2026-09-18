@@ -4290,19 +4290,20 @@
   into SNAPSHOT DIFF per design §Section 3).
 
   Per rf2-p2zy0 (Mike pair-debug 2026-05-27) the legacy per-fx-row
-  list (one `fx-entry-line` per entry) is REPLACED by two
-  decomposed sections matching how a reg-event author thinks
-  about the return map:
+  list (one `fx-entry-line` per entry) is REPLACED by a decomposed
+  `:fx` section matching how a reg-event author thinks about the
+  return map:
 
     - `:fx` — the canonical `:fx` vector-of-vectors (when present)
       rendered fully expanded via the edn-inspector widget.
-    - `other` — the return map MINUS `:db` and `:fx`, rendered
-      fully expanded via the edn-inspector widget. Carries legacy
-      top-level fx-ids (`:dispatch`, `:http/get`, `:navigate`, …)
-      when used directly on the return map rather than under `:fx`.
 
-  Either, both, or neither may render — sections are
-  `seq`-conditioned. The `:db` part stays in its own dedicated
+  rf2-qlvui — rf2-p2zy0's SECOND section (`other`: the return map
+  minus `:db` and `:fx`) is GONE. It was deleted with the projection
+  slot that fed it (rf2-m2ye2, ed3755729c); see the tombstone at the
+  render site below for why it can never come back.
+
+  The `:fx` section is `seq`-conditioned, so it renders only when the
+  handler returned one. The `:db` part stays in its own dedicated
   block (the [diff][full][full+diff] toggle) above.
 
   rf2-k97c.3 — the optional `ctx` is the cascade-level map [[Panel]]
@@ -4311,7 +4312,7 @@
   every direct caller that has no cascade context working: no record
   means no `:db-before`, which renders as an absent pre-image."
   ([row] (handler-body row {}))
-  ([{:keys [flavour event-id db-post-handler db-write? fx-vec other-effects
+  ([{:keys [flavour event-id db-post-handler db-write? fx-vec
             machine errors] :as _row}
     ctx]
   (let [machine? (= :reg-machine flavour)
@@ -4355,21 +4356,17 @@
                        :card?                  false
                        :zoomable?              true
                        :default-expanded-depth 16}}]]))
-     ;; other — return map minus :db and :fx, FULL via edn-inspector.
-     ;; rf2-5t8y8 — entry-count chip on the sub-header (parallel to :fx).
-     (when (seq other-effects)
-       (let [n (count other-effects)]
-         [:div {:data-testid "rf-xray-epoch-handler-other"}
-          (sub-header "other" (str n " entr" (if (= 1 n) "y" "ies")))
-          [ei/edn-inspector-view
-           {:mount-id (inspector-mount-id
-                        (:instance ctx)
-                        (str "epoch/handler-other/" event-id))
-            :value    other-effects
-            :opts     {:site-id                [:rf.xray.epoch/handler-other event-id]
-                       :card?                  false
-                       :zoomable?              true
-                       :default-expanded-depth 16}}]]))])))
+     ;; rf2-qlvui — there is NO `other` sub-section after the `:fx` one,
+     ;; and re-adding it is the wrong repair. The projection's
+     ;; `:other-effects` slot went with its producer (rf2-m2ye2,
+     ;; ed3755729c): a top-level effect key OUTSIDE the framework's
+     ;; closed set is REFUSED pre-commit (rf2-04tx) and never reaches a
+     ;; do-fx reader, while every key INSIDE that set is legal and
+     ;; applied. So the slot had no truthful population, this branch
+     ;; could never fire, and re-deriving the value from somewhere else
+     ;; would only restore the false "the runtime ignored this effect"
+     ;; accusation the deletion removed.
+     ])))
 
 (defn render-handler-step
   "Render the HANDLER step (always present). Per Mike pair-debug
