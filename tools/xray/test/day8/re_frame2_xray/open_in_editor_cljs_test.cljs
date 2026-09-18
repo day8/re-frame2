@@ -313,9 +313,13 @@
 
 ;; ---- rf2-g5q8d — :rf.xray/open-in-editor + :rf.xray.fx/open-in-editor ------------
 ;;
-;; Per the rf2-3vucz audit, the four Xray panels (trace, issues-ribbon,
-;; mcp-server, hydration-debugger) dispatch `[:rf.xray/open-in-editor
-;; coord]` when their source-coord affordance is clicked. Pre-rf2-g5q8d
+;; Xray panels dispatch `[:rf.xray/open-in-editor {:source-coord coord}]`
+;; when their source-coord affordance is clicked. The only dispatch sites
+;; are the shared `panels.shared.coord-chip` and `panels.shared.coord-link`,
+;; so their requirers ARE the roster (Trace, Epoch and Reactive today). The
+;; rf2-3vucz audit's four-panel list (trace, issues-ribbon, mcp-server,
+;; hydration-debugger) predates the rf2-qy0nu 8-dead-panel sweep and the
+;; rf2-gbz39 Issues-tab removal, which took three of the four. Pre-rf2-g5q8d
 ;; the handler was a stub db-only reg-event that recorded the coord into
 ;; app-db and never opened anything — load-bearing UX silently broken.
 ;;
@@ -324,8 +328,10 @@
 ;;   1. Dispatching the event produces a `:rf.xray.fx/open-in-editor` fx whose
 ;;      `:uri` resolves through `resolve-uri` (= rf2-vwcsq denylist).
 ;;   2. Both dispatch shapes are accepted: the bare-coord form (the
-;;      hydration debugger's call site) and the `{:source-coord ...}`
-;;      wrapper form (the other three panels' call site).
+;;      deleted hydration-debugger panel's shape — nothing dispatches it
+;;      bare today, but the handler's bare branch stays live as the
+;;      unwrapped tail of the wrapper path) and the `{:source-coord ...}`
+;;      wrapper form (the shape every live call site emits).
 ;;   3. A coord whose resolved URI is rejected by the denylist (custom
 ;;      `javascript:` / `data:` / `vbscript:` template) yields a fx whose
 ;;      `:uri` is nil — the side-effect fx is a no-op for nil. Per
@@ -372,7 +378,8 @@
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-g5q8d — dispatching `:rf.xray/open-in-editor` with
-            a bare coord (the hydration-debugger shape) produces a
+            a bare coord (the structured map the `{:source-coord ...}`
+            wrapper also unwraps to) produces a
             `:rf.xray.fx/open-in-editor` fx whose :uri is the resolved URI"
     (setup!)
     (rf/with-frame :rf/xray

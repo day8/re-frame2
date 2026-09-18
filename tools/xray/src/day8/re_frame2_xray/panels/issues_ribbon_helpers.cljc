@@ -406,6 +406,7 @@
 ;; ---- formatting ---------------------------------------------------------
 
 ;; Re-export the shared `HH:MM:SS.mmm` formatter — body lives once in
-;; `common-helpers` so trace / routes / issues / mcp-server all share
-;; a single clock format.
+;; `common-helpers/format-time-hms`, so every helper that re-exports it
+;; (roster in `common-helpers`' ns docstring) shares a single clock
+;; format.
 (def format-time common/format-time-hms)
