@@ -167,7 +167,7 @@ above. On syntax colour the Figma design does **not** win.
 
 | token | px | use |
 |---|---|---|
-| `display` | 14 | section headings |
+| `display` | 14 | section headings, dialog titles |
 | `body` | 13 | default UI text (anchor) |
 | `body-tight` | 12 | header chrome, ribbons |
 | `mono-body` | 12 | code / EDN in dense mono rows |
