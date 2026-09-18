@@ -604,7 +604,7 @@ Storybook commodity alternatives live in
 |---|---|---|
 | Typography tokens — IBM Plex Sans + Plex Mono cascade; zero-raw-font-family contract | F4 / rf2-x6zw5 | Stage 4 |
 | Colour tokens — warm-slate substrate + amber accent palette (vs Storybook cold-grey + pink) | F5 / rf2-kvzkg | Stage 4 |
-| Motion contract — 180ms tab fade, diff-flash, `--motion-scale` seam; motion-as-language | F6 / rf2-1smrl | Stage 4 |
+| Motion contract — six duration tokens + five easing curves, a staggered shell-mount entrance (0 / 60 / 120 / 180ms), a 180ms overlay fade, an 80ms chip-press rebound, and a `prefers-reduced-motion` clamp to `0.01ms`; motion-as-language. The tab fade, the diff-flash and the `--motion-scale` variable this row used to name were never built (rf2-zxsd7) | F6 / rf2-1smrl | Stage 4 |
 | Gradient mesh + grain backdrop — anti-flat-chrome composition | F7 / rf2-4kqvw | Stage 4 |
 | Sidebar glyph rhythm — 5 SVG glyphs (story=◆, variant=●, workspace=▦, chevron, external-link); amber-diamond per-row; amber-active row border | F8 / rf2-ck4x5 | Stage 4 polish |
 | 5-cluster toolbar — MODES \| DATA \| VIEW \| DEBUG \| REC with token hairlines + small-caps cluster labels + accent-amber-deep active-chip border | F9 / rf2-sbluk | Stage 4 polish |

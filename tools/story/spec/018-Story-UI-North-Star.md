@@ -871,8 +871,10 @@ earliest acceptable version when later substrate is still blocked).
 
 Use motion sparingly — panel open/close, row expansion, running/progress
 state, focus handoff to Xray, dirty-to-saved transition — and honour the
-`--motion-scale` reduced-motion seam from
-[`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion. Avoid constant
+`[data-rf-story-root]` reduced-motion override seam from
+[`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion — there is no
+`--motion-scale` variable, which is what this line used to name
+(rf2-zxsd7). Avoid constant
 animated diagnostics; the tool should feel alive through responsiveness
 and good state changes, not ornament.
 
