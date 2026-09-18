@@ -125,26 +125,29 @@
   (rf/reg-sub :rf.xray/palette-index
     {:inputs [[:rf.xray/trace-buffer]
               [:rf.xray/mode]
-              [:rf.xray/palette-recents]
-              [:rf.xray/show-tool-frames?]]}
-    (fn [[buffer mode recents show-tool-frames?] _query]
+              [:rf.xray/palette-recents]]}
+    (fn [[buffer mode recents] _query]
       ;; The sub fn does not receive `db`; we reach into the registrar
       ;; (a process-global atom) + the framework's frame registry
       ;; via the public rf wrappers.
       ;;
       ;; rf2-anbabs — inject the canonical `frame-switcher/internal-frames`
-      ;; exclusion set + the `:rf.xray/show-tool-frames?` toggle so the
-      ;; palette's "Switch focus to frame …" source filters the SAME tool
-      ;; frames the ribbon picker hides (spec/018 §8 I1). This is the
-      ;; `.cljs` seam that reaches the cljs-only frame-switcher contract;
-      ;; the pure `.cljc` aggregator takes the set as data.
+      ;; exclusion set so the palette's "Switch focus to frame …" source
+      ;; filters the SAME tool frames the ribbon picker hides (spec/018
+      ;; §8 I1). This is the `.cljs` seam that reaches the cljs-only
+      ;; frame-switcher contract; the pure `.cljc` aggregator takes the
+      ;; set as data.
+      ;;
+      ;; rf2-y8doi.27 dropped the `:rf.xray/show-tool-frames?` input:
+      ;; its Settings UI went on 2026-05-27, no surface could write the
+      ;; slot, and the sub could only ever answer `false` — so the
+      ;; exclusion set is the whole contract.
       (sources/build-index
         {:panels             (palette-panels)
          :static-tabs        (palette-static-tabs)
          :trace-buffer       buffer
          :frame-ids          (rf/frame-ids)
          :internal-frames    frame-switcher/internal-frames
-         :show-tool-frames?  show-tool-frames?
          :handlers           (handler-entries)
          :mode               mode
          :recents            recents})))

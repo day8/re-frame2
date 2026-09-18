@@ -40,13 +40,14 @@ current-route slice; see [`panels.md` §Static mode](panels.md)).
   refresh — it doesn't.
 - **Tool frames are hidden unconditionally.** `:rf/xray` and
   `:rf/re-frame2-pair` are filtered out of the picker — invariant **I1**:
-  Xray observes ANOTHER frame, never itself. The `:show-tool-frames?` config
-  slot exists (default `false`) but is **not wired**: the picker's
-  `:rf.xray/available-frames` sub hardcodes it off, so tool frames cannot
-  currently be revealed from the UI (the spec's "Show tool frames in picker"
-  power-user toggle in `018-Event-Spine.md` / `007-UX-IA.md` is
-  normative-future, not yet wired). So "I can't find frame X in the picker"
-  → it's a tool frame.
+  Xray observes ANOTHER frame, never itself. There is no setting and no
+  override: rf2-y8doi.27 removed the orphaned `:show-tool-frames?` config
+  slot, which had lost its Settings UI on 2026-05-27 and could no longer
+  be written by anything. The exclusion set is
+  `frame-switcher/internal-frames` and it applies unconditionally. (The
+  "Show tool frames in picker" power-user toggle still described in
+  `018-Event-Spine.md` / `007-UX-IA.md` is normative-future and is NOT
+  shipped.) So "I can't find frame X in the picker" → it's a tool frame.
 
 Canonical write is `:rf.xray/select-frame <frame-id>` (which re-seeds the
 spine's `:target-frame` + `:epoch-history`); the picker sub is

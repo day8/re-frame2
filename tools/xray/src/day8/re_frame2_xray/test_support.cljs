@@ -144,8 +144,7 @@
                   `:init-fn` — i.e. after adapter install + `:rf/default`).
                   Use for per-suite cleanup that must run on the just-reset
                   runtime (e.g. `(spine-filters/clear-raw!)`, seeding a
-                  clean localStorage, `(config/set-filters-storage-key!
-                  nil)`).
+                  clean localStorage, `(frame-switcher/clear!)`).
     :async?     — forwarded to the core fixture (map-form for suites with
                   `(async done …)` tests).
 

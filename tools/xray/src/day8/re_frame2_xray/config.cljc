@@ -1061,10 +1061,6 @@
     ship in v1. Consumers read `:rf.xray/density` and branch
     padding/line-height. Runtime plumbing into individual panels lands
     incrementally.
-  - `:show-tool-frames?` (boolean, default `false`) — when true the
-    L1 frame picker dropdown reveals tool frames (`:rf/xray`,
-    `:rf/re-frame2-pair`). OFF by default per spec/007-UX-IA.md §Frame-
-    observation isolation invariant I1.
   - `:long-keyword-threshold` (integer, default 24) — character count
     above which a fully-qualified keyword is elided in compact list
     cells. Per spec/007-UX-IA.md §Long-keyword treatment.
@@ -1128,7 +1124,11 @@
                :events-list-height-px  default-events-list-height-px ; L2/L3 seam handle
                :auto-open-on-error?    false
                :density                :cosy           ; #{:cosy :compact}
-               :show-tool-frames?      false
+               ;; (`:show-tool-frames?` was REMOVED here — rf2-y8doi.27.
+               ;; Mike removed its Settings UI on 2026-05-27 and nothing
+               ;; replaced it: the picker hardcoded `false`, no surface
+               ;; could ever write the slot, and the tool-frame exclusion
+               ;; is `frame-switcher/internal-frames` alone.)
                :show-unchanged-subs?   false           ; Reactive-panel disclosure pin
                :show-ungrouped?        false           ; opt-in pseudo-event-bundle surface
                :epoch-history          50              ; per-frame epoch ring depth
@@ -1643,15 +1643,15 @@
 ;;     seed; the slot stays fully unfiltered per spec/018 §7 'Empty
 ;;     defaults'.
 ;;
-;;   - `:rf.xray/filters-storage-key` — localStorage key the persistence layer
-;;     reads / writes. Default `"re-frame2.xray.filters.v1"`. Hosts
-;;     that run multiple Xray instances (Story testbeds) override so
-;;     each instance keeps its own pill state.
 ;;
-;; The atoms here are the data primitives; the CLJS-only
-;; `filters.persistence` ns thunks them through localStorage. CLJC so
-;; the JVM test corpus can exercise the configure! round-trip without
-;; a CLJS runtime.
+;; (`:rf.xray/filters-storage-key` was REMOVED — rf2-y8doi.27. It named
+;; the localStorage key for a filter-persistence layer that no longer
+;; exists: the pills are transient by policy (rf2-swclw), so the write
+;; had no reader and every load cleared the slot. A knob whose only
+;; effect is to rename a store nothing reads is not a knob.)
+;;
+;; The seed atom here is a data primitive. CLJC so the JVM test corpus
+;; can exercise the configure! round-trip without a CLJS runtime.
 
 (def default-filters
   "Default ribbon filter set Xray ships with — empty, per spec/018 §7
@@ -1686,29 +1686,6 @@
   "Return the current host-supplied filter seed, or nil when unset."
   []
   @filter-seed)
-
-(defonce
-  ^{:doc "Atom holding the localStorage key the filter-persistence
-         layer reads / writes. Default
-         `\"re-frame2.xray.filters.v1\"`. Hosts mount multiple
-         Xray instances (Story testbeds) override for isolation."}
-  filters-storage-key
-  (atom "re-frame2.xray.filters.v1"))
-
-(defn set-filters-storage-key!
-  "Replace the localStorage key Xray uses for filter persistence.
-  `nil` resets to the default. The CLJS-side `filters.persistence`
-  ns reads this atom directly at every load / save so the round-trip
-  always honours the current setting — no separate sync call."
-  [k]
-  (reset! filters-storage-key
-          (or k "re-frame2.xray.filters.v1"))
-  nil)
-
-(defn get-filters-storage-key
-  "Return the current localStorage key for filter persistence."
-  []
-  @filters-storage-key)
 
 ;; ---- error-override filter bypass (rf2-jqqsh9) --------------------------
 ;;
@@ -1838,10 +1815,6 @@
        quietness; a `nil` seed keeps the first paint fully unfiltered.
        Story testbeds use this to inject a known, reproducible starting
        posture.
-    `{:rf.xray/filters-storage-key <string>}` — localStorage key
-       the filter persistence layer reads / writes. Default
-       `\"re-frame2.xray.filters.v1\"`. Hosts that run multiple
-       Xray instances (Story testbeds) override for isolation.
     `{:rf.xray/filters-auto-hide-error-overrides? <bool>}` — when an
        errored event would be hidden by a filter (an OUT-pill match, a
        failure to match an active IN pill, or a mute), surface it anyway
@@ -1875,7 +1848,6 @@
     keybinding-opt      :rf.xray/keybinding-enabled?
     egress-profile-opt  :rf.xray/egress-profile
     filters-opt         :rf.xray/filters
-    filters-key-opt     :rf.xray/filters-storage-key
     error-overrides-opt :rf.xray/filters-auto-hide-error-overrides?
     :as opts}]
   ;; Gate on key PRESENCE, not value `some?`. `set-editor!` treats `nil`
@@ -1957,17 +1929,11 @@
       ;; `settings-applier` to keep config.cljc free of a require on
       ;; `settings/effects.cljs`; inert when nothing is registered.
       (apply-settings-effects!)))
-  ;; Filter seed + storage key — two independent axes. The storage key
-  ;; governs the transient user-pill localStorage round-trip (within-
-  ;; session writes + the load-time reset cleanup); the filter seed is an
-  ;; in-memory boot baseline whose hook never reads or writes localStorage.
-  ;; The seed value is still not durable across loads: once it lands, a
-  ;; later pill edit persists the whole :active-filters set (seeded pills
-  ;; included) under the storage key, until the next-load reset clears it
-  ;; and reapplies the baseline (rf2-fhtes).
-  ;; Storage key is set first, but the ordering does not affect the seed.
-  (when (contains? opts :rf.xray/filters-storage-key)
-    (set-filters-storage-key! filters-key-opt))
+  ;; Filter seed — an in-memory boot baseline whose first-mount hook
+  ;; never reads or writes localStorage. It is not durable across loads
+  ;; and is re-applied from `configure!` each time (rf2-fhtes). Its old
+  ;; companion `:rf.xray/filters-storage-key` went in rf2-y8doi.27 with
+  ;; the persistence layer it keyed.
   (when (contains? opts :rf.xray/filters)
     (set-filter-seed! filters-opt))
   ;; Error-override bypass (rf2-jqqsh9). `contains?`-gated so an explicit

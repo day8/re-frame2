@@ -45,7 +45,6 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 | `set-keybinding-enabled!` | `(set-keybinding-enabled! bool)` → nil | Whether `keybinding/attach!` installs the global listener. Default `true`. |
 | `set-egress-profile!` | `(set-egress-profile! profile)` → nil | Xray's on-box `:rf.egress/*` privacy gate, per `(tool, frame)`. Default `:rf.egress/local-redacted`; `:rf.egress/local-raw` is the trusted-local opt-in. Narrowing back clears the trace buffer. |
 | `set-filter-seed!` | `(set-filter-seed! seed-map)` → nil | Host-supplied seed pill set applied to `:active-filters` as the boot baseline — reapplied on every load after the transient-filter reset, not a first-install-only value. Shape: `{:in [{...}] :out [{...}]}`. |
-| `set-filters-storage-key!` | `(set-filters-storage-key! key)` → nil | localStorage key the filter persistence layer uses. Default `"re-frame2.xray.filters.v1"`. |
 | `update-setting!` | `(update-setting! path value)` → nil | Set one Settings slot. `path` is a vector into the settings map. |
 | `reset-settings!` | `(reset-settings!)` → nil | Reset every Settings slot to its default. Wipes the localStorage slot. |
 | `reset-suppressed-count!` | `(reset-suppressed-count!)` → nil | Clear the redaction/suppression counter. |

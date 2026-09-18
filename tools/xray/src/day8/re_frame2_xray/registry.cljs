@@ -1028,14 +1028,16 @@
     ;; live here so direct dispatchers (palette quick-actions, the
     ;; pill cluster's `×` remove button) stay history-clean; the rich
     ;; edit popup in `filters/save-edit-popup` composes against the
-    ;; same slot but threads through the popup's draft. Both surfaces
-    ;; share the `:rf.xray.filters/persist` fx so every mutation
-    ;; round-trips to localStorage in one place.
+    ;; same slot but threads through the popup's draft.
+    ;;
+    ;; Neither surface persists any more: rf2-y8doi.27 deleted the
+    ;; `:rf.xray.filters/persist` fx and `filters/persistence.cljs`
+    ;; with it. The pills are transient by policy (rf2-swclw), so the
+    ;; write had no reader and the next load cleared it regardless.
     (rf/reg-event :rf.xray/add-filter
       (fn [{:keys [db]} [_ mode pill]]
         (let [next-db (update-in db [:active-filters mode] (fnil conj []) pill)]
-          {:db next-db
-           :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
+          {:db next-db})))
 
     (rf/reg-event :rf.xray/remove-filter
       (fn [{:keys [db]} [_ mode idx]]
@@ -1045,8 +1047,7 @@
                            (let [v (or pills [])]
                              (vec (concat (subvec v 0 (min idx (count v)))
                                           (subvec v (min (inc idx) (count v))))))))]
-          {:db next-db
-           :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
+          {:db next-db})))
 
     ;; Ribbon right-icon events. The chrome carries a VISIBLE `⛶`
     ;; pop-out button (shell.cljs `ribbon-right-icons`) that dispatches
@@ -1171,9 +1172,12 @@
     ;; ---- per-panel installations --------------------------------
     ;;
     ;; Each panel owns its own subs / events / fxs in
-    ;; `panels/<panel>.cljs` under `(defn install! [] ...)`. Order is
-    ;; alphabetised — re-frame resolves declared `:inputs` lazily at
-    ;; subscribe time so registration order is purely cosmetic.
+    ;; `panels/<panel>.cljs` under `(defn install! [] ...)`. The order
+    ;; below is NOT alphabetised and never has been — do not re-derive
+    ;; a rule from it (PR #9932 removed that claim from
+    ;; `tools/xray/spec/Conventions.md` for the same reason).
+    ;; Registration order is purely cosmetic: re-frame resolves
+    ;; declared `:inputs` lazily at subscribe time.
     ;;
     ;; The open-in-editor install is cross-panel — its
     ;; `:rf.xray/open-in-editor` event-fx + `:rf.xray.fx/open-in-editor` fx are

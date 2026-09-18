@@ -64,20 +64,20 @@
     (is (not (contains? frame-switcher/internal-frames :rf/default))
         ":rf/default is a meaningful user frame; never filtered out")))
 
-(deftest distinct-frames-excludes-internal-frames-by-default
-  (testing "spec/018 §8 I1 — `:rf/xray` and other tool frames are
-            filtered out of the picker option list unless the power-
-            user toggle re-includes them"
+(deftest distinct-frames-excludes-internal-frames-unconditionally
+  (testing "spec/018 §8 I1 — `:rf/xray` and the other tool frames are
+            filtered out of the picker option list. rf2-y8doi.27 made
+            this UNCONDITIONAL: the power-user re-include arity went
+            with the setting that was supposed to drive it, which had
+            lost its UI and could no longer be written."
     (let [cascades [{:dispatch-id 1 :frame :rf/default}
                     {:dispatch-id 2 :frame :rf/xray}
                     {:dispatch-id 3 :frame :app/main}
-                    {:dispatch-id 4 :frame :rf/re-frame2-pair}]
-          default-frames (frame-switcher/distinct-frames cascades false)
-          power-frames   (frame-switcher/distinct-frames cascades true)]
-      (is (= [:rf/default :app/main] default-frames)
-          "default — :rf/xray and :rf/re-frame2-pair are excluded")
-      (is (= [:rf/default :rf/xray :app/main :rf/re-frame2-pair] power-frames)
-          "power-user — tool frames included in first-seen order"))))
+                    {:dispatch-id 4 :frame :rf/re-frame2-pair}]]
+      (is (= [:rf/default :app/main]
+             (frame-switcher/distinct-frames cascades))
+          ":rf/xray and :rf/re-frame2-pair are excluded, user frames kept
+           in first-seen order"))))
 
 (deftest distinct-frames-drops-nil-frame-cascades
   (testing "an :ungrouped cascade has nil :frame — it must NOT show
@@ -86,7 +86,7 @@
                     {:dispatch-id 2 :frame nil}
                     {:dispatch-id 3 :frame :app/main}]]
       (is (= [:rf/default :app/main]
-             (frame-switcher/distinct-frames cascades false))
+             (frame-switcher/distinct-frames cascades))
           "nil frame is filtered out"))))
 
 (deftest distinct-frames-preserves-first-seen-order
@@ -99,7 +99,7 @@
                     {:dispatch-id 4 :frame :app/c}
                     {:dispatch-id 5 :frame :app/a}]] ;; duplicate
       (is (= [:app/b :app/a :app/c]
-             (frame-switcher/distinct-frames cascades false))
+             (frame-switcher/distinct-frames cascades))
           "duplicates collapse, order preserved"))))
 
 ;; -------------------------------------------------------------------------

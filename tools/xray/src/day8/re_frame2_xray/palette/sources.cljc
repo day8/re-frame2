@@ -152,28 +152,30 @@
 
 (defn frame-items
   "Indexed from `frame-ids` (a seq of registered frame ids). Tool
-  frames in `internal-frames` are excluded unless `show-tool-frames?`
-  — the SAME exclusion the ribbon picker applies via
-  `frame-switcher/distinct-frames` (spec/018 §8 I1), rather than a
-  hand-rolled `:rf/xray`-only removal (rf2-anbabs).
+  frames in `internal-frames` are excluded — the SAME exclusion the
+  ribbon picker applies via `frame-switcher/distinct-frames`
+  (spec/018 §8 I1), rather than a hand-rolled `:rf/xray`-only removal
+  (rf2-anbabs).
 
   `internal-frames` (the canonical `frame-switcher/internal-frames`
-  set — `#{:rf/xray :rf/re-frame2-pair}`) and `show-tool-frames?` are
-  injected by the `:rf.xray/palette-index` sub (a `.cljs` seam that can
-  reach the frame-switcher contract + the settings toggle), so the
-  palette and the ribbon share ONE exclusion source of truth. Kept
-  pure — the aggregator takes the set as data, never requiring the
-  cljs-only frame-switcher ns.
+  set — `#{:rf/xray :rf/re-frame2-pair}`) is injected by the
+  `:rf.xray/palette-index` sub (a `.cljs` seam that can reach the
+  frame-switcher contract), so the palette and the ribbon share ONE
+  exclusion source of truth. Kept pure — the aggregator takes the set
+  as data, never requiring the cljs-only frame-switcher ns.
+
+  The exclusion is UNCONDITIONAL. rf2-y8doi.27 dropped the
+  `show-tool-frames?` parameter: the setting it read lost its Settings
+  UI on 2026-05-27, no surface could write the slot, and every caller
+  passed `false`.
 
   The 1-arity is a test / partial-drive convenience defaulting to the
   historical minimal `#{:rf/xray}` exclusion; production always injects
   the full set through `build-index`."
-  ([frame-ids] (frame-items frame-ids #{:rf/xray} false))
-  ([frame-ids internal-frames show-tool-frames?]
+  ([frame-ids] (frame-items frame-ids #{:rf/xray}))
+  ([frame-ids internal-frames]
    (->> frame-ids
-        (remove (fn [fid]
-                  (and (not show-tool-frames?)
-                       (contains? internal-frames fid))))
+        (remove (fn [fid] (contains? internal-frames fid)))
         (mapv (fn [fid]
                 {:source :frame
                  :id     fid
@@ -265,7 +267,18 @@
   - `:jump-to-settings`        — Open the Settings popup at the General
                                  tab.
   - `:toggle-mode`             — Flip Dynamic ↔ Static (chord parity
-                                 with `Cmd-Shift-M`)."
+                                 with `Cmd-Shift-M`).
+
+  ## Removed verbs
+
+  - `:clear-epoch-history` (rf2-y8doi.27) — it cleared Xray's
+    `:epoch-history` slot, which is a MIRROR of the framework's epoch
+    history rather than the store. The next recorded epoch re-seeded
+    the slot wholesale from `(vec (rf/epoch-history target))`, so the
+    verb lasted exactly one event before silently undoing itself. The
+    Buffer tab's \"Clear buffer now\" is the real scrub. A verb that
+    genuinely cleared the substrate's epoch ring would need a
+    Tool-Pair ruling — Xray does not own that ring."
   []
   [{:source :command
     :id     :clear-trace-buffer
@@ -276,15 +289,8 @@
     :action [:palette/clear-trace-buffer]
     :modes  #{:dynamic}
     :popout? false}
-   {:source :command
-    :id     :clear-epoch-history
-    :label  "Clear epoch history"
-    :hint   "drops Xray's epoch snapshots"
-    :icon   (icon-table :command)
-    :boost  (boost-table :command)
-    :action [:palette/clear-epoch-history]
-    :modes  #{:dynamic}
-    :popout? false}
+   ;; (`:clear-epoch-history` was REMOVED here — rf2-y8doi.27. See the
+   ;; "Removed verbs" note in this fn's docstring.)
    {:source :command
     :id     :reset-suppressed-counters
     :label  "Reset redacted-events counter"
@@ -447,17 +453,18 @@
      :trace-buffer     [trace ...]
      :frame-ids        (keyword?)
      :internal-frames  #{kw ...}                 ; tool-frame exclusion set (I1)
-     :show-tool-frames? boolean                  ; re-include tool frames?
      :handlers         [{:id :kind :doc :file :line} ...]
      :mode             :dynamic | :static | nil  ; mode filter
      :recents          [command-id ...]          ; recents boost
     }
 
-  `:internal-frames` + `:show-tool-frames?` (rf2-anbabs) gate the frame
-  source through the SAME exclusion the ribbon picker uses (spec/018 §8
-  I1); the `:rf.xray/palette-index` sub injects the canonical
-  `frame-switcher/internal-frames` set + the settings toggle. Missing →
-  the historical minimal `#{:rf/xray}` / off default.
+  `:internal-frames` (rf2-anbabs) gates the frame source through the
+  SAME exclusion the ribbon picker uses (spec/018 §8 I1); the
+  `:rf.xray/palette-index` sub injects the canonical
+  `frame-switcher/internal-frames` set. Missing → the historical
+  minimal `#{:rf/xray}` default. The companion `:show-tool-frames?`
+  key went with its setting in rf2-y8doi.27; the exclusion is
+  unconditional.
 
   Missing keys default to empty inputs of that kind — partial drives
   (e.g. recency-rank dragons without a populated buffer) are
@@ -483,13 +490,12 @@
   scoring pipeline."
   [inputs]
   (let [{:keys [panels static-tabs trace-buffer frame-ids internal-frames
-                show-tool-frames? handlers mode recents]
+                handlers mode recents]
          :or   {panels             []
                 static-tabs        []
                 trace-buffer       []
                 frame-ids          []
                 internal-frames    #{:rf/xray}
-                show-tool-frames?  false
                 handlers           []
                 recents            []
                 mode               nil}} inputs
@@ -508,7 +514,7 @@
                       (static-tab-items static-tabs)
                       (setting-items)
                       (recent-event-items trace-buffer)
-                      (frame-items frame-ids internal-frames show-tool-frames?)
+                      (frame-items frame-ids internal-frames)
                       (handler-items handlers))
         filtered    (filter (partial in-mode? mode) all)]
     (loop [seen   (transient #{})

@@ -30,11 +30,11 @@
     code path (ribbon picker, palette, headless test driver).
 
   - **Sub `:rf.xray/available-frames`** — returns a first-seen-order
-    vec of distinct frames present in the live event-bundle list, filtered
-    by the `show-tool-frames?` setting (spec/018 §8 I1). The single
-    source of truth for 'which frames is it meaningful to pick right
-    now'. Composes off `:rf.xray/event-bundles` so the list re-fires as
-    new frames appear in the trace stream.
+    vec of distinct frames present in the live event-bundle list, with
+    the `internal-frames` tool frames excluded (spec/018 §8 I1). The
+    single source of truth for 'which frames is it meaningful to pick
+    right now'. Composes off `:rf.xray/event-bundles` so the list
+    re-fires as new frames appear in the trace stream.
 
   - **Event-fx `:rf.xray/select-frame <frame-id>`** — canonical write
     surface. Dispatches the spine's `:rf.xray/set-frame` (which
@@ -102,15 +102,20 @@
 ;; ---- public contract: which frames Xray filters out by default ---------
 
 (def internal-frames
-  "Frames Xray filters out of the picker by default per spec/018 §8 I1.
+  "Frames Xray filters out of the picker per spec/018 §8 I1.
   `:rf/xray` is Xray's own state; `:rf/re-frame2-pair` is the future
-  MCP-pair frame. A future Settings 'Show tool frames in picker' toggle
-  will re-include them under a `── Power user ──` divider; the toggle
-  UI is not built yet, so the picker is hardcoded to exclude them.
+  MCP-pair frame.
 
-  Public so a future Settings ns can read the canonical set when it
-  surfaces the toggle, and so tests can assert the membership without
-  duplicating the literal."
+  THIS SET IS THE WHOLE PROMISE. The exclusion is unconditional: there
+  is no toggle behind it and no setting to read. A 'Show tool frames in
+  picker' toggle shipped once, lost its UI on 2026-05-27, and left a
+  setting slot nothing could write — rf2-y8doi.27 removed that slot
+  rather than leave the tree describing an override it could not
+  perform.
+
+  Public so the palette's pure aggregator can be handed the same set as
+  data (it must not require this cljs-only ns), and so tests can assert
+  the membership without duplicating the literal."
   #{:rf/xray :rf/re-frame2-pair})
 
 ;; ---- pure helpers --------------------------------------------------------
@@ -119,20 +124,20 @@
   "Pure helper — returns the distinct frames present in `event-bundles` in
   first-seen order. Drives the `:rf.xray/available-frames` sub.
 
-  Filters `:rf/xray` (and other tool frames per `internal-frames`)
-  out by default per spec/018 §8 I1 — passing `show-tool-frames?` true
-  reincludes them. nil-frame event-bundles are dropped (an `:ungrouped`
-  event-bundle carries nil `:frame`)."
-  [event-bundles show-tool-frames?]
+  Filters `:rf/xray` (and the other tool frames in `internal-frames`)
+  out per spec/018 §8 I1 — unconditionally, since rf2-y8doi.27 removed
+  the `show-tool-frames?` parameter along with the setting that was
+  supposed to feed it. nil-frame event-bundles are dropped (an
+  `:ungrouped` event-bundle carries nil `:frame`)."
+  [event-bundles]
   (let [seen (volatile! #{})]
     (reduce
       (fn [acc event-bundle]
         (let [f (:frame event-bundle)]
           (cond
-            (nil? f)                              acc
-            (contains? @seen f)                   acc
-            (and (not show-tool-frames?)
-                 (contains? internal-frames f))   acc
+            (nil? f)                            acc
+            (contains? @seen f)                 acc
+            (contains? internal-frames f)       acc
             :else (do (vswap! seen conj f)
                       (conj acc f)))))
       []
@@ -587,16 +592,13 @@
   ;; `:rf.xray/available-frames` is the canonical 'which frames is it
   ;; meaningful to pick right now' list. Composes off `:rf.xray/
   ;; event-bundles` so it re-fires as new frames appear in the trace
-  ;; stream. The `show-tool-frames?` toggle isn't a sub yet — when the
-  ;; Settings UI for it lands (follow-on), this sub will declare the
-  ;; toggle's slot in its `:inputs`. Today the parameter is hardcoded to `false` to
-  ;; match the pre-bead picker behaviour.
+  ;; stream. The tool-frame exclusion is unconditional — see
+  ;; `internal-frames` (rf2-y8doi.27).
 
   (rf/reg-sub :rf.xray/available-frames
     {:inputs [[:rf.xray/event-bundles]]}
     (fn [[event-bundles] _query]
-      ;; show-tool-frames? hardcoded false — see ns docstring.
-      (distinct-frames event-bundles false)))
+      (distinct-frames event-bundles)))
 
   ;; ---- events --------------------------------------------------------
   ;;

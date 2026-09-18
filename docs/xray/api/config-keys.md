@@ -48,8 +48,7 @@ The full v1 key surface, grouped by topical cluster:
    :rf.xray/settings              {:theme :dark :general {:density :cosy}}
 
    ;; Filters cluster — host-supplied boot-baseline seed (re-applied every load)
-   :rf.xray/filters               {:out [{:pattern ":mouse-move"}]}
-   :rf.xray/filters-storage-key   "re-frame2.xray.filters.v1"})
+   :rf.xray/filters               {:out [{:pattern ":mouse-move"}]}})
 ```
 
 Every key lives under the reserved `:rf.xray/*` namespace — Xray owns its whole `configure!` surface, including its privacy gate. (There is no cross-tool shared slot: on-box sensitive visibility is resolved per `(tool, frame)` pair, so Story reads its own `:rf.story/egress-profile`.) Unknown keys are silently ignored so newer hosts (passing keys an older Xray hasn't shipped yet) don't break, and newer Xray releases shipping additional keys don't break older hosts.
@@ -218,17 +217,11 @@ The Trace panel ships filter pills (`+ pattern`, `- pattern`, `+ :origin`, `+ fr
   ```clojure
   (set-filter-seed! seed-map) → nil
   ```
-- **Description**: Host-supplied seed pill set applied to `:active-filters` as the explicit **boot baseline**. A non-empty seed lands on **every** load via the first-mount `::seed-configured-filters` hook, which runs *after* the transient-filter reset — so the host's baseline always wins over a user's stale session pills. The seed *hook* is seed-only: it never reads or writes localStorage, so it never itself persists anything. Persistence enters only through the resulting live set — once the baseline lands, a later user pill edit persists the whole `:active-filters` value (seeded pills included) under the storage key, until the next load's reset clears that storage and reapplies the baseline. Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — a fully-unfiltered first paint (first-session honesty beats first-session quietness). Story testbeds use this to inject a known, reproducible starting posture. To change filters *live* (mid-session), use the filter pill events / Story path — not a post-mount `configure!`, since the seed is read once per frame at first mount, not on every use.
+- **Description**: Host-supplied seed pill set applied to `:active-filters` as the explicit **boot baseline**. A non-empty seed lands on **every** load via the first-mount `::seed-configured-filters` hook, which runs *after* the transient-filter reset — so the host's baseline always wins over a user's stale session pills. The seed *hook* is seed-only: it never reads or writes localStorage. Nor does anything else — since rf2-y8doi.27 Xray's IN/OUT pills have **no localStorage layer at all**, so a user's pill edits live and die with the session and the configured baseline is re-derived from `configure!` on every load. Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — a fully-unfiltered first paint (first-session honesty beats first-session quietness). Story testbeds use this to inject a known, reproducible starting posture. To change filters *live* (mid-session), use the filter pill events / Story path — not a post-mount `configure!`, since the seed is read once per frame at first mount, not on every use.
 
-### `set-filters-storage-key!`
+Set the seed *before* the preload runs so the first registry-handlers registration reads the right value.
 
-- **Signature**:
-  ```clojure
-  (set-filters-storage-key! key) → nil
-  ```
-- **Description**: The localStorage key the filter persistence layer reads / writes. Default `"re-frame2.xray.filters.v1"`. Hosts that run multiple Xray instances (Story testbeds, multi-mode tool pages) override for isolation between instances.
-
-Set both *before* the preload runs so the first registry-handlers registration reads the right values.
+> **Removed:** `set-filters-storage-key!` / `:rf.xray/filters-storage-key` named the localStorage key for a filter-persistence layer that rf2-y8doi.27 deleted. Xray's IN/OUT pills are transient by policy (a fresh load must never silently carry a stale filter), so the store had a writer and no reader, and every load cleared it. Hosts running several Xray instances no longer need the key to isolate them — there is nothing left to collide.
 
 ## Boot-time config vs persisted Settings
 

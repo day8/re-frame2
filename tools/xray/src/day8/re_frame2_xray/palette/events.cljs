@@ -437,14 +437,15 @@
             {:db close-db
              :fx base-fx})
 
-          :palette/clear-epoch-history
-          ;; Drop Xray's epoch ring. The slot lives in
-          ;; Xray's app-db at `:epoch-history`; clearing it lets the
-          ;; user start a fresh session without restarting the host
-          ;; app. App-DB Diff + Views read off this slot so the next
-          ;; epoch lands cleanly.
-          {:db (dissoc close-db :epoch-history)
-           :fx base-fx}
+          ;; (`:palette/clear-epoch-history` was REMOVED with its verb —
+          ;; rf2-y8doi.27. It dissoc'd Xray's `:epoch-history` slot, which
+          ;; is a MIRROR of the framework's epoch history, not the store:
+          ;; the very next recorded epoch re-seeded it wholesale from
+          ;; `(vec (rf/epoch-history target))`, so the verb lasted one
+          ;; event and then silently undid itself. The Buffer tab's
+          ;; "Clear buffer now" is the real scrub; a verb that genuinely
+          ;; cleared the substrate's epoch ring would need a Tool-Pair
+          ;; ruling, because Xray does not own that ring.)
 
           :palette/reset-suppressed-counters
           {:db close-db

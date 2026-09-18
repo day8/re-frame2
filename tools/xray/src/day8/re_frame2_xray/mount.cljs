@@ -58,7 +58,6 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
-            [day8.re-frame2-xray.filters.persistence :as filters-persistence]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.shell :as shell]
@@ -815,11 +814,16 @@
   ;;
   ;; Mechanism: we do NOT hydrate these slots, so app-db starts at its
   ;; registry default (empty pills / empty mute set / unpinned frame).
-  ;; We additionally CLEAR each slot's stale localStorage value so the
-  ;; storage matches what the user sees and a phantom value can never
-  ;; resurface — if we only ignored-on-read, the next mute / pin write
-  ;; would overwrite a slot that still held last session's ghost until
-  ;; then. Clearing keeps storage honest from the first frame.
+  ;; For the two that DO still have a localStorage slot — mutes and the
+  ;; frame pin — we additionally CLEAR the stale value so storage matches
+  ;; what the user sees and a phantom value can never resurface: if we
+  ;; only ignored-on-read, the next mute / pin write would overwrite a
+  ;; slot that still held last session's ghost until then. Clearing keeps
+  ;; storage honest from the first frame.
+  ;;
+  ;; The IN/OUT pills need no clear at all since rf2-y8doi.27: their
+  ;; localStorage layer is GONE, so there is no stale value to strand
+  ;; and reset-on-load holds by construction rather than by cleanup.
   ;;
   ;; DURABLE view prefs (Dynamic/Static mode, density, panel layout)
   ;; still hydrate via their own hooks below — only transient filters
@@ -834,7 +838,6 @@
   ;; host baseline — so a user's stale session filters never survive
   ;; reload, while the host's explicit seed always does (rf2-fhtes).
   (fn [_frame-id]
-    (filters-persistence/clear!)
     (spine-filters/clear-raw!)
     (frame-switcher/clear!)))
 
@@ -847,7 +850,7 @@
   ;; This closes a false public contract: `configure!` accepted
   ;; `:rf.xray/filters` and the config/spec prose promised the seed would
   ;; hydrate `:active-filters`, but production never called
-  ;; `filters/hydrate!` — `filters/install!` explicitly does NO hydrate and
+  ;; any hydrate fn — `filters/install!` explicitly does NO hydrate and
   ;; nothing on the real `ensure-xray-frame!` path read the seed. A host
   ;; using the documented key got no error and an unfiltered first paint.
   ;;
@@ -861,11 +864,11 @@
   ;; genuine no-op.
   ;;
   ;; Mirrors the `::hydrate-static-mode` shape (read via a config helper,
-  ;; dispatch the owning event). `filters/hydrate!` stays as-is for its
-  ;; existing data-layer callers — this hook is seed-only and never reads
-  ;; localStorage, so it cannot resurrect a stale user set. The `:rf.xray/
-  ;; hydrate-filters` event (registered by `filters/install!`) is the
-  ;; single `:active-filters` write seam.
+  ;; dispatch the owning event). This hook is seed-only and reads no
+  ;; localStorage, so it cannot resurrect a stale user set — and since
+  ;; rf2-y8doi.27 there is no filter localStorage to read. The
+  ;; `:rf.xray/hydrate-filters` event (registered by `filters/install!`)
+  ;; is the single `:active-filters` write seam.
   (fn [frame-id]
     (let [seed (config/get-filter-seed)]
       (when (and seed

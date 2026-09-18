@@ -433,7 +433,11 @@
    ;; (`config/keybinding-enabled?`) is a bare process-global
    ;; `configure!` slot, not a persisted `:settings` key.
    :rf.xray/keybinding-enabled?
-   :rf.xray/show-tool-frames?
+   ;; (`:rf.xray/show-tool-frames?` was REMOVED from this roster with the
+   ;; sub — rf2-y8doi.27. Its Settings UI went on 2026-05-27 and no
+   ;; surface could write the slot, so the sub could only ever answer the
+   ;; default `false`. The picker's tool-frame exclusion is
+   ;; `frame-switcher/internal-frames`, unconditionally.)
    ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-event-bundle bucket.
    :rf.xray/show-ungrouped?
    ;; rf2-r4nao — Static Machines Sim sub-mode subs (rehost from
@@ -842,12 +846,12 @@
    ;; localStorage in one place (mirrors the filter-persistence shape
    ;; below).
    :rf.xray.column-widths/persist
-   ;; rf2-ak4ms — auto-filter persistence side-effect. Lives under the
-   ;; filter-specific prefix because the localStorage write is bound
-   ;; to the filter-mutating events (add-filter / remove-filter /
-   ;; save-edit-popup / delete-edit-popup) — every mutation round-trips
-   ;; to localStorage in one place.
-   :rf.xray.filters/persist
+   ;; (`:rf.xray.filters/persist` was REMOVED from this roster with the
+   ;; fx — rf2-y8doi.27. The rf2-ak4ms auto-filter persistence write was
+   ;; bound to every filter-mutating event, and nothing in `src` ever
+   ;; read the slot back: the IN/OUT pills are transient by policy
+   ;; (rf2-swclw), so each load cleared what the last session wrote. The
+   ;; three siblings below are real — their slots have live readers.)
    ;; rf2-iwwou — frame-switcher slot persistence side-effect. Bound to
    ;; the `:rf.xray/select-frame` handler so the user's last-picked
    ;; frame survives a reload. Lives under the frame-switcher-specific

@@ -283,25 +283,12 @@
 
 ;; ---- rf2-ybjkx — new commands ------------------------------------------
 
-(deftest invoke-clear-epoch-history-drops-slot
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    ;; Seed the slot so we can observe the clear.
-    (rf/dispatch-sync [:rf.xray/sync-epoch-history
-                       [{:epoch-id 1} {:epoch-id 2}]])
-    (is (= 2 (count (:epoch-history (xray-db))))
-        "sanity check — slot is seeded before the clear")
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :clear-epoch-history
-        :label  "Clear epoch history"
-        :action [:palette/clear-epoch-history]}
-       false]))
-  (is (nil? (:epoch-history (xray-db)))
-      "clear-epoch-history dissocs the slot")
-  (is (false? (boolean (:palette-open? (xray-db))))))
+;; (`invoke-clear-epoch-history-drops-slot` was REMOVED with the verb —
+;; rf2-y8doi.27. It passed, and it was the reason the verb looked alive:
+;; it asserted the dissoc within the SAME dispatch, which is the one
+;; moment the clear holds. `:epoch-history` is a mirror re-seeded
+;; wholesale by the next recorded epoch, so the property the test pinned
+;; was real and the FEATURE was not.)
 
 (deftest invoke-toggle-theme-flips-via-settings-update
   (setup!)

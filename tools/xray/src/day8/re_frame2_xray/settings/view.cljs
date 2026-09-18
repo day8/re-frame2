@@ -450,8 +450,16 @@
          [:code {:style {:font-family mono-stack
                          :color (:text-tertiary tokens)}}
           "{column}"] ". "
-         "Schemes outside the allowlist (`http:` / `https:` / "
-         "`javascript:` / `data:`) are refused at click-time."]])
+         ;; rf2-ox357n — there is NO positive allowlist, and the old copy
+         ;; said there was. Worse, it listed `http:` and `https:` inside
+         ;; the same parenthetical as the two dangerous schemes, so it
+         ;; read as though every scheme named were refused. What actually
+         ;; ships is a three-scheme DENYLIST applied at click-time
+         ;; (`open_in_editor.cljs`); everything else passes through, which
+         ;; is the point — a positive allowlist failed CLOSED on any
+         ;; editor nobody had catalogued.
+         "`javascript:`, `data:` and `vbscript:` templates are refused "
+         "at click-time; other schemes pass through."]])
 
      [:div {:style {:display "flex"
                     :align-items "center"
@@ -614,13 +622,13 @@
      ;; popup carried two fields for the same conceptual knob, one wired
      ;; and one not.
 
-     ;; ── Power user divider + show-tool-frames toggle (rf2-ttnst) ─
+     ;; ── Power user divider (rf2-ttnst) ───────────────────────────
      ;;
-     ;; Per Mike Q8: the `:show-tool-frames?` toggle lives under a
-     ;; `── Power user ──` divider at the bottom of General. Default
-     ;; OFF. Flipping on reveals `:rf/xray` + `:rf/re-frame2-pair` in the L1
-     ;; frame-picker dropdown (per spec/007-UX-IA.md §Frame-observation
-     ;; isolation invariant I1).
+     ;; The divider arrived with the `:show-tool-frames?` toggle, which
+     ;; Mike removed on 2026-05-27; rf2-y8doi.27 then removed the
+     ;; orphaned setting slot behind it. The divider STAYS because the
+     ;; `:ungrouped` opt-in below it is a power-user surface too — it
+     ;; heads that section now, not an empty one.
      [:div {:data-testid "rf-xray-settings-power-user-divider"
             :style {:display      "flex"
                     :align-items  "center"
@@ -639,11 +647,13 @@
                       :height "1px"
                       :background (:border-subtle tokens)}}]]
 
-     ;; Removed 2026-05-27 — "Show tool frames in picker" toggle.
-     ;; The `:show-tool-frames?` setting slot stays; default OFF
-     ;; enforces the spec/007-UX-IA frame-observation isolation
-     ;; invariant (tool frames observing themselves = anti-pattern).
-     ;; If a future use case needs the override it can re-add the UI.
+     ;; The "Show tool frames in picker" toggle was removed 2026-05-27,
+     ;; and rf2-y8doi.27 removed the `:show-tool-frames?` setting slot
+     ;; that outlived it — a slot no surface could write is not an
+     ;; override waiting to be re-enabled, it is a promise the tree
+     ;; cannot keep. The spec/007-UX-IA frame-observation isolation
+     ;; invariant is enforced where it always was: by
+     ;; `frame-switcher/internal-frames`, unconditionally.
 
      ;; ── Show :ungrouped pseudo-event-bundle events (rf2-r9lyy) ──────
      ;;
