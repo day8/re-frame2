@@ -23,24 +23,34 @@ shadow-cljs's `:after-load` cycle re-runs without double-registration.
 That block gates the *preload* path only; `init!` and the mount verbs
 carry no `goog.DEBUG` gate (§Force-disable):
 
-1. Registers Xray's `:rf.xray/*` subs / events / fxs via
+1. Loads the persisted Settings map out of `localStorage` via
+   `config/load-settings-from-storage!`. This runs FIRST so the first
+   sub read from the Settings popup lands on the persisted values
+   rather than on the defaults.
+2. Registers Xray's `:rf.xray/*` subs / events / fxs via
    `registry/register-xray-handlers!`.
-2. Registers the trace collector under `:rf.xray/trace-collector`
+3. Registers the trace collector under `:rf.xray/trace-collector`
    via `re-frame.core/register-listener!` (sentinel-guarded).
-3. Registers the epoch-settle pump under `:rf.xray/epoch-collector`
+4. Registers the epoch-settle pump under `:rf.xray/epoch-collector`
    via `re-frame.core/register-listener!` on the `:epoch` stream
    (sentinel-guarded). Xray hard-depends on `day8/re-frame2-epoch`, and
    `install.cljs` loads its producer; see §Trace / epoch surfaces.
-4. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
+5. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).
-5. Attaches the global keydown listener. The shipped chords (the
+6. Attaches the global keydown listener. The shipped chords (the
    `keybinding.cljs` predicates are the source of truth; UX rationale
-   in `spec/007-UX-IA.md` §Global shortcuts): `Ctrl+Shift+C` (toggle
+   in `spec/007-UX-IA.md` §Global chords): `Ctrl+Shift+C` (toggle
    shell), `Ctrl/Cmd+K` (command palette), `Ctrl/Cmd+Shift+M`
    (Dynamic ↔ Static mode toggle), and `Esc` (dismiss the
    open-in-editor hint). Inside the shell the LIVE-feed spine binds
    bare `Space` / `L` / `j` / `k` / `G`.
-7. Auto-opens the shell **true-inline** into the host app's
+7. Applies the persisted Settings effects via
+   `settings/effects/apply-all!` — the theme class and the
+   `--rf-xray-*` CSS custom properties. Auto-open is asynchronous, so
+   the shell root may not exist yet; `apply-all!` no-ops on a missing
+   root and the settings-update handler re-applies on every later
+   change.
+8. Auto-opens the shell **true-inline** into the host app's
    normal-flow layout host (`[data-rf-xray-host]` by default) once
    the substrate adapter is ready — per rf2-eehov, this is the
    default landing posture. There is no floating pill, no body
@@ -407,9 +417,11 @@ embed contract. The `mount-<panel>!` aggregator surface enumerated in
 [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract is
 internal-but-stable (used by shell composition and tests); it accepts
 `:frame` — defaulting to `:rf/xray` — on every mount fn, plus
-`:instance-id` on `mount-app-db-diff!` (rf2-2n8q),
-`mount-managed-fx!` (rf2-5ykm) and `mount-trace!` (rf2-pua3), which
-names one of two standalone mounts of that panel sharing a frame.
+`:instance-id` on `mount-epoch-panel!` (rf2-3ymg),
+`mount-app-db-diff!` (rf2-2n8q), `mount-trace!` (rf2-pua3),
+`mount-machine-inspector!` (rf2-3ymg) and `mount-managed-fx!`
+(rf2-5ykm), which names one of two standalone mounts of that panel
+sharing a frame.
 
 ### Static-mode Panel reg-views
 
@@ -536,17 +548,20 @@ reference:
 | `(re-frame.schemas/app-schemas {:frame f})` | Spec 010 | The schema-violation timeline rows. Answers `{path -> registration-metadata}`; `:frame` is required (rf2-kuky.84). |
 | `(rf.subs.tooling/sub-topology)` | Tool-Pair | The static subscription topology — which subs exist and what each declares as inputs. The reactive/subs panel reads it once per event-bundle to partition layer-1 from layer-2+ subs and to supply the inputs and code columns; the read is registry-only, so it costs nothing at runtime. Two call sites under `tools/xray/src`. |
 | `(rf.subs.tooling/sub-cache-snapshot frame-id)` (CLJS only) | Tool-Pair | The live per-frame sub cache. **Not consumed by shipped Xray code — there is no call site anywhere under `tools/xray`, in `src`, `test` or `testbeds`.** The subscription graph and the per-sub status decoration are derived from the epoch record's projected `:rf.sub/run` rows instead, so no live cache read is needed; `sub-topology` above is the subscription-tooling surface Xray does read. The `rf/sub-cache` facade alias was removed (rf2-80mmlf) — this is subscription TOOLING rather than an app-author front-porch read, so a caller that wants it addresses the owning `re-frame.subs.tooling` namespace directly. |
-| `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by event-detail and trace surfaces (`:rf.*` single-root names per rf2-y4qpy). |
+| `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (in `:tags`) | Spec 009 | The cascade lineage tags read by the trace projection and the Epoch / cancellation-cascade surfaces (`:rf.*` single-root names per rf2-y4qpy). The retired `event-detail` panel was a reader until rf2-5gl5r folded it into the Epoch panel. |
 | `:rf.event/origin` (in `:tags`) | Spec 009 | The actor-origin tag (`:pair` for pair-tooling dispatches, `:app` by default). Lifted onto each projected trace row; no view renders or colour-codes by it today — see §Trace-event tags Xray emits. |
 | Source-coord metadata (`:ns` / `:line` / `:column` / `:file`) | Spec 001 / 006 | Click-to-source — see `Open in editor` below. |
 | `data-rf2-source-coord` DOM attribute | Spec 006 | DOM-level source-coord (for the rare cases where DOM event → source is needed). |
 
 ## Open in editor (rf2-evgf5)
 
-Every panel that surfaces a source-coord (the event-detail hero, the
-machine inspector's state / edge / guard / action chips, the hydration
-debugger's render-tree rows, the trace panel's per-event rows, etc.)
-wraps the coord in a clickable `open` chip. Click sets
+Every panel that surfaces a source-coord makes it a clickable `open`
+affordance. The surfaces that do so today are the Epoch panel's step
+rows, the trace panel's per-event rows, the machine inspector's
+guard / action rows, the Static Machines / Routes / Schemas
+catalogues, and the Views panel's reactive-graph nodes — the last
+binding `coord-link/open-in-editor!` to the SVG node itself rather
+than mounting a chip. Click sets
 `window.location.href` to a URI-scheme handler the OS
 dispatches to the configured editor:
 
@@ -667,15 +682,13 @@ Closes on `Esc`, click-outside, or invocation of any item.
 | Recents localStorage key | `re-frame2.xray.palette.recents.v1` | Top-3 ring of command-ids only (verbs, tab-jumps) — never event-ids, handler-ids, or host-app data. Best-effort persistence; quota/availability failures swallowed. |
 | Recents app-db slot | `:palette-recents` | Read through `:rf.xray/palette-recents`. Hydrates on first palette open via `recents/load`; the reducer (`recents/record`) is pure `update + distinct + take 3`. |
 | Reduced-motion override | `:cycle-reduced-motion` verb | Three-state cycle `:os → :always → :never` that overrides `prefers-reduced-motion: reduce` via the `--rf-xray-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
-| Mode-aware filter | `:modes` set per item | Every palette item carries `#{:dynamic}` / `#{:static}` / `#{:dynamic :static}`; the aggregator (`palette/sources/by-mode-pred`) filters by membership against the active `:rf.xray/mode`. Items missing `:modes` fall through to both modes. |
+| Mode-aware filter | `:modes` set per item | Every palette item carries `#{:dynamic}` / `#{:static}` / `#{:dynamic :static}`; the aggregator filters by membership against the active `:rf.xray/mode` through `palette/sources`'s private `in-mode?` predicate. Items missing `:modes` fall through to both modes. |
 
-The five command verbs that ship post-rf2-ybjkx —
-`:toggle-theme`, `:cycle-reduced-motion`, `:snapshot-app-db`,
-`:jump-to-settings`, `:toggle-mode` — are
-catalogued at
+The shipped command verbs are catalogued at
 `tools/xray/src/day8/re_frame2_xray/palette/sources.cljc`
 §`command-items` and enumerated normatively in §Command palette
-verbs (catalogue) below. There is no public verb-registration API at
+verbs (catalogue) below, which is the single place this chapter
+counts them. There is no public verb-registration API at
 v1.0 (consistent with §What this doesn't expose); the catalogue is
 internal-but-stable — the chord + recents key + reduced-motion
 override are the public surfaces hosts may rely on, and the
@@ -911,9 +924,12 @@ seed; ordinary user changes use the popup's per-knob write path.
 > **rf2-e9tb0 — pinned-slices localStorage slot deprecated.** The
 > per-frame-app-db pinned-slices key (`day8.re-frame2-xray/pinned-
 > slices/<frame-id>/v1`) is no longer written; the pinned-watches
-> strip was superseded by the App-DB Diff segment-inspector popup
-> (per `004-App-DB-Diff.md` §Clickable path segments). Legacy slots
-> are ignored on read — Xray never resurrects them.
+> strip was dropped in favour of the App-DB Diff segment-inspector
+> popup, and that popup was itself retired unreached under
+> rf2-y8doi.29 — neither affordance ships. The path gesture that DOES
+> ship is zoom-into-node with a breadcrumb (per `004-App-DB-Diff.md`
+> §Path interaction: zoom into a node). Legacy slots are ignored on
+> read — Xray never resurrects them.
 
 ## Trace-event tags Xray emits
 
@@ -964,9 +980,19 @@ break the public API or the embed contract. Minor (1.0 → 1.1) adds
 panels or surfaces. Patch (1.0.0 → 1.0.1) fixes bugs without
 contract changes.
 
-The framework dep is `~> 1.0` (compatible with re-frame2's first
-stable release). When the framework moves to 2.0, Xray's matching
-major bumps with it.
+Nothing has shipped at 1.0 yet, and the semver rules above describe
+the contract from that release onward — the repository `VERSION` file
+is the authority on where the tree actually stands (`0.0.1.alpha` when
+this was written).
+
+Xray and the framework move in **lockstep**, and `tools/xray/deps.edn`
+is where that is wired: during development it rides
+`day8/re-frame2` at `{:local/root "../../implementation/core"}`, and
+the release workflow rewrites every such coordinate to an
+`:mvn/version` pinned to that same `VERSION`. A published Xray and the
+framework it was built against therefore always carry the same
+version, and when the framework moves to 2.0, Xray's matching major
+bumps with it.
 
 ## What this doesn't expose
 
