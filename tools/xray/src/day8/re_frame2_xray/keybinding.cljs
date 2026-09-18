@@ -562,12 +562,16 @@
   Idempotent — safe to call when nothing is attached (no-op), and safe
   to call twice in a row (the second call is a no-op).
 
-  Public embed-host escape hatch (rf2-ycrt2 — rf2-q7who.1 follow-on).
-  The `:rf.xray/keybinding-enabled?` config slot suppresses installation
-  only when read at attach time; embed hosts whose mount lifecycle
-  (e.g. Story's `ensure-xray-mounted!`) flips the slot AFTER Xray's
-  preload has already run must call `detach!` to remove the listener
-  that the preload installed under the default-true posture. Symmetric
+  Public embed-host escape hatch (rf2-ycrt2 — rf2-q7who.1 follow-on,
+  corrected by rf2-y8doi.17). A `configure!` flip of the
+  `:rf.xray/keybinding-enabled?` config slot is self-acting at any point
+  in the boot sequence — the `::sync-global-listener` watch at the foot of
+  this namespace attaches and detaches on every change — so an embed host
+  whose mount lifecycle runs AFTER Xray's preload (e.g. Story's
+  `ensure-xray-mounted!`) needs nothing further, and calling `detach!`
+  alongside the flip is harmless, merely redundant. The hatch is for a
+  host that wants the listener gone WITHOUT declaring the slot, or that
+  must remove it from a mount-time hook it does not own. Symmetric
   with `attach!`; calling them in sequence (`attach! → detach! →
   attach!`) flips between attached / not-attached cleanly without
   leaking listeners or stale sentinel state."
