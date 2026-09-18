@@ -69,9 +69,9 @@ the left because normal layout owns the relationship.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ LAYER 1  Two ribbons — chrome (~32px) + events ribbon (~36px) (rf2-4vp5j)│  scope + spine controls
+│ LAYER 1  Two ribbons — chrome (34px) + events ribbon (34px) (rf2-4vp5j)  │  scope + spine controls
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 2  Event list (4-col table; 6 rows default; resize via L2/L3 seam)│  the spine / timeline
+│ LAYER 2  Event list (4-col table; 8 rows default; resize via L2/L3 seam)│  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 3  Tab bar (40px) — 10 tabs                                       │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -84,16 +84,18 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ Event History  [◀ ▶ ⏭]  + filter   :app/main ▾   Dynamic / Static ▾   ⚙ ✕│   L1 chrome ribbon
-│ ↳ filters:  +  [+ :auth/* ✎] [× :mouse-move ✎]              3 filtered out│   L1.5 events ribbon (shown only when filters exist — rf2-pjjwh)
+│ Event History [◀ ▶ ⏭] + filter   :app/main ▾  Dynamic / Static ▾ ☀ ⛶ ⚙ ✕│   L1 chrome ribbon
+│ ↳ filters:  +  [:auth/* ✎|×] [:mouse-move ✎|×]              3 filtered out│   L1.5 events ribbon (shown only when filters exist — rf2-pjjwh)
 ├─────────────────────────────────────────────────────────────────────────┤
 │ source │ event id        │ timestamp      │ duration                     │   L2 — 4-col table
-│ fx     │ :title/flow     │ 12:30:05.123   │  1.2 ms                      │      6 rows default
+│ fx     │ :title/flow     │ 12:30:05.123   │  1.2 ms                      │      8 rows default
 │ view   │ :counter-inc    │ 12:30:06.456   │  0.4 ms        ← focused row  │      latest-on-bottom
 │ timer  │ :poll/tick      │ 12:30:07.001   │  0.2 ms                      │
 │ view   │ :user/profile   │ 12:30:07.892   │  0.6 ms                      │
 │ machine│ :title/loaded   │ 12:30:08.234   │  0.3 ms                      │
 │ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms                      │
+│ view   │ :nav/route      │ 12:30:09.901   │  0.5 ms                      │
+│ fx     │ :api/fetch      │ 12:30:10.117   │  2.1 ms                      │
 ╞═════════════════════════════════════════════════════════════════════════╡   L2/L3 seam — drag ↕ to resize
 ├─────────────────────────────────────────────────────────────────────────┤
 │ [Epoch] app-db Views Trace Machine Routes Resources Graph Frames Fresco │              L3 — 10 tabs
@@ -107,22 +109,24 @@ The four layers, top to bottom:
 1. **L1 — Two ribbons (rf2-4vp5j / rf2-pjjwh).** A **chrome ribbon** leads with the
    `Event History` label, then the nav cluster (`◀` `▶` `⏭`) + the `+ filter` add affordance,
    then scope selectors (the **`<frame>` ▾** view-scope dropdown whose face shows the
-   currently-selected frame, rf2-pjjwh + `Dynamic / Static ▾` **mode dropdown**), and chrome
-   actions (`⚙` settings + `✕` close) on the right. Below it an **events ribbon** carries the
+   currently-selected frame, rf2-pjjwh + `Dynamic / Static ▾` **mode dropdown**), the theme
+   toggle, and chrome actions (`⛶` pop-out + `⚙` settings + `✕` close) on the right. Below it
+   an **events ribbon** carries the
    filter chrome: `↳ filters:` label · a `+` add-filter icon · the active filter pills (each
    removable, `×`). **rf2-pjjwh — the events ribbon is hidden by default and animates open
    only once the first filter exists; it animates closed when the last filter is removed.**
    The focus-dimension feature (focus button / `🎯 focus` chip / per-row focus gutter) and the
    `Clear Filters` button were RETIRED (rf2-pjjwh — not in the Figma surface). Row click still
-   SELECTS the cascade and drives every L3/L4 panel. (`⛶` popout is omitted — silent-by-default
-   until the second-window UX lands.) LIVE/RETRO surfaces in the L2 event-list spine itself;
+   SELECTS the cascade and drives every L3/L4 panel. The `⛶` pop-out button SHIPS
+   (rf2-czcg5 — the canonical chrome launch for the second-window mode). LIVE/RETRO
+   surfaces in the L2 event-list spine itself;
    the chrome ribbon's mode dropdown toggles Dynamic ↔ Static (a separate axis). Anatomy in
    §The L1 ribbon below.
 2. **L2 — Event list.** A **four-column table** (`source · event id · timestamp · duration`);
-   **6 rows visible by default**, with **the L2/L3 seam acting as the drag handle for
+   **8 rows visible by default**, with **the L2/L3 seam acting as the drag handle for
    vertical resize** (§Splitter affordance); latest-on-bottom; virtualised; sticky header.
    The active/focused row takes a subtle background; functional semantic markers
-   (redaction / issue / pin) ride as subtle per-row signals (§Event-list rows). The spine
+   (issue / redaction / elision) ride as subtle per-row signals (§Event-list rows). The spine
    sub `:rf.xray/focus` reads from this layer.
 3. **L3 — Tab bar (40px).** Ten Dynamic tabs in the order the
    `panel-registry/reg-l4-tab!` `:order` fixes (the Figma export fixed the
@@ -355,29 +359,41 @@ the seam is absent there without an explicit check.
 
 Layer 1 is **two stacked ribbons**, splitting scope SELECTORS from
 spine/filter CHROME. (The Dynamic/Static **mode dropdown** lives at
-chrome-ribbon-left — an earlier draft dropped the mode pill entirely; the
+chrome-ribbon-RIGHT, beside the Frame dropdown — an earlier draft dropped the mode pill entirely; the
 rf2-4vp5j redesign re-added it as a compact `<select>`. LIVE/RETRO is a
 separate spine state, surfaced by the L2 newer-events marker.)
 
-### L1 chrome ribbon (`rf-xray-ribbon`, ~32px — Figma design rf2-ad7zx)
+### L1 chrome ribbon (`rf-xray-ribbon`, 34px — Figma design rf2-ad7zx)
 
-Reconciled to the Figma design (`design-reference/xray_devtools_reference.cljs`, the
-`chrome-ribbon` component). Left → right: the logo/wordmark, the two scope dropdowns, then
-the chrome actions at the far right.
+Reconciled to the authority reference (`design-reference/xray_devtools_reference.cljs`, the
+`chrome-ribbon` component; rf2-3f2di A4/A5). The bar is **34px** (`tokens/layout
+:top-strip-height`) — the reference's uniform 34px rhythm superseded the earlier 32px/36px
+split. **LEFT:** the `Event History` label, the `[◀ ▶ ⏭]` nav cluster, the `+ filter` add-pill.
+**RIGHT:** the two scope dropdowns, then the silent-by-default indicators, the theme toggle and
+the chrome actions.
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Logo** | left | `❖ Xray` wordmark — the brand anchor, the single blue `accent`, semibold. | — |
-| **Frame** | left | `Frame ▾` dropdown (multi-frame); flat `Frame: :rf/default` label when single-frame. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). Tool frames hidden unless Settings → View → "Show tool frames in picker" toggle on. | — |
-| **Mode** | left | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the dropdown's active option + `data-active-mode` carry the mode signal (there is no per-mode accent colour — rf2-ad7zx.13 collapsed the palette to a single `accent`). | `Cmd/Ctrl-Shift-M` |
-| **Right-icons** | right | `⚙` settings popup · `✕` close shell (`:rf.xray/close-shell`). `⛶` popout is omitted (reserved for the second-window UX — silent by default). | `,` or `s` · `Esc` |
+| **Label + nav** | left | the `Event History` label, then the blue-filled `[◀ ▶ ⏭]` nav cluster, then the outlined `+ filter` button (which collapses to zero width once the events ribbon owns the add affordance — rf2-8zd80). | — |
+| **Frame** | right | `Frame ▾` dropdown. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). The button face shows the currently-selected frame and ALWAYS renders. Tool frames are excluded unconditionally (§Frame-observation isolation invariants §I1). | — |
+| **Mode** | right | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the dropdown's active option + `data-active-mode` carry the mode signal (there is no per-mode accent colour — rf2-ad7zx.13 collapsed the palette to a single `accent`). | `Cmd/Ctrl-Shift-M` |
+| **Theme toggle** | right | icon-button showing the theme it switches TO — `☀` while dark, `☾` while light. The canonical light/dark affordance since the Settings Theme tab was retired (rf2-ou3pn). | — |
+| **Right-icons** | right | `⛶` pop-out (`:rf.xray/popout-shell` — the canonical chrome launch for the second-window mode, rf2-czcg5; see [`011-Launch-Modes.md`](./011-Launch-Modes.md) §Pop-out) · `⚙` settings popup · `✕` close shell (`:rf.xray/close-shell`). | `,` or `s` |
+
+**`Esc` does NOT close the shell**, and is deliberately left to the host: the global listener
+consumes it only to dismiss the open-in-editor hint toast while that toast is open (rf2-wpvy6f),
+and otherwise lets it fall through, because a devtools panel swallowing `Esc` would break the
+host app's own modals. Each Xray modal closes on its own `Esc` handler, not the global listener.
 
 The silent-by-default `🔇 N` mute + `● N` REDACTED indicators are **functional surfaces painted
 only when their count > 0** (absent in the Figma mock because the counts there are 0); they
-render to the right of the Mode dropdown when active. Kept per the functional-semantic carve-out
-(rf2-ad7zx).
+render between the Mode dropdown and the theme toggle when active. Kept per the
+functional-semantic carve-out (rf2-ad7zx).
 
-### L1.5 events ribbon (`rf-xray-events-ribbon`, ~36px — Figma design rf2-ad7zx / rf2-pjjwh)
+The `❖ Xray` wordmark that earlier drafts put at ribbon-left was **dropped** (rf2-3f2di A4) —
+the left cluster leads with the `Event History` label instead. There is no logo surface.
+
+### L1.5 events ribbon (`rf-xray-events-ribbon`, 34px — Figma design rf2-ad7zx / rf2-pjjwh)
 
 Reconciled to the Figma design (`design-reference/xray_devtools_reference.cljs`, the
 `events-ribbon` component). **rf2-pjjwh — this ribbon is hidden by default and animates open
@@ -406,7 +422,7 @@ contract:
 | Surface | Id | Role |
 |---|---|---|
 | Sub | `:rf.xray/current-frame` | Returns the frame id the user has focused (or nil pre-selection). |
-| Sub | `:rf.xray/available-frames` | First-seen-order vec of selectable frames; tool frames filtered by default per §I1 below. |
+| Sub | `:rf.xray/available-frames` | First-seen-order vec of selectable frames; tool frames (`frame-switcher/internal-frames`) filtered out UNCONDITIONALLY per §I1 below — there is no toggle behind it. |
 | Event-fx | `:rf.xray/select-frame <frame-id>` | Canonical write. Dispatches the spine's `:rf.xray/set-frame` (which re-seeds `:target-frame` + `:epoch-history` — see [`018-Event-Spine.md`](./018-Event-Spine.md) §6) AND fires `:rf.xray.frame-switcher/persist` for localStorage. |
 | Fx | `:rf.xray.frame-switcher/persist` | localStorage write under `re-frame2.xray.frame-switcher.v1` (per-instance overridable via the direct setter `day8.re-frame2-xray.frame-switcher/set-storage-key!`; a future `configure! :rf.xray/frame-switcher-storage-key` plumb is straightforward but not wired today). **Per rf2-swclw the frame pin is a TRANSIENT view scope: it is NOT hydrated on load — `mount.cljs/::reset-transient-filters` clears the stored value so each session starts at the head-frame default.** The write still happens within a session; only the load resets. |
 
@@ -481,10 +497,14 @@ On page load after `rf/init!`, when `[data-rf-xray-host]` exists:
 - Xray auto-opens in the right inline host.
 - `Ctrl+Shift+C` hides/shows the already-mounted shell with a CSS-only
   display toggle.
-- **Active tab: Event**, showing the most-recent cascade's event
-  detail (the spine sub `:rf.xray/focus` auto-points at head).
-- **Frame picker: shows the active frame** (single-frame apps collapse
-  to static label).
+- **Active tab: Epoch** (`:epoch` — the leftmost L3 tab, at
+  `:order -1`), showing the most-recent cascade (the spine sub
+  `:rf.xray/focus` auto-points at head). There is no "Event" tab —
+  rf2-5gl5r retired it in favour of the Epoch panel.
+- **Frame picker: shows the active frame.** The control ALWAYS
+  renders; a single-frame host gets a working one-entry dropdown, and
+  only a zero-frame state disables it (rf2-ad7zx.12 / rf2-ad7zx.14
+  deleted the old collapse-to-flat-label branch).
 - **Filter pills: empty by default** — first session is honest about
   what's filtered; Recommended quick-add available via add-pill.
 - **L2 spine: following at head** — the newer-events marker paints nothing while the spine is following (no head-row pulse cue was ever built; the dedicated Mode pill widget was dropped).
@@ -496,12 +516,14 @@ the `event-list` component + the brief), the later iteration: the L2 spine is a 
 scannable four-column table** — one row
 per event, newest at the bottom — not a single-line gutter-glyph row. The prior gutter-glyph +
 right-aligned-badge row shape is **superseded**; the functional semantic markers the framework
-needs (redaction / issue / pin) survive as a subtle per-row tint or trailing marker (below), not
-as the primary row structure. Full click behaviour + hover tooltip in
+needs (issue / redaction / elision) survive as a subtle per-row tint or trailing marker (below),
+not as the primary row structure. (There is no pin marker: the pin store was removed — see
+§Trimmed pending demand.) Full click behaviour + hover tooltip in
 [`018-Event-Spine.md`](./018-Event-Spine.md) §4.
 
-**6 rows visible by default; the L2/L3 seam is a drag handle for vertical resize** (drag
-down to show more history — see §Splitter affordance for the full mechanics). The header
+**8 rows visible by default** (`config/default-events-list-height-px`
+is 200px == 8 × 22px + gaps + padding); **the L2/L3 seam is a drag handle for vertical resize**
+(drag down to show more history — see §Splitter affordance for the full mechanics). The header
 row is sticky; on hover/selection the row takes a subtle background (`hover` / `bg-active`)
 — the active/focused row is the spine's `:rf.xray/focus`.
 
@@ -515,7 +537,7 @@ row is sticky; on hover/selection the row takes a subtle background (`hover` / `
 | **duration** | how long the event took to process, e.g. `0.4 ms` | mono, muted |
 
 ```
-┌ Event list  (6 rows default · drag L2/L3 seam ↕ to resize) ─────────────┐
+┌ Event list  (8 rows default · drag L2/L3 seam ↕ to resize) ─────────────┐
 │ source │ event id          │ timestamp      │ duration                  │
 │ fx     │ :title/flow       │ 12:30:05.123   │  1.2 ms                   │
 │ view   │ :counter-inc      │ 12:30:06.456   │  0.4 ms   ← focused row    │
@@ -534,7 +556,7 @@ functional semantic colours):
 
 | Marker | Signal | Rendering |
 |---|---|---|
-| Issue tint / trailing `⚠` | the row's epoch carries an error/warning issue | a subtle row tint + small trailing marker (not a new column); navigates to Issues for that epoch |
+| Issue tint / trailing `⚠` | the row's epoch carries an error/warning issue | a subtle row tint + small trailing marker (not a new column). It is a SIGNAL, not a link: there is no Issues tab to navigate to (rf2-gbz39) — selecting the row surfaces the issue inline in the Epoch panel |
 | `[● REDACTED N]` | event arg-map carries `:rf/redacted` | magenta trailing marker |
 | `[● ELIDED N]` | event arg-map carries `:rf.size/large-elided` | yellow trailing marker |
 
@@ -735,14 +757,22 @@ Subscriptions exposed for tools / tests:
 ## IN/OUT filter pills
 
 Live in the **L1.5 events ribbon** (rf2-4vp5j moved them down out of the
-chrome ribbon; NOT a sidebar). Two pill types (colour + glyph encode
-mode):
+chrome ribbon; NOT a sidebar). Two pill types, and **the border colour
+alone encodes the mode** — there is no leading `+` / `×` mode glyph
+(Figma authority; `filters/pills.cljs`):
 
 ```
-[+ :auth/* ✎]      ← filter-IN  · green border · `+` glyph    · show ONLY matches
-[× :mouse-move ✎]  ← filter-OUT · magenta brd  · `×` glyph    · hide matches
-[+]                ← trailing add-pill         · click → popup w/ blank pattern
+[:auth/* ✎ | ×]      ← filter-IN  · green border · show ONLY matches
+[:mouse-move ✎ | ×]  ← filter-OUT · red border   · hide matches
+[ + ]                ← trailing add-pill · click → popup w/ blank pattern
 ```
+
+The trailing `✎` pencil is the click-to-edit cue and the trailing `×`,
+behind a divider, is the remove button — **on both pill types**, so a
+`×` means "remove this pill", never "this is an OUT pill". A typed
+predicate pill may carry a leading KIND glyph (`<glyph>: <label>`,
+from `filters/typed_predicates.cljc`); that is the predicate's kind,
+not the mode.
 
 AND across modes; OR within mode. `(match-any-IN) AND NOT
 (match-any-OUT)`. localStorage persists per host app **within a session,
@@ -760,8 +790,10 @@ contract + Recommended-filters quick-add + right-click context menu in
 
 **Trigger:** `,` key OR `s` key OR click ribbon `⚙` icon.
 
-**Shape: modal overlay** (NOT a dedicated panel). Centred floating
-panel at 560×640; backdrop dim (15% black) but Xray visible
+**Shape: modal overlay** (NOT a dedicated panel). Horizontally centred
+floating panel, **600px wide** (`max-width 92vw`) and **`max-height
+84vh`**, hung from the top of the viewport rather than vertically
+centred; backdrop `rgba(0,0,0,0.55)` + a 2px blur, with Xray visible
 underneath. Closes on `Esc`, click outside, or click `✕`. Settings
 persist immediately on change (no Apply/Cancel — every toggle writes
 through to `(xray-config/configure! …)` on commit).
@@ -776,7 +808,7 @@ mute manager modal). The Buffer tab inherited the
 
 | # | Tab | Mnemonic | Content |
 |---|---|---|---|
-| 1 | **General** | `g` | Text size · Panel width · Panel position · Auto-open-on-error · Density (Cosy / Compact — no Comfy) · Long-keyword threshold · **Editor override** (rf2-dudqz — per-machine click-to-source picker; nil / `:vscode` / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <tpl>}`; default nil = use host default) · **Power user:** "Show tool frames in picker" toggle (off by default) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot is `:general :use-system-colors?`) |
+| 1 | **General** | `g` | Panel position (`:right-rail` / `:fullscreen`) · Auto-open-on-error · Epoch history slider (5–200, default 50) · **Editor override** (rf2-dudqz — per-operator click-to-source picker; nil / `:vscode` / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <tpl>}`; default nil = use host default) · "Show `:ungrouped` events in L2" toggle · "Always show unchanged subs in the Views panel" toggle. **The 2026-05-27 cull took the Text-size slider, the Panel-width input, the Density radio, the Long-keyword-threshold input and the "Use system colors" toggle** — each setting SLOT survives and is reachable through `configure!`; only the controls are gone. rf2-y8doi.27 additionally removed the "Show tool frames in picker" slot outright, and rf2-czcg5 dropped the `:popout` panel-position option in favour of the chrome `⛶` button. |
 | 2 | **Keybindings** | `k` | Read-only chord table (every binding the global listener captures) · master "Handle keys?" toggle. v1 is READ-ONLY; rebind UI is the v1.1 follow-on. |
 | 3 | **Buffer** | `b` | `:buffer/events-retained` (writes through to `(rf/configure! {:trace-buffer {:events-retained N}})` — rf2-5u03ig) · "Clear buffer now" button with confirm modal. (The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig.) |
 | 4 | **Diff** | `d` | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; the app-db diff engine itself is Editscript A* per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1.5.1 with no user-tuneable knobs — the prior section-grouping engine was retired wholesale per rf2-7is22) |
@@ -795,7 +827,7 @@ typing into numeric knobs is not interrupted.
 
 | Dropped | Rationale |
 |---|---|
-| **Theme tab** (rf2-ou3pn) | Top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is the canonical light/dark affordance; both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event, so the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to **General → Power user** — the setting slot has always been `:general :use-system-colors?`; only its cosmetic home in the Theme section is gone with the tab. |
+| **Theme tab** (rf2-ou3pn) | Top-ribbon sun/moon icon (`ribbon-theme-toggle` in `shell.cljs`) is the canonical light/dark affordance; both surfaces dispatched the identical `[:rf.xray/settings-update :theme nil <kw>]` event, so the popup copy was pure redundancy. The `:use-system-colors?` HCM-override toggle relocated to General, and was then removed with the 2026-05-27 cull — the setting slot and the `apply-use-system-colors!` effect remain, and OS-level `@media (forced-colors: active)` detection is unaffected. |
 | **Filters tab** (rf2-wknb3) | Full pill management lives in the top-ribbon filter strip (`filters/pills.cljs`, per [`018-Event-Spine.md`](./018-Event-Spine.md) §7), the per-pill edit popup (`filters/edit_popup.cljs`), and the mute manager modal (rf2-ikuwt). The settings tab's only widget was an "Open auto-filter UI" button dispatching `:rf.xray.filters/open` — an event with no handler registered anywhere — plus a static explainer paragraph. With the management surfaces all canonical elsewhere, the discoverability pointer was redundant. |
 | Actions tab + factory-reset BIG RED BUTTON | Factory-reset stays code-only (`config/reset-settings!`) — a destructive UI button has no use case the confirm modal beneath "Clear buffer" does not already cover. |
 | Density Comfy tier | Two tiers cover the rhythm need; the third was a styling-pass aspiration with no observed demand. |
@@ -803,29 +835,48 @@ typing into numeric knobs is not interrupted.
 | Accent user-swap | The accent is a single fixed GitHub blue (per §Colour system); light/dark theme is the only user colour axis. |
 | Sub-output diff layout (`:unified` / `:split` toggle) | Fixed unified. |
 | Section-grouping threshold | Engine retired wholesale per rf2-7is22 (#2235); app-db diff now runs Editscript A* directly with no separate section-grouping stage. |
-| Popout as its own tab | Folds into General's Panel-position sub-section. |
+| Popout as its own tab | Pop-out is not a settings surface at all: rf2-czcg5 made it the chrome ribbon's `⛶` button, and dropped `:popout` from the Panel-position radios. |
 
-Full wireframe + per-field configure! mapping in
-[`018-Event-Spine.md`](./018-Event-Spine.md) §9. configure! API
-surface in [`015-Configuration.md`](./015-Configuration.md).
+**[`018-Event-Spine.md`](./018-Event-Spine.md) §9 is the authority on
+the per-field roster** — full wireframe + per-field `configure!`
+mapping — and `configure!`'s own API surface is
+[`015-Configuration.md`](./015-Configuration.md). The table above is
+the tab/mnemonic contract, which is 007's; treat its field lists as a
+summary and correct 018 first when they disagree. A second and third
+copy of the roster is how this section drifted.
 
 ## Frame-observation isolation invariants
 
 Xray observes ANOTHER frame, NEVER itself. Four invariants
 (enumerated in [`018-Event-Spine.md`](./018-Event-Spine.md) §8):
 
-- **I1:** Frame picker excludes `:rf/xray` by default. Settings →
-  View → Power user → "Show tool frames in picker" reveals it.
+- **I1:** Frame picker excludes `:rf/xray` (and the other
+  `frame-switcher/internal-frames` tool frames) **unconditionally**.
+  The "Show tool frames in picker" toggle that used to reveal them
+  lost its UI on 2026-05-27, and rf2-y8doi.27 removed the orphaned
+  setting slot behind it; there is no override today.
 - **I2:** No Xray UI view reads from `:rf/xray` for data purposes.
-  Dev-time lint asserts this on Xray mount.
+  **The dev-time lint that would assert this is NOT SHIPPED** — see
+  [`018-Event-Spine.md`](./018-Event-Spine.md) §8. I2 is held today by
+  code review plus the `self_noise` drop predicates, and that is true
+  missing coverage rather than a renamed gate.
 - **I3:** Views panel render-attribution is scoped to selected frame
   ONLY. Render tracker tags each entry with `:owning-frame`.
 - **I4:** Browser feature test asserts Xray-self-observation is
   disallowed. **Failure blocks merge.**
 
-The test gate lives at
-`tools/xray/test/day8/re_frame2_xray/isolation_test.cljs`. Runs
-under `npm run test:browser`.
+The test gates, both under `npm run test:cljs` (the `:node-test`
+build, which selects `cljs-test$`):
+
+- **I1** — `tools/xray/test/day8/re_frame2_xray/frame_switcher_cljs_test.cljs`
+  (`internal-frames-includes-xray-and-pair` ·
+  `distinct-frames-excludes-internal-frames-by-default`).
+- **I3 / I4** — `tools/xray/test/day8/re_frame2_xray/panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs`,
+  backed by `self_noise_cljs_test.cljc`. **Failure blocks merge.**
+
+There is no `isolation_test.cljs` and no browser-lane arm: neither
+namespace ends `-dom-cljs-test`, so `npm run test:browser` does not
+load either.
 
 ## Density slider
 
@@ -841,7 +892,11 @@ cover the rhythm need; the third had no observed demand).
 | **Cosy** (default) | 28px | (baseline) | (baseline) |
 
 What does *not* change between densities: icon weights, border radii,
-animation durations, accent colours. Configurable in Settings → View.
+animation durations, accent colours. **No Settings control ships** —
+the Density radio was removed from Settings → General on 2026-05-27;
+the `:general :density` slot and the `:rf.xray/density` sub survive
+and drive the plumbing, and a host sets the value through
+`configure!`.
 
 ## Typography
 
@@ -853,14 +908,16 @@ Three typefaces — two body workhorses + one display face:
   `ui-monospace` / `SF Mono` / `Menlo`. ~100KB WOFF2.
 - **Display serif:** `Fraunces` (variable, wght 500–900 with
   optical-size axis 9–144; rf2-5kfxe.9), fallback `ui-serif` /
-  `Georgia` / `Cambria` / `Times`. ~30KB WOFF2. Used on **L4 panel
-  `<h1>`** only — panel titles reach for a characterful serif so the
-  L4/L3 hierarchy reads at a glance. Deliberately *not* another
-  grotesque sans — the frontend-design rubric flags "Inter at every
-  size" as a generic AI-aesthetic; one serif accent breaks the
-  monotone. Body chrome stays Inter; L1 ribbon labels + chord
-  callouts + the mode dropdown stay Inter too (Fraunces is scoped to L4
-  panel headings).
+  `Georgia` / `Cambria` / `Times`. ~30KB WOFF2. Reserved for **panel
+  titles** — a characterful serif so the title/body hierarchy reads at
+  a glance. Deliberately *not* another grotesque sans — the
+  frontend-design rubric flags "Inter at every size" as a generic
+  AI-aesthetic; one serif accent breaks the monotone. **Its reach is
+  now one surface, not a layer**: §021 §14.1's heading scrub deleted
+  the L4 `<h1>`s it was scoped to, and `tokens/display-stack` survives
+  at a single call site, the Static Machines definition-detail title.
+  Everything else — body chrome, L1 ribbon labels, chord callouts, the
+  mode dropdown — is Inter.
 
 All three faces ship as `local()`-only `@font-face` rules from
 `theme/global-styles/font-faces-css`. No third-party HTTP fetch is
@@ -884,7 +941,7 @@ shell on the next style flush without a re-render.
 
 | Token | Multiplier | Resolves at default | Used for |
 |---|---|---|---|
-| Display | 1.077× | ~14px | Tab titles, modal headers, panel `<h1>` |
+| Display | 1.077× | ~14px | Tab titles, modal headers, panel titles |
 | Body | 1.000× | 13px | Default UI text (the anchor) |
 | Body-tight | 0.923× | ~12px | Sidebar entries, header chrome |
 | Mono body | 0.923× | ~12px | Code, EDN, event-list rows |
@@ -948,8 +1005,10 @@ AFTER:   :some.namespace…/blah-blah-blah  ⎘                     (with hover-
          (keep first ns segment; elide middle; keep keyword name)
 ```
 
-Algorithm: when event-id exceeds N chars (compact 28; cosy 36;
-configurable via Settings → View → Long-keyword threshold), elide
+Algorithm: when event-id exceeds N chars (compact 28; cosy 36; the
+Settings control for the threshold was removed 2026-05-27 — the
+`:general :long-keyword-threshold` slot survives and is set through
+`configure!`), elide
 the middle of the NAMESPACE only. Keep first ns segment and the
 keyword name (after `/`) intact. Un-namespaced keywords fall back to
 tail-elide.
@@ -982,31 +1041,36 @@ Borders:   subtle #2a2a2a  · default #373737 (Figma --devtools-border)
 
 Text:      primary #e6edf3 (Figma --devtools-text)  · secondary #adbac7  · tertiary #8b949e (Figma --devtools-text-muted)
 
-Accents:   blue    #539bf5  ACCENT — active tab, L4 header stripe, selected, focus ring, changed (the identity — rf2-ad7zx.13)
-           info    #79c0ff  fixed cool categorical blue; :story / :test origin; spine-paused; syntax-number
-           indigo  #5570FF  :pair-origin
-           green   #3fb950  success, additions, machine-active
-           yellow  #d29922  warnings, schema-replaced-with-default, :rf.size/large-elided elision
-           amber   #FB923C  long-task / perf-slow (functional perf-amber)
-           red     #F87171  errors, schema-violations, hydration-mismatches
-           magenta #E879F9  classification: :rf/redacted
+Accents:   accent       #539bf5  ACCENT — active tab, header stripe, selected, focus ring, changed (the identity — rf2-ad7zx.13)
+           info         #79c0ff  fixed cool categorical blue; :story / :test origin; spine-paused; syntax-number
+           green        #3fb950  success, additions, machine-active
+           yellow       #d29922  warnings, schema-replaced-with-default, :rf.size/large-elided elision
+           orange       #FB923C  functional perf-amber — long-task / perf-slow
+           red          #F87171  errors, schema-violations, hydration-mismatches
+           magenta      #a855f7  classification: :rf/redacted · Epoch COEFFECT · filter OUT pill
+           magenta-pink #ec4899  Epoch SUBSCRIPTIONS (rf2-cgm4f split from magenta)
 
-Perf:      fast     #3fb950  (<16ms)
-           medium   #d29922  (16-50)
-           slow     #FB923C  (50-100)
-           blocking #F87171  (>100ms, INP threshold)
+Perf tiers reuse the hues above rather than owning tokens of their own:
+           fast     green   (<16ms)
+           medium   yellow  (16-50)
+           slow     orange  (50-100)
+           blocking red     (>100ms, INP threshold)
 ```
 
 **Accent identity = GitHub-style blue (rf2-ad7zx.13).** The accent is the single GitHub blue
 (`#539bf5` dark / `#0969da` light) the Figma export ships (the `devtools-css` block embedded in
 `design-reference/xray_devtools_reference.cljs`).
-There is **one** accent — active tab, active states, focus ring, the L4 header stripe, and the
-logo / wordmark all read it. The **Dynamic / Static MODE stays functional** (it
+There is **one** accent — active tab, active states, focus ring and the header stripe all read
+it. (There is no logo or wordmark to read it: the `❖ Xray` wordmark was dropped from the chrome
+ribbon per rf2-3f2di A4.) The **Dynamic / Static MODE stays functional** (it
 gates motion) but **no longer drives accent colour**: the shell reads the same blue in either
 mode. The earlier orange-identity scheme (an always-orange `brand` + per-mode orange/cyan accent
 swap) is **removed**. Every accent is a single CSS-custom-property token, so the identity is a
-one-line change per token. The accent decision + the cross-panel **visual-encoding rules** live
-in [022-Design-Tokens](022-Design-Tokens.md); the **full palette above is authoritative**.
+one-line change per token. **`theme/tokens.cljc` is the source of truth** and
+[022-Design-Tokens](022-Design-Tokens.md) is the normative catalogue — the accent decision, the
+cross-panel **visual-encoding rules** and the per-token light/dark pairs all live there. The
+block above is a reading aid, not a second authority; that is what made it drift (it carried a
+phantom `indigo` accent, an `amber` alias for `orange`, and `magenta` at its pre-rf2-cgm4f hex).
 
 Light theme inverts lightness (`bg-0 #fbfbfb`, `bg-1 #f5f5f5`, `bg-2
 #ffffff`); the accent darkens to `#0969da` to maintain contrast.
@@ -1051,7 +1115,6 @@ Every coloured marker pairs with a shape or icon:
 
 - Errors → red dot + `!` icon + "Error" label.
 - Schema violations → yellow triangle + path.
-- Pair-origin → indigo + `🔗`.
 - Active machine → green + filled glyph; idle → hollow.
 - Redaction → magenta + `[● REDACTED N]` literal.
 - Elision → yellow + `[● ELIDED N]` literal.
@@ -1075,8 +1138,12 @@ probe.
 
 ### L4 panel accent stripe (single accent — Figma design rf2-ad7zx.13)
 
-Every L4 panel renders a **3-px left-border** on its `<h1>` in the **single `accent`** (GitHub
-blue). The prior per-panel **domain-colour** mapping (`:event` violet · `:app-db`/`:views` cyan ·
+Where a panel renders a title stripe it is a **3-px left-border** in the **single `accent`**
+(GitHub blue). **It is no longer an L4-wide convention**: §021 §14.1's heading scrub deleted the
+`<h1>` elements it lived on (census at tip: `[:h1` returns **0** across `tools/xray/src`, against
+a `:h2` control returning real hits), and the helper survives at exactly one call site — the
+Static Machines definition-detail title, which is a `<div>`, deliberately not a heading. The
+prior per-panel **domain-colour** mapping (`:event` violet · `:app-db`/`:views` cyan ·
 `:trace` orange · `:machines` green · `:routing` yellow · `:issues` red) is **superseded**: the
 Figma export carries a **single accent identity** (App's active tab + every panel reads
 `--devtools-active` → the accent), so the stripe is a consistent signal, not a per-panel domain
@@ -1089,8 +1156,8 @@ this list are retired: §021 §14.1 deleted the `<h1>` elements they lived in, a
 the unread `theme/tokens/panel-icon` map behind them.)
 
 The helper `theme/tokens/accent-stripe-style` emits the inline-style map (`:border-left "3px
-solid <accent>"` + `:padding-left "10px"`); per-panel call sites merge it into the `<h1>`
-`:style`. This L4 header stripe is the only accent stripe Xray paints: the chrome ribbon's 2-px
+solid <accent>"` + `:padding-left "10px"`); a call site merges it into the title element's
+`:style`. This header stripe is the only accent stripe Xray paints: the chrome ribbon's 2-px
 left-edge stripe was removed (rf2-4yemd — see §Mode-signal mechanism below).
 
 (rf2-4v67l — `:chrome-a11y` was dropped alongside the panel itself.
@@ -1273,9 +1340,12 @@ Per spec/018 §3 + §6.
 | `k` | Step forward one event (event-next) | `:rf.xray/focus-event-next` |
 | `,` or `s` | Toggle the Settings popup | `:rf.xray/settings-toggle` |
 
-Everything else — tab switching, rewind, re-dispatch, filter focus — is
-a click or a **command-palette** verb (`Cmd/Ctrl+K` finds any action by
-name). There is deliberately no dedicated key for those actions in v1.
+Everything else is a click or a **command-palette** verb (`Cmd/Ctrl+K`
+finds any action by name) — tab switching is a palette verb; filter
+focus is the ribbon's `+ filter` click. **Rewind and re-dispatch are
+neither**: no key, no palette verb and no implementation at all (see
+§Trimmed pending demand). There is deliberately no dedicated key for
+any of these in v1.
 
 ### Machines canvas (rf2-y3l8z)
 
@@ -1335,59 +1405,56 @@ over-engineering, no demand today) is why none is being built now.
 
 ## Detail panel renderer
 
-Every value display in every tab's L4 detail panel uses
-`tools/xray/src/day8/re_frame2_xray/theme/data_inspector.cljc`:
+Every value display in every tab's L4 detail panel goes through the
+**shared EDN-inspector widget** —
+`tools/xray/src/day8/re_frame2_xray/views/edn_widget.cljs` over
+`views/edn_inspector.cljs`. Its facade is `inspect` / `inspect-view` /
+`inspect-inline`; diff is an **opt-in `:before` mode on the same
+widget**, not a separate `inspect-diff` entry point.
 
-- `inspect <value>` — the hero: expandable inspector. Maps `{ … }`,
-  vecs `[ … ]`, sets `#{ … }`, lists `( … )`. **Keywords are the single
-  coloured type — the single `accent`** (GitHub blue), per
-  [022-Design-Tokens](022-Design-Tokens.md) §Visual encoding + the §021 §10.1
-  minimal-coloring lock; other scalars (strings / numbers / booleans / nil) render
-  in `text-primary` mono, unchanged values in `dim`. Expand carets per node;
-  default-collapse based on size.
-- `inspect-inline <value>` — one-line variant; identical palette;
-  forced single line; tail-elides at 80 chars.
-- `inspect-diff <before> <after>` — diff variant; side-by-side or
-  unified per `:layout`; colour-coded add/remove inline.
+**The full renderer contract is owned by
+[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md#10-shared-edn-inspector-renderer)
+§10** — public API, acceptance properties, sentinel typing, diff mode,
+popup overlay, zoom + breadcrumb, the `IXrayEdnInspector` formatter
+protocol. Read it there rather than here; the second copy this section
+used to carry is how it drifted.
+
+**The legacy `theme/data_inspector.cljc` chrome namespace is DELETED**
+(021 §10.0.4 phase 5, rf2-q3dzw) and with it the three knobs
+(`collapse-threshold` / `string-inline-cap` /
+`large-fetch-warn-threshold-bytes`) and the four
+`:rf.xray.data-inspector/*` ids this section used to catalogue —
+census at tip over `tools/xray/src`: zero hits for each, against a
+`collapse-threshold` control returning 4 unrelated hits elsewhere in
+the tree. Per-node expand state now lives under the
+`:rf.xray.edn-inspector/expansion` slot on the **surrounding instance
+frame**, written by `:rf.xray.edn-inspector/toggle-node` /
+`/set-node` / `/reset-expansion`.
 
 **Does NOT depend on `binaryage/cljs-devtools`.** That library targets
 the Chrome console (formatters API); its output is not in-page hiccup.
 Hand-built renderer matching the aesthetic using Xray's theme tokens.
 
-### Renderer contract (v1 ships)
+**Keywords are the single coloured type — the single `accent`**
+(GitHub blue), per [022-Design-Tokens](022-Design-Tokens.md) §Visual
+encoding + the §021 §10.1 minimal-coloring lock; other scalars
+(strings / numbers / booleans / nil) render in `text-primary` mono,
+unchanged values in `dim`. Punctuation + meta render in
+`text-tertiary` / `text-secondary` to recede.
 
-The cljs-devtools-shaped surface (rf2-x9fzk):
+### Renderer contract
 
-| Knob | Default | Purpose |
-|---|---|---|
-| `collapse-threshold` | `5` | Collections longer than this start collapsed; the user clicks `▶` to expand. Map literals ≤ 5 keys render flat; typical app-db slices don't dump every key on initial render. |
-| `string-inline-cap` | `64` | Strings longer than this tail-ellide in `inspect-inline`; the full value remains visible via the parent collection's expand affordance. |
-| `large-fetch-warn-threshold-bytes` | `100000` (100 KB) | Per [`018-Event-Spine.md`](./018-Event-Spine.md) §12 — `:rf.size/large-elided` expansions above this size gate behind a confirm step so a stray click can't pour a multi-megabyte expansion into the detail panel. |
-
-**Colour palette** (mapped onto Xray's theme tokens so the renderer
-reads as native shell chrome): **keywords are the single coloured type —
-the single `accent`** (GitHub blue), per the §021 §10.1
-minimal-coloring lock + [022-Design-Tokens](022-Design-Tokens.md); other
-scalars render in `text-primary` mono, `dim` for unchanged. Punctuation +
-meta render in `text-tertiary` / `text-secondary` to recede.
-
-**Substrate-agnostic state.** Per the pure-hiccup contract
+**Substrate-agnostic.** Per the pure-hiccup contract
 ([Conventions rf2-tijr](./Conventions.md)) the renderer never
-references Reagent / UIx. Per-node expand state lives in
-`:rf/xray` app-db under `[:data-inspector <node-key> …]` and is
-read/written via re-frame primitives:
+references Reagent / UIx.
 
-- `:rf.xray.data-inspector/expansion <node-key>` — sub for one node's
-  state.
-- `:rf.xray.data-inspector/toggle-expanded <node-key>` — flip.
-- `:rf.xray.data-inspector/request-large-confirm <node-key>` /
-  `:rf.xray.data-inspector/confirm-large <node-key>` — two-step
-  confirmation for `:rf.size/large-elided` markers above the size threshold.
-
-Each L4 panel mount supplies a unique `node-key` prefix so two panels
-rendered side-by-side don't share expand state. See
-[`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) for the
-catalogued ids.
+**Per-call-site isolation.** Two widget mounts in the same panel
+receive distinct `mount-id`s, so toggling a path under one leaves the
+identical path under the other untouched; expansion is additionally
+scoped to the surrounding instance frame, so N shells keep
+independent state. The knobs, opts vocabulary and acceptance
+properties are 021 §10's — see
+[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md#10-shared-edn-inspector-renderer).
 
 ### Sentinel chips
 
@@ -1399,13 +1466,12 @@ shapes and emits bespoke chrome (per [`018-Event-Spine.md`](./018-Event-Spine.md
   (`● redacted`); italic small-caps; **never** expandable, no reveal
   affordance ever.
 - `{:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}}` — yellow chip
-  (`● large · N bytes · "hint…"`); click reveals an inline expansion
-  surfacing the `:hint` text and routing a fetch via the `:handle`
-  through `get-path`. Sizes above
-  `large-fetch-warn-threshold-bytes` gate behind an inline confirm
-  prompt (textual "Expand N bytes? (>100000 threshold)" + Confirm
-  button) rather than a full modal — v1 ships the inline prompt so
-  the renderer doesn't drag in modal infrastructure.
+  (`● large · N bytes · "hint…"`). **The chip is static and
+  non-interactive in v1** — the `:handle` is carried for a future
+  drill-in affordance that is not wired (021 §10.0.3; census at tip:
+  zero `get-path` in `tools/xray/src`). The popup overlay a reveal
+  would ride on has landed (rf2-s0x6x) but the chip is not connected
+  to it.
 - `{:rf/redacted {:bytes N}}` — combined sensitive + large; magenta
   with size shown for diagnostic; **never** expandable (sensitive
   dominates content visibility).
@@ -1417,7 +1483,7 @@ Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md):
 | Sentinel | Xray renders | Drillable | Affordance |
 |---|---|---|---|
 | `:rf/redacted` | `[● REDACTED N]` magenta | NO | Hover tooltip discloses path + mark source; **no reveal** |
-| `:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}` | `[● ELIDED · N bytes]` yellow | YES | Click → popover with `:hint` text + "Fetch full value" button that round-trips the marker's `:handle` through `get-path` (size-warned via confirm modal when bytes > threshold) |
+| `:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}` | `[● ELIDED · N bytes]` yellow | NOT YET | Static chip in v1 (021 §10.0.3). The `:handle` is carried so a future drill-in can round-trip it; nothing in `tools/xray/src` fetches through it today |
 | `:rf/redacted {:bytes N}` | `[● REDACTED · N bytes]` magenta | NO | Sensitive dominates; size disclosed |
 
 Per-surface enumeration in [`018-Event-Spine.md`](./018-Event-Spine.md)
@@ -1425,9 +1491,9 @@ Per-surface enumeration in [`018-Event-Spine.md`](./018-Event-Spine.md)
 
 ## Editor protocol matrix
 
-The `o` shortcut (and every `open` chip Xray renders next to a
-source-coord — event-detail rows, machine inspector chips,
-Views per-component rows, Trace rows) sets
+Every `open` chip Xray renders next to a source-coord —
+event-detail rows, machine inspector chips, Views per-component rows,
+Trace rows — sets
 `window.location.href` to a URI-scheme handler the OS dispatches to
 the user's editor.
 
@@ -1591,24 +1657,25 @@ itself guide the developer.
 
 ## Command palette
 
-Centred 560px modal, 50% height. Opened via the `Ctrl+K` / `Cmd-K`
-chord (global; also reachable from the top-strip control). Closes
-on `Esc`, click-outside, or invocation of any item.
+Centred modal, 560px wide, `max-height 60vh`. Opened via the
+`Ctrl+K` / `Cmd-K` chord — the only affordance; no ribbon control
+opens it. Closes on `Esc`, click-outside, or invocation of any item.
 
 ### Indexed sources
 
-- Recent events (200-entry buffer; matches event-id + source coord)
-- Registered handlers (id + `:doc`)
+Seven producers feed the index (`palette/sources.cljc` §`build-index`),
+riding six `:source` kinds — static-tab rows share the `:panel` kind:
+
+- Recent events (the most recent 30; the row label is the bare
+  event-id and the hint is recency only — no source coord)
+- Registered handlers (id + `:doc`; capped at 200)
 - Frames
-- Machines with current state
 - L4 tab jumps — Dynamic: every registered `:dynamic` tab (today
   Epoch / app-db / Views / Trace / Machine / Routes / Resources /
   Graph / Frames / Fresco); Static: Machines / Routes /
   Schemas / Flows / Interceptors (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
-- Pinned cascades (pin chips live in the palette as a "Pinned
-  cascades" source, since the L0 rail is gone)
 
 Fuzzy match splits on camelCase / kebab-case / namespace boundaries.
 
@@ -1616,9 +1683,9 @@ Fuzzy match splits on camelCase / kebab-case / namespace boundaries.
 
 Every palette item carries a **`:modes`** set declaring which Xray
 modes it surfaces under — `#{:dynamic}`, `#{:static}`, or
-`#{:dynamic :static}` for verbs meaningful in both. The aggregator
-(`palette/sources/by-mode-pred`) filters by membership against the
-active `:rf.xray/mode`. Items missing `:modes` fall through to
+`#{:dynamic :static}` for verbs meaningful in both. The aggregator's
+private `in-mode?` predicate (`palette/sources.cljc`) filters by
+membership against the active `:rf.xray/mode`. Items missing `:modes` fall through to
 both modes (the legacy contract — every item used to be visible
 always).
 
@@ -1672,8 +1739,9 @@ receives less again. Items beyond the recents tail receive zero
 boost. The decay shape keeps the most-recent verb above a fresh
 fuzzy peer while letting strong query matches still rise.
 
-The recents slot lives at `:rf.xray.palette/recents` on Xray's
-app-db; the persisted vector hydrates on first palette open via
+The recents slot lives at `:palette-recents` on Xray's app-db (read
+through the `:rf.xray/palette-recents` sub); the persisted vector
+hydrates on first palette open via
 `recents/load`. The reducer (`recents/record`) is pure — `update +
 distinct + take 3` — so the slot remains test-friendly.
 
@@ -1713,8 +1781,8 @@ to localStorage alongside the other Xray settings.
 
 Two modal surfaces float over the chrome:
 
-1. **Command palette** — 560px centred.
-2. **Settings** (`,` or `s` or `⚙`) — 560×640px modal.
+1. **Command palette** — 560px wide, `max-height 60vh`, centred.
+2. **Settings** (`,` or `s` or `⚙`) — 600px wide, `max-height 84vh`.
 
 (The `?` keyboard cheat-sheet modal was trimmed — it was specified but
 never built; the command palette is the discoverability surface. See
@@ -1723,8 +1791,8 @@ never built; the command palette is the discoverability surface. See
 ### Shared modal-chrome scaffold (rf2-7oxvd)
 
 **All** of Xray's modal/popover surfaces (Settings, Filter
-edit-popup, Mute manager, App-DB segment-inspector, EDN-inspector
-popup, Cancellation-cascade popover, **Command palette**) render the
+edit-popup, Mute manager, EDN-inspector popup, Cancellation-cascade
+popover, **Command palette**) render the
 **same backdrop + dialog scaffold** — a full-inset click-to-dismiss
 overlay wrapping a WAI-ARIA dialog box that carries `role="dialog"` +
 `aria-modal="true"` + an accessible name (via `aria-label` or
@@ -1737,8 +1805,12 @@ header / body content, Esc / mnemonic key handling, accessible name) as
 **slots/props, never flags**. Each modal's `data-testid`s, ARIA
 attributes, z-stacking and dismiss behaviour are unchanged.
 
-The **command palette** was the eighth and last surface to adopt the
-scaffold (Mike ruled Option A — full consolidation). Its apparent
+The **command palette** was the last surface to adopt the
+scaffold (Mike ruled Option A — full consolidation). Deliberately no
+count is stated: the roster is whatever calls
+`theme.modal-chrome/modal-chrome`, and a stated number drifts the
+moment a surface is added or retired — as it did when the App-DB
+segment-inspector popup went under rf2-y8doi.29. Its apparent
 divergences all land on existing slots without a per-palette flag:
 always-`:fixed` (literal `:positioning :fixed` — it has no Story testbed
 cell), Esc handled inside its `:auto-focus` text input (it passes no
@@ -1765,13 +1837,27 @@ Two layers, no onboarding tour:
 
 ## Bundle splitting
 
+> **Status: the per-tab split below is normative-future — nothing in
+> `tools/xray/src` implements it.** The budgets are retained as the
+> design, not as a description of a shipped surface. Census at tip over
+> `tools/xray/src`: zero hits for `shadow.lazy` and for `lazy-load`,
+> against a `shadow` control returning 94; and there is no
+> `shadow-cljs.edn` under `tools/xray/` at all, so there is no
+> `:modules` map to slice. Xray ships as one graph today.
+
 Per-tab lazy loading via shadow-cljs's per-output-target slicing:
 
 - Core (UI shell + ribbon + event list + Epoch tab + App-db tab):
   <1.5 MB minified / <500 KB gzipped.
-- Machines tab (includes the ELK+SVG chart primitive that absorbed
-  `tools/machines-viz/`): <400 KB extra, lazy-loaded on first open.
+- Machines tab (includes the ELK+SVG chart primitive): <400 KB extra,
+  lazy-loaded on first open.
 - Views tab: <100 KB extra, lazy-loaded on first open.
+
+`tools/machines-viz/` is **not** absorbed into the Machines tab: it is
+a separate project Xray takes as a `:local/root` dependency
+(`tools/xray/deps.edn`), `:require`d by the machine-canvas,
+after-rings, topology, trace-state, machine-inspector and
+static-machines surfaces.
 
 ## Performance budget
 
@@ -1832,10 +1918,13 @@ a master `mount-shell!` for the full 4-layer chrome. This per-panel
 surface is **internal-but-stable**, NOT a v1.0 host-facing embed
 contract: the 4-layer shell + the test suite depend on it and hosts
 MAY use it, but it carries no host-facing-contract guarantee (the
-opts vocabulary is two keys wide and one of them is only three
+opts vocabulary is two keys wide and one of them is only some
 panels': `:frame` on every mount fn, defaulting to `:rf/xray`, and
-`:instance-id` on `mount-app-db-diff!` (rf2-2n8q),
-`mount-managed-fx!` (rf2-5ykm) and `mount-trace!` (rf2-pua3)) — the
+`:instance-id` on `mount-epoch-panel!`, `mount-app-db-diff!`
+(rf2-2n8q), `mount-trace!` (rf2-pua3), `mount-machine-inspector!` and
+`mount-managed-fx!` (rf2-5ykm). Deliberately no count is stated: the
+roster is `panels.cljs`'s mount fns that thread `:instance-id` into
+their props, and a stated number drifts the moment one more does) — the
 v1.0 host-facing embed contract is the **full-shell** embed per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
 §Full-shell embed contract. (rf2-jw2ny — one honest status across
@@ -1875,8 +1964,11 @@ under their owning panel and expose no standalone mount fn. The split:
 The 7 + 1 + 3 + 1 + 1 mountable surfaces sum to the **13** entries of
 `panel-enum`; adding Tier 4's 2 internal sub-components reaches the
 **15-surface** total. Modal overlays managed by the shell (Settings
-dialog, command palette, share modal) are NOT counted here — they are
-shell chrome, not panel content.
+dialog, command palette, the filter edit-popup, the mute manager, the
+EDN-inspector popup, the cancellation-cascade popover) are NOT counted
+here — they are shell chrome, not panel content. (The share modal that
+used to head that list went with the whole share-URL surface under
+rf2-nugvv — see §Dynamic Machines panel shape.)
 
 **Tier 1 — L3 tab panels (7):** one per `:rf.xray/selected-tab`
 value. (Post rf2-5gl5r the Event/Handler tab was retired in favour
@@ -2011,12 +2103,11 @@ history + spine focus:
 | Panel | Reads (subs) | Writes (dispatches) |
 |---|---|---|
 | **epoch-panel**    | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` · `:rf.xray.epoch/set-db-diff-mode` |
-| **app-db-diff**    | `:rf.xray/app-db-state` (← `:rf.xray/app-db-current+diff`; rf2-p53m2 — the `:rf.xray/app-db-diff` composite was pruned) | `:rf.xray/focus-slice-path` · `:rf.xray/open-segment-inspector` |
-| **views**          | `:rf.xray/views-focused-cascade-pair` · `:rf.xray/views-sub-diff` | view-row toggles · sub-diff selection |
+| **app-db-diff**    | `:rf.xray/app-db-state` (← `:rf.xray/app-db-current+diff`; rf2-p53m2 — the `:rf.xray/app-db-diff` composite was pruned) | `:rf.xray.edn-inspector/zoom-to` (the shared EDN widget's double-click / Enter zoom) |
+| **views**          | `:rf.xray/reactive-data` | `:rf.xray/reactive-toggle-unchanged` |
 | **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/select-dispatch-id` · `:rf.xray/open-in-editor` |
 | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-event` |
 | **routing**        | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
-| **segment-inspector** | `:rf.xray/segment-inspector-open?` · `:rf.xray/segment-inspector-value` | `:rf.xray/close-segment-inspector` |
 | **cancellation-cascade** | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |
 | **managed-fx**     | `:rf.xray/managed-fx-for-focused-event` | `:rf.xray/focus-event` |
 
@@ -2058,7 +2149,7 @@ Xray exposes TWO modes — **Dynamic** (the event-coupled spine + 4-layer
 chrome described above) and **Static** (event-INDEPENDENT browse of
 what's registered). Static is "Xray-in-a-quieter-key": it shares the
 full Dynamic design language (Inter + JetBrains Mono, the complete
-`theme/tokens.cljc` palette, the 4px spacing grid, the 56px ribbon, the
+`theme/tokens.cljc` palette, the 4px spacing grid, the 34px ribbon, the
 40px tab-bar). Differentiation is **temperature, not vocabulary**.
 
 ### Surface inventory (3-layer chrome)
@@ -2103,8 +2194,8 @@ hidden in Static — those have no meaning without a spine.
 
 ### Sub-tab inventory (Static L3)
 
-Five Static sub-tabs, mode-scoped mnemonics per the findings doc
-`ai/findings/2026-05-19-xray-explorer-mode.md` §5.2:
+Five Static sub-tabs, mode-scoped mnemonics (the Explorer-mode design
+pass of 2026-05-19 settled the roster and the letters below):
 
 | Tab | Mnemonic | Bead | Contents |
 |---|---|---|---|
