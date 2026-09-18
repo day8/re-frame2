@@ -1207,15 +1207,28 @@
 (defn- children-of
   "Return a seq of `[child-key child-value]` pairs for a collection.
   Returns `nil` for non-collections. `child-key` is the path segment
-  to use; for sets it's the value itself."
+  to use; for sets it's the value itself.
+
+  rf2-y8doi.24 — `:list` / `:seq` are capped at `count-bound`, the
+  SAME ceiling `child-count` reports for those two kinds. This walk
+  feeds the expanded container's body, so without the cap a `(range)`
+  in app-db emitted rows for ever and the tab died of heap exhaustion
+  rather than hanging — and the mismatch was the tell: the header
+  said 1001 children while the body agreed to render infinitely many.
+
+  The other kinds need no cap and do not get one: `:map`, `:record`,
+  `:vector` and `:set` are all `counted?` and finite by construction,
+  and `child-count` reports their full count, so capping them here
+  would make the body disagree with the header in the other
+  direction."
   [v]
   (case (collection-kind v)
     :map       (try (seq v) (catch :default _ nil))
     :map-entry (list [0 (first v)] [1 (second v)])
     :record    (try (seq v) (catch :default _ nil))
     :vector    (map-indexed (fn [i x] [i x]) v)
-    :list      (map-indexed (fn [i x] [i x]) v)
-    :seq       (map-indexed (fn [i x] [i x]) v)
+    :list      (map-indexed (fn [i x] [i x]) (take count-bound v))
+    :seq       (map-indexed (fn [i x] [i x]) (take count-bound v))
     :set       (map (fn [x] [x x]) v)
     nil))
 
@@ -1669,6 +1682,22 @@
   estimate that capped LOW would be the dangerous direction — it would
   render a huge value inline and overflow the column.
 
+  Over budget the answer is `##Inf`, not a large finite number. That
+  is a deliberate correction to the first cut of this fix, which
+  saturated at `inline-estimate-char-cap × mono-char-width-px` and
+  called it \"far wider than any column\" — it is not, it is 28,672px,
+  and `would-fit-inline?` duly reported a `(range)` as FITTING a
+  100,000px column. A finite ceiling has to out-run every argument a
+  caller might pass, and none does. `##Inf` is also the honest reading
+  of what the walk established: it stopped measuring, so the width is
+  unbounded as far as anything here knows.
+
+  It is a product decision as much as an arithmetic one. A value whose
+  inline form runs past `inline-estimate-char-cap` characters is one
+  the widget declines to put on a single line WHATEVER the column —
+  4096 characters is already a 28,672px row — so it expands to a tree
+  instead, which is the readable rendering anyway.
+
   `budget-px` (2-arity) lets `would-fit-inline?` bail at the real
   column width rather than the generous default ceiling. Public so
   tests + width-aware callers can probe the estimate without
@@ -1683,9 +1712,9 @@
            total (volatile! 0)]
        (estimate-chars! value total cap)
        (if (> @total cap)
-         ;; Saturate: wider than the budget by construction, so every
-         ;; caller reads 'does not fit' without the exact width.
-         (* mono-char-width-px inline-estimate-char-cap)
+         ;; Unbounded as far as the walk got — fails every `<=` a
+         ;; caller can write, which is the only safe direction.
+         ##Inf
          (* mono-char-width-px (count (pr-str value)))))
      (catch :default _ 0))))
 
