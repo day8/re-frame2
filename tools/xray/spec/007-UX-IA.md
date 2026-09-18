@@ -1154,7 +1154,7 @@ Animation communicates, not decorates. Three durations:
 |---|---|---|
 | **Quick** | 100ms | Hover, focus rings |
 | **Standard** | 200–250ms | Tab switches, scrubber drag-snap, popover open/close |
-| **Slow** | 400–600ms | Diff flashes, error pulses, the 320ms Xray slide-in |
+| **Slow** | 400–600ms | *Nothing occupies this tier.* The diff flash, the error pulse and the 320ms slide-in that used to name it were never built (rf2-025zs) |
 
 Specific motions:
 
@@ -1166,16 +1166,26 @@ Specific motions:
   selected}` on the L4 case-switch wrapper so a tab swap unmounts +
   remounts → keyframes auto-play from frame 0. Animation lives in
   `theme/global-styles/motion-css`.
-- **Diff flash** (`@keyframes rf-xray-diff-flash`, rf2-5kfxe.2):
-  400ms ease-out wash on each touched App-db slice when a new epoch
-  lands. Yellow tint at ~20% alpha (`rgba(251, 191, 36, 0.20)` —
-  `:yellow` token at hex32 20%) holds for the first 12% of the run
-  so the eye locks on, then eases to transparent. `animation-fill-
-  mode: forwards` on the section element pins the end state. The
-  hold-then-fade shape is sharp enough to catch the eye on quick
-  cascades but muted enough that a long burst of consecutive
-  cascades doesn't strobe.
-- Error pulse: single 600ms expand-fade red ring (no looping).
+- **Diff flash: never shipped.** The 400ms ease-out yellow wash on
+  each touched App-db slice this entry used to specify (rf2-5kfxe.2)
+  had its `@keyframes rf-xray-diff-flash` declared in
+  `theme/global-styles/motion-css`, but **no element ever carried the
+  animation** — the effect was never visible to a user at any point.
+  The keyframes and the `:flash-duration-ms` motion token were deleted
+  under rf2-y8doi.29 (2026-09-17); `theme/global_styles_cljs_test` and
+  `theme/tokens_cljs_test` pin their absence, with the applied
+  `rf-xray-fade-in` tab cross-fade as the control. App-db diff signals
+  its touched slices **statically** — the gutter glyph, the stripe and
+  the wash. `004-App-DB-Diff.md` "There is no diff flash" owns that.
+- **Error pulse: none ships.** The single 600ms expand-fade red ring
+  this entry used to specify was never built (rf2-025zs). Xray declares
+  exactly two `@keyframes` — `rf-xray-fade-in` above and the vendored
+  React Flow `dashdraw` — no CSS `transition` touches an error
+  affordance, and no 600ms duration exists anywhere in `tools/xray/src`.
+  Errors surface **statically**: the error card (`error-block-style` in
+  `panels/epoch/view.cljs`) carries a tinted hairline, a solid `:error`
+  left rail, a very-light-red fill and a `✗` glyph, and even its static
+  ring was dropped under rf2-iizhe as redundant with the border.
 - Machine-active state: **no pulse ships.** The 1.2s gentle scale
   1.0 → 1.05 → 1.0 this entry used to specify was refused (rf2-2sez0,
   2026-05-20) and its keyframes deleted (rf2-wct1s8); the machine
@@ -1194,8 +1204,9 @@ Specific motions:
 ### `prefers-reduced-motion`
 
 All durations clamp to 0 except a 1-frame opacity tween where layout
-needs to settle. The error pulse becomes a static red ring for 1.5s.
-No machine-active pulse ships for the rule to dampen — it was
+needs to settle. There is no error pulse for the rule to dampen —
+none was ever built (rf2-025zs), and the error card is static chrome
+at every motion setting. No machine-active pulse ships either — it was
 refused (rf2-2sez0) and its keyframes deleted (rf2-wct1s8). There
 is no L2 head-row LIVE pulse for the rule to reach — none was ever
 built (rf2-pjjwh removed the `●` gutter glyph that would have
