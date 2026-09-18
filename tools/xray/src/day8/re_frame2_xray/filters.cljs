@@ -475,7 +475,7 @@
                                            (vec (concat (subvec v 0 (min idx (count v)))
                                                         (subvec v (min (inc idx) (count v))))))))
                             (close-popup))]
-            {:db next-db}
+            {:db next-db})
           {:db (close-popup db)}))))
 
   ;; (The `:rf.xray/clear-all-filters` bulk-reset event was REMOVED with
