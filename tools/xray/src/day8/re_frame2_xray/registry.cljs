@@ -755,7 +755,8 @@
     ;; this sub, so the readers of `[:rf.xray/event-bundles]` ARE the
     ;; roster (the spine's `:rf.xray/focus`, the filtered list, Trace,
     ;; Routing and managed-fx among them today). Routing them through one
-    ;; intermediate sub collapses multiple O(buffer) passes per push to one. Each downstream
+    ;; intermediate sub collapses multiple O(buffer) passes per push to
+    ;; one. Each downstream
     ;; composite declares the dependency in its `:inputs` so the reactive graph
     ;; stays correct (and idle composites still don't pay for the
     ;; projection).
