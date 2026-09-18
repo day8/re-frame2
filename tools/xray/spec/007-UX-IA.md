@@ -158,9 +158,10 @@ The four layers, top to bottom:
 **No bottom rail.** The pass-2/round-1 "L0" rail (with scrubber +
 mode pill + classification totals) is gone — the ribbon's `[◀ ▶ ⏭]`
 cluster IS the seek, the event list IS the timeline (and the L2 spine
-itself indicates LIVE / RETRO via the head-row pulse / pinned-row
-glyph; the dedicated Mode pill widget was dropped). Classification
-totals live in per-row + per-panel renderings.
+itself indicates LIVE / RETRO via the newer-events marker — no
+head-row pulse cue was ever built; the dedicated Mode pill widget
+was dropped). Classification totals live in per-row + per-panel
+renderings.
 
 The panel width is driven by the drag handle and the
 `--rf-xray-inline-width` host variable, clamped to `[320px, 90vw]`
@@ -356,7 +357,7 @@ Layer 1 is **two stacked ribbons**, splitting scope SELECTORS from
 spine/filter CHROME. (The Dynamic/Static **mode dropdown** lives at
 chrome-ribbon-left — an earlier draft dropped the mode pill entirely; the
 rf2-4vp5j redesign re-added it as a compact `<select>`. LIVE/RETRO is a
-separate spine state, surfaced by the L2 head-row cue.)
+separate spine state, surfaced by the L2 newer-events marker.)
 
 ### L1 chrome ribbon (`rf-xray-ribbon`, ~32px — Figma design rf2-ad7zx)
 
@@ -486,7 +487,7 @@ On page load after `rf/init!`, when `[data-rf-xray-host]` exists:
   to static label).
 - **Filter pills: empty by default** — first session is honest about
   what's filtered; Recommended quick-add available via add-pill.
-- **L2 spine: head row pulses** (LIVE cue; the dedicated Mode pill widget was dropped).
+- **L2 spine: following at head** — the newer-events marker paints nothing while the spine is following (no head-row pulse cue was ever built; the dedicated Mode pill widget was dropped).
 
 ## Event-list rows (L2 · table — rf2-ad7zx)
 
@@ -1177,18 +1178,23 @@ Specific motions:
 - Error pulse: single 600ms expand-fade red ring (no looping).
 - Machine-active state: 1.2s gentle scale 1.0 → 1.05 → 1.0 (only
   continuous animation in chrome, only on the machine chart).
-- L2 head-row LIVE pulse: 2s gentle 600ms expand-fade on the head
-  row's `●` gutter glyph (continuous while LIVE; stops in RETRO).
-  Replaces the dropped Mode pill widget as the LIVE/RETRO cue.
+- L2 head-row LIVE pulse: **never built.** rf2-pjjwh removed the head
+  row's `●` gutter glyph that would have carried it, and rf2-2sez0
+  refused the continuous pulse. What tells the user the spine is not
+  following is the L2 newer-events marker (`shell.cljs`'s
+  `newer-events-marker`, rf2-y8doi.30), which is static chrome rather
+  than a motion.
 
 ### `prefers-reduced-motion`
 
 All durations clamp to 0 except a 1-frame opacity tween where layout
 needs to settle. The error pulse becomes a static red ring for 1.5s;
-the machine pulse stops entirely; the L2 head-row LIVE pulse stops
-(the `●` gutter glyph stays statically rendered). The Mode pill
-widget that earlier drafts carried the LIVE pulse on was dropped;
-the rule now applies to the spine's head-row cue.
+the machine pulse stops entirely. There is no L2 head-row LIVE pulse
+for the rule to reach — none was ever built (rf2-pjjwh removed the
+`●` gutter glyph that would have carried it; rf2-2sez0 refused the
+continuous pulse), and the newer-events marker that signals a
+non-following spine is static chrome. The Mode pill widget that
+earlier drafts carried the LIVE pulse on was dropped (rf2-g9pee).
 
 ## Keyboard
 
@@ -2117,9 +2123,12 @@ names was removed, the entry says so.
    `:accent-violet` / `:cyan` tokens left to paint it with either:
    rf2-ad7zx.13 collapsed the palette to a single `accent`. The mode
    signal is carried by entry 1.
-3. **Motion dampening** — Dynamic ships the LIVE pulse + machine-active
-   pulse + 180ms tab fade. Static drops the continuous pulses entirely
-   and collapses the 180ms tab fade to instant (so cluster swaps land
+3. **Motion dampening** — Dynamic ships the machine-active pulse
+   + 180ms tab fade (the LIVE pulse this entry used to list was never
+   built — rf2-pjjwh removed the head row's gutter glyph that would
+   have carried one; rf2-2sez0 refused the continuous pulse). Static
+   drops the continuous pulses entirely and collapses the 180ms tab
+   fade to instant (so cluster swaps land
    without motion). Honours `prefers-reduced-motion: reduce` via the
    `--rf-xray-motion-scale` seam in `theme/global-styles/motion-css`.
 4. **Chrome silhouette** — Dynamic is 4-layer; Static is 3-layer (no

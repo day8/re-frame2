@@ -199,8 +199,9 @@ mode control as a compact `<select> dropdown`** at chrome-ribbon-left
 (not the old 160px two-segment radio pill — that was too dominant for an
 occasional-use control). The dropdown and the `Cmd/Ctrl-Shift-M` global
 chord share the same `:rf.xray/toggle-mode` handler. (LIVE vs RETRO
-within Dynamic mode is still a SPINE state, surfaced by the L2 head-row
-cue; the dropdown toggles Dynamic ↔ Static, a separate axis.)
+within Dynamic mode is still a SPINE state, surfaced by the L2
+newer-events marker — no head-row cue was ever built (rf2-pjjwh);
+the dropdown toggles Dynamic ↔ Static, a separate axis.)
 
 Wireframe (two ribbons; cluster boundaries shown):
 
@@ -1136,13 +1137,13 @@ The single-axis selection that every layer reads from.
 | L1 chrome ribbon | Nav cluster (`◀` `▶` `⏭`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries (the nav cluster lives on the chrome ribbon — rf2-3f2di A5) |
 | L1 chrome ribbon | Frame picker (VIEW SCOPE) | `:rf.xray/view-scope-frame` | Writes `:view-scope-frame` (+ spine `:focus :frame`) via `:rf.xray/select-frame` |
 | L1.5 events ribbon | Filter pills + hidden indicator | `:rf.xray/active-filters` · `:rf.xray/hidden-by-filters` | Filters re-derive `:rf.xray/filtered-event-bundles`, which the L2 list reads; the `N events filtered out` warning surfaces when a filter suppresses rows (the `Clear Filters` button was retired — rf2-pjjwh) |
-| L2 event list | Head-row mode cue | `:mode`, `:head?` | Pulse on head row in LIVE; pinned-row glyph in RETRO (LIVE/RETRO is a spine state; the Dynamic/Static mode dropdown is a separate chrome-ribbon control) |
+| L2 event list | Newer-events marker | `:mode`, `:head?` | Paints only while the list is showing an older epoch with newer events waiting, and nothing at all while the spine is following (`shell.cljs`'s `newer-events-marker`, rf2-y8doi.30). No head-row pulse cue was ever built (rf2-pjjwh removed the gutter glyph that would have carried one; rf2-2sez0 refused the continuous pulse), and the focused row's `>` caret is a SELECTION signal present in LIVE too, not a RETRO cue. (LIVE/RETRO is a spine state; the Dynamic/Static mode dropdown is a separate chrome-ribbon control.) |
 | L2 event list | Row gutter glyph | `:dispatch-id` | `◉` on focused row; `●` elsewhere |
 | L2 event list | Auto-scroll behaviour | `:mode`, `:head?` | LIVE: auto-scroll bottom; RETRO: sticky position |
 | L3 tab bar | Count badges (`Views 8`) | Focused cascade's projection counts | Re-derives on `:rf.xray/focus` change |
 | L4 detail panel | Tab content | `:dispatch-id`, `:epoch-id`, `:frame` | Per-tab projection consumes spine |
 
-**Atomicity contract:** the spine sub is the ONLY axis. When a user clicks a row, EVERY dependent surface (count badges, gutter glyph, detail panel content, the spine's mode cue) rebinds in the next animation frame. No panel maintains its own selection state; no panel reads `(peek history)`; no panel reads `:selected-dispatch-id` (the two-axis legacy slots are deleted).
+**Atomicity contract:** the spine sub is the ONLY axis. When a user clicks a row, EVERY dependent surface (count badges, gutter glyph, detail panel content, the spine's newer-events marker) rebinds in the next animation frame. No panel maintains its own selection state; no panel reads `(peek history)`; no panel reads `:selected-dispatch-id` (the two-axis legacy slots are deleted).
 
 ### Sub-graph
 
