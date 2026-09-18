@@ -1197,9 +1197,10 @@
 
   ;; ---- Machine Inspector panel events -----------------------------
 
-  (rf/reg-event :rf.xray/select-machine-id
-    (fn [{:keys [db]} [_ machine-id]]
-      {:db (assoc db :selected-machine-id machine-id)}))
+  ;; `:rf.xray/select-machine-id` is registered further down, inside the
+  ;; prev/next `letfn` block — rf2-y8doi.23 made it LAND the selection on
+  ;; the panel rather than merely record it, and landing reuses that
+  ;; block's epoch walk verbatim. See the comment above that registration.
 
   (rf/reg-event :rf.xray/clear-machine-selection
     (fn [{:keys [db]} _event]
@@ -1238,9 +1239,21 @@
   ;;      reducer stamps `:mode :retro` + resolves the target epoch's
   ;;      settling `:dispatch-id`, the same focus mutation the L2 row
   ;;      click and the spine `[◀ ▶]` ribbon use, so the jump sticks.
-  (letfn [(epoch-touches-machine? [epoch machine-id]
+  (letfn [;; rf2-y8doi.23 — the SAME three predicates
+          ;; `project-focused-event-transitions` folds a record from, and
+          ;; that identity is the point. This tested `transition-event?`
+          ;; ALONE, while the panel has rendered a section for a machine
+          ;; BIRTH since rf2-eldze and for a guard-blocked / unhandled
+          ;; NO-OP since rf2-skmc7 — so Prev/Next stepped straight over
+          ;; epochs the panel itself draws, and a machine whose only
+          ;; activity in the window was its birth was unreachable from the
+          ;; nav entirely. Anything the projection will render a section
+          ;; for is somewhere the walk must be able to stop.
+          (epoch-touches-machine? [epoch machine-id]
             (some (fn [ev]
-                    (and (h/transition-event? ev)
+                    (and (or (h/transition-event? ev)
+                             (h/started-event? ev)
+                             (h/no-op-event? ev))
                          (= machine-id (h/machine-id-of ev))))
                   (or (:trace-events epoch) [])))
           ;; The composed focus the panel actually renders from — honours
@@ -1257,6 +1270,48 @@
                   records (h/project-focused-event-transitions events nil)]
               (or (some-> records first :machine-id)
                   (get db :selected-machine-id))))
+          ;; Pin `target` (an epoch record) as the spine's focus, exactly
+          ;; as the nav does. Extracted by rf2-y8doi.23 so the JUMP landing
+          ;; below and the Prev/Next walk pin an epoch the SAME way — a
+          ;; second spelling here is how the rf2-nugvv dead-buttons bug got
+          ;; in, and it would be invisible from either call site.
+          (pin-epoch [db history target head-id]
+            (let [epoch-id    (:epoch-id target)
+                  frame-id    (:frame target)
+                  dispatch-id (spine/dispatch-id-for-epoch history epoch-id)]
+              (if dispatch-id
+                ;; Reuse the canonical spine focus mutation so the
+                ;; jump stamps mode + dispatch-id and sticks.
+                (spine/focus-event-bundle-reducer
+                  db dispatch-id frame-id epoch-id head-id)
+                ;; No settling dispatch-id (trace elided / synthetic
+                ;; epoch) — pin the epoch-id directly AND force
+                ;; :retro so compose-focus stops head-tracking and
+                ;; the navigation holds. Mirrors the spine's
+                ;; `:rf.xray/focus-epoch` no-dispatch-id fallback.
+                (cond-> (update db :focus (fnil assoc {})
+                                :epoch-id   epoch-id
+                                :mode       :retro
+                                :previewing? false)
+                  frame-id (assoc-in [:focus :frame] frame-id)))))
+          (head-dispatch-id [db]
+            ;; The head event-bundle's dispatch-id so the reducer can
+            ;; pick :live vs :retro correctly when the jump lands
+            ;; back on head.
+            (let [event-bundles   (spine/db->event-bundles db)
+                  show-ungrouped? (spine/db->show-ungrouped? db)]
+              (spine/focusable-head-id event-bundles show-ungrouped?)))
+          ;; rf2-y8doi.23 — land the spine on the NEWEST epoch that
+          ;; touches `mid`. No-op when the history holds none, so a
+          ;; selection made before any activity leaves focus alone.
+          (focus-latest-for-machine [db mid]
+            (let [history (vec (or (get db :epoch-history) []))
+                  target  (some (fn [r]
+                                  (when (epoch-touches-machine? r mid) r))
+                                (reverse history))]
+              (if target
+                (pin-epoch db history target (head-dispatch-id db))
+                db)))
           (step-focus [db direction]
             (let [history (vec (or (get db :epoch-history) []))
                   focus   (composed-focus db)
@@ -1275,44 +1330,51 @@
                   pred    (case direction
                             :prev #(neg? %)
                             :next #(>= % (count history)))
-                  ;; The head event-bundle's dispatch-id so the reducer can
-                  ;; pick :live vs :retro correctly when the jump lands
-                  ;; back on head.
-                  event-bundles   (spine/db->event-bundles db)
-                  show-ungrouped? (spine/db->show-ungrouped? db)
-                  head-id         (spine/focusable-head-id event-bundles show-ungrouped?)]
+                  head-id (head-dispatch-id db)]
               (loop [i (step cur-idx)]
                 (cond
                   (or (nil? mid) (pred i))
                   db
 
                   (match? (nth history i))
-                  (let [target      (nth history i)
-                        epoch-id    (:epoch-id target)
-                        frame-id    (:frame target)
-                        dispatch-id (spine/dispatch-id-for-epoch history epoch-id)]
-                    (if dispatch-id
-                      ;; Reuse the canonical spine focus mutation so the
-                      ;; jump stamps mode + dispatch-id and sticks.
-                      (spine/focus-event-bundle-reducer
-                        db dispatch-id frame-id epoch-id head-id)
-                      ;; No settling dispatch-id (trace elided / synthetic
-                      ;; epoch) — pin the epoch-id directly AND force
-                      ;; :retro so compose-focus stops head-tracking and
-                      ;; the navigation holds. Mirrors the spine's
-                      ;; `:rf.xray/focus-epoch` no-dispatch-id fallback.
-                      (cond-> (update db :focus (fnil assoc {})
-                                      :epoch-id   epoch-id
-                                      :mode       :retro
-                                      :previewing? false)
-                        frame-id (assoc-in [:focus :frame] frame-id))))
+                  (pin-epoch db history (nth history i) head-id)
 
                   :else (recur (step i))))))]
     (rf/reg-event :rf.xray/machine-focus-prev
       (fn [{:keys [db]} _event] {:db (step-focus db :prev)}))
 
     (rf/reg-event :rf.xray/machine-focus-next
-      (fn [{:keys [db]} _event] {:db (step-focus db :next)})))
+      (fn [{:keys [db]} _event] {:db (step-focus db :next)}))
+
+    ;; rf2-y8doi.23 — THE JUMP'S PRE-SELECT IS LIVE NOW.
+    ;;
+    ;; `static/machines/instances_jump.cljs` telegraphs the Static →
+    ;; Dynamic JUMP as three dispatches, of which this is the third, and
+    ;; spec/003 §Instances promises the operator lands "with this machine
+    ;; pre-selected". It did not: rf2-y9xmf collapsed the Dynamic panel to
+    ;; an event-driven lens that binds to the FOCUSED EPOCH's first
+    ;; transition record and reads no picker, so writing
+    ;; `:selected-machine-id` changed nothing the operator could see. The
+    ;; JUMP landed on whatever the spine happened to be pointing at —
+    ;; frequently another machine entirely, which is the one outcome the
+    ;; affordance exists to prevent.
+    ;;
+    ;; So the selection now LANDS: the spine focus moves to the newest
+    ;; epoch touching `machine-id`, through the very walk Prev/Next uses
+    ;; (`pin-epoch` → `spine/focus-event-bundle-reducer`), which is what
+    ;; makes the move stick against `compose-focus`'s LIVE head-tracking.
+    ;;
+    ;; The SLOT WRITE STAYS, and deliberately. It is the picker focus the
+    ;; Static Machines surfaces + `:rf.xray/cancellation-cascade-for-
+    ;; focused-machine` read, and retiring it is a separate change across
+    ;; files this slice does not own.
+    ;;
+    ;; No-op when the machine has no epoch in the window — a selection
+    ;; made before any activity leaves the spine where it was.
+    (rf/reg-event :rf.xray/select-machine-id
+      (fn [{:keys [db]} [_ machine-id]]
+        {:db (cond-> (assoc db :selected-machine-id machine-id)
+               (some? machine-id) (focus-latest-for-machine machine-id))})))
 
   ;; ---- scrubber-position slot ----------
 

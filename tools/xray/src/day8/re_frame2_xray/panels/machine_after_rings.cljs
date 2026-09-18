@@ -42,7 +42,13 @@
 
     `:rf.xray/active-timers-for-focused-machine` — composite sub over
                                                      trace buffer +
-                                                     selected machine.
+                                                     the focused-event
+                                                     record's machine +
+                                                     the target frame.
+                                                     BUFFER-keyed: the
+                                                     now-keyed eviction
+                                                     is [[overlay-tree]]'s
+                                                     (rf2-y8doi.23).
     `:rf.xray/timer-tick`                         — bumps a tick-
                                                      counter on app-db
                                                      to drive a re-
@@ -116,6 +122,15 @@
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as mv-after-rings]
+            ;; rf2-y8doi.23 — the Dynamic-mode single-instance rule
+            ;; (`pick-focused-transition`, spec/003 §Dynamic mode) is what
+            ;; names the machine the CHART is showing. The rings sub reads
+            ;; it so the ring projection and the chart under it can never
+            ;; disagree about which machine they are describing. Pure-data
+            ;; helper ns with no framework require, so no cycle: it is the
+            ;; panel's `.cljs` that requires THIS ns, never its helpers.
+            [day8.re-frame2-xray.panels.machine-inspector-helpers
+             :as mi-h]
             [day8.re-frame2-xray.panels.machine-after-rings-helpers
              :as rings-h]))
 
@@ -153,17 +168,49 @@
   ;; Composes:
   ;;   - the trace buffer (rings-helpers folds timer events into a
   ;;     timer-table)
-  ;;   - the selected machine (resolves via the inspector's composite
-  ;;     so we honour first-row default + picker focus)
-  ;;   - now-ms (so the projection's zombie-eviction is reactive)
+  ;;   - the FOCUSED-EVENT records, from which the Dynamic-mode
+  ;;     single-instance rule names the machine the chart is showing
+  ;;   - the inspected TARGET FRAME, so two frames' instances of one
+  ;;     machine definition keep their timers apart
   ;;
   ;; Returns a vector of timer records — `:armed` for live rings +
   ;; `:cancelled` for the fading-out + crossed-out rings.
+  ;;
+  ;; rf2-y8doi.23 — TWO defects, both in the inputs.
+  ;;
+  ;;   1. WRONG MACHINE. This read `(:selected-id mi-data)` off
+  ;;      `:rf.xray/machine-inspector-data`, whose `:selected-id` is
+  ;;      `pick-selected`'s answer: the PICKER slot when one is set, else
+  ;;      the first row of a list `project-machine-rows` sorts
+  ;;      ALPHABETICALLY. The Dynamic panel has had no picker since
+  ;;      rf2-y9xmf — it binds to the focused event's first transition
+  ;;      record — so with two machines registered the rings were folded
+  ;;      for whichever id sorted first while the chart drew the other
+  ;;      one, and the operator read a countdown that belonged to a
+  ;;      machine not on screen. `pick-focused-transition` is the SAME
+  ;;      rule `machine_inspector/focused-event-view` picks its record
+  ;;      by, so the two cannot drift.
+  ;;
+  ;;   2. WRONG FRAME. See `rings-h/project-timers` — a definition
+  ;;      instantiated in two frames collided on one fold key.
+  ;;
+  ;; `:rf.xray/now-ms` is NO LONGER AN INPUT, and that is the third fix
+  ;; (the rings half of the composite-refold finding). The fold walks the
+  ;; whole trace buffer; with the clock as an input it re-ran on every rAF
+  ;; tick — ~60 Hz for as long as ANY timer stayed armed — to answer a
+  ;; question only the final now-keyed filter needs. The filter now runs
+  ;; where the clock already is: `overlay-tree` applies
+  ;; `rings-h/prune-timers` against the anchor `resolve-now-ms` picks,
+  ;; which also makes retro mode honest — the eviction used to age rings
+  ;; against the LIVE clock even while the chart was frozen at the focused
+  ;; cascade's instant.
   (rf/reg-sub :rf.xray/active-timers-for-focused-machine
-    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/machine-inspector-data] [:rf.xray/now-ms]]}
-    (fn [[buffer mi-data now] _query]
-      (let [machine-id (:selected-id mi-data)]
-        (rings-h/active-timers-for-machine buffer machine-id now))))
+    {:inputs [[:rf.xray/trace-buffer]
+              [:rf.xray/machine-transitions-for-focused-event]
+              [:rf.xray/target-frame]]}
+    (fn [[buffer records target-frame] _query]
+      (let [machine-id (:machine-id (mi-h/pick-focused-transition records))]
+        (rings-h/timers-for-machine buffer machine-id target-frame))))
 
   ;; ---- timer-hover slot ----------------------------------------------
   ;;
@@ -311,11 +358,18 @@
       ;; never outlive its panel. A remount re-arms via `kick-tick!`.
       (swap! tick-state assoc :running? false)
       (let [frame    (:frame @tick-state)
-            timers   @(rf/subscribe [:rf.xray/active-timers-for-focused-machine]
-                                    {:frame frame})
             scrub    @(rf/subscribe [:rf.xray/machine-scrubber-position]
                                     {:frame frame})
             now      (now-ms)
+            ;; rf2-y8doi.23 — the sub is buffer-keyed now, so the
+            ;; now-keyed eviction runs here, exactly as it does in
+            ;; `overlay-tree`. Without it the loop would keep ticking on
+            ;; a zombie `:armed` record the overlay has already dropped.
+            timers   (rings-h/prune-timers
+                       @(rf/subscribe
+                          [:rf.xray/active-timers-for-focused-machine]
+                          {:frame frame})
+                       now)
             last-now (:last-now-ms @tick-state)
             due?     (or (zero? *tick-min-delta-ms*)
                          (>= (- now last-now) *tick-min-delta-ms*))]
@@ -420,7 +474,9 @@
 
   Args (one map):
 
-    :timers         — `:rf.xray/active-timers-for-focused-machine`.
+    :timers         — `:rf.xray/active-timers-for-focused-machine`, the
+                      BUFFER-keyed fold. This fn applies the now-keyed
+                      eviction itself (rf2-y8doi.23).
     :live-now       — `:rf.xray/now-ms`, the rAF-bumped live clock.
     :scrub          — `:rf.xray/machine-scrubber-position`.
     :focused-detail — `:rf.xray/focused-event-bundle-detail`; the
@@ -450,6 +506,15 @@
     :or   {as-child identity}}]
   (let [focused-ms (rings-h/focused-cascade-time-ms focused-detail)
         now        (rings-h/resolve-now-ms scrub live-now focused-ms)
+        ;; rf2-y8doi.23 — the NOW-KEYED half of the rings projection. The
+        ;; sub hands over the buffer-keyed fold; the eviction runs HERE,
+        ;; against the anchor `resolve-now-ms` just resolved, so a
+        ;; retrospective chart ages its rings at the instant it is frozen
+        ;; at rather than at the live clock. It is also what bounds a
+        ;; `:cancelled` ring's life to `cancelled-retention-ms` and keeps
+        ;; one crossed ring per node, instead of one per visit stacked
+        ;; under the overlay's single `:node-id` React key.
+        timers     (rings-h/prune-timers timers now)
         ;; rf2-k97c.3 — `reg-view` LEXICALLY INJECTED a frame-aware
         ;; `dispatch` into the body; `defview` binds NO name inside a
         ;; body, so the dispatcher is built here from the carried frame.

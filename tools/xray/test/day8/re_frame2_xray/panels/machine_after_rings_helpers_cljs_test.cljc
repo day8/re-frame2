@@ -107,6 +107,26 @@
   {:id id :time id :operation :rf.machine/transition
    :tags {:machine-id :auth/login :from :idle :to :authing}})
 
+;; rf2-y8doi.23 — FRAME-STAMPED fixtures. Every `:rf.machine.timer/*`
+;; trace carries its owning frame under `:tags :frame`; read off the
+;; PRODUCER rather than composed by hand — `machines/timer.cljc`'s
+;; `:rf.machine.timer/scheduled` + `/cancelled` emits and
+;; `machines/transition.cljc`'s `/fired`, `/stale-after` and
+;; `/skipped-on-server` emits all stamp `:frame frame-id` beside
+;; `:actor-id` / `:state` / `:delay` / `:epoch`. The plain fixtures above
+;; omit it deliberately: an unstamped event is what a legacy replay looks
+;; like, and the unfiltered arity must still fold one.
+
+(defn- scheduled-in
+  [frame id machine-id state delay epoch]
+  (assoc-in (scheduled id machine-id state delay epoch)
+            [:tags :frame] frame))
+
+(defn- cancelled-in
+  [frame id machine-id state epoch]
+  (assoc-in (cancelled id machine-id state epoch nil :on-exit)
+            [:tags :frame] frame))
+
 ;; ---- (1) timer-event? ---------------------------------------------------
 
 (deftest timer-event?-recognises-each-operation
@@ -270,7 +290,131 @@
     (is (= [1000 2000 3000]
            (mapv :armed-at (h/project-timers buf :auth/login))))))
 
+;; ---- (3b) rf2-y8doi.23 — target-frame narrowing -------------------------
+
+(deftest project-timers-two-machines-in-one-frame-stay-apart
+  (testing "the projection answers ONLY for the machine asked about, so a
+            focused record targeting :checkout reads zero rings while a
+            timer is armed on :auth/main. This is the helper half of the
+            defect; the sub asking for the WRONG machine is the other, and
+            `machine_after_rings_cljs_test` owns that half."
+    (let [buf [(scheduled-in :rf/host 1000 :auth/main :idle 5000 0)]]
+      (is (= 1 (count (h/project-timers buf :auth/main :rf/host))))
+      (is (= [] (h/project-timers buf :checkout :rf/host))))))
+
+(deftest project-timers-narrows-to-target-frame
+  (testing "rf2-y8doi.23 — ONE machine definition instantiated in TWO
+            frames. A singleton actor-id is identical across them, and the
+            fold key is `(machine-id, state, epoch, delay)`, so without the
+            frame narrowing frame A's `cancelled` closes the record frame
+            B's `scheduled` had just opened — one live countdown ring
+            silently becomes a grey crossed one because an unrelated
+            runtime tore its own timer down."
+    (let [buf [(scheduled-in :rf/a 1000 :auth/login :idle 5000 0)
+               (scheduled-in :rf/b 1500 :auth/login :idle 5000 0)
+               (cancelled-in :rf/a 2000 :auth/login :idle 0)]]
+      (testing "frame A sees its own arm, closed by its own cancel"
+        (let [rs (h/project-timers buf :auth/login :rf/a)]
+          (is (= 1 (count rs)))
+          (is (= :cancelled (-> rs first :status)))
+          (is (= 1000 (-> rs first :armed-at)))
+          (is (= 2000 (-> rs first :closed-at)))))
+      (testing "frame B sees its own arm, STILL ARMED — A's cancel is
+                not its business"
+        (let [rs (h/project-timers buf :auth/login :rf/b)]
+          (is (= 1 (count rs)))
+          (is (= :armed (-> rs first :status)))
+          (is (= 1500 (-> rs first :armed-at)))))
+      (testing "the control: unfiltered, the two frames collide on one
+                fold record and B's live ring is reported cancelled"
+        (let [rs (h/project-timers buf :auth/login)]
+          (is (= 1 (count rs)))
+          (is (= :cancelled (-> rs first :status)))
+          (is (= 1500 (-> rs first :armed-at))
+              "B's arm is the one A's cancel closed"))))))
+
+(deftest project-timers-nil-target-frame-applies-no-filter
+  (testing ":rf.xray/target-frame defaults to nil = UNSELECTED (EP-0002),
+            and an unstamped legacy replay carries no :frame at all — so
+            nil must fold everything rather than blank the chart"
+    (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
+               (scheduled-in :rf/a 2000 :auth/login :authing 5000 0)]]
+      (is (= 2 (count (h/project-timers buf :auth/login nil))))
+      (is (= 2 (count (h/project-timers buf :auth/login))))
+      (is (= 1 (count (h/project-timers buf :auth/login :rf/a)))
+          "a NAMED frame does drop the unstamped event — it cannot be
+           attributed"))))
+
+;; ---- (3c) rf2-y8doi.23 — cancelled-ring retention + dedupe -------------
+
+(deftest active-timers-evicts-a-cancelled-ring-past-the-retention-window
+  (testing "a :cancelled ring is a MOMENTARY fade + cross. Before this it
+            had no retention at all, so every early exit left a permanent
+            grey crossed ring — one per visit to the state, for as long as
+            the buffer held the trace."
+    (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
+               (cancelled 2000 :auth/login :idle 0 nil)]
+          at  (fn [now] (h/active-timers-for-machine buf :auth/login now))]
+      (is (= 1 (count (at (+ 2000 h/cancelled-retention-ms))))
+          "still on screen at exactly the retention boundary")
+      (is (= [] (at (+ 2000 h/cancelled-retention-ms 1)))
+          "evicted one ms past it")
+      (is (= [] (at 60000))
+          "and it never comes back — the ring is bounded, not permanent"))))
+
+(deftest active-timers-dedupes-cancelled-per-state-newest-wins
+  (testing "rf2-y8doi.23 — enter and leave one state twice inside the
+            retention window and the node carries ONE crossed ring, not
+            two. The machines-viz overlay keys a ring by its `:node-id`
+            (`^{:key node-id}`), so N cancelled records for one state are
+            N siblings under ONE React key."
+    (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
+               (cancelled 1100 :auth/login :idle 0 nil)
+               (scheduled 1200 :auth/login :idle 5000 1)
+               (cancelled 1300 :auth/login :idle 1 nil)]
+          rs  (h/active-timers-for-machine buf :auth/login 1400)]
+      (is (= 1 (count rs)))
+      (is (= :cancelled (-> rs first :status)))
+      (is (= 1300 (-> rs first :closed-at))
+          "newest wins — the ring shows the most recent teardown")
+      (is (= 2 (count (h/timers-for-machine buf :auth/login)))
+          "the control: the buffer-keyed fold DOES hold both records; it
+           is the now-keyed filter that collapses them"))))
+
+(deftest active-timers-keeps-concurrent-armed-timers-on-one-state
+  (testing "rf2-2es2x8 — `{:after {5000 :warn 30000 :timeout}}` arms TWO
+            timers at one (machine, state, epoch). The cancelled dedupe
+            above must not reach them: each is its own countdown and its
+            own ring."
+    (let [buf [(scheduled 1000 :auth/login :idle 5000  0)
+               (scheduled 1000 :auth/login :idle 30000 0)]
+          rs  (h/active-timers-for-machine buf :auth/login 2000)]
+      (is (= 2 (count rs)))
+      (is (= #{5000 30000} (set (map :duration-ms rs)))))))
+
+(deftest active-timers-drops-a-cancelled-record-with-no-closed-at
+  (testing "a record that cannot be aged cannot be bounded, and an
+            unbounded crossed ring is the defect the window removes. With
+            NO clock it rides through unchanged (nothing can be aged
+            either way) — the two arms are the two-directions control."
+    (let [rec {:machine-id :auth/login :state :idle :status :cancelled
+               :armed-at 1000 :closed-at nil}]
+      (is (= [] (h/prune-timers [rec] 5000)))
+      (is (= [rec] (h/prune-timers [rec] nil))))))
+
+(deftest prune-timers-is-identity-without-a-clock
+  (let [rs [{:machine-id :m :state :a :status :armed :armed-at 1 :fires-at 2}
+            {:machine-id :m :state :b :status :cancelled :armed-at 3 :closed-at 4}]]
+    (is (= rs (h/prune-timers rs nil)))
+    (is (= [] (h/prune-timers nil nil)))))
+
 (deftest active-timers-keeps-armed-and-cancelled
+  ;; rf2-y8doi.23 — this row pins the NO-CLOCK arity, and that is now the
+  ;; whole of what it claims: with no `now-ms` nothing can be aged, so a
+  ;; `:cancelled` record rides through. The CLOCKED behaviour — eviction
+  ;; past `cancelled-retention-ms` — is
+  ;; `active-timers-evicts-a-cancelled-ring-past-the-retention-window`
+  ;; above, and it is the one that describes what the chart shows.
   (let [buf [(scheduled                1000 :auth/login :idle    5000 0)
              (scheduled                1500 :auth/login :authing 5000 0 :sub)
              (cancelled                2000 :auth/login :authing 0 :delay)

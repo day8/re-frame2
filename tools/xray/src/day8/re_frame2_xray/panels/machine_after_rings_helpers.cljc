@@ -77,7 +77,9 @@
   target drives the algebra without a CLJS runtime). The CLJS-only
   surfaces (raf tick driver, dispatch) live in
   `machine_after_rings.cljs`."
-  (:require [clojure.string :as str]))
+  ;; No requires — pure data → data. (`clojure.string` sat here unused;
+  ;; clj-kondo had been warning on it. rf2-y8doi.23.)
+  )
 
 ;; ---- canonical operation taxonomy ---------------------------------------
 
@@ -294,58 +296,156 @@
   for `machine-id`. Sorted oldest-first by `:armed-at` for stable
   hover-region ordering.
 
-  Returns `[]` when `machine-id` is nil. Pure fn — JVM-runnable."
-  [trace-buffer machine-id]
-  (if (nil? machine-id)
-    []
-    (let [events (->> (or trace-buffer [])
-                      (filter timer-event?)
-                      (filter (fn [ev] (= machine-id (machine-id-of ev))))
-                      ;; Oldest first — the fold relies on chronological
-                      ;; order so a later cancellation overrides an earlier
-                      ;; arming.
-                      (sort-by (fn [ev] (or (:id ev) (:time ev) 0))))
-          table  (fold-timer-events events)]
-      (vec
-        (sort-by (fn [r] (or (:armed-at r) 0))
-                 (vals table))))))
+  `target-frame` (rf2-y8doi.23) is the INSPECTED frame id. A machine
+  DEFINITION can be registered once and instantiated in several frames
+  — a testbed mounting two hosts side by side is the ordinary case —
+  and a singleton actor-id is identical across them, so folding on
+  `(machine-id, state, epoch, delay)` alone let two frames' timers
+  collide on one ring key: a `:cancelled` in frame A closed the
+  `:armed` record frame B had just opened. Every `:rf.machine.timer/*`
+  trace stamps its owning frame under `:tags :frame` (measured at the
+  producer for all five ops — `scheduled` / `fired` / `stale-after` /
+  `cancelled` / `skipped-on-server`), so narrowing the buffer BEFORE
+  the fold keeps each frame's timers in their own fold.
 
-(defn active-timers-for-machine
-  "Return the timer records the chart should render rings for. Filters
-  the projection to:
+  `target-frame` nil means UNSELECTED (`:rf.xray/target-frame`'s own
+  default per EP-0002) and applies NO filter — there is nothing to
+  disambiguate against, and dropping every event would blank the rings
+  on the default posture.
+
+  Returns `[]` when `machine-id` is nil. Pure fn — JVM-runnable."
+  ([trace-buffer machine-id]
+   (project-timers trace-buffer machine-id nil))
+  ([trace-buffer machine-id target-frame]
+   (if (nil? machine-id)
+     []
+     (let [events (->> (or trace-buffer [])
+                       (filter timer-event?)
+                       (filter (fn [ev] (= machine-id (machine-id-of ev))))
+                       (filter (fn [ev]
+                                 (or (nil? target-frame)
+                                     (= target-frame
+                                        (get-in ev [:tags :frame])))))
+                       ;; Oldest first — the fold relies on chronological
+                       ;; order so a later cancellation overrides an earlier
+                       ;; arming.
+                       (sort-by (fn [ev] (or (:id ev) (:time ev) 0))))
+           table  (fold-timer-events events)]
+       (vec
+         (sort-by (fn [r] (or (:armed-at r) 0))
+                  (vals table)))))))
+
+(def cancelled-retention-ms
+  "How long (ms) a `:cancelled` ring stays on the chart after its
+  `:closed-at` before it is evicted (rf2-y8doi.23).
+
+  A cancelled ring is a fade + diagonal cross — a MOMENTARY signal that
+  an armed timer was torn down early. Before this it had no retention at
+  all: `active-timers-for-machine` returned every `:cancelled` record the
+  buffer had ever seen, for as long as the buffer held it, so a state the
+  operator entered and left N times left N permanent grey crossed rings —
+  and, because the machines-viz overlay keys a ring by its `:node-id`,
+  all N sat under ONE React key."
+  2000)
+
+(defn timers-for-machine
+  "The BUFFER-KEYED half of the rings projection: the timer records the
+  chart could render a ring for, given the trace buffer alone.
+
+  Filters `project-timers` to:
 
     - `:armed`        — countdown is in progress.
-    - `:cancelled`    — show fade + diagonal cross until evicted (the
-                        view decides retention; the helper returns the
-                        record so the renderer has the data).
+    - `:cancelled`    — fade + diagonal cross, until [[prune-timers]]
+                        evicts it.
 
   Closed-state timers (`:fired`, `:stale`, `:guard-suppressed`,
   `:skipped`) drop out — the ring's purpose is to show wall-clock-
   pressure on the chart; a fired ring is just chart noise.
 
-  `now-ms` is optional; when supplied, `:armed` records whose
-  `:fires-at` is more than 5s in the past are dropped — protects
-  against zombie projections when a `:fired` trace event was elided
-  from the buffer (e.g. ring-buffer eviction)."
+  Split out from [[active-timers-for-machine]] by rf2-y8doi.23 so the
+  sub that folds the whole trace buffer is keyed on the BUFFER and not
+  on the clock. The rings sub used to take `:rf.xray/now-ms` as an
+  input, so every rAF tick (~60 Hz while any timer is armed) re-folded
+  the entire buffer to answer a question only the last step — the
+  now-keyed filter below — actually needed. Pure fn — JVM-runnable."
   ([trace-buffer machine-id]
-   (active-timers-for-machine trace-buffer machine-id nil))
-  ([trace-buffer machine-id now-ms]
-   (let [zombie-threshold-ms 5000
-         records (project-timers trace-buffer machine-id)]
-     (vec
-       (keep
-         (fn [r]
-           (case (:status r)
-             :armed
-             (cond
-               (and now-ms (:fires-at r)
-                    (> (- now-ms (:fires-at r)) zombie-threshold-ms))
-               nil
-               :else r)
+   (timers-for-machine trace-buffer machine-id nil))
+  ([trace-buffer machine-id target-frame]
+   (filterv (fn [r] (or (= :armed (:status r))
+                        (= :cancelled (:status r))))
+            (project-timers trace-buffer machine-id target-frame))))
 
-             :cancelled r
-             nil))
-         records)))))
+(defn prune-timers
+  "The NOW-KEYED half: drop the records that should not be on screen at
+  wall-clock instant `now-ms`. Cheap — it walks the already-folded
+  vector, never the buffer.
+
+  Two evictions, and one dedupe:
+
+    - **Zombie `:armed`** — `:fires-at` more than 5s in the past.
+      Protects against a projection stranded `:armed` because its
+      `:fired` trace was evicted from the ring buffer.
+    - **Expired `:cancelled`** — `:closed-at` more than
+      [[cancelled-retention-ms]] in the past. A record carrying NO
+      `:closed-at` cannot be aged, so it is dropped rather than kept
+      for ever — an unboundable ring is the defect this eviction
+      exists to remove.
+    - **Newest-wins per bearing state** for `:cancelled`. One node
+      shows at most one crossed ring, so repeated entry/exit of a
+      state cannot pile them up under the overlay's single
+      `:node-id` React key. `:armed` records are deliberately NOT
+      deduped: per rf2-2es2x8 a state's `:after` map may schedule
+      several timers concurrently, and each is its own ring.
+
+  `now-ms` nil means NO CLOCK — nothing can be aged, so the vector is
+  returned unchanged. Pure fn — JVM-runnable."
+  [timers now-ms]
+  (let [timers (vec (or timers []))]
+    (if (nil? now-ms)
+      timers
+      (let [zombie-threshold-ms 5000
+            armed  (filterv (fn [r]
+                              (and (= :armed (:status r))
+                                   (not (and (:fires-at r)
+                                             (> (- now-ms (:fires-at r))
+                                                zombie-threshold-ms)))))
+                            timers)
+            newest (reduce
+                     (fn [acc r]
+                       (if (and (= :cancelled (:status r))
+                                (:closed-at r)
+                                (<= (- now-ms (:closed-at r))
+                                    cancelled-retention-ms))
+                         (let [k   (:state r)
+                               cur (get acc k)]
+                           (if (or (nil? cur)
+                                   (> (:closed-at r) (:closed-at cur)))
+                             (assoc acc k r)
+                             acc))
+                         acc))
+                     {}
+                     timers)]
+        (vec (sort-by (fn [r] (or (:armed-at r) 0))
+                      (concat armed (vals newest))))))))
+
+(defn active-timers-for-machine
+  "Return the timer records the chart should render rings for at
+  wall-clock instant `now-ms` — [[timers-for-machine]] composed with
+  [[prune-timers]].
+
+  `target-frame` narrows the buffer to the INSPECTED frame; see
+  [[project-timers]] for why, and for what nil means.
+
+  Kept as one entry point because the JVM helper suite drives the whole
+  pipeline through it; the production sub takes the two halves
+  separately so the expensive one is not re-run per animation frame."
+  ([trace-buffer machine-id]
+   (active-timers-for-machine trace-buffer machine-id nil nil))
+  ([trace-buffer machine-id now-ms]
+   (active-timers-for-machine trace-buffer machine-id now-ms nil))
+  ([trace-buffer machine-id now-ms target-frame]
+   (prune-timers (timers-for-machine trace-buffer machine-id target-frame)
+                 now-ms)))
 
 ;; ---- ring geometry ------------------------------------------------------
 
