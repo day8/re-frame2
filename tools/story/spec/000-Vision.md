@@ -86,11 +86,18 @@ commodity component-explorer styling:
   sterility, characterful italics — that makes the chrome legible *as
   a workshop* rather than as platform default
   (per [`016-Design-Tokens.md`](016-Design-Tokens.md) §Typography).
-- **Motion as language** instead of instant transitions. 180ms tab
-  fades, diff-flash on app-db change, the `--motion-scale` seam for
-  reduced-motion. Choreography signals causality — what just changed,
-  why it matters — and Storybook ships effectively none of it
-  (per [`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion).
+- **Motion as language** instead of instant transitions. A staggered
+  shell-mount entrance — toolbar / sidebar / main / right rail at
+  0 / 60 / 120 / 180ms — plus a 180ms overlay fade, an 80ms chip-press
+  rebound and 140ms hover transitions, composed from six duration
+  tokens and five easing curves. Choreography signals causality —
+  what just changed, why it matters — and Storybook ships effectively
+  none of it (per [`016-Design-Tokens.md`](016-Design-Tokens.md)
+  §Motion). The "180ms tab fade", the app-db diff-flash and the
+  `--motion-scale` variable this bullet used to name were never built
+  (rf2-zxsd7): the mode-tab strip carries no motion at all, and
+  `prefers-reduced-motion` clamps every duration to `0.01ms` rather
+  than scaling it.
 - **Gradient mesh + grain backdrop** instead of a flat solid panel.
   The shell asserts that this is a *crafted* surface, not a default
   one (per [`016-Design-Tokens.md`](016-Design-Tokens.md) §Backdrop).

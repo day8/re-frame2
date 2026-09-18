@@ -423,16 +423,25 @@ The chrome injects `motion-css` once at shell mount via
   `[data-rf-story-root]` — every animation / transition pinned to
   `0.01ms`.
 
-### The `--motion-scale` seam
+### The motion-override seam
 
 The chrome's motion vocabulary composes through pure-data tokens. A
-downstream consumer can scale the entire chrome's motion in one place
+downstream consumer can pin the entire chrome's motion in one place
 by overriding the `prefers-reduced-motion` block (e.g. tests
 opt-into-instant via the same selector, or a future `:reduced-motion`
 preference toggle layers on top of the OS-level one). The seam is
 **the scoping selector `[data-rf-story-root]`** — every motion-bearing
 chrome surface lives under this root, so a single CSS rule can pin
 durations across the whole chrome without per-component opt-in.
+
+**This heading used to read "The `--motion-scale` seam", and no such
+variable was ever built (rf2-zxsd7).** `tools/story/src` declares no
+CSS custom property at all — no `--x:` declaration, no `var(--…)`
+reference, no `setProperty` call — and nothing multiplies a duration
+token. The seam is an **override**, not a scale: the
+`prefers-reduced-motion` block clamps durations to `0.01ms`, and a
+downstream rule on the same selector replaces them. Scaling every
+duration by a factor is a mechanism Story does not have.
 
 ### Idempotent + production-elided
 
