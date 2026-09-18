@@ -1286,10 +1286,10 @@ overlaid.
 **Density note** (per §0). Per-machine canvases are sized to fit their
 own topology — small machines render compact (~120-180px tall); large
 nested machines auto-fit to the available viewport via xyflow's
-`fitView`. Multiple machines stack vertically (no horizontal split) so
-the operator scans them like cards on a workstation. Guards, actions,
-and cancellation cascade chips render below each canvas as dense text
-rows — no extra modal or popout. (rf2-48fwsi retired the vestigial
+`fitView`. (The panel binds to ONE machine instance — the one the
+focused event targets — so machines no longer stack; and the guard /
+action / timer detail is the mini-pipeline's rows above the chart, not
+chips below it. See §6.2 and 003 §Dynamic mode.) (rf2-48fwsi retired the vestigial
 Canvas/List view-mode toggle that once advertised a flat textual
 fallback — it was dead after the rf2-g2axio events-as-nodes redesign,
 with no view branching on the persisted mode. The xyflow canvas is the
@@ -1371,30 +1371,21 @@ the nodes and edges with Xray palette tokens.
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-**Case B — machines registered, focused epoch had no transition:**
+**Case B — machines registered, focused event targets none of them.** Superseded by
+[003 §Empty state — focused event does not target a state machine](003-Machine-Inspector.md#empty-state--focused-event-does-not-target-a-state-machine)
+(rf2-8og3k, Mike-ruled): the panel renders ONLY the verbatim placeholder **"This event does
+not target a state machine"** — no topology, no machine name, no "current ●" annotation. The
+Dynamic panel is single-instance and event-driven (003 §Dynamic mode), so there is no
+"every registered machine, last-known state" view to fall back to.
 
-```
-┌─ MACHINES · epoch #87 ──────────────────────────── [◀ Prev] [Next ▶] ─┐
-│▌ stripe: mode accent (one GitHub-blue accent, both modes)             │
-│                                                                       │
-│ machine :title/flow            (no activity this epoch · current ●)   │
-│ ┌────────────────────────────────────────────────────────────────────┐│
-│ │  ( idle ) ──→ (( loaded )) ──→ ( error )                            │
-│ │                  ↑ current                                          │
-│ │ ┌──────┐                                                            │
-│ │ │ + − ⛶ │ ← xyflow <Controls> (bottom-left)                         │
-│ │ └──────┘                                                            │
-│ └────────────────────────────────────────────────────────────────────┘│
-│                                                                       │
-│ machine :other/flow            (no activity this epoch · current ●)   │
-│ ┌────────────────────────────────────────────────────────────────────┐ │
-│ │  ( empty )  (( populated ))  ( submitting )  ( settled )           │ │
-│ └────────────────────────────────────────────────────────────────────┘│
-└───────────────────────────────────────────────────────────────────────┘
-```
+An event that DOES target a machine but moves no state — a birth, or a guard-blocked /
+unhandled no-op — is not Case B: it renders the Case C shape with the resting state
+highlighted and no fired edge (003 §Machine birth, §Guard-blocked / unhandled no-op).
 
-Topology stays visible — only the overlay (highlight on the transition
-edge, `:after`-rings, action/guard labels) is absent.
+The design this case used to carry — a topology per registered machine with the last-known
+state annotated `current ●` (rf2-dbi87) — is not mounted: its renderer,
+`panels/machines/topology_view.cljs`'s `Topology`, has no `src` caller (rf2-y8doi.23 recorded
+0 callers and declined the deletion only because its test file was out of fence).
 
 **Case C — focused epoch triggered ≥1 transitions (Figma design — rf2-ad7zx).**
 
@@ -1428,6 +1419,13 @@ accent; the fired transition edge carries its **event label + guard + action inl
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The mockup's `guards · actions · after` details row and its `Cancellation cascade` line are
+superseded by 003's three-element rule
+([003 §Post-collapse Dynamic panel shape](003-Machine-Inspector.md#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k),
+rf2-g2axio): the panel renders Prev/Next, the SHARED EVENT HANDLER mini-pipeline and the chart,
+in that order, and the guard / action / timer detail is the mini-pipeline's cascade rows — no
+row under the chart ships.
+
 Per §003, the interactive chart adapter (zoom / pan / fit) wraps each
 per-machine canvas. **The xyflow surface described in §6.0 is the sole
 render path** — rf2-48fwsi retired the vestigial Canvas/List view-mode
@@ -1443,9 +1441,9 @@ DOWN`, the `MachineChart` default Xray does not override). The original
 sketch called for a left-to-right `rankdir: 'LR'` default; the elkjs
 backend that shipped (`MachineChart`, 2026-05-19 ELK lock) maps `:lr` →
 elk `RIGHT` / `:tb` → elk `DOWN` and defaults to `DOWN`. An operator-facing
-direction flip (Settings → View → Machines layout direction) is a
-**post-v1, untracked note** — no bead filed yet; the trigger files one
-when it fires. **Reconsideration trigger (falsifiable).** A corpus or
+direction flip is a **post-v1, untracked note** — no bead filed yet, and
+no Settings knob exists (the Settings tabs are General · Keybindings ·
+Buffer · Diff); the trigger files one when it fires. **Reconsideration trigger (falsifiable).** A corpus or
 consumer machine renders wide enough that the `DOWN` default forces
 horizontal scrolling the operator cannot resolve by resizing the panel,
 and a per-render `:lr` flip would recover legibility — at which point the
@@ -1460,18 +1458,17 @@ fixed pixel inset); Xray re-frames on panel-entry by bumping the
 
 | From | Reads |
 |---|---|
-| Focused epoch record | `:rf.machine/transition`, `:rf.machine.after/scheduled`, `:rf.machine.after/fired`, `:rf.machine/cancellation` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; the cascade-wide tag is `:rf.trace/dispatch-id`) |
+| Focused epoch record | `:rf.machine/transition` (plus `:rf.machine/started` and `:rf.machine.event/unhandled-no-op`, per 003 §Dynamic mode) and the `:after`-ring timer family `:rf.machine.timer/scheduled` · `:rf.machine.timer/fired` · `:rf.machine.timer/cancelled` (also `stale-after` / `skipped-on-server` — `machine_after_rings_helpers.cljc`) — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; the cascade-wide tag is `:rf.trace/dispatch-id`) |
 | Registries | Machine topology (`reg-machine`), guard / action metadata |
-| Per-frame state | Current machine state (for the "current ●" annotation in case B) |
+| Per-frame state | None for the chart's resting-state highlight — a birth or no-op takes it off its own trace; Case B's "current ●" read retired with Case B |
 
 ### §6.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
 | Transition edge | (no-op MVP; stretch: scroll to the dispatching event in the Epoch panel) |
-| Guard row | Inline source-glance (DEBUG-gated source string) |
-| Action chip | Switch to **Epoch** panel, scroll to the FX step's row for that action |
-| Canvas node | Set this state as the "selected" for filter-IN candidate |
+| Guard / action row | These are now the SHARED EVENT HANDLER mini-pipeline's cascade rows (no guard row or action chip ships under the chart — §6.2 Case C note); each row's verb link opens its source (003 §Post-collapse Dynamic panel shape) |
+| Canvas node | **Not built.** The chart's `:on-state-click` dispatches `:rf.xray/machine-state-clicked`, whose handler returns `{:db db}` unchanged — nothing is selected and no filter-IN candidate is set |
 
 ### §6.5 Film-strip — RETIRED 2026-09-04 (rf2-6r9j.16)
 
@@ -1509,15 +1506,23 @@ component), the later iteration —
 superseded). Section order, top → bottom, each separated by a 1px hairline:
 
 1. **CURRENT ROUTE** (always shown) — the active route **id** (mode-accent, bold), its
-   **params**, and the **matched path / URL**. The "where am I."
+   **params**, its **query** and **fragment** (`#frag`) when the slice carries them, and a
+   **readiness** chip — the slice's `:transition` (`idle` / `loading` / `error`), with the
+   slice's `:error` as the chip's hover title. The "where am I." Every field is a key of the
+   route slice the router writes (`[:rf.runtime/routing :current]`); the slice carries no
+   matched path, so no path / URL is shown (rf2-y8doi.22 removed the dead `:path` span).
+   The query renders unsorted, in the router's own key order. With no active slice the
+   section reads "No active route."
 2. **NAVIGATION THIS EPOCH** (event-driven lens) — when the focused event navigated:
    **FROM route ──► TO route**, the **params**, and the **outcome** (*transitioned* ·
-   *blocked* (+ reason) · *cancelled* · *not-found*; outcome coloured by result). Quiet/absent
-   when the focused event isn't a navigation.
+   *blocked* · *entry denied* · *fragment changed* · *not-found*; coloured by result —
+   transitioned green, blocked / entry denied warning, fragment changed info, not-found
+   error). *entry denied* is a `:can-enter` refusal, TERMINAL per EP-0037 R4; nothing
+   produces a *cancelled* outcome. Quiet/absent when the focused event isn't a navigation.
 3. **ROUTE TABLE** — all **registered routes** (id → path pattern), drawn as a **tree when
    nested** (expand chevrons; else a flat list), with the **current route highlighted**
-   (mode-accent row + `◀ current` marker) and the focused navigation's FROM→TO marked on it.
-   Click a route → its definition / source coord. **Every registered route appears exactly
+   (mode-accent row + `◀ current` marker) and the focused navigation's FROM→TO marked on it
+   (`◇ FROM` / `◉ TO` glyphs). Rows are read-only (§7.4). **Every registered route appears exactly
    once**, even when its `:parent` metadata is malformed: an orphan parent (points at an
    unregistered id) renders at depth 0, and a rootless cycle (a self-cycle, or a closed
    `A↔B` where every member's parent is registered) is surfaced at depth 0 with a `↻ cycle`
@@ -1530,7 +1535,7 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 │▌ stripe: mode accent (one GitHub-blue accent, both modes)            │
 │                                                                      │
 │ CURRENT ROUTE                                                        │
-│   :user/profile    params {:id 42}    /users/42                      │
+│   :user/profile    params {:id 42}    query {:tab "posts"}    idle   │
 │ ──────────────────────────────────────────────────────────────────  │
 │ NAVIGATION THIS EPOCH        (event-driven · quiet when not a nav)   │
 │   :dashboard ──► :user/profile   params {:id 42}  outcome: transitioned│
@@ -1552,17 +1557,20 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 
 | From | Reads |
 |---|---|
-| Focused epoch record | The route-phase trace ops, read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`), each carrying a `:tags :phase` taxonomy tag (§7 Route phase taxonomy — `#{:can-leave :can-enter :on-match :settle}`): `:rf.route/navigation-blocked` (`:phase :can-leave`), `:rf.route/entry-denied` (`:phase :can-enter` — the TERMINAL entry decision per EP-0037 R4; unlike a leave block it parks no pending value), `:rf.route/activated` / `:rf.route.nav-token/allocated` (`:on-match` cascade begin), and `:rf.route/fragment-changed` |
-| Registries | Route tree (`reg-route`) |
-| Per-frame state | Current active route + phase (for empty-state) |
+| Focused event bundle | The route ops in the focused event bundle — `:rf.xray/event-bundles` + `:rf.xray/focus`, resolved frame-strictly by `routing_helpers/focused-event-bundle` (not the focused epoch record's `:trace-events`). The panel maps them to its own phase set `#{:on-match :navigation-blocked :entry-denied :fragment-changed}`, first match wins: `:rf.route.nav-token/allocated` → `:on-match` (and names TO), `:rf.route/navigation-blocked` → `:navigation-blocked` (a `:can-leave` refusal), `:rf.route/entry-denied` → `:entry-denied` (a `:can-enter` refusal — TERMINAL per EP-0037 R4; unlike a leave block it parks no pending value), `:rf.route/fragment-changed` → `:fragment-changed`. `:rf.route/deactivated` names FROM. The panel does not read `:rf.route/activated` |
+| Registries | Route tree — `(rf/registrations {:source :store :kind :route})` |
+| Per-frame state | The target frame's route slice at `[:rf.runtime/routing :current]` (runtime-db — CURRENT ROUTE and the current-row highlight) |
 
 ### §7.4 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
-| Route-table row | Open the route's definition / source coord in the editor (`:rf.xray/open-in-editor`); doubles as the filter-IN "selected route" candidate |
-| Current-route id | (no-op MVP; stretch: filter-IN on the active route) |
-| FROM / TO chip in NAVIGATION | Marks the corresponding nodes in the route table |
+| Route-table row | **Not built** — no click handler; the row is read-only |
+| Current-route id | **Not built** — read-only |
+| FROM / TO chip in NAVIGATION | **Not built** — read-only. The route table marks FROM / TO on its own (`◇ FROM` / `◉ TO`, §7.2), with no click involved |
+
+The Routing panel ships no click affordances at all (`panels/routing.cljs` carries no
+`:on-click`); the rows above are struck, not deferred.
 
 ### §7.5 Film-strip — RETIRED 2026-09-04 (rf2-6r9j.16)
 
@@ -5449,7 +5457,8 @@ real beads after approving this doc.
   payloads.
 
 - **rf2-?????** — *Xray: Machines panel — topology-always-visible
-  empty-state.* When focused epoch has no machine transition, still
+  empty-state.* **(Superseded — 003's rf2-8og3k placeholder rule won;
+  see §6.2 Case B.)** When focused epoch has no machine transition, still
   render the machine topology with "current ●" annotation. Tightens
   §003's case B treatment to keep topology always-visible.
 
@@ -5847,19 +5856,17 @@ operators will see.
 │  │   │ + − ⛶ │ ← xyflow <Controls> (bottom-left); zoom-±/fit only,  │ │
 │  │   └──────┘    no NN% chip, no Reset                              │ │
 │  └────────────────────────────────────────────────────────────────┘ │
-│   Guards    ✓ :cart-non-empty?                                      │
-│   Actions   ✓ :clear-form  ✓ :set-submitting-state                  │
-│   Cancellation cascade  (none)                                      │
-│                                                                     │
-│   :rf.machine.checkout/flow   (no activity this epoch)              │
-│  ┌──[xyflow canvas]────────────────────────────────────────────────┐│
-│  │   ╭─────╮  ╭─────────╮  ╭──────────╮                            ││
-│  │   │:idle│  │:authing │  │:settled  │                            ││
-│  │   ╰──◉──╯  ╰─────────╯  ╰══════════╯                            ││
-│  │   (current)             (final)                                  ││
-│  └──────────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+This mockup used to draw two more elements below the canvas; both were removed under
+rf2-y8doi.48 because 003's three-element and single-instance rules supersede them
+([003 §Post-collapse Dynamic panel shape](003-Machine-Inspector.md#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k)):
+a `Guards` / `Actions` / `Cancellation cascade` row block (that detail is the SHARED EVENT
+HANDLER mini-pipeline's rows, which sit ABOVE the chart), and a second canvas for another
+machine marked `(no activity this epoch)` (the panel renders one instance, or only 003's
+"This event does not target a state machine" placeholder — §6.2 Case B). The `◆` header-icon
+line at the top of the mockup is retired as well (§17.1.5).
 
 #### §17.4.2 Node-shape conventions
 
