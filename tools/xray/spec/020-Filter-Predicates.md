@@ -34,13 +34,32 @@ the matcher honours event-id only.
 | kind                  | params                          | matcher                                                           | right-click source                            |
 |-----------------------|---------------------------------|-------------------------------------------------------------------|-----------------------------------------------|
 | `:event-id-pattern`   | `{:pattern <kw-or-str>}`        | event-id matches `:pattern` per `matcher.cljc`                    | trailing `[+]` add-pill + L2-row right-click  |
-| `:machine`            | `{:machine-id <id>}`            | any trace-event in cascade has `:tags :machine-id` = `:machine-id`| Machines panel rows                           |
-| `:http-correlation`   | `{:correlation-id <id>}`        | any trace-event in cascade has `:tags :correlation-id` = ditto    | managed-fx panel correlation pill             |
-| `:fx`                 | `{:fx-id <kw>}`                 | any trace-event in cascade has `:tags :fx-id` = `:fx-id`          | managed-fx panel fx-id badge                  |
+| `:machine`            | `{:machine-id <id>}`            | any trace-event in cascade has `:tags :machine-id` = `:machine-id`| none wired today — see §6                     |
+| `:http-correlation`   | `{:correlation-id <id>}`        | the exchange's two producer-identifiable bundles — see below      | managed-fx panel correlation pill             |
+| `:fx`                 | `{:fx-id <kw>}`                 | any trace-event in cascade has `:tags :rf.fx/id` = `:fx-id`       | managed-fx panel fx-id badge                  |
 
 The matcher walks the cascade's `:handler`, `:fx`, `:effects`, `:subs`,
-`:renders`, `:other` buckets — same shape `routing_helpers/cascade-
-trace-events` consumes.
+`:renders`, `:other` buckets via
+`typed-predicates/event-bundle-trace-events`. `panels/routing_helpers`
+carries a private helper of the same name over the same shape; the
+matcher keeps its own so it stays a self-contained pure unit.
+
+**`:http-correlation` is the one kind whose match is not a single tag
+lookup.** The id on the pill is the managed-fx record's derived
+`:correlation-id`, and no producer stamps it as a flat trace tag — so
+the matcher reaches the exchange through the two bundles producer data
+DOES identify: the **issuing** bundle, whose `:tags :rf.fx/args` carries
+the id at one of the caller-supplied keys (`:request-id`, `:socket-id`,
+`:fixed-actor-id`, `:machine-id`, `:id`, `:flow-id`), and the
+**reply-dispatch** bundle, whose dispatched event vector carries the
+family's canonical reply map, matched on the VALUES of its
+`:correlation` sub-map so one expression holds across HTTP and machines.
+The `:rf.http/replied` completion row is deliberately NOT matched: it is
+emitted outside any handler scope, carries no `:rf.trace/dispatch-id`,
+and the projection buckets it into the shared `:ungrouped`
+pseudo-bundle alongside unrelated exchanges' rows — neither arm reaches
+it, so the exclusion falls out of the two arms rather than needing a
+special case (rf2-st7j0).
 
 ## §3 Composition (unchanged from §18.7)
 
@@ -126,8 +145,6 @@ common cases without that surface area.
 
 | panel surface                                   | event                                  |
 |-------------------------------------------------|----------------------------------------|
-| Machine inspector picker chrome                 | `:rf.xray/filter-by-machine`          |
-| Focused-event lens section header               | `:rf.xray/filter-by-machine`          |
 | Managed-fx record correlation pill              | `:rf.xray/filter-by-http-correlation` |
 | Managed-fx record fx-id badge                   | `:rf.xray/filter-by-fx`               |
 | L2 event row                                    | `:rf.xray/hide-event-type` (popup)    |
@@ -135,6 +152,15 @@ common cases without that surface area.
 Each typed-add event is idempotent: a duplicate add (same params)
 collapses to a no-op so multiple right-clicks don't pile up duplicate
 pills.
+
+**The `:machine` kind has no right-click source today.**
+`:rf.xray/filter-by-machine` is registered (`filters.cljs`) and its
+matcher, pill label and glyph are complete, but nothing in
+`tools/xray/src` dispatches it: the Machine inspector's picker chrome
+and the focused-event lens header were both specified as sources and
+neither was built, so the `:machine` pill kind is unreachable from the
+UI. The event is kept rather than retired — it is the wiring point for
+whichever surface lands the affordance.
 
 ## §7 Reset-on-load (rf2-swclw)
 
@@ -158,7 +184,8 @@ policy is unchanged — it is the REASON the layer could go, and it now
 holds by construction rather than by cleanup.** Typed pills therefore
 need no serialisation contract: they live in `:active-filters` for the
 duration of a session and nothing writes them to disk. See
-[`015-Configuration.md` §Transient vs durable state](015-Configuration.md)
+[`015-Configuration.md` §`:rf.xray/filters`](015-Configuration.md)
+(transient user filters vs the explicit host seed)
 + [`018-Event-Spine.md` §Filter reset-on-load](018-Event-Spine.md).
 
 ## §8 "N events filtered out" indicator (rf2-jvghz / rf2-pjjwh)
@@ -184,6 +211,8 @@ animates open only once the first filter exists.
 - [`018-Event-Spine.md` §7](018-Event-Spine.md) — pill UI contract +
   IN/OUT composition.
 - [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.4 /
-  F-C2 — managed-fx record shape (`:correlation-id`, `:fx-id`).
+  F-C2 — the managed-fx bug classes these pills serve. The record shape
+  itself is not specified there; `panels/managed_fx_helpers.cljc` derives
+  a record's `:correlation-id` and `:fx-id`.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Selection +
   switching — the machine picker / focused-event lens surfaces.
