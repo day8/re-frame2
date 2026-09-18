@@ -426,11 +426,11 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; Xray's Static shell is still a `reg-view` tree rendered by the installed
-;; adapter. `static/shell.cljs`'s `detail-panel` mounts the active tab as
-;; the hiccup head `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s
-;; `:pre` requires `:panel` to be CALLABLE — neither of which a React
-;; component is.
+;; Xray's Static shell is a Fresco tree, but it still reaches this panel
+;; across an `as-child` seam. `static/shell.cljs`'s `detail-panel` mounts
+;; the active tab as the hiccup head `[(:panel tab)]`, and
+;; `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be
+;; CALLABLE — neither of which a React component is.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
 ;; it answers a real React component for a boundary, which a React parent

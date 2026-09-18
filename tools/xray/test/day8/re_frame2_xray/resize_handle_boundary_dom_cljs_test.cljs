@@ -36,10 +36,10 @@
 
   ## The mount is the SHIPPED mount
 
-  `shell.cljs`'s `shell-view-tree` — still a Reagent tree — heads
-  `[resize-handle/Handle mode]`, and `Handle` answers
-  `[:> handle-component {}]`, Fresco's `as-component` door, under the
-  `rf/frame-provider` that same tree wraps its children in. [[mount!]]
+  `shell.cljs`'s `shell-view-tree` — a Fresco tree since rf2-k97c.3 —
+  CALLS `(resize-handle/Handle mode)` rather than heading it, and `Handle`
+  answers `[:> handle-component {}]`, Fresco's `as-component` door, under
+  the `rf/frame-provider` that same tree wraps its children in. [[mount!]]
   reproduces exactly that two-level form and nothing else: the provider,
   a marker `<div>`, and `Handle` called with `:inline`. Mounting the
   whole shell would witness the same crossing through several hundred
