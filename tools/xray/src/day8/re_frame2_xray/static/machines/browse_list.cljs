@@ -9,8 +9,10 @@
     - selection glyph (◉ active / ○ inactive — same vocabulary as
       the Static tab-bar's `tab-button`)
     - machine-id in mono accent-violet
-    - source-coord chip (renders the file:line label; jump-to-source
-      via `:rf.xray/open-in-editor`)
+    - source-coord chip (renders the file:line label only — it is not
+      a link: the whole row is one `<button>` whose click selects the
+      machine; the `open-in-editor/open-chip` jump-to-source link sits
+      beside the same label in the definition-detail header)
     - state-count chip (mono · tertiary)
     - live-instance pip cluster (cap 12; >12 → textual count)
     - `→ Dynamic` JUMP chip (handler in `instances_jump`)

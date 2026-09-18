@@ -21,9 +21,12 @@
 > **Treat the entire body below as historical reference, not normative
 > spec.** The mismatch-bisector / side-by-side / sub-attribution surface
 > it describes is a design record for a panel that does not ship. A full
-> rewrite against the surviving `:rf.ssr/*`-row surface is tracked
-> separately (cf. the analogous `014-Registry-Catalogue.md` rf2-qy0nu
-> drift notice for the same 8-dead-panel sweep).
+> rewrite against the surviving `:rf.ssr/*`-row surface would be separate
+> work. The panel's retirement in the rf2-qy0nu 8-dead-panel sweep is
+> recorded, with its former subs and events, at
+> [`014-Registry-Catalogue.md` §Hydration debugger](./014-Registry-Catalogue.md#hydration-debugger),
+> and the sweep's whole panel list at
+> [`API.md` §Panel reg-views](./API.md#panel-reg-views).
 
 ## Bug class
 

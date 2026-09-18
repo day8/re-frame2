@@ -24,9 +24,13 @@
 
   ## Two mounts
 
-    1. **Machines tab side-panel** — when the focused machine had a
-       cancellation-anchor in the trace window, the visualiser mounts
-       inline beside the chart. Reads
+    1. **Side-panel** — [[SidePanel]], reached only through the L4
+       standalone mount `panels/mount-cancellation-cascade-side-panel!`;
+       no Xray tab renders it. It is NOT inline in the Machines tab:
+       rf2-g2axio removed that tab's inline cancellation-cascade block,
+       subsuming it into the shared EVENT HANDLER mini-pipeline above
+       the chart. Renders when the selected machine had a
+       cancellation-anchor in the trace window. Reads
        `:rf.xray/cancellation-cascade-for-focused-machine`.
 
     2. **Popover** — opened from anywhere via

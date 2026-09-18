@@ -34,9 +34,10 @@
 
   ## Substrate (per `spec/009-Instrumentation.md` §Error event catalogue)
 
-  The Issues panel is the unified feed across the catalogue Spec 009
-  enumerates. Per the catalogue (the single normative source) every
-  issue trace event carries:
+  With the Issues panel gone, this projection is the unified issue
+  feed across the catalogue Spec 009 enumerates — serving the two live
+  surfaces listed above. Per the catalogue (the single normative
+  source) every issue trace event carries:
 
       {:id        <int>           ;; stable per-process
        :time      <ms>
@@ -143,9 +144,10 @@
   "True iff `ev` is an issue (carries a non-nil severity per
   `op-type->severity`). Pure data → bool; JVM-testable.
 
-  Excluded by design: every success-path / lifecycle op-type. The
-  panel is the issues-only lens; success traces have their own
-  panels (Event detail, Reactive, Trace)."
+  Excluded by design: every success-path / lifecycle op-type. This
+  predicate is the issues-only lens — the ribbon composite and the L2
+  pink-wash both classify through it; success traces are read in
+  their own panels (Epoch, Reactive, Trace)."
   [{:keys [op-type] :as _ev}]
   (some? (op-type->severity op-type)))
 
@@ -311,9 +313,10 @@
         (keep project-issue)
         events))
 
-;; Re-export `now-ms` so existing callers (registry.cljs thunks the
-;; `:rf.xray/issues-ribbon-feed` sub via `(issues-helpers/now-ms)`)
-;; keep working without churn. Body lives in `common-helpers`.
+;; Re-export of `now-ms`; the body lives in `common-helpers`. Nothing
+;; calls it through this ns today — the `:rf.xray/issues-ribbon-feed`
+;; sub this comment once named as its caller is registered nowhere
+;; (absent from `registry_cljs_test.cljs`'s exact-set sub roster).
 (def now-ms common/now-ms)
 
 ;; ---- composite projection (the panel reads this) ------------------------

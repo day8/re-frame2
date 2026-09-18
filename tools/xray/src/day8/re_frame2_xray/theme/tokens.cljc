@@ -6,7 +6,8 @@
   Phase 1 / Phase 2 / Phase 3 panel views each carried a private copy
   of the dark-theme palette plus the `mono-stack` + `sans-stack` font
   defs. Drift had already started — `:orange` was unique to the
-  performance panel even though `spec/007-UX-IA.md` §Colour system
+  performance panel (since deleted, in the rf2-qy0nu sweep) even
+  though `spec/007-UX-IA.md` §Colour system
   catalogues it as part of the canonical perf scale. One source of
   truth — this ns — removes the duplication and makes the v1.0
   CSS-variable migration a one-file change.
@@ -517,8 +518,15 @@
   optical-size + SOFT + WONK axes designed to be characterful at
   large sizes. Deliberately *not* another grotesque sans — the
   frontend-design rubric flags 'Inter at every size' as a generic
-  AI-aesthetic. The body chrome stays Inter; only L4 panel <h1>s
-  reach for this face so the visual hierarchy is unmistakeable.
+  AI-aesthetic. The body chrome stays Inter; the face is reached only
+  through this var, so its requirers are the roster — today that is
+  the static machines' definition-detail title, which is a `<div>`
+  rendering at BODY type-scale, not a heading.
+
+  This read \"only L4 panel <h1>s reach for this face\" until
+  rf2-09c8s. Those headings are GONE — `[:h1` occurs zero times across
+  `tools/xray/src` (controls: `[:h2` 5, `[:div` 466) — so the scope
+  named a surface that no longer exists.
 
   Fallback chain: `ui-serif` is the modern serif system pointer
   (Safari/Chrome resolve it to the platform's native serif —
@@ -768,8 +776,11 @@
 
 (defn accent-stripe-style
   "Build an inline-style map that paints the per-panel accent as a
-  3px left border on the panel's `<h1>` (or whichever element the
-  caller applies it to). Inline style so per-panel call sites stay
+  3px left border on whichever element the caller applies it to; its
+  callers are the roster (the static machines' definition-detail
+  title `<div>` today). It named the panel's `<h1>` until rf2-09c8s,
+  but no Xray view renders an `<h1>` (see [[display-stack]]). Inline
+  style so per-panel call sites stay
   small + the stripe is co-located with the header chrome.
 
   `tab` is the L4 tab keyword (`:event` / `:app-db` / …). Returns a

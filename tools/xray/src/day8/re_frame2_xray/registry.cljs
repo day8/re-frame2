@@ -750,10 +750,12 @@
           {:in  (vec (get stored :in []))
            :out (vec (get stored :out []))})))
 
-    ;; Shared event-bundle projection. The event-detail and performance
-    ;; composites all consume `projection/group-by-event` over the same
-    ;; trace-buffer; routing them through one intermediate sub collapses
-    ;; multiple O(buffer) passes per push to one. Each downstream
+    ;; Shared event-bundle projection. Every consumer of
+    ;; `projection/group-by-event` over the trace-buffer reads it through
+    ;; this sub, so the readers of `[:rf.xray/event-bundles]` ARE the
+    ;; roster (the spine's `:rf.xray/focus`, the filtered list, Trace,
+    ;; Routing and managed-fx among them today). Routing them through one
+    ;; intermediate sub collapses multiple O(buffer) passes per push to one. Each downstream
     ;; composite declares the dependency in its `:inputs` so the reactive graph
     ;; stays correct (and idle composites still don't pay for the
     ;; projection).
@@ -825,12 +827,14 @@
 
     ;; ---- Spine shim — focus by dispatch-id ------------------------
     ;;
-    ;; `:rf.xray/select-dispatch-id` is the by-dispatch-id entry point
-    ;; used by machine-inspector / trace / cancellation-cascade
-    ;; / mcp-server / the cross-site event-status-colour e2e harness.
-    ;; It writes through the spine via the same reducer the spec-018
-    ;; `:rf.xray/focus-event` event uses. A multi-panel consumer, so
-    ;; it lives here.
+    ;; `:rf.xray/select-dispatch-id` is the by-dispatch-id entry point.
+    ;; Its dispatchers are the roster: in source that is only the
+    ;; cancellation-cascade row jump (`:rf.xray/focus-trace-entry`) today
+    ;; — the Trace row click deliberately does not fire it — and the rest
+    ;; are tests, the cross-site event-status-colour e2e harness among
+    ;; them. It writes through the spine via the same reducer the spec-018
+    ;; `:rf.xray/focus-event` event uses, so every panel reading the spine
+    ;; focus sees the result — which is why it lives here.
     ;;
     ;; Re-keys `:epoch-history` onto the selected event-bundle's
     ;; frame BEFORE resolving its settling epoch, exactly as the sibling

@@ -18,7 +18,7 @@
 
     1. **Machine picker** — a dropdown over the registered machine-ids
        (Spec 005 §Querying machines). Switching the selection re-binds the chart
-       + transition-history ribbon to the new machine. Each picker
+       to the new machine. Each picker
        option shows machine-id + current-state.
 
     2. **MachineChart placeholder** — a `[viz/MachineChart {...}]`
@@ -34,11 +34,11 @@
        §Subscribing to machines via the :rf/machine sub), surfaced on
        the picker row + in the placeholder's prop summary.
 
-    4. **Transition history ribbon** — filter the Xray trace buffer
-       to `:rf.machine/transition` events for the selected machine and
-       render them as a scrubbable horizontal list. Click a row →
-       `:rf.xray/select-dispatch-id` (pivots focus, parity with every
-       other Xray cross-panel jump).
+    4. **Transition history ribbon** — REMOVED by rf2-y9xmf, with the
+       rest of the Dynamic panel's ribbons. `project-transitions` still
+       filters the trace buffer to the selected machine's
+       `:rf.machine/transition` events into `:transitions` (below), but
+       no view renders that slot.
 
   ## What v1 does NOT include
 
@@ -81,7 +81,7 @@
        :selected-id   <keyword-or-nil>
        :selected      <machine-row-or-nil>   ;; the picker focus
        :chart-props   {<MachineChart props>} ;; per machines-viz API
-       :transitions   [<transition-row> ...] ;; ribbon entries
+       :transitions   [<transition-row> ...] ;; no view renders it
        :empty-kind    <:no-machines / nil>}
 
   Each `machine-row` is `{:machine-id :state :data :registered?}`. The
@@ -335,12 +335,12 @@
   fn — JVM-runnable so the JVM test target can drive it without a
   CLJS runtime.
 
-  Per spec/003-Machine-Inspector.md §Transition history ribbon the
-  ribbon is *newest-first* (the most recent transition sits at the
-  far right of the strip; the view renders the projection in display
-  order). v1 caps the rendered ribbon at 200 entries — the helper
-  returns the full filtered vector and the view applies the cap so
-  tests can assert the unbounded shape.
+  Newest-first — the order spec/003-Machine-Inspector.md §Transition
+  history ribbon gave the ribbon. That section now sits inside 003's
+  bounded historical run: rf2-y9xmf removed the ribbon, so no view
+  renders this projection and nothing applies `cap-transitions` to
+  it. The helper returns the full filtered vector, which is the
+  unbounded shape the tests assert.
 
   Returns `[]` when `machine-id` is nil (nothing focused → nothing
   to project)."
