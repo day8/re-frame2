@@ -1226,6 +1226,7 @@
         n               (count rows)
         empty-kind      (cond
                           (= focus-status :no-focus)      :no-focus
+                          (= focus-status :no-epoch)      :no-epoch
                           (= focus-status :epoch-evicted) :epoch-evicted
                           (zero? n)                       :no-events
                           :else                           nil)]
@@ -1255,6 +1256,12 @@
   `focus-resolver/resolve-focus-status`:
 
     :no-focus       — no focused epoch AND no history (cold start)
+    :no-epoch       — focus pins a :dispatch-id whose event bundle
+                      settled no epoch (the resolver's 3-arity). Mapped
+                      through as `:no-epoch`, never `:no-events`, which
+                      would claim a focused epoch ran and emitted
+                      nothing (rf2-c4abp; mapped here, not in the sub,
+                      since rf2-p766c)
     :epoch-evicted  — focus has an :epoch-id but the record is gone
     :focused        — focus resolved to a real epoch record
 
@@ -1268,7 +1275,7 @@
        :total       <int>         ;; the epoch's trace-event count
        :rendered    <int>         ;; same as :total (no filtering)
        :epoch-id    <int-or-nil>  ;; the focused epoch's id
-       :empty-kind  <:no-events / :no-focus / :epoch-evicted / nil>}
+       :empty-kind  <:no-events / :no-focus / :no-epoch / :epoch-evicted / nil>}
 
   Rows render OLDEST-first (chronological) so the arc reads top-down —
   EPOCH OPEN → ① DISPATCH → … → ④ REACTIVE → EPOCH CLOSE. `:bands` is

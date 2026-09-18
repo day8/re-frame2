@@ -975,16 +975,10 @@
     ;; Epoch panel and rf2-c4abp threaded through Trace + the Machine
     ;; Inspector) is what separates them.
     ;;
-    ;; The `:empty-kind` override below is this sub deciding its own
-    ;; empty-state vocabulary rather than taking it from the projector, for
-    ;; the same reason rf2-c4abp gave for `:rf.xray/trace-feed`:
-    ;; `project-feed` maps `:no-focus` and `:epoch-evicted` through and
-    ;; falls any other non-`:focused` status to `:no-issues` — which for
-    ;; this status would assert that a focused epoch ran and carried no
-    ;; issues, when in truth no epoch was resolved at all. The projector is
-    ;; the natural long-term home for the mapping; it is left alone here
-    ;; because `issues_ribbon_helpers.cljc` is outside this change's fence,
-    ;; and lifting it there is a pure follow-on with no behaviour change.
+    ;; The `:no-epoch` `:empty-kind` comes from `project-feed` itself, like
+    ;; every other status (rf2-p766c). It must never read `:no-issues`,
+    ;; which would assert that a focused epoch ran and carried no issues
+    ;; when in truth no epoch was resolved at all.
     (rf/reg-sub :rf.xray/issues-ribbon
       {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
       (fn [[focus epoch-history] _query]
@@ -996,8 +990,7 @@
               record            (issues-helpers/find-epoch-record focus-epoch-id
                                                                   focus-dispatch-id
                                                                   epoch-history)]
-          (cond-> (issues-helpers/project-feed record focus-status)
-            (= :no-epoch focus-status) (assoc :empty-kind :no-epoch)))))
+          (issues-helpers/project-feed record focus-status))))
 
     ;; ---- Static-mode chrome ---------------------------------------
     ;;

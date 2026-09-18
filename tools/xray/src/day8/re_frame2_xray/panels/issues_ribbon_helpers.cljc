@@ -337,6 +337,9 @@
   `focus-status` is one of:
     :no-focus       — no focused epoch AND no history (cold start
                       before any event-bundle has settled)
+    :no-epoch       — focus pins a :dispatch-id whose event bundle
+                      settled no epoch (the shared resolver's 3-arity,
+                      rf2-y8doi.19); there is no record to read
     :epoch-evicted  — focus has an :epoch-id but the matching record
                       is gone from history (capped per :epoch-history)
     :focused        — focus resolved to a real epoch record (either
@@ -348,7 +351,7 @@
        :total      <int>            ;; issue count
        :rendered   <int>            ;; = total (no filtering)
        :epoch-id   <int-or-nil>     ;; the focused epoch's id
-       :empty-kind <:no-issues / :no-focus / :epoch-evicted / nil>}
+       :empty-kind <:no-issues / :no-focus / :no-epoch / :epoch-evicted / nil>}
 
   `:empty-kind` discriminates the empty-state branches:
 
@@ -359,6 +362,11 @@
                         broken. Per rf2-h0120 a nil-focus with
                         non-empty history falls back to head and
                         renders the feed, not this empty state.
+      :no-epoch       — the operator pinned an event bundle that
+                        settled no epoch. Cause-neutral, and never
+                        :no-issues, which would claim a focused epoch
+                        ran and came up clean (rf2-hiri8; mapped here,
+                        not in the sub, since rf2-p766c).
       :epoch-evicted  — focused epoch's record has been evicted from
                         the history ring buffer; view paints the
                         canonical placeholder per spec/021 §10.7.
@@ -375,6 +383,7 @@
         sorted-display   (vec (reverse all-issues))
         empty-kind       (cond
                            (= focus-status :no-focus)      :no-focus
+                           (= focus-status :no-epoch)      :no-epoch
                            (= focus-status :epoch-evicted) :epoch-evicted
                            (empty? all-issues)             :no-issues
                            :else                           nil)]
