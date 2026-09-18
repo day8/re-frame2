@@ -949,8 +949,8 @@ anchors the cascade's seed paths.
 **Density note** (per §0). The panel renders the complete app-db as **vertical sections, each
 a cljs-devtools-style collapsible widget** (§10), sectioned by reserved `:rf/*` area. Each
 section's value uses the shared lazy-tree renderer with App-db's depth heuristic
-(depth-3-collapsed by default — see §10.4) so a 5-level-deep production db doesn't blow the
-viewport. Diff is carried **inline as `← changed` annotations** on the changed nodes within
+(an expand ceiling of 3 under the width-first heuristic — see §10.4) so a 5-level-deep
+production db doesn't blow the viewport. Diff is carried **inline as `← changed` annotations** on the changed nodes within
 each section (not a separate zone). The hover popover (§4.4) is the canonical example of a
 **hover affordance** in Xray: never replacing inline content, always augmenting.
 Lines-per-screen target ~30-50 depending on db shape.
@@ -5931,9 +5931,9 @@ table the implementer reads at panel-build time:
 |---|---|---|
 | Event (§2) | ~28-40 visible | Steps 1-6 ALL expanded (the pipeline IS the punch); no collapse-all key ships (`keybinding.cljs` binds no `[`) |
 | Reactive (§3) | ~24-32 visible | Cascade tree fully expanded; unchanged subs collapsed under footer `[Show N unchanged subs ▾]` |
-| App-db (§4) | ~30-50 visible | DIFF zone: changed paths fully expanded. STATE zone: depth-3-collapsed per §10.4 |
-| Trace (§5) | ~30-60 visible | Each op row collapsed (single line); per-row expand reveals payload via §10 renderer at depth-2-expanded |
-| Machines (§6) | ~16-36 (xyflow auto-fit) | Each per-machine canvas auto-fit-on-mount; guards/actions/cancellation lists all expanded |
+| App-db (§4) | ~30-50 visible | One inspector card per section (§4.2), width-first with an expand ceiling of 3 (§10.4); with a pre-image, only the ancestors of a change open (the §10.4 diff posture) |
+| Trace (§5) | ~30-60 visible | Each op row collapsed (single line); per-row expand reveals payload via §10 renderer with `:default-expanded-depth 1` (§10.4) |
+| Machines (§6) | ~16-36 (xyflow auto-fit) | The one focused instance's canvas auto-fits on mount; the guard / action / timer detail is the mini-pipeline's rows above it (§6.2) |
 | Routing (§7) | ~16-30 | Route tree fully expanded (max depth typically ≤ 4); "This epoch" block always expanded |
 | Issues (§8) | ~6-24 (variable) | Each issue block fully expanded (severity + op-key + message + path + ex-data); ex-data tree depth-2-expanded |
 
