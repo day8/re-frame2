@@ -560,8 +560,8 @@ appear as graph nodes. Quoted from the super-prompt (A.3):
 > The View panel renders the reactive cascade (subs + views); the Epoch
 > panel renders flows (alongside other handling steps).
 
-The L2 row's `🌊 flow-recomputed` badge surfaces flows as a cross-epoch signal; per-epoch flow
-detail lives in the Epoch panel's FLOW section (§9.1).
+No L2 row badge marks a flow — the L2 `🌊` glyph is the `:websocket` source prefix, not a flow
+signal (§17.1.5). Per-epoch flow detail lives in the Epoch panel's FLOW section (§9.1).
 
 Below the graph, two list sections complete the panel (the prior SUB VALUES section retired in
 rf2-uz3wm — the Epoch panel's SUBSCRIPTIONS table now carries per-cascade sub values + per-sub
@@ -638,9 +638,9 @@ for tool-frame internal events):
 > indented tree carried per leaf — `CheckoutButton  caused-by ← :cart/can-submit? ← [:cart
 > :state]` — survives as the **per-view causation tooltip / cross-panel chip** (§3.6), not as
 > the panel's primary layout. The graph's edges ARE the causation; the chip spells it out for
-> the click-to-App-db jump. (Whole-cascade `caused-by` attribution depends on the deref-subs
-> sink — see §3.2 constraint 2; until it lands, the sub→view edge names only the triggering
-> view of each recompute.)
+> the click-to-App-db jump. (Neither the chip nor the jump ships — §3.6. The sub→view edges
+> come from each render's `:rf.view/deref-subs` read-set, so every reader of a sub is drawn,
+> not only the triggering view — §3.5 constraint 2.)
 
 ### §3.3 Sub-layer placement (B.6 decision)
 
@@ -861,9 +861,11 @@ surviving caller rather than retiring with the Freehand cells.
 
 | From | Reads |
 |---|---|
-| Focused epoch record | `:rf.sub/run`, `:rf.sub/skip` (memo hit → `:subs-skipped`, §3.4), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
-| Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
-| App-db | Seed-path resolution from the epoch's diff (§4) |
+| Focused epoch record | the structured `:sub-runs` + `:renders` projections, plus `:rf.sub/skip` (memo hit → `:subs-skipped`, §3.4), `:rf.view/rendered` / `:rf.view/unmounted` and the flow tallies off `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
+| Registries | Sub topology (`re-frame.subs.tooling/sub-topology` — `:input-kind`, declared `:inputs`, source coord), view metadata (file:line) |
+
+(The former `App-db → seed-path resolution` row is struck: it read `:rf/changed-paths`, which
+nothing stamps, and rf2-y8doi.25 deleted `seed-paths` and its `:seed-paths` slot.)
 
 Every read on this panel is epoch-scoped. The three view-substrate reads that
 were not (`:rf.xray/mounted-views`, `:rf.xray/mounted-view-sites`,
@@ -872,12 +874,17 @@ their substrate — §3.4.1. The panel therefore has no cumulative content and n
 dependency on any view substrate; a Fresco host's live evidence is the
 Fresco tab's subject ([`027-Fresco-Evidence.md`](027-Fresco-Evidence.md)).
 
-Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
-(nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;
-`:rf.sub/value-changed?` / `:rf.sub/prev-value` / `:rf.sub/value` drive the changed/unchanged
-node state. The per-epoch aggregate `:rf.cascade/captured` (subs recomputed/skipped, flows
-computed/skipped, views rendered) feeds the counts. The **UNMOUNTED VIEWS** + **DESTROYED
-SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same epoch slice.
+The graph's edges resolve from the sub TOPOLOGY and the VIEW read-sets, not from
+`:rf.sub/run` tags: the Level-1 / Level-2+ partition keys off `sub-topology`'s `:input-kind`, a
+sub→sub edge is a Level-2+ sub's declared `:inputs` entry, and a sub→view edge is the
+`:sub-readers` map built from each render's **`:rf.view/deref-subs`** read-set
+(`reactive_flow_graph/layout`). The panel reads neither `:rf.sub/cause-sub` nor
+`:rf.sub/reader-render-key` — `:rf.sub/cause-sub` is the Epoch panel's SUBSCRIPTIONS read
+(§9.1.10.1). The `:sub-runs` rows' `:value-changed?` drives the changed/unchanged node state.
+The counts come from `:sub-runs`, `:renders` and the `:rf.flow/computed` / `:rf.flow/skip`
+tallies; nothing reads a `:rf.cascade/captured` aggregate. The **UNMOUNTED VIEWS** +
+**DESTROYED SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same
+epoch slice.
 
 **Constraints the graph layout is shaped around:**
 
@@ -894,13 +901,13 @@ SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same e
    The REALIZED parametric edges surface only in the live/cascade view, sourced from the
    `:rf.sub/inputs` trace tag (the `(input-fn query-v)` result) and the live sub-cache's
    `:realized-inputs` slot. The graph must not fabricate un-materialized parametric edges.
-2. **`:rf.view/rendered` carries no deref-subs list** (live: only render-key / id / frame /
-   mount?). The sub→view link comes from `:rf.sub/reader-render-key`, which names only the
-   **triggering** view of a recompute — not all readers. So BOTH the per-view
-   "reactive-vs-parent" reason AND **shared-subscription detection** (which views read a
-   given sub) need the deref-subs sink (spec'd, absent in the current build) or sub-cache
-   reader introspection. Until it lands, the `×N (shared)` annotation + the precise
-   "reactive vs parent re-render" tag render only for edges the triggering-view key resolves.
+2. **`:rf.view/rendered` carries the view's deref-subs list.** The substrate stamps
+   `:rf.view/deref-subs` (the query-vectors THIS view derefs) on every render that derefs any
+   sub (`re-frame.views`), alongside `:rf.view/triggered-by`. The panel builds its
+   `:sub-readers` map from those read-sets, so **shared-subscription detection** (which views
+   read a given sub — the `×N (shared)` annotation) covers every reader, and the per-view
+   reason is the intersection of a render's read-set with the subs that changed value this
+   epoch: non-empty → reactive, empty → structural (a props / parent re-render).
 3. **`:rf.sub/skip`** ("considered, didn't recompute" — the memo hit) appears only when skips
    happen; it feeds the §3.4 `:subs-skipped` disclosure, NOT the graph. `:rf.sub/value-changed?
    false` carries the changed/not story regardless, so the dashed `no change` graph node renders
@@ -910,8 +917,8 @@ SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same e
 
 | Click | Navigates to |
 |---|---|
-| Sub row | Switch to **App-db**, scrolled + highlighted to that sub's input path |
-| View row | Open-in-editor at view file:line |
+| Sub node | Open-in-editor at the sub's registration file:line (no App-db switch ships) |
+| View node | Open-in-editor at view file:line |
 | `caused-by ← sub ← path` chip | **Not built** — no chip ships, and no cross-panel propagation ships to jump to (§10.5, retired unbuilt under rf2-y8doi.29) |
 
 ### §3.7 Film-strip — RETIRED 2026-09-03 (rf2-6r9j.16)
@@ -954,8 +961,9 @@ Reconciled to `tools/xray/design-reference/xray_devtools_reference.cljs` (the `a
 component), the later iteration —
 the **sectioned-by-reserved-area** model (the prior separate DIFF / STATE two-zone split is
 superseded). The complete app-db renders as **vertical sections**, each headed by an uppercase
-caption label and rendering its value as a collapsible widget; adjacent sections are separated
-by a 1px hairline. Section order, top → bottom:
+caption label and rendering its value as a collapsible widget; adjacent sections self-separate
+by their card chrome (the `───` rules in the mockup below are shorthand). Section order, top →
+bottom:
 
 - **APP STATE** (TOP, always shown) — the app-db **minus** every reserved `:rf/*` key (the
   application's own state).
@@ -967,9 +975,13 @@ by a 1px hairline. Section order, top → bottom:
 - **Other reserved singletons** — `PENDING-NAVIGATION`
   (`:rf/pending-navigation`), `ELISION` (`:rf/elision`) — one section each.
 
-Every reserved area renders **even when absent/empty** (empty-state placeholder) so the
-operator always sees the full reserved-key inventory. The mode-accent stripe sits at the
-panel's left edge.
+An absent or empty reserved area renders **nothing** — no section, no placeholder
+(rf2-jcdvo: `current-state-sections` filters it at projection time, pinned by the App-DB
+suite's "no placeholder card for empty reserved area" test). Only APP STATE always renders.
+The reserved areas are exactly `:rf/machines`, `:rf/spawned`, `:rf/route`,
+`:rf/pending-navigation` and `:rf/elision` (`reserved-area-order`); there is no `SYSTEM-IDS`
+area. Each section renders as its own inspector card (rf2-63ie5) — rf2-jcdvo dropped the
+inter-section hairline. The mode-accent stripe sits at the panel's left edge.
 
 ```
 ┌─ APP-DB · epoch #42 ────────────────────────────── [◀ Prev] [Next ▶] ─┐
@@ -986,14 +998,9 @@ panel's left edge.
 │ ───────────────────────────────────────────────────────────────────  │
 │ ROUTE                                                                 │
 │   ▸ {:route-id :home, :params {}}                                     │
-│ ───────────────────────────────────────────────────────────────────  │
-│ SYSTEM-IDS                                                            │
-│   ▸ #{:app :xray}                                                    │
-│ PENDING-NAVIGATION   (empty this epoch)                               │
-│ ELISION              (empty this epoch)                               │
 │                                                                       │
-│  Empty section state (reserved area absent):  shows the header + a    │
-│  dim "(empty)" placeholder — the area renders even when unused.       │
+│  Empty reserved area (e.g. no pending navigation, no elision): no     │
+│  section at all — only areas carrying state render (rf2-jcdvo).       │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
