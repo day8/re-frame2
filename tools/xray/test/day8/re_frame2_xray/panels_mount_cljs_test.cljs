@@ -205,9 +205,10 @@
           (is (vector? tree))
           (is (map? (second tree)))
           (is (= :inline (:mode (second tree))))
-          ;; The shell mounts via a reg-view-registered view; the
-          ;; captured render-tree's first element is that view fn (not
-          ;; a provider — the shell installs its own scope provider).
+          ;; The shell mounts via the public `shell-view` callable — a
+          ;; plain `defn`, not a registration; the captured render-tree's
+          ;; first element is that fn (not a provider — the shell
+          ;; installs its own scope provider).
           (is (not= rf/frame-provider (first tree))
               "mount-shell! does NOT add an outer frame-provider — the
                shell-view contains its own scope provider per spec/007

@@ -448,13 +448,13 @@
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
-;; Xray's shell is still a `reg-view` tree rendered by the installed
-;; adapter. `shell/detail-panel` mounts the active tab as a hiccup head and
-;; `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be CALLABLE —
-;; neither of which a React component is. `rf.fresco/as-component` is
-;; Fresco's own outward door: a React parent mounts the component UNDER THE
-;; FRAME IT IS ALREADY IN, taking the frame from React context rather than
-;; from a second root.
+;; Xray's shell is a Fresco tree, but it still reaches this panel across
+;; an `as-child` seam. `shell/detail-panel` mounts the active tab as a
+;; hiccup head and `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel`
+;; to be CALLABLE — neither of which a React component is.
+;; `rf.fresco/as-component` is Fresco's own outward door: a React parent
+;; mounts the component UNDER THE FRAME IT IS ALREADY IN, taking the frame
+;; from React context rather than from a second root.
 ;;
 ;; Both defs are PRIVATE here, unlike the Views and app-db panels': this
 ;; tab is an L4-registry surface only, with no standalone `mount-*!` facade
