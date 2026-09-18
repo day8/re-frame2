@@ -98,6 +98,43 @@
     (is (nil? (subs/focused-epoch-record [] :anything)))
     (is (nil? (subs/focused-epoch-record nil :anything)))))
 
+(deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
+  (testing "rf2-hiri8 / rf2-y8doi.19 — the operator PINNED an event bundle
+            that settled NO epoch, so focus carries a `:dispatch-id` beside
+            a nil `:epoch-id`. That is shape-identical to the cold-start
+            UNSET focus the rf2-h0120 head-fallback above exists to serve,
+            so the 2-arity cannot tell them apart and answers the HEAD —
+            the Views panel then renders the LATEST cascade underneath a
+            selection that is not that epoch's, which is the same class of
+            lie this ns's `focused-epoch-record` docstring already refuses
+            for an EVICTED bundle.
+
+            The 3-arity takes the pinned `:dispatch-id` and resolves to no
+            record. Cause-neutral by construction: a refused dispatch, a
+            bundle still mid-build, a bundle whose epoch aged out and an
+            `:ungrouped` pin all reach this shape and focus alone tells
+            none of them apart."
+    (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
+      (is (nil? (subs/focused-epoch-record history nil 999))
+          (str "a pinned bundle that settled no epoch must resolve to NO "
+               "record — got the head-fallback record instead"))
+      (is (nil? (subs/focused-epoch-record history nil :ungrouped))
+          "an :ungrouped pin settles no epoch and must resolve to no record"))))
+
+(deftest focused-epoch-record-rejects-only-the-pinned-no-epoch-shape
+  (testing "rf2-hiri8 POSITIVE CONTROL — the discriminator must change
+            NOTHING else. Without this row the fix could pass by resolving
+            nothing at all: an UNSET focus over a non-empty ring still
+            head-falls-back (rf2-h0120), an ordinary pinned epoch still
+            resolves its own record, and the 2-arity is untouched."
+    (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
+      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil nil))
+          "an unset focus must still head-fall-back through the 3-arity")
+      (is (= {:epoch-id :b} (subs/focused-epoch-record history :b 999))
+          "a REAL pinned epoch still resolves its own record, pin or no pin")
+      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil))
+          "the 2-arity keeps its pre-rf2-hiri8 head-fallback behaviour"))))
+
 ;; ---- project-record: empty --------------------------------------------
 
 (deftest project-empty-record
