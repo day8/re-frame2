@@ -188,7 +188,7 @@ The design-token namespaces. Public for third-party Story-panel authors; chrome 
 |---|---|---|
 | `re-frame.story.theme.typography` | `sans-stack`, `mono-stack`, `display-stack`, `type-scale`, `weights`, `inject-font-faces!` | IBM Plex Sans + Mono stacks. Inject `local()`-only `@font-face` rules at shell mount. |
 | `re-frame.story.theme.colors` | `tokens` | Semantic colour map (`:bg-1` / `:text-primary` / `:accent-amber` / `:danger` / `:tag-*-bg` / ...). |
-| `re-frame.story.theme.motion` | `durations`, `easings`, `transitions` | Duration / easing maps + pre-composed transitions. Honours `prefers-reduced-motion`. |
+| `re-frame.story.theme.motion` | `timing`, `easing`, `transitions` | Duration / easing maps + pre-composed transitions. Honours `prefers-reduced-motion`. |
 | `re-frame.story.theme.depth` | `shadows` | Elevation shadow scale (`:elev-1` / `:elev-2` / ...). |
 | `re-frame.story.theme.glyphs` | `story-glyph`, `variant-glyph`, `workspace-glyph`, `chevron-right`, `external-link` | Inline-SVG glyph fns. Draws via `currentColor`. |
 
