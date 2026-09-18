@@ -77,8 +77,9 @@ Xray's chrome is two zones, one purpose each:
 ```
 
 **Top** carries the only cross-epoch signal — the L2 epoch timeline + its
-per-row badges (`⚠ ◆ 🌐 ⚡ 💧 🌊 ⏲`) and the dispatch-origin tag prefix
-(`user / fx / route / hyd / ws / timer / tool / internal`). **Bottom** is
+per-row activity badges (`⚠ ◆ 🌐 ⚡ ⏲`) and the dispatch-origin prefix, a glyph or short
+tag per source bucket (`💧` SSR hydration, `🌊` websocket, `R` router, `ui` app code, … —
+§17.1.5; neither `💧` nor `🌊` is an activity badge). **Bottom** is
 seven L4 panels each answering "what happened in this epoch?" through its
 own lens. **No third axis. No cross-epoch L4 panels.**
 
