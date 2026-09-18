@@ -24,11 +24,12 @@ hard requirement, not an accident.
 **Single accent — no per-mode colour swap:**
 - There is **one** `accent` (GitHub blue): active tab, the chrome stripe, active/selected
   states, focus ring, the L4 panel header stripe, and `changed`/recompute highlights all read it.
-- The **Dynamic / Static MODE stays a functional mode** (it gates motion — Static drops the
-  continuous pulses + collapses the tab fade). It **no longer drives accent colour**: the shell
-  reads the same blue accent in either mode. The earlier orange-identity scheme (an always-orange
-  `brand` plus per-mode `accent-dynamic` orange / `accent-static` cyan, swapped under a
-  `.mode-dynamic` / `.mode-static` root class) is **removed**.
+- The **Dynamic / Static MODE stays a functional mode** (it gates motion — Static collapses the
+  180ms tab fade to instant; there are no continuous pulses for it to drop — the machine-active
+  one was refused under rf2-2sez0 and the LIVE one never built). It **no longer drives accent
+  colour**: the shell reads the same blue accent in either mode. The earlier orange-identity
+  scheme (an always-orange `brand` plus per-mode `accent-dynamic` orange / `accent-static` cyan,
+  swapped under a `.mode-dynamic` / `.mode-static` root class) is **removed**.
 - The logo / wordmark (`❖ Xray`) reads the same single `accent` blue.
 
 ### Surfaces & text (neutral; both themes)
