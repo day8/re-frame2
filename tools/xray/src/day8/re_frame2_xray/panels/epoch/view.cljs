@@ -5560,16 +5560,76 @@
 ;; redundant with the HANDLER step's verb link. The schema-violation
 ;; block's `schema check` link routes through `coord-link` directly.
 
+(defn- meta-coord
+  "Call `read-meta` (a zero-arg read of some registration's metadata) and
+  return its `{:file :line}` coord, or nil. Catches CLJS errors so a missing
+  kind / id / frame never bubbles; rendering must degrade gracefully."
+  [read-meta]
+  (let [m (try (read-meta) (catch :default _ nil))]
+    (when (and m (string? (:file m)))
+      {:file (:file m) :line (:line m)})))
+
 (defn- violation-kind-coord
   "Resolve a `(rf/handler-meta {:source :store :kind <kind> :id <id>})` coord, returning
-  `{:file :line}` or nil. Catches CLJS errors so missing kinds /
-  ids never bubble; rendering must degrade gracefully."
+  `{:file :line}` or nil."
   [kind id]
   (when (keyword? id)
-    (let [m (try (rf/handler-meta {:source :store :kind kind :id id})
-                 (catch :default _ nil))]
-      (when (and m (string? (:file m)))
-        {:file (:file m) :line (:line m)}))))
+    (meta-coord #(rf/handler-meta {:source :store :kind kind :id id}))))
+
+(def ^:private violation-registration-kind
+  "rf2-1t8fn — the registrar KIND of the registration whose `:schema` failed,
+  keyed by the violation's `:where`. On each of these surfaces the producer
+  names that registration in `:failing-id`, and `:where` supplies the kind
+  the lookup needs. Read off the emit sites:
+
+    :event          :event  `validate-event!`, and the boundary interceptor
+    :fx-args        :fx     `validate-fx!`
+    :sub-return     :sub    `validate-sub!`
+    :sub-override   :sub    a `:sub-overrides` pin, against the sub's OWN schema
+    :machine-data   :event  a machine IS an `:event` registration carrying
+    :machine-output :event  `:rf/machine? true`; its `[:schemas …]` ride on it
+
+  `:app-db` and `:flow-output` are absent because their schemas are not
+  registrar rows; `violation-schema-coord` reads them through their own
+  doors. `:hot-reload` never reaches this block. A `:where` absent here, or a
+  `:failing-id` naming nothing, leaves the link as plain text."
+  {:event          :event
+   :fx-args        :fx
+   :sub-return     :sub
+   :sub-override   :sub
+   :machine-data   :event
+   :machine-output :event})
+
+(defn- violation-schema-coord
+  "The `{:file :line}` coord of the registration whose schema a violation row
+  failed, or nil (rf2-1t8fn). Each `:where` reads through the door that
+  registration actually lives behind:
+
+    - `:app-db` — the schema is registered at a PATH, in the schemas
+      artefact's per-frame side table, so the read is
+      `rf.schemas/app-schema-meta`. Since rf2-kuky.84 that read REQUIRES a
+      `:frame`, so the violation's own frame (off the projected row) is
+      passed explicitly: resolving ambiently would resolve Xray's own
+      `:rf/xray` frame, not the host frame whose app-db failed. The row's
+      `:failing-id` names the HANDLER whose write failed, not the schema, so
+      it is never consulted here.
+    - `:flow-output` — flows live in the per-frame flow store, not the
+      registrar (whose `:flow` slot is reserved-but-empty), so the read is
+      `rf.flows/flow-meta` under the violation's frame, the same door
+      `render-flow-step` uses.
+    - every other `:where` — `handler-meta` under the kind
+      `violation-registration-kind` names.
+
+  Every branch degrades to nil and never throws; nil renders the link as
+  plain text."
+  [{:keys [where failing-id path frame]}]
+  (case where
+    :app-db      (when (and (sequential? path) (keyword? frame))
+                   (meta-coord #(rf.schemas/app-schema-meta {:frame frame :path path})))
+    :flow-output (when (and (keyword? failing-id) (keyword? frame))
+                   (meta-coord #(rf.flows/flow-meta {:frame frame :id failing-id})))
+    (when-let [kind (get violation-registration-kind where)]
+      (violation-kind-coord kind failing-id))))
 
 (def ^:private violation-prose-style
   ;; sans-stack overrides the outer block's monospace inheritance —
@@ -5661,32 +5721,15 @@
   value, separate handler + schema 'open' buttons) all retired —
   subsumed by the prose + humanized explain."
   ([step-key idx row] (violation-block step-key idx row nil))
-  ([step-key idx {:keys [where failing-id path rollback? recovery frame
+  ([step-key idx {:keys [where rollback? recovery
                          explain explain-humanized kind sensitive? decoded]
-                  :as   _row}
+                  :as   row}
     instance]
   (let [recovery-label  (violation-recovery-label where rollback? recovery)
-        ;; The schema source-coord resolution varies by :where. For
-        ;; `:app-db`, the schema is registered at a PATH (not
-        ;; keyword-id), so we read through `rf.schemas/app-schema-meta`
-        ;; — the same surface the framework's schema-introspection uses
-        ;; (rf2-mg6ya). Since rf2-kuky.84 that read takes ONE opts map
-        ;; with a REQUIRED `:frame`, so the violation's own frame (off
-        ;; the projected row) is passed EXPLICITLY: resolving ambiently
-        ;; would have resolved Xray's OWN `:rf/xray` frame rather than
-        ;; the host frame whose app-db failed. For other `:where`
-        ;; values, the schema rides on the registration's `:schema`
-        ;; metadata, reachable via `handler-meta`. Both paths catch +
-        ;; return nil so missing coords degrade the link to plain text.
-        schema-coord    (or (when (and (= :app-db where) (sequential? path)
-                                       (keyword? frame))
-                              (try (let [m (rf.schemas/app-schema-meta
-                                             {:frame frame :path path})]
-                                     (when (and m (string? (:file m)))
-                                       {:file (:file m) :line (:line m)}))
-                                   (catch :default _ nil)))
-                            (when failing-id
-                              (violation-kind-coord :schema failing-id)))
+        ;; The `schema check` link's coord: the registration whose schema
+        ;; failed, read through the door it lives behind for this `:where`
+        ;; (rf2-1t8fn). nil degrades the link to plain text.
+        schema-coord    (violation-schema-coord row)
         humanized-shown (or explain-humanized explain)
         ;; rf2-plev0 — `:decoded` (the expected/got/+N-more summary) is
         ;; computed in the projection layer (`schema-violation-row`) and
