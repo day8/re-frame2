@@ -833,8 +833,8 @@
   The FRAME they resolve against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context — so this boundary
-  resolves `:rf/xray` identically under today's Reagent-rendered shell
-  and under the Fresco root Xray will own.
+  resolves `:rf/xray` identically under the Fresco root Xray owns today
+  and under an `rf/frame-provider` a Reagent parent writes.
 
   NO ISLAND SURVIVES IN THIS PANEL. The topology chart was the last one,
   and `machine-canvas/Chart-view` — the Fresco head of the same body the

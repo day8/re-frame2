@@ -91,8 +91,8 @@
   through `(:dispatch (rf/capture-frame))`, and they resolve their
   frame from REACT CONTEXT — the same context `rf/frame-provider` and
   `rf.fresco/frame-provider` both write — so the chrome renders
-  identically under today's Reagent-rendered mount and under the
-  Fresco root Xray will eventually own. Nothing here consults
+  identically under the Fresco root Xray owns today and under an
+  `rf/frame-provider` a Reagent parent writes. Nothing here consults
   `:adapter/current-component`, the hook a foreign root cannot answer.
 
   Boundary count tracks READS and head-position use, not file size.

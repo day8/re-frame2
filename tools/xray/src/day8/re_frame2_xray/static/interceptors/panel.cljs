@@ -387,9 +387,10 @@
   The FRAME the read resolves against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context — so this resolves
-  `:rf/xray` identically under today's Reagent-rendered Static shell and
-  under the Fresco root Xray will own. It never consults
-  `:adapter/current-component`, the hook a foreign root cannot answer.
+  `:rf/xray` identically under the Fresco tree the Static shell is today
+  and under an `rf/frame-provider` a Reagent parent writes. It never
+  consults `:adapter/current-component`, the hook a foreign root cannot
+  answer.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
   which Fresco's authoring surface deliberately does not duplicate, and
