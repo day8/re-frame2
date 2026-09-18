@@ -1176,8 +1176,14 @@ Specific motions:
   cascades but muted enough that a long burst of consecutive
   cascades doesn't strobe.
 - Error pulse: single 600ms expand-fade red ring (no looping).
-- Machine-active state: 1.2s gentle scale 1.0 → 1.05 → 1.0 (only
-  continuous animation in chrome, only on the machine chart).
+- Machine-active state: **no pulse ships.** The 1.2s gentle scale
+  1.0 → 1.05 → 1.0 this entry used to specify was refused (rf2-2sez0,
+  2026-05-20) and its keyframes deleted (rf2-wct1s8); the machine
+  chart signals the active state **statically** — a runtime accent
+  border, a soft `box-shadow` glow ring and a faint header wash. The
+  "only continuous animation in chrome" superlative goes with it:
+  nothing in Xray chrome loops. `Principles.md` "No looping
+  animations" owns that rule.
 - L2 head-row LIVE pulse: **never built.** rf2-pjjwh removed the head
   row's `●` gutter glyph that would have carried it, and rf2-2sez0
   refused the continuous pulse. What tells the user the spine is not
@@ -1188,13 +1194,15 @@ Specific motions:
 ### `prefers-reduced-motion`
 
 All durations clamp to 0 except a 1-frame opacity tween where layout
-needs to settle. The error pulse becomes a static red ring for 1.5s;
-the machine pulse stops entirely. There is no L2 head-row LIVE pulse
-for the rule to reach — none was ever built (rf2-pjjwh removed the
-`●` gutter glyph that would have carried it; rf2-2sez0 refused the
-continuous pulse), and the newer-events marker that signals a
-non-following spine is static chrome. The Mode pill widget that
-earlier drafts carried the LIVE pulse on was dropped (rf2-g9pee).
+needs to settle. The error pulse becomes a static red ring for 1.5s.
+No machine-active pulse ships for the rule to dampen — it was
+refused (rf2-2sez0) and its keyframes deleted (rf2-wct1s8). There
+is no L2 head-row LIVE pulse for the rule to reach — none was ever
+built (rf2-pjjwh removed the `●` gutter glyph that would have
+carried it; rf2-2sez0 refused the continuous pulse), and the
+newer-events marker that signals a non-following spine is static
+chrome. The Mode pill widget that earlier drafts carried the LIVE
+pulse on was dropped (rf2-g9pee).
 
 ## Keyboard
 
@@ -2123,13 +2131,14 @@ names was removed, the entry says so.
    `:accent-violet` / `:cyan` tokens left to paint it with either:
    rf2-ad7zx.13 collapsed the palette to a single `accent`. The mode
    signal is carried by entry 1.
-3. **Motion dampening** — Dynamic ships the machine-active pulse
-   + 180ms tab fade (the LIVE pulse this entry used to list was never
-   built — rf2-pjjwh removed the head row's gutter glyph that would
-   have carried one; rf2-2sez0 refused the continuous pulse). Static
-   drops the continuous pulses entirely and collapses the 180ms tab
-   fade to instant (so cluster swaps land
-   without motion). Honours `prefers-reduced-motion: reduce` via the
+3. **Motion dampening** — Dynamic ships the 180ms tab fade, and that
+   is all: neither pulse this entry used to list ships. The LIVE
+   pulse lost its carrier (rf2-pjjwh removed the head row's
+   gutter glyph) and the machine-active pulse was refused (rf2-2sez0;
+   keyframes deleted under rf2-wct1s8). Static therefore drops no
+   continuous pulses — what it dampens is the 180ms tab fade,
+   collapsed to instant (so cluster swaps land without motion).
+   Honours `prefers-reduced-motion: reduce` via the
    `--rf-xray-motion-scale` seam in `theme/global-styles/motion-css`.
 4. **Chrome silhouette** — Dynamic is 4-layer; Static is 3-layer (no
    L2 / no spine). The shape itself is a signal.
