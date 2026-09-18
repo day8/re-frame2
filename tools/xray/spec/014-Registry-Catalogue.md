@@ -790,7 +790,7 @@ than re-reading the registrar.
 | `:rf.xray.static.machines/set-sub-mode` | event | `[_ machine-id sub-mode]` — stores the normalised sub-mode and fires `persist-sub-mode` with the whole map. |
 | `:rf.xray.static.machines/hydrate` | event | `[_ {:selected-id :sub-mode-by-id}]` — lifts the persisted pair back into app-db at boot. |
 | `:rf.xray.static.machines/state-clicked` | event | `[_ payload]` — registered **no-op** slot, so the topology chart's state-click lands on a known handler rather than a `:rf.warning/no-handler` trace. |
-| `:rf.xray.static.machines/open-chart-popout` | event | `[_ machine-id]` — registered **no-op** slot for the pop-out affordance; the window orchestration is not built. |
+| `:rf.xray.static.machines/open-chart-popout` | event | `[_ machine-id]` — registered **no-op** slot, reserved for a chart pop-out affordance; the window orchestration is not built, so the Topology toolbar renders no pop-out button and nothing dispatches this today. |
 | `:rf.xray.static.machines/copy-mermaid` | event | `[_ machine-id definition]` — emits the definition as Mermaid and hands it to `:rf.xray.fx/copy-to-clipboard`, the only Xray gesture that reaches that fx. A definition that cannot be projected lands as honest `:failed` feedback rather than an event error. |
 | `:rf.xray.static.machines/copy-mermaid-done` | event | `[_ machine-id status]` — records the settled clipboard outcome, **only while that machine is still selected**, so a late settlement cannot repopulate a slot `select` just cleared. |
 | `:rf.xray.static.machines/persist-selection` | fx | Writes the selected id to localStorage `xray.static.machines.selected-id`. |

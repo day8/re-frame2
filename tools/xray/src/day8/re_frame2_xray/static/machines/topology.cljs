@@ -132,31 +132,12 @@
          (dispatch [:rf.xray.static.machines/state-clicked
                     {:machine-id machine-id :path path}]))}]]))
 
-;; ---- chart toolbar (open in popout) -------------------------------------
-
-(defn- popout-affordance
-  "'Open chart in popout' affordance. Wired to the
-  `:rf.xray.static.machines/open-chart-popout` event (registered by
-  the panel install). TODO: popout window geometry."
-  [dispatch machine-id]
-   [:button
-   {:data-testid "rf-xray-static-machines-topology-popout"
-    :on-click    (fn [_]
-                   (dispatch
-                     [:rf.xray.static.machines/open-chart-popout machine-id]))
-    :title       "Open chart in pop-out window"
-    :aria-label  (str "Open the chart for " machine-id
-                      " in a pop-out window")
-    :style {:background    "transparent"
-            :border        (str "1px solid " (:border-default tokens))
-            :border-radius "10px"
-            :color         (:text-secondary tokens)
-            :cursor        "pointer"
-            :font-family   sans-stack
-            :font-size     (:micro type-scale)
-            :padding       "1px 8px"
-            :white-space   "nowrap"}}
-   "↗ Pop out"])
+;; ---- chart toolbar ------------------------------------------------------
+;;
+;; No pop-out button: the pop-out window is not built, so the affordance is
+;; hidden until it does something (rf2-h6ooa). Its event,
+;; `:rf.xray.static.machines/open-chart-popout`, stays registered in
+;; `panel.cljs` as a reserved no-op slot.
 
 (defn- source-coord-chip [source-coord]
   (when (some? source-coord)
@@ -167,7 +148,7 @@
                         :color (:text-tertiary tokens)}}
          (h/format-source-coord source-coord)])))
 
-(defn- chart-toolbar [dispatch {:keys [machine-id source-coord]}]
+(defn- chart-toolbar [{:keys [source-coord]}]
   [:div {:data-testid "rf-xray-static-machines-topology-toolbar"
          :style {:display     "flex"
                  :align-items "center"
@@ -175,7 +156,6 @@
                  :padding     "8px 12px"
                  :background  (:bg-1 tokens)
                  :border-bottom (str "1px solid " (:border-subtle tokens))}}
-   [popout-affordance dispatch machine-id]
    [:span {:style {:margin-left "auto"}}
     (source-coord-chip source-coord)]])
 
@@ -190,8 +170,7 @@
   function itself is still pure hiccup.
 
   `dispatch` is threaded from `definition_detail/body` so the chart's
-  state-click + the toolbar's pop-out land on the surrounding instance
-  frame."
+  state-click lands on the surrounding instance frame."
   [dispatch {:keys [machine-id definition source-coord fit-signal] :as args}]
   (cond
     (nil? definition)
@@ -214,6 +193,6 @@
                        :background (:bg-2 tokens)
                        :color (:text-primary tokens)
                        :font-family sans-stack}}
-     [chart-toolbar dispatch {:machine-id machine-id :source-coord source-coord}]
+     [chart-toolbar {:source-coord source-coord}]
      [chart dispatch {:definition definition :machine-id machine-id
                       :fit-signal fit-signal}]]))

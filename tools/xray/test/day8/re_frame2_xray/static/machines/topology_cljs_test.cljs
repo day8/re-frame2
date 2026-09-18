@@ -109,15 +109,22 @@
             something: the RENDERED toolbar carries no pop-out affordance,
             and no control in it dispatches the no-op event.
 
-            The toolbar is rendered through its private var with a
-            RECORDING dispatch and EXPANDED the way Reagent mounts it (every
-            fn head invoked), so a control nested under a fn component is
-            visible to the walk."
+            `body` is rendered with a RECORDING dispatch; the toolbar mount
+            it emits is taken off the RAW tree (so the chart's reg-view is
+            never invoked) and then EXPANDED the way Reagent mounts it
+            (every fn head invoked), so a control nested under a fn
+            component is visible to the walk."
     (let [dispatched (atom [])
-          tree       (rf.test-helpers/expand-tree
-                       (#'topology/chart-toolbar
-                         #(swap! dispatched conj %)
-                         {:machine-id :door/main :source-coord nil}))]
+          body-tree  (topology/body #(swap! dispatched conj %)
+                                    {:machine-id :door/main
+                                     :definition inferred-definition})
+          mount      (some (fn [node]
+                             (when (and (vector? node)
+                                        (= @#'topology/chart-toolbar
+                                           (first node)))
+                               node))
+                           (raw-hiccup-seq body-tree))
+          tree       (rf.test-helpers/expand-tree mount)]
       (is (some? (rf.test-helpers/find-by-testid
                    tree "rf-xray-static-machines-topology-toolbar"))
           "NON-VACUITY: the toolbar itself rendered, so the absence below is
