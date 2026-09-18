@@ -49,8 +49,9 @@ The Machines tab (tab 5 of 10 in the 4-layer chrome — see
 state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
 the focused event's machine activity only; the interactive simulation
 (UC1) + dynamic multi-instance views (UC2 Mode A/B/C) descriptions in
-later sections are normative for the Static re-host, NOT for the
-Dynamic tab. The state-chart primitive is **owned by
+later sections are pre-collapse design-reference, normative for
+neither mode — the shipped Sim is the Static Machines surface's Sim
+row, and no Mode A/B/C view exists. The state-chart primitive is **owned by
 `tools/machines-viz/`** as its own tool jar (canonical implementation
 at `tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs`
 (the `MachineChart` component) + `chart/{layout,projection,nodes,edges}`,
@@ -1412,7 +1413,7 @@ The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) liv
 | Pill | Behaviour in Static | Body renderer |
 |---|---|---|
 | **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/MachineChart` (xyflow + elkjs) primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.xray.static.machines/state-clicked`; the **per-state metadata rail is NOT built** — that event is a registered no-op slot (`{:db db}`), present so the click lands on a known handler instead of raising `:rf.warning/no-handler`. The **"Open chart in pop-out" button renders but does nothing**: it dispatches `:rf.xray.static.machines/open-chart-popout`, the second no-op slot, and the pop-out window orchestration is unbuilt (removing the button while it is inert is rf2-h6ooa). | xyflow MachineChart |
-| **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is **the runtime's own initial snapshot**, built by handing the definition to the engine's `build-initial-snapshot` (rf2-y8doi.21), so a compound root opens at its LEAF and a parallel root at its region map — exactly where the runtime would have opened. **`:entry` actions are not run at seed time**; action evaluation starts from step 1, and the rail says so. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). **What ships is the list in §UC1 — Sim sub-mode (historical — not built) below, NOT that section's guard-verdict UI**: the rail lists the current state's outgoing `:on` transitions with their targets, tagging a guarded one `[guard]` without predicting a verdict, and a step that moved nothing surfaces as one inline diagnostic naming all three possible causes (no transition matched · a guard declined · the matched transition was a no-op), because the engine's public result cannot tell them apart. | Sim body panel (banner + on-chart highlight + event/payload inputs + Step / Reset / Exit + available-transitions list + audit trail) |
+| **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is **the runtime's own initial snapshot**, built by handing the definition to the engine's `build-initial-snapshot` (rf2-y8doi.21), so a compound root opens at its LEAF and a parallel root at its region map — exactly where the runtime would have opened. **`:entry` actions are not run at seed time**; action evaluation starts from step 1, and the rail says so. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). **What ships is the list at the head of [§UC1 — Sim sub-mode (historical — not built)](#uc1--sim-sub-mode-historical--not-built) below, NOT that section's guard-verdict UI**: the rail lists the current state's outgoing `:on` transitions with their targets, tagging a guarded one `[guard]` without predicting a verdict, and a step that moved nothing surfaces as one inline diagnostic naming all three possible causes (no transition matched · a guard declined · the matched transition was a no-op), because the engine's public result cannot tell them apart. | Sim body panel (banner + on-chart highlight + event/payload inputs + Step / Reset / Exit + available-transitions list + audit trail) |
 | **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected, and **the pre-selection LANDS** (rf2-y8doi.23): `:rf.xray/select-machine-id` both writes the selection slot and moves the spine focus to the newest epoch touching that machine, through the same epoch walk Prev/Next uses — which is what makes it stick against the panel's live head-tracking. It is a deliberate no-op when the machine has no epoch in the window, so a JUMP made before the machine has done anything leaves the spine where it was. **There is no Mode A/B/C auto-detection to defer to** — rf2-y9xmf collapsed the Dynamic panel to a single event-driven lens, so no live-instance-count thresholds exist anywhere in the shipped tree. | no body — the click is the surface |
 | **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view."* The pill renders for muscle-memory consistency with the Dynamic sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
 
@@ -1482,7 +1483,8 @@ Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018
 > This paragraph used to say "everything below this divider", which was
 > wrong and wrong in the costly direction: §History restore rendering,
 > §Performance's rAF gating, §Render + layout engine, §Share affordance's
-> Copy Mermaid and §Empty state all describe SHIPPED behaviour, and a
+> Copy Mermaid, §Empty state and §Cross-references' render-regression
+> harness all describe SHIPPED behaviour, and a
 > blanket historical label invites a reader to discount live contracts.
 > Sections after the closing marker are a MIX — each carries its own
 > shipped / not-built status, and the bug catalogue's per-entry
@@ -1519,7 +1521,35 @@ defs). When a machine is selected, the inspection view renders:
 When 0 instances: empty hint nudges Sim mode (UC1). When ≥1 instances:
 roster (Mode B/C per UC2 §Dynamic Mode A/B/C below).
 
-## UC1 — Sim sub-mode
+## UC1 — Sim sub-mode (historical — not built)
+
+> **This section is the pre-collapse design, and most of it was never
+> built.** What ships is the Static Machines surface's Sim sub-mode
+> (§4-mode sub-strip, the Sim row), and it is exactly this:
+>
+> - **Banner** — the fixed `SIMULATING — hermetic 'what-if' (no live
+>   data)` line, plus a second line disclosing that initial `:entry`
+>   actions were not run.
+> - **Rail** — the current sim state; an event input (a keyword or a
+>   whole event vector) with an optional EDN **event payload** folded
+>   into that vector; `Step ▶︎` / `Reset` / `Exit Sim`; the
+>   "Available from current state" list of the current state's `:on`
+>   transitions, where clicking a row fills the event input and a
+>   guarded transition is tagged `[guard]`; an inline step diagnostic;
+>   and the audit trail of steps taken.
+> - **Chart** — the active state highlights amber, the taken edge
+>   animates, and clicking a plain `:on` edge sends that event. `:after`
+>   and `:always` auto edges are inert on click: the chart hands the sim
+>   no event id for them, so the click is a no-op.
+>
+> **Not built**, all below: the `E` / `R` / `Esc` keys, the
+> `Shift+Enter` fire-despite-guard, per-transition guard verdicts
+> (`guard ✓ passed` / `✗ failed`), the skip-guards toggle, the
+> schema-derived mock `:data` form (the payload input is an EVENT
+> payload, not `:data`), the sim trail's hover-rewind and click-truncate,
+> Save-as-scenario, and a per-(frame, machine) toggle — the sub-mode
+> choice persists per machine only, through the
+> `xray.static.machines.sub-mode-by-id` slot.
 
 The interactive simulation mode. **A sub-mode of Mode A** (entry only
 when no live instances OR when explicitly toggled on against live
@@ -1876,8 +1906,12 @@ per-machine in localStorage).
   to another L3 tab) even while an `:after` timer stays armed, so it can
   never outlive its panel dispatching in the background (rf2-e64drj); a
   remount re-arms it.
-- **Transition history** virtualises past 200 entries; older entries
-  scroll into view but are not retained in DOM.
+- ~~**Transition history** virtualises past 200 entries; older entries
+  scroll into view but are not retained in DOM.~~ **Struck — there is
+  no transition-history ribbon to virtualise.** rf2-y9xmf removed it
+  (§Transition history ribbon is in the historical run above). The
+  200-entry `cap-transitions` helper it used survives in the Machines-tab
+  helpers namespace with its unit tests but has no production caller.
 
 ## Render + layout engine — xyflow over elkjs
 
@@ -2011,18 +2045,17 @@ the number of states / transitions.
 
 ## Empty state
 
-When no machines are registered:
+When no machines are registered — the host has not called `reg-machine`
+yet, or `day8/re-frame2-machines` is not on the classpath — the panel
+renders two lines:
 
 ```
    No machines registered.
-   Once your app registers a machine via reg-machine (Spec 005),
-   it will appear here with:
-   • Live state-chart highlighting
-   • Transition history
-   • :after countdown rings
-   • UC1 simulation (Sim toggle)
-   → Read about machine integration
+   Register a machine with rf/reg-machine to populate this panel.
 ```
+
+(`rf/reg-machine` renders as inline code. There is no feature list and
+no documentation link; an earlier draft of this block promised both.)
 
 For the **focused-event-targets-no-machine** empty state (Dynamic
 mode, machines registered but the current event did not transition
@@ -2051,9 +2084,12 @@ Every Machines-tab feature is grounded in a concrete bug-class. Format per
 ### M.1 — Guard rejection (silent)
 
 **Bug class:** An event fires; the chosen `:on` entry's guard returns
-`false`; the snapshot doesn't move. The
-`:rf.machine.transition/suppressed` trace is the only signal, buried in
-the Trace firehose.
+`false`; the snapshot doesn't move. No `:rf.machine/transition` is
+emitted for it; the only signals are a `:rf.machine/guard-evaluated`
+trace carrying `:outcome :fail` and the benign
+`:rf.machine.event/unhandled-no-op`, both buried in the Trace firehose.
+(There is no `:rf.machine.transition/suppressed` trace — Spec 009 and
+the machines artefact name no such op.)
 
 **Example bug:** You dispatched `:auth/cancel` on machine `:checkout` in
 state `:authing`, expected a transition to `:idle`, nothing happened. The
@@ -2069,8 +2105,13 @@ shows the `:data` snapshot at evaluation time and the guard's source-coord.
 **Affordance:** Guard-verdict overlay (M-C1). Three clicks from "huh,
 nothing happened" to "ah, my guard is wrong."
 
-**v1 ships:** the existing chart with no overlay. **Future:** the
-red-flash overlay + the metadata rail's rejections section.
+**Shipped as:** the guard-blocked edge highlight — the declining
+transition's event node and its inbound half paint pink, derived from
+the focused epoch's `:rf.machine/guard-evaluated` `:fail` / `:threw`
+traces (rf2-fzrzlw; see §Guard-blocked edge highlight on the topology
+chart above).
+**Not built:** the 400ms red flash with its tooltip, and the metadata
+rail's "Recent guard rejections" section — there is no metadata rail.
 
 ### M.2 — Stale `:after` timer / cancelled (per rf2-82a0u — unified `:rf.machine.timer/cancelled` event with `:reason :on-resolution` for the sub-resolve case)
 
@@ -2095,14 +2136,26 @@ time-elapsed/total. Starts at 12 o'clock, rotates clockwise to fill.
 - **Retro mode (scrubber-driven):** the ring is static at the
   elapsed-fraction the timer had reached at the focused-cascade's
   timestamp.
-- **Stale timer** (epoch mismatch): the ring is rendered dashed/grey +
-  tooltip "this timer was scheduled in a prior visit and is stale."
-- **Cancelled-on-resolution** (sub-driven re-resolve): the old ring
-  fades out (200ms); new ring fades in.
+- **Stale timer** (epoch mismatch): **no ring is drawn.** A
+  `:rf.machine.timer/stale-after` closes the record as `:stale`, and
+  closed records (`:fired`, `:stale`, `:guard-suppressed`, `:skipped`)
+  drop out of the rings projection — only `:armed` and `:cancelled`
+  records reach the chart. (An earlier draft promised a dashed/grey
+  ring with a staleness tooltip; it was never built.)
+- **Cancelled** (including cancelled-on-resolution): the ring renders
+  faded with a diagonal cross and is **retained ~2 s** from its
+  `:closed-at`, then evicted (rf2-y8doi.23). One crossed ring per state
+  — the newest cancellation wins — so re-entering a state repeatedly
+  cannot pile rings up. **Concurrent `:armed` timers are deliberately
+  NOT deduped**: a state's `:after` map may schedule several timers at
+  once (rf2-2es2x8), and each keeps its own ring.
 
-Click any ring → opens a timer detail popover: `:scheduled-at`,
-`:delay`, `:epoch`, `:source` (`:literal` / `:sub` / `:timeout-config`
-/ `:fn`).
+**The timer detail popover is NOT built.** Hovering a ring shows a
+native SVG `<title>` tooltip; the hover is also written to a
+`:rf.xray/timer-hover` slot, plumbed so a follow-on can lift it into a
+rich tooltip, but nothing reads it for display and clicking a ring does
+nothing. The popover's intended fields were `:scheduled-at`, `:delay`,
+`:epoch`, `:source` (`:literal` / `:sub` / `:timeout-config` / `:fn`).
 
 **Affordance:** `:after` countdown rings + scrubber-aware retro-replay
 (M-C2). Time IS the bug surface; the ring makes wall clock visible on a
@@ -2154,8 +2207,16 @@ tab's hero growth. Also a template for SSR cancellation cascade (when a
 streaming SSR boundary times out, the same waterfall idiom shows what
 cleanup ran).
 
-**v1 ships:** scattered Trace rows. **Future:** the cascade-grouping
-projection + the detail panel (Phase 3).
+**Shipped as:** the cascade-grouping projection plus the
+**cancellation-cascade popover** (rf2-59e7k) — a vertical waterfall of
+parent decision → child teardown → effect aborts, each row jumping to its
+trace. It is an overlay mounted in Xray's shell and opened from anywhere
+via `:rf.xray/cancellation-cascade-open`, e.g. a Trace row's "Show
+cancellation cascade" affordance. **It is NOT inline in the Machines
+tab**: rf2-g2axio removed the tab's inline cancellation-cascade block,
+subsuming it into the shared EVENT HANDLER mini-pipeline above the
+chart. The header copy above is design, not a transcription of the
+shipped markup.
 
 ### M.4 — `:spawn-all` never joins
 
@@ -2219,7 +2280,7 @@ occupancy.
 │ 16:42:14.108  :rf.machine.timer/scheduled  :after 30000ms epoch 4         │
 │ 16:42:14.110  :rf.http/managed-issued  POST /api/auth/login              │
 │ 16:42:14.140  :rf.http/handled  POST /api/auth/login → 200 (30ms)         │
-│ 16:42:14.142  :rf.machine.transition/suppressed  :auth/ok                │
+│ 16:42:14.142  :rf.machine/guard-evaluated  :fail  :auth/ok               │
 │                  guard :2fa-not-required? = FALSE                         │
 │                  (data: {:requires-2fa? true})                            │
 │                                                                            │
@@ -2247,8 +2308,10 @@ cascade in sequence:
    pulse green; 80ms each).
 5. The new leaf's `:entry` (ring settles to active-state amber/cyan).
 
-Total: ~500ms for a 3-level cascade. Skippable via Settings → View →
-"Reduced motion."
+Total: ~500ms for a 3-level cascade. Would honour Xray's reduced-motion
+override — the `:general :reduced-motion-override` setting, cycled
+`:os → :always → :never` from the command palette. It is not a Settings
+popup row, and the popup has no View tab.
 
 **Affordance:** Hierarchical state cascade highlighter (M-C6). Phase 5.
 LCA semantics is the most subtle part of XState parity; the cascade
