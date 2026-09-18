@@ -3481,7 +3481,8 @@
 
   ## The two render-phase side effects, both deliberate
 
-  `global-styles/install!` already ran during render as a `reg-view` and
+  `global-styles/install!` already ran during render back when this
+  was an `rf/reg-view`, so the boundary did not introduce it, and
   two testbeds rely on it; it is idempotent (`defonce` plus an id-keyed
   DOM probe). The `dispatch-sync` is safe under a boundary for a reason
   that is the collector's rather than this view's: `flush!` defers
