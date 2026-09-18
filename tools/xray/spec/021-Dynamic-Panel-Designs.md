@@ -1732,10 +1732,10 @@ is rendered iff its driving trace events surfaced in this epoch:
 | **INTERCEPTORS** | registry read — `(handler-meta :event event-id)` `:interceptors` (rf2-se9a9t) + per-dispatch `:rf.interceptor/override-summary` on `:rf.event/run-start` (rf2-9vx0jk) | **only when the event carries authored (non-`:rf/default?`) interceptor refs.** The authored chain wraps the handler, so the step renders BEFORE HANDLER. One row per authored ref: id (click-to-source) + the resolved descriptor's hook shape (`before` / `after` / `before/after` / `factory`) + a `ref` / `inline` badge + the factory `:arg` + a `missing` chip for an unregistered ref. This is the clean-chain surfacing (EP-0022 §11 (a)+(b)); the authored + resolved chain is read from the REGISTRY, not the trace (a clean chain emits no per-interceptor trace). **Override delta (§11 (c) · rf2-9vx0jk):** when the cascade's `:rf.event/run-start` trace carries `:rf.interceptor/override-summary` (id/count-only — present only when this dispatch's merged per-frame ++ per-call `:interceptor-overrides` acted), the panel PREFERS that fact to stamp a `replaced` / `removed` badge on each affected row — the per-dispatch substitution the registry read alone cannot show. Purely informational — does NOT inflate the epoch outcome. |
 | **INTERCEPTOR** | `:rf.error/interceptor-exception` (rf2-mszrz) | **only when a user interceptor threw** (rf2-yz57h). The substrate emits no per-interceptor "ran" trace (the chain runs as one unit), so a clean chain leaves nothing to show — the step is exception-only (the clean chain is the INTERCEPTORS step above). PHASE-SPLIT (rf2-vew2n): a `:before` throw renders its step BEFORE HANDLER, an `:after` throw AFTER HANDLER (execution order: COEFFECTS → :before → HANDLER → :after). One row per throwing interceptor: id + `:before`/`:after` phase chip + the shared exception card; the badge carries no "N threw" summary verb (rf2-oqi0c). |
 | **HANDLER** | every epoch settles through a handler | always (but rendered as **SKIPPED** — rf2-yz57h — when an upstream `:before`-chain throw aborted the cascade before the handler ran) |
-| **FLOW** | `:rf.flow/recomputed` | only when flows fired |
+| **FLOW** | `:rf.flow/computed` | only when flows fired |
 | **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired (rendered as **SKIPPED** when an upstream `:before`-chain throw aborted the cascade) |
 | **SUBSCRIPTIONS** | `:rf.sub/run` / `:rf.sub/skip` | only when subs recomputed |
-| **VIEWS** | `:rf.view/render` | only when views re-rendered |
+| **VIEWS** | `:rf.view/rendered` | only when views re-rendered |
 
 Steps are numbered DYNAMICALLY 1..N — an absent OPTIONAL step
 consumes no number; absence is conveyed by OMISSION, not an
@@ -1776,7 +1776,7 @@ Each step renders a uppercase badge pill at its numbered circle:
 | `:SIDE-EFFECTS`       | `:orange`        | functional amber (post-commit irreversible; the pre-rf2-kt6js `:FX` step) |
 | `:SUBSCRIPTIONS`      | `:magenta-pink`  | pink (rf2-cgm4f split from COEFFECT violet) |
 | `:VIEWS`              | `:success`       | green |
-| `:SCHEMA-HOT-RELOAD`  | `:warning`       | warning amber (rf2-17vxj · renamed rf2-xgeag for the narrowed hot-reload-only scope) |
+| ~~`:SCHEMA-HOT-RELOAD`~~ | ~~`:warning`~~ | **RETIRED** — rf2-7gf7v retired its step (hot-reload drift is the issues ribbon's), and rf2-y8doi.19 dropped the badge from `badge-set`. (Was: warning amber, rf2-17vxj · renamed rf2-xgeag.) |
 
 > **Retired 2026-05-26 (pair-debug, rf2-zkiu5):** the prior `:CHILD-DISPATCHES`
 > + `:APP-DB-DIFF` rows were dropped. CHILD DISPATCHES (originally rf2-yx1ae,
@@ -2810,9 +2810,11 @@ Each step's row carries:
 4. Duration: right-aligned, muted, monospace (e.g. `0.1ms`).
 5. Per-step body content: code blocks, tables, diff displays.
 
-Fibonacci spacing system (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89) drives
-every gap / pad value. Tabulated in `panels.epoch.badge/fib` for one
-source of truth.
+A Fibonacci spacing system (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89) drives
+the gap / pad values above. It is tabulated in `panels.epoch.badge/fib`
+(with a `fib-px` helper), which SHOULD be the one source of truth — but
+nothing reads it yet: `panels/epoch/view.cljs` hardcodes the literals
+(`-44px`, `21px`, `55px`, …).
 
 #### §9.1.6.1 HANDLER source affordance (rf2-ehd8v · rf2-80u5a · rf2-xjgdk · pair-debug 2026-05-26)
 
@@ -2834,9 +2836,10 @@ the verb so the affordance is read inline with the cascade rhythm
   is registered as an `:event` handler carrying `:rf/machine? true`, so its
   registration meta (with the top-level `reg-machine` call-site `:file` /
   `:line`) lives under the `:event` kind. There is NO `:machine`
-  registrar kind (`registrar/kinds` is the closed ten `:event :sub :fx
-  :cofx :view :frame :route :head :error-projector :flow` — and per
-  rf2-ftrcv no `:machine-guard` / `:machine-action` either); the prior
+  registrar kind (`registrar/kinds` is the closed fourteen `:event :sub
+  :fx :cofx :interceptor :view :frame :route :head :error-projector
+  :flow :resource :mutation :resource-scope` — and per rf2-ftrcv no
+  `:machine-guard` / `:machine-action` either); the prior
   `(rf/handler-meta {:source :store :kind :machine :id event-id})`
   resolved nil, so the machine EVENT HANDLER painted the glyph-less plain
   span. Reading under `:event` surfaces the call-site coord so the
@@ -3069,11 +3072,15 @@ the pre-rf2-5qp4g call-site link.
 
 **Parent-epoch resolution.** The view layer resolves
 `:parent-dispatch-id → :parent-epoch-id` against a precomputed
-`{dispatch-id → epoch-id}` index (rf2-x25e0 — built once per render
-via `proj/dispatch-id->epoch-id-index` over the Xray `:epoch-history`
-slice and threaded through `pipeline-view`'s `ctx` as
-`:dispatch-id->epoch-id`; `(proj/find-parent-epoch index
-parent-dispatch-id)` is an O(1) lookup). When
+`{dispatch-id → epoch-id}` index threaded through `pipeline-view`'s
+`ctx` as `:dispatch-id->epoch-id`, where `(proj/find-parent-epoch index
+parent-dispatch-id)` is an O(1) lookup (rf2-x25e0). Since rf2-y8doi.19
+the index is NARROW: the `:rf.xray.epoch/parent-epoch-index` sub builds
+it (`proj/parent-epoch-index`) only for the parent ids this cascade
+carries (`proj/parent-dispatch-ids` — in practice zero or one), so it is
+`=`-equal across settles and the panel no longer re-renders on every
+settled host event; the whole-ring `dispatch-id->epoch-id-index` it
+replaced is gone. When
 the parent epoch is in the buffer the chip renders as a clickable
 `<button>` carrying `parent epoch #N`; when not (root cascade, or
 the parent was evicted from the ring) the chip renders as a muted
@@ -3199,6 +3206,8 @@ presentation boundary reads as one named ns the view imports.
 | Sub | Reads | Yields |
 |-----|-------|--------|
 | `:rf.xray/epoch-pipeline` | `:rf.xray/focused-epoch-record` · `:rf.xray/observed-frame` (rf2-y8doi.19 — LAYERED. The history-dependent half is now `:rf.xray/focused-epoch-record`, which resolves `:rf.xray/focus` against `:rf.xray/epoch-history` through the shared `panels.shared.focus-resolver`; it still recomputes per settle, but its value is `=`-equal across settles while pinned, so the propagation collapse stops there and the expensive projection below does not re-run. `:rf.xray/observed-frame` is the REDACTION seam, not a data axis: it names the frame whose `:sensitive` policy governs the record's app-db snapshots, and it derives from focus + target-frame, so nothing in the settle path invalidates the pipeline through it) | `{:status :no-focus ｜ :no-epoch ｜ :focused ｜ :epoch-evicted, :epoch-id, :record, :steps, :outcome :ok｜:error}` — `:record`'s `:db-before` / `:db-after` are EGRESS-PROJECTED here (rf2-y8doi.19), so no consumer of this sub can render a declared-sensitive value the App-DB tab redacts. `:outcome` is the rf2-ahhgn tool-side outcome (`projection/epoch-outcome`; `:error` when any step carries an exception or violation), NOT the framework epoch-record slot (§9.1.10.5) |
+| `:rf.xray/focused-epoch-record` | `:rf.xray/focus` · `:rf.xray/epoch-history` (through `panels.shared.focus-resolver`, passing focus's `:dispatch-id` so a pinned bundle that settled no epoch reads `:no-epoch` rather than falling back to the head) | `{:status, :epoch-id, :record}` — the history-dependent half of `:rf.xray/epoch-pipeline` (rf2-y8doi.19); `=`-equal across settles while focus is pinned |
+| `:rf.xray.epoch/parent-epoch-index` | `:rf.xray/epoch-history`; query arg = the cascade's parent dispatch ids (`proj/parent-dispatch-ids`) | `{parent-dispatch-id → epoch-id}` restricted to those ids — `{}` without walking the ring when there are none (rf2-y8doi.19; feeds §9.1.6.3's parent-epoch chip) |
 | `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
 | `:rf.xray.epoch/subs-filter-mode` | `:epoch-panel-subs-filter-mode` slot | keyword `:all / :changed / :unchanged` (rf2-tzmmf — SUBSCRIPTIONS step's `[all][changed][unchanged]` button-bar; supersedes rf2-kfh1v's boolean `subs-show-unchanged?`. Default `:changed` preserves the rf2-kfh1v hide-unchanged-by-default rationale) |
 
@@ -3298,10 +3307,11 @@ unchanged); only the aggregation moved.
 | `:fx-args`      | SIDE EFFECTS step, row whose `:fx-id` = `:failing-id` | row-level (fallback step)|
 | `:sub-return`   | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
 
-Hot-reload drift no longer attaches to a cascade step — it surfaces
-via the Issues panel exclusively (rf2-7gf7v retired the standalone
-`SCHEMA HOT-RELOAD` tail step in favour of the Issues panel's
-richer explanatory chrome).
+Hot-reload drift no longer attaches to a cascade step — rf2-7gf7v
+retired the standalone `SCHEMA HOT-RELOAD` tail step, and the drift
+surfaces via the issues ribbon exclusively (harvested by `:op-type
+:warning` off the trace stream). There is no Issues panel to carry it:
+that tab was removed (rf2-gbz39 — §8).
 
 The projection pass `attach-violations` walks the
 `schema-violation-rows` once and binds each row onto its owning
@@ -3334,8 +3344,9 @@ carrying, top to bottom:
    - `:sub-return` → `Returned nil`
    - `:event` → `Rejected`
    - `:cofx` → `Skipped`
-   - `:hot-reload` (retired pipeline step; chip still defined for
-     the Issues panel) → `logged + skipped`
+   - `:hot-reload` → `logged + skipped` (the chip text is still
+     defined, but no pipeline step carries a `:hot-reload` row — the
+     issues ribbon owns hot-reload drift)
    - Falls back to the trace's `:recovery` keyword (name-d) when
      no canonical mapping applies.
 2. **Prose sentence with inline `schema check` link** — one
@@ -3476,7 +3487,8 @@ claim success for fx that never actually fired.
   + `:rf.schema/violation`) — same.
 - Per-row data projected from those ops (`schema-violation-row`
   + `schema-violation-rows`) — same.
-- The Issues panel's cross-session list — same.
+- (The Issues panel's cross-session list, once listed here, is gone —
+  the tab was removed under rf2-gbz39, §8.)
 - Spec 010 (Schemas) boundary contract — unchanged; the
   cascade-side presentation changes, the underlying contract is
   identical. See spec/010 §Tooling surface — Xray attachment for
@@ -3485,7 +3497,7 @@ claim success for fx that never actually fired.
 Sections / step are conditional — `:violations` slot is absent
 when no violation attached to that step. Hot-reload drift no
 longer rides any pipeline step (rf2-7gf7v); it surfaces in the
-Issues panel only.
+issues ribbon only.
 
 ### §9.1.10.4 Inline EXCEPTION attachment + per-step status (rf2-ahhgn)
 
@@ -3744,14 +3756,17 @@ The `:rf.xray/epoch-pipeline` composite sub carries an `:outcome`
 (`:ok` / `:error`) from `projection/epoch-outcome` — `:error` when
 ANY projected step reads `step-status :error`. The Panel stamps
 `data-rf-xray-outcome` on the panel root (tools / e2e read the
-tool-side outcome there). The failure surfaces **inline**: the failing
-step paints the red ✗ glyph (the per-step `step-status` primitive) and
-the inline "Exception Thrown" card sits right under it.
+tool-side outcome there). The failure surfaces **inline**: the inline
+"Exception Thrown" card (or the schema-violation card) sits right under
+the failing step. No per-step ✗ glyph paints — rf2-9wq0v retired the
+per-stage glyph and its `badge/step-status-*` resolver (§9.1.10.4);
+`projection/step-status` survives as data, driving this outcome and the
+SKIPPED body, not a glyph.
 
 The pre-rf2-wnvid top-of-pipeline **outcome banner** ("This event
 failed — see the ✗ step below.") is **RETIRED** (rf2-wnvid): it merely
-restated the inline signal — the ✗ glyph + the error card already name
-and locate the failure — and pushed the actual cascade content down.
+restated the inline signal — the error card already names and locates
+the failure — and pushed the actual cascade content down.
 
 **This is the TOOL-SIDE outcome** — the same trace-derived
 `:error`/`:ok` signal `event-status-colour/event-bundle-outcome` already
@@ -3783,19 +3798,17 @@ EXECUTION order, with **NO `:db` / `:fx` / other group headers**. The
 leading per-row status glyph + effect-id + args edn-inspector + the row
 order carry the structure.
 
-**Single badge status (no labels).** After the "EFFECT HANDLERS" badge the
-header paints **ONE overall glyph** — `✓` when every present row
-succeeded, `✗` when one or more FAILED (`projection/side-effects-badge-
-status` = the AND of the present rows; the view reads it via the generic
-`step-status`, reusing the shared rf2-ahhgn `badge/step-status-*`
-primitive). **All post-commit / best-effort labels and the threw-count
-chip are dropped** — the single badge + the per-row glyphs are the whole
-signal. SKIPPED rows are **NEUTRAL** — they do not trip the badge to
-cross.
+**No badge status, no labels.** rf2-j630b painted ONE overall `✓` / `✗`
+glyph after the "EFFECT HANDLERS" badge; **rf2-9wq0v retired it** with the
+other per-stage glyphs (see Header chrome below). The AND-of-rows outcome
+stays queryable as `projection/side-effects-badge-status` (SKIPPED rows
+are NEUTRAL in it). **All post-commit / best-effort labels and the
+threw-count chip are dropped** — the per-row glyphs are the whole signal.
 
 **Row order (execution order).** The flat `:rows` slot is
 `[synthesised :db row, if present] + [synthesised :rf.db/runtime row, if
-present] + [:fx rows, in order] + [other rows]`:
+present] + [:fx rows, in order]` — there is no fourth `other` tier
+(rf2-m2ye2; see below):
 
 - **`:db` row** (FIRST, when present) — the handler's app-db write (the
   `:db` effect). `✓` on a successful commit; `✗` when the post-commit
@@ -3840,20 +3853,21 @@ present] + [:fx rows, in order] + [other rows]`:
   error-ish). For ASYNC / deferred fx (`dispatch-later`, `http`, a slow
   fx) the `✓` means **ACTIONED** (the fx handler was invoked ok), not
   awaited — matching the trace's `:rf.fx/handled` semantics.
-- **`other` rows** (LAST) — one row per TOP-LEVEL effect key on the
-  handler's returned map **beyond the closed-effect set
-  `{:db :fx :rf.db/runtime}`** (the historical
-  `{:db .. :fx .. :other-key ..}` form). Under EP-0001 (spec/002 §The
-  two-partition frame contract) the effect map is the closed
-  `{:db :fx :rf.db/runtime}` shape: the runtime commits the two STATE
-  effects (`:db` → app-db, `:rf.db/runtime` → runtime-db) atomically and
-  runs `:fx`. Any **other** top-level key is silently DROPPED — never
-  executed, never traced. So each `other` row is a `–` (skipped) not-run
-  **DIAGNOSTIC** flagging a declared effect the runtime ignored (almost
-  always a bug — the effect belongs inside `:fx`); it is NEUTRAL.
-  `:rf.db/runtime` is **not** an `other` key — it is a committed state
-  effect with its own row (see above). In the canonical closed shape
-  there are NO `other` rows.
+- **No `other` rows.** A top-level effect key outside the closed set
+  `re-frame.events/closed-effect-map-keys` — `:db`, `:rf.db/runtime`,
+  `:fx` and the four EP-0025 classification effects (`:sensitive`,
+  `:large`, `:clear-sensitive`, `:clear-large`) — is NOT silently
+  dropped: the router REFUSES the whole event at its final-effects
+  boundary (rf2-04tx). Nothing commits — no `:db`, no `:rf.db/runtime`,
+  no classification install, no `:fx` — and `:rf.error/effect-map-shape`
+  is emitted in band. The panel surfaces that refusal as an error card on
+  this step (`attach-unclassified-errors` places the op on SIDE EFFECTS,
+  its message lifted from the trace's `:reason`, which names the
+  offending key) and the epoch outcome reads `:error`. rf2-m2ye2 deleted
+  the former `other` tier: a refused key never reaches do-fx, and every
+  key inside the closed set is legal, so the tier had no truthful
+  population — its hand-copied 3-key set would have reported the four
+  classification effects as ignored.
 
 **Atomicity governs which rows appear.** A `:db` schema-fail (pre-commit
 transactional) rolls the cascade back BEFORE any `:fx` ran (spec/002
@@ -3873,7 +3887,7 @@ exception-under-step rendering.
 only when an `:fx` fired), the SIDE EFFECTS step appears whenever ANY
 side effect occurred (a `:db` commit — including a bare reg-event —
 and/or a runtime-db (`:rf.db/runtime`) commit — including a runtime-ONLY
-commit — and/or `:fx` and/or other). The `:db`-commit signal is the
+commit — and/or `:fx`). The `:db`-commit signal is the
 framework's `:rf.event/db-changed` trace (a schema-REJECTED candidate
 emits NONE — rf2-uhk9ko validate-before-install; the rejection's signal
 is the `:where :app-db` violation trace with `:rollback? true`). The
@@ -3897,8 +3911,8 @@ RECORDED: each `:fx`-vector entry emits exactly one of `:rf.fx/handled`
 `:rf.error/fx-handler-exception` / `:rf.error/no-such-fx`
 (`re-frame.fx/handle-one-fx`). The `:db` commit + schema-fail are
 recorded by `:rf.event/db-changed` + `:rf.error/schema-validation-
-failure :where :app-db`. "Other" effects don't exist on the trace
-stream because the runtime never touches them. So the whole step is a
+failure :where :app-db`, and a refused foreign key by
+`:rf.error/effect-map-shape`. So the whole step is a
 PRESENTATION over already-recorded data — implemented tool-side in
 `projection/side-effects-step`, no core / spec-009 edit. rf2-j630b only
 reshapes that presentation (3-tier → flat ledger); the data source is
@@ -3921,13 +3935,13 @@ action's outcome `:fx` slot carries `:attributed-to {:action-id …,
 :phase …}` (rf2-9c27r + rf2-uffov). The view renders an italic
 `← <action-id> (<phase>)` chip. First-attribution wins (cascade order).
 
-**Args rendering (rf2-ef2hy)** — each `:fx` / `other` row's args/value
-mount the shared edn-inspector widget with `:default-expanded-depth 1`
+**Args rendering (rf2-ef2hy)** — each `:fx` row's args mount the shared
+edn-inspector widget with `:default-expanded-depth 1`
 (scan-then-drill); `:zoomable?` opens the popup overlay for a complex
 map (the `:db` row's slot is the `→ app-db` destination marker, not an
-edn-inspector). Sibling: the HANDLER step's `:fx` section (§9.1.10.5
-lineage, rf2-p2zy0) uses depth 16 (full-expand) — HANDLER reads INTENT,
-SIDE EFFECTS reads EXECUTION.
+edn-inspector). Sibling: the HANDLER step's `:fx` section (rf2-p2zy0)
+uses depth 16 (full-expand) — HANDLER reads INTENT, SIDE EFFECTS reads
+EXECUTION.
 
 ### §9.1.10.7 COEFFECT step chrome (rf2-s1jw4 · pair-debug 2026-05-26)
 
@@ -3943,7 +3957,9 @@ step with N rows" to "N steps, one per injected cofx" (see §9.1.3
   An external-link glyph trails the id when source-jump is wired.
 - **Body** — `+ [:cofx-id] <value>` diff-style line, left-aligned
   with the badge (no indent), mirroring HANDLER's `:db` diff-line
-  idiom. Value rendered via `edn/inspect-inline`.
+  idiom. Value rendered via the edn-inspector's one-line `mini` leaf
+  (`ei/mini`, 80-char cap) — the legacy `inspect-inline` is not used
+  here (§10.0.1).
 - **Verb dropped** — the prior `N coeffect(s) injected` summary
   verb is gone; the per-step expansion of cofx makes the count
   visible in the cascade numbering itself.
@@ -4026,8 +4042,11 @@ The accompanying view-layer chrome:
 - **Conditional emit unchanged** — a cascade with zero
   `:rf.flow/computed` events renders zero FLOW steps.
 
-### §9.1.10.5 App-db diff section — RETIRED 2026-05-26 (rf2-rrykz · rf2-zkiu5)
+### §9.1.10.9 App-db diff section — RETIRED 2026-05-26 (rf2-rrykz · rf2-zkiu5)
 
+> *Renumbered from a duplicate §9.1.10.5 (rf2-y8doi.48) — the live §9.1.10.5 is the Epoch
+> outcome section above.*
+>
 > **Retired pair-debug 2026-05-26** in Mike's commit `ee9def224`. The
 > APP-DB DIFF step was a state-mutation lens that rode immediately after
 > HANDLER. It was redundant with HANDLER's `:db` sub-section (§9.1.5.1,
@@ -4037,8 +4056,11 @@ The accompanying view-layer chrome:
 > stub for searchability; historical design intent is reachable via
 > the bead history (rf2-rrykz original + rf2-zkiu5 retirement).
 
-### §9.1.10.4 Cascading-dispatches section — RETIRED 2026-05-26 (rf2-yx1ae · rf2-zkiu5)
+### §9.1.10.10 Cascading-dispatches section — RETIRED 2026-05-26 (rf2-yx1ae · rf2-zkiu5)
 
+> *Renumbered from a duplicate §9.1.10.4 (rf2-y8doi.48) — the live §9.1.10.4 is the inline
+> EXCEPTION attachment section above.*
+>
 > **Retired pair-debug 2026-05-26** in Mike's commit `eccb6db1b`. The
 > CHILD-DISPATCHES step was a parent→child cascade-link lens that rode
 > between FX and SUBSCRIPTIONS. It was redundant with the FX step, which
