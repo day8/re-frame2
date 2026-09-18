@@ -44,7 +44,7 @@
 > ribbons are kept as historical design-reference; they no longer
 > describe what the Dynamic Machines panel renders.
 
-The Machines tab (tab 5 of 7 in the 4-layer chrome — see
+The Machines tab (tab 5 of 10 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) renders a Stately-quality
 state-chart per registered machine. Post-rf2-y9xmf the panel surfaces
 the focused event's machine activity only; the interactive simulation
@@ -1347,7 +1347,9 @@ panel chrome get the chart transitively via Xray.
   `:app/dialog`, they need to select `:app/dialog` in the picker to see
   it.
 - **Isolation invariant:** the tab shows ONLY the selected frame's
-  machines per [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3.
+  machines per [`018-Event-Spine.md`](018-Event-Spine.md) §8 **I2**
+  (a Xray view needing host-app data targets the selected frame). I3 is
+  the Views panel's render-attribution invariant, not this one.
 
 <!-- ============================================================ -->
 <!--  STATIC MACHINES SURFACE (normative; shipped per rf2-o5f5f.2)  -->
@@ -1409,9 +1411,9 @@ The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) liv
 
 | Pill | Behaviour in Static | Body renderer |
 |---|---|---|
-| **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/MachineChart` (xyflow + elkjs) primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.xray.static.machines/state-clicked` for a per-state metadata rail (follow-on bead). Carries an "Open chart in pop-out" affordance. | xyflow MachineChart |
-| **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is the definition's declared `:initial` + `:data`. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). Failed-guard handling + sim-trail described in §UC1 — Sim sub-mode below remain the design reference for v1 mechanics. | Sim body panel (banner + topology highlight + mock-`:data` form + sim-trail) |
-| **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected. Mode B/C auto-detection (Mode B for 2-8 live, Mode C for ≥8) is the Dynamic panel's responsibility — the Static-side JUMP just lands the selection. | no body — the click is the surface |
+| **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/MachineChart` (xyflow + elkjs) primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.xray.static.machines/state-clicked`; the **per-state metadata rail is NOT built** — that event is a registered no-op slot (`{:db db}`), present so the click lands on a known handler instead of raising `:rf.warning/no-handler`. The **"Open chart in pop-out" button renders but does nothing**: it dispatches `:rf.xray.static.machines/open-chart-popout`, the second no-op slot, and the pop-out window orchestration is unbuilt (removing the button while it is inert is rf2-h6ooa). | xyflow MachineChart |
+| **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is **the runtime's own initial snapshot**, built by handing the definition to the engine's `build-initial-snapshot` (rf2-y8doi.21), so a compound root opens at its LEAF and a parallel root at its region map — exactly where the runtime would have opened. **`:entry` actions are not run at seed time**; action evaluation starts from step 1, and the rail says so. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). **What ships is the list in §UC1 — Sim sub-mode (historical — not built) below, NOT that section's guard-verdict UI**: the rail lists the current state's outgoing `:on` transitions with their targets, tagging a guarded one `[guard]` without predicting a verdict, and a step that moved nothing surfaces as one inline diagnostic naming all three possible causes (no transition matched · a guard declined · the matched transition was a no-op), because the engine's public result cannot tell them apart. | Sim body panel (banner + on-chart highlight + event/payload inputs + Step / Reset / Exit + available-transitions list + audit trail) |
+| **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected, and **the pre-selection LANDS** (rf2-y8doi.23): `:rf.xray/select-machine-id` both writes the selection slot and moves the spine focus to the newest epoch touching that machine, through the same epoch walk Prev/Next uses — which is what makes it stick against the panel's live head-tracking. It is a deliberate no-op when the machine has no epoch in the window, so a JUMP made before the machine has done anything leaves the spine where it was. **There is no Mode A/B/C auto-detection to defer to** — rf2-y9xmf collapsed the Dynamic panel to a single event-driven lens, so no live-instance-count thresholds exist anywhere in the shipped tree. | no body — the click is the surface |
 | **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view."* The pill renders for muscle-memory consistency with the Dynamic sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
 
 The sub-strip mnemonics (`t` · `s` · `i` · `c` above) are mode-scoped under the same rule the L3 tabs follow (see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Mnemonic mode-scoping rule) — and, like those, they are labels rather than keys. `static/machines/helpers.cljc` `sub-mode-mnemonics` carries the letters so each pill can surface one in its `title`, and marks the keybindings that would act on them as a TODO; nothing presses them today.
@@ -1435,7 +1437,7 @@ Both slots are lifted into `:rf/xray`'s app-db by `mount.cljs`'s `::hydrate-stat
 
 ### Frame isolation
 
-Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3). The Static Machines surface is wrapped in the Static shell's `[rf/frame-provider {:frame :rf/xray}]`; every subscribe + dispatch inside the surface resolves to `:rf/xray`. The browse-list, definition-detail, sub-strip pills, and Topology renderer are all `reg-view`-registered.
+Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018-Event-Spine.md`](018-Event-Spine.md) §8 I2). The Static Machines surface is wrapped in the Static shell's `[rf/frame-provider {:frame :rf/xray}]`; every subscribe + dispatch inside the surface resolves to `:rf/xray`. The panel, the browse-list and the definition-detail are **Fresco boundaries — `rf.fresco/defview`, not `rf/reg-view`** (rf2-k97c.3). The sub-strip pills and the Topology renderer are neither: they are plain fns rendered inside those boundaries, which is why each takes a frame-bound `dispatch` as an argument rather than recovering the frame itself.
 
 ### See also
 
@@ -1470,9 +1472,21 @@ Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018
 > following sections — Mode B/C live-instance views remain a
 > Dynamic-side responsibility, reached from Static via the JUMP).
 >
-> Read everything below this divider as historical design-reference
-> for the Sim re-host effort, not as a normative description of any
-> currently-shipped surface.
+> **The historical run is BOUNDED, and it is not "everything below".**
+> It runs from §Definition view — Mode A resting state to the end of
+> §Transition history ribbon, and a closing marker sits immediately
+> before §Data sources where it ends. Read those sections — and only
+> those — as historical design-reference for the Sim re-host effort
+> rather than as a description of any currently-shipped surface.
+>
+> This paragraph used to say "everything below this divider", which was
+> wrong and wrong in the costly direction: §History restore rendering,
+> §Performance's rAF gating, §Render + layout engine, §Share affordance's
+> Copy Mermaid and §Empty state all describe SHIPPED behaviour, and a
+> blanket historical label invites a reader to discount live contracts.
+> Sections after the closing marker are a MIX — each carries its own
+> shipped / not-built status, and the bug catalogue's per-entry
+> "v1 ships / Future" lines are the per-entry statement of it.
 
 ## Definition view — Mode A resting state
 
@@ -1746,6 +1760,16 @@ A horizontal scrubbable list under the chart. Each entry is one
 - **Microstep entries** (from `:rf.machine.microstep/transition`) are
   rendered slightly indented under their outer transition.
 
+<!-- ============================================================ -->
+<!--  END OF THE SIM RE-HOST HISTORICAL RUN                        -->
+<!-- ============================================================ -->
+
+> **End of the historical run opened at §Sim re-host reference.** The
+> sections above this marker, back to §Definition view — Mode A resting
+> state, are pre-collapse design-reference. The sections below it are
+> NOT covered by that label; each states its own shipped / not-built
+> status.
+
 ## Data sources
 
 Per Spec 005 and Spec 009:
@@ -1757,9 +1781,9 @@ Per Spec 005 and Spec 009:
 | `:rf.machine/transition` traces | Build the transition-history ribbon. |
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | Drive `:after` countdown rings. |
-| `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). |
-| `:rf.machine.spawn/spawned` (fx-substrate) · `:rf.machine.lifecycle/spawned` (registrar-substrate) / `:rf.machine/destroyed` · `:rf.machine.lifecycle/destroyed` | Render spawn/destroy lifecycle in the parent's chart. The spawn axes are symmetric, so the inspector keys "actor appeared" on either. The destroy channels are **disjoint** — `:rf.machine.lifecycle/destroyed` carries only frame-exit reaping (`:parent-frame-destroyed`), `:rf.machine/destroyed` every other teardown — so the inspector reads **both** for "actor disappeared" and uses the channel itself to attribute cause (per [009 §the channel/reason matrix](../../../spec/009-Instrumentation.md#op-type-vocabulary) and [§Two-axis machine observation](../../../spec/009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate)). |
-| `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. |
+| `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). **Not a Machines-tab surface today** — no code in this slice reads these; see §`:spawn-all` viz below, which is unbuilt. |
+| `:rf.machine.spawn/spawned` (fx-substrate) · `:rf.machine.lifecycle/spawned` (registrar-substrate) / `:rf.machine/destroyed` · `:rf.machine.lifecycle/destroyed` | Render spawn/destroy lifecycle in the parent's chart — **not built on this tab**: no code in the Machines-tab slice reads these channels. They are read today by the cancellation-cascade and managed-fx surfaces, and the attribution rule below is the contract those consumers honour. The spawn axes are symmetric, so the inspector keys "actor appeared" on either. The destroy channels are **disjoint** — `:rf.machine.lifecycle/destroyed` carries only frame-exit reaping (`:parent-frame-destroyed`), `:rf.machine/destroyed` every other teardown — so the inspector reads **both** for "actor disappeared" and uses the channel itself to attribute cause (per [009 §the channel/reason matrix](../../../spec/009-Instrumentation.md#op-type-vocabulary) and [§Two-axis machine observation](../../../spec/009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate)). |
+| `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. **Not a Machines-tab affordance**: the runtime's synthetic `[:rf.machine/done <path>]` is a `[:raise …]` fx like any other, so it surfaces as a raised-transition row of the SHARED EVENT HANDLER mini-pipeline (§head note) rather than as a marking of its own. |
 | `:rf.machine.history/restored` / `:rf.machine.history/recorded` | Render the history restore / record banner + the per-`:entry`-step `:source` chip — see [§History restore rendering](#history-restore-rendering-rf2-mle6e5) below. |
 | Source-coord stamping | Every clickable element jumps to source. |
 
@@ -1808,7 +1832,9 @@ Every clickable element on the chart jumps to source:
 
 Source coords are surfaced as copyable `file:line` chips; clicking
 opens the file via the editor URL handler the user configured in
-Settings → Source. See [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol
+Settings → **General** ("Click-to-source links open in"). The Settings
+popup has four tabs — General · Keybindings · Buffer · Diff — and no
+Source tab. See [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol
 matrix.
 
 When the dispatch coord is missing (e.g., a synthetic dispatch from a
