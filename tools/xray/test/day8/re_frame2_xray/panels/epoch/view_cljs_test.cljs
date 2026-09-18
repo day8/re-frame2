@@ -1453,6 +1453,12 @@
   (rf/reg-app-schema [:rf2-1t8fn/count] [:maybe :int])
   (rf/reg-event :rf2-1t8fn/write-db
     (fn [{:keys [db]} _] {:db (assoc db :rf2-1t8fn/count "not-an-int")}))
+  ;; rf2-tspmp — a second `:app-db` violation, failing BELOW its registered
+  ;; root: a map schema registered at `[:rf2-tspmp/user]` failing at `:age`.
+  ;; The flat write above fails AT its root, so the two are control and case.
+  (rf/reg-app-schema [:rf2-tspmp/user] [:maybe [:map [:age :int]]])
+  (rf/reg-event :rf2-tspmp/write-user
+    (fn [{:keys [db]} _] {:db (assoc db :rf2-tspmp/user {:age "not-an-int"})}))
   ;; Settle the machine with its conforming initial `:data`, so the
   ;; `:machine-data` violation below is the macrostep's.
   (rf/dispatch-sync [:rf2-1t8fn/machine [:noop]])
@@ -1473,6 +1479,7 @@
         (rf/dispatch-sync [:rf2-1t8fn/machine [:break]])
         (rf/dispatch-sync [:rf2-1t8fn/machine [:fin]])
         (rf/dispatch-sync [:rf2-1t8fn/write-db])
+        (rf/dispatch-sync [:rf2-tspmp/write-user])
         (proj/schema-violation-rows @traces))
       (finally
         (rf.late-bind/set-fn! :subs/resolve-sub-override prior)))))
@@ -1494,9 +1501,13 @@
 (deftest violation-schema-link-opens-the-failing-registration-test
   (rf/with-frame :rf/default
     (let [rows     (drive-every-schema-violation!)
+          ;; rf2-tspmp's nested row is picked out by the failing LEAF the
+          ;; producer stamps as `:path`, so `by-where` keeps the flat one.
+          nested?  #(= [:rf2-tspmp/user :age] (:path %))
+          nested   (first (filter nested? rows))
           by-where (reduce (fn [acc r]
                              (if (contains? acc (:where r)) acc (assoc acc (:where r) r)))
-                           {} rows)
+                           {} (remove nested? rows))
           store    (fn [kind id] (rf/handler-meta {:source :store :kind kind :id id}))
           expected {:event          (store :event :rf2-1t8fn/typed-event)
                     :fx-args        (store :fx :rf2-1t8fn/typed-fx)
@@ -1531,6 +1542,35 @@
                      "plain text"))
             (is (= (open-title m) (:title (node-attrs link)))
                 (str where ": the link opens THAT registration's file:line")))))
+      (testing "rf2-tspmp — an `:app-db` failure BELOW its registered root
+                links to the registration, not to the failing leaf"
+        (let [flat (get by-where :app-db)
+              m    (rf.schemas/app-schema-meta {:frame :rf/default
+                                                :path  [:rf2-tspmp/user]})
+              link (schema-link nested)]
+          (is (some? nested)
+              "the framework emitted a row failing at the leaf [:rf2-tspmp/user :age]")
+          (is (= [:rf2-tspmp/user] (:registered-path nested))
+              "the producer stamps the root as `:registered-path` and the row carries it")
+          (is (= [:rf2-1t8fn/count] (:path flat) (:registered-path flat))
+              "control: a failure AT the root still stamps `:registered-path`, mirroring `:path`")
+          (is (nil? (rf.schemas/app-schema-meta {:frame :rf/default
+                                                 :path  (:path nested)}))
+              "control: the leaf names no registration, so an exact-path read of it finds nothing")
+          (is (string/includes? (str (:file m)) "view_cljs_test")
+              "control: the nested registration captured a source coord here")
+          (is (= :button (first link))
+              "the link resolved rather than degrading to plain text")
+          (is (= (open-title m) (:title (node-attrs link)))
+              "the link opens the registration's file:line")))
+      (testing "rf2-tspmp — an `:app-db` row with no `:registered-path` falls
+                back to `:path`; a leaf path names nothing, so the link
+                degrades to plain text and does not throw"
+        (let [link (schema-link (dissoc nested :registered-path))]
+          (is (= :span (first link))
+              "no registration at the leaf: plain span")
+          (is (= "schema check" (last link))
+              "the label still reads inside the prose sentence")))
       (testing "rf2-1t8fn — a violation whose registration is gone degrades
                 to plain text and does not throw"
         (rf/clear :event :rf2-1t8fn/typed-event)

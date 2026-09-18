@@ -5610,9 +5610,14 @@
       `rf.schemas/app-schema-meta`. Since rf2-kuky.84 that read REQUIRES a
       `:frame`, so the violation's own frame (off the projected row) is
       passed explicitly: resolving ambiently would resolve Xray's own
-      `:rf/xray` frame, not the host frame whose app-db failed. The row's
-      `:failing-id` names the HANDLER whose write failed, not the schema, so
-      it is never consulted here.
+      `:rf/xray` frame, not the host frame whose app-db failed. The read
+      is an EXACT registered-path lookup, so it takes the row's
+      `:registered-path` — the registration ROOT — and not `:path`, which
+      is the failing LEAF below it (rf2-tspmp): a map schema registered at
+      `[:user]` failing at `:age` carries `:path [:user :age]`, which names
+      no registration. A row without `:registered-path` falls back to
+      `:path`. The row's `:failing-id` names the HANDLER whose write
+      failed, not the schema, so it is never consulted here.
     - `:flow-output` — flows live in the per-frame flow store, not the
       registrar (whose `:flow` slot is reserved-but-empty), so the read is
       `rf.flows/flow-meta` under the violation's frame, the same door
@@ -5622,10 +5627,11 @@
 
   Every branch degrades to nil and never throws; nil renders the link as
   plain text."
-  [{:keys [where failing-id path frame]}]
+  [{:keys [where failing-id path registered-path frame]}]
   (case where
-    :app-db      (when (and (sequential? path) (keyword? frame))
-                   (meta-coord #(rf.schemas/app-schema-meta {:frame frame :path path})))
+    :app-db      (let [anchor (or registered-path path)]
+                   (when (and (sequential? anchor) (keyword? frame))
+                     (meta-coord #(rf.schemas/app-schema-meta {:frame frame :path anchor}))))
     :flow-output (when (and (keyword? failing-id) (keyword? frame))
                    (meta-coord #(rf.flows/flow-meta {:frame frame :id failing-id})))
     (when-let [kind (get violation-registration-kind where)]

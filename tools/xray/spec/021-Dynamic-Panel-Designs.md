@@ -3370,11 +3370,13 @@ carrying, top to bottom:
    overridden — this slot is prose, not data). The substring
    `schema check` is the inline click-to-source link;
    click dispatches `:rf.xray/open-in-editor` against the
-   schema's resolved source-coord. Coord resolution varies by
-   `:where`: `:app-db` reads `(re-frame.schemas/app-schema-meta {:frame f :path path})`
-   (per rf2-mg6ya); other `:where` values read
-   `(rf/handler-meta {:source :store :kind :schema :id failing-id})` — a read that never
-   resolves as shipped (see **Inline link → coord resolution** below). Missing coord →
+   source-coord of the registration whose schema failed, read through
+   the door that registration lives behind (rf2-1t8fn): `:app-db` reads
+   `(re-frame.schemas/app-schema-meta {:frame f :path registered-path})`, at the
+   registration ROOT rather than the failing leaf (per rf2-mg6ya and rf2-tspmp);
+   `:flow-output` reads `re-frame.flows/flow-meta`; every other emitted `:where`
+   reads `rf/handler-meta` under the failing registration's own kind (see
+   **Inline link → coord resolution** below for the full mapping). Missing coord →
    the link degrades to plain inline text inside the sentence
    (sentence still reads cleanly). Per-`:where` prose templates
    live in [§violation-prose-template](#violation-prose-template).
@@ -3442,7 +3444,7 @@ degrade keeps the sentence readable):
 | `:event`      | `Rejected`      | "This event was rejected because its payload failed the `schema check`."                            |
 | `:cofx`       | `Skipped`       | "This handler was skipped because the coeffect failed the `schema check`."                          |
 | `:hot-reload` | `logged + skipped` | "A schema re-registration invalidated existing app-db state. See `schema check` for the new shape." |
-| (fallback)    | none            | "Schema violation. `schema check` for details."                                                     |
+| (fallback)    | `Aborted` when `:rollback? true`, else the `:recovery` keyword's name | "Schema violation. `schema check` for details." |
 
 \* `:app-db` chip text is `Aborted` only when the violation
 carries `:rollback? true` (the runtime aborted the cascade and
@@ -3450,24 +3452,47 @@ rolled `:db` back to its pre-handler value — Spec 010 §Per-step
 recovery row 3). The rollback-mute pass (§Rollback blast-radius
 mute below) handles the downstream-step opacity overlay.
 
-**Inline link → coord resolution.** The `schema check` link
-resolves to the schema's source-coord, NOT the handler's:
+The emitted `:where` values with no template of their own —
+`:sub-override`, `:flow-output`, `:machine-data` and
+`:machine-output` — render the (fallback) row. The `:cofx` row is
+a template the producer no longer reaches (see **Inline link →
+coord resolution** below).
 
-- `:app-db` → `(re-frame.schemas/app-schema-meta {:frame f :path path})` (the
+**Inline link → coord resolution.** The `schema check` link
+resolves to the source-coord of the registration whose schema FAILED,
+NOT the handler's, through the door that registration actually lives
+behind, keyed on the row's `:where` (`violation-schema-coord`, rf2-1t8fn):
+
+- `:app-db` → `(re-frame.schemas/app-schema-meta {:frame f :path registered-path})` (the
   `:schemas/app-schema-meta` late-bind hook per rf2-mg6ya; the frame is
   the violation row's own, never an ambient resolution — that would
   resolve Xray's own frame)
   reads the registration meta the schemas artefact stamped on
-  `reg-app-schema`. Returns `{:file :line}` or nil.
-- `:fx-args` / `:sub-return` / `:event` / `:cofx` →
-  `(rf/handler-meta {:source :store :kind :schema :id failing-id})` — the registration meta
-  carrying the `:schema` slot is the intended click target. **As shipped this read never
-  resolves:** `:schema` is not a registrar kind (§9.1.6.1's closed fourteen), so
-  `rf/handler-meta` throws `:rf.error/unknown-registry-kind`, the view's `try` returns nil, and
-  for these four `:where` values the link always renders as plain text (rf2-y8doi.48).
-- Coord missing (registration wasn't stamped, or `handler-meta`
-  unavailable) → the prose still renders, with `schema check`
-  as plain inline text rather than a clickable affordance.
+  `reg-app-schema`. Returns `{:file :line}` or nil. The read is an EXACT
+  registered-path lookup, so it takes the row's `:registered-path`, the
+  registration root the producer stamps on every `:app-db` failure (Spec 010
+  §When schemas are checked), and not its `:path`, which is the failing LEAF:
+  a `[:map [:age :int]]` registered at `[:user]` and failing at `:age` carries
+  `:path [:user :age]` beside `:registered-path [:user]`, and only the root
+  names a registration (rf2-tspmp). At the root the two are equal. A row
+  without `:registered-path` falls back to `:path`. The row's `:failing-id`
+  names the HANDLER whose write failed, so it is never consulted here.
+- `:flow-output` → `(re-frame.flows/flow-meta {:frame f :id failing-id})` under the
+  violation's frame: flows live in the per-frame flow store, and the
+  registrar's `:flow` slot is reserved-but-empty, so `handler-meta` refuses it.
+- Every other emitted `:where` →
+  `(rf/handler-meta {:source :store :kind <kind> :id failing-id})` under the kind of the
+  registration the violation names: `:event` → `:event`; `:fx-args` → `:fx`;
+  `:sub-return` and `:sub-override` → `:sub`; `:machine-data` and `:machine-output` →
+  `:event`, because a machine IS an `:event` registration and its `[:schemas …]` ride on it.
+- `:cofx` keeps a prose template (§violation-prose-template) but is no longer emitted on
+  this category: a recordable-coeffect failure is the `:rf.error/cofx-value-invalid` hard
+  error (Spec 010 §Per-step recovery, row 2), so no kind is mapped for it. `:hot-reload`
+  rows never reach this block.
+- Coord missing (a `:where` with no mapping, a `:failing-id` or path naming no
+  registration, or a registration without a stamped coord) → the prose still renders,
+  with `schema check` as plain inline text rather than a clickable affordance. Every
+  read is guarded, so resolution never throws.
 
 **Expected / got decomposition row.** When the row's `:explain`
 matches the canonical Malli shape (`{:errors [{:schema … :value …}
