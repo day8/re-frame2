@@ -9,8 +9,15 @@
             [clojure.string :as string]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            ;; rf2-1t8fn — the producer-driven schema-violation rows below
+            ;; drive a real flow, a real machine and the `:sub-overrides`
+            ;; seam, and read each registration back through its own door.
+            [re-frame.flows :as rf.flows]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -29,7 +36,8 @@
             [day8.re-frame2-xray.views.resizable-table :as rt]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.resources-helpers :as rh]
-            [day8.re-frame2-xray.panels.epoch-panel :as epoch-orchestrator]))
+            [day8.re-frame2-xray.panels.epoch-panel :as epoch-orchestrator])
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -1384,6 +1392,153 @@
                             "rf-xray-epoch-violation-subscriptions-0-recovery")]
       (is (string/includes? recovery "Returned nil")
           ":sub-return + no rollback → 'Returned nil'"))))
+
+;; ---- rf2-1t8fn — the `schema check` link opens the FAILING registration ----
+;;
+;; The link used to resolve every non-`:app-db` coord under registrar kind
+;; `:schema`, which is not a registrar kind, so the lookup threw, the catch
+;; swallowed it, and the link rendered as plain text for every one of them.
+;;
+;; EVERY ROW HERE IS PRODUCED, NOT TYPED. Each schema is declared on a real
+;; registration, each violation is driven through the live framework, and
+;; the captured `:rf.error/schema-validation-failure` traces go through
+;; `proj/schema-violation-rows`, the projection the panel renders from. A
+;; typed row would carry whatever `:where` / `:failing-id` / `:frame` its
+;; author believed the producer emits, and that belief is what is under test.
+;;
+;; The EXPECTED coord for each `:where` is read off the registration its
+;; schema actually rides on, through that registration's own public door, so
+;; the `expected` table below states the `:where` → registration mapping
+;; independently of the view's.
+
+(defn- drive-every-schema-violation!
+  "Register one schema-bearing registration per `:where` the framework emits,
+  drive one violation of each through the live framework, and return the
+  schema-violation rows the projection builds from the captured traces.
+  Registration happens OUTSIDE the recorder, so only the driven violations
+  are captured."
+  []
+  (rf/reg-event :rf2-1t8fn/typed-event
+    {:schema [:cat [:= :rf2-1t8fn/typed-event] :int]}
+    (fn [_ _] {}))
+  (rf/reg-fx :rf2-1t8fn/typed-fx
+    {:schema [:map [:n :int]]}
+    (fn [_ctx _args] nil))
+  (rf/reg-event :rf2-1t8fn/fire-fx
+    (fn [_ _] {:fx [[:rf2-1t8fn/typed-fx {:n "not-an-int"}]]}))
+  (rf/reg-sub :rf2-1t8fn/typed-sub {:schema :int}
+    (fn [_db _] "not-an-int"))
+  (rf/reg-sub :rf2-1t8fn/overridden-sub {:schema :int}
+    (fn [_db _] 0))
+  (rf/reg-flow :rf2-1t8fn/typed-flow
+    {:inputs      [[:rf2-1t8fn/flow-in]]
+     :output-path [:rf2-1t8fn/flow-out]
+     :schema      :int}
+    (fn [in] (str "not-an-int-" in)))
+  (rf/reg-event :rf2-1t8fn/seed-flow
+    (fn [{:keys [db]} _] {:db (assoc db :rf2-1t8fn/flow-in 1)}))
+  (rf/reg-machine :rf2-1t8fn/machine
+    {:initial :running
+     :data    {:n 1}
+     :schemas {:data   [:map [:n :int]]
+               :output :int}
+     :states  {:running {:on {:break {:target :running
+                                      :action (fn [_] {:data {:n "not-an-int"}})}
+                              :fin   {:target :done
+                                      :action (fn [{data :data}]
+                                                {:data (assoc data :result "not-an-int")})}}}
+               :done    {:final? true :output-key :result}}})
+  ;; `:maybe` so the ABSENT slot conforms: only the write below fails it,
+  ;; and no other drive's candidate is rejected on its account.
+  (rf/reg-app-schema [:rf2-1t8fn/count] [:maybe :int])
+  (rf/reg-event :rf2-1t8fn/write-db
+    (fn [{:keys [db]} _] {:db (assoc db :rf2-1t8fn/count "not-an-int")}))
+  ;; Settle the machine with its conforming initial `:data`, so the
+  ;; `:machine-data` violation below is the macrostep's.
+  (rf/dispatch-sync [:rf2-1t8fn/machine [:noop]])
+  ;; The `:sub-overrides` seam, published the way Story publishes it. The
+  ;; hook is process-global, so the prior value is put back, not nil.
+  (let [prior (rf.late-bind/get-fn :subs/resolve-sub-override)]
+    (rf.late-bind/set-fn! :subs/resolve-sub-override
+      (fn [query-v]
+        (when (= query-v [:rf2-1t8fn/overridden-sub])
+          ["not-an-int"])))
+    (try
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf2-1t8fn/typed-event "not-an-int"])
+        (rf/dispatch-sync [:rf2-1t8fn/fire-fx])
+        @(rf/subscribe [:rf2-1t8fn/typed-sub])
+        @(rf/subscribe [:rf2-1t8fn/overridden-sub])
+        (rf/dispatch-sync [:rf2-1t8fn/seed-flow])
+        (rf/dispatch-sync [:rf2-1t8fn/machine [:break]])
+        (rf/dispatch-sync [:rf2-1t8fn/machine [:fin]])
+        (rf/dispatch-sync [:rf2-1t8fn/write-db])
+        (proj/schema-violation-rows @traces))
+      (finally
+        (rf.late-bind/set-fn! :subs/resolve-sub-override prior)))))
+
+(defn- schema-link
+  "The `schema check` link node `violation-block` renders for `row`, read off
+  the tree AS EMITTED (no widget expansion; the link is a plain vector)."
+  [row]
+  (some #(when (= "rf-xray-epoch-violation-handler-0-schema-link"
+                  (:data-testid (node-attrs %)))
+           %)
+        (raw-nodes (view/violation-block :handler 0 row))))
+
+(defn- open-title
+  "The tooltip `coord-link` stamps on a RESOLVED link for registration meta `m`."
+  [m]
+  (str "open " (:file m) ":" (:line m) " in editor"))
+
+(deftest violation-schema-link-opens-the-failing-registration-test
+  (rf/with-frame :rf/default
+    (let [rows     (drive-every-schema-violation!)
+          by-where (reduce (fn [acc r]
+                             (if (contains? acc (:where r)) acc (assoc acc (:where r) r)))
+                           {} rows)
+          store    (fn [kind id] (rf/handler-meta {:source :store :kind kind :id id}))
+          expected {:event          (store :event :rf2-1t8fn/typed-event)
+                    :fx-args        (store :fx :rf2-1t8fn/typed-fx)
+                    :sub-return     (store :sub :rf2-1t8fn/typed-sub)
+                    :sub-override   (store :sub :rf2-1t8fn/overridden-sub)
+                    ;; A machine IS an `:event` registration carrying
+                    ;; `:rf/machine? true`; its `[:schemas …]` ride on it.
+                    :machine-data   (store :event :rf2-1t8fn/machine)
+                    :machine-output (store :event :rf2-1t8fn/machine)
+                    ;; Flows live in the per-frame flow store, not the
+                    ;; registrar, whose `:flow` slot is reserved-but-empty.
+                    :flow-output    (rf.flows/flow-meta {:frame :rf/default
+                                                         :id    :rf2-1t8fn/typed-flow})
+                    ;; An app-db schema is registered at a PATH. The row's
+                    ;; `:failing-id` names the HANDLER whose write failed, so
+                    ;; a link resolving through it would open the wrong form.
+                    :app-db         (rf.schemas/app-schema-meta {:frame :rf/default
+                                                                 :path  [:rf2-1t8fn/count]})}]
+      (testing "rf2-1t8fn — the framework emitted one row for every surface
+                driven, and no `:where` this table does not name"
+        (is (= (set (keys expected)) (set (map :where rows)))
+            (str "produced :where set was " (pr-str (set (map :where rows))))))
+      (testing "rf2-1t8fn — every row's `schema check` link is a BUTTON that
+                opens the registration whose schema failed"
+        (doseq [[where m] expected]
+          (let [link (schema-link (get by-where where))]
+            (is (string/includes? (str (:file m)) "view_cljs_test")
+                (str where ": control — the failing registration captured a "
+                     "source coord here, so a resolved link is possible"))
+            (is (= :button (first link))
+                (str where ": the link resolved rather than degrading to "
+                     "plain text"))
+            (is (= (open-title m) (:title (node-attrs link)))
+                (str where ": the link opens THAT registration's file:line")))))
+      (testing "rf2-1t8fn — a violation whose registration is gone degrades
+                to plain text and does not throw"
+        (rf/clear :event :rf2-1t8fn/typed-event)
+        (let [link (schema-link (get by-where :event))]
+          (is (= :span (first link))
+              "the cleared registration leaves nothing to open: plain span")
+          (is (= "schema check" (last link))
+              "the label still reads inside the prose sentence"))))))
 
 ;; `render-schema-hot-reload-step-test` retired here (rf2-oc6ok) — pairs
 ;; with the rf2-o1l6c projection-side retire. Commit 9b96f9f6a
