@@ -247,7 +247,7 @@
 
   ## Dynamic-only verbs
 
-  Trace buffer / suppressed counters / pop-out / select-panel — every
+  Trace buffer / suppressed counters / select-panel — every
   Dynamic-mode command operates against the event-coupled spine or the
   4-layer chrome. Static mode is event-INDEPENDENT (per
   `static/shell.cljs`); these verbs have no meaning there.
@@ -260,6 +260,14 @@
 
   ## Mode-agnostic verbs
 
+  The `:modes #{:dynamic :static}` entries in the vector below are the
+  roster — read them rather than this list, which drifts (it named five
+  while seven entries carried both modes, and `:open-popout` was filed
+  under Dynamic-only while its own entry declared both).
+
+  - `:open-popout`             — Open Xray in a pop-out window. BOTH
+                                 modes: the pop-out carries whichever
+                                 mode is active.
   - `:toggle-theme`            — Dark ↔ Light cycle of the theme class.
   - `:cycle-reduced-motion`    — `:os → :always → :never → :os`.
   - `:snapshot-app-db`         — Drop the focused frame's app-db onto
@@ -268,6 +276,7 @@
                                  tab.
   - `:toggle-mode`             — Flip Dynamic ↔ Static (chord parity
                                  with `Cmd-Shift-M`).
+  - `:close-palette`           — Close the palette (parity with ESC).
 
   ## Removed verbs
 
