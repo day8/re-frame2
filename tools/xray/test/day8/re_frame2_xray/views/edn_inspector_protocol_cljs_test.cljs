@@ -272,3 +272,119 @@
   (is (false? (ddp/satisfies-xray-edn-inspector? {:a 1})))
   (is (false? (ddp/satisfies-xray-edn-inspector? 42)))
   (is (false? (ddp/satisfies-xray-edn-inspector? nil))))
+
+;; ---- 8. rf2-y8doi.24 — the seam YIELDS to diff mode ----------------------
+;;
+;; The protocol seam used to sit ahead of the diff `cond` as a bare
+;; `or`, so ANY value carrying a formatter short-circuited the diff
+;; render outright. That is not an exotic case: `views.edn-inspector`
+;; requires `views.edn-inspector-default-formatters`, which extends
+;; the protocol over `cljs.core/UUID` and `js/Date` — so in a typical
+;; app-db EVERY `:session-id` and EVERY `:updated-at` took the
+;; protocol path, and a CHANGED one rendered its pretty custom header
+;; with no `~` glyph, no wash, no stripe and no `← was` chip. It was
+;; invisible in the one mode whose entire job is showing what changed.
+;;
+;; The contract now: a leaf that is part of a change wears the diff
+;; chrome AND keeps the consumer's rendering (threaded in as
+;; `render-leaf-with-diff`'s `:scalar-fn`). An UNCHANGED leaf keeps
+;; the plain protocol node — cheaper, and nothing to signal.
+
+(defn- diff-leaf
+  "Render one scalar leaf in diff mode with an explicit before/after
+  pair, no projection — `leaf-diff-op`'s `(= before value)` fallback
+  decides, which is what a caller without a pre-computed projection
+  gets."
+  [before after]
+  (ei/render-node {:value after
+                   :before before
+                   :diff? true
+                   :panel-id :test
+                   :mount-id "m1"
+                   :path [:k]
+                   :depth 0
+                   :expansion-map {}
+                   :opts {}}))
+
+(deftest modified-uuid-leaf-carries-diff-chrome
+  (let [h (diff-leaf (uuid "00000000-0000-0000-0000-00000000aaaa")
+                     (uuid "00000000-0000-0000-0000-00000000bbbb"))
+        text (collect-text h)]
+    (is (nil? (find-attr h :data-rf-protocol "1"))
+        "a CHANGED uuid leaf must NOT short-circuit to the plain protocol node")
+    (is (some? (find-attr h :data-rf-diff-op "modified"))
+        "it renders through the diff leaf path, op :modified")
+    (is (re-find #"~" text)
+        "the `~` modified glyph is painted in the gutter")
+    (is (re-find #"← was" text)
+        "the `← was <prior>` chip names the prior value")
+    (is (re-find #"aaaa" text)
+        "and the prior value in that chip is the BEFORE uuid")
+    ;; The point of the `:scalar-fn` seam: the consumer's formatter is
+    ;; kept, not traded away for the diff chrome.
+    (is (some? (find-attr h :data-rf-default-fmt "uuid"))
+        "the default uuid formatter still renders the after-value inside the diff row")
+    (is (re-find #"bbbb" text)
+        "and it renders the AFTER uuid")))
+
+(deftest modified-inst-leaf-carries-diff-chrome
+  (let [h (diff-leaf (js/Date. "2020-01-01T00:00:00.000Z")
+                     (js/Date. "2020-06-01T00:00:00.000Z"))
+        text (collect-text h)]
+    (is (nil? (find-attr h :data-rf-protocol "1"))
+        "a CHANGED inst leaf must NOT short-circuit to the plain protocol node")
+    (is (some? (find-attr h :data-rf-diff-op "modified"))
+        "it renders through the diff leaf path, op :modified")
+    (is (re-find #"~" text)
+        "the `~` modified glyph is painted in the gutter")
+    (is (re-find #"← was" text)
+        "the `← was <prior>` chip names the prior value")
+    (is (some? (find-attr h :data-rf-default-fmt "inst"))
+        "the default inst formatter still renders the after-value inside the diff row")))
+
+(deftest unchanged-uuid-leaf-keeps-the-plain-protocol-node
+  ;; The other half of the contract, and the control for the two above:
+  ;; the seam is NARROWED, not removed.
+  (let [u (uuid "00000000-0000-0000-0000-00000000aaaa")
+        h (diff-leaf u u)]
+    (is (some? (find-attr h :data-rf-protocol "1"))
+        "an UNCHANGED uuid leaf still takes the protocol path in diff mode")
+    (is (nil? (find-attr h :data-rf-diff-op "modified"))
+        "and wears no modified chrome")))
+
+(deftest uuid-leaf-outside-diff-mode-keeps-the-plain-protocol-node
+  ;; The narrowing is scoped to diff mode alone — the ordinary render
+  ;; path is untouched.
+  (let [h (ei/render-node {:value (uuid "00000000-0000-0000-0000-00000000aaaa")
+                           :panel-id :test
+                           :mount-id "m1"
+                           :path []
+                           :depth 0
+                           :expansion-map {}
+                           :opts {}})]
+    (is (some? (find-attr h :data-rf-protocol "1"))
+        "no `:diff?` — the protocol seam wins exactly as before")))
+
+(deftest added-and-removed-protocol-leaves-carry-their-chrome
+  ;; `:added` / `:removed` are resolved by the STRUCTURAL sentinel
+  ;; rather than by a before/after comparison, so they reach
+  ;; `leaf-diff-op` down a different branch than `:modified`.
+  (let [added   (diff-leaf ei/missing-sentinel
+                           (uuid "00000000-0000-0000-0000-00000000bbbb"))
+        removed (ei/render-node {:value ei/missing-sentinel
+                                 :before (uuid "00000000-0000-0000-0000-00000000aaaa")
+                                 :diff? true
+                                 :panel-id :test
+                                 :mount-id "m1"
+                                 :path [:k]
+                                 :depth 0
+                                 :expansion-map {}
+                                 :opts {}})]
+    (is (some? (find-attr added :data-rf-diff-op "added"))
+        "an ADDED uuid leaf wears the added chrome")
+    (is (some? (find-attr added :data-rf-default-fmt "uuid"))
+        "and keeps the consumer's formatter")
+    (is (some? (find-attr removed :data-rf-diff-op "removed"))
+        "a REMOVED uuid leaf wears the removed chrome")
+    (is (not (re-find #"edn-inspector/missing" (collect-text removed)))
+        "and never leaks the internal `::missing` sentinel into the output")))
