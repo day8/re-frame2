@@ -21,10 +21,10 @@
   ## Why the namespace prefix is `xray.mode` (not `re-frame2.xray…`)
 
   Mirror the spec-published key name from the findings doc: `xray.mode`
-  is shorter and reads naturally in browser devtools. The filter
-  persistence ns uses the longer `re-frame2.xray.filters.v1` because
-  that slot grew an explicit version axis (the filter shape may evolve);
-  the mode slot is a fixed enum so versioning is overkill.
+  is shorter and reads naturally in browser devtools. The retired
+  filter persistence ns used the longer `re-frame2.xray.filters.v1`
+  because that slot carried a version axis; rf2-y8doi.27 deleted the
+  whole layer. The mode slot is a fixed enum, so versioning is overkill.
 
   ## Production posture
 

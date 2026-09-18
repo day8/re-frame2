@@ -19,8 +19,8 @@
   `xray.mode` slot — same pattern, same rationale).
 
   Sub-mode is per-machine, so the map has to ride a single slot keyed
-  by machine-id. EDN is the same serialiser the filter slot uses
-  (`re-frame2.xray.filters.v1`); modes are an enum so versioning
+  by machine-id. EDN is the same serialiser the mute-set slot uses
+  (`xray.spine.muted-event-ids`); modes are an enum so versioning
   feels overkill, but the map grows new keys as new sub-modes land,
   and EDN handles that cleanly.
 
