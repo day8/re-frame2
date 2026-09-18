@@ -294,6 +294,12 @@
       ;; sibling all went with them. The count returning to its pre-rf2-6pohj
       ;; value is the honest reading: the gate covers one fewer row because
       ;; there is one fewer row to cover.
+      ;; 12 -> 12 (rf2-y8doi.28): the two-frame isolation scenario stopped
+      ;; claiming `App-DB Diff` and `Flows`. It reads each frame's app-db
+      ;; through `page.evaluate` and opens neither tab, so it is a compile-
+      ;; and-boot smoke, not coverage of either row. The count holds because
+      ;; both rows keep another claimant: the shell handoff sweep claims
+      ;; `App-DB Diff` and the deterministic-exceptions scenario `Flows`.
       (is (= 12 (count canonical))
           (str "canonical covered-row count drifted to " (count canonical)
                " (" (str/join ", " (sort canonical)) ") — update this pin "

@@ -3975,8 +3975,8 @@ const SCENARIOS = [
     // scenario — nothing exercised them in the above/below frames.
     name: 'two-frame isolation: flow + app-schema rungs exercise + isolate across :above / :below (rf2-4279q4)',
     url: '/testbeds/two-frame-isolation/',
-    panels: ['app-db'],
-    coveredRows: ['App-DB Diff', 'Flows'],
+    panels: [],
+    coveredRows: [],
     run: runTwoFrameIsolation,
   },
   {

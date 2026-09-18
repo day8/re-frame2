@@ -85,7 +85,7 @@
                  alongside the nav cluster + frame picker + mode
                  pill + right icons."
      :setup      (filters-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :filters      {:in [] :out []}})
      :tags       #{:dev :state/empty}
@@ -102,7 +102,7 @@
                  mixed load — green IN tint vs magenta OUT tint,
                  with `✎` edit affordances on each."
      :setup      (filters-setup
-                   {:trace-buffer (fixtures/n-cascades 4)
+                   {:trace-buffer (fixtures/cascades 4)
                     :selected-tab :epoch
                     :filters
                     {:in  [{:pattern :cart/add}
@@ -124,7 +124,7 @@
                  affordance. Trigger `{:source :add :mode :in}` —
                  popup arrives empty + IN default; no `[Delete]`."
      :setup      (filters-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :filters      {:in [] :out []}
                     :triggers
@@ -140,7 +140,7 @@
                  {:pattern :auth/*}}` — popup pre-populated with
                  `:auth/*`, IN selected, `[Delete]` visible."
      :setup      (filters-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :filters      {:in  [{:pattern :auth/*}]
                                    :out []}
@@ -164,7 +164,7 @@
                  populated with the row's event-id + OUT default;
                  no `[Delete]` (it's an Add)."
      :setup      (filters-setup
-                   {:trace-buffer (fixtures/n-cascades 4)
+                   {:trace-buffer (fixtures/cascades 4)
                     :selected-tab :epoch
                     :filters      {:in [] :out []}
                     :triggers

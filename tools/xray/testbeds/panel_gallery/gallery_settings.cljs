@@ -87,7 +87,7 @@
                  :right-rail (default), auto-open-on-error OFF
                  (default)."
      :setup      (settings-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :settings
                     [[:rf.xray/settings-update :general :text-size 14]
@@ -115,7 +115,7 @@
                  UX-IA.md §Keyboard plus a master 'Handle keys?'
                  toggle. Rebind UI lands in v1.1."
      :setup      (settings-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :settings-tab :keybindings})
      :tags       #{:dev :state/special}
@@ -134,7 +134,7 @@
                  inert inspector-collapse-threshold input was removed
                  (rf2-5u03ig)."
      :setup      (settings-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :settings-tab :buffer})
      :tags       #{:dev :state/special}
@@ -146,7 +146,7 @@
                  :highlight-fn-ref-changes? toggle for the hiccup-diff
                  micro-engine (rf2-i39w2 Phase 3)."
      :setup      (settings-setup
-                   {:trace-buffer (fixtures/n-cascades 3)
+                   {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
                     :settings-tab :diff})
      :tags       #{:dev :state/special}
