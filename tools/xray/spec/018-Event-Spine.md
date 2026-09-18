@@ -36,15 +36,37 @@ Every selection event passes through a single spine sub — `:rf.xray/focus` —
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ LAYER 1  Two ribbons — chrome (40px) + events ribbon (rf2-4vp5j)        │  scope + spine controls
+│ LAYER 1  Two ribbons — chrome (34px) + events ribbon (rf2-4vp5j)        │  scope + spine controls
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 10 tabs                                       │  projection selector
+│ LAYER 3  Tab bar (34px) — 10 tabs                                       │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Layer heights corrected 40px → 34px (2026-09-18).** This page carried
+> `40px` at **five** sites and `34px` at none, while the producer —
+> `theme/tokens.cljc`'s `layout` map, "single source for the chrome's
+> fixed-height layer measurements" — reads `:top-strip-height "34px"`
+> and `:events-ribbon-height "34px"`. Nothing overrides them at render
+> time: the Dynamic chrome ribbon takes `(:top-strip-height layout)`
+> directly, the Static chrome ribbon takes the same token, and a shipped
+> test asserts the token's value, so the code is not the odd one out.
+> The **uniform 34px rhythm comes from the authoritative reference**
+> (rf2-3f2di) and supersedes the earlier 32px/36px split (rf2-cplj8) —
+> which is why `40px` matched nothing on either side of that history.
+> The Dynamic **L3 tab bar** is 34px too, as a hardcoded literal rather
+> than a token; it is the one layer height with no token of its own.
+>
+> **ONE of the five sites was RIGHT and is deliberately left at 40px:**
+> the **Static** surface's L3 tab bar (§2.5's 3-layer silhouette) really
+> is `:height "40px"`, hardcoded, and does not share the Dynamic tab
+> bar's 34px. So the two tab bars genuinely differ, the two chrome
+> ribbons genuinely agree, and a later sweep on the `40px` token alone
+> would "finish the job" by breaking the only site that was correct.
+> Judge each height by its subject.
 
 Wireframe at default (800px popout, "cosy" density):
 
@@ -87,13 +109,20 @@ Dynamic is 4 layers (L1 ribbon · L2 event list · L3 tab bar · L4 detail panel
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ LAYER 1  Chrome ribbon (40px) — mode dropdown + right icons             │   scope controls
+│ LAYER 1  Chrome ribbon (34px) — mode dropdown + right icons             │   scope controls
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 3  Tab bar (40px) — 5 tabs                                        │   projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │   per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+**The 40px above is NOT a typo for 34px** — see the layer-heights note
+under §2. Static's chrome ribbon shares the Dynamic one's
+`:top-strip-height` token (34px), but Static's tab bar hardcodes 40px
+where Dynamic's hardcodes 34px, so the two tab bars really do differ.
+Left as measured rather than harmonised: whether they SHOULD differ is a
+design question this page does not own.
 
 L2's absence is itself a functional signal — see §The 4 mode signals below. The L1 chrome ribbon retains the mode dropdown (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); the Dynamic chrome's events ribbon — nav cluster, focus-chip, frame picker, filter pills — is HIDDEN because Static is event-independent and has no spine, so those clusters have no meaning here.
 
@@ -167,7 +196,7 @@ Layer 1 is **two stacked ribbons** (rf2-4vp5j's two-ribbon redesign), not
 one. They split scope SELECTORS from spine/filter CHROME so each stratum
 stays compact and reads as a single concern:
 
-### L1 chrome ribbon (`rf-xray-ribbon`, 40px)
+### L1 chrome ribbon (`rf-xray-ribbon`, 34px)
 
 Carries the spine label + nav + add-filter affordance (left) and the
 scope selectors, indicators and chrome actions (right):
