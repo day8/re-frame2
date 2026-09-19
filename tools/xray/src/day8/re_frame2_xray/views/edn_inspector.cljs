@@ -49,8 +49,15 @@
 
   A panel migrating to Fresco writes `edn-inspector-view` and passes a
   stable `:mount-id`; a panel still on `reg-view` writes `edn-inspector`
-  and changes nothing. The Reagent head is scaffolding with a defined end:
-  it goes in the commit that flips the shell's root to Fresco.
+  and changes nothing. BOTH HEADS ARE LIVE AND SUPPORTED: the shell's root
+  has since been flipped and neither went. The facade carries one call per
+  head (`views/edn_widget.cljs`) — `edn/inspect` emits `edn-inspector`,
+  `edn/inspect-view` emits `edn-inspector-view` — and panels head the
+  boundary directly as well (Epoch, Trace, App-DB diff). The Reagent head
+  keeps its own callers: `edn-inspector-diff` here, `reagent-inspector` in
+  `views/edn_inspector_popup.cljs`, and `edn/inspect` from the Static
+  Routes row-expand. This head's end is its own call sites going, not the
+  root's — see THE TWO HEADS, below.
 
   **`mini`, `edn-inspector-diff` and every helper in here are PLAIN
   FUNCTIONS.** Under Reagent a plain fn is a legal hiccup head, so
