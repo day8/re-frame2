@@ -128,8 +128,8 @@ Errors / warnings are cross-cutting (§7): the stage column still labels the ste
 > `:rf.view/unmounted`, plus the `:rf.view/dropped-after` / `:rf.view/rendered-cap-reached` cap markers;
 > nothing in the substrate emits a skipped view, so no verb function can produce the label. Whether views
 > should emit such an op is a Spec 009 question, not a Trace-panel one. Appendix A's **Row label** column
-> carries this same vocabulary; its `:rf.view/skip` row, and the `:rf.sub/computed` / `:rf.sub/skipped`
-> spellings in its Op column, name ops Spec 009 does not define and are stale for the same reason.
+> carries this same vocabulary **minus that one**: it has no VIEW `skipped` row, because there is no op
+> to key one on. Its SUB and VIEW rows name the ops the substrate emits, split on the tags above (rf2-dmuek).
 
 | Area | Verbs |
 |---|---|
@@ -410,13 +410,13 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.machine.spawn/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | EFFECT HANDLERS | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
 | `:rf.machine/after` · `done` · `finished` | EFFECT HANDLERS | MACHINE | after / done / finished | delay / output | — |
 | `:rf.sub/create` | SUBSCRIPTIONS | SUB | created | sub-id | — |
-| `:rf.sub/run`+`computed` (value-changed? ✓) | SUBSCRIPTIONS | SUB | recalculated | sub-id  old → new | dur? |
-| `:rf.sub/run`+`computed` (value-changed? ✗) | SUBSCRIPTIONS | SUB | ran-unchanged | sub-id | dur? |
-| `:rf.sub/skip` · `skipped` | SUBSCRIPTIONS | SUB | cache-hit | sub-id | — |
+| `:rf.sub/run` (`:rf.sub/value-changed?` ✓) | SUBSCRIPTIONS | SUB | recalculated | sub-id  old → new | dur? |
+| `:rf.sub/run` (`:rf.sub/value-changed?` ✗) | SUBSCRIPTIONS | SUB | ran-unchanged | sub-id | dur? |
+| `:rf.sub/skip` | SUBSCRIPTIONS | SUB | cache-hit | sub-id · `:reason :input-value-equal` | — |
 | `:rf.sub/dispose` | SUBSCRIPTIONS | SUB | disposed | sub-id · query-v · `:reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`) · frame | — |
-| `:rf.view/render`+`rendered` (mount? ✗) | VIEWS | VIEW | re-rendered | view-id ← cause-sub | `elapsed-ms` |
-| `:rf.view/render` (mount? ✓) | VIEWS | VIEW | mounted | view-id | `elapsed-ms` |
-| `:rf.view/skip` | VIEWS | VIEW | skipped | view-id | — |
+| `:rf.view/render` (the render-START marker) | VIEWS | VIEW | render | render-key + `:frame` — its only tags | — |
+| `:rf.view/rendered` (`:rf.view/mount?` ✗) | VIEWS | VIEW | re-rendered | view-id ← cause-sub | `elapsed-ms` |
+| `:rf.view/rendered` (`:rf.view/mount?` ✓) | VIEWS | VIEW | mounted | view-id | `elapsed-ms` |
 | `:rf.view/unmounted` | VIEWS | VIEW | unmounted | view-id | — |
 | `:rf.view/dropped-after` · `rendered-cap-reached` | VIEWS | VIEW | dropped / cap-reached | view-id | — |
 | **`:rf.error/*`** (any) | inline (its stage) | ERROR | the `operation` id | ex-data | — |
