@@ -60,10 +60,16 @@ rather than re-deriving field-by-field detail.
 - **Privacy** — params, scopes, AND data all get the same
  summarize-and-redact treatment: every value is a bounded,
  redaction-aware preview, never the raw value.
-- **Decoupled** — Xray does not `:require` the optional resources
- artefact; the panel reads the registry via the registrar query API and
- the live cache/ledger from the runtime state the spine already
- publishes, so it renders cleanly even when the host wired no resources.
+- **Decoupled read path — the PANEL, not the PACKAGE** — this panel
+ `:require`s no `re-frame.resources.*` namespace: it reads the registry
+ via the registrar query API and the live cache/ledger from the runtime
+ state the spine already publishes, so it renders cleanly even when the
+ host wired no resources. Xray the *package* does depend on the
+ artefact: `tools/xray/deps.edn` declares `day8/re-frame2-resources`
+ for the Derivation-Graph tab, which `:require`s
+ `re-frame.resources.tooling`. Don't conflate the two — §Decoupling in
+ [`024-Resources-Panel.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/024-Resources-Panel.md)
+ keeps them apart.
 
 **Open when:** "where's my server state?", "what's in flight?", "is this
 resource stale?", "what owns this cache entry?", "did my mutation's
