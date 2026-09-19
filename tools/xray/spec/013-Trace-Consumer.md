@@ -192,11 +192,23 @@ scrubbed from the snapshot regardless of frame-bound vs frameless
 origin. The two gates are genuinely symmetric — the listener gate
 keeps sensitive events out of the secondary ring + counter path; the
 read gate keeps retained-in-per-frame-ring sensitive events out of
-every downstream surface (`:trace-buffer`, L2, the trace panel, the
+every surface downstream of the FLAT read (`:trace-buffer`, L2, the
 cascade export, and the MCP/snapshot surface). The read gate covers
 the steady-state read while the profile redacts;
 the [retroactive scrub](#retroactive-scrub-on-profile-narrowing) covers
 the reveal → redact narrowing by clearing the rings wholesale.
+
+**The Trace panel's printed ROWS are not among them** (rf2-al0px).
+They are projected from the focused `:rf/epoch-record`'s
+`:trace-events` by the epoch-scoped `:rf.xray/trace-feed`, so the gate
+standing in front of those cells is the EPOCH path below
+(`epoch/redact-history`, which drops the whole record) — not this one.
+The flat read reaches that panel at exactly one place: `:trace-buffer`
+becomes `:rf.xray/event-bundles`, which feeds the 3px lifecycle status
+stripe above the list — a colour, carrying no text. The split is owned
+by [`023` §10.2](./023-Trace-Panel.md#102-privacy--what-reaches-this-panel-and-what-is-withheld),
+which states it outright: neither ring read feeds the rows this panel
+prints.
 
 **The app-db diff — the App-DB tab — is NOT one of them** (rf2-mg4u3).
 It reads no trace events at all: it renders the focused
