@@ -192,9 +192,73 @@
   characters; past this depth the printer writes `#` instead of descending."
   10)
 
-(defn- bounded-pr-str
-  "`pr-str` with the BREADTH and DEPTH of the print walk bounded
-  (rf2-y8doi.25).
+(defn- bound-long-strings
+  "Bound the print INPUT: replace every long STRING the print walk can REACH
+  with its first `preview-limit` characters (rf2-3hnvn).
+
+  `*print-length*` / `*print-level*` bound the printer's BREADTH and DEPTH
+  but neither reaches INSIDE a string, so bounding only a string at the ROOT
+  left `{:body <500k-char string>}` handing the whole 500k to `pr-str` on
+  every coalesced tick to keep 80 characters — the exact cost the bound
+  exists to remove.
+
+  This walk visits only what the printer will actually print: at most
+  `preview-limit` entries per level, and no deeper than
+  `preview-print-level`, past which the printer writes `#` and never
+  descends. So it costs the same order as the print it is bounding, and it
+  never realises more of a lazy seq than the print would.
+
+  Type- and identity-preserving: a bounded value is `assoc`ed back into the
+  collection it came from, so a record stays a record, a sorted map stays
+  sorted, and a value with no long string in reach comes back `identical?` —
+  the ordinary tick rebuilds nothing. (A SEQ is rebuilt lazily, which prints
+  identically and realises nothing extra.)
+
+  Truncating to `preview-limit` SOURCE characters cannot change the
+  preview: escapes only lengthen, so `preview-limit` source characters
+  always print to at least `preview-limit` characters."
+  [v depth]
+  (let [d    (inc depth)
+        walk #(bound-long-strings % d)]
+    (cond
+      (string? v)
+      (if (> (count v) preview-limit) (subs v 0 preview-limit) v)
+
+      ;; Past the depth bound the printer writes `#` without descending, so
+      ;; nothing under here can be printed — and nothing under here is walked.
+      (>= depth preview-print-level)
+      v
+
+      (map? v)
+      (reduce (fn [acc [k vv]]
+                (let [bk (walk k)
+                      bv (walk vv)]
+                  (cond
+                    (not (identical? bk k)) (-> acc (dissoc k) (assoc bk bv))
+                    (not (identical? bv vv)) (assoc acc k bv)
+                    :else acc)))
+              v (take preview-limit v))
+
+      (set? v)
+      (reduce (fn [acc x]
+                (let [bx (walk x)]
+                  (if (identical? bx x) acc (-> acc (disj x) (conj bx)))))
+              v (take preview-limit v))
+
+      (vector? v)
+      (reduce-kv (fn [acc i vv]
+                   (let [bv (walk vv)]
+                     (if (identical? bv vv) acc (assoc acc i bv))))
+                 v (subvec v 0 (min preview-limit (count v))))
+
+      (sequential? v)
+      (map walk (take preview-limit v))
+
+      :else v)))
+
+(defn bounded-pr-str
+  "`pr-str` with the WORK of the print bounded — its BREADTH, its DEPTH, and
+  the length of every STRING it can reach (rf2-y8doi.25, rf2-3hnvn).
 
   The Graph tab re-summarises every cached value-bearing field on every
   coalesced tick, so the cost here is the SERIALISATION, not the 80
@@ -208,16 +272,20 @@
   every printed element costs at least a separator plus one character, so 80
   elements can never be exhausted inside an 80-character preview.
 
-  A long STRING is bounded on the way IN instead, because `*print-length*`
-  does not reach inside one — and `preview-limit` source characters always
-  print to at least `preview-limit` characters (escapes only lengthen), so
-  the preview is unchanged there too."
+  STRINGS are bounded on the way IN by `bound-long-strings`, because
+  `*print-length*` does not reach inside one. That bound reaches EVERY
+  string the print walk can, not only a string at the ROOT — a root-only
+  bound left an ordinary `{:body <large string>}` serialising in full
+  (rf2-3hnvn), and the two are indistinguishable from the preview, which
+  agrees to the character either way.
+
+  Public because that is the only place the cost is observable: `summarize`
+  keeps 80 characters, so its preview cannot tell a bounded print from an
+  unbounded one, and the regression pins the LENGTH OF THIS RESULT."
   [v]
   (binding [*print-length* preview-limit
             *print-level*  preview-print-level]
-    (pr-str (if (and (string? v) (> (count v) preview-limit))
-              (subs v 0 preview-limit)
-              v))))
+    (pr-str (bound-long-strings v 0))))
 
 (defn- value-type [v]
   (cond
