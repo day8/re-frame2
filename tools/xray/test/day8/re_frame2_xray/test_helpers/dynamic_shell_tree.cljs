@@ -85,7 +85,7 @@
 
 (defn ribbon-tree
   "The L1 chrome ribbon's hiccup, read the way `shell/ribbon` reads it —
-  the same six subs in the same order. `dispatch` defaults to
+  the same seven subs in the same order. `dispatch` defaults to
   `(:dispatch (rf/capture-frame))`, the SAME door the boundary uses, so a
   handler this lane pulls off the tree and fires later carries the frame
   exactly as the shipped one does."
@@ -96,6 +96,12 @@
      {:redacted-count  @(rf/subscribe [:rf.xray/suppressed-sensitive-count])
       :muted-count     @(rf/subscribe [:rf.xray/muted-event-ids-count])
       :focus           @(rf/subscribe [:rf.xray/focus])
+      ;; rf2-lh98m — the STORED slot beside the composed map. The ribbon
+      ;; reads both: the composed `:frame` is the resolved current-row
+      ;; coordinate, the stored one is the restriction that bounds the
+      ;; spine's walk. Omitting it here would grade this lane's boundary
+      ;; against an unscoped domain the shipped ribbon does not pass.
+      :focus-slot      @(rf/subscribe [:rf.xray/focus-slot])
       ;; rf2-cqpj4 — the boundary reads the RAW spine vector in this slot,
       ;; not the filtered one. `nav-boundary-state`'s domain is the
       ;; spine's focusable walk — the same walk
@@ -144,6 +150,11 @@
       ;; a marker the shipped boundary does not.
       :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
       :focus           @(rf/subscribe [:rf.xray/focus])
+      ;; rf2-lh98m — as in `ribbon-tree` above: the newer-count's domain
+      ;; is bounded by the STORED restriction, so this lane reads the
+      ;; stored slot too rather than letting the composed frame answer
+      ;; for it.
+      :focus-slot      @(rf/subscribe [:rf.xray/focus-slot])
       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
       :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
                            (rf.interop/now-ms))})))

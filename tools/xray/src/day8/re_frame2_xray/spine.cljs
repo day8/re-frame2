@@ -183,6 +183,35 @@
               event-bundles)
         (some #(when (= dispatch-id (:dispatch-id %)) %) event-bundles)))))
 
+(defn focused-index
+  "Index of the row `event-bundles` holds for the `[frame dispatch-id]`
+  COORDINATE, or nil when that coordinate is not in the vector.
+
+  Frame-strict with an id-only FALLBACK: dispatch ids are unique only
+  WITHIN a frame (Spec 002 §Frame isolation), so the row agreeing on
+  both wins — but a stale stored frame must not hide an otherwise-valid
+  position, so a same-id row from any frame is accepted rather than
+  losing the focus. A nil `frame` (frameless / pre-frame-set focus) is
+  the id-only test outright.
+
+  THE ONE PLACE THIS LOOKUP IS WRITTEN (rf2-lh98m). [[step-event-bundle]]
+  starts its walk from it and `shell/newer-event-count` locates the
+  focused row with it, so the boundary, the step and the count cannot
+  disagree about WHICH row focus is on — which is the failure mode the
+  moment the domain spans frames and an id stops being an identity.
+
+  Pure data → index or nil; JVM-runnable."
+  [event-bundles frame dispatch-id]
+  (or (when frame
+        (first (keep-indexed (fn [idx b]
+                               (when (and (= dispatch-id (:dispatch-id b))
+                                          (= frame (:frame b)))
+                                 idx))
+                             event-bundles)))
+      (first (keep-indexed (fn [idx b]
+                             (when (= dispatch-id (:dispatch-id b)) idx))
+                           event-bundles))))
+
 (defn step-event-bundle
   "Step by `delta` (-1 for prev, +1 for next) from the current
   position through `event-bundles` and return the whole stepped event-bundle
@@ -221,26 +250,64 @@
     `current-frame` is non-nil the current index matches
     `[current-frame current-id]`, falling back to id-only when no
     frame-matching row exists (a stale stored frame must not hide an
-    otherwise-valid current row)."
+    otherwise-valid current row). That lookup is [[focused-index]],
+    shared so the count and the boundary locate the same row (rf2-lh98m)."
   ([event-bundles current-id delta]
    (step-event-bundle event-bundles nil current-id delta))
   ([event-bundles current-frame current-id delta]
    (let [n (count event-bundles)]
      (when (pos? n)
-       (let [current-idx (or (when current-frame
-                               (some (fn [[idx c]]
-                                       (when (and (= current-id (:dispatch-id c))
-                                                  (= current-frame (:frame c)))
-                                         idx))
-                                     (map-indexed vector event-bundles)))
-                             (some (fn [[idx c]]
-                                     (when (= current-id (:dispatch-id c)) idx))
-                                   (map-indexed vector event-bundles)))
+       (let [current-idx (focused-index event-bundles current-frame current-id)
              base-idx    (or current-idx (dec n))
              new-idx     (-> (+ base-idx delta)
                              (max 0)
                              (min (dec n)))]
          (nth event-bundles new-idx))))))
+
+(defn step-noop?
+  "Would a step by `delta` (-1 / +1) be a NO-OP — i.e. does the focus
+  already sit at that edge of `focusable`? THE BOUNDARY PREDICATE
+  ITSELF, lifted out of [[focus-step-reducer]] (rf2-lh98m) so the
+  ribbon's `‹` / `›` disabled state and the reducer's own no-op guard
+  are ONE expression rather than two that agree until they don't.
+  `shell/nav-boundary-state` ASKS this; the reducer OBEYS it.
+
+  ## Its two arguments carry two different things — do not conflate them
+
+  `focusable` is the DOMAIN: the rows the walk may visit, already scoped
+  by the STORED `[:focus :frame]` restriction (nil restriction = the
+  walk spans frames, which is the case this helper exists for).
+  `current-frame` + `current-id` are the RESOLVED COORDINATE of the row
+  focus is on.
+
+  [[compose-focus]] resolves its `:frame` to the CURRENT ROW's frame
+  even when nothing is stored, so feeding that resolved frame back in as
+  a domain scope silently narrows the walk to one frame — a boundary
+  that reports an edge the reducer does not honour. That substitution
+  was the defect (rf2-lh98m); keeping the two as separate arguments is
+  what makes it hard to repeat.
+
+  ## Frame + dispatch-id together are the identity
+
+  Ids are unique only WITHIN a frame (Spec 002 §Frame isolation), so an
+  edge means the same `[frame dispatch-id]` COORDINATE, not merely the
+  same id — stepping onto a same-id row in another frame is a real move
+  (rf2-xj3kbn). A frameless current coordinate degrades to the id-only
+  test, exactly as [[step-event-bundle]]'s own lookup does.
+
+  The reducer walks once more for the stepped RECORD it needs; the
+  second scan over a capped buffer on a keypress is deliberate — one
+  expression for the boundary is worth more than one scan saved.
+
+  Pure data → boolean; JVM-runnable."
+  [focusable current-frame current-id delta]
+  (let [stepped (step-event-bundle focusable current-frame current-id delta)
+        new-id  (:dispatch-id stepped)]
+    (or (nil? new-id)
+        (and (some? current-id)
+             (= new-id current-id)
+             (or (nil? current-frame)
+                 (= (:frame stepped) current-frame))))))
 
 (defn step-dispatch-id
   "Compute the new `:dispatch-id` when stepping by `delta` (-1 for
@@ -698,26 +765,20 @@
          ;; in lockstep with the row the user actually landed on.
          stepped    (step-event-bundle focusable current-frame current-id delta)
          new-id     (:dispatch-id stepped)
-         new-frame  (:frame stepped)
          head-id    (head-dispatch-id focusable)]
-     (if (or (nil? new-id)
-             ;; rf2-fzbrw — boundary no-op. Stepping past either edge
-             ;; resolved to the same row we already hold; return db
-             ;; unchanged so the ribbon's `:disabled` contract is
-             ;; honoured at the reducer layer too. A keyboard j/k at
-             ;; the edge has no observable effect.
-             ;;
-             ;; rf2-xj3kbn — the no-op test is frame-strict too: a
-             ;; genuine edge means the SAME `[frame dispatch-id]`
-             ;; coordinate, not just the same id. When a same-id
-             ;; event-bundle exists in another frame, stepping onto it is a
-             ;; REAL move even though the id matches — comparing id
-             ;; alone would swallow that step. Frameless focus (no
-             ;; `current-frame`) degrades to the id-only edge test.
-             (and (some? current-id)
-                  (= new-id current-id)
-                  (or (nil? current-frame)
-                      (= new-frame current-frame))))
+     ;; rf2-fzbrw — boundary no-op. Stepping past either edge resolved to
+     ;; the same row we already hold; return db unchanged so the ribbon's
+     ;; `:disabled` contract is honoured at the reducer layer too. A
+     ;; keyboard j/k at the edge has no observable effect.
+     ;;
+     ;; rf2-lh98m — that predicate is [[step-noop?]] and lives there
+     ;; rather than inline, because the ribbon has to ask the SAME
+     ;; question to decide whether to grey `‹` / `›` out. Two copies of
+     ;; it agreed on the scoped case and disagreed on the unscoped one:
+     ;; the ribbon narrowed its domain to the RESOLVED current-row frame
+     ;; while this walk spans frames, so the buttons reported an edge
+     ;; this reducer does not honour. One expression, one answer.
+     (if (step-noop? focusable current-frame current-id delta)
        db
        (let [new-mode (if (= new-id head-id) :live :retro)
              frame-id (:frame stepped)
