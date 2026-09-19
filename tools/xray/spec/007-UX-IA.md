@@ -2227,8 +2227,9 @@ names was removed, the entry says so.
    Lives in both modes (it's the toggle, not the indicator). Cmd-Shift-M
    (the global chord) fires the same `:rf.xray/toggle-mode` event so
    chord and dropdown share the handler. The mode SIGNAL is carried by
-   the dropdown's active option + `data-active-mode` (the stripe is the
-   single accent in both modes — rf2-ad7zx.13).
+   the dropdown's active option + `data-active-mode` (there is no
+   per-mode accent colour — rf2-ad7zx.13 collapsed the palette to a
+   single `accent`).
 2. **2-px left-edge ribbon stripe — REMOVED; it signals nothing.**
    rf2-4yemd took it off the Dynamic ribbon on 2026-05-24, Mike having
    reported the blue left edge as absent from the Figma authority;

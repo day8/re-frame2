@@ -124,11 +124,11 @@ where Dynamic's hardcodes 34px, so the two tab bars really do differ.
 Left as measured rather than harmonised: whether they SHOULD differ is a
 design question this page does not own.
 
-L2's absence is itself a functional signal — see §The 4 mode signals below. The L1 chrome ribbon retains the mode dropdown (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); the Dynamic chrome's events ribbon — nav cluster, focus-chip, frame picker, filter pills — is HIDDEN because Static is event-independent and has no spine, so those clusters have no meaning here.
+L2's absence is itself a functional signal — see §The mode signals below. The L1 chrome ribbon retains the mode dropdown (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); the Dynamic chrome's events ribbon — nav cluster, focus-chip, frame picker, filter pills — is HIDDEN because Static is event-independent and has no spine, so those clusters have no meaning here.
 
-### The 4 mode signals (chrome silhouette + 3 reinforcing)
+### The mode signals (chrome silhouette + 2 reinforcing)
 
-The user reads "Static" at a glance via **four stacked signals**; together they telegraph the mode without the user needing to look at any one widget. Lock #14 commits to all four, on the principle that mode confusion is the failure mode to defend against.
+The user reads "Static" at a glance via **three stacked signals**; together they telegraph the mode without the user needing to look at any one widget. Lock #14 committed to four, on the principle that mode confusion is the failure mode to defend against; the fourth — row 2's 2-px left-edge ribbon stripe — was since removed and signals nothing. The table below is retained as written and its rows are NOT renumbered; where the mechanism a row names was removed, the row says so.
 
 | # | Signal | Dynamic | Static |
 |---|---|---|---|
