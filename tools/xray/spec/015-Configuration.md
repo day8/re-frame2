@@ -1074,9 +1074,26 @@ All forthcoming keys follow the `:rf.xray/*` convention.
   promised matches NONE of them — it is the Clojure namespace root,
   never a storage prefix.
 
-The full destination is auditable against
-`tools/xray/test/day8/re_frame2_xray/config_test.clj`, which enforces
-that no slot is forgotten when the surface grows.
+**No test enforces that destination, and the JVM file this section
+used to cite could not.**
+`tools/xray/test/day8/re_frame2_xray/config_test.clj` covers the
+`configure!` / per-key setter surface: the editor preference and
+`editor-configured?`, auto-open, project-root and editor-URI
+construction, the filter seed, panel-width and event-list-column
+clamping, and the `defaults < configure!` settings merge. It
+enumerates NEITHER key family above and asserts nothing about slot
+removal — it calls `reset-settings!` as per-test setup and teardown,
+and the one property it pins about that call is that it clears the
+`configure!` seed. Nor could a `.clj` test do more: the storage half
+of `reset-settings!` is a `#?(:cljs …)` branch (`config.cljc:1615`,
+`storage-remove!` at `:1628`), and `config_test.clj` records at its
+own `:554-556` that the CLJS storage reader resolves to nil under
+Clojure.
+
+Coverage worth the name would need a CLJS test that seeds a slot in
+BOTH families, runs the reset and reads storage back empty — and
+something that fails when a new slot joins the surface without
+joining that list. Both arrive with `factory-reset!`, not before it.
 
 <a id="findings"></a>
 
