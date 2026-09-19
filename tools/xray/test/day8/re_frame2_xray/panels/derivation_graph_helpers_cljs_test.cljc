@@ -222,6 +222,48 @@
       (is (= (subs (pr-str long-string) 0 80)
              (subs (:preview (h/summarize long-string)) 0 80))))))
 
+(deftest rf2-3hnvn-bounded-pr-str-bounds-every-string-the-print-reaches
+  ;; THE DISCRIMINATOR IS THE PRINT, NOT THE PREVIEW. `summarize` keeps 80
+  ;; characters, and the bounded and the unbounded print agree on every one
+  ;; of them — so an assertion about `:preview` passes AGAINST the bug (the
+  ;; merged code printed 200010 characters here and previewed 81, exactly as
+  ;; the fixed code previews 81). What the coalesced tick actually pays is
+  ;; the LENGTH OF THE PRINT, which is what these pin.
+  (let [huge   (apply str (repeat 200000 "x"))
+        nested (h/bounded-pr-str {:body huge})
+        root   (h/bounded-pr-str huge)
+        deeper (h/bounded-pr-str {:a {:b [huge]}})
+        in-set (h/bounded-pr-str #{huge})
+        as-key (h/bounded-pr-str {huge 1})]
+
+    (testing "rf2-3hnvn — `*print-length*` does not reach inside a string, so
+              bounding only a string at the ROOT left an ordinary nested one
+              serialising in full on every tick"
+      (is (< (count nested) 1000)
+          (str "printed " (count nested)
+               " characters for a 200000-character string nested one level"))
+      (is (< (count root) 1000)
+          (str "printed " (count root)
+               " characters for the scalar root — the half that already"
+               " worked, pinned so a later change cannot regress it")))
+
+    (testing "every string the print walk can REACH is bounded, not just a
+              map value one level down"
+      (is (< (count deeper) 1000) "nested under two maps and a vector")
+      (is (< (count in-set) 1000) "an element of a set")
+      (is (< (count as-key) 1000) "a map KEY"))
+
+    (testing "and the operator sees exactly what they saw before: bounding
+              SOURCE characters cannot change the printed prefix, because
+              escapes only lengthen"
+      (let [s (h/summarize {:body huge})]
+        (is (= (subs (pr-str {:body huge}) 0 80)
+               (subs (:preview s) 0 80))
+            "the preview's kept characters are the unbounded print's")
+        (is (<= (count (:preview s)) 81))
+        (is (= :map (:type s)) "`:type` is unchanged")
+        (is (= 1 (:size s))    "and so is `:size` — summarize is untouched")))))
+
 (deftest summarize-node-attaches-summaries-leaves-structure
   (let [node {:id [:sub [:article/page "welcome"]] :kind :derivation
               :inputs [[:sub [:article/by-slug "welcome"]]]
