@@ -1354,8 +1354,12 @@
     ;; overrides. Reads the static registry via `(rf/registrations
     ;; :resource)` and the live cache/ledger off
     ;; `:rf.xray/target-frame-runtime-db` (registered by
-    ;; `app-db-diff/install!` above) — decoupled from the optional
-    ;; resources artefact (Xray does not :require it; bundle isolation).
+    ;; `app-db-diff/install!` above) — THIS panel's read path requires
+    ;; no `re-frame.resources.*` ns. That is a fact about the panel, not
+    ;; about the Xray PACKAGE: `deps.edn` declares
+    ;; `day8/re-frame2-resources` for the Derivation-Graph tab below,
+    ;; which :requires `re-frame.resources.tooling`. See
+    ;; `tools/xray/spec/024-Resources-Panel.md` §Decoupling.
     ;; Read-only: no `:rf.resource/*` dispatch (observing pins nothing).
     (resources/install!)
     ;; Derivation-Graph tab (EP-0014 prop-3) — Dynamic L3 tab:
