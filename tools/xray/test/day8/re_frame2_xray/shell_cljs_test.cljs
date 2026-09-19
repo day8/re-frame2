@@ -58,6 +58,10 @@
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
+            ;; rf2-lh98m — the nav boundary is graded against the REAL step
+            ;; reducer, not against a restatement of the boundary's own
+            ;; arithmetic. That is the whole point of the comparison.
+            [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.theme.tokens :refer [tokens layout]]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
@@ -1761,6 +1765,118 @@
       (is (= 3 (:dispatch-id @(rf/subscribe [:rf.xray/focus])))
           "the step `›` refused is live — it lands on id 3"))))
 
+;; -------------------------------------------------------------------------
+;; (3c) The nav boundary vs the REAL step reducer — rf2-lh98m
+;;
+;; rf2-cqpj4 (above) put both selectors on the raw spine vector and said the
+;; boundary and the reducer now share one domain. They do NOT, in the one
+;; state where the two can differ: `compose-focus` fills its `:frame` in
+;; from the CURRENT ROW when the stored `[:focus :frame]` is nil, so a
+;; boundary scoped by the COMPOSED frame sees one frame's rows while
+;; `focus-step-reducer`, scoped by the STORED frame, walks every frame.
+;;
+;; These rows grade the boundary against the SHIPPED reducer rather than
+;; against a second copy of the boundary's arithmetic, and they run it twice:
+;; unscoped, where the reducer moves, and the explicitly scoped control,
+;; where it does not. The control is what makes this a domain disagreement
+;; rather than an off-by-one — pre-fix the boundary reported the SAME state
+;; for both, because `:app/b` is the composed frame either way.
+;; -------------------------------------------------------------------------
+
+(def ^:private cross-frame-spine
+  "Two rows, one per frame, oldest-first — the minimum shape in which the
+  STORED restriction and the frame `compose-focus` RESOLVES can differ."
+  [{:dispatch-id 1 :frame :app/a :event [:a/first]}
+   {:dispatch-id 2 :frame :app/b :event [:b/second]}])
+
+(defn- nav-boundary-for
+  "`shell/nav-boundary-state` fed exactly as `shell/ribbon-tree` feeds it:
+  the COMPOSED focus for the coordinate, the STORED slot's `:frame` for
+  the domain."
+  [stored-focus]
+  (shell/nav-boundary-state
+    {:focus               (spine/compose-focus stored-focus cross-frame-spine)
+     :frame-scope         (:frame stored-focus)
+     :spine-event-bundles cross-frame-spine
+     :show-ungrouped?     false}))
+
+(defn- reducer-moves?
+  "Does the REAL reducer move? `spine/focus-step-reducer` returns its db
+  unchanged at a genuine edge, so comparing the result with the db it was
+  handed asks the shipped navigation itself whether the step is available
+  — no reimplementation of the boundary to agree with by construction."
+  [stored-focus delta]
+  (let [db {:focus stored-focus}]
+    (not= db (spine/focus-step-reducer db cross-frame-spine delta))))
+
+(deftest nav-boundary-domain-is-the-stored-scope-not-the-resolved-frame-rf2-lh98m
+  (testing "rf2-lh98m — the boundary's DOMAIN is the stored `[:focus :frame]`
+            restriction, which is what the spine walks; the composed focus's
+            `:frame` is the RESOLVED current-row coordinate and scopes
+            nothing. Case 1 is an unscoped cross-frame sequence, where the
+            reducer steps into the previous frame; case 2 is its explicitly
+            scoped control, where the reducer correctly does not move. The
+            boundary must agree with the reducer in BOTH, and pre-fix it
+            reported case 1 exactly as it reported case 2."
+    (let [unscoped {:mode :live}
+          scoped   {:mode :live :frame :app/b}
+          composed (spine/compose-focus unscoped cross-frame-spine)
+          b-unscoped (nav-boundary-for unscoped)
+          b-scoped   (nav-boundary-for scoped)]
+
+      ;; ---- the premise: composing INVENTS a frame that was never stored
+      (is (nil? (:frame unscoped))
+          "CONTROL — case 1 stores no frame restriction at all")
+      (is (= :app/b (:frame composed))
+          "yet the composed focus reports :app/b — `compose-focus` resolves
+           `:frame` from the head ROW, so the two reads differ here and
+           agree everywhere else")
+      (is (= 2 (:dispatch-id composed))
+          "CONTROL — and the composed coordinate is the head row, id 2")
+
+      ;; ---- case 1, UNSCOPED: the reducer crosses the frame boundary
+      (is (true? (reducer-moves? unscoped -1))
+          "CONTROL — the shipped reducer really does step across frames when
+           nothing is stored; without this the assertion below would be
+           vacuous")
+      (is (false? (:at-tail? b-unscoped))
+          "so `‹` must be ENABLED — pre-fix the boundary scoped its domain
+           to the composed :app/b, saw one row, and greyed out a control
+           whose event moves focus")
+      (is (true? (:at-head? b-unscoped))
+          "while `›` IS correctly disabled — focus is on the newest row, and
+           the fix must not turn every boundary off indiscriminately")
+      (is (= (reducer-moves? unscoped -1) (not (:at-tail? b-unscoped)))
+          "prev: boundary == reducer")
+      (is (= (reducer-moves? unscoped +1) (not (:at-head? b-unscoped)))
+          "next: boundary == reducer")
+
+      ;; ---- case 2, the SCOPED control: the reducer correctly does not move
+      (is (false? (reducer-moves? scoped -1))
+          "CONTROL — with :app/b stored, :app/a is out of the walk's domain")
+      (is (true? (:at-tail? b-scoped))
+          "so `‹` is correctly DISABLED — this case passed before the fix
+           and must keep passing after it")
+      (is (= (reducer-moves? scoped -1) (not (:at-tail? b-scoped)))
+          "prev: boundary == reducer")
+      (is (= (reducer-moves? scoped +1) (not (:at-head? b-scoped)))
+          "next: boundary == reducer")
+
+      ;; ---- the discriminator, stated as one comparison
+      (is (not= (:at-tail? b-unscoped) (:at-tail? b-scoped))
+          "THE MEASUREMENT: stored scope is the only difference between the
+           two cases, so the boundary must differ between them. Pre-fix both
+           read true, because both took their domain from the composed
+           :frame — one answer for two different domains")
+
+      ;; ---- and the step keeps frame + id in lockstep across the boundary
+      (let [r (spine/focus-step-reducer {:focus unscoped} cross-frame-spine -1)]
+        (is (= 1 (get-in r [:focus :dispatch-id]))
+            "prev lands on the previous ROW, id 1")
+        (is (= :app/a (get-in r [:focus :frame]))
+            "carrying its own frame — an id alone is not an identity once
+             the walk spans frames")))))
+
 (deftest ribbon-nav-head-enabled-when-paused-at-head
   (testing "rf2-x5tro nuance — at head but PAUSED (frozen inspection):
             `live?` is false, so ⏭ stays ENABLED. Pressing it resumes
@@ -2155,6 +2271,52 @@
           "CONTROL — the empty state renders")
       (is (nil? (newer-events-marker-in tree))
           "no marker beside `No events.`"))))
+
+(deftest newer-count-locates-the-focused-row-by-frame-and-id-rf2-lh98m
+  (testing "rf2-lh98m — the counting domain shares the boundary's stored
+            scope, and shares its identity rule too. With no restriction
+            stored the domain spans frames, where a dispatch-id repeats; an
+            id-only scan for the focused row finds the EARLIER frame's
+            namesake and reports every row after that one. Here the focused
+            coordinate is `[:cx :app/b]` at index 2 of 4, so one row is
+            newer — an id-only scan would find index 0 and say three.
+
+            WHICH DEFECT THIS ROW DISCRIMINATES, stated because a green
+            assertion that could not have failed is worth nothing: it does
+            NOT red on the pre-fix code, where the domain was narrowed to
+            `:app/b` and the id-only scan happened to land on the right row
+            inside it. It reds on the HALF-FIX — stored scope threaded
+            through, identity left as a bare id — which is the near-miss
+            this bead's own fence names, and the state the tree would be in
+            if the two halves were separated. The row above is the one that
+            reds on pre-fix."
+    (let [spine-rows [{:dispatch-id :cx   :frame :app/a :event [:a/cx]}
+                      {:dispatch-id :mid  :frame :app/b :event [:b/mid]}
+                      {:dispatch-id :cx   :frame :app/b :event [:b/cx]}
+                      {:dispatch-id :last :frame :app/b :event [:b/last]}]
+          tree       (shell/event-list-tree
+                       (fn [_ev])
+                       {:col-widths          {:source 52 :timestamp 60 :duration 52}
+                        :list-height-px      200
+                        :event-bundles       spine-rows
+                        :spine-event-bundles spine-rows
+                        ;; the COMPOSED coordinate — the :app/b :cx row
+                        :focus               {:dispatch-id :cx :frame :app/b
+                                              :mode :retro :head? false}
+                        ;; nothing stored: the walk spans frames
+                        :focus-slot          {:mode :retro}
+                        :show-ungrouped?     false
+                        :now-ms              0})
+          marker     (newer-events-marker-in tree)
+          text       (str (when marker (text-nodes marker)))]
+      (is (some? marker)
+          "CONTROL — the marker paints at all, so the assertions below are
+           reading a rendered node rather than a nil")
+      (is (str/includes? text "1 newer event")
+          "N counts from the `[:cx :app/b]` ROW, not from the first :cx")
+      (is (not (str/includes? text "3 newer"))
+          "the id-only reading, named explicitly so a regression cannot
+           drift past it unnoticed"))))
 
 ;; -------------------------------------------------------------------------
 ;; (4b) Row density + minimal default-row rendering — rf2-htik0 Bug 2 +

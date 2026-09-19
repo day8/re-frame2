@@ -1211,11 +1211,22 @@
 
   `spine-event-bundles` is raw `:rf.xray/event-bundles`, narrowed to the
   rows the spine may actually focus: `spine/focusable-event-bundles`
-  under the same `show-ungrouped?` opt-in, then scoped to `frame` when
-  the focus carries one. That is the walk `spine/compose-focus` derives
+  under the same `show-ungrouped?` opt-in, then scoped to `frame-scope`
+  when one is stored. That is the walk `spine/compose-focus` derives
   `:head?` from and the walk `spine/focus-step-reducer` steps over, so a
   boundary or a count taken here agrees BY CONSTRUCTION with what `j` /
   `k` and the `»` snap actually do.
+
+  `frame-scope` IS THE STORED `[:focus :frame]` RESTRICTION — what the
+  frame picker wrote — and never the `:frame` off the COMPOSED
+  `:rf.xray/focus` (rf2-lh98m). The two read alike whenever a
+  restriction is stored, which is what let the wrong one stand: with
+  NOTHING stored the spine walks every frame, while `compose-focus`
+  still resolves its `:frame` to the current ROW's frame, so passing
+  that here narrowed this domain to one frame and both selectors built
+  on it reported a boundary and a count the spine does not have. nil
+  means UNSCOPED — the walk spans frames — and that is a real state,
+  not a missing value to be filled in from the row.
 
   NEVER hand this `:rf.xray/filtered-event-bundles`. That vector has the
   view-scope frame, the ribbon's IN/OUT pills and the mutes already
@@ -1225,9 +1236,9 @@
   to choose the wrong vector on purpose.
 
   Pure data → data."
-  [spine-event-bundles show-ungrouped? frame]
+  [spine-event-bundles show-ungrouped? frame-scope]
   (cond->> (spine/focusable-event-bundles spine-event-bundles show-ungrouped?)
-    frame (filterv #(= frame (:frame %)))))
+    frame-scope (filterv #(= frame-scope (:frame %)))))
 
 (defn nav-boundary-state
   "Pure helper (rf2-3f2di A5) — compute the `{:at-head? :at-tail? :live?}`
@@ -1237,8 +1248,27 @@
   re-subscribing. Mirrors the boundary walk the events ribbon previously
   did inline.
 
-  - `focus` — `:rf.xray/focus` (carries `:dispatch-id` + `:mode` +
-    `:paused?`, and the `:frame` the spine resolved the pin in).
+  ## TWO FRAMES ARRIVE AND THEY ARE NOT THE SAME FRAME (rf2-lh98m)
+
+  - `focus` — `:rf.xray/focus`, the COMPOSED map (`:dispatch-id` +
+    `:mode` + `:paused?`, and the `:frame` the spine RESOLVED the pin
+    in). Its `[:frame :dispatch-id]` pair is the COORDINATE of the row
+    focus is on — the identity half, and the half the UI displays.
+  - `frame-scope` — the STORED `[:focus :frame]` restriction, read
+    through `:rf.xray/focus-slot`. The DOMAIN half: which rows the walk
+    may visit at all. nil is a real value meaning UNSCOPED.
+
+  `compose-focus` fills its `:frame` in from the current ROW when
+  nothing is stored, so the two agree whenever a restriction exists and
+  diverge exactly when one does not. Taking the domain off the composed
+  map therefore looked right, passed its scoped test, and was wrong in
+  the one case it could be wrong in: with no picker restriction
+  `spine/focus-step-reducer` walks EVERY frame, while this boundary saw
+  a single frame's rows, called the focus at-head AND at-tail, and greyed
+  out a `‹` whose event moves focus to the previous frame's row. Do not
+  repair that by scoping the reducer to the resolved frame instead —
+  that narrows navigation to hide the disagreement.
+
   - `spine-event-bundles` — RAW `:rf.xray/event-bundles`, read through
     [[spine-focusable-bundles]]. NOT the filtered vector L2 renders:
     `‹` and `›` gate `:rf.xray/focus-event-prev` / `-next`, which walk
@@ -1249,28 +1279,28 @@
   - `show-ungrouped?` — `:rf.xray/show-ungrouped?` (the `:ungrouped`
     bucket is a step target only under the opt-in, per rf2-fzbrw).
 
+  `at-head?` / `at-tail?` are `spine/step-noop?` — the reducer's OWN
+  edge predicate, asked here rather than restated, which is what makes
+  the button's `:disabled` and the event's no-op one decision. It is
+  frame-strict on the coordinate, so a same-id row in another frame is
+  a reachable step rather than a false edge.
+
   Pure-data → map; JVM-runnable so the boundary logic is testable
   without a CLJS runtime."
-  [{:keys [focus spine-event-bundles show-ungrouped?]}]
-  (let [focused-id      (:dispatch-id focus)
-        ids             (mapv :dispatch-id
-                              (spine-focusable-bundles spine-event-bundles
-                                                       show-ungrouped?
-                                                       (:frame focus)))
-        at-head?        (or (empty? ids)
-                            (= focused-id (last ids))
-                            (nil? focused-id))
-        at-tail?        (or (empty? ids)
-                            (= focused-id (first ids)))
-        live?           (and (= :live (:mode focus))
-                             (not (:paused? focus)))]
-    {:at-head? at-head?
-     :at-tail? at-tail?
-     :live?    live?}))
+  [{:keys [focus frame-scope spine-event-bundles show-ungrouped?]}]
+  (let [focusable     (spine-focusable-bundles spine-event-bundles
+                                               show-ungrouped?
+                                               frame-scope)
+        current-id    (:dispatch-id focus)
+        current-frame (:frame focus)]
+    {:at-head? (spine/step-noop? focusable current-frame current-id +1)
+     :at-tail? (spine/step-noop? focusable current-frame current-id -1)
+     :live?    (and (= :live (:mode focus))
+                    (not (:paused? focus)))}))
 
 (defn ribbon-tree
   "The L1 chrome ribbon's WHOLE hiccup, as a pure function of the
-  frame-bound `dispatch`, the six values [[ribbon]] reads, and its
+  frame-bound `dispatch`, the seven values [[ribbon]] reads, and its
   three already-composed boundary children.
 
   SPLIT OUT OF [[ribbon]] BY rf2-k97c.3, for the reason every migrated
@@ -1282,6 +1312,15 @@
   and the `no-filters?` gate are computed HERE. That keeps the node lane's
   door (`test-helpers.dynamic-shell-tree`) a reproduction of the READS
   alone, with no second copy of the derivation to drift.
+
+  TWO FOCUS READS ARRIVE, AND BOTH ARE NEEDED (rf2-lh98m). `focus` is
+  the COMPOSED `:rf.xray/focus` — the resolved coordinate the nav
+  cluster displays and steps from. `focus-slot` is the STORED
+  `:rf.xray/focus-slot`, and the only thing taken from it is `:frame`:
+  the picker's restriction, which is what bounds the spine's walk. The
+  composer fills its own `:frame` in from the current row when nothing
+  is stored, so the stored slot is the ONLY place that distinction
+  survives — see [[nav-boundary-state]] for what conflating them cost.
 
   PURE HEADS: `ribbon-nav-cluster`, `ribbon-redacted-indicator`,
   `ribbon-right-icons`, `filter-pills/chrome-add-filter-button` and
@@ -1309,14 +1348,15 @@
   migrated piecemeal. [[event-list-tree]]'s L4 seam is untouched and
   stands for its own recorded reason."
   [dispatch
-   {:keys [redacted-count muted-count focus spine-event-bundles show-ungrouped?
-           filters]}
+   {:keys [redacted-count muted-count focus focus-slot spine-event-bundles
+           show-ungrouped? filters]}
    frame-switcher*
    mode-pill*
    theme-toggle*]
   (let [no-filters? (zero? (+ (count (:in filters)) (count (:out filters))))
         {:keys [at-head? at-tail? live?]}
         (nav-boundary-state {:focus               focus
+                             :frame-scope         (:frame focus-slot)
                              :spine-event-bundles spine-event-bundles
                              :show-ungrouped?     show-ungrouped?})]
     [:div {:data-testid "rf-xray-ribbon"
@@ -1519,6 +1559,13 @@
      ;; per the authority reference, so the chrome ribbon reads the
      ;; spine state the events ribbon used to own.
      :focus           (rf.fresco/sub [:rf.xray/focus])
+     ;; rf2-lh98m — the STORED slot beside the composed map. Only its
+     ;; `:frame` is used: the picker's restriction, which is the domain
+     ;; `spine/focus-step-reducer` walks. The composed `:frame` above is
+     ;; the RESOLVED row's frame — it reads the same whenever a
+     ;; restriction exists, and differs exactly when none does, which is
+     ;; why the boundary cannot derive one from the other.
+     :focus-slot      (rf.fresco/sub [:rf.xray/focus-slot])
      ;; rf2-cqpj4 — the RAW spine vector, not the filtered one. The nav
      ;; cluster's boundary is the only thing this read feeds, and
      ;; `nav-boundary-state`'s domain is the spine's focusable walk — the
@@ -2279,8 +2326,8 @@
   ## Its DOMAIN is the spine's vector, and that is the whole point
 
   Counted over [[spine-focusable-bundles]] — `spine/focusable-event-
-  bundles` under the same `show-ungrouped?` opt-in and the same frame
-  scope `spine/compose-focus` walks — and NEVER over the vector
+  bundles` under the same `show-ungrouped?` opt-in and the same STORED
+  frame scope `spine/compose-focus` walks — and NEVER over the vector
   [[event-list-tree]] renders. That vector is
   `:rf.xray/filtered-event-bundles` — the view-scope frame, the ribbon's
   IN/OUT pills and the mutes have already been applied to it
@@ -2292,15 +2339,29 @@
   domain behind the shared helper so this selector and
   [[nav-boundary-state]] cannot drift apart again.
 
+  `frame-scope` IS THE STORED RESTRICTION, never the composed focus's
+  resolved `:frame` (rf2-lh98m). `»` is `:rf.xray/follow-head`, which
+  clears the pinned id and leaves `[:focus :frame]` alone — so the head
+  it lands on is the head of the STORED scope, and `N` has to be counted
+  over that same domain or the marker promises a jump of a different
+  size from the one `»` makes. nil means unscoped: with no picker
+  restriction the spine's head is the newest row in ANY frame.
+
+  The focused row is located by `spine/focused-index` — the `[frame
+  dispatch-id]` COORDINATE off the composed `focus`, not a bare id. An
+  unscoped domain spans frames, and ids repeat across them, so an
+  id-only scan can land on an earlier frame's namesake and count every
+  row after THAT one (rf2-lh98m).
+
   Returns nil when the focused id is not in that vector — an evicted
   RETRO pin. The marker then renders WITHOUT a number rather than with a
   wrong one."
-  [event-bundles show-ungrouped? frame focused-id]
-  (let [focusable (spine-focusable-bundles event-bundles show-ungrouped? frame)
-        idx       (first (keep-indexed (fn [i event-bundle]
-                                         (when (= focused-id (:dispatch-id event-bundle))
-                                           i))
-                                       focusable))]
+  [event-bundles show-ungrouped? frame-scope focus]
+  (let [focusable (spine-focusable-bundles event-bundles show-ungrouped?
+                                           frame-scope)
+        idx       (spine/focused-index focusable
+                                       (:frame focus)
+                                       (:dispatch-id focus))]
     (when idx
       (- (count focusable) idx 1))))
 
@@ -2378,9 +2439,17 @@
   is raw `:rf.xray/event-bundles` — what the SPINE walks, and the vector
   `spine/compose-focus` derives `:head?` from. Rows render from the
   first; the newer-events marker's presence and count come from the
-  second (see [[newer-event-count]])."
+  second (see [[newer-event-count]]).
+
+  TWO FOCUS READS ARRIVE FOR THE SAME REASON (rf2-lh98m). `focus` is the
+  composed `:rf.xray/focus` — the resolved `[frame dispatch-id]`
+  coordinate. `focus-slot` is `:rf.xray/focus-slot`, and only its
+  `:frame` is read: the stored picker restriction that bounds the
+  spine's walk. They read alike whenever a restriction is stored and
+  differ exactly when none is, so the count cannot derive one from the
+  other — see [[nav-boundary-state]], which had the same defect."
   [dispatch {:keys [col-widths list-height-px event-bundles spine-event-bundles
-                    focus show-ungrouped? now-ms]}]
+                    focus focus-slot show-ungrouped? now-ms]}]
   (let [focused-id    (:dispatch-id focus)
         ;; LIVE+head+not-paused = the auto-tracking branch from
         ;; spine/compose-focus. Only here do we want scroll-into-view
@@ -2401,9 +2470,13 @@
         ;; and `»` has already lit (`nav-boundary-state`'s `live?`
         ;; excludes paused).
         stale-read?   (not (:head? focus))
+        ;; rf2-lh98m — the STORED restriction bounds the count's domain;
+        ;; the COMPOSED focus locates the row inside it. Passing the
+        ;; composed `:frame` as the scope counted one frame's rows while
+        ;; `»` jumps to the spine's head across all of them.
         newer-count   (when stale-read?
                         (newer-event-count spine-event-bundles show-ungrouped?
-                                           (:frame focus) focused-id))
+                                           (:frame focus-slot) focus))
         event-bundles (filterv #(l2-event-bundle-visible? % show-ungrouped?) event-bundles)]
     [:div {:data-testid "rf-xray-event-list-wrap"
            :style {:display "flex" :flex-direction "column"}}
@@ -2605,6 +2678,11 @@
      ;; second stratum so the count surfaces above the list rather
      ;; than as an inline banner inside it.
      :focus           @(rf/subscribe [:rf.xray/focus])
+     ;; rf2-lh98m — the STORED slot beside the composed map. Only its
+     ;; `:frame` is read: the newer-count's domain is the spine's walk,
+     ;; which the picker's stored restriction bounds — never the frame
+     ;; the composer resolved the current row in.
+     :focus-slot      @(rf/subscribe [:rf.xray/focus-slot])
      ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-event-bundle
      ;; bucket. Default OFF preserves silent-by-default; ON
      ;; surfaces the bucket as a muted L2 row that focuses the
