@@ -1582,7 +1582,8 @@ roster (Mode B/C per UC2 §Dynamic Mode A/B/C below).
 >   `:after` timer declared anywhere on the ACTIVE PATH — a compound
 >   ancestor's and a parallel region's included — where clicking a row
 >   fires that timer's elapsed event through the same engine step the
->   other rows use (rf2-pzuqw). Those `⌚` rows are **manual timeout
+>   other rows use (rf2-pzuqw); an inline step diagnostic; and the
+>   audit trail of steps taken. Those `⌚` rows are **manual timeout
 >   triggers**: the sim keeps no clock and does not advance simulated
 >   time, so it lists what the definition declares and lets the engine
 >   answer — a stale epoch or a declined guard comes back as the same
@@ -1590,8 +1591,7 @@ roster (Mode B/C per UC2 §Dynamic Mode A/B/C below).
 >   runtime would have reaped a spent one-shot. The timer event is
 >   built from the engine's own `:rf.machine/after-schedule` effect,
 >   which the sim already stores on every audit row, so the epoch is
->   never typed or re-derived; an inline step diagnostic; and the audit
->   trail of steps taken.
+>   never typed or re-derived.
 > - **Chart** — the active state highlights amber, the taken edge
 >   animates, and clicking a plain `:on` edge sends that event. `:after`
 >   and `:always` auto edges are inert on click: the chart hands the sim
