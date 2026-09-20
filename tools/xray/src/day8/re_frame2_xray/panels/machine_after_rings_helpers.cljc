@@ -296,35 +296,49 @@
   for `machine-id`. Sorted oldest-first by `:armed-at` for stable
   hover-region ordering.
 
-  `target-frame` (rf2-y8doi.23) is the INSPECTED frame id. A machine
-  DEFINITION can be registered once and instantiated in several frames
-  — a testbed mounting two hosts side by side is the ordinary case —
-  and a singleton actor-id is identical across them, so folding on
+  `display-frame` (rf2-y8doi.23; named `target-frame` until rf2-a28eo)
+  is the frame whose instance is ON SCREEN. A machine DEFINITION can be
+  registered once and instantiated in several frames — a testbed
+  mounting two hosts side by side is the ordinary case — and a singleton
+  actor-id is identical across them, so folding on
   `(machine-id, state, epoch, delay)` alone let two frames' timers
   collide on one ring key: a `:cancelled` in frame A closed the
   `:armed` record frame B had just opened. Every `:rf.machine.timer/*`
   trace stamps its owning frame under `:tags :frame` (measured at the
   producer for all five ops — `scheduled` / `fired` / `stale-after` /
-  `cancelled` / `skipped-on-server`), so narrowing the buffer BEFORE
-  the fold keeps each frame's timers in their own fold.
+  `cancelled` / `skipped-on-server`; re-measured under rf2-a28eo across
+  all SEVEN emit sites, `/scheduled` and `/fired` having two each), so
+  narrowing the buffer BEFORE the fold keeps each frame's timers in
+  their own fold.
 
-  `target-frame` nil means UNSELECTED (`:rf.xray/target-frame`'s own
-  default per EP-0002) and applies NO filter — there is nothing to
-  disambiguate against, and dropping every event would blank the rings
-  on the default posture.
+  IT IS NOT `:rf.xray/target-frame`, AND THE DIFFERENCE IS THE WHOLE OF
+  rf2-a28eo. That slot is the COLLECTOR's target — which host frame the
+  operator asked to observe — and it DEFAULTS TO NIL (UNSELECTED,
+  EP-0002). A caller handing it here raw therefore left this narrowing
+  off in the very posture the panel opens in, and the two frames folded
+  back together. The display scope is resolved from the focused
+  transition record's own `:frame-id` instead, with the collector target
+  as the fallback; `:rf.xray/active-timers-for-focused-machine` in
+  `machine_after_rings.cljs` is where that happens.
+
+  `display-frame` nil means NOTHING COULD BE RESOLVED, and applies NO
+  filter — there is nothing to disambiguate against, and dropping every
+  event would blank the rings. That branch is deliberate and
+  load-bearing rather than a gap: a legacy replay whose traces pre-date
+  the `:frame` stamp lands on it, and so does an unstamped fixture.
 
   Returns `[]` when `machine-id` is nil. Pure fn — JVM-runnable."
   ([trace-buffer machine-id]
    (project-timers trace-buffer machine-id nil))
-  ([trace-buffer machine-id target-frame]
+  ([trace-buffer machine-id display-frame]
    (if (nil? machine-id)
      []
      (let [events (->> (or trace-buffer [])
                        (filter timer-event?)
                        (filter (fn [ev] (= machine-id (machine-id-of ev))))
                        (filter (fn [ev]
-                                 (or (nil? target-frame)
-                                     (= target-frame
+                                 (or (nil? display-frame)
+                                     (= display-frame
                                         (get-in ev [:tags :frame])))))
                        ;; Oldest first — the fold relies on chronological
                        ;; order so a later cancellation overrides an earlier
@@ -370,10 +384,10 @@
   now-keyed filter below — actually needed. Pure fn — JVM-runnable."
   ([trace-buffer machine-id]
    (timers-for-machine trace-buffer machine-id nil))
-  ([trace-buffer machine-id target-frame]
+  ([trace-buffer machine-id display-frame]
    (filterv (fn [r] (or (= :armed (:status r))
                         (= :cancelled (:status r))))
-            (project-timers trace-buffer machine-id target-frame))))
+            (project-timers trace-buffer machine-id display-frame))))
 
 (defn prune-timers
   "The NOW-KEYED half: drop the records that should not be on screen at
@@ -433,8 +447,10 @@
   wall-clock instant `now-ms` — [[timers-for-machine]] composed with
   [[prune-timers]].
 
-  `target-frame` narrows the buffer to the INSPECTED frame; see
-  [[project-timers]] for why, and for what nil means.
+  `display-frame` narrows the buffer to the frame whose instance is ON
+  SCREEN — NOT to `:rf.xray/target-frame`, which is the collector's
+  target and a fallback only (rf2-a28eo); see [[project-timers]] for
+  why, and for what nil means.
 
   Kept as one entry point because the JVM helper suite drives the whole
   pipeline through it; the production sub takes the two halves
@@ -443,8 +459,8 @@
    (active-timers-for-machine trace-buffer machine-id nil nil))
   ([trace-buffer machine-id now-ms]
    (active-timers-for-machine trace-buffer machine-id now-ms nil))
-  ([trace-buffer machine-id now-ms target-frame]
-   (prune-timers (timers-for-machine trace-buffer machine-id target-frame)
+  ([trace-buffer machine-id now-ms display-frame]
+   (prune-timers (timers-for-machine trace-buffer machine-id display-frame)
                  now-ms)))
 
 ;; ---- ring geometry ------------------------------------------------------

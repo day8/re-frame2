@@ -204,13 +204,40 @@
   ;; which also makes retro mode honest — the eviction used to age rings
   ;; against the LIVE clock even while the chart was frozen at the focused
   ;; cascade's instant.
+  ;;
+  ;; rf2-a28eo — THE DISPLAY SCOPE IS NOT THE COLLECTOR'S TARGET, and
+  ;; conflating the two left defect 2 above only half fixed. The frame was
+  ;; taken from `:rf.xray/target-frame` and passed straight through, but
+  ;; that slot DEFAULTS TO NIL (UNSELECTED, EP-0002) — so in the posture
+  ;; the panel opens in, the narrowing was simply off, and one machine
+  ;; DEFINITION instantiated in two frames folded back together: frame A's
+  ;; `/cancelled` closed the record frame B's `/scheduled` had opened, and
+  ;; B's LIVE countdown was drawn as a grey crossed CANCELLED ring.
+  ;;
+  ;; The helper's nil branch is DELIBERATE and is KEPT. Dropping every
+  ;; event when there is genuinely nothing to disambiguate against would
+  ;; blank the rings, which is the worse failure. What was missing is a
+  ;; FRAME TO GIVE IT — and the focused record already carries one:
+  ;; `lifecycle_fx/registration.cljc` stamps `:frame` on every
+  ;; `:rf.machine/transition` emit, so the record that names WHICH MACHINE
+  ;; the chart is drawing names WHICH INSTANCE of it too. That is the same
+  ;; record `pick-focused-transition` already answers with, so the machine
+  ;; and its frame cannot drift apart.
+  ;;
+  ;; `:rf.xray/target-frame` stays an input and becomes the FALLBACK. It is
+  ;; a legitimate COLLECTOR target — which host frame the operator asked to
+  ;; observe — and it answers the DISPLAY question only when the record
+  ;; cannot (a legacy replay whose traces pre-date the `:frame` stamp).
+  ;; Both nil still means NO FILTER, exactly as before.
   (rf/reg-sub :rf.xray/active-timers-for-focused-machine
     {:inputs [[:rf.xray/trace-buffer]
               [:rf.xray/machine-transitions-for-focused-event]
               [:rf.xray/target-frame]]}
     (fn [[buffer records target-frame] _query]
-      (let [machine-id (:machine-id (mi-h/pick-focused-transition records))]
-        (rings-h/timers-for-machine buffer machine-id target-frame))))
+      (let [record        (mi-h/pick-focused-transition records)
+            machine-id    (:machine-id record)
+            display-frame (or (:frame-id record) target-frame)]
+        (rings-h/timers-for-machine buffer machine-id display-frame))))
 
   ;; ---- timer-hover slot ----------------------------------------------
   ;;
