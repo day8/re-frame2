@@ -1024,15 +1024,18 @@
     (catch :default _ [])))
 
 (defn- machine-snapshots-value
-  "The egress-redacted live snapshots map off the target frame's
-  runtime-db (`[:rf.runtime/machines :snapshots]`). `target-frame-id` is the
-  inspected frame whose declarations classify the snapshot `:data` paths
-  (EP-0025 — frame-owned redaction)."
-  [target-frame-id target-runtime-db]
-  (when (map? target-runtime-db)
-    (let [snapshots (get-in target-runtime-db
+  "The egress-redacted live snapshots map off the OBSERVED frame's
+  runtime-db (`[:rf.runtime/machines :snapshots]`). `observed-frame-id` is the
+  frame whose declarations classify the snapshot `:data` paths (EP-0025 —
+  frame-owned redaction), and it must be the frame the runtime-db itself came
+  from: the classification is the POLICY of the frame that owns the data, so a
+  frame-id from any other axis applies a BORROWED policy (rf2-6ev6j). The
+  caller pairs both arguments off `:rf.xray/observed-frame` for that reason."
+  [observed-frame-id observed-runtime-db]
+  (when (map? observed-runtime-db)
+    (let [snapshots (get-in observed-runtime-db
                             [:rf.runtime/machines :snapshots] {})]
-      (redact-live-snapshots target-frame-id snapshots))))
+      (redact-live-snapshots observed-frame-id snapshots))))
 
 (defn- machine-definitions-value
   "The `{machine-id meta}` definition map for `machines` — each machine's spec
@@ -1107,17 +1110,46 @@
   ;; `:current-state-override` `:data`, after-rings, sim) would see RAW
   ;; `:data`. So each live snapshot is routed through the SAME
   ;; `project-trace-event` chokepoint as a synthetic
-  ;; `:rf.machine/snapshot-updated` event STAMPED with the target frame:
+  ;; `:rf.machine/snapshot-updated` event STAMPED with the OBSERVED frame:
   ;; a FRAME-declared sensitive `:data` path lands as `:rf/redacted`, a
   ;; large one as the size marker, the plain siblings ride verbatim —
   ;; exactly the trace-path treatment (EP-0025, rf2-398kql — durable machine
   ;; `:data` classification is frame-owned). A frame declaring no matching
   ;; `:data` path leaves the snapshot untouched (reference-preserving fast
   ;; path inside `project-machine-tags`).
+  ;;
+  ;; rf2-6ev6j — BOTH INPUTS PIVOT ON THE SAME FRAME, and they did not.
+  ;; The classification frame was read from `:rf.xray/target-frame` while the
+  ;; data came from `:rf.xray/target-frame-runtime-db`, which pivots on
+  ;; `:rf.xray/observed-frame` — `(or (:frame focus) target)`. Nothing kept
+  ;; the two equal, and in the posture the panel OPENS in they differ:
+  ;; `compose-focus` takes `:frame` from the head event-bundle's own record in
+  ;; LIVE mode, so focus resolves a real host frame while the picker is
+  ;; untouched and `:target-frame` is still nil (UNSELECTED, EP-0002).
+  ;; `frame-snapshot-classification` answers nil for a nil frame, and with no
+  ;; author classification `project-machine-tags` returns the tags UNCHANGED —
+  ;; so a `:data` path the frame had EXPLICITLY DECLARED sensitive was
+  ;; surfaced RAW. With a target selected but focus elsewhere it fails the
+  ;; other way, applying the collector target's policy to another frame's
+  ;; value.
+  ;;
+  ;; The frame is NOT recovered from the payload the way rf2-a28eo's timer
+  ;; fix recovers it from the focused record's `:frame-id` stamp: a live
+  ;; runtime-db read carries no such provenance, and it does not need to —
+  ;; the owning frame is the COORDINATE THAT SELECTED THE VALUE, so pivoting
+  ;; both inputs on `:rf.xray/observed-frame` makes them structurally
+  ;; incapable of diverging. That is what the sibling
+  ;; `:rf.xray/current-route-slice` already does with this same runtime-db
+  ;; (`panels/routing.cljs`), and its comment gives the same reason: the
+  ;; elision registry is per-frame, so any other axis ships the value under a
+  ;; BORROWED policy. Focus-first with the collector-target fallback is
+  ;; preserved — that is `:rf.xray/observed-frame`'s own definition, untouched
+  ;; here — so an unselected focus still classifies against the target
+  ;; exactly as before.
   (rf/reg-sub :rf.xray/machine-snapshots
-    {:inputs [[:rf.xray/target-frame] [:rf.xray/target-frame-runtime-db]]}
-    (fn [[target-frame-id target-runtime-db] _query]
-      (machine-snapshots-value target-frame-id target-runtime-db)))
+    {:inputs [[:rf.xray/observed-frame] [:rf.xray/target-frame-runtime-db]]}
+    (fn [[observed-frame-id observed-runtime-db] _query]
+      (machine-snapshots-value observed-frame-id observed-runtime-db)))
 
   ;; The registered-machine-definition map for every machine. The
   ;; machine-snapshots / machine-definitions test-only override seams
