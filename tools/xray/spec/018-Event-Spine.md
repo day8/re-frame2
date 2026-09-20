@@ -1301,8 +1301,8 @@ The single-axis selection that every layer reads from.
 | Event | When dispatched | Effect on spine |
 |---|---|---|
 | `:rf.xray/focus-event <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
-| `:rf.xray/focus-event-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one in `:rf.xray/filtered-event-bundles`; flips `:mode → :retro` |
-| `:rf.xray/focus-event-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.xray/filtered-event-bundles`; flips `:mode → :retro` if not already at head |
+| `:rf.xray/focus-event-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` |
+| `:rf.xray/focus-event-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` if not already at head |
 | `:rf.xray/follow-head` | `⏭` button · `L` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
 | `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
@@ -1348,7 +1348,7 @@ The single-axis selection that every layer reads from.
 
 The scoping + filtering happens at the data layer (`:rf.xray/filtered-event-bundles`), not at render. Reasons:
 1. Virtualisation cares about row count — render-time filtering means the virtualiser budgets unfiltered rows.
-2. Scrubbing must respect the scope + filters — `[◀ ▶ ⏭]` walks `:rf.xray/filtered-event-bundles`, not all cascades.
+2. Scrubbing must respect the scope + filters — the L2 event list, which IS the canonical scrubber, renders `:rf.xray/filtered-event-bundles`, not all cascades. The nav cluster `[◀ ▶ ⏭]` is the deliberate exception — see item 3.
 3. **Frame scope applied FIRST, then filters.** Per rf2-4vp5j the picker is a VIEW SCOPE (not a filter): `:rf.xray/filtered-event-bundles` scopes to `:view-scope-frame` via `matcher/filter-event-bundles-by-view-scope` BEFORE applying the IN/OUT pills + mutes, so the L2 list and the scrubber walk the frame-scoped, pill-filtered list as one. **The nav cluster `[◀ ▶ ⏭]` does NOT** — its chevrons and `j` / `k` fire the same `:rf.xray/focus-event-prev` / `-next`, which walk the RAW `:rf.xray/event-bundles` projection through `spine/focusable-event-bundles`, restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED — the walk spans frames), never by the pills or mutes. That divergence is deliberate (rf2-cqpj4): a boundary taken off the rendered rows disabled BOTH chevrons whenever a pill or a mute hid every row, while `j` / `k`, bound to those very same two events, went on stepping. `shell.cljs`'s `nav-boundary-state` is the authority, and it rules out the neighbouring repair too — do not scope the step reducer to the RESOLVED frame instead (rf2-lh98m), which narrows navigation to hide the disagreement. The frame scope is excluded from the hidden-by-filters count (frame ≠ filter); the pills + mutes are what that count measures. Spine's LIVE auto-tracking ALSO respects the view scope so `:head?` and the head walk are scoped per-frame.
 
 ### LIVE / RETRO transitions
@@ -1382,8 +1382,8 @@ auto-advance away from a selection the caller meant to pin.
 
 **Single-tier filtering.** The ONLY filtering surface is the
 events-ribbon IN/OUT pills (+ the L2-row mute affordance) — they scope
-the L2 event list, the scrubber nav, the issues ribbon signal, and palette
-verbs at the data layer (`:rf.xray/filtered-event-bundles`). The earlier
+the L2 event list (the canonical scrubber), the issues ribbon signal, and palette
+verbs at the data layer (`:rf.xray/filtered-event-bundles`). The nav cluster `[◀ ▶ ⏭]` is NOT among them — its chevrons and `j` / `k` walk the RAW spine, never the pills or mutes (§6 item 3; rf2-cqpj4). The earlier
 "Trace tab filter toolbar" was **removed** (rf2-gkczt): the Trace L4
 panel is scoped to the focused epoch's `:trace-events` and carries no
 filtering UI at all — the focused epoch IS its scope (see
