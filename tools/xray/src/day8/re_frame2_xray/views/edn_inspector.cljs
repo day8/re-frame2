@@ -279,6 +279,10 @@
   magenta, string green, number orange, boolean gold, nil grey."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            ;; rf2-y8doi.60 — `debug-enabled?` gates the `reg-view` below,
+            ;; so a release bundle that mis-ships the preload registers
+            ;; nothing of Xray's in the host's registrar.
+            [re-frame.interop :as rf.interop]
             ;; rf2-k97c.3 — the re-frame-native view layer. `edn-inspector-view`
             ;; below is a Fresco boundary reading through Fresco's own
             ;; collector; `edn-inspector` stays the Reagent head its
@@ -5123,86 +5127,87 @@
 ;; mangled one. Two heads over one renderer is the shape that has no such
 ;; seam: nothing is converted, because nothing crosses.
 
-(rf/reg-view edn-inspector
-  "First-class edn-inspector widget — single source of truth for
-  browse + diff + mini. THE REAGENT HEAD.
+(when rf.interop/debug-enabled?
+  (rf/reg-view edn-inspector
+    "First-class edn-inspector widget — single source of truth for
+    browse + diff + mini. THE REAGENT HEAD.
 
-  Pass `[edn-inspector value]` or `[edn-inspector value opts]`. The
-  `opts` map carries `:panel-id`, `:default-expanded-depth`,
-  `:max-inline-width`, `:max-depth`, `:before` — see the ns
-  docstring for the full key inventory.
+    Pass `[edn-inspector value]` or `[edn-inspector value opts]`. The
+    `opts` map carries `:panel-id`, `:default-expanded-depth`,
+    `:max-inline-width`, `:max-depth`, `:before` — see the ns
+    docstring for the full key inventory.
 
-  - Browse mode (default): no `:before` opt; the widget renders
-    `value` with expand/collapse + sticky operator overrides.
-  - Diff mode: pass `:before` in `opts` (or use the
-    `edn-inspector-diff` 3-arg convenience). The widget renders
-    `value` as the AFTER side with gutter glyphs +
-    `← was <prior>` annotations, force-expands the
-    ancestor chain over any changed descendant, and dims `:same`
-    rows.
+    - Browse mode (default): no `:before` opt; the widget renders
+      `value` with expand/collapse + sticky operator overrides.
+    - Diff mode: pass `:before` in `opts` (or use the
+      `edn-inspector-diff` 3-arg convenience). The widget renders
+      `value` as the AFTER side with gutter glyphs +
+      `← was <prior>` annotations, force-expands the
+      ancestor chain over any changed descendant, and dims `:same`
+      rows.
 
-  Form-2 component: the outer body allocates a stable `mount-id` and
-  captures the frame-aware dispatcher once; the inner fn reads the
-  three slots and hands everything to `render-inspector`, which owns
-  the rendering. Per D4=a (rf2-sndui) the public API does NOT take a
-  `:render-id` — mount-id is generated internally, so two simultaneous
-  mounts get independent expansion state.
+    Form-2 component: the outer body allocates a stable `mount-id` and
+    captures the frame-aware dispatcher once; the inner fn reads the
+    three slots and hands everything to `render-inspector`, which owns
+    the rendering. Per D4=a (rf2-sndui) the public API does NOT take a
+    `:render-id` — mount-id is generated internally, so two simultaneous
+    mounts get independent expansion state.
 
-  Per-call-site isolation is the key correctness property here: two
-  `[edn-inspector value]` mounts in the same panel must NOT share
-  expansion state. The form-2 closure delivers that — the outer body
-  runs once per mount.
+    Per-call-site isolation is the key correctness property here: two
+    `[edn-inspector value]` mounts in the same panel must NOT share
+    expansion state. The form-2 closure delivers that — the outer body
+    runs once per mount.
 
-  ## rf2-y59tb — `reg-view`-registered so dispatch / subscribe inherit
-  the surrounding frame
+    ## rf2-y59tb — `reg-view`-registered so dispatch / subscribe inherit
+    the surrounding frame
 
-  Before this fix `edn-inspector` was a plain `defn`. Plain Reagent fns
-  do not consult the `frame-provider` React context, so when the
-  widget mounted under `:rf/xray` (App-DB panel) toggle dispatches and
-  expansion-slot subscribes routed to `:rf/default` instead — the
-  click landed in the wrong frame's app-db and the rendering sub
-  never saw it. Same root cause as `ribbon-theme-toggle` (rf2-uu3lp).
+    Before this fix `edn-inspector` was a plain `defn`. Plain Reagent fns
+    do not consult the `frame-provider` React context, so when the
+    widget mounted under `:rf/xray` (App-DB panel) toggle dispatches and
+    expansion-slot subscribes routed to `:rf/default` instead — the
+    click landed in the wrong frame's app-db and the rendering sub
+    never saw it. Same root cause as `ribbon-theme-toggle` (rf2-uu3lp).
 
-  ## rf2-k97c.3 — the three closure atoms moved out
+    ## rf2-k97c.3 — the three closure atoms moved out
 
-  The ResizeObserver, the width debounce and the projection cache used
-  to live in this closure. They now live in the module-level per-mount
-  store, keyed by this mount's id and released when React calls the
-  `:ref` with nil. Nothing about this head's behaviour moved with them —
-  the store is keyed per mount exactly as the closure was scoped per
-  mount — but the lifetime is now EXPLICIT, which is what let the
-  Fresco head, whose body has no closure to hold them, share the same
-  renderer."
-  [_value & _opts]
-  (let [mount-id    (gen-mount-id)
-        ;; Capture the frame-aware dispatcher lexically. The closure
-        ;; binds to the surrounding frame the outer body runs under;
-        ;; every callback the renderer creates (toggle handlers,
-        ;; recursive render-node descents, the observer) threads this
-        ;; closure so the dispatch carries the right frame even when
-        ;; fired long after render unwinds.
-        dispatch-fn dispatch]
-    (fn render-edn-inspector
-      [value & rest-args]
-      (let [opts      (first rest-args)
-            zoomable? (boolean (:zoomable? opts))]
-        (render-inspector
-          {:value         value
-           :opts          opts
-           :mount-id      mount-id
-           ;; rf2-d2aj — this head's id IS its lifecycle key: the form-2
-           ;; outer body mints a fresh UUID per mount, so it is already
-           ;; unique across every concurrently live mount on the page and
-           ;; has nothing to qualify. The Fresco head, whose id is a
-           ;; caller-supplied logical name, is the one that must.
-           :lifecycle-key mount-id
-           :dispatch-fn   dispatch-fn
-           :container-ref (container-ref-for mount-id dispatch-fn)
-           ;; `subscribe` is the lexical frame-aware closure injected by
-           ;; `reg-view` — reads from the surrounding frame's app-db.
-           :expansion-map @(subscribe [expansion-slot])
-           :zoom-map      (when zoomable? @(subscribe [zoom-slot]))
-           :widths        @(subscribe [widths-slot])})))))
+    The ResizeObserver, the width debounce and the projection cache used
+    to live in this closure. They now live in the module-level per-mount
+    store, keyed by this mount's id and released when React calls the
+    `:ref` with nil. Nothing about this head's behaviour moved with them —
+    the store is keyed per mount exactly as the closure was scoped per
+    mount — but the lifetime is now EXPLICIT, which is what let the
+    Fresco head, whose body has no closure to hold them, share the same
+    renderer."
+    [_value & _opts]
+    (let [mount-id    (gen-mount-id)
+          ;; Capture the frame-aware dispatcher lexically. The closure
+          ;; binds to the surrounding frame the outer body runs under;
+          ;; every callback the renderer creates (toggle handlers,
+          ;; recursive render-node descents, the observer) threads this
+          ;; closure so the dispatch carries the right frame even when
+          ;; fired long after render unwinds.
+          dispatch-fn dispatch]
+      (fn render-edn-inspector
+        [value & rest-args]
+        (let [opts      (first rest-args)
+              zoomable? (boolean (:zoomable? opts))]
+          (render-inspector
+            {:value         value
+             :opts          opts
+             :mount-id      mount-id
+             ;; rf2-d2aj — this head's id IS its lifecycle key: the form-2
+             ;; outer body mints a fresh UUID per mount, so it is already
+             ;; unique across every concurrently live mount on the page and
+             ;; has nothing to qualify. The Fresco head, whose id is a
+             ;; caller-supplied logical name, is the one that must.
+             :lifecycle-key mount-id
+             :dispatch-fn   dispatch-fn
+             :container-ref (container-ref-for mount-id dispatch-fn)
+             ;; `subscribe` is the lexical frame-aware closure injected by
+             ;; `reg-view` — reads from the surrounding frame's app-db.
+             :expansion-map @(subscribe [expansion-slot])
+             :zoom-map      (when zoomable? @(subscribe [zoom-slot]))
+             :widths        @(subscribe [widths-slot])}))))))
 
 (rf.fresco/defview edn-inspector-view
   "First-class edn-inspector widget — THE FRESCO BOUNDARY.

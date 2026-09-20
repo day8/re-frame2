@@ -200,9 +200,11 @@
   handlers, the trace and epoch collectors, the browser-global exports
   and the keybinding listener unconditionally. Requiring this namespace
   at all runs load-time registrations (`mount.cljs`'s seven top-level
-  `register-first-mount-hook!` forms, `shell.cljs`'s top-level
-  `reg-view` forms, `keybinding.cljs`), so wrapping the CALL in
-  `(when ^boolean goog.DEBUG …)` is not enough.
+  `register-first-mount-hook!` forms, `keybinding.cljs`), so wrapping
+  the CALL in `(when ^boolean goog.DEBUG …)` is not enough. The four
+  top-level `reg-view` forms that used to sit in this list are gated
+  under `rf2-y8doi.60`; the writes that remain are to Xray's own
+  private atoms, not the host's registrar.
 
   Exclusion is the host's job, and it is build placement: prefer the
   preload (`:devtools/preloads` is dev build config, so a release build

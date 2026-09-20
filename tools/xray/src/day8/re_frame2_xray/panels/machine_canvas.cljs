@@ -59,6 +59,10 @@
   (:require [clojure.string :as str]
             [cljs.reader :as reader]
             [re-frame.core :as rf]
+            ;; rf2-y8doi.60 — `debug-enabled?` gates the `reg-view` below,
+            ;; so a release bundle that mis-ships the preload registers
+            ;; nothing of Xray's in the host's registrar.
+            [re-frame.interop :as rf.interop]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
@@ -438,25 +442,26 @@
 
 ;; ---- the two public heads (rf2-k97c.3) ----------------------------------
 
-(rf/reg-view Chart
-  "Render the interactive MachineChart from a REAGENT tree — the Static
-  Machines Topology and Sim bodies, which render inside the `as-child`
-  island `static/machines/definition_detail.cljs` hands down.
+(when rf.interop/debug-enabled?
+  (rf/reg-view Chart
+    "Render the interactive MachineChart from a REAGENT tree — the Static
+    Machines Topology and Sim bodies, which render inside the `as-child`
+    island `static/machines/definition_detail.cljs` hands down.
 
-  One call to [[chart-tree]] and nothing else; that fn's docstring carries
-  the args, the two spellings, and why this head survives beside
-  [[Chart-view]] rather than being replaced by it.
+    One call to [[chart-tree]] and nothing else; that fn's docstring carries
+    the args, the two spellings, and why this head survives beside
+    [[Chart-view]] rather than being replaced by it.
 
-  rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
-  React-context frame tier carries the enclosing `:rf/xray` frame through
-  to xray-internal subscribes. That reasoning is HISTORICAL as of
-  rf2-k97c.3: this body performs no read at all, so nothing here depends
-  on the frame it renders under. What `reg-view` still buys is that a
-  Reagent parent can HEAD it, which a boundary cannot offer.
+    rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
+    React-context frame tier carries the enclosing `:rf/xray` frame through
+    to xray-internal subscribes. That reasoning is HISTORICAL as of
+    rf2-k97c.3: this body performs no read at all, so nothing here depends
+    on the frame it renders under. What `reg-view` still buys is that a
+    Reagent parent can HEAD it, which a boundary cannot offer.
 
-  Returns hiccup."
-  [props]
-  (chart-tree props identity [after-rings/AfterRingsOverlay-bridge]))
+    Returns hiccup."
+    [props]
+    (chart-tree props identity [after-rings/AfterRingsOverlay-bridge])))
 
 (rf.fresco/defview Chart-view
   "[[Chart]], for a caller that is already a Fresco boundary — today
