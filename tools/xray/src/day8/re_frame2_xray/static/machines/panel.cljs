@@ -56,8 +56,10 @@
   ## Frame isolation
 
   Same discipline as every other Static panel — the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs` scopes
-  subscribes / dispatches to Xray's frame.
+  `[rf.fresco/frame-provider {:frame frame-id}]` that `shell.cljs`'s
+  `shell-view-tree` opens — `static/shell.cljs` owns none — scopes
+  subscribes / dispatches to the shell's instance frame, default
+  `:rf/xray`.
 
   ## Substrate (rf2-k97c.3)
 
@@ -202,8 +204,10 @@
 
 (defn ^:private panel-bridge
   "The callable the L4 tab registry stores. Returns Reagent-shaped hiccup
-  interoping to the React component above; the Static shell's enclosing
-  `rf/frame-provider` is what puts `:rf/xray` in React context for it."
+  interoping to the React component above; the `rf.fresco/frame-provider`
+  that `shell.cljs`'s `shell-view-tree` opens — the Static shell owns
+  none — is what puts the instance frame, default `:rf/xray`, in React
+  context for it."
   []
   [:> panel-component {}])
 
