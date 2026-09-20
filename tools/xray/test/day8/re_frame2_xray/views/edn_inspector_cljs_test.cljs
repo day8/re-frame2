@@ -5094,3 +5094,147 @@
         (inner {:a 1} {:panel-id :rf.xray/app-db})
         (is (= 0 @call-count)
             "browse mode never calls engine/project")))))
+
+;; ---- rf2-bmed1 — the PUBLIC PROJECTION STAGE is bounded too -------------
+;;
+;; rf2-brmyq bounded the WALKER. The public widget computes a projection
+;; BEFORE any walker runs: `render-inspector` calls `project-for`, which on
+;; a cache miss hands the ORIGINAL displayed pair to `engine/project`. That
+;; function short-circuits `identical?` inputs and nothing else, so an
+;; ordinary pair goes to Editscript over the WHOLE pair, with structural
+;; equality inside it. Two DISTINCT endless sequences carrying the same
+;; prefix therefore compare for ever — before one bounded row is walked.
+;;
+;; WHY rf2-brmyq'S TESTS COULD NOT CATCH IT, and the design constraint on
+;; the tests below: they call `render-node` directly with `:projection
+;; nil`, which SKIPS this stage entirely. These go through
+;; `ei/edn-inspector` — the registered view — so the projection is computed
+;; exactly as a mounted widget computes it.
+;;
+;; THREE properties, and the last two are what keep the fix honest:
+;;
+;;   P1 BOUNDED    — neither generator is pulled past the render bound, at
+;;                   the ROOT of the diff and NESTED under a map key. The
+;;                   nested case is not a variation for its own sake: the
+;;                   renderer never descends into a collapsed child, but
+;;                   the projection walks the whole pair regardless, so a
+;;                   root-only bound leaves this identical hang one level
+;;                   down.
+;;   P2 UNCHANGED  — an ordinary finite pair must reach `engine/project` as
+;;                   the SAME OBJECTS (`identical?`), not as copies. That
+;;                   is the strongest available statement of "ordinary
+;;                   finite diffs are unchanged": the computation is not
+;;                   merely equivalent, it is the one that ran before.
+;;   P3 MIXED PAIRS UNTOUCHED — where ONE side is `counted?` the pair is
+;;                   already finite (the comparison stops when the counted
+;;                   side runs out), and `unrealised-sentinel`'s own
+;;                   docstring makes the projection load-bearing there: the
+;;                   op "falls through to the projection — computed over
+;;                   the FULL inputs, and therefore correct" (rf2-zk4he).
+;;                   Bounding one side of a mixed pair would hand the
+;;                   projection a SHORT before-side and paint surviving
+;;                   after-rows green as `:added` — the precise lie
+;;                   `::unrealised` was added to refuse. So the bound fires
+;;                   only when BOTH sides could be endless, and P3 pins
+;;                   that boundary so a later "simplification" to a blanket
+;;                   bound cannot quietly reintroduce rf2-zk4he's defect.
+
+(defn- projection-inputs-via-public-path
+  "Render `after` against `before` through the PUBLIC widget and return
+  the `[before after]` pair `engine/project` actually received.
+
+  `ei/edn-inspector` is the `reg-view`-registered form-2 head: calling it
+  returns the inner render fn, and calling THAT renders through
+  `render-inspector` → `project-for` → `engine/project`. The spy wraps the
+  real function rather than replacing it, so the render completes as it
+  normally would."
+  [before after]
+  (let [seen         (atom nil)
+        real-project engine/project]
+    (with-redefs [engine/project (fn [b a]
+                                   (reset! seen [b a])
+                                   (real-project b a))]
+      (let [opts  {:panel-id :rf.xray/app-db :before before}
+            inner (ei/edn-inspector after opts)]
+        (inner after opts)))
+    @seen))
+
+(deftest public-projection-bounds-two-endless-sequences-rf2-bmed1
+  ;; P1. A guard far above the bound stands in for a truly endless
+  ;; sequence, exactly as rf2-brmyq's render-path test does: reaching it
+  ;; at all is the failure. Both sides are DISTINCT generators carrying
+  ;; the same 0, 1, 2, … prefix, which is the shape the item measured —
+  ;; a single shared reference would short-circuit on `identical?` and
+  ;; never reach Editscript.
+  (let [guard 50000]
+    (testing "P1 — two distinct endless sequences at the ROOT of the diff"
+      (let [seen-b (atom 0)
+            seen-a (atom 0)
+            before (counting-seq seen-b guard)
+            after  (counting-seq seen-a guard)
+            opts   {:panel-id :rf.xray/app-db :before before}
+            inner  (ei/edn-inspector after opts)
+            h      (inner after opts)]
+        (is (vector? h)
+            "the public diff render path returns hiccup")
+        (is (<= @seen-b render-path-bound)
+            (str "the BEFORE side realised " @seen-b " elements; the render "
+                 "bound is " render-path-bound ". Unbounded, the projection "
+                 "compares the pair to the guard at " guard "."))
+        (is (<= @seen-a render-path-bound)
+            (str "the AFTER side realised " @seen-a " elements; the render "
+                 "bound is " render-path-bound "."))))
+    (testing "P1 — two distinct endless sequences NESTED under a map key"
+      ;; The renderer never descends into a collapsed child, so nothing
+      ;; the walker does can reach these. Only the projection walks here.
+      (let [seen-b (atom 0)
+            seen-a (atom 0)
+            before {:xs (counting-seq seen-b guard)}
+            after  {:xs (counting-seq seen-a guard)}
+            opts   {:panel-id :rf.xray/app-db :before before}
+            inner  (ei/edn-inspector after opts)
+            h      (inner after opts)]
+        (is (vector? h)
+            "the public diff render path returns hiccup for a nested pair")
+        (is (<= @seen-b render-path-bound)
+            (str "the nested BEFORE side realised " @seen-b " elements; the "
+                 "render bound is " render-path-bound "."))
+        (is (<= @seen-a render-path-bound)
+            (str "the nested AFTER side realised " @seen-a " elements; the "
+                 "render bound is " render-path-bound "."))))))
+
+(deftest public-projection-leaves-ordinary-pairs-untouched-rf2-bmed1
+  (testing "P2 — an ordinary finite pair reaches engine/project UNCOPIED"
+    (let [before {:a 1 :b {:c 2} :d [1 2 3]}
+          after  {:a 1 :b {:c 3} :d [1 2 3]}
+          [b a]  (projection-inputs-via-public-path before after)]
+      (is (identical? before b)
+          "the BEFORE side is the very object the caller passed")
+      (is (identical? after a)
+          "the AFTER side is the very object the caller passed")))
+  (testing "P2 — a finite vector LONGER than the bound is not truncated"
+    ;; A vector is `counted?`, so it is finite by construction and
+    ;; `bounded-vec` already realises it whole. The projection must see
+    ;; all 1050 elements, or a diff the renderer CAN show would be
+    ;; classified against a pair the renderer never had.
+    (let [before (vec (range 1050))
+          after  (assoc (vec (range 1050)) 900 :changed)
+          [b a]  (projection-inputs-via-public-path before after)]
+      (is (= 1050 (count b))
+          "the counted BEFORE side reaches the projection whole")
+      (is (= 1050 (count a))
+          "the counted AFTER side reaches the projection whole")
+      (is (identical? before b)
+          "and as the same object, not a rebuilt copy")))
+  (testing "P3 — a MIXED pair keeps the FULL inputs (rf2-zk4he's contract)"
+    ;; One side `counted?`, one not. The pair is already finite, and
+    ;; `::unrealised` rows depend on the projection having seen the whole
+    ;; of both. Bounding here would be the `:added` lie that sentinel
+    ;; exists to refuse.
+    (let [before (map identity (range 5))
+          after  [0 1 2 3 4 5]
+          [b a]  (projection-inputs-via-public-path before after)]
+      (is (identical? before b)
+          "the lazy BEFORE side of a mixed pair is not bounded")
+      (is (identical? after a)
+          "the counted AFTER side of a mixed pair is not bounded"))))
