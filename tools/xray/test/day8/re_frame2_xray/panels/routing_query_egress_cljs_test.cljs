@@ -138,6 +138,16 @@
       (some-> (find-by-testid tree "rf-xray-routing-current-query")
               node-text))))
 
+(defn- current-section-text
+  "Every string in the WHOLE CURRENT ROUTE section. A leak assertion
+  scoped to the query span alone would pass over a value that reached the
+  DOM through a neighbouring span instead."
+  []
+  (rf/with-frame :rf/xray
+    (let [tree (routing/panel-tree @(rf/subscribe [:rf.xray/routing-tab-data]))]
+      (or (some-> (find-by-testid tree "rf-xray-routing-current") node-text)
+          ""))))
+
 ;; ---- (0) the control: the promotion actually happened -------------------
 
 (deftest promotes-both-query-keys-to-keywords
@@ -165,8 +175,12 @@
       (is (some? text)
           "the query span rendered at all (a nil here means the section
            went quiet, which would pass the leak assertion vacuously)")
-      (is (not (re-find (re-pattern secret) text))
-          (str "the declared-sensitive token LEAKED to the DOM: " (pr-str text)))
+      ;; Scoped to the WHOLE section, not the query span: a leak assertion
+      ;; reading only the span it expects would pass over a value that
+      ;; reached the DOM through a neighbouring one.
+      (is (not (re-find (re-pattern secret) (current-section-text)))
+          (str "the declared-sensitive token LEAKED to the DOM: "
+               (pr-str (current-section-text))))
       (is (re-find #":rf/redacted" text)
           (str "the sensitive key did not lower to the :rf/redacted sentinel: "
                (pr-str text)))
@@ -207,25 +221,33 @@
 
 ;; ---- (3) the sentinel paths render without a seq / type error ----------
 
-(deftest whole-value-redaction-renders-without-a-seq-error
-  (testing "rf2-8nyi2 — an UNREACHABLE observed frame fails closed to the
-            scalar :rf/redacted sentinel. The old `(seq query)` guard threw
-            on it (seq of a keyword is an error), so the panel would have
-            died on exactly the frames whose policy had done its job."
+(deftest unreachable-observed-frame-yields-no-slice-and-cannot-leak
+  (testing "rf2-8nyi2 — an UNREACHABLE observed frame cannot put a query on
+            screen AT ALL, and the reason is worth pinning because it is not
+            the one you would guess: the sub's OTHER input fails first.
+            `:rf.xray/target-frame-runtime-db` is
+            `(:rf.db/runtime (rf/frame-state-value target))`, and
+            `frame-state-value` answers nil for an unknown or destroyed
+            frame, so there is no slice to project and the section renders
+            no query span rather than the fail-closed `:rf/redacted`
+            sentinel. The sentinel is still REACHABLE at the seam — asserted
+            here directly — and the render still has to tolerate it, which
+            is `show-query-admits-a-scalar-sentinel…` below."
     (classified-route!)
     (navigate! (str "/rf2-8nyi2/oauth?token=" secret "&tab=" sibling))
-    ;; A frame id that was never registered: stamped VERBATIM, so the walker
-    ;; takes its unresolvable-frame arm rather than borrowing the ambient
-    ;; (Xray chrome) frame, which is live and declares nothing.
-    (observe! ::never-registered-frame)
-    (let [text (current-query-text)]
-      (is (some? text)
-          "the section threw or went quiet on the whole-value sentinel")
-      (is (= ":rf/redacted" text)
-          (str "the fail-closed sentinel did not render as itself: "
-               (pr-str text)))
-      (is (not (re-find (re-pattern secret) text))
-          "the token survived an unreachable-frame walk"))))
+    (let [q (:query (host-slice))]
+      ;; A frame id that was never registered, stamped VERBATIM, so the
+      ;; walker takes its unresolvable-frame arm rather than borrowing the
+      ;; ambient (Xray chrome) frame — which IS live and declares nothing.
+      (observe! ::never-registered-frame)
+      (is (nil? (current-query-text))
+          "an unreachable observed frame produced a query span")
+      (is (not (re-find (re-pattern secret) (current-section-text)))
+          "the token reached the CURRENT ROUTE section under an unreachable frame")
+      (is (= :rf/redacted
+             (local-render/local-render-route-sub-value
+               q ::never-registered-frame :rf.route/query))
+          "the seam's fail-closed arm did not redact the whole value"))))
 
 (deftest show-query-admits-a-scalar-sentinel-and-still-hides-an-empty-map
   (testing "rf2-8nyi2 — the guard's two arms, taken directly. A collection
