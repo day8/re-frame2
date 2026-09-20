@@ -72,8 +72,8 @@ Wireframe at default (800px popout, "cosy" density):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ Frame: :app/main ▾   Dynamic ▾                          🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
-│ Events: [◀ ▶ ⏭]  🎯 :order/retry  [+ :auth/* ✎] [× :mouse-move ✎] [+]   │   L1.5 events ribbon
+│ [◀ ▶ ⏭]  Frame: :app/main ▾   Dynamic ▾                 🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
+│ Events: [+ :auth/* ✎] [× :mouse-move ✎] [+]                             │   L1.5 events ribbon
 ├─────────────────────────────────────────────────────────────────────────┤
 │   :auth/login                                                           │   L2 — 8 rows default
 │   :app/route-changed                                                    │      single-line
