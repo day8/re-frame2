@@ -714,8 +714,10 @@ chrome affordances besides the tabs:
 L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). All value displays in the detail panel use the cljs-devtools-shaped renderer, whose three verbs are:
 
 - `inspect <value>` — expandable hero
+- `inspect-view <value>` — `inspect` for a panel re-authored in the Fresco view layer
 - `inspect-inline <value>` — one-line tail-elided
-- `inspect-diff <before> <after>` — diff variant
+
+**Diff is not a fourth verb (corrected 2026-09-20, rf2-3rcqk).** There is no `inspect-diff` on the facade at any arity. Diff is an opt-in `:before` mode on the same widget — `[edn-inspector <after> {:before <before>}]` in `views/edn_inspector.cljs`, where `:before` is the prior value to annotate against; the `[edn-inspector-diff <before> <after>]` convenience there threads exactly that and renders through the same path.
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
@@ -1123,7 +1125,7 @@ classification sentinels render per §12.
 
 **Path interaction — zoom, not click (rf2-h71e0 · rf2-zl4rs):** zoom is the only path gesture. Double-click a container — or press `Enter` while it is keyboard-focused — and the inspector re-roots onto that node; a breadcrumb above the body shows the path from the original root, each crumb zooms back to that level, and `Esc` zooms up. A single click on a key segment does nothing. The canonical contract lives in [`004-App-DB-Diff.md`](004-App-DB-Diff.md) §Path interaction: zoom into a node, and the gesture table is [`021-Dynamic-Panel-Designs.md` §10.5](021-Dynamic-Panel-Designs.md#105-interaction-model). (The rf2-e9tb0 clickable-path-segment popup this section once promised was deleted unreached under rf2-y8doi.29, 2026-09-17; the pinned-watches strip it had itself replaced stays dropped — see [`004-App-DB-Diff.md`](004-App-DB-Diff.md) §What this replaces.)
 
-**Diff colour ladder** (`inspect-diff` per [`004-App-DB-Diff.md`](004-App-DB-Diff.md)):
+**Diff colour ladder** (the widget's opt-in `:before` mode, per [`004-App-DB-Diff.md`](004-App-DB-Diff.md)):
 
 | Change | Colour | Symbol |
 |---|---|---|
@@ -2085,7 +2087,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 |---|---|---|
 | L2 event list row | Trailing redaction marker | `[● REDACTED N]` magenta / `[● ELIDED N]` yellow as static trailing marker on the row (no inline preview slot); marker count = total sentinels in event arg-map |
 | L4 Epoch panel | Event vector + handler `:tags` + fx-args payload | Via `inspect` renderer; sentinels render as colourful inline chips |
-| L4 App-db tab | Diff slice tree before/after | Via `inspect-diff`; sentinel position in path preserved |
+| L4 App-db tab | Diff slice tree before/after | Via the widget's opt-in `:before` diff mode; sentinel position in path preserved |
 | L4 Views tab | Per-view sub return values | Via `inspect`; per-sub redaction propagation visible; cluster aggregates per [`012-Views.md`](012-Views.md) |
 | L4 Epoch panel "EFFECTS HANDLERS RAN" | Per-fx `:fx-args` payload + return | Via `inspect`; e.g. `:http/post` request body shows `{:password :rf/redacted}` |
 | L4 Machines tab | `:data` slot of focused instance + per-transition `:context` | Via `inspect`; per-`reg-machine` `:sensitive` paths drive redaction |
