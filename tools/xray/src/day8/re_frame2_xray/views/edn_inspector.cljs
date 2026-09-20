@@ -1039,6 +1039,31 @@
     :else
     [before after]))
 
+(defn- differs-within-bound?
+  "`not=` for a (before, after) pair that could be ENDLESS (rf2-bmed1).
+
+  Structural equality on two DISTINCT endless sequences carrying the
+  same prefix never returns, so a bare `not=` on a displayed pair is the
+  same hang as the unbounded projection — reached through the renderer
+  instead of through Editscript. `classify-container-op` runs exactly
+  that test, and rf2-brmyq's tests could not see it: they drive
+  `render-node` with `:projection nil`, and their two sides differ in
+  LENGTH, so the comparison stops as soon as the short side runs out.
+
+  Compares the BOUNDED pair, so this answers the only question the
+  renderer can act on: do the two sides differ WITHIN what is rendered?
+  A difference past `count-bound` is on no row the operator can see, and
+  claiming `:children` for it would expand a container to show a change
+  that is not in it.
+
+  No new asymptotic cost: `not=` on two collections is already a walk of
+  the whole structure, and `bounded-projection-pair` short-circuits
+  `identical?` at every level, so an unchanged sub-tree is free here
+  exactly as it is there. Pure."
+  [before after]
+  (let [[b a] (bounded-projection-pair before after)]
+    (not= b a)))
+
 (def ^:private change-annotation-style
   "Style for the inline `← was <prior>` chip rendered to the
   right of a diff'd leaf."
@@ -2522,10 +2547,16 @@
       ;; two sides genuinely differ we promote to `:children` so the
       ;; container expands and the `children-of-pair` union walk
       ;; surfaces the struck-through removed indices.
+      ;; rf2-bmed1 — `differs-within-bound?`, never a bare `not=`. This
+      ;; override fires precisely when `proj-op` is `:same`, which is
+      ;; what a bounded projection correctly reports for two endless
+      ;; sequences sharing a prefix — so the raw comparison here ran
+      ;; for ever on exactly the pairs the projection bound had just
+      ;; made safe.
       (if (and (= :same proj-op)
                (not= before missing-sentinel)
                (not= value missing-sentinel)
-               (not= before value))
+               (differs-within-bound? before value))
         :children
         proj-op))
 
@@ -2535,7 +2566,11 @@
       (= before missing-sentinel) :added
       :else                       :removed)
 
-    (and diff? (not= before value))
+    ;; rf2-bmed1 — the no-projection route needs the same bound. It is
+    ;; reached with `:projection nil` (the test / REPL path), where a
+    ;; bare `not=` survives only because those pairs differ in LENGTH
+    ;; and the comparison stops with the shorter side.
+    (and diff? (differs-within-bound? before value))
     :children
 
     :else :same))
