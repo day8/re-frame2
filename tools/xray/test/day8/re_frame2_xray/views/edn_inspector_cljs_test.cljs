@@ -1982,6 +1982,187 @@
         (is (= 0 (get survivors 0))
             "and element 0 is unmoved")))))
 
+;; ---- rf2-jh12f — a `counted?` sequence renders every row its header
+;; ---- promises ------------------------------------------------------------
+;;
+;; #10053 gave every "how many children" question ONE ceiling
+;; (`count-bound`, 1001). #10102 then split the WALKERS on `counted?`
+;; (`bounded-vec`), so a finite collection is realised whole while only an
+;; endless-capable one is capped. Two walkers were left behind taking
+;; `count-bound` UNCONDITIONALLY, while the header function beside each
+;; reports through `bounded-count*` — which is EXACT for anything
+;; `counted?`:
+;;
+;;   `children-of`'s `:list` / `:seq` arms  vs  `child-count`
+;;   `children-of-pair`'s sequential arm    vs  `diff-pair-count`
+;;
+;; So a 1200-element list or vector printed a header promising 1200 and
+;; rendered 1001 rows. The 199 missing rows were not marked, not counted
+;; and not reachable — the inspector simply said one thing and showed
+;; another. rf2-brmyq's fallback (`sequential-diff-children` with no
+;; projection) opened a SECOND route onto the same walker.
+;;
+;; TWO properties are asserted, because either alone is green against a
+;; plausible wrong fix — this family has proved that three times
+;; (rf2-kbo64, rf2-mj4jp, and rf2-brmyq inside its own run):
+;;
+;;   P1 AGREEMENT — the header's number and the rendered row count are
+;;                  EQUAL for a `counted?` sequence at a size that crosses
+;;                  the bound. P1 also pins that number to the collection's
+;;                  FULL count, because capping the HEADER down to 1001
+;;                  would satisfy "they agree" while making the dropped
+;;                  rows invisible instead of merely unexplained.
+;;   P2 BOUNDED   — an endless sequence still terminates and still realises
+;;                  no more than the bound. Measured with a REALISATION
+;;                  COUNTER, never output length: a bound that is present
+;;                  but reached too late looks identical to one that works
+;;                  if all you measure is how many rows came out.
+;;
+;; WHICH NUMBER. `count-bound` (1001) is the WALKER's ceiling — the length
+;; of `(take count-bound …)`, and the most a walker realises on its own.
+;; `render-path-bound` (1002) is the RENDER path's, because the header is
+;; computed BEFORE the walk and `cljs.core/bounded-count` looks one element
+;; past the ceiling to discover whether another exists (rf2-brmyq measured
+;; it and named its third commit for it). Every assertion below says which
+;; of the two it means.
+
+(def ^:private jh12f-n
+  "Fixture size — comfortably past `count-bound` (1001), so a walker that
+  truncates shows its hand by ~200 rows rather than by one."
+  1200)
+
+(defn- header-promise
+  "The number the COLLAPSED header promises, read out of the production
+  code rather than mirrored here.
+
+  `inline-preview-string`'s fallback shape is `(…N items)`, and its N comes
+  from `bounded-count*` — the same function `child-count` and
+  `diff-pair-count` report through, so this is the header's own arithmetic
+  and not a re-derivation of it. A `max-chars` of 0 forces that fallback
+  rather than an element preview."
+  [v]
+  (let [s (ei/inline-preview-string v 3 0)]
+    (some-> (re-find #"(\d+) items" s) second js/parseInt)))
+
+(defn- rendered-rows
+  "How many child rows the renderer actually emitted for the ROOT
+  container. A sequential body is `(into [:div attrs] (map …))` with one
+  `[:<> …]` fragment per row, so the row count is the body vector's length
+  less its tag and its attribute map. Document order puts the root's body
+  first."
+  [tree]
+  (when-let [body (first (nodes-with-attr tree :data-rf-body-layout "block"))]
+    (- (count body) 2)))
+
+(defn- render-expanded
+  "`render-node` with the root forced OPEN, so the body is walked rather
+  than summarised. The operator override also switches off the inline-fit
+  gate, which is the other thing `render-container` consults it for."
+  [m]
+  (let [panel-id :test
+        mount-id "m1"]
+    (ei/render-node
+      (merge {:panel-id      panel-id
+              :mount-id      mount-id
+              :path          []
+              :depth         0
+              :expansion-map {(ei/expansion-key panel-id mount-id [])
+                              {:expanded? true}}
+              :opts          {}}
+             m))))
+
+(deftest browse-header-and-body-agree-for-a-counted-list-rf2-jh12f
+  ;; SITE: `children-of`'s `:list` arm against `child-count`'s
+  ;; `(:list :seq)` arm. A `PersistentList` is `counted?`, so
+  ;; `bounded-count*` hands the header the FULL count while the walk took
+  ;; only `count-bound`.
+  (let [v (apply list (range jh12f-n))]
+    (testing "the fixture really is the shape this turns on"
+      (is (= :list (ei/collection-kind v)))
+      (is (counted? v)
+          (str "`counted?` is the dispatch, not the KIND — a `cons` over a "
+               "lazy seq is also a `:list` and is NOT counted?")))
+    (testing "P1 AGREEMENT — header count == rendered row count"
+      (let [header (header-promise v)
+            rows   (rendered-rows (render-expanded {:value v}))]
+        (is (= jh12f-n header)
+            "the header promises the collection's full count")
+        (is (= jh12f-n rows)
+            (str "and the body must render all " jh12f-n " of them. Before "
+                 "this fix it rendered " count-bound " — the WALKER's "
+                 "number — under that very header."))
+        (is (= header rows)
+            "header and body describe the same collection")))))
+
+(deftest diff-header-and-body-agree-for-a-counted-vector-rf2-jh12f
+  ;; SITE: `children-of-pair`'s `(:vector :list :seq)` arm against
+  ;; `diff-pair-count`'s. Reached by TWO routes and both are asserted:
+  ;; directly, and through rf2-brmyq's `:projection nil` fallback.
+  (let [after  (vec (range jh12f-n))
+        before [0 1 2]]
+    (testing "P1 AGREEMENT — direct route (`children-of-pair`)"
+      (is (= jh12f-n (count (ei/children-of-pair before after :vector)))
+          (str "an added " jh12f-n "-element vector emits " jh12f-n
+               " rows, not " count-bound)))
+    (testing "P1 AGREEMENT — rf2-brmyq's fallback route (`:projection nil`)"
+      (is (= jh12f-n (count (ei/sequential-diff-children
+                              before after :vector [] nil)))
+          "the fallback bounds at the same ceiling as the direct route"))
+    (testing "P1 AGREEMENT — end to end through the renderer"
+      (let [header (header-promise after)
+            rows   (rendered-rows (render-expanded {:value      after
+                                                    :before     before
+                                                    :diff?      true
+                                                    :projection nil}))]
+        (is (= jh12f-n header) "the header promises the full count")
+        (is (= jh12f-n rows)   "and the diff body renders every row")
+        (is (= header rows)    "header and body describe the same collection")))
+    (testing "the tail is genuinely PRESENT, not merely counted"
+      ;; A row-count assertion alone would be satisfied by 1200 placeholder
+      ;; rows, so read the last one and check it carries real data.
+      (let [rows    (vec (ei/children-of-pair before after :vector))
+            [k a b] (peek rows)]
+        (is (= (dec jh12f-n) k) "the last row is the last index")
+        (is (= (dec jh12f-n) a) "carrying its real AFTER value")
+        (is (= ::ei/missing b)  "with no BEFORE counterpart — it is :added")))))
+
+(deftest bounding-still-holds-for-an-endless-sequence-rf2-jh12f
+  ;; P2. The fix must not re-open what #10102 closed. A REALISATION
+  ;; counter, never an output length — `counting-seq` throws if anything
+  ;; pulls past the guard, which turns "loops for ever" into a failure in
+  ;; milliseconds.
+  (let [guard 50000]
+    (testing "children-of-pair — an endless BEFORE side stays bounded"
+      (let [seen (atom 0)
+            rows (vec (ei/children-of-pair
+                        (counting-seq seen guard) [1 2 3] :vector))]
+        (is (<= @seen count-bound)
+            (str "realised " @seen " elements; the WALKER's bound is "
+                 count-bound))
+        (is (= count-bound (count rows))
+            (str "and emits exactly " count-bound " rows — the walker's "
+                 "number, which is also what the header reports for a "
+                 "NOT-`counted?` side, so the two still agree"))))
+    (testing "children-of-pair — an endless AFTER side stays bounded"
+      (let [seen (atom 0)
+            rows (vec (ei/children-of-pair
+                        [1 2 3] (counting-seq seen guard) :vector))]
+        (is (<= @seen count-bound)
+            (str "realised " @seen " elements from the AFTER side; the "
+                 "WALKER's bound is " count-bound))
+        (is (= count-bound (count rows))
+            (str "and still emits " count-bound " rows"))))
+    (testing "children-of — an endless value through the BROWSE render path"
+      (let [seen (atom 0)
+            h    (render-expanded {:value (counting-seq seen guard)})]
+        (is (vector? h) "renders rather than hanging")
+        (is (= count-bound (rendered-rows h))
+            (str "the browse body emits the walker's " count-bound " rows"))
+        (is (<= @seen render-path-bound)
+            (str "and realised " @seen " elements; the RENDER path's bound "
+                 "is " render-path-bound " — `count-bound` plus the single "
+                 "element `cljs.core/bounded-count` looks ahead"))))))
+
 (deftest diff-renders-removed-set-member
   ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
   ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER
