@@ -217,6 +217,44 @@
   (binding [*print-level* (- preview-print-level d)]
     (pr-str x)))
 
+(defn- printed-type-prefix
+  "The type tag the printer writes BEFORE a collection's opening `{`, or
+  `\"\"` when it writes none.
+
+  Only a RECORD has one, and records satisfy `map?` — so a record whose key
+  had to be shortened takes the rendered window below, which opened with a
+  hard-coded `{` and printed `{:body \"short\", ...` where the printer would
+  have written `#my.ns.Rec{:body \"short\", ...`. That drops the type out of
+  the operator's first `preview-limit` characters, which are the ones the
+  panel shows (rf2-xpitj).
+
+  ASKED OF THE PRINTER rather than reconstructed, because the tag is the
+  printer's to spell and the two runtimes spell it from different places:
+  Clojure writes `#` plus the HOST CLASS name (`print-method` for
+  `IRecord`), while `defrecord` bakes a per-type `pr-open` of `#`, the
+  namespace, `.` and the type name into the `IPrintWithWriter` it generates
+  (`emit-defrecord` in `cljs/core.cljc`). Neither is portably reachable from
+  the value itself.
+
+  BOUNDED, which is the constraint that rules out simply printing the
+  record and reading its opening characters: `*print-length*` 0 makes the
+  printer emit its opening delimiter, its own `...` marker and its closing
+  delimiter and NOTHING between them, on both runtimes — so not one entry
+  is printed and no long string is ever materialised. `*print-level*` is
+  released because nothing descends, and because a level already spent
+  would make the printer write `#` in place of the delimiter we came for;
+  `*print-meta*` is silenced so an ambient binding cannot put a metadata
+  map's `{` in front of the collection's own."
+  [v]
+  (if-not (record? v)
+    ""
+    (let [s (binding [*print-length* 0
+                      *print-level*  nil
+                      *print-meta*   false]
+              (pr-str v))
+          i (str/index-of s "{")]
+      (if i (subs s 0 i) ""))))
+
 (defn- bound-long-strings
   "Bound the print INPUT: replace every long STRING the print walk can REACH
   with its first `preview-limit` characters (rf2-3hnvn).
@@ -247,9 +285,11 @@
   SHRINKS the collection and pulls an entry the walk never visited inside
   the print window with its value still unbounded. Such a collection is left
   exactly as it is and the printer is handed the walked window ALREADY
-  RENDERED, in the collection's own order, one printed entry per entry. So
-  the print is bounded without the caller's collection being rebuilt at all,
-  and nothing outside the window can appear in it.
+  RENDERED, in the collection's own order, one printed entry per entry,
+  behind the collection's own printed type tag — so a RECORD still opens
+  with `#my.ns.Rec` rather than a bare `{` (rf2-xpitj, `printed-type-prefix`
+  above). So the print is bounded without the caller's collection being
+  rebuilt at all, and nothing outside the window can appear in it.
 
   Truncating to `preview-limit` SOURCE characters cannot change the
   preview: escapes only lengthen, so `preview-limit` source characters
@@ -276,7 +316,12 @@
           ;; keys, and a collapse drags an unwalked entry into the print
           ;; window with its value still unbounded (rf2-kbo64).
           (printed-as
-            (str "{"
+            (str ;; A RECORD opens with its printed type tag, and the tag is
+                 ;; the first thing the operator reads. Rendering the window
+                 ;; under a bare `{` erased it (rf2-xpitj); the tag is read
+                 ;; back from the printer without printing an entry.
+                 (printed-type-prefix v)
+                 "{"
                  (str/join ", " (map (fn [[_ _ bk bv]]
                                        (str (print-child bk d) " "
                                             (print-child bv d)))
