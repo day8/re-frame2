@@ -124,7 +124,7 @@ where Dynamic's hardcodes 34px, so the two tab bars really do differ.
 Left as measured rather than harmonised: whether they SHOULD differ is a
 design question this page does not own.
 
-L2's absence is itself a functional signal — see §The mode signals below. The L1 chrome ribbon retains the mode dropdown (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); the Dynamic chrome's events ribbon — nav cluster, focus-chip, frame picker, filter pills — is HIDDEN because Static is event-independent and has no spine, so those clusters have no meaning here.
+L2's absence is itself a functional signal — see §The mode signals below. The L1 chrome ribbon retains the mode dropdown (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); what it DROPS is the spine chrome sharing that same bar — the `Event History` label, the nav cluster, the `+ filter` add affordance and the frame picker, all of which live on the CHROME ribbon rather than the events one (rf2-3f2di A5; see §L1.5 events ribbon) — while the Dynamic chrome's L1.5 events ribbon (filter pills + hidden-by-filters count) is hidden entire. Static is event-independent and has no spine, so none of those clusters has any meaning here. (There is no focus-chip to hide in either mode: the focus dimension was RETIRED per rf2-pjjwh.)
 
 ### The mode signals (chrome silhouette + 2 reinforcing)
 
@@ -1345,16 +1345,23 @@ The single-axis selection that every layer reads from.
 ```
 :rf.xray/event-bundles                 ← raw cascade list from Tool-Pair projection
         │
-        ▼
-:rf.xray/view-scope-frame         ← single defaulted VIEW SCOPE (rf2-4vp5j; head-frame default)
-:rf.xray/active-filters           ← IN/OUT pill state (Xray app-db slot)
-:rf.xray/muted-event-ids          ← muted-event-id set (Xray app-db slot)
+        ├──── RENDERED branch — view scope + filter, for the rows the user SEES:
+        │         :rf.xray/view-scope-frame   ← single defaulted VIEW SCOPE (rf2-4vp5j; head-frame default)
+        │         :rf.xray/active-filters     ← IN/OUT pill state (Xray app-db slot)
+        │         :rf.xray/muted-event-ids    ← muted-event-id set (Xray app-db slot)
+        │                 │  (view-scope frame FIRST, then IN/OUT pills + mutes)
+        │                 ▼
+        │         :rf.xray/filtered-event-bundles   ← the switch point for the FILTER's
+        │                 │                           consumers (§7's roster: event list,
+        │                 │                           scrubber, issues ribbon signal,
+        │                 ▼                           palette verbs). NOT the nav cluster.
+        │           L2 event list rows
         │
-        ▼
-:rf.xray/filtered-event-bundles        ← single switch point: list + scrubber + counters
-        │                            (view-scope frame FIRST, then IN/OUT pills + mutes)
-        ▼
+        ▼   SPINE branch — the RAW vector, never the filtered one (rf2-cqpj4)
 :rf.xray/focus                    ← spine: {:dispatch-id :epoch-id :frame :mode :head? :previewing?}
+        │                           `spine.cljs`'s `:rf.xray/focus` :inputs are the focus SLOT +
+        │                           `:rf.xray/event-bundles` — so `◀ ▶` and `j` / `k` keep stepping
+        │                           when a pill or a mute hides every row (§6 item 3)
         │
         ├──── L1 chrome ribbon (Events label + nav, + filter add, frame picker, mode dropdown, ⚙ ✕)
         ├──── L1.5 events ribbon (filter pills, N-events-filtered-out warning)
@@ -1669,7 +1676,7 @@ Filter applied at DATA layer (`:rf.xray/filtered-event-bundles` sub), not render
        …]}
 ```
 
-Every consumer (event list, scrubber, issues ribbon signal, palette verbs) reads `:rf.xray/filtered-event-bundles`. Raw `:rf.xray/event-bundles` stays as primitive for unfiltered totals.
+Every consumer OF THE FILTER (event list, scrubber, issues ribbon signal, palette verbs — `filters/matcher.cljc`'s own roster) reads `:rf.xray/filtered-event-bundles`. **The nav cluster is deliberately not on that roster** (rf2-cqpj4; see §6 item 3). Raw `:rf.xray/event-bundles` stays as primitive for unfiltered totals, and is what `:rf.xray/focus` composes from.
 
 ---
 
