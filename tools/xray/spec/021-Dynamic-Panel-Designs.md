@@ -4406,14 +4406,24 @@ the built-in classifier has no better fallback for than `pr-str`.
   `nil` for a header-only render (no expanded body, no toggle).
 
 `opts` carries a REDUCED per-node context — `:value`, `:panel-id`,
-`:mount-id`, `:path`, `:depth`, `:expansion-map` — with the
-per-widget knobs (`:default-expanded-depth` / `:max-inline-width` /
-`:max-depth`, …) NESTED under `:opts`, not at the top level. The same
-map is also threaded under `:node-opts` for consumers that want to
-recurse the built-in renderer on sub-values via
-`edn-inspector/render-node`. It carries no `:dispatch-fn`, so toggles
-inside such a recursion dispatch through the global `rf/dispatch`
-fallback rather than the mount's captured frame.
+`:mount-id`, `:path`, `:depth`, `:expansion-map`, `:dispatch-fn` —
+with the per-widget knobs (`:default-expanded-depth` /
+`:max-inline-width` / `:max-depth`, …) NESTED under `:opts`, not at
+the top level. The same map is also threaded under `:node-opts` for
+consumers that want to recurse the built-in renderer on sub-values
+via `edn-inspector/render-node`. `:dispatch-fn` is the mount's
+captured frame-bound dispatcher, so a toggle inside such a recursion
+lands on the frame the widget is mounted under.
+
+**Corrected 2026-09-21 under rf2-et4l0 — the dispatcher, and only
+that.** This read "It carries no `:dispatch-fn`, so toggles inside
+such a recursion dispatch through the global `rf/dispatch` fallback
+rather than the mount's captured frame", and that described a real
+gap rather than stale prose: `render-node` rebuilt this context
+without the key, so a consumer body recursing `render-node` handed
+its nested collection's toggle to the global dispatcher while the
+widget read its expansion state on its own frame. The renderer now
+threads the key.
 
 **Dispatch order** (in `render-node`):
 
@@ -4472,7 +4482,11 @@ pins: (a) built-in types still route through the built-in dispatch
 the protocol path and the consumer's hiccup appears verbatim,
 (c) header-nil falls through, (d) body-nil renders header-only,
 (e) broken consumer impl falls through safely, (f) expansion-map
-overrides still apply to protocol nodes.
+overrides still apply to protocol nodes, and (g) a consumer body
+recursing `render-node` reaches the mount's captured dispatcher —
+on a non-default frame its nested collection's toggle updates that
+instance and leaves both the host frame and a second instance
+unchanged (rf2-et4l0).
 #### §10.0.7 Popup overlay infra (rf2-oqa60 phase 6 · D6=a · D8=a)
 
 Phase 6 ships the **popup overlay** that floats over an Xray panel
