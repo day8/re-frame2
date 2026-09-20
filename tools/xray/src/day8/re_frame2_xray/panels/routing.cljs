@@ -125,6 +125,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -181,6 +182,23 @@
     :error   (:error tokens)
     (:text-tertiary tokens)))
 
+(defn- show-query?
+  "True when the CURRENT ROUTE section should render its query span.
+
+  A bare `(seq query)` was the guard until rf2-8nyi2, and it THREW once
+  the query became an egress PROJECTION rather than raw frame state: a
+  whole-value redaction substitutes the SCALAR `:rf/redacted` keyword for
+  the map, and `seq` on a keyword is an error — so the panel would have
+  died on exactly the frames whose policy had just done its job (a nil or
+  destroyed observed frame fails closed to that sentinel).
+
+  A collection still answers `seq`, so an absent or empty query renders
+  nothing exactly as before; a non-collection sentinel renders as itself.
+  The `{:rf.size/large-elided …}` marker needs no special case — it IS a
+  map, so it takes the `seq` arm."
+  [query]
+  (if (coll? query) (boolean (seq query)) (some? query)))
+
 (defn- current-route-section
   "§1 — the active route id (mode-accent, bold), its params, query and
   fragment when the slice carries them, and a readiness chip. Always
@@ -194,7 +212,13 @@
   dead in production and the query, fragment and readiness never showed;
   a route whose readiness was `:error` looked like any other. The query
   renders with `pr-str` and no sort, so its keys keep the order the
-  router's array-map gave them (rf2-c5cub)."
+  router's array-map gave them (rf2-c5cub).
+
+  The `:query` this receives is already the EGRESS PROJECTION, not raw
+  frame state — [[current-route-slice-value]] applies the observed
+  frame's classification before the composite is built (rf2-8nyi2), so a
+  declared-sensitive key reads `:rf/redacted` here. That is why the guard
+  is [[show-query?]] and not `seq`: a whole-value redaction is a scalar."
   [{:keys [current]}]
   (let [{:keys [route-id params query fragment transition error]} current
         id route-id
@@ -223,7 +247,7 @@
          [:span {:style muted} "params"]
          [:span {:data-testid "rf-xray-routing-current-params"}
           (pr-str (or params {}))]
-         (when (seq query)
+         (when (show-query? query)
            [:<>
             [:span {:style muted} "query"]
             [:span {:data-testid "rf-xray-routing-current-query"}
@@ -665,10 +689,48 @@
 (defn- current-route-slice-value
   "The live route slice off the target frame's runtime-db
   (`[:rf.runtime/routing :current]`; EP-0001 rf2-vzld77 — runtime-db
-  state, not app-db)."
-  [target-runtime-db]
+  state, not app-db), with its `:query` PROJECTED for on-box render under
+  `observed-frame`'s own classification.
+
+  ## Why the projection is here (rf2-8nyi2)
+
+  The slice is raw frame state, and until this the panel rendered its
+  query straight to the DOM with `pr-str`. A route that DECLARED a query
+  key `:sensitive` — Spec 012 §Route data classification's own example
+  promotes `:token` — therefore displayed the live token under the
+  on-box `:rf.egress/local-redacted` default. The declaration was made
+  and nothing consulted it: a missed explicit data-hygiene declaration,
+  not a claim that undeclared carriers are a boundary.
+
+  `local-render/local-render-route-sub-value` names the framework route
+  read sub `:rf.route/query`, which is what lets the walk re-seed at the
+  slice's runtime-db storage position so the route's RE-ROOTED absolute
+  declarations match. Seeding is routing's to own — see that fn for why
+  naming the sub beats spelling the path here.
+
+  ## What is deliberately NOT projected
+
+  `:params` and `:fragment` ride unchanged. The same re-rooting reaches
+  `[:rf.runtime/routing :current :params]` in principle, but this item is
+  scoped to the query it was filed against; widening it is a separate
+  call. Nothing here is a blanket scrub.
+
+  ## Shape
+
+  Only a slice that actually CARRIES a query is touched, so an absent
+  query stays absent rather than becoming a `:rf/redacted` sentinel the
+  section would then render — fail-closed must not invent a value where
+  the router wrote none. `observed-frame` is stamped VERBATIM: nil /
+  destroyed / never-registered fails closed to `:rf/redacted`, which
+  [[show-query?]] renders as itself."
+  [target-runtime-db observed-frame]
   (when (map? target-runtime-db)
-    (get-in target-runtime-db [:rf.runtime/routing :current])))
+    (let [slice (get-in target-runtime-db [:rf.runtime/routing :current])]
+      (if (some? (:query slice))
+        (assoc slice :query
+               (local-render/local-render-route-sub-value
+                 (:query slice) observed-frame :rf.route/query))
+        slice))))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -682,7 +744,10 @@
     - `:rf.xray/current-route-slice` — composite over the spine's
       target-frame RUNTIME-DB reading the routing slice at
       `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route
-      slice is framework-owned runtime-db state, not app-db).
+      slice is framework-owned runtime-db state, not app-db). Its
+      `:query` is EGRESS-PROJECTED under the OBSERVED frame's own
+      classification before it leaves this sub (rf2-8nyi2) — see
+      [[current-route-slice-value]].
     - `:rf.xray/routing-tab-data` — view-facing topology-plus-overlay
       composite (focused-epoch scoped). Carries `:silent?`, `:topology`,
       `:activity`, `:from-id`, `:to-id`, `:navigated?`, `:current`.
@@ -708,10 +773,18 @@
     (fn [[_buffer] _query]
       (registered-routes-value)))
 
+  ;; rf2-8nyi2 — `:rf.xray/observed-frame` rides as a second input purely
+  ;; so the slice's `:query` can be projected under the frame whose
+  ;; classification actually governs it. It must be the OBSERVED frame and
+  ;; not a resolved or ambient one: the elision registry is per-frame, so
+  ;; the ambient read at a panel render (Xray's own chrome frame, which is
+  ;; live and declares nothing) would ship the value raw under a borrowed
+  ;; policy. The sibling `:rf.xray/target-frame-runtime-db` already pivots
+  ;; on the same sub, so the two axes cannot diverge.
   (rf/reg-sub :rf.xray/current-route-slice
-    {:inputs [[:rf.xray/target-frame-runtime-db]]}
-    (fn [[target-runtime-db] _query]
-      (current-route-slice-value target-runtime-db)))
+    {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/observed-frame]]}
+    (fn [[target-runtime-db observed-frame] _query]
+      (current-route-slice-value target-runtime-db observed-frame)))
 
   ;; View-facing composite (topology-plus-overlay shape, rf2-3kjlo) -------
 
@@ -789,10 +862,19 @@
     (fn [[_buffer override] _query]
       (or override (registered-routes-value))))
 
+  ;; rf2-8nyi2 — the override rides VERBATIM, and deliberately: it is a
+  ;; value the TEST injected, never frame state, so there is nothing for an
+  ;; egress projection to protect and a fail-closed walk against the (often
+  ;; absent) observed frame would redact a fixture whole. The projection
+  ;; belongs to the production read, which is where the raw frame state is,
+  ;; and it stays in `current-route-slice-value` so the `(or override
+  ;; (real …))` branch is still expressed in exactly one place.
   (rf/reg-sub :rf.xray/current-route-slice
-    {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/current-route-slice-override]]}
-    (fn [[target-runtime-db override] _query]
+    {:inputs [[:rf.xray/target-frame-runtime-db]
+              [:rf.xray/current-route-slice-override]
+              [:rf.xray/observed-frame]]}
+    (fn [[target-runtime-db override observed-frame] _query]
       (if (some? override)
         override
-        (current-route-slice-value target-runtime-db))))
+        (current-route-slice-value target-runtime-db observed-frame))))
   nil)
