@@ -2712,6 +2712,241 @@
       (is (= n (count rows))
           (str "and still emits all " n " accessible AFTER rows")))))
 
+;; ---- rf2-g61nr — `children-of-pair`'s capped-AFTER tail -------------------
+;;
+;; The MIRROR of rf2-idydb, one line away in the same `for` comprehension, and
+;; failing in the MORE DAMAGING direction. rf2-idydb bounded the capped-BEFORE
+;; side; this is the capped-AFTER side, still conflating UNREALISED with
+;; ABSENT.
+;;
+;; `bounded-vec` dispatches on `counted?`, so a `counted?` BEFORE side is
+;; realised whole while a not-`counted?` AFTER side stops at `count-bound`.
+;; Past that ceiling the arm filled the AFTER slot with `::missing` — the
+;; STRUCTURAL sentinel, which `leaf-diff-op` reads AHEAD of the projection
+;; (`(= value ::missing) → :removed`). A RETAINED element whose after value
+;; was merely never realised was therefore presented as a confirmed DELETION:
+;; strike-through, `−` glyph, red wash. Worse than rf2-idydb's false addition,
+;; because the operator reads it as data that is GONE.
+;;
+;; TWO properties, per this family's standing rule — either alone is green
+;; against a plausible wrong fix:
+;;
+;;   P1 NO CONFIDENT LIE  — a retained element past the after bound carries
+;;                          `::unrealised` in its AFTER slot, renders as the
+;;                          projection's own op rather than `:removed`, keeps
+;;                          its accessible prior, and never prints the
+;;                          sentinel.
+;;   P2 DELETIONS AND     — an after side that ran out HONESTLY still says
+;;      BOUND INTACT        `::missing` and still strikes a real deletion, and
+;;                          the walk realises no more of the after side than it
+;;                          did. Swapping the sentinel unconditionally is green
+;;                          on P1 and red on the first half of P2; widening the
+;;                          after bound to "just look" is green on both of
+;;                          those and red on the last.
+
+(deftest children-of-pair-capped-after-tail-is-unknown-not-removed-rf2-g61nr
+  ;; The item's reproduction, verbatim: `before` a 1050-element vector,
+  ;; `after` a LazySeq view of the SAME values. Nothing changed. `map` hands
+  ;; back a LazySeq, which is not `counted?`, so `bounded-vec` caps the AFTER
+  ;; side at `count-bound` while realising the `counted?` BEFORE side whole.
+  (let [n      1050
+        before (vec (range n))
+        after  (map identity before)
+        proj   (engine/project before after)
+        rows   (vec (ei/children-of-pair before after :vector))
+        tail   (first (filter (fn [[k _ _]] (= k (dec n))) rows))
+        past   (filterv (fn [[k _ _]] (>= k count-bound)) rows)
+        render (fn [a-slot]
+                 (ei/render-node {:value      a-slot
+                                  :before     (nth tail 2)
+                                  :diff?      true
+                                  :projection proj
+                                  :panel-id   :test :mount-id "m1"
+                                  :path       [(dec n)] :depth 1
+                                  :expansion-map {} :opts {}}))]
+    (testing "the fixture really is the shape this turns on"
+      (is (counted? before)
+          "the BEFORE side is a vector, so `bounded-vec` realises it whole")
+      (is (not (counted? after))
+          (str "the AFTER side is a LazySeq, so `bounded-vec` caps it at "
+               count-bound " — `counted?` is the dispatch, not the KIND"))
+      (is (= before (vec after))
+          (str "the two sides carry IDENTICAL values — whatever this test "
+               "reports, NOTHING in this collection was deleted"))
+      (is (empty? (:flat-rows proj))
+          "which the projection agrees with: no changed rows anywhere"))
+    (testing "nothing is LOST — this arm walks `(range (max …))`"
+      (is (= n (count rows))
+          (str "all " n " rows are emitted, so the tail is PRESENT and "
+               "MISLABELLED — which is why a row count cannot see this "
+               "defect at all"))
+      (is (= (- n count-bound) (count past))
+          (str (- n count-bound) " of them sit past the after ceiling of "
+               count-bound)))
+    (testing "P1 — their AFTER slot says UNKNOWN, and is never `::missing`"
+      (is (= [(dec n) ::ei/unrealised (dec n)] (vec tail))
+          (str "the last row. Pre-fix it read `[" (dec n) " ::missing "
+               (dec n) "]` — the item's own decisive measurement"))
+      (is (= (vec (repeat (- n count-bound) ::ei/unrealised))
+             (mapv (fn [[_ a _]] a) past))
+          "and so does every row past the ceiling")
+      (is (empty? (filter (fn [[_ a _]] (= a ::ei/missing)) past))
+          (str "never `::missing`, which OVERRIDES the projection in "
+               "`leaf-diff-op` and presents a retained element as a "
+               "confirmed deletion"))
+      (is (= (mapv (fn [[k _ _]] k) past)
+             (mapv (fn [[_ _ b]] b) past))
+          (str "while the BEFORE slot still carries the real, accessible "
+               "prior for every one of them — the known data is preserved, "
+               "not dropped")))
+    (testing "P1 — and it renders as the projection's own op, never `:removed`"
+      ;; The chain closed end to end: the slot `children-of-pair` actually
+      ;; produced, handed to the renderer against the projection computed
+      ;; over the FULL pair — which owes nothing to the walker's ceiling.
+      (let [proj-op (engine/op-at proj [(dec n)])
+            tree    (render (second tail))]
+        (is (not= :removed proj-op)
+            (str "the projection saw BOTH full trees and calls after-index "
+                 (dec n) " `" proj-op "` — it is retained, not deleted"))
+        (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
+            "so the row must not render as `:removed` — the defect's signature")
+        (is (not (str/includes? (pr-str tree) "line-through"))
+            "and carries no strike-through")
+        (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
+            (str "it renders the projection's own `" proj-op "` instead"))
+        (testing "CONTROL — `::missing` in the SAME slot really does force `:removed`"
+          ;; Without this the assertions above could be green because nothing
+          ;; renders a `:removed` marker on this path at all.
+          (let [tree (render ::ei/missing)]
+            (is (seq (nodes-with-attr tree :data-rf-diff-op "removed"))
+                (str "`::missing` forces `:removed` even against a projection "
+                     "saying `" proj-op "` — the structural override is real, "
+                     "which is exactly why this arm must not emit it here"))
+            (is (empty? (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
+                "and suppresses the projection's own op entirely")))))
+    (testing "P1 — the sentinel is never printed, and the known value survives"
+      ;; `render-leaf-with-diff` paints the PRESENT side of the pair, and
+      ;; `::unrealised` now reaches the VALUE slot — rf2-8pfkk's leak arriving
+      ;; through a new door.
+      (let [txt (collect-text (render (second tail)))]
+        (is (not (str/includes? txt "edn-inspector/unrealised"))
+            "the internal sentinel keyword never reaches the rendered output")
+        (is (str/includes? txt (str (dec n)))
+            (str "and the accessible prior is still shown: the projection "
+                 "calls this element unchanged, so its known value IS its "
+                 "value"))))
+    (testing "P1 — and on the NO-projection fallback route the item names"
+      ;; `sequential-diff-children` defers to this walk whenever it has no
+      ;; projection, and there `leaf-diff-op` has nothing to fall through to.
+      ;; The honest answer is a stated unknown, never a deletion.
+      (let [rows' (vec (ei/sequential-diff-children before after :vector [] nil))
+            tail' (first (filter (fn [[k _ _]] (= k (dec n))) rows'))
+            tree  (ei/render-node {:value      (second tail')
+                                   :before     (nth tail' 2)
+                                   :diff?      true
+                                   :projection nil
+                                   :panel-id   :test :mount-id "m1"
+                                   :path       [(dec n)] :depth 1
+                                   :expansion-map {} :opts {}})
+            txt   (collect-text tree)]
+        (is (= (vec tail) (vec tail'))
+            (str "the fallback returns the IDENTICAL triple, which is what "
+                 "its docstring promises for the no-removal case"))
+        (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
+            "no confirmed deletion, with no projection to appeal to either")
+        (is (seq (nodes-with-attr tree :data-rf-diff-value "unrealised-after"))
+            "an explicit unknown-value token is rendered in its place")
+        (is (not (str/includes? txt "edn-inspector/unrealised"))
+            "and the sentinel itself is still never printed")))
+    (testing "the 2x2's FOURTH CELL stays vacuous — an unknown AFTER never recurses"
+      ;; The mirror of rf2-t450s: an unknown AFTER carried INTO a nested
+      ;; container. It cannot arise, and the reason is structural rather than
+      ;; lucky: `render-node`'s descent is driven by the AFTER value BEING a
+      ;; container, and a sentinel keyword never is. So `children-of-pair` is
+      ;; never entered with this marker as its `after`, its four `a`-bindings
+      ;; never see it, and `unpaired-prior` needs no after-side mirror.
+      (let [tree (ei/render-node {:value      ::ei/unrealised
+                                  :before     {:keep 1 :other 2}
+                                  :diff?      true
+                                  :projection nil
+                                  :panel-id   :test :mount-id "m1"
+                                  :path       [0] :depth 1
+                                  :expansion-map {} :opts {}})
+            txt  (collect-text tree)]
+        (is (empty? (nodes-with-attr tree :data-rf-kind "map"))
+            (str "the row renders as a LEAF, not as a walked container — "
+                 "`collection-kind` of the marker is not a container kind, so "
+                 "`render-container` is never reached"))
+        (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
+            (str "so no child is emitted `[k ::missing v]` and painted as a "
+                 "confirmed deletion — the fourth cell's would-be signature"))
+        (is (not (str/includes? txt "edn-inspector/unrealised"))
+            "and the marker is not printed on this route either")))))
+
+(deftest children-of-pair-honest-after-exhaustion-stays-missing-rf2-g61nr
+  ;; P2. Green on TRUNK and must stay green: its job is to refuse a WRONG fix,
+  ;; not to catch the current defect. `::missing` is CORRECT wherever the walk
+  ;; realised the whole after side and found no element — swapping the
+  ;; sentinel unconditionally would report every genuine deletion as an
+  ;; unknown tail, the same confident falsehood pointing the other way.
+  (testing "P2 — both sides `counted?`: the surplus before tail is a real deletion"
+    (let [rows (vec (ei/children-of-pair [1 2 3 4] [1 2] :vector))
+          as   (mapv (fn [[_ a _]] a) rows)]
+      (is (= 4 (count rows)) "index-aligned to the longer side")
+      (is (= [::ei/missing ::ei/missing] (subvec as 2))
+          (str "neither side was capped — `bounded-vec` realises a `counted?` "
+               "collection whole — so indices 2 and 3 genuinely are gone"))))
+  (testing "P2 — a SHORT lazy after side ended honestly, under the ceiling"
+    ;; The discriminator. This side is NOT `counted?`, exactly like the
+    ;; defect's fixture, but it ran out on its own well before `count-bound`,
+    ;; so the walk DOES know these slots are absent. A fix keyed on the KIND
+    ;; of the after side rather than on the ceiling being REACHED is red here.
+    (let [after (map identity (range 5))
+          rows  (vec (ei/children-of-pair (vec (range 8)) after :vector))
+          as    (mapv (fn [[_ a _]] a) rows)]
+      (is (not (counted? after))
+          "a LazySeq, the same shape the defect's fixture uses")
+      (is (= 8 (count rows)) "index-aligned to the longer side")
+      (is (= [::ei/missing ::ei/missing ::ei/missing] (subvec as 5))
+          (str "the walk realised all 5 elements and the seq ended — under "
+               "the ceiling, so absence here is KNOWN, not unknown"))))
+  (testing "P2 — a real deletion still renders struck-through and `:removed`"
+    ;; The genuine-deletion control the item asks for, closed end to end
+    ;; through the renderer rather than stopped at the triple.
+    (let [before (vec (range 8))
+          after  (map identity (range 5))
+          proj   (engine/project before after)
+          rows   (vec (ei/children-of-pair before after :vector))
+          gone   (first (filter (fn [[k _ _]] (= k 7)) rows))
+          tree   (ei/render-node {:value      (second gone)
+                                  :before     (nth gone 2)
+                                  :diff?      true
+                                  :projection proj
+                                  :panel-id   :test :mount-id "m1"
+                                  :path       [7] :depth 1
+                                  :expansion-map {} :opts {}})]
+      (is (= ::ei/missing (second gone))
+          "index 7 really is absent from the after side")
+      (is (seq (nodes-with-attr tree :data-rf-diff-op "removed"))
+          "and renders as a confirmed deletion, which it is")
+      (is (str/includes? (pr-str tree) "line-through")
+          "struck through, per the universal diff idiom")))
+  (testing "P2 — the after bound is not widened to find out"
+    ;; A REALISATION counter, never an output length: a "fix" that told the
+    ;; two cases apart by pulling one more element off the after side is green
+    ;; on P1 and on all three halves above, and red right here.
+    (let [n     1050
+          guard 1500
+          seen  (atom 0)
+          rows  (vec (ei/children-of-pair (vec (range n))
+                                          (counting-seq seen guard)
+                                          :vector))]
+      (is (<= @seen count-bound)
+          (str "realised " @seen " elements of the endless AFTER side; the "
+               "walker's bound is " count-bound))
+      (is (= n (count rows))
+          (str "and still emits all " n " rows")))))
+
 (deftest diff-renders-removed-set-member
   ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
   ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER
