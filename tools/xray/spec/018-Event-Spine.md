@@ -2110,7 +2110,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 | L2 event list row | Trailing redaction marker | `[● REDACTED N]` magenta / `[● ELIDED N]` yellow as static trailing marker on the row (no inline preview slot); marker count = total sentinels in event arg-map |
 | L4 Epoch panel | Event vector + handler `:tags` + fx-args payload | Via `inspect` renderer; sentinels render as colourful inline chips |
 | L4 App-db tab | Diff slice tree before/after | Via the widget's opt-in `:before` diff mode; sentinel position in path preserved |
-| L4 Views tab | Per-view sub return values | Via `inspect`; per-sub redaction propagation visible; cluster aggregates per [`012-Views.md`](012-Views.md) |
+| L4 Views tab | Sub and view node labels in the reactive flow graph — sub ids / query vectors and view names, not values | No value-borne sentinel renders here: the shipped panel per [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.2 encodes changed/unchanged state on nodes and edges, its SUB VALUES section retired (rf2-uz3wm), and the teardown + unchanged-sub rows key by query vector. Per-cascade sub values — and the sentinels riding in them — render on the Epoch panel's SUBSCRIPTIONS step (`021` §9.1.10.1). |
 | L4 Epoch panel "EFFECTS HANDLERS RAN" | Per-fx `:fx-args` payload + return | Via `inspect`; e.g. `:http/post` request body shows `{:password :rf/redacted}` |
 | L4 Machines tab | `:data` slot of focused instance + per-transition `:context` | Via `inspect`; per-`reg-machine` `:sensitive` paths drive redaction |
 | L4 Trace tab | Raw `:tags` per trace event | Via `inspect-inline` for compact rows; severity colouring applies |
