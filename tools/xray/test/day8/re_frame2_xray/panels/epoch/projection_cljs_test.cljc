@@ -24,8 +24,8 @@
     5. `fx-step` — conditional: present iff any `:rf.fx/*` event fired.
     6. `subscriptions-step` — conditional: present iff `:rf.sub/*`
        events fired.
-    7. `views-step` — conditional: present iff `:rf.view/render`
-       events fired.
+    7. `views-step` — conditional: present iff `:rf.view/rendered`
+       or `:rf.view/unmounted` events fired.
     8. `project` — top-level composer over all of the above.
     9. `number-steps` — sequential 1..N numbering over only-the-
        steps-that-fired.
