@@ -414,9 +414,11 @@
   ;; ---- events: save / delete -------------------------------------------
   ;;
   ;; Save and Delete both mutate the live `:active-filters` slot and
-  ;; close the popup. Persistence is bound by the `:rf.xray.filters/
-  ;; persist` fx so the post-mutation slot lands in localStorage in
-  ;; one place (no fx-per-handler duplication).
+  ;; close the popup — and that is the whole of it. There is no
+  ;; persistence step to bind: the `:rf.xray.filters/persist` fx went
+  ;; with `filters/persistence.cljs` (rf2-y8doi.27), so the
+  ;; post-mutation slot lives in app-db for the duration of the session
+  ;; and nothing writes it to localStorage. See the ns docstring.
 
   (rf/reg-event :rf.xray/save-edit-popup
     (fn [{:keys [db]} _event]

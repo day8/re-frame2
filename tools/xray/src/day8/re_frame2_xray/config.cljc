@@ -1629,11 +1629,13 @@
        (catch :default _ nil)))
   nil)
 
-;; ---- *filter-pills* (ribbon filter seeds + storage key) -----------------
+;; ---- *filter-pills* (ribbon filter boot-baseline seed) -----------------
 ;;
-;; Per `tools/xray/spec/018-Event-Spine.md` §7 ribbon pills persist
-;; via localStorage per host-app under a Xray-namespaced key. Two
-;; configure! axes:
+;; Per `tools/xray/spec/018-Event-Spine.md` §7 'Filter reset-on-load'
+;; the ribbon pills have NO localStorage layer at all (rf2-y8doi.27).
+;; They live in `:active-filters` for the duration of a session and a
+;; fresh load starts unfiltered (rf2-swclw), so reset-on-load holds by
+;; construction rather than by cleanup. ONE configure! axis:
 ;;
 ;;   - `:filters/seed` — an explicit host BOOT BASELINE pill set. When a
 ;;     host opts in, `mount.cljs`'s `::seed-configured-filters` first-mount
@@ -1642,7 +1644,6 @@
 ;;     inject a known, reproducible starting posture. Default `nil` — no
 ;;     seed; the slot stays fully unfiltered per spec/018 §7 'Empty
 ;;     defaults'.
-;;
 ;;
 ;; (`:rf.xray/filters-storage-key` was REMOVED — rf2-y8doi.27. It named
 ;; the localStorage key for a filter-persistence layer that no longer
