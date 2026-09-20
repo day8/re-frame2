@@ -2355,6 +2355,194 @@
           (str "and NO row claims an unrealised prior: neither side was "
                "capped, so every survivor pairs and the tail run is empty")))))
 
+;; ---- rf2-f8nm7 — a capped AFTER side must not DROP the counted before
+;; ---- tail ----------------------------------------------------------------
+;;
+;; The MIRROR of rf2-zk4he directly above, in the same walker, and the fourth
+;; failure of the independent-ceiling confusion. rf2-zk4he capped the BEFORE
+;; side and lost the surplus AFTER rows; swap the two representations and the
+;; walk loses the surplus BEFORE rows instead:
+;;
+;;   BEFORE  a vector of 1050     →  `bounded-vec` realises `b-vec` whole
+;;   AFTER   a lazy seq of 1050   →  `bounded-vec` caps `a-vec` at 1001
+;;
+;; `bi->ai` is a `zipmap`, which truncates to the SHORTER side — now the
+;; AFTER side — so `survivor-bis` past the after ceiling pair with nothing.
+;; `before-order`'s survivor arm is `(when-let [ai (bi->ai bi)] …)`, whose
+;; else-branch is NOTHING, so those before-indices are emitted by no arm and
+;; leave the walk silently. The recovery run does not reach them either: it
+;; iterates `after-idxs` ONLY, so it recovers the AFTER direction and has no
+;; arm pointing the other way. The header, reading the `counted?` BEFORE side
+;; through `bounded-count*` and taking the `max`, goes on promising 1050.
+;;
+;; The body shows 1001 — `count-bound` exactly — and `sequential-diff-children`'s
+;; own docstring says in terms that this cannot happen ("It never falls SHORT
+;; of it"), as does `count-bound`'s ("A body that fell SHORT of the header is
+;; the direction that loses data, and that is what this ceiling now refuses")
+;; and `children-of-pair`'s repaired arm ("Dropping them instead would put the
+;; body SHORT of the header `diff-pair-count` prints"). Three normative
+;; statements, one walker that breaks all three in one direction.
+;;
+;; TWO properties, per this family's standing rule — either alone is green
+;; against a plausible wrong fix:
+;;
+;;   P1 NO SILENT LOSS  — every before-side row the walk can still account for
+;;                        is emitted, carrying its REAL prior value, and its
+;;                        AFTER slot says UNKNOWN rather than claiming a
+;;                        deletion. A row count alone would be satisfied by
+;;                        1050 placeholders, and `::missing` there is
+;;                        rf2-g61nr's confident lie reached through a new door.
+;;   P2 STILL BOUNDED,  — the walk realises no more of the AFTER side than it
+;;      STILL ALIGNED     did (a REALISATION counter, never an output length),
+;;                        rf2-vu42n's in-place strike still lands on the
+;;                        genuinely-removed member, and every emitted row still
+;;                        carries a DISTINCT key. Widening the after bound
+;;                        loses P2's first half; sliding `bi->ai` to soak up
+;;                        the surplus before-side survivors loses its second;
+;;                        keying the recovered rows by their bare before-index
+;;                        loses its third, because an added after-element can
+;;                        already own that integer.
+
+(deftest capped-after-side-keeps-the-counted-before-tail-rf2-f8nm7
+  ;; The item's reproduction: rf2-zk4he's fixture with the two sides swapped.
+  (let [n      1050
+        before (assoc (vec (range n)) (dec n) :changed-at-tail)
+        after  (map identity (range n))
+        proj   (engine/project before after)
+        rows   (vec (ei/sequential-diff-children before after :vector [] proj))
+        ;; Found by its BEFORE value, not by a key: pre-fix the row is absent
+        ;; entirely, and post-fix its key is a synthetic segment.
+        tail   (first (filter (fn [[_ _ b]] (= b :changed-at-tail)) rows))]
+    (testing "CONTROL — the fixture really is the shape this turns on"
+      (is (counted? before)
+          "the BEFORE side is a vector, so `bounded-vec` realises it whole")
+      (is (not (counted? after))
+          (str "the AFTER side is a LazySeq, so `bounded-vec` caps it at "
+               count-bound " — `counted?` is the dispatch, not the KIND"))
+      (is (= n (count before))
+          (str "and the before side is " n " long — " (- n count-bound)
+               " elements past the ceiling the other side stopped at")))
+    (testing "CONTROL — the walk reached its subject and reconstructed below
+              the bound"
+      ;; Without these the row-count assertion below could be red because the
+      ;; walk threw, returned nil, or never took the projection-aware arm at
+      ;; all — a test that never reached its contract rather than a contract
+      ;; that failed.
+      (is (seq rows)
+          "the projection-aware arm ran and emitted rows")
+      (is (= [0 0 0] (first rows))
+          "before-index 0 pairs with after-index 0 and carries both values")
+      (is (some (fn [[k _ _]] (= k (dec count-bound))) rows)
+          (str "and the last PAIRABLE index (" (dec count-bound)
+               ") is present — the reconstruction works below the ceiling")))
+    (testing "CONTROL — the header promises the counted BEFORE side's full count"
+      (is (= n (max (header-promise before) (header-promise after)))
+          (str "`diff-pair-count` reports the `max` of the two sides through "
+               "`bounded-count*`; the `counted?` BEFORE side answers " n
+               " while the capped AFTER side answers " count-bound)))
+    (testing "P1 — every accessible BEFORE row is emitted"
+      (is (= n (count rows))
+          (str n " rows. Pre-fix the walk emitted " count-bound ": "
+               "`bi->ai`'s `zipmap` truncates to the capped AFTER side, and "
+               "`before-order`'s `when-let` yields NOTHING for a before-index "
+               "past it while the recovery run walks `after-idxs` only. The "
+               "gap was neither marked nor reachable.")))
+    (testing "P1 — the CHANGED TAIL element is present with its real prior"
+      (is (some? tail)
+          (str "before-index " (dec n) " is rendered at all"))
+      (is (= :changed-at-tail (nth tail 2 ::absent))
+          (str "carrying the prior it actually has in the before-tree — a row "
+               "count alone would accept " n " placeholders")))
+    (testing "P1 — its AFTER slot says UNKNOWN, and is never `::missing`"
+      (let [a (nth tail 1 ::absent)]
+        (is (= ::ei/unrealised a)
+            (str "the after side was truncated at " count-bound ", so this "
+                 "element's current value was never realised — which is not "
+                 "the same as its having none"))
+        (is (not= ::ei/missing a)
+            (str "`::missing` is the STRUCTURAL sentinel and forces "
+                 "`leaf-diff-op`'s `:removed` path, which would present a "
+                 "RETAINED element as a confirmed deletion — rf2-g61nr's "
+                 "defect reached through a new door. A false addition "
+                 "overstates what arrived; a false deletion tells the "
+                 "operator that data they still have is gone."))))
+    (testing "P1 — and NO row in the set claims a deletion"
+      ;; Nothing was removed from this collection, so no `::missing` after
+      ;; value may appear anywhere: the only rows carrying one are genuine
+      ;; `:vector-removals`, and there are none.
+      (is (empty? (filter (fn [[_ a _]] (= a ::ei/missing)) rows))
+          "no row is struck through — this diff removed nothing"))))
+
+(deftest capped-after-side-stays-bounded-and-aligned-rf2-f8nm7
+  ;; P2, all three halves. Each is green on TRUNK and must stay green: their
+  ;; job is to refuse a WRONG fix, not to catch the current defect.
+  (testing "P2 — lazy work is still bounded (guarded AFTER input)"
+    ;; The generator is ENDLESS and throws if anything pulls past the guard,
+    ;; so this measures REALISATION and not output length: a "fix" that
+    ;; recovered the before tail by widening or dropping the AFTER bound is
+    ;; green on P1 and red right here. The projection is built from an
+    ;; equivalent VECTOR so that computing it does not itself realise the
+    ;; generator — `engine/project` over an endless input is rf2-bmed1's
+    ;; subject, not this one's.
+    (let [n     1050
+          guard 1500
+          before (assoc (vec (range n)) (dec n) :changed-at-tail)
+          proj  (engine/project before (vec (range n)))
+          seen  (atom 0)
+          rows  (vec (ei/sequential-diff-children
+                       before (counting-seq seen guard) :vector [] proj))]
+      (is (<= @seen count-bound)
+          (str "realised " @seen " elements of the endless AFTER side; the "
+               "WALKER's bound is " count-bound ". Recovering the before tail "
+               "must not cost the bound that rf2-brmyq installed."))
+      (is (= n (count rows))
+          (str "and still emits all " n " accessible BEFORE rows"))))
+  (testing "P2 — every emitted row carries a DISTINCT key"
+    ;; The recovered rows have no after-index to be keyed by, and their bare
+    ;; before-index is NOT free: an `:added` after-element can already own
+    ;; that integer, so keying them by it would collide and two rows would
+    ;; share a React key and a testid. This is why the removals carry a
+    ;; synthetic segment too.
+    (let [n      1050
+          before (vec (range n))
+          ;; Additions early in the after side push `survivor-ais` well below
+          ;; `a-count`, so the unpaired before-indices land INSIDE the integer
+          ;; range the after-side keys occupy.
+          after  (map identity (concat [:added-a :added-b :added-c] (range n)))
+          proj   (engine/project before after)
+          rows   (vec (ei/sequential-diff-children before after :vector [] proj))
+          ks     (mapv first rows)]
+      (is (= (count ks) (count (distinct ks)))
+          (str "all " (count ks) " row keys are distinct; "
+               (- (count ks) (count (distinct ks)))
+               " collided. A bare before-index would clash with the "
+               "after-index of an added element."))))
+  (testing "P2 — two VECTORS: rf2-vu42n's removal alignment is untouched"
+    ;; Both sides `counted?`, so the two ceilings coincide, no row can be
+    ;; unpairable, and the recovered before rows must be EMPTY. A fix that
+    ;; slid `bi->ai` to soak up surplus before-side survivors would strike the
+    ;; wrong element here — the very defect rf2-vu42n closed — while still
+    ;; passing P1.
+    (let [n       1050
+          drop-at 500
+          before  (vec (range n))
+          after   (vec (concat (range drop-at) (range (inc drop-at) n)))
+          proj    (engine/project before after)
+          rows    (vec (ei/sequential-diff-children before after :vector [] proj))]
+      (is (= n (count rows))
+          (str n " rows: " (dec n) " survivors + 1 struck removal"))
+      (is (= [drop-at]
+             (->> rows
+                  (filter (fn [[_ a _]] (= a ::ei/missing)))
+                  (mapv (fn [[_ _ b]] b))))
+          (str "exactly element " drop-at " is struck — index alignment "
+               "strikes the SURVIVOR that slid up into the vacated slot, "
+               "which is what rf2-vu42n exists to prevent"))
+      (is (empty? (filter (fn [[_ a _]] (= a ::ei/unrealised)) rows))
+          (str "and NO row claims an unrealised CURRENT value: neither side "
+               "was capped, so every survivor pairs and the recovery run is "
+               "empty")))))
+
 ;; ---- rf2-idydb — `children-of-pair`'s mixed-ceiling tail ------------------
 ;;
 ;; The SIBLING of the rf2-zk4he family above, reached in the other walker and
