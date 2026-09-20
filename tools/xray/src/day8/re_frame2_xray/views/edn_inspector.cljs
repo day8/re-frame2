@@ -869,6 +869,30 @@
     (bounded-count count-bound v)
     (catch :default _ 0)))
 
+(defn- bounded-vec
+  "`vec` that never realises more than `count-bound` elements of a
+  sequence that could be endless. The COMPANION of `bounded-count*`:
+  both dispatch on `counted?`, so a walker built on this one and a
+  header count built on that one agree on every shape.
+
+  - `counted?` — vector, list, `IntegerRange` (`(range 5)`): finite by
+    construction, and `bounded-count*` reports the FULL count, so
+    realise the lot. Capping here would render 1001 rows under a header
+    saying 1200 — the disagreement `children-of` refuses, in its own
+    docstring, for exactly this reason.
+  - NOT `counted?` — `LazySeq`, and the `Range` an unbounded `(range)`
+    returns: the only shapes that can be endless, and precisely the ones
+    `bounded-count*` itself stops at `count-bound`. Take that same
+    ceiling, so the body renders the number the header printed.
+
+  That `counted?` split is what makes the boundary honest rather than
+  merely finite: the rendered row count never claims more than it shows
+  and never shows more than it claims, in EITHER direction."
+  [v]
+  (if (counted? v)
+    (vec v)
+    (vec (take count-bound v))))
+
 (def ^:private change-annotation-style
   "Style for the inline `← was <prior>` chip rendered to the
   right of a diff'd leaf."
@@ -1452,10 +1476,29 @@
   projection compute) — same answer for the no-removal case, graceful for
   the rest. Pure; `parent-path` is this vector's absolute path.
 
+  Both sides are realised through `bounded-vec`, so an endless or
+  guarded sequence yields a finite row set whose size is the same number
+  `diff-pair-count` printed in the header — and a `counted?` sequence of
+  any length is still rendered whole (rf2-brmyq).
+
   Public so tests can probe the reconstruction without re-deriving it."
   [before after kind parent-path projection]
-  (let [a-vec (when (sequential? after)  (vec after))
-        b-vec (when (sequential? before) (vec before))]
+  ;; rf2-brmyq — `bounded-vec`, never a bare `vec`. This `let` runs
+  ;; BEFORE the `cond`, so a bare `vec` realised BOTH sides in full on
+  ;; the live diff render path (`render-container`'s `:vector :list
+  ;; :seq` arm) — including on the way to the `children-of-pair`
+  ;; fallback, whose own `(take count-bound …)` was therefore never
+  ;; reached. An endless seq never returned; a guarded one threw.
+  ;;
+  ;; Bounding BOTH sides at the SAME ceiling keeps rf2-vu42n's
+  ;; reconstruction exact. `survivor-ais` and `survivor-bis` stay
+  ;; ascending, and truncating a tail drops a suffix of each, so for
+  ;; every k inside the bound the k-th survivor on each side is still
+  ;; the k-th — `bi->ai` pairs it exactly as it did unbounded. Bounding
+  ;; only one side would slide that zip and strike the wrong element,
+  ;; which is the very defect rf2-vu42n fixed.
+  (let [a-vec (when (sequential? after)  (bounded-vec after))
+        b-vec (when (sequential? before) (bounded-vec before))]
     (cond
       ;; No projection (test/REPL path) or one side absent / non-sequential
       ;; — defer to the index-aligning union walk. With both sides present
