@@ -775,10 +775,14 @@ from `filters/typed_predicates.cljc`); that is the predicate's kind,
 not the mode.
 
 AND across modes; OR within mode. `(match-any-IN) AND NOT
-(match-any-OUT)`. localStorage persists per host app **within a session,
-but RESETS on every load** (rf2-swclw — pills are a transient filter; a
-fresh load starts unfiltered). When a filter is hiding rows mid-session,
-the events ribbon's far-right cluster shows `N events filtered out`
+(match-any-OUT)`. Pills live in `:active-filters` for the duration of a
+session and have **no localStorage layer at all** (rf2-y8doi.27) — a
+fresh load starts unfiltered (rf2-swclw — pills are a transient
+filter), so reset-on-load holds by construction rather than by cleanup.
+An explicitly configured `:rf.xray/filters` seed is a separate category
+and remains the boot baseline on every load (rf2-fhtes). When a filter
+is hiding rows mid-session, the events ribbon's far-right cluster
+shows `N events filtered out`
 (rf2-jvghz). The `Clear Filters` button was retired (rf2-pjjwh); pills are
 removed individually via each pill's `✕`. The frame view-scope is NOT a
 pill (rf2-4vp5j)
