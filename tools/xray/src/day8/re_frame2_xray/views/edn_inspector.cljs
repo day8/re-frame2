@@ -623,6 +623,30 @@
   side's marker. Never collides with a real `nil` slot."
   ::missing)
 
+(def unrealised-sentinel
+  "Marker for a `:before` slot whose prior value is UNKNOWN rather than
+  ABSENT — the third state `::missing` cannot express.
+
+  It arises on one shape (rf2-zk4he). `bounded-vec` dispatches on
+  `counted?`, so a diff whose BEFORE side could be endless stops at
+  `count-bound` while a `counted?` AFTER side is realised whole. The
+  two ceilings are then independent, and `sequential-diff-children`
+  reaches surviving after-side elements with no before-side counterpart
+  LEFT TO PAIR WITH — not because the element was added, but because
+  the walk declined to realise that far.
+
+  `::missing` would be a lie here, and a loud one: it is the STRUCTURAL
+  sentinel, it OVERRIDES the projection in `leaf-diff-op`, and it paints
+  a surviving element green as newly added. This keyword is deliberately
+  NOT structural, so the op falls through to the projection — computed
+  over the FULL inputs, and therefore correct. The `← was <prior>` chip
+  renders it as an explicit unknown rather than printing the sentinel or
+  inventing a value.
+
+  Public for the same reason `missing-sentinel` is: so the tests can
+  assert the walker's triples against the exact value."
+  ::unrealised)
+
 ;; ---- per-op token tables ------------------------------------------------
 ;;
 ;; These five `op-*` lookups carry the rendering chrome rules. They are
@@ -852,9 +876,23 @@
   collection that could be ENDLESS. It is not a ceiling on rendering:
   since rf2-jh12f both the counters (`bounded-count*`) and the walkers
   (`bounded-vec`) dispatch on `counted?` and realise a finite
-  collection whole, so a header count and a walker's row count agree
-  on every shape — exactly, or at this ceiling, but always on the same
-  number."
+  collection whole, so for ONE collection a header count and a walker's
+  row count agree — exactly, or at this ceiling, but on the same
+  number.
+
+  NARROWED under rf2-zk4he, because the unqualified form of that claim
+  (\"on every shape\") was false where it mattered. A DIFF has TWO
+  collections, and the `counted?` dispatch gives them INDEPENDENT
+  ceilings: a lazy before-value stops here while a vector after-value
+  is realised whole. `sequential-diff-children` now shows every
+  accessible after row rather than dropping the surplus silently, so
+  over the bound the body can EXCEED `diff-pair-count`'s `max` by the
+  removals struck inside it — which no count that refuses to realise
+  the tail can know. Over the bound the header is therefore a FLOOR
+  rather than a promise; under it, and for any single collection, the
+  two still agree exactly. A body that fell SHORT of the header is the
+  direction that loses data, and that is what this ceiling now
+  refuses."
   1001)
 
 (defn- bounded-count*
@@ -908,11 +946,24 @@
 
 (defn- change-annotation
   "Inline `← was <prior>` chip rendered to the right of a
-  diff'd leaf. Pure hiccup."
+  diff'd leaf. Pure hiccup.
+
+  rf2-zk4he — a prior of `::unrealised` is UNKNOWN rather than absent:
+  the before side was capped at `count-bound`, so this element's prior
+  value was never realised. `safe-pr-str` would leak
+  `:day8…edn-inspector/unrealised` into the output — rf2-8pfkk's defect
+  reached through a new door — and substituting a value would invent
+  one. The chip says so plainly instead. Callers reach this only when
+  the projection could not supply the prior either; where it can, they
+  pass the projection's own value and this branch never fires."
   [before]
-  [:span {:data-rf-diff-annotation "1"
-          :style change-annotation-style}
-   (str "← was " (safe-pr-str before))])
+  (if (= before ::unrealised)
+    [:span {:data-rf-diff-annotation "unrealised-before"
+            :style change-annotation-style}
+     "← was not realised (before side bounded)"]
+    [:span {:data-rf-diff-annotation "1"
+            :style change-annotation-style}
+     (str "← was " (safe-pr-str before))]))
 
 ;; =========================================================================
 ;; scalar rendering (no expansion)
@@ -1480,6 +1531,12 @@
     the projection and paint a surviving element green.
   - Purely-added elements come from the AFTER vector at their AFTER index
     with a `::missing` before slot (correctly forcing `:added`).
+  - Surviving elements the before bound could not reach — possible only
+    when `bounded-vec` capped the before side while realising a
+    `counted?` after side whole — come from the AFTER vector with an
+    `::unrealised` before slot: their prior value is UNKNOWN, not absent
+    (rf2-zk4he), so the projection classifies them and the `← was`
+    chip says so rather than inventing one.
   - Removed elements come from `:vector-removals` — each carries its true
     `:before-index` + `:before-value`. They render struck-through with
     the after-value `::missing` (forcing `:removed`).
@@ -1494,9 +1551,19 @@
   the rest. Pure; `parent-path` is this vector's absolute path.
 
   Both sides are realised through `bounded-vec`, so an endless or
-  guarded sequence yields a finite row set whose size is the same number
-  `diff-pair-count` printed in the header — and a `counted?` sequence of
+  guarded sequence yields a FINITE row set, and a `counted?` sequence of
   any length is still rendered whole (rf2-brmyq).
+
+  That row set is the number `diff-pair-count` printed in the header
+  whenever neither side was capped. NARROWED under rf2-zk4he, which
+  found the unqualified claim false: when the before side IS capped
+  while a `counted?` after side is not, the two ceilings differ, and
+  this walk emits every accessible after row — so the body may EXCEED
+  the header by the removals struck inside the bound. It never falls
+  SHORT of it. Those surplus survivors carry `::unrealised` in their
+  before slot, which is neither `::missing` nor a prior value; they used
+  to be emitted by no arm of the walk at all, and vanished with nothing
+  on screen saying so.
 
   Public so tests can probe the reconstruction without re-deriving it."
   [before after kind parent-path projection]
@@ -1509,13 +1576,29 @@
   ;; through `bounded-vec` too — rf2-jh12f — so the two routes answer
   ;; alike for a `counted?` sequence as well as for an endless one.)
   ;;
-  ;; Bounding BOTH sides at the SAME ceiling keeps rf2-vu42n's
-  ;; reconstruction exact. `survivor-ais` and `survivor-bis` stay
-  ;; ascending, and truncating a tail drops a suffix of each, so for
-  ;; every k inside the bound the k-th survivor on each side is still
-  ;; the k-th — `bi->ai` pairs it exactly as it did unbounded. Bounding
-  ;; only one side would slide that zip and strike the wrong element,
-  ;; which is the very defect rf2-vu42n fixed.
+  ;; WHAT KEEPS rf2-vu42n's RECONSTRUCTION EXACT is that `bi->ai` pairs
+  ;; the k-th survivor on each side. `survivor-ais` and `survivor-bis`
+  ;; stay ascending and truncating a tail drops a SUFFIX of each, so for
+  ;; every k present on BOTH sides the k-th survivor is still the k-th
+  ;; and the zip lands exactly where it did unbounded. Sliding that zip
+  ;; strikes the wrong element, which is the very defect rf2-vu42n
+  ;; fixed, so nothing below is allowed to slide it.
+  ;;
+  ;; rf2-zk4he — this comment used to say the two sides met "the SAME
+  ;; ceiling", and that was TRUE while `bounded-vec` was an
+  ;; unconditional `(take count-bound …)`. rf2-jh12f's `counted?` split
+  ;; made the ceilings INDEPENDENT — a lazy before-value stops at
+  ;; `count-bound` while a `counted?` after-value is realised whole —
+  ;; and the comment went on reading as a proof that the condition it
+  ;; warns about is impossible. It is not impossible; it is ordinary,
+  ;; since `map`, `filter`, `concat`, `for` and `rest` all return
+  ;; something that is not `counted?`.
+  ;;
+  ;; The repair is APPEND-ONLY, precisely so the warning above still
+  ;; holds. `zipmap` truncates to the shorter side, so the pairs it does
+  ;; make are the unbounded ones; the surplus after-side survivors it
+  ;; could not reach are emitted afterwards, in after-order, carrying
+  ;; `::unrealised`. The zip is never widened, re-based or re-ordered.
   (let [a-vec (when (sequential? after)  (bounded-vec after))
         b-vec (when (sequential? before) (bounded-vec before))]
     (cond
@@ -1555,11 +1638,42 @@
                   (when-let [ai (bi->ai bi)]
                     [[ai (nth a-vec ai) (nth b-vec bi)]])))
               (range (count b-vec)))
-            ;; Purely-added elements append after the before-ordered run;
-            ;; `::missing` before slot forces the `:added` render path.
-            added-rows
-            (map (fn [ai] [ai (nth a-vec ai) ::missing]) added-ais)]
-        (concat before-order added-rows)))))
+            ;; The after-side rows the before-order walk could not reach,
+            ;; in after-order. TWO kinds, and the before slot is what
+            ;; tells them apart:
+            ;;
+            ;; - purely ADDED elements carry `::missing`, which forces
+            ;;   the `:added` render path — correct, they had no prior.
+            ;; - SURVIVORS past the before bound carry `::unrealised`
+            ;;   (rf2-zk4he). They appear only when `bounded-vec` capped
+            ;;   a not-`counted?` before side while realising a
+            ;;   `counted?` after side whole, so `bi->ai`'s `zipmap` ran
+            ;;   out of before-indices to pair them with. Their prior
+            ;;   value is UNKNOWN, not absent, and `::missing` would say
+            ;;   the opposite in the loudest available way — it overrides
+            ;;   the projection and paints them green as newly added.
+            ;;   `::unrealised` is not structural, so the op comes off
+            ;;   the projection, which saw the FULL inputs.
+            ;;
+            ;; Before this, those survivors were emitted by no arm at
+            ;; all: `added-rows` does not recover them (they are not
+            ;; added), so they left the walk silently while
+            ;; `diff-pair-count` went on counting them in the header.
+            ;;
+            ;; When neither side was capped — every shape before the
+            ;; `counted?` split, and every all-`counted?` diff since —
+            ;; `paired-ais` covers every survivor and this is exactly the
+            ;; `added-rows` it replaces, element for element and in the
+            ;; same order.
+            paired-ais (into #{} (vals bi->ai))
+            added-ai?  (into #{} added-ais)
+            tail-rows
+            (for [ai after-idxs
+                  :when (not (contains? paired-ais ai))]
+              [ai (nth a-vec ai) (if (contains? added-ai? ai)
+                                   ::missing
+                                   ::unrealised)])]
+        (concat before-order tail-rows)))))
 
 (defn- diff-pair-count
   "Cheap union-aware child count for diff mode. Returns the number of
@@ -3043,7 +3157,15 @@
   (`:day8…edn-inspector/missing`) into the output.
   `removed-ancestor?` carries the same force down a removed container
   ghost so every descendant reads `:removed` (the symmetric of
-  rf2-bufw2's `:added` inheritance)."
+  rf2-bufw2's `:added` inheritance).
+
+  rf2-zk4he — `::unrealised` is deliberately NOT in that override, and
+  adding it would be the defect rather than the tidy-up it looks like.
+  It marks a before slot that is UNKNOWN, not absent: the element
+  survives, the projection saw both full trees and knows its real op,
+  and the only thing missing is a value this walk declined to realise.
+  Falling through to `projection` is therefore the correct answer, and
+  treating it structurally would paint a surviving element green."
   [{:keys [value before projection path removed-ancestor?]}]
   (cond
     removed-ancestor?    :removed
