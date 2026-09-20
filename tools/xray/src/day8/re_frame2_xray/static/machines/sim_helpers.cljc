@@ -108,11 +108,19 @@
          vec)))
 
 (defn- node-at
-  "Walk `definition`'s `:states` down the given `path` (vector of
-  state-id keywords) and return the leaf node. Tolerates a path with a
-  single keyword or a hierarchical vector."
-  [definition path]
-  (loop [m  (:states definition)
+  "Walk `state-map` down the given `path` (vector of state-id keywords) and
+  return the LEAF node. Tolerates a path with a single keyword or a
+  hierarchical vector.
+
+  Returns nil unless the WHOLE path resolves: a partial match is not a leaf,
+  and falling back to the deepest ancestor would quietly widen the picker
+  past the leaf-only policy `available-transitions` documents.
+
+  Takes the STATE-MAP rather than the whole definition, so a parallel
+  region's own `:states` is walked by this same code (rf2-ky034) — the
+  region's states are at `[:regions <region> :states]`, not `[:states]`."
+  [state-map path]
+  (loop [m  state-map
          p  (vec path)]
     (cond
       (empty? p)      nil
@@ -125,8 +133,20 @@
           :else           (recur (:states n) (rest p)))))))
 
 (defn- normalise-path
-  "Coerce a snapshot `:state` (keyword OR vector) into a vector path
-  for `node-at` lookup."
+  "Coerce ONE state value (keyword OR vector) into a vector path for
+  `node-at` lookup.
+
+  DELIBERATELY SINGLE-VALUED, and that is the whole of its contract: a
+  `:type :parallel` snapshot's `:state` is a MAP of region → state, which is
+  not one state value but several, so there is no single path to return for
+  it. `available-transitions` branches on the map and calls this ONCE PER
+  REGION — the same split `available-after-transitions` makes.
+
+  Do not \"fix\" this by giving the map an arm here. It used to fall through
+  to `:else []`, which handed `node-at` an empty path and made the picker
+  claim every parallel machine declared no outgoing transitions (rf2-ky034);
+  the repair was to branch at the caller, not to force a multi-valued shape
+  through a single-valued fn."
   [state]
   (cond
     (nil? state)     []
@@ -148,32 +168,87 @@
     (sequential? spec)         (mapcat candidates spec)
     :else                      []))
 
+(defn- on-rows-at
+  "The `:on` rows one state-node declares, stamped with the absolute
+  `decl-path` that node sits at. Normalised through `candidates`, so the
+  `{:go :busy}`, `{:go {:target :busy :guard :g}}` and vector-of-candidates
+  forms all list. Mirror of `after-rows-at` for the `:on` half."
+  [node decl-path]
+  (for [[event-id spec] (:on node)
+        candidate       (candidates spec)
+        :let  [t (:target candidate)]
+        :when (some? t)]
+    {:event     event-id
+     :target    t
+     :guard?    (some? (:guard candidate))
+     :guard     (:guard candidate)
+     :decl-path decl-path}))
+
+(defn- leaf-pairs
+  "Every `[decl-path leaf-node]` the snapshot is resting on — one pair for a
+  flat or compound machine, ONE PER REGION for a parallel one. Unresolvable
+  paths contribute nothing rather than throwing.
+
+  This is the LEAF-ONLY counterpart of `path-nodes`: that walker returns
+  every ancestor on the way down because an `:after` is commonly declared on
+  a compound ancestor, whereas the `:on` picker lists the leaf alone."
+  [definition state]
+  (if (map? state)
+    ;; `:type :parallel` — each region resolves its own leaf inside
+    ;; `[:regions <region> :states]`, and the decl-path is region-prefixed to
+    ;; match what the engine puts on its own fx.
+    (into []
+          (keep (fn [[region region-state]]
+                  (let [p (normalise-path region-state)]
+                    (when-let [n (node-at (get-in definition [:regions region :states]) p)]
+                      [(into [region] p) n]))))
+          state)
+    (let [p (normalise-path state)]
+      (when-let [n (node-at (:states definition) p)]
+        [[p n]]))))
+
 (defn available-transitions
-  "Return a seq of `{:event :target :guard?}` maps — one per outgoing
-  transition declared on the snapshot's current state node. The picker
-  surfaces these as the user's step options.
+  "Return a vector of `{:event :target :guard? :guard :decl-path}` maps — one
+  per outgoing `:on` transition declared on the state(s) the snapshot is
+  resting on. The picker surfaces these as the user's step options; clicking
+  a row fills the event input, and the engine decides at step time what the
+  event actually does.
 
-  Surfaces only direct `:on` transitions on the leaf state. `:always` /
-  `:after` / parent-state inheritance are not listed in the picker (the
-  engine still handles them at step time; the picker only surfaces what
-  the user can fire interactively from the leaf).
+  Three snapshot shapes, because all three are supported machine shapes and
+  the first alone answers for none of them:
 
-  Returns `[]` when the definition / snapshot is nil, or the current
-  path doesn't resolve to a registered state."
+    - a keyword `:state` resolves the one node;
+    - a hierarchical path vector resolves its LEAF;
+    - a `:type :parallel` region-map resolves EACH region's own leaf inside
+      `[:regions <region> :states]`, with `:decl-path` region-prefixed to
+      match what the engine puts on its fx (rf2-ky034). Before that, the map
+      shape matched no arm of `normalise-path`, so the lookup ran against an
+      empty path and EVERY parallel machine listed nothing.
+
+  `:decl-path` is where the transition is DECLARED, not part of how it fires:
+  an `:on` row is fired by its event-id alone and the engine routes it, which
+  is why — unlike an `:after` row — the path is not folded into the event.
+  Two regions may therefore declare the same event-id, and both rows list;
+  the rail keys its rows on the pair.
+
+  LEAF-ONLY, deliberately. `:always` / `:after` / parent-state inheritance
+  are not listed (the engine still handles them at step time; the picker
+  surfaces what the user can fire interactively from where the machine is
+  resting). A `:type :parallel` ROOT's own `:on` — the ancestor fallback the
+  engine consults when no region handles an event — is NOT listed either,
+  for exactly the reason a flat machine's machine-root `:on` never has been:
+  both are parent inheritance. That is a deliberate asymmetry with
+  `available-after-transitions`, which walks ancestors BY DESIGN because an
+  `:after` is commonly declared on one; each fn is consistent with its own
+  stated policy rather than with the other's.
+
+  Returns `[]` for a nil / non-map definition, a nil snapshot, or a state
+  that doesn't resolve."
   [definition snapshot]
-  (let [path (normalise-path (:state snapshot))
-        node (node-at definition path)]
-    (if (nil? node)
-      []
-      (vec
-        (for [[event-id spec] (:on node)
-              candidate       (candidates spec)
-              :let [t (:target candidate)]
-              :when (some? t)]
-          {:event   event-id
-           :target  t
-           :guard?  (some? (:guard candidate))
-           :guard   (:guard candidate)})))))
+  (if-not (map? definition)
+    []
+    (vec (mapcat (fn [[decl-path node]] (on-rows-at node decl-path))
+                 (leaf-pairs definition (:state snapshot))))))
 
 ;; ---- `:after` timer rows (rf2-pzuqw) ------------------------------------
 ;;

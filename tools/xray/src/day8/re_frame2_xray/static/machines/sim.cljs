@@ -639,7 +639,16 @@
                     :font-family sans-stack
                     :font-size "11px"
                     :font-style "italic"}}
-      "No outgoing transitions declared on this state."]
+      ;; rf2-ky034 — this used to read "No outgoing transitions declared on
+      ;; this state.", which is a positive claim about the user's DEFINITION
+      ;; rather than a neutral empty state. It was false for every parallel
+      ;; machine, and it stays overclaiming even with that fixed: the picker
+      ;; is leaf-only, so a root `:on` fallback, an `:always` or a parent's
+      ;; `:on` can all be declared and fireable while this list is empty. So
+      ;; say what was LOOKED AT and let the user draw the conclusion.
+      (str "Nothing to fire from the current state. The picker lists :on "
+           "transitions declared on the active state, and :after timers on "
+           "the active path.")]
      (into [:ul {:data-testid "rf-xray-static-machines-sim-available-list"
                  :style {:list-style "none" :padding 0 :margin 0}}]
            ;; `^{:key …}` reader meta on the `(available-transition-row
@@ -654,8 +663,13 @@
            ;; under a boundary. A KEYED FRAGMENT carries it on a head
            ;; both substrates honour without touching the call.
            (concat
+             ;; rf2-ky034 — the key carries the DECLARING PATH as well as the
+             ;; event id. A parallel machine's regions may each declare the
+             ;; same event (one broadcast handled in two places), which is the
+             ;; idiomatic parallel shape rather than an exotic one, and keyed
+             ;; on the event alone those two rows collide.
              (for [t transitions]
-               [:<> {:key (str (:event t))}
+               [:<> {:key (str (pr-str (:decl-path t)) "-" (:event t))}
                 (available-transition-row dispatch machine-id pending-event t)])
              ;; The timer rows come AFTER the `:on` rows. Their keys carry
              ;; the `after-` prefix and the row index, so a machine
