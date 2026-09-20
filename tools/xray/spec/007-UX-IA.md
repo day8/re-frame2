@@ -2190,14 +2190,14 @@ genuinely per-frame surface each Static panel projects:
 | Tab | Frame-scoped (picker changes it) | Process-global (cross-frame) |
 |---|---|---|
 | **Machines** | live machine snapshots (the `:rf/machines` runtime area — `[:rf.runtime/machines :snapshots]` in the target-frame **runtime-db**, EP-0001 rf2-vzld77) | the machine-definition catalogue |
-| **Routes** | the current-route slice (the `:rf/route` runtime area — `[:rf.runtime/routing :current]` in the target-frame **runtime-db**, EP-0001 rf2-vzld77) | the route-definition catalogue |
+| **Routes** | — (catalogue surface; its Simulate-URL and Simulate-navigation previews are hermetic and read no frame state) | the route-definition catalogue |
 | **Schemas** | the app-db-schema side-table (`schemas-by-frame`) | event-spec + sub-spec rows |
 | **Flows** | the flows registry (`{frame-id {flow-id …}}`, [Spec 013](../../../spec/013-Flows.md)) | — (fully per-frame) |
 | **Interceptors** | — | interceptor chains (live on globally registered events). A chain entry is an inline value OR a by-reference entry (bare keyword / `[id arg]`) into the `:interceptor` registrar (EP-0022); the lens surfaces refs by their authored form and enriches each from the registered descriptor. |
 
 So switching the picker changes the per-frame projections above; the
 global catalogues are deliberately cross-frame. The picker stays in
-Static because four of the five tabs DO carry a per-frame surface.
+Static because three of the five tabs DO carry a per-frame surface.
 Both shells mount the same `frame_switcher/frame-switcher-view` (the
 canonical L1 contract); the selection persists across mode toggles.
 Dynamic's spine-coupled clusters (nav `[◀ ▶ ⏭]`, filter pills) remain
