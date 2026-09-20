@@ -343,6 +343,80 @@
         (is (< (count (h/bounded-pr-str #{huge})) 1000)
             "a single long member is still bounded")))))
 
+;; A record for the preview tests. RECORDS SATISFY `map?`, so a record takes
+;; the map branch of the preview walk — but its printed form opens with a
+;; type tag the plain-map branch knows nothing about, and the tag is spelled
+;; differently on each runtime (the host class name on the JVM, the
+;; `defrecord`-generated `pr-open` in ClojureScript). So the tests below
+;; compare against `pr-str` of the SAME value on the SAME runtime and never
+;; against a hard-coded tag.
+(defrecord PreviewRec [body])
+
+(deftest rf2-xpitj-a-rendered-key-window-keeps-the-record-type-tag
+  ;; TWO PROPERTIES AGAIN, AND NEITHER CATCHES THE OTHER'S DEFECT — the
+  ;; lesson rf2-kbo64 learned on this walk, arriving one level on through
+  ;; the RECORD branch:
+  ;;
+  ;;   1. PREFIX FIDELITY. A record whose extension KEY needs bounding takes
+  ;;      the rendered-window path, and that window opened with a hard-coded
+  ;;      `{`. So `#my.ns.Rec{:body "short", ...` printed as
+  ;;      `{:body "short", ...` and the operator lost the type from the very
+  ;;      characters the panel shows them. The print stays SHORT against
+  ;;      that defect — 101 characters for this fixture — so no length
+  ;;      assertion can see it.
+  ;;
+  ;;   2. BOUNDED WORK. The tag must not be bought back by putting the
+  ;;      shortened key back. That is precisely the `dissoc`/`assoc`
+  ;;      rf2-kbo64 removed: on keys colliding in their first
+  ;;      `preview-limit` characters it COLLAPSES the record and drags an
+  ;;      entry the walk never visited into the window with its value still
+  ;;      unbounded. The opening characters are unchanged against THAT
+  ;;      defect, so no prefix assertion can see it either.
+  (let [huge (apply str (repeat 200000 "x"))]
+
+    (testing "PREFIX FIDELITY — the record's printed type tag survives into
+              the characters the operator actually reads"
+      (let [v   (assoc (->PreviewRec "short") huge 1)
+            out (h/bounded-pr-str v)]
+        (is (= "#" (subs out 0 1))
+            "a record's print opens with its type tag — against the defect
+             this reads the plain-map `{`")
+        (is (= (subs (pr-str v) 0 80) (subs out 0 80))
+            "the bounded print must open exactly where the real print opens")
+        (is (= (subs (pr-str v) 0 80) (subs (:preview (h/summarize v)) 0 80))
+            "and so must the preview, which is what the panel renders")
+        (is (< (count out) 1000)
+            (str "printed " (count out) " characters — this case stays SHORT"
+                 " against the defect, which is why length cannot be the"
+                 " only test"))))
+
+    (testing "BOUNDED WORK — the tag is not bought by putting the shortened
+              key back: colliding extension keys must not collapse the record
+              and drag an unwalked entry's value into the print"
+      (let [pre (apply str (repeat 80 "k"))
+            ks  (mapv #(str pre "-" %) (range 81))
+            ;; ONE shared value string, so the fixture costs 200k characters
+            ;; in total rather than 81 copies of it.
+            v   (into (->PreviewRec "short") (map (fn [k] [k huge])) ks)
+            out (h/bounded-pr-str v)]
+        (is (= 82 (count v))
+            "fixture: one declared field plus 81 colliding extension keys")
+        (is (< (count out) (count huge))
+            (str "printed " (count out) " characters to preview a record"
+                 " whose extension values are " (count huge) " characters —"
+                 " a collapse leaves an unwalked entry to serialise in full"))
+        ;; THE THRESHOLD-FREE FORM OF THE SAME PROPERTY: what is printed must
+        ;; not depend on how large the bounded values were.
+        (is (= (count out)
+               (count (h/bounded-pr-str
+                        (into (->PreviewRec "short")
+                              (map (fn [k] [k (apply str (repeat 400000 "y"))]))
+                              ks))))
+            "doubling every value must not change the bounded print by one
+             character")
+        (is (= "#" (subs out 0 1))
+            "and the type tag survives the collision case too")))))
+
 (deftest summarize-node-attaches-summaries-leaves-structure
   (let [node {:id [:sub [:article/page "welcome"]] :kind :derivation
               :inputs [[:sub [:article/by-slug "welcome"]]]
