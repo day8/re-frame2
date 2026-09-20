@@ -497,13 +497,18 @@ harvest the pre-open trace and epoch rings. A host MUST NOT reach for
 knowing that `:rf/xray` is Xray's frame — or that its lifecycle is tied to
 adapter readiness — is not the host's business.
 
-When the target is unselected (`:rf.xray/target-frame` → `nil`,
-`:rf.xray/observed-frame` → `nil`), the panels read `nil`'s app-db
-(itself `nil`) and render their unselected-target state; the frame
-picker prompts a choice. `set-target-frame! nil` resets to UNSELECTED —
-it no longer resets *through* `:rf/default`. The own-frame singleton
-(`:rf/xray`) is **distinct** from the inspected-target migration and is
-unchanged: it remains the explicit mount frame for the shell's chrome.
+When the target is unselected (`:rf.xray/target-frame` → `nil`),
+`:rf.xray/observed-frame` is `nil` only when the focus has ALSO resolved
+no `:frame` — the cold start. In that case the panels read `nil`'s
+app-db (itself `nil`) and render their unselected-target state; the
+frame picker prompts a choice. A host MUST NOT read an unselected target
+as a guarantee of that state: a focus that has resolved a frame is
+observed while the target is still UNSELECTED, so what the panels render
+follows the observed coordinate, not the selected scope.
+`set-target-frame! nil` resets to UNSELECTED — it no longer resets
+*through* `:rf/default`. The own-frame singleton (`:rf/xray`) is
+**distinct** from the inspected-target migration and is unchanged: it
+remains the explicit mount frame for the shell's chrome.
 
 `init!` accepts `:target-frame` (the inspected-host opt); the legacy
 `:default-frame` opt is **retired** (pre-alpha, no shim) because it
