@@ -624,8 +624,9 @@
   ::missing)
 
 (def unrealised-sentinel
-  "Marker for a `:before` slot whose prior value is UNKNOWN rather than
-  ABSENT — the third state `::missing` cannot express.
+  "Marker for a slot whose value is UNKNOWN rather than ABSENT — the
+  third state `::missing` cannot express. It began as a `:before`-only
+  marker and is now emitted on EITHER side (rf2-g61nr, below).
 
   It arises on one shape (rf2-zk4he). `bounded-vec` dispatches on
   `counted?`, so a diff whose BEFORE side could be endless stops at
@@ -653,13 +654,32 @@
   excludes it from its structural one: it is not a value, and differing
   from one is no evidence that anything changed.
 
-  `::missing` would be a lie here, and a loud one: it is the STRUCTURAL
-  sentinel, it OVERRIDES the projection in `leaf-diff-op`, and it paints
-  a surviving element green as newly added. This keyword is deliberately
-  NOT structural, so the op falls through to the projection — computed
-  over the FULL inputs, and therefore correct. The `← was <prior>` chip
-  renders it as an explicit unknown rather than printing the sentinel or
-  inventing a value.
+  A FOURTH site emits it on the OTHER SIDE, and it is the same
+  confusion pointing the other way (rf2-g61nr): the ceilings are
+  independent in BOTH directions, so a `counted?` before side realised
+  whole against a capped AFTER side leaves a tail whose after values
+  nobody looked at. `children-of-pair`'s two-sided sequential arm marks
+  those with this keyword too. That direction does MORE damage
+  untreated — `::missing` in a VALUE slot is read `:removed`, so a
+  RETAINED element is presented as a confirmed deletion rather than
+  merely as a new one.
+
+  It does NOT reach a nested container the way the before-side marker
+  does, and the asymmetry is structural rather than lucky: the
+  renderer's descent is driven by the AFTER value BEING a container,
+  and a sentinel keyword never is. So `children-of-pair` is never
+  entered with this marker as its `after`, and `unpaired-prior` needs
+  no after-side mirror.
+
+  `::missing` would be a lie on either side, and a loud one: it is the
+  STRUCTURAL sentinel, it OVERRIDES the projection in `leaf-diff-op`,
+  and it paints a surviving element green as newly added (before side)
+  or strikes it through as deleted (after side). This keyword is
+  deliberately NOT structural, so the op falls through to the
+  projection — computed over the FULL inputs, and therefore correct.
+  The `← was <prior>` chip and `unrealised-value-token` render it as an
+  explicit unknown rather than printing the sentinel or inventing a
+  value.
 
   Public for the same reason `missing-sentinel` is: so the tests can
   assert the walker's triples against the exact value."
@@ -1111,6 +1131,31 @@
     [:span {:data-rf-diff-annotation "1"
             :style change-annotation-style}
      (str "← was " (safe-pr-str before))]))
+
+(defn- unrealised-value-token
+  "The VALUE-cell token for a slot whose AFTER value was never realised
+  — the mirror of `change-annotation`'s unknown-prior chip, needed for
+  the same reason and reached from the opposite side (rf2-g61nr).
+
+  `bounded-vec` caps a not-`counted?` AFTER side at `count-bound` while
+  realising a `counted?` BEFORE side whole, so `children-of-pair`'s
+  two-sided sequential arm reaches rows whose after value nobody looked
+  at. `::missing` there is the loudest available lie — it is the
+  STRUCTURAL sentinel, `leaf-diff-op` reads it AHEAD of the projection,
+  and a RETAINED element is presented as a confirmed deletion — so that
+  arm emits `::unrealised` instead. Handing THAT to `render-scalar`
+  would `pr-str` `:day8…edn-inspector/unrealised` into the output, which
+  is rf2-8pfkk's leak arriving through a new door. This says so plainly,
+  and invents no value.
+
+  Reached only where the projection could not answer either. Where it
+  can, the op comes off the projection — computed over the FULL inputs —
+  and a `:same` there CERTIFIES the two sides equal, so the row paints
+  the accessible prior rather than this token."
+  []
+  [:span {:data-rf-diff-value "unrealised-after"
+          :style (dissoc change-annotation-style :margin-left)}
+   "(after side bounded — value not realised)"])
 
 ;; =========================================================================
 ;; scalar rendering (no expansion)
@@ -1569,12 +1614,15 @@
   TWO EXCEPTIONS, and both are the difference between not existing and
   not being looked at.
 
-  1. rf2-idydb — where a not-`counted?` BEFORE side was capped at
-     `count-bound` while a `counted?` AFTER side was realised whole, the
-     before slots past that ceiling carry `::unrealised` instead. Their
-     priors are UNKNOWN, not absent, and `::missing` would say the
-     opposite in the loudest available way — it overrides the projection
-     and paints a surviving element green as newly added.
+  1. rf2-idydb / rf2-g61nr — where one side was capped at `count-bound`
+     while the other was realised whole, the slots past that ceiling
+     carry `::unrealised` instead, on WHICHEVER side was capped. Those
+     values are UNKNOWN, not absent, and `::missing` would say the
+     opposite in the loudest available way — it overrides the
+     projection and paints a surviving element green as newly added
+     (capped BEFORE), or strikes a retained one through as a confirmed
+     deletion (capped AFTER). `bounded-vec` dispatches on `counted?`,
+     so the two ceilings are independent in both directions.
   2. rf2-t450s — where the whole BEFORE argument is itself that
      `::unrealised` marker, which is how this walk is reached when the
      renderer descends into a surviving CONTAINER past that same
@@ -1593,9 +1641,10 @@
     predictable, and reads as 'the post-image, then a deletions
     section' in the rendered tree.
   - **Vector / list / seq** — index-align up to the longer side's
-    count; trailing BEFORE-only positions render as `:removed`, and
-    trailing AFTER-only positions read their before slot off the
-    exception above.
+    count; a trailing position missing from either side reads that
+    slot off exception 1 above, so it renders as a real `:removed` /
+    `:added` when the walk reached that side's end, and as an explicit
+    unknown when it merely stopped at the ceiling.
   - **Set** — UNION of members, sorted by `pr-str` for stable render
     (sets have no natural ordering).
   - **Map-entry** — fixed two positions `[0 k] [1 v]`, with AFTER /
@@ -1676,16 +1725,36 @@
         ;; the true answer. A side of exactly `count-bound` elements is
         ;; reported unknown, which is the safe direction — telling it from a
         ;; capped one costs the one extra element the bound exists to refuse.
+        ;;
+        ;; rf2-g61nr — and SYMMETRICALLY for the AFTER side, which is the
+        ;; same confusion pointing the other way and does MORE damage. The
+        ;; ceilings are independent in both directions, so a `counted?`
+        ;; before side realised whole against a capped after side leaves a
+        ;; tail whose AFTER values nobody looked at. `::missing` there is
+        ;; read by `leaf-diff-op` as `(= value ::missing) → :removed`, ahead
+        ;; of the projection, so a RETAINED element was presented as a
+        ;; confirmed deletion — strike-through, `−` glyph, red wash. A false
+        ;; addition overstates what arrived; a false deletion tells the
+        ;; operator that data they still have is gone.
+        ;;
+        ;; The rows are emitted either way. Dropping them instead would put
+        ;; the body SHORT of the header `diff-pair-count` prints, which is
+        ;; the direction `count-bound`'s own docstring refuses, and would
+        ;; throw away before-side values that ARE accessible and known.
         (let [a-count     (count a-vec)
               b-count     (count b-vec)
               n           (max a-count b-count)
               past-before (if (and (endless-candidate? before)
                                    (= b-count count-bound))
                             ::unrealised
+                            ::missing)
+              past-after  (if (and (endless-candidate? after)
+                                   (= a-count count-bound))
+                            ::unrealised
                             ::missing)]
           (for [i (range n)]
             [i
-             (if (< i a-count) (nth a-vec i) ::missing)
+             (if (< i a-count) (nth a-vec i) past-after)
              (if (< i b-count) (nth b-vec i) past-before)]))
         a-vec
         ;; rf2-t450s — `unpaired-prior`, not a bare `::missing`: this
@@ -3433,11 +3502,19 @@
 
   rf2-zk4he — `::unrealised` is deliberately NOT in that override, and
   adding it would be the defect rather than the tidy-up it looks like.
-  It marks a before slot that is UNKNOWN, not absent: the element
-  survives, the projection saw both full trees and knows its real op,
-  and the only thing missing is a value this walk declined to realise.
-  Falling through to `projection` is therefore the correct answer, and
-  treating it structurally would paint a surviving element green."
+  It marks a slot that is UNKNOWN, not absent: the element survives,
+  the projection saw both full trees and knows its real op, and the
+  only thing missing is a value this walk declined to realise. Falling
+  through to `projection` is therefore the correct answer, and treating
+  it structurally would paint a surviving element green.
+
+  rf2-g61nr — that marker now reaches the `value` side as well, where
+  the structural override would read `:removed` and present a RETAINED
+  element as a confirmed deletion. This `cond` needs no clause for it:
+  it is excluded from both structural tests already, so the op comes
+  off the projection, and with none it falls to `:modified` — an
+  honest 'something here is not settled' beside
+  `unrealised-value-token`'s explicit statement, never a deletion."
   [{:keys [value before projection path removed-ancestor?]}]
   (cond
     removed-ancestor?    :removed
@@ -3524,10 +3601,31 @@
           ;; paint `value`. A pair with BOTH sides missing is structurally
           ;; impossible (a slot exists in at least one side), so it falls
           ;; back to `nil` rather than ever surfacing the sentinel.
+          ;;
+          ;; rf2-g61nr — `::unrealised` is not a value either, and since
+          ;; this bead it can arrive on the VALUE side as well as the
+          ;; before side: `children-of-pair` marks a row past a capped
+          ;; AFTER ceiling with it rather than claiming a deletion. So
+          ;; the present side skips BOTH sentinels. When the projection
+          ;; calls the row `:same` it has certified the two sides equal
+          ;; over the FULL inputs, so falling back to `before` here
+          ;; paints the known value rather than inventing one; where
+          ;; there is no such certification the op is `:modified` and
+          ;; the branch below paints `value`, which `paint` turns into
+          ;; an explicit unknown.
           present-value (cond
-                          (not= value ::missing)  value
-                          (not= before ::missing) before
-                          :else                   nil)
+                          (and (not= value ::missing)
+                               (not= value ::unrealised))   value
+                          (and (not= before ::missing)
+                               (not= before ::unrealised))  before
+                          :else                             nil)
+          ;; The only route a sentinel may take to the screen: an
+          ;; explicit statement that nobody looked. `render-scalar`
+          ;; would print the internal keyword instead (rf2-8pfkk).
+          paint         (fn [v]
+                          (if (= v ::unrealised)
+                            (unrealised-value-token)
+                            (scalar-fn v)))
           ;; R5-tinted: descendant of wholly-changed root?
           wholly-anc (when projection
                        (engine/wholly-changed-ancestor projection (vec (or path []))))
@@ -3558,7 +3656,7 @@
         :added
         (gutter-row :added
                     [:span {:data-rf-diff-op "added"}
-                     (scalar-fn value)]
+                     (paint value)]
                     chrome-opts)
         :removed
         ;; The struck-through value is the PRESENT side: the BEFORE side
@@ -3570,7 +3668,7 @@
         (gutter-row :removed
                     [:span {:data-rf-diff-op "removed"
                             :style {:text-decoration "line-through"}}
-                     (scalar-fn present-value)]
+                     (paint present-value)]
                     chrome-opts)
         :modified
         (gutter-row :modified
@@ -3579,7 +3677,7 @@
                                     :align-items "baseline"
                                     :flex-wrap "wrap"
                                     :gap "4px"}}
-                     (scalar-fn value)
+                     (paint value)
                      ;; R8 curated suffix for one-sided redaction; R7
                      ;; mini-rendered suffix for type changes; R1
                      ;; default for plain scalar mods.
@@ -3635,7 +3733,7 @@
                             :style {:display "inline-flex"
                                     :align-items "baseline"
                                     :gap "8px"}}
-                     (scalar-fn present-value)
+                     (paint present-value)
                      ;; R6: `(was N)` muted suffix.
                      (when was-index
                        [:span {:data-rf-diff-was-index (str was-index)
@@ -3649,14 +3747,15 @@
         (gutter-row :same
                     [:span {:data-rf-diff-op "same"
                             :style {:color (:text-tertiary tokens)}}
-                     (scalar-fn present-value)]
+                     (paint present-value)]
                     chrome-opts)
         ;; Default — paint as :same so unknown ops degrade gracefully.
         ;; `present-value` keeps the internal `::missing` sentinel out of
-        ;; the output even if an unexpected op ever reaches here.
+        ;; the output even if an unexpected op ever reaches here, and
+        ;; `paint` does the same for `::unrealised` (rf2-g61nr).
         (gutter-row :same
                     [:span {:data-rf-diff-op (name op)}
-                     (scalar-fn present-value)]
+                     (paint present-value)]
                     chrome-opts)))))
 
 (defn render-node
