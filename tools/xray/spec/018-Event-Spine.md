@@ -75,14 +75,14 @@ Wireframe at default (800px popout, "cosy" density):
 │ Frame: :app/main ▾   Dynamic ▾                          🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
 │ Events: [◀ ▶ ⏭]  🎯 :order/retry  [+ :auth/* ✎] [× :mouse-move ✎] [+]   │   L1.5 events ribbon
 ├─────────────────────────────────────────────────────────────────────────┤
-│ ● :auth/login                                          [● REDACTED 1]   │   L2 — 8 rows default
-│ ● :app/route-changed                                                    │      single-line
-│ ● :input/changed                                                        │      latest-on-bottom
-│ ● :form/submit-clicked                              🤖                  │
-│ ● :order/submit                                     🌐                  │
-│ x :checkout/finalize                          ⚠                         │
-│ ● :cart/recalculate                                                     │
-│ ◉ :order/retry                                      🌐  ← head/sel      │
+│   :auth/login                                                           │   L2 — 8 rows default
+│   :app/route-changed                                                    │      single-line
+│   :input/changed                                                        │      latest-on-bottom
+│   :form/submit-clicked                                                  │      no per-row glyph,
+│   :order/submit                                                         │      no activity badge,
+│   :checkout/finalize                   (pink issue wash)                │      no redaction marker
+│   :cart/recalculate                                                     │      (rf2-pjjwh)
+│ > :order/retry                         ← head/sel                       │      > = 10px caret gutter
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
 │ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources …    │   L3 — 10 tabs
 │   (… ○Graph ○Frames ○Fresco — strip scrolls horizontally below 560px)  │
@@ -492,18 +492,33 @@ See [`022-Design-Tokens.md`](022-Design-Tokens.md) for the
 
 ### Row variants
 
-ONE shape, decorated:
+ONE shape, and post-rf2-pjjwh it is **undecorated**. The round-2 design expressed
+eight *decorated* variants; with the gutter glyph, the activity badges and the
+inline redaction marker all retired, seven of those eight render **identically**.
+What still distinguishes a row is its **background** (the issue wash) and the
+**leading caret gutter** — never a glyph on the row itself:
 
 ```
-Basic                ● :input/changed
-Machine-triggering   ● :form/submit-clicked       🤖
-HTTP-triggering      ● :order/submit              🌐
-Errored              x :checkout/finalize     ⚠
-Compound             x :checkout/submit-failed  ⚠ 🌐 🤖
-Sensitive (partial)  ● :auth/login                              [● REDACTED 1]
-Sensitive (whole)    ▥ :auth/login                              [● REDACTED]
-Selected             ◉ :order/retry                  🌐                          (cyan border)
+Basic                  :input/changed
+Machine-triggering     :form/submit-clicked     — identical to Basic (badge retired)
+HTTP-triggering        :order/submit            — identical to Basic (badge retired)
+Errored                :checkout/finalize       — identical + pink issue-row wash
+Compound               :checkout/submit-failed  — identical + the SAME single wash
+Sensitive (partial)    :auth/login              — identical to Basic (marker retired)
+Sensitive (whole)      :auth/login              — identical to Basic (marker retired)
+Selected             > :order/retry             — caret + darker :selected-row-bg
 ```
+
+The gutter is a fixed 10px on EVERY row, so the `>` never shifts the columns
+(`shell.cljs`'s `rf-xray-row-selection-caret` span; pinned by
+`unselected-row-caret-gutter-is-empty`). Every other distinction above is a
+background or an off-row surface rather than a glyph — see
+[Gutter glyphs / row badges / redaction marker — RETIRED (rf2-pjjwh)](#gutter-glyphs--row-badges--redaction-marker--retired-rf2-pjjwh)
+for where the machine / HTTP / error / redaction context went (the cascade
+record, surfaced in the L4 Epoch + Trace panels, and the REDACTED count on the
+chrome ribbon per §12), [Issue-epoch row wash (rf2-b8guz)](#issue-epoch-row-wash-rf2-b8guz)
+for the error signal, and [Selected-row visibility (rf2-hga49)](#selected-row-visibility-rf2-hga49)
+for the three-part selection treatment.
 
 ### Hover tooltip — the home of dropped detail
 
