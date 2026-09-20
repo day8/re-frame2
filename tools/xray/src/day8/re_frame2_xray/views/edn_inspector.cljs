@@ -848,9 +848,13 @@
     (try (pr-str v) (catch :default _ (str v)))))
 
 (def ^:private count-bound
-  "Element ceiling for every 'how many children' question. Matches the
-  `(take 1001)` bound `child-count` has always carried, so a header
-  count and a walker's row count agree on the same ceiling."
+  "Element ceiling for every 'how many children' question about a
+  collection that could be ENDLESS. It is not a ceiling on rendering:
+  since rf2-jh12f both the counters (`bounded-count*`) and the walkers
+  (`bounded-vec`) dispatch on `counted?` and realise a finite
+  collection whole, so a header count and a walker's row count agree
+  on every shape — exactly, or at this ceiling, but always on the same
+  number."
   1001)
 
 (defn- bounded-count*
@@ -1240,26 +1244,33 @@
   Returns `nil` for non-collections. `child-key` is the path segment
   to use; for sets it's the value itself.
 
-  rf2-y8doi.24 — `:list` / `:seq` are capped at `count-bound`, the
-  SAME ceiling `child-count` reports for those two kinds. This walk
-  feeds the expanded container's body, so without the cap a `(range)`
-  in app-db emitted rows for ever and the tab died of heap exhaustion
-  rather than hanging — and the mismatch was the tell: the header
-  said 1001 children while the body agreed to render infinitely many.
+  rf2-jh12f — every sequential kind is realised through `bounded-vec`,
+  which splits on `counted?` exactly as `bounded-count*` does. So this
+  walk and `child-count` answer with the SAME number on every shape: a
+  `counted?` collection is rendered WHOLE however long it is, and only
+  something that could be endless stops at `count-bound`.
 
-  The other kinds need no cap and do not get one: `:map`, `:record`,
-  `:vector` and `:set` are all `counted?` and finite by construction,
-  and `child-count` reports their full count, so capping them here
-  would make the body disagree with the header in the other
-  direction."
+  rf2-y8doi.24 capped `:list` / `:seq` UNCONDITIONALLY. That stopped a
+  `(range)` in app-db from emitting rows for ever until the tab died of
+  heap exhaustion — and the mismatch was the tell: the header said 1001
+  children while the body agreed to render infinitely many. But the
+  same cap truncated a 1200-element `PersistentList`, which IS
+  `counted?`, to 1001 rows under a header still promising 1200, with
+  the 199 dropped rows unmarked and unreachable.
+
+  The KIND is not the question and never was: a `cons` over a lazy seq
+  is a `:list` and is NOT `counted?`, while `(range 5)` is a `:seq` and
+  IS. `:map`, `:record` and `:set` are `counted?` by construction, so
+  they need no dispatch and get none."
   [v]
   (case (collection-kind v)
     :map       (try (seq v) (catch :default _ nil))
     :map-entry (list [0 (first v)] [1 (second v)])
     :record    (try (seq v) (catch :default _ nil))
-    :vector    (map-indexed (fn [i x] [i x]) v)
-    :list      (map-indexed (fn [i x] [i x]) (take count-bound v))
-    :seq       (map-indexed (fn [i x] [i x]) (take count-bound v))
+
+    (:vector :list :seq)
+    (map-indexed (fn [i x] [i x]) (bounded-vec v))
+
     :set       (map (fn [x] [x x]) v)
     nil))
 
@@ -1380,12 +1391,18 @@
         :else nil))
 
     (:vector :list :seq)
-    ;; rf2-y8doi.24 — `(take count-bound …)` before `vec`, the same
-    ;; bound `child-count` carries. A bare `vec` of an infinite lazy
-    ;; seq never returns, and this walker runs on both sides of every
-    ;; diff'd sequential.
-    (let [a-vec (when (sequential? after)  (vec (take count-bound after)))
-          b-vec (when (sequential? before) (vec (take count-bound before)))]
+    ;; rf2-jh12f — `bounded-vec`, the same `counted?` split
+    ;; `diff-pair-count` reports through, so the header count and the
+    ;; row count agree on EVERY shape rather than only on the endless
+    ;; ones. rf2-y8doi.24 bounded this arm UNCONDITIONALLY: that kept a
+    ;; bare `vec` of an infinite lazy seq from never returning — this
+    ;; walker runs on both sides of every diff'd sequential — but it
+    ;; also truncated a `counted?` 1200-element vector to 1001 rows
+    ;; while `diff-pair-count` above went on reporting 1200. Reached by
+    ;; two routes, and both now bound identically: directly, and via
+    ;; `sequential-diff-children`'s no-projection fallback.
+    (let [a-vec (when (sequential? after)  (bounded-vec after))
+          b-vec (when (sequential? before) (bounded-vec before))]
       (cond
         (and a-vec b-vec)
         (let [n (max (count a-vec) (count b-vec))]
@@ -1487,8 +1504,10 @@
   ;; BEFORE the `cond`, so a bare `vec` realised BOTH sides in full on
   ;; the live diff render path (`render-container`'s `:vector :list
   ;; :seq` arm) — including on the way to the `children-of-pair`
-  ;; fallback, whose own `(take count-bound …)` was therefore never
-  ;; reached. An endless seq never returned; a guarded one threw.
+  ;; fallback, whose own bound was therefore never reached. An endless
+  ;; seq never returned; a guarded one threw. (That fallback now bounds
+  ;; through `bounded-vec` too — rf2-jh12f — so the two routes answer
+  ;; alike for a `counted?` sequence as well as for an endless one.)
   ;;
   ;; Bounding BOTH sides at the SAME ceiling keeps rf2-vu42n's
   ;; reconstruction exact. `survivor-ais` and `survivor-bis` stay
@@ -1561,9 +1580,18 @@
         b (count b)
         :else 0))
     (:vector :list :seq)
-    ;; rf2-y8doi.24 — `bounded-count`, matching `children-of-pair`'s
-    ;; `(take count-bound …)` so the header count and the row count
-    ;; agree; a bare `count` of an infinite lazy seq never returns.
+    ;; rf2-jh12f — `bounded-count*`, matching `children-of-pair`'s
+    ;; `bounded-vec`, so the header count and the row count agree: both
+    ;; are EXACT for a `counted?` side, and both stop at `count-bound`
+    ;; for a side that could be endless. A bare `count` of an infinite
+    ;; lazy seq never returns, which is why that ceiling stays.
+    ;;
+    ;; rf2-y8doi.24 wrote this comment when the walker read
+    ;; `(take count-bound …)` unconditionally, and the claim was false
+    ;; in exactly one direction: `bounded-count*` reported a 1200-element
+    ;; vector's FULL count while the walker truncated to 1001. The two
+    ;; sides now share one dispatch, so the agreement is structural
+    ;; rather than a coincidence of two ceilings that happened to match.
     (let [a (when (sequential? after)  after)
           b (when (sequential? before) before)]
       (cond
