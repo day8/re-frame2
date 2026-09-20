@@ -436,7 +436,17 @@ supplies present orientation.
   `:rf.xray/target-frame-runtime-db` reading the current-route slice at
   `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice
   is framework-owned runtime-db state). Switching the L1 frame picker
-  re-binds the lens.
+  re-binds the lens. The slice's **`:query` is egress-projected** under
+  the **observed** frame's own classification before it leaves this sub
+  (rf2-8nyi2), through `local-render/local-render-route-sub-value` naming
+  the framework route read sub `:rf.route/query` — a route declares
+  `:sensitive` / `:large` projection-relative to its `{:query … :params …}`
+  shape and activation re-roots those paths under
+  `[:rf.runtime/routing :current …]`, so a bare-value walk at the root
+  could never match its own declaration and a declared-sensitive query
+  rendered live. A declared key reads `:rf/redacted`; an undeclared
+  sibling, and every query on a route that declared nothing, is unchanged.
+  `:params` and `:fragment` are **not** projected.
 - `:rf.xray/event-bundles` — the shared cascade projection. The composite
   scans the focused cascade's trace events for the routing-emit.
 - `:rf.xray/focus` — the spine's focused dispatch-id + epoch.

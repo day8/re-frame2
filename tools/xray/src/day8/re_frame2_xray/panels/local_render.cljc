@@ -7,9 +7,18 @@
   ONE projection seam every Xray panel routes a FRAME-SOURCED value through
   before it reaches the shared `views/edn-inspector`: App-DB Diff,
   Subscriptions / Reactive, Machine Inspector, Flow, reply-envelope, Event
-  Detail. It resolves the value through the public record-level boundary
-  primitive `re-frame.core/project-egress` under the named egress PROFILE
-  for on-box dev-tool rendering.
+  Detail, Routing. It resolves the value through the public record-level
+  boundary primitive `re-frame.core/project-egress` under the named egress
+  PROFILE for on-box dev-tool rendering.
+
+  Three arms, differing ONLY in how the walk is SEEDED — the profile, the
+  `:frame` stamping and the fail-closed posture are shared:
+  `local-render-value` walks a value AS the root; `local-render-value-at`
+  seeds an explicit absolute `:path` for a slice egress'd in isolation;
+  `local-render-route-sub-value` names a framework ROUTE READ sub and lets
+  routing's own seed table supply the position (rf2-8nyi2). A route's
+  classification is re-rooted under `[:rf.runtime/routing :current …]`, so
+  the first arm cannot match it and the Routing panel needs the third.
 
   ## The default is `:rf.egress/local-redacted` (EP-0015 §10, issue 3)
 
@@ -203,3 +212,45 @@
   ([v frame-id path raw?]
    (rf/project-egress v (assoc (local-render-opts frame-id raw?)
                                :path (vec path)))))
+
+(defn local-render-route-sub-value
+  "Like `local-render-value`, but for the value of a FRAMEWORK ROUTE READ
+  sub — `:rf/route` (the whole slice), `:rf.route/query`, or
+  `:rf.route/params` — egress'd in isolation for an on-box render.
+
+  A route declares `:sensitive` / `:large` PROJECTION-RELATIVE to its
+  `{:query … :params …}` shape, and route activation RE-ROOTS those paths
+  to runtime-db-absolute `[:rf.runtime/routing :current …]` in the frame's
+  elision registry (`re-frame.routing.classification`). So a bare route
+  value walked at the whole-value root — which is what `local-render-value`
+  does — can never match its OWN declaration, and the declared-sensitive
+  query rides to the DOM verbatim (rf2-8nyi2).
+
+  Naming the sub as `:query-v` is the framework's prescribed gesture for a
+  DIRECT-READ surface, and the reason this is not
+  `local-render-value-at` with the path spelled out here:
+  `re-frame.elision/elide-wire-value` resolves the seed through the
+  routing-owned table (`re-frame.routing.sub-egress/route-sub-seed-table`,
+  reached by the `:routing/route-sub-egress-path` late-bind hook) and
+  overlays it as `:path`, so the seed stays ROUTING's to own and every
+  route-read egress surface re-seeds identically. That identity is
+  `project-route-sub-egress`'s own docstring contract: the direct-read
+  off-box surfaces — Pair MCP's reads, and Xray — reach the SAME
+  re-seeding through this opt.
+
+  Same fail-closed + per-frame guarantees as its two siblings, which it
+  shares `local-render-opts` with: an unreachable `frame-id` (nil /
+  destroyed / never registered) is stamped VERBATIM and redacts the whole
+  value rather than borrow the ambient frame's policy. A LIVE frame whose
+  active route declared no classification rides the value verbatim — the
+  walk is path-precise, never a blanket scrub — so ordinary query display
+  is unchanged.
+
+  NARROW, exactly as the routing door is: a `sub-id` outside the route
+  read table resolves no seed and the value walks at the root. No generic
+  sub-output propagation. Absent the routing artefact the hook is unbound
+  and the same thing happens — and there is no route slice to leak."
+  ([v frame-id sub-id] (local-render-route-sub-value v frame-id sub-id false))
+  ([v frame-id sub-id raw?]
+   (rf/project-egress v (assoc (local-render-opts frame-id raw?)
+                               :query-v [sub-id]))))
