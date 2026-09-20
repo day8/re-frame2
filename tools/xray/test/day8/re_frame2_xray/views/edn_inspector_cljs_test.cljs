@@ -2503,6 +2503,215 @@
       (is (= n (count rows))
           (str "and still emits all " n " accessible AFTER rows")))))
 
+;; ---- rf2-t450s — an unknown prior carried INTO a nested container ---------
+;;
+;; The THIRD failure of the same confusion, one level DOWN from the two
+;; families above. rf2-zk4he taught `sequential-diff-children` to emit
+;; `::unrealised` for a survivor past the before bound; rf2-idydb taught
+;; `children-of-pair`'s SEQUENTIAL arm to tell that survivor from a genuine
+;; append. Neither taught the RECURSION that carries such a slot into a
+;; nested CONTAINER, and `children-of-pair`'s own docstring already states
+;; the distinction that arm does not implement.
+;;
+;; When the surviving tail element is itself a map, `render-container`
+;; descends with `before` = `::unrealised`, and the map arm opens with
+;;
+;;     (let [a (when (map? after) after)
+;;           b (when (map? before) before)]
+;;
+;; The sentinel is not a map, so `b` binds to `nil`, the walk falls into the
+;; "only AFTER is a map" arm, and every child is emitted `[k v ::missing]`.
+;; `::missing` is the STRUCTURAL sentinel — `leaf-diff-op` reads it AHEAD of
+;; the projection — so every descendant of an entirely UNCHANGED map renders
+;; `:added`. An UNKNOWN prior is converted into an ABSENT one at a single
+;; `when`.
+;;
+;; `classify-container-op` fails the same way one step earlier: its
+;; structural override compares the marker to the map as an actual VALUE,
+;; finds them different, and promotes the projection's `:same` to
+;; `:children` — so the unchanged tail is painted change-bearing before its
+;; descendants are walked at all. Two sites, one confusion.
+;;
+;; TWO properties, per this family's standing rule — either alone is green
+;; against a plausible wrong fix:
+;;
+;;   P1 NO FABRICATED    — a container reached under an `::unrealised` prior
+;;      ADDITIONS          gives its own children `::unrealised` priors, they
+;;                         render as the projection's own op, and the
+;;                         container is not forced change-bearing merely
+;;                         because the prior is unknown.
+;;   P2 REAL ABSENCE     — a prior that is genuinely `::missing` still makes
+;;      STILL READS        every child `:added`, a real prior map still
+;;      :added             key-aligns, and the before bound is not widened.
+;;                         A fix that swapped the sentinel unconditionally at
+;;                         the recursion boundary is green on P1 and red here.
+
+(deftest nested-tail-container-under-unknown-prior-rf2-t450s
+  ;; The item's reproduction, verbatim: an unchanged 1050-element collection
+  ;; whose LAST element is a map, diffed against a lazy-seq view of itself.
+  (let [n         1050
+        tail-map  {:keep 1 :other 2 :third 3 :fourth 4}
+        full      (assoc (vec (range n)) (dec n) tail-map)
+        before    (map identity full)
+        after     full
+        proj      (engine/project before after)
+        tail-path [(dec n)]
+        rows      (vec (ei/sequential-diff-children before after :vector [] proj))
+        tail      (first (filter (fn [[k _ _]] (= k (dec n))) rows))
+        ;; The container's OWN op, read off the one node carrying it:
+        ;; `render-container` puts `:data-rf-kind` and `:data-rf-diff-op` on
+        ;; the same div, so this cannot be answered by a descendant's row.
+        container-op (fn [tree kind]
+                       (get (second (find-attr tree :data-rf-kind kind))
+                            :data-rf-diff-op))
+        render-at (fn [path v b]
+                    (ei/render-node {:value      v
+                                     :before     b
+                                     :diff?      true
+                                     :projection proj
+                                     :panel-id   :test :mount-id "m1"
+                                     :path       path :depth 1
+                                     :expansion-map {} :opts {}}))]
+    (testing "the fixture really is the shape this turns on"
+      (is (not (counted? before))
+          (str "the BEFORE side is a LazySeq, so `bounded-vec` caps it at "
+               count-bound " — `counted?` is the dispatch, not the KIND"))
+      (is (counted? after)
+          "the AFTER side is a vector, so `bounded-vec` realises it whole")
+      (is (= full (vec before))
+          (str "the two sides carry IDENTICAL values — whatever this test "
+               "reports, NOTHING in this collection changed"))
+      (is (empty? (:flat-rows proj))
+          "which the projection agrees with: no changed rows anywhere")
+      (is (map? (nth after (dec n)))
+          (str "and the element past the ceiling is a CONTAINER — that is "
+               "what carries the unknown prior into the recursion")))
+    (testing "precondition — the walker hands that container an UNKNOWN prior"
+      ;; rf2-zk4he's repair, one level up. Were this ever to regress to
+      ;; `::missing` the failures below would be THAT defect, not this one.
+      (is (= n (count rows))
+          (str "all " n " accessible after rows are emitted"))
+      (is (= tail-map (second tail))
+          "the tail row carries the real map from the after-tree")
+      (is (= ::ei/unrealised (nth tail 2))
+          (str "and its before slot says UNKNOWN — the before side stopped "
+               "at " count-bound ", so this element's prior was never "
+               "realised")))
+    (testing "P1 — recursing into it must not invent ABSENT priors"
+      (let [kids (vec (ei/children-of-pair (nth tail 2) (second tail) :map))
+            bs   (mapv (fn [[_ _ b]] b) kids)]
+        (is (= 4 (count kids))
+            (str "all four of the after-map's keys are walked — the accessible "
+                 "AFTER data is preserved whole"))
+        (is (= (vec (repeat 4 ::ei/unrealised)) bs)
+            (str "and EVERY prior is UNKNOWN. Pre-fix the map arm bound `b` "
+                 "to `nil` (the sentinel is not a `map?`) and fell into the "
+                 "\"only AFTER is a map\" arm, emitting `::missing` for all "
+                 "four"))
+        (is (empty? (filter #{::ei/missing} bs))
+            (str "never `::missing`, which `leaf-diff-op` reads AHEAD of the "
+                 "projection and renders `:added`"))))
+    (testing "P1 — and every descendant renders the projection's own op"
+      ;; The chain closed end to end: the slots `children-of-pair` actually
+      ;; produced, handed to the renderer against the projection computed
+      ;; over the FULL pair — which owes nothing to the walker's ceiling.
+      (let [kids (vec (ei/children-of-pair (nth tail 2) (second tail) :map))]
+        (doseq [[k v b] kids]
+          (let [kid-path (conj tail-path k)
+                proj-op  (engine/op-at proj kid-path)
+                tree     (render-at kid-path v b)]
+            (is (not= :added proj-op)
+                (str "the projection saw BOTH full trees and calls " k " `"
+                     proj-op "` — it is an untouched member, not an addition"))
+            (is (empty? (nodes-with-attr tree :data-rf-diff-op "added"))
+                (str "so the row for " k " must not render as `:added` — the "
+                     "defect's signature, and it fired on all four"))
+            (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
+                (str "it renders the projection's own `" proj-op
+                     "` instead"))))
+        (testing "CONTROL — `::missing` in those SAME slots really does force `:added`"
+          ;; Without this the assertions above could all be green because
+          ;; nothing renders an `:added` marker on these paths at all.
+          (doseq [[k v _] kids]
+            (let [kid-path (conj tail-path k)
+                  proj-op  (engine/op-at proj kid-path)
+                  tree     (render-at kid-path v ::ei/missing)]
+              (is (seq (nodes-with-attr tree :data-rf-diff-op "added"))
+                  (str "`::missing` forces `:added` for " k " even against a "
+                       "projection saying `" proj-op "` — the structural "
+                       "override is real, which is exactly why the recursion "
+                       "must not emit it for an unknown prior"))
+              (is (empty? (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
+                  "and suppresses the projection's own op entirely"))))))
+    (testing "P1 — the container itself is not forced change-bearing"
+      ;; `classify-container-op`'s structural override promotes a `:same`
+      ;; projection to `:children` when the two sides differ as VALUES. The
+      ;; `::unrealised` marker is not a value, and differing from one is no
+      ;; evidence that anything changed.
+      (let [proj-op (engine/op-at proj tail-path)
+            tree    (render-at tail-path (second tail) (nth tail 2))]
+        (is (not= :added proj-op)
+            (str "the projection calls the tail element itself `" proj-op "`"))
+        (is (= (name proj-op) (container-op tree "map"))
+            (str "so the container row reads `" proj-op "`. Pre-fix "
+                 "`differs-within-bound?` compared the marker to the map, "
+                 "found them different, and promoted it to `children`"))
+        (is (not= "children" (container-op tree "map"))
+            (str "and it is never painted change-bearing on the strength of "
+                 "a prior nobody looked at")))
+      (testing "CONTROL — a container whose prior GENUINELY differs still promotes"
+        ;; Without this the assertion above could be green because the
+        ;; override no longer fires for anybody.
+        (let [tree (render-at tail-path (second tail) {:keep 1})]
+          (is (= "children" (container-op tree "map"))
+              (str "a REAL prior that differs from the after value still "
+                   "promotes `:same` to `:children` — the override is intact, "
+                   "and only the sentinel is excluded from it")))))))
+
+(deftest nested-container-honest-absence-still-added-rf2-t450s
+  ;; P2. Green on TRUNK and must stay green: its job is to refuse a WRONG
+  ;; fix, not to catch the current defect. `::missing` is CORRECT wherever
+  ;; the prior genuinely does not exist — swapping the sentinel at the
+  ;; recursion boundary unconditionally would report every genuinely-new
+  ;; nested map as an unknown prior, the same confident falsehood pointing
+  ;; the other way.
+  (testing "P2 — a genuinely ABSENT prior still makes every child `:added`"
+    (let [kids (vec (ei/children-of-pair ::ei/missing {:a 1 :b 2} :map))
+          bs   (mapv (fn [[_ _ b]] b) kids)]
+      (is (= 2 (count kids)) "both of the new map's keys are walked")
+      (is (= [::ei/missing ::ei/missing] bs)
+          (str "a STRUCTURALLY absent prior is still absent: this map really "
+               "is new, and its members really were added"))))
+  (testing "P2 — a REAL prior map still key-aligns, absences and all"
+    (let [kids (vec (ei/children-of-pair {:a 1 :gone 9} {:a 1 :new 2} :map))
+          by-k (into {} (map (fn [[k _ b]] [k b])) kids)]
+      (is (= 3 (count kids)) "AFTER's keys, then the BEFORE-only key")
+      (is (= 1 (:a by-k)) "a key on both sides carries its real prior")
+      (is (= ::ei/missing (:new by-k)) "an after-only key is a real addition")
+      (is (= 9 (:gone by-k))
+          "and a before-only key is still surfaced for striking")))
+  (testing "P2 — a nested-container prior is unaffected by the unknown path"
+    (let [kids (vec (ei/children-of-pair {:m {:x 1}} {:m {:x 1} :n 2} :map))
+          by-k (into {} (map (fn [[k _ b]] [k b])) kids)]
+      (is (= {:x 1} (:m by-k))
+          "a real prior CONTAINER is threaded through unchanged")
+      (is (= ::ei/missing (:n by-k)) "beside a real addition")))
+  (testing "P2 — the before bound is not widened to find out"
+    ;; A REALISATION counter, never an output length: a "fix" that told the
+    ;; two cases apart by pulling further down the before side is green on
+    ;; P1 and red right here.
+    (let [n     1050
+          guard 1500
+          seen  (atom 0)
+          after (assoc (vec (range n)) (dec n) {:keep 1})
+          rows  (vec (ei/children-of-pair (counting-seq seen guard) after
+                                          :vector))]
+      (is (<= @seen count-bound)
+          (str "realised " @seen " elements of the endless BEFORE side; the "
+               "walker's bound is " count-bound))
+      (is (= n (count rows))
+          (str "and still emits all " n " accessible AFTER rows")))))
+
 (deftest diff-renders-removed-set-member
   ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
   ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER
