@@ -5203,6 +5203,70 @@
             (str "the nested AFTER side realised " @seen-a " elements; the "
                  "render bound is " render-path-bound "."))))))
 
+(deftest container-op-equality-is-bounded-rf2-bmed1
+  ;; THE SECOND STAGE, and the reason a projection-only fix reads green
+  ;; while the widget still hangs.
+  ;;
+  ;; `classify-container-op` carries rf2-8pfkk's structural override: when
+  ;; the projection says `:same` but the two sides genuinely differ, it
+  ;; promotes to `:children` so a dropped vector tail cannot hide inside a
+  ;; collapsed container. That test was a bare `not=` on the RAW pair, and
+  ;; it fires exactly when `proj-op` is `:same` — which is what a CORRECTLY
+  ;; BOUNDED projection reports for two endless sequences sharing a prefix.
+  ;; So bounding the projection alone moved the hang one line down rather
+  ;; than removing it.
+  ;;
+  ;; WHY NOTHING CAUGHT IT: rf2-brmyq's render-path tests pass
+  ;; `:projection nil`, which skips the override entirely, AND their two
+  ;; sides differ in LENGTH (`[0 1 2]` against an endless seq), so even the
+  ;; no-projection `not=` stops as soon as the short side runs out. Both
+  ;; halves of that shape have to change at once to see this: a REAL
+  ;; projection, and two sides that agree as far as anything looks.
+  (let [guard 50000]
+    (testing "render-node with a REAL projection is bounded"
+      (let [seen-b (atom 0)
+            seen-a (atom 0)
+            before (counting-seq seen-b guard)
+            after  (counting-seq seen-a guard)
+            ;; The projection the widget would compute, built the way
+            ;; `project-for` now builds it.
+            proj   (engine/project (take count-bound before)
+                                   (take count-bound after))
+            h      (ei/render-node {:value      after
+                                    :before     before
+                                    :diff?      true
+                                    :projection proj
+                                    :panel-id   :test :mount-id "bmed1-a"
+                                    :path       [] :depth 0
+                                    :expansion-map {} :opts {}})]
+        (is (vector? h)
+            "the projection-bearing render path returns hiccup")
+        (is (<= @seen-b render-path-bound)
+            (str "the BEFORE side realised " @seen-b " elements; the bound "
+                 "is " render-path-bound ". A bare `not=` runs to the guard "
+                 "at " guard "."))
+        (is (<= @seen-a render-path-bound)
+            (str "the AFTER side realised " @seen-a " elements; the bound is "
+                 render-path-bound "."))))
+    (testing "CONTROL — the `:projection nil` route stays bounded too"
+      ;; rf2-brmyq's route, with the length difference removed so the
+      ;; no-projection `not=` is actually exercised.
+      (let [seen-b (atom 0)
+            seen-a (atom 0)
+            h      (ei/render-node {:value      (counting-seq seen-a guard)
+                                    :before     (counting-seq seen-b guard)
+                                    :diff?      true
+                                    :projection nil
+                                    :panel-id   :test :mount-id "bmed1-b"
+                                    :path       [] :depth 0
+                                    :expansion-map {} :opts {}})]
+        (is (vector? h)
+            "the no-projection render path returns hiccup")
+        (is (<= @seen-b render-path-bound)
+            (str "the BEFORE side realised " @seen-b " elements"))
+        (is (<= @seen-a render-path-bound)
+            (str "the AFTER side realised " @seen-a " elements"))))))
+
 (deftest public-projection-leaves-ordinary-pairs-untouched-rf2-bmed1
   (testing "P2 — an ordinary finite pair reaches engine/project UNCOPIED"
     (let [before {:a 1 :b {:c 2} :d [1 2 3]}
