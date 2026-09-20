@@ -192,6 +192,31 @@
   characters; past this depth the printer writes `#` instead of descending."
   10)
 
+(defn- printed-as
+  "A value whose PRINTED form is exactly the characters `s`.
+
+  The carrier is a SYMBOL because a symbol's printed form IS its name,
+  written out verbatim with no quoting and no escaping, on BOTH runtimes —
+  Clojure prints one through `print-simple`, ClojureScript's `Symbol` writes
+  its own `str` field. Nothing but the printer ever sees one: this ns is the
+  only producer, `bound-long-strings` is private, and the value it returns
+  goes straight into the `pr-str` in `bounded-pr-str`."
+  [s]
+  (symbol s))
+
+(defn- print-child
+  "`pr-str` an already-bounded child sitting at walk depth `d`, under exactly
+  the depth budget the real printer would have had left for it there.
+
+  `*print-level*` counts DOWN as the printer descends, so a value nested `d`
+  levels deep is printed with `preview-print-level` minus `d` levels
+  remaining — past which it writes `#`, which is what the printer would have
+  written in that position anyway. `*print-length*` rides in unchanged from
+  `bounded-pr-str`'s binding."
+  [x d]
+  (binding [*print-level* (- preview-print-level d)]
+    (pr-str x)))
+
 (defn- bound-long-strings
   "Bound the print INPUT: replace every long STRING the print walk can REACH
   with its first `preview-limit` characters (rf2-3hnvn).
@@ -208,11 +233,23 @@
   descends. So it costs the same order as the print it is bounding, and it
   never realises more of a lazy seq than the print would.
 
-  Type- and identity-preserving: a bounded value is `assoc`ed back into the
-  collection it came from, so a record stays a record, a sorted map stays
-  sorted, and a value with no long string in reach comes back `identical?` —
-  the ordinary tick rebuilds nothing. (A SEQ is rebuilt lazily, which prints
-  identically and realises nothing extra.)
+  A bounded VALUE is `assoc`ed back under its own key or index, so the walk
+  is type- and identity-preserving wherever it touches one: a record stays a
+  record, a sorted map stays sorted, and a value with no long string in reach
+  comes back `identical?` — the ordinary tick rebuilds nothing. (A SEQ is
+  rebuilt lazily, which prints identically and realises nothing extra.)
+
+  A bounded KEY or SET MEMBER is NEVER put back, because there is no way to
+  put one back that preserves the print (rf2-kbo64). The `dissoc`/`assoc`
+  and `disj`/`conj` that would do it MOVE the entry — on an array-map, to
+  the end — so the preview stops opening where the real print opens; and two
+  keys sharing a `preview-limit`-character prefix COLLAPSE into one, which
+  SHRINKS the collection and pulls an entry the walk never visited inside
+  the print window with its value still unbounded. Such a collection is left
+  exactly as it is and the printer is handed the walked window ALREADY
+  RENDERED, in the collection's own order, one printed entry per entry. So
+  the print is bounded without the caller's collection being rebuilt at all,
+  and nothing outside the window can appear in it.
 
   Truncating to `preview-limit` SOURCE characters cannot change the
   preview: escapes only lengthen, so `preview-limit` source characters
@@ -230,20 +267,45 @@
       v
 
       (map? v)
-      (reduce (fn [acc [k vv]]
-                (let [bk (walk k)
-                      bv (walk vv)]
-                  (cond
-                    (not (identical? bk k)) (-> acc (dissoc k) (assoc bk bv))
-                    (not (identical? bv vv)) (assoc acc k bv)
-                    :else acc)))
-              v (take preview-limit v))
+      (let [pairs (mapv (fn [[k vv]] [k vv (walk k) (walk vv)])
+                        (take preview-limit v))]
+        (if (some (fn [[k _ bk _]] (not (identical? bk k))) pairs)
+          ;; A KEY had to be shortened, so the collection is left alone and
+          ;; this window is rendered instead — see the docstring: putting a
+          ;; shortened key back MOVES its entry and COLLAPSES colliding
+          ;; keys, and a collapse drags an unwalked entry into the print
+          ;; window with its value still unbounded (rf2-kbo64).
+          (printed-as
+            (str "{"
+                 (str/join ", " (map (fn [[_ _ bk bv]]
+                                       (str (print-child bk d) " "
+                                            (print-child bv d)))
+                                     pairs))
+                 ;; The printer's own marker for "more than `*print-length*`
+                 ;; of them", so the render does not claim the map is
+                 ;; smaller than it is.
+                 (when (> (count v) preview-limit) ", ...")
+                 "}"))
+          ;; Only VALUES moved, so they go straight back under their own
+          ;; keys: type, order and `identical?` all survive.
+          (reduce (fn [acc [k vv _ bv]]
+                    (if (identical? bv vv) acc (assoc acc k bv)))
+                  v pairs)))
 
       (set? v)
-      (reduce (fn [acc x]
-                (let [bx (walk x)]
-                  (if (identical? bx x) acc (-> acc (disj x) (conj bx)))))
-              v (take preview-limit v))
+      (let [members (vec (take preview-limit v))
+            bounded (mapv walk members)]
+        (if (every? true? (map identical? members bounded))
+          v
+          ;; A set member IS its own key, so there is no slot to put a
+          ;; shortened one back into — `disj`/`conj` reorders and collapses
+          ;; exactly as the map case does. Render the window in the set's
+          ;; own order.
+          (printed-as
+            (str "#{"
+                 (str/join " " (map #(print-child % d) bounded))
+                 (when (> (count v) preview-limit) " ...")
+                 "}"))))
 
       (vector? v)
       (reduce-kv (fn [acc i vv]
