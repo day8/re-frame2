@@ -943,7 +943,11 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
 - [`018-Event-Spine.md`](./018-Event-Spine.md) — 4-layer chrome,
   spine binding (`:rf.xray/focus`), per-tab content placement,
   Settings popup, data-classification rendering contract.
-- [`012-Views.md`](./012-Views.md) — Views tab content.
+- [`012-Views.md`](./012-Views.md) — the Views tab's earlier
+  three-group, nested-subs and clustering design, superseded by
+  [`021-Dynamic-Panel-Designs.md` §3](./021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8)
+  (rf2-ee38b.2); retained as historical design exploration, not
+  normative.
 - [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) — the trace ring every tab
   filters from.
 - [`014-Registry-Catalogue.md`](./014-Registry-Catalogue.md) — the

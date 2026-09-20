@@ -651,7 +651,7 @@ noise that flagged the Xray events-list as a problem.)
 
 **Effects is folded into the Epoch panel** — the "EFFECTS HANDLERS RAN" section of the numbered cascade covers it.
 
-**Subs are folded into Views** — subs nest under each view row, not a separate tab. See [`012-Views.md`](012-Views.md).
+**Subs are folded into Views** — subs are upstream nodes in the Views tab's left → right reactive flow graph (app-db → Level-1 subs → derived subs → views), not a separate tab; the `012-Views.md` nested-under-each-view-row design is superseded (rf2-ee38b.2). See [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.2.
 
 **Performance is dropped** — cross-link to Chrome DevTools' Performance tab (the framework emits `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`, `rf:cascade:*` User-Timing entries that DevTools renders natively in the Timings track).
 
@@ -1080,8 +1080,8 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
 > superseded it under rf2-5gl5r renders the WHOLE chain in fire order,
 > which 021 §9.1.2 states as the point of the supersession. The Views
 > tab still exists and still owns the per-view / per-sub lens
-> ([`012-Views.md`](012-Views.md)) — what is false is that the Epoch
-> panel withholds the steps.
+> ([`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3) —
+> what is false is that the Epoch panel withholds the steps.
 
 - **`:other` errors / warnings / machine transitions** → errors surface
   inline in the Epoch panel's "Exception Thrown" block + the L2 event-row
