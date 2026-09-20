@@ -1056,7 +1056,7 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
 > (corrected 2026-09-18).** This section read "**subs ran** → Views tab"
 > and "**renders** → Views tab". The shipped panel emits a
 > **SUBSCRIPTIONS** step (driven by `:rf.sub/run` / `:rf.sub/skip`) and a
-> **VIEWS** step (driven by `:rf.view/render`) as ordinary conditional
+> **VIEWS** step (driven by `:rf.view/rendered`) as ordinary conditional
 > cascade steps, both in the badge inventory. The routing-away rule
 > belonged to the **retired** Event/Handler panel (021 §2), which sent
 > the reactive edge to its own Reactive tab; the Epoch panel that
