@@ -36,9 +36,10 @@
                     (`{frame-id {flow-id ...}}`, Spec 013).
     - Schemas     — the app-db-schema side-table is per-frame
                     (`schemas-by-frame`); event/sub specs are global.
-    - Routes      — the current-route slice
-                    (`[:rf.runtime/routing :current]` in runtime-db) is per-frame;
-                    the route-definition catalogue is global.
+    - Routes      — global: the route-definition catalogue. The panel
+                    adds only its own hermetic Simulate-URL /
+                    Simulate-navigation previews, so the picker does
+                    not change it.
     - Interceptors— global (interceptor chains live on globally
                     registered events).
 
@@ -326,8 +327,9 @@
    ;; (`shell.cljs/ribbon`): reads `:rf.xray/current-frame` +
    ;; `:rf.xray/available-frames`, writes via `:rf.xray/select-frame`.
    ;; The picker persists across mode toggles so the user keeps browsing
-   ;; the same frame's per-frame projections — machine snapshots, flows,
-   ;; app-db schemas, the current route — as they flip between
+   ;; the same frame's per-frame projections — machine snapshots, flows
+   ;; and app-db schemas in Static, plus the current-route slice on
+   ;; Dynamic's Routing lens — as they flip between
    ;; event-coupled (Dynamic) and event-independent (Static) lenses. The
    ;; registrar catalogues themselves are process-GLOBAL and do not move
    ;; with the picker; see this ns's docstring.
@@ -357,8 +359,11 @@
   are shared across every frame and read the same whichever frame is
   picked. What the picker DOES scope is the genuinely per-frame data
   each Static panel projects beside those catalogues — machine
-  snapshots, the flows registry, the `schemas-by-frame` side-table and
-  the current-route slice — and four of the five Static tabs carry one.
+  snapshots, the flows registry and the `schemas-by-frame` side-table —
+  and three of the five Static tabs carry one. Routes and Interceptors
+  are catalogue surfaces; Static Routes adds only hermetic Simulate-URL
+  / Simulate-navigation previews, and the current-route slice it does
+  NOT read belongs to Dynamic's Routing lens.
   This ns's own docstring above splits it per tab. Reaching through
   `frame_switcher.cljs` (the canonical contract surface) keeps Static
   on the same picker as Dynamic; mode toggles preserve the selection.
