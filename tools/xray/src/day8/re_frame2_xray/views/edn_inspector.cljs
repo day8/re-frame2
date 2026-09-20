@@ -635,6 +635,13 @@
   LEFT TO PAIR WITH — not because the element was added, but because
   the walk declined to realise that far.
 
+  BOTH sequential walkers emit it, on that same shape and for that same
+  reason (rf2-idydb). They tell the two cases apart differently, because
+  they know different things: `sequential-diff-children` has the
+  projection and asks whether the row is `:added`, while
+  `children-of-pair` has none and asks whether the before side stopped
+  AT the ceiling. Neither realises an extra element to find out.
+
   `::missing` would be a lie here, and a loud one: it is the STRUCTURAL
   sentinel, it OVERRIDES the projection in `leaf-diff-op`, and it paints
   a surviving element green as newly added. This keyword is deliberately
@@ -1518,6 +1525,14 @@
   routes through `render-leaf-with-diff`'s `:added` / `:removed` paths
   unchanged.
 
+  ONE EXCEPTION, and it is the difference between not existing and not
+  being looked at (rf2-idydb): where a not-`counted?` BEFORE side was
+  capped at `count-bound` while a `counted?` AFTER side was realised
+  whole, the before slots past that ceiling carry `::unrealised`
+  instead. Their priors are UNKNOWN, not absent, and `::missing` would
+  say the opposite in the loudest available way — it overrides the
+  projection and paints a surviving element green as newly added.
+
   Per collection kind:
   - **Map / record** — AFTER's keys in their natural order, then
     BEFORE-only keys appended at the end. Appended-at-end was picked
@@ -1527,7 +1542,9 @@
     predictable, and reads as 'the post-image, then a deletions
     section' in the rendered tree.
   - **Vector / list / seq** — index-align up to the longer side's
-    count; trailing BEFORE-only positions render as `:removed`.
+    count; trailing BEFORE-only positions render as `:removed`, and
+    trailing AFTER-only positions read their before slot off the
+    exception above.
   - **Set** — UNION of members, sorted by `pr-str` for stable render
     (sets have no natural ordering).
   - **Map-entry** — fixed two positions `[0 k] [1 v]`, with AFTER /
@@ -1585,11 +1602,37 @@
           b-vec (when (sequential? before) (bounded-vec before))]
       (cond
         (and a-vec b-vec)
-        (let [n (max (count a-vec) (count b-vec))]
+        ;; rf2-idydb — past the before side's last realised slot, the prior
+        ;; is ABSENT only when the walk actually reached the end of that
+        ;; side. `bounded-vec` realises a `counted?` collection whole, and
+        ;; stops a not-`counted?` one at `count-bound`, so the two sides get
+        ;; INDEPENDENT ceilings (rf2-jh12f) and a capped before side leaves a
+        ;; tail whose priors were never looked at. `::missing` there is the
+        ;; STRUCTURAL sentinel — `leaf-diff-op` reads it ahead of the
+        ;; projection and paints the row `:added` — so a survivor would be
+        ;; reported as a new element. `::unrealised` is not structural, so
+        ;; the op falls through to the projection, which saw the full inputs
+        ;; (rf2-zk4he). Exactly the discrimination `sequential-diff-children`
+        ;; makes with the projection's help; this walk has no projection, so
+        ;; it reads the ceiling instead.
+        ;;
+        ;; Deliberately keyed on the ceiling being REACHED, not on the before
+        ;; side's KIND: a lazy seq that ended on its own below the bound was
+        ;; realised in full, so absence past it is KNOWN and `::missing` is
+        ;; the true answer. A side of exactly `count-bound` elements is
+        ;; reported unknown, which is the safe direction — telling it from a
+        ;; capped one costs the one extra element the bound exists to refuse.
+        (let [a-count     (count a-vec)
+              b-count     (count b-vec)
+              n           (max a-count b-count)
+              past-before (if (and (endless-candidate? before)
+                                   (= b-count count-bound))
+                            ::unrealised
+                            ::missing)]
           (for [i (range n)]
             [i
-             (if (< i (count a-vec)) (nth a-vec i) ::missing)
-             (if (< i (count b-vec)) (nth b-vec i) ::missing)]))
+             (if (< i a-count) (nth a-vec i) ::missing)
+             (if (< i b-count) (nth b-vec i) past-before)]))
         a-vec
         (map-indexed (fn [i x] [i x ::missing]) a-vec)
         b-vec
