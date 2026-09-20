@@ -935,6 +935,110 @@
     (vec v)
     (vec (take count-bound v))))
 
+(defn- endless-candidate?
+  "`v` could be ENDLESS: a `sequential?` that is not `counted?`.
+
+  Exactly `bounded-vec`'s NOT-`counted?` arm — `LazySeq`, and the
+  `Range` an unbounded `(range)` returns — named rather than re-spelt so
+  the bound the PROJECTION applies and the bound the WALKER applies
+  cannot drift apart. Maps and sets are not `sequential?`, so neither
+  reaches here."
+  [v]
+  (and (sequential? v) (not (counted? v))))
+
+(defn- bounded-projection-pair
+  "Return `[before after]` bounded so `engine/project` cannot be handed a
+  pair it would compare for ever (rf2-bmed1).
+
+  `engine/project` short-circuits `identical?` inputs and NOTHING else;
+  any other pair goes to Editscript over the whole of both sides, with
+  structural equality inside it. Two DISTINCT endless sequences carrying
+  the same prefix therefore compare for ever — and this stage runs
+  BEFORE the walker, so the bound rf2-brmyq added never gets to protect
+  it.
+
+  Four decisions, each load-bearing:
+
+  1. THE BOUND FIRES ONLY WHERE BOTH SIDES COULD BE ENDLESS. A pair with
+     one `counted?` side is already finite — the comparison stops when
+     that side runs out — so there is nothing to protect it from.
+     Bounding it anyway would be worse than useless: `leaf-diff-op`
+     deliberately leaves `::unrealised` OUT of its structural override
+     so a surviving-but-unrealised row takes its op from the projection,
+     which saw the FULL inputs (rf2-zk4he). Hand THAT projection a short
+     before-side and the surplus after-rows come back `:+`, painting
+     survivors green as newly added — the precise lie `::unrealised` was
+     added to refuse.
+
+  2. `take`, NOT `vec`. `engine/container-kind` reads `(list? v)` as
+     `:list` and any other `sequential?` as `:seq`, and R7 calls a kind
+     change a `:modified` at the parent. `(take n …)` of a `LazySeq` or
+     a `Range` is a `LazySeq` — still `:seq` — so the bounded stand-in
+     classifies exactly as the value it stands for. `vec` would make it
+     `:vector` and manufacture a type-change out of the bound itself.
+
+  3. THE CEILING IS `count-bound`, the one `bounded-vec` uses. Both
+     sides are bounded at the SAME ceiling here, and the renderer bounds
+     those same two values at that same ceiling, so projection paths and
+     rendered rows are the same indices, 0 … `count-bound` - 1. Nothing
+     is rendered past the ceiling for a projection entry to be missing
+     from — which is why this needs NO new sentinel. There is no unknown
+     TAIL to represent, only a pair that is never walked.
+
+  4. `identical?` SHORT-CIRCUITS FIRST, at every level. Two references to
+     one value are exactly what `engine/project` already declines to
+     walk, and rebuilding them as two distinct bounded seqs would DEFEAT
+     that refusal. It also makes the descent cheap on the shape the
+     inspector actually sees: consecutive app-db epochs share almost
+     every sub-tree by identity.
+
+  Descends through maps (by shared key) and vectors (by shared index),
+  which is what reaches `{:xs endless}` and `[endless]`. That descent is
+  not thoroughness for its own sake: the renderer never descends into a
+  collapsed child, but the projection walks the whole pair regardless,
+  so a root-only bound would leave the identical hang one level down.
+  Wherever nothing was bounded this returns the ORIGINAL objects rather
+  than copies, so every ordinary finite diff is the computation it
+  already was.
+
+  DELIBERATELY NOT DESCENDED, so the next reader knows it is a decision:
+  the bounded prefixes themselves. Pairing two lazy seqs element-wise
+  truncates the longer to the shorter, which is decision 1's
+  independent-ceiling lie by another route, and a pair of endless
+  sequences whose ELEMENTS are a further pair of endless sequences is
+  not an input this inspector has. Sets are `counted?` and unordered, so
+  there is no pairing to make. Pure."
+  [before after]
+  (cond
+    (identical? before after)
+    [before after]
+
+    (and (endless-candidate? before) (endless-candidate? after))
+    [(take count-bound before) (take count-bound after)]
+
+    (and (map? before) (map? after))
+    (reduce (fn [[b a] k]
+              (let [bv        (get b k)
+                    av        (get a k)
+                    [bv' av'] (bounded-projection-pair bv av)]
+                [(if (identical? bv' bv) b (assoc b k bv'))
+                 (if (identical? av' av) a (assoc a k av'))]))
+            [before after]
+            (filter #(contains? after %) (keys before)))
+
+    (and (vector? before) (vector? after))
+    (reduce (fn [[b a] i]
+              (let [bv        (nth b i)
+                    av        (nth a i)
+                    [bv' av'] (bounded-projection-pair bv av)]
+                [(if (identical? bv' bv) b (assoc b i bv'))
+                 (if (identical? av' av) a (assoc a i av'))]))
+            [before after]
+            (range (min (count before) (count after))))
+
+    :else
+    [before after]))
+
 (def ^:private change-annotation-style
   "Style for the inline `← was <prior>` chip rendered to the
   right of a diff'd leaf."
@@ -3864,14 +3968,22 @@
   released by `release-mount!` with everything else, and so both heads
   share one implementation. Keyed by the LIFECYCLE KEY for the same reason
   the rest of the entry is (rf2-d2aj): two live mounts of one logical
-  surface hold two different values and must not share a memo."
+  surface hold two different values and must not share a memo.
+
+  rf2-bmed1 — a cache MISS goes through `bounded-projection-pair` first,
+  because this is the stage that made an endless input fatal: the walker
+  is bounded (rf2-brmyq) but never gets to run, since `engine/project`
+  compares the whole pair before the first row is walked. The CACHE is
+  keyed on the ORIGINAL references, not the bounded ones, so the
+  `identical?` hit still fires for the caller's own values."
   [lifecycle-key before after]
   (let [cached (get-in @mount-state [lifecycle-key :projection])]
     (if (and cached
              (identical? before (:before cached))
              (identical? after (:after cached)))
       (:projection cached)
-      (let [p (engine/project before after)]
+      (let [[bounded-before bounded-after] (bounded-projection-pair before after)
+            p (engine/project bounded-before bounded-after)]
         (swap! mount-state assoc-in [lifecycle-key :projection]
                {:before before :after after :projection p})
         p))))
