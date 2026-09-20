@@ -95,7 +95,7 @@ Wireframe at default (800px popout, "cosy" density):
 
 Layers are stacked top-to-bottom; only L2/L3 has a user-draggable resize handle. L1/L3 are fixed-height; L2 takes the remainder above L3; L4 takes the remainder below L3. Narrow widths (<800px) and wide widths (≥1200px) preserve the layer order — see [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome.
 
-**Why 4 layers, not 5:** the round-2 design had a bottom rail (L0) carrying the scrubber + mode pill + classification totals. Mike's call: "there is already a scrubber effectively at the top, along with a list of events." The events-ribbon nav cluster IS the seek, the event list IS the timeline, and classification totals relocate to per-row + per-panel renderings. One fewer layer; same affordances. (The Dynamic/Static **mode dropdown** lives at chrome-ribbon-left — see §3; LIVE / RETRO is a separate spine state surfaced in the L2 head-row cue.)
+**Why 4 layers, not 5:** the round-2 design had a bottom rail (L0) carrying the scrubber + mode pill + classification totals. Mike's call: "there is already a scrubber effectively at the top, along with a list of events." The chrome-ribbon nav cluster IS the seek, the event list IS the timeline, and classification totals relocate to per-row + per-panel renderings. One fewer layer; same affordances. (The Dynamic/Static **mode dropdown** lives at chrome-ribbon-right — see §3; LIVE / RETRO is a separate spine state surfaced in the L2 head-row cue.)
 
 ---
 
