@@ -577,6 +577,15 @@
         ;; lacks the event tag still surfaces a stable record.
         on-event   (when (vector? event-v) (first event-v))]
     {:machine-id   (machine-id-of ev)
+     ;; rf2-a28eo — the OWNING FRAME of the instance that transitioned.
+     ;; `registration.cljc`'s `:rf.machine/transition` emit stamps
+     ;; `:frame frame-id` on every trace, so the record that names WHICH
+     ;; MACHINE the Dynamic panel is drawing can name WHICH INSTANCE OF IT
+     ;; too. One machine DEFINITION can be instantiated in several frames
+     ;; and a singleton actor-id is identical across them, so `:machine-id`
+     ;; alone is not an instance address — the pair is. nil on a legacy
+     ;; replay whose traces pre-date the stamp; consumers fall back.
+     :frame-id     (get-in ev [:tags :frame])
      :from-state   from-state
      :to-state     to-state
      ;; Full snapshot maps for the drill-in surface (rf2-lxvn6 — spec/021
@@ -624,6 +633,9 @@
         state (:state tags)
         data  (:data tags)]
     {:machine-id  (machine-id-of ev)
+     ;; rf2-a28eo — owning frame; `registration.cljc`'s
+     ;; `:rf.machine/started` emit stamps `:frame (:frame-id ctx)`.
+     :frame-id    (get-in ev [:tags :frame])
      :from-state  nil
      :to-state    state
      :before      nil
@@ -678,6 +690,9 @@
         state (:state tags)
         event (:event tags)]
     {:machine-id  (machine-id-of ev)
+     ;; rf2-a28eo — owning frame; both `:rf.machine.event/unhandled-no-op`
+     ;; emits (`transition.cljc`, `parallel.cljc`) stamp `:frame`.
+     :frame-id    (get-in ev [:tags :frame])
      :from-state  state
      :to-state    state
      :before      nil
@@ -858,6 +873,11 @@
   cascade:
 
       {:machine-id   <kw>
+       :frame-id     <frame-id|nil>        ;; rf2-a28eo — the OWNING FRAME
+                                            ;; of the transitioning instance,
+                                            ;; off the trace's `:tags :frame`.
+                                            ;; nil on a legacy replay that
+                                            ;; pre-dates the stamp.
        :from-state   <kw|vec|nil>          ;; nil on a START record (birth)
        :to-state     <kw|vec|nil>          ;; the resulting INITIAL state on START
        :before       <snapshot-map|nil>   ;; full {:state :data} pre-transition (nil on START)
