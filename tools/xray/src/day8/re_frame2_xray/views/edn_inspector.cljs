@@ -671,15 +671,25 @@
   entered with this marker as its `after`, and `unpaired-prior` needs
   no after-side mirror.
 
+  A FIFTH site emits it on the after side too, and is the one case where
+  the projection CANNOT be the authority (rf2-f8nm7):
+  `sequential-diff-children` reaches surviving BEFORE-indices past a
+  capped after ceiling, which it used to drop outright. Those rows have
+  no after-path to classify against — `op-at` would answer its no-entry
+  `:same`, which the renderer reads as a certification — so they are
+  keyed by `unreached-key-tag` and `leaf-diff-op` answers `:modified`
+  for them by that key. Every other site keeps the projection's answer.
+
   `::missing` would be a lie on either side, and a loud one: it is the
   STRUCTURAL sentinel, it OVERRIDES the projection in `leaf-diff-op`,
   and it paints a surviving element green as newly added (before side)
   or strikes it through as deleted (after side). This keyword is
   deliberately NOT structural, so the op falls through to the
-  projection — computed over the FULL inputs, and therefore correct.
-  The `← was <prior>` chip and `unrealised-value-token` render it as an
-  explicit unknown rather than printing the sentinel or inventing a
-  value.
+  projection — computed over the FULL inputs, and therefore correct
+  WHEREVER there is a path to ask about, which is everywhere but the
+  fifth site above. The `← was <prior>` chip and
+  `unrealised-value-token` render it as an explicit unknown rather than
+  printing the sentinel or inventing a value.
 
   Public for the same reason `missing-sentinel` is: so the tests can
   assert the walker's triples against the exact value."
@@ -930,7 +940,16 @@
   rather than a promise; under it, and for any single collection, the
   two still agree exactly. A body that fell SHORT of the header is the
   direction that loses data, and that is what this ceiling now
-  refuses."
+  refuses.
+
+  rf2-f8nm7 — that last sentence was ASPIRATIONAL when it was written:
+  the walker kept it in the direction above and broke it in the mirror,
+  where a `counted?` BEFORE side is realised whole against a capped
+  AFTER one and the surplus BEFORE rows were dropped (measured, 1001
+  under 1050). Both directions now emit, so it is a statement about the
+  code rather than about one case of it. Note the asymmetry it leaves:
+  the body may EXCEED the header, never fall short, so over the bound
+  the `max` is a FLOOR on BOTH sides."
   1001)
 
 (defn- bounded-count*
@@ -1803,6 +1822,37 @@
   uniqueness."
   :rf.xray.edn-inspector/removed)
 
+(def ^:private unreached-key-tag
+  "Path-segment tag wrapping the before-index of a SURVIVING element the
+  AFTER bound could not reach, so the row gets a React `:key` + testid
+  of its own (rf2-f8nm7).
+
+  The sibling of `removed-key-tag`, needed for the same reason from the
+  other direction: both address a row by its BEFORE index, where every
+  other row this walk emits is addressed by its AFTER index. A bare
+  integer is NOT free. `survivor-ais` runs short of `survivor-bis`
+  exactly when the after side was capped, and any `:added` element
+  inside the bound pushes the unpaired before-indices DOWN into the
+  range the after-side keys already occupy — so two rows would collide
+  on one key.
+
+  Unlike a removal, this row's op is NOT forced structurally: its after
+  slot carries `::unrealised`, which `leaf-diff-op` deliberately leaves
+  out of its override so the op can come off the projection. Here there
+  is no after-path to look one up at — that absence is the whole reason
+  the row exists — and `engine/op-at` answers `:same` for a path with no
+  entry, which the renderer reads as a CERTIFICATION that the two sides
+  are equal. `leaf-diff-op` therefore recognises this tag and answers
+  `:modified` instead; see the clause there."
+  :rf.xray.edn-inspector/unreached)
+
+(defn- unreached-key?
+  "Is `k` a child key minted by `unreached-key-tag`? Shape-checked rather
+  than value-checked, so an ordinary vector map-key cannot answer yes.
+  Pure."
+  [k]
+  (and (vector? k) (= unreached-key-tag (first k))))
+
 (defn sequential-diff-children
   "Projection-aware children walk for a vector / list / seq in diff mode.
   Returns a seq of `[child-key after-value before-value]`
@@ -1858,11 +1908,28 @@
   found the unqualified claim false: when the before side IS capped
   while a `counted?` after side is not, the two ceilings differ, and
   this walk emits every accessible after row — so the body may EXCEED
-  the header by the removals struck inside the bound. It never falls
-  SHORT of it. Those surplus survivors carry `::unrealised` in their
-  before slot, which is neither `::missing` nor a prior value; they used
-  to be emitted by no arm of the walk at all, and vanished with nothing
-  on screen saying so.
+  the header by the removals struck inside the bound. Those surplus
+  survivors carry `::unrealised` in their before slot, which is neither
+  `::missing` nor a prior value; they used to be emitted by no arm of
+  the walk at all, and vanished with nothing on screen saying so.
+
+  rf2-f8nm7 — that paragraph went on to say \"It never falls SHORT of
+  it\", and the sentence was FALSE. It was written while only ONE of the
+  two independent ceilings had been thought about, and stated as an
+  unqualified universal in a paragraph scoped to that one direction.
+  Swap the representations — a `counted?` BEFORE side against a lazy
+  AFTER one — and `zipmap` truncates to the AFTER side instead, so
+  before-indices past the after ceiling paired with nothing, the
+  survivor arm's `when-let` yielded nothing for them, and the recovery
+  run below walks `after-idxs` ONLY, so no arm pointed the other way.
+  Measured: a body of 1001 under a header of 1050, the exact data-loss
+  direction `count-bound`'s own docstring says this ceiling refuses.
+  Those before-side survivors are now emitted IN before-order, carrying
+  `::unrealised` in their AFTER slot — never `::missing`, which
+  `leaf-diff-op` reads as a confirmed deletion (rf2-g61nr) — under a
+  synthetic `unreached-key-tag` segment, because they have no
+  after-index to be addressed by. The claim holds again, and now in both
+  directions.
 
   Public so tests can probe the reconstruction without re-deriving it."
   [before after kind parent-path projection]
@@ -1898,6 +1965,17 @@
   ;; make are the unbounded ones; the surplus after-side survivors it
   ;; could not reach are emitted afterwards, in after-order, carrying
   ;; `::unrealised`. The zip is never widened, re-based or re-ordered.
+  ;;
+  ;; rf2-f8nm7 — WHICH side is the shorter one is not fixed, and the
+  ;; paragraph above reads as though it were. When the AFTER side is the
+  ;; capped one the truncation drops before-indices instead, and those
+  ;; were emitted by no arm at all: the recovery run below is keyed on
+  ;; `after-idxs`, so it can only ever point one way. They are now
+  ;; emitted from the before-order walk itself, which is where they
+  ;; belong positionally. That is EMIT-ONLY for the same reason this
+  ;; repair is append-only — the zip is still never widened, re-based or
+  ;; re-ordered, and rf2-vu42n's alignment is untouched. Nothing here
+  ;; realises an extra element of either side to decide it.
   (let [a-vec (when (sequential? after)  (bounded-vec after))
         b-vec (when (sequential? before) (bounded-vec before))]
     (cond
@@ -1928,14 +2006,38 @@
             ;; A survivor's `before` slot carries its PRIOR value (`nth
             ;; b-vec bi`) — never `::missing`, which `render-leaf-with-diff`
             ;; would read as a structural `:added`.
+            ;; rf2-f8nm7 — the AFTER-side counterpart of
+            ;; `children-of-pair`'s `past-after`, gated on exactly the
+            ;; same two facts and for the same reason. Past the after
+            ;; side's last realised slot the current value is UNKNOWN
+            ;; only when the walk was actually CAPPED there; a lazy
+            ;; after side that ended on its own below the bound was
+            ;; realised in full, so a before-survivor pairing with
+            ;; nothing past it is genuinely gone and `::missing` — which
+            ;; `leaf-diff-op` reads as `:removed` — is the true answer.
+            ;; Keyed on the ceiling being REACHED, never on the after
+            ;; side's KIND. Realises nothing to decide.
+            past-after  (if (and (endless-candidate? after)
+                                 (= (count a-vec) count-bound))
+                          ::unrealised
+                          ::missing)
             before-order
             (mapcat
               (fn [bi]
                 (if (contains? removed-bis bi)
                   (let [{:keys [before-value]} (removal-by-bi bi)]
                     [[[removed-key-tag bi] ::missing before-value]])
-                  (when-let [ai (bi->ai bi)]
-                    [[ai (nth a-vec ai) (nth b-vec bi)]])))
+                  (if-let [ai (bi->ai bi)]
+                    [[ai (nth a-vec ai) (nth b-vec bi)]]
+                    ;; rf2-f8nm7 — a SURVIVING before-index the after
+                    ;; bound could not reach. Its prior is known and
+                    ;; accessible; its current value is not, and it has
+                    ;; no after-index to be keyed by, so it takes a
+                    ;; synthetic segment rather than an integer another
+                    ;; row already owns. Dropping it instead put the
+                    ;; body SHORT of the header and threw away a value
+                    ;; this walk can still account for.
+                    [[[unreached-key-tag bi] past-after (nth b-vec bi)]])))
               (range (count b-vec)))
             ;; The after-side rows the before-order walk could not reach,
             ;; in after-order. TWO kinds, and the before slot is what
@@ -3514,12 +3616,31 @@
   it is excluded from both structural tests already, so the op comes
   off the projection, and with none it falls to `:modified` — an
   honest 'something here is not settled' beside
-  `unrealised-value-token`'s explicit statement, never a deletion."
+  `unrealised-value-token`'s explicit statement, never a deletion.
+
+  rf2-f8nm7 — ONE row kind cannot let the projection answer, and it is
+  the only clause below that is not about a sentinel. A survivor past
+  the AFTER ceiling has no after-path at all; `sequential-diff-children`
+  addresses it by `unreached-key-tag` precisely because there is no
+  integer to use. `engine/op-at` answers `:same` for a path with no
+  entry — its documented default, not a finding — and
+  `render-leaf-with-diff` reads a `:same` as CERTIFYING the two sides
+  equal, so it paints `present-value`, which for an `::unrealised` after
+  slot falls back to the BEFORE value. The row would then show the
+  PRIOR, in muted unchanged chrome, as the settled current value: a
+  fourth confident falsehood beside the false addition, the false
+  deletion and the silent drop this family already refuses. `:modified`
+  is the honest answer for exactly the reason the paragraph above gives,
+  and it paints `value`, which `paint` turns into the explicit unknown.
+  This clause sits BELOW the `::missing` tests deliberately: when the
+  after side was NOT capped that same row carries `::missing`, its
+  absence is genuinely known, and `:removed` is correct."
   [{:keys [value before projection path removed-ancestor?]}]
   (cond
     removed-ancestor?    :removed
     (= value ::missing)  :removed
     (= before ::missing) (if (= value ::missing) :same :added)
+    (unreached-key? (peek (vec (or path [])))) :modified
     projection           (engine/op-at projection (vec (or path [])))
     (= before value)     :same
     :else                :modified))
