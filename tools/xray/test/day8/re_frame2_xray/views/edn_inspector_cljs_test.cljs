@@ -2355,6 +2355,154 @@
           (str "and NO row claims an unrealised prior: neither side was "
                "capped, so every survivor pairs and the tail run is empty")))))
 
+;; ---- rf2-idydb — `children-of-pair`'s mixed-ceiling tail ------------------
+;;
+;; The SIBLING of the rf2-zk4he family above, reached in the other walker and
+;; failing the OPPOSITE way. `sequential-diff-children` LOST the surplus after
+;; rows; this arm walks `(range (max …))`, so it loses nothing — it fills the
+;; truncated before tail with `::missing` instead.
+;;
+;; `::missing` is the STRUCTURAL sentinel. `leaf-diff-op` reads it BEFORE it
+;; consults the projection — `(= before ::missing) → :added` — so a survivor
+;; whose prior value was merely never realised is painted green as a
+;; structurally new element. That is a CONFIDENT LIE in place of a silent
+;; drop, which is the trade rf2-zk4he's brief named as the thing to avoid,
+;; reached here by a different route in the sibling function.
+;;
+;; The arm is live: `sequential-diff-children` FALLS BACK to it whenever it
+;; has no projection, and its own docstring promises "same answer for the
+;; no-removal case". That promise was false in exactly this shape — the main
+;; path emits `::unrealised` where the fallback emitted `::missing`, and the
+;; two walkers return the SAME triple shape to the same renderer.
+;;
+;; TWO properties, per this family's standing rule — either alone is green
+;; against a plausible wrong fix:
+;;
+;;   P1 NO CONFIDENT LIE  — a survivor past the before bound carries
+;;                          `::unrealised`, and renders as the projection's
+;;                          own op rather than as `:added`.
+;;   P2 ADDITIONS AND     — a before side that ran out HONESTLY still says
+;;      BOUND INTACT        `::missing`, and the walk realises no more of the
+;;                          before side than it did. Swapping the sentinel
+;;                          unconditionally is green on P1 and red on the
+;;                          first half of P2; widening the before bound to
+;;                          "just look" is green on both of those and red on
+;;                          the second.
+
+(deftest children-of-pair-capped-before-tail-is-unknown-not-added-rf2-idydb
+  ;; The item's reproduction. `map` hands back a LazySeq, which is not
+  ;; `counted?`, so `bounded-vec` caps the BEFORE side at `count-bound` while
+  ;; realising the `counted?` AFTER side whole — the independent ceilings
+  ;; rf2-jh12f's `counted?` split introduced.
+  (let [n      1050
+        before (map identity (range n))
+        after  (assoc (vec (range n)) (dec n) :changed-at-tail)
+        rows   (vec (ei/children-of-pair before after :vector))
+        tail   (first (filter (fn [[k _ _]] (= k (dec n))) rows))]
+    (testing "the fixture really is the shape this turns on"
+      (is (not (counted? before))
+          (str "the BEFORE side is a LazySeq, so `bounded-vec` caps it at "
+               count-bound " — `counted?` is the dispatch, not the KIND"))
+      (is (counted? after)
+          "the AFTER side is a vector, so `bounded-vec` realises it whole")
+      (is (= n (count after))
+          (str "and it is " n " long — " (- n count-bound)
+               " elements past the ceiling the other side stopped at")))
+    (testing "nothing is LOST — this arm walks `(range (max …))`"
+      (is (= n (count rows))
+          (str "all " n " rows are emitted. The data-loss failure rf2-zk4he "
+               "repaired one level over does not arise here, which is why a "
+               "row count cannot see this defect: the tail is PRESENT, and "
+               "mislabelled"))
+      (is (some? tail)
+          (str "after-index " (dec n) " is emitted"))
+      (is (= :changed-at-tail (second tail))
+          "carrying the value it actually has in the after-tree"))
+    (testing "P1 — its BEFORE slot says UNKNOWN, and is never `::missing`"
+      (let [b (nth tail 2 ::absent)]
+        (is (= ::ei/unrealised b)
+            (str "the before side was truncated at " count-bound ", so this "
+                 "element's prior value was never realised — which is not the "
+                 "same as its having none"))
+        (is (not= ::ei/missing b)
+            (str "`::missing` OVERRIDES the projection in `leaf-diff-op`, so "
+                 "borrowing it for an unknown prior paints a surviving "
+                 "element green as newly added"))))
+    (testing "P1 — and it renders as the projection's own op, never `:added`"
+      ;; The chain closed end to end: the slot `children-of-pair` actually
+      ;; produced, handed to the renderer against the projection computed
+      ;; over the FULL pair — which owes nothing to the walker's ceiling.
+      (let [proj    (engine/project before after)
+            proj-op (engine/op-at proj [(dec n)])
+            render  (fn [b]
+                      (ei/render-node {:value      (second tail)
+                                       :before     b
+                                       :diff?      true
+                                       :projection proj
+                                       :panel-id   :test :mount-id "m1"
+                                       :path       [(dec n)] :depth 1
+                                       :expansion-map {} :opts {}}))]
+        (is (not= :added proj-op)
+            (str "the projection saw BOTH full trees and calls after-index "
+                 (dec n) " `" proj-op "` — it is a survivor, not an addition"))
+        (let [tree (render (nth tail 2))]
+          (is (empty? (nodes-with-attr tree :data-rf-diff-op "added"))
+              "so the row must not render as `:added` — the defect's signature")
+          (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
+              (str "it renders the projection's own `" proj-op "` instead")))
+        (testing "CONTROL — `::missing` in the SAME slot really does force `:added`"
+          ;; Without this the assertions above could be green because nothing
+          ;; renders an `:added` marker on this path at all.
+          (let [tree (render ::ei/missing)]
+            (is (seq (nodes-with-attr tree :data-rf-diff-op "added"))
+                (str "`::missing` forces `:added` even against a projection "
+                     "saying `" proj-op "` — the structural override is real, "
+                     "which is exactly why this arm must not emit it here"))
+            (is (empty? (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
+                "and suppresses the projection's own op entirely")))))))
+
+(deftest children-of-pair-honest-before-exhaustion-stays-missing-rf2-idydb
+  ;; P2. Green on TRUNK and must stay green: its job is to refuse a WRONG fix,
+  ;; not to catch the current defect. `::missing` is CORRECT wherever the walk
+  ;; realised the whole before side and found no element — swapping the
+  ;; sentinel unconditionally would report every genuine append as an unknown
+  ;; prior, which is the same confident falsehood pointing the other way.
+  (testing "P2 — both sides `counted?`: the surplus after tail is a real addition"
+    (let [rows (vec (ei/children-of-pair [1 2] [1 2 3 4] :vector))
+          bs   (mapv (fn [[_ _ b]] b) rows)]
+      (is (= 4 (count rows)) "index-aligned to the longer side")
+      (is (= [::ei/missing ::ei/missing] (subvec bs 2))
+          (str "neither side was capped — `bounded-vec` realises a `counted?` "
+               "collection whole — so indices 2 and 3 genuinely had no prior"))))
+  (testing "P2 — a SHORT lazy before side ended honestly, under the ceiling"
+    ;; The discriminator. This side is NOT `counted?`, exactly like the
+    ;; defect's fixture, but it ran out on its own well before `count-bound`,
+    ;; so the walk DOES know these slots are absent. A fix keyed on the KIND
+    ;; of the before side rather than on the ceiling being REACHED is red here.
+    (let [before (map identity (range 5))
+          rows   (vec (ei/children-of-pair before (vec (range 8)) :vector))
+          bs     (mapv (fn [[_ _ b]] b) rows)]
+      (is (not (counted? before))
+          "a LazySeq, the same shape the defect's fixture uses")
+      (is (= 8 (count rows)) "index-aligned to the longer side")
+      (is (= [::ei/missing ::ei/missing ::ei/missing] (subvec bs 5))
+          (str "the walk realised all 5 elements and the seq ended — under "
+               "the ceiling, so absence here is KNOWN, not unknown"))))
+  (testing "P2 — the before bound is not widened to find out"
+    ;; A REALISATION counter, never an output length: a "fix" that told the
+    ;; two cases apart by pulling one more element off the before side is
+    ;; green on P1 and on both halves above, and red right here.
+    (let [n     1050
+          guard 1500
+          seen  (atom 0)
+          after (vec (range n))
+          rows  (vec (ei/children-of-pair (counting-seq seen guard) after :vector))]
+      (is (<= @seen count-bound)
+          (str "realised " @seen " elements of the endless BEFORE side; the "
+               "walker's bound is " count-bound))
+      (is (= n (count rows))
+          (str "and still emits all " n " accessible AFTER rows")))))
+
 (deftest diff-renders-removed-set-member
   ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
   ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER
