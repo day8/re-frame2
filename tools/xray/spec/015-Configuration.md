@@ -771,10 +771,10 @@ persistence fx is `:rf.xray.static/persist-mode` (per
 mode).
 
 Cross-reference: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode
-(visual-language treatment of the mode pill, edge stripe, motion
-dampening, chrome silhouette) +
+(visual-language treatment of the mode pill, motion dampening,
+chrome silhouette) +
 [`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface (the
-architectural contract — 3-layer silhouette, 4-signal mode-recognition
+architectural contract — 3-layer silhouette, mode-recognition
 mechanism, mode-state lifecycle).
 
 ## App-db slots
