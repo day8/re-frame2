@@ -221,6 +221,136 @@
   (is (= [] (sim-h/available-transitions nil nil)))
   (is (= [] (sim-h/available-transitions flat-definition nil))))
 
+(deftest available-transitions-stamps-the-declaring-path-on-every-row
+  (testing "every row says where it was DECLARED, so a parallel region's rows
+            can be told apart — the same `:decl-path` slot
+            `available-after-transitions` already stamps"
+    (is (= [:idle] (:decl-path (first (sim-h/available-transitions
+                                        flat-definition {:state :idle})))))
+    (is (= [:auth :form] (:decl-path (first (sim-h/available-transitions
+                                              hierarchical-definition
+                                              {:state [:auth :form]}))))
+        "a compound leaf's own path, not the root's")))
+
+;; ---- (3c) parallel region-maps (rf2-ky034) ------------------------------
+;;
+;; A `:type :parallel` snapshot's `:state` is a MAP of region → state. That
+;; shape matched no arm of `normalise-path`, so it fell through to `[]`, the
+;; lookup ran against an empty path, and the picker rendered "No outgoing
+;; transitions declared on this state." for EVERY parallel machine — a
+;; positive claim about the user's definition, and a false one.
+;;
+;; Every fixture below is seeded and driven through the REAL engine, so no
+;; test here can pin a configuration the engine never produces.
+
+(def ^:private parallel-on-definition
+  "A `:type :parallel` root whose regions BOTH declare `:on`, plus a root
+  `:on` ancestor fallback. `:net`'s `:busy` declares an `:after` as well, so
+  one snapshot exercises both halves of the rail at once."
+  {:type    :parallel
+   :data    {}
+   :on      {:abort [:net :timeout]}
+   :regions {:form {:initial :editing
+                    :states  {:editing   {:on {:submit :submitted}}
+                              :submitted {:on {:edit :editing}}}}
+             :net  {:initial :idle
+                    :states  {:idle    {:on {:go :busy}}
+                              :busy    {:after {3000 :timeout}
+                                        :on    {:done :idle}}
+                              :timeout {}}}}})
+
+(deftest available-transitions-lists-every-parallel-region-leaf
+  (testing "P1 — the regression. Each region's OWN leaf contributes its `:on`
+            rows, region-prefixed, where the whole picker used to be empty"
+    (let [snap (engine-seed parallel-on-definition)
+          rows (sim-h/available-transitions parallel-on-definition snap)]
+      (is (map? (:state snap))
+          "THE PRECONDITION — this snapshot's :state really is a region map")
+      (is (= #{:submit :go} (set (map :event rows)))
+          "both regions answer; before rf2-ky034 this was #{}")
+      (is (= {:submit [:form :editing]
+              :go     [:net :idle]}
+             (into {} (map (juxt :event :decl-path)) rows))
+          "region-prefixed, matching what the engine puts on its own fx")
+      (is (= {:submit :submitted :go :busy}
+             (into {} (map (juxt :event :target)) rows))))))
+
+(deftest available-transitions-lists-only-regions-that-declare
+  (testing "P1 control — a region declaring no `:on` contributes nothing, so
+            the positive reading above is not just 'everything lists'"
+    (let [rows (sim-h/available-transitions parallel-definition
+                                            (engine-seed parallel-definition))]
+      (is (= [:submit] (map :event rows))
+          ":form declares :submit; :net's :idle declares nothing")
+      (is (= [[:form :editing]] (map :decl-path rows))))))
+
+(deftest available-transitions-follows-the-region-that-moved
+  (testing "P2 — stepping ONE region re-lists that region's new leaf and
+            leaves the other region's rows alone"
+    (let [snap0 (engine-seed parallel-on-definition)
+          snap1 (:snapshot (rf.machines/machine-transition
+                             parallel-on-definition snap0 [:go]))
+          rows  (sim-h/available-transitions parallel-on-definition snap1)]
+      (is (= {:form :editing :net :busy} (:state snap1))
+          "the engine moved :net only")
+      (is (= #{:submit :done} (set (map :event rows)))
+          ":net now offers :done from :busy; :form still offers :submit")
+      (is (= [:net :busy]
+             (some #(when (= :done (:event %)) (:decl-path %)) rows))))))
+
+(deftest available-transitions-rows-are-fireable-through-the-engine
+  (testing "P3 — the rows are not decoration: firing each listed event through
+            the REAL engine moves the region the row was declared in"
+    (let [snap (engine-seed parallel-on-definition)
+          rows (sim-h/available-transitions parallel-on-definition snap)]
+      (is (= 2 (count rows)))
+      (doseq [{:keys [event decl-path target]} rows]
+        (let [r (rf.machines/machine-transition parallel-on-definition snap [event])
+              region (first decl-path)]
+          (is (= :ok (:status r))
+              (str "the engine handled " event))
+          (is (= target (get-in r [:snapshot :state region]))
+              (str event " moved region " region " to its declared target")))))))
+
+(deftest available-transitions-excludes-the-parallel-root-on-fallback
+  (testing "P4 — a `:type :parallel` ROOT's own `:on` is the engine's ancestor
+            fallback, and the picker does NOT list it, for the same reason a
+            flat machine's machine-root `:on` has never been listed: both are
+            parent inheritance, and this fn is leaf-only by policy"
+    (let [snap (engine-seed parallel-on-definition)
+          rows (sim-h/available-transitions parallel-on-definition snap)]
+      (is (= {:abort [:net :timeout]} (:on parallel-on-definition))
+          "THE PRECONDITION — the root really does declare :abort")
+      (is (not (contains? (set (map :event rows)) :abort))
+          "root :on is excluded")
+      (is (= [] (sim-h/available-transitions
+                  {:initial :idle
+                   :on      {:abort :stopped}
+                   :states  {:idle {} :stopped {}}}
+                  {:state :idle}))
+          "THE CONTROL — the same exclusion already applied to a FLAT
+           machine's root :on, so parallel is consistent rather than special"))))
+
+(deftest available-transitions-resolves-a-compound-region-leaf
+  (testing "P5 — a region whose own state is hierarchical resolves to its
+            LEAF, with the region prefixed onto the full in-region path"
+    (let [definition {:type    :parallel
+                      :data    {}
+                      :regions {:auth {:initial :login
+                                       :states  {:login {:initial :form
+                                                         :states  {:form    {:on {:submit :loading}}
+                                                                   :loading {}}}}}
+                                :net  {:initial :idle
+                                       :states  {:idle {:on {:go :busy}} :busy {}}}}}
+          snap       (engine-seed definition)
+          rows       (sim-h/available-transitions definition snap)]
+      (is (= [:login :form] (get-in snap [:state :auth]))
+          "THE PRECONDITION — the engine seeded the region at a compound leaf")
+      (is (= [:auth :login :form]
+             (some #(when (= :submit (:event %)) (:decl-path %)) rows))
+          "region prefix + the whole in-region path")
+      (is (= #{:submit :go} (set (map :event rows)))))))
+
 ;; ---- (3b) `:after` timer rows (rf2-pzuqw) -------------------------------
 ;;
 ;; The rail lists each `:after` timer declared on the ACTIVE PATH as a
