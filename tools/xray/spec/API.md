@@ -467,9 +467,17 @@ CALLABLE and `static/shell.cljs` mounts it as the Reagent hiccup head
 `[(:panel tab)]`, neither of which a React component is, so each of the
 five registers a small **private** bridge
 (`[:> (rf.fresco/as-component Panel) {}]`) instead of the boundary
-itself. That bridge is scaffolding with a defined end: when the Static
-shell is itself a Fresco tree, `reg-l4-tab!` takes the boundary
-directly and every bridge is deleted. The section heading above keeps
+itself. **That bridge is not scaffolding, and it stays** (rf2-lect,
+ruled option 2). Being a Fresco tree was never the condition that
+retires it: the Static shell IS one today — `static/shell.cljs`
+declares four `rf.fresco/defview` boundaries (`ribbon`, `tab-bar`,
+`detail-panel`, `surface`) — and all five bridges stayed anyway,
+because `detail-panel` still reaches the panel across an `as-child`
+seam, so `[(:panel tab)]` is a Reagent hiccup vector and
+`reg-l4-tab!`'s `:pre` still requires a callable `:panel`. Read the
+bridge as the supported registry contract, not as work awaiting
+demolition — [`Conventions.md`](./Conventions.md#required-shape)
+records the same rule for the facades. The section heading above keeps
 its historical name so the `§Panel reg-views` citations elsewhere in
 `tools/xray/spec/` still land.
 
