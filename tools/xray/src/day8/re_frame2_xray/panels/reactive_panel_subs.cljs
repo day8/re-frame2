@@ -236,10 +236,12 @@
 
   Reads `:rf.view/rendered` and `:rf.view/unmounted` ops off the raw
   `:trace-events` (the phase-A rf2-9hoos additions). The structured
-  `:renders` projection is intentionally NOT used here — it projects
-  from `:rf.view/render` (the render-START marker) and carries neither
-  `:rf.view/mount?` nor `:rf.view/deref-subs`. The action/reason data
-  rides the post-render `:rf.view/rendered` op + the `:rf.view/unmounted` op.
+  `:renders` projection is intentionally NOT used here — `render-row`
+  (`re-frame.epoch.capture`) projects from the same post-render
+  `:rf.view/rendered` op, but its row carries no `:rf.view/deref-subs`
+  (so `:reason` is not derivable) and an unmount produces no row at
+  all (so `:unmount` has no source). The action/reason data rides the
+  post-render `:rf.view/rendered` op + the `:rf.view/unmounted` op.
 
   Each row:
 
