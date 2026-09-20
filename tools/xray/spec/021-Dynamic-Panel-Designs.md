@@ -1281,7 +1281,7 @@ the View, App-db, Machines, Routing and Issues designs as retired, and
 rf2-6r9j.16 deleted the shared component itself, which had been built
 (rf2-h7nqh) but never mounted anywhere.
 
-Epoch navigation is owned by the L2 events list / events-ribbon nav
+Epoch navigation is owned by the L2 events list / chrome-ribbon nav
 (`◀ ▶ ⏭`); every L4 panel re-scopes whenever spine focus moves. This is
 the single navigation owner — a panel that wants its own epoch stepper
 is proposing a second one, and needs that argued rather than assumed.
