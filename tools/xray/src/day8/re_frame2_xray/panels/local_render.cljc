@@ -11,14 +11,20 @@
   boundary primitive `re-frame.core/project-egress` under the named egress
   PROFILE for on-box dev-tool rendering.
 
-  Three arms, differing ONLY in how the walk is SEEDED — the profile, the
-  `:frame` stamping and the fail-closed posture are shared:
+  Four arms, the first three differing ONLY in how the walk is SEEDED — the
+  profile, the `:frame` stamping and the fail-closed posture are shared:
   `local-render-value` walks a value AS the root; `local-render-value-at`
   seeds an explicit absolute `:path` for a slice egress'd in isolation;
   `local-render-route-sub-value` names a framework ROUTE READ sub and lets
   routing's own seed table supply the position (rf2-8nyi2). A route's
   classification is re-rooted under `[:rf.runtime/routing :current …]`, so
   the first arm cannot match it and the Routing panel needs the third.
+
+  The fourth, `local-render-route-slice`, is a COMPOSITION rather than a
+  fourth seeding: it applies the route-sub arm to each of the two keys the
+  route classification contract covers (`:query`, `:params`), because a
+  route's declaration is projection-relative to that whole shape and a
+  surface projecting one axis honours half a contract (rf2-6j8gd).
 
   ## The default is `:rf.egress/local-redacted` (EP-0015 §10, issue 3)
 
