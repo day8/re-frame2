@@ -264,6 +264,85 @@
         (is (= :map (:type s)) "`:type` is unchanged")
         (is (= 1 (:size s))    "and so is `:size` — summarize is untouched")))))
 
+(deftest rf2-kbo64-a-shortened-key-or-member-is-never-put-back
+  ;; TWO DIFFERENT PROPERTIES, AND NEITHER TEST CATCHES THE OTHER'S DEFECT —
+  ;; which is why a length-only regression is not enough here.
+  ;;
+  ;; Shortening a map KEY with `dissoc` + `assoc` (or a set member with
+  ;; `disj` + `conj`) does two separable things:
+  ;;   1. it MOVES the entry — on an array-map to the END — so the preview
+  ;;      stops opening where the real print opens. Caught by PREFIX
+  ;;      FIDELITY; the print stays short, so a length assertion sees nothing.
+  ;;   2. it COLLAPSES keys sharing a `preview-limit`-character prefix, which
+  ;;      SHRINKS the collection and pulls an entry the walk never visited
+  ;;      inside the print window with its value still unbounded. Caught by
+  ;;      the PRINT LENGTH; the surviving prefix is unchanged, so a prefix
+  ;;      assertion sees nothing.
+  (let [huge (apply str (repeat 200000 "x"))]
+
+    (testing "PREFIX FIDELITY — a long KEY keeps its place, so the operator
+              still reads the characters the unbounded print would have given"
+      (let [v (array-map huge 1 :small 2)]
+        (is (= (subs (pr-str v) 0 80)
+               (subs (h/bounded-pr-str v) 0 80))
+            "the bounded print must OPEN where the real print opens — a
+             `dissoc`/`assoc` moves the long key to the END, so this reads
+             `{:small 2, ...` against the defect")
+        (is (= (subs (pr-str v) 0 80)
+               (subs (:preview (h/summarize v)) 0 80))
+            "and so must the preview, which is what the panel renders")
+        (is (< (count (h/bounded-pr-str v)) 1000)
+            (str "printed " (count (h/bounded-pr-str v))
+                 " characters — this one stays SHORT against the defect,"
+                 " which is precisely why length cannot be the only test"))))
+
+    (testing "COLLIDING KEY PREFIXES — 81 keys sharing their first
+              `preview-limit` characters must not collapse the map and drag
+              the unwalked 81st entry, value still unbounded, into the print"
+      (let [pre  (apply str (repeat 80 "k"))
+            ks   (mapv #(str pre "-" %) (range 81))
+            ;; ONE shared value string, so the fixture costs 200k characters
+            ;; in total rather than 81 copies of it.
+            v    (into (sorted-map) (map (fn [k] [k huge])) ks)
+            out  (h/bounded-pr-str v)]
+        (is (< (count out) (count huge))
+            (str "printed " (count out) " characters to preview a map whose"
+                 " values are " (count huge) " characters — the collapse"
+                 " leaves the unwalked entry's value to serialise in full"))
+        ;; THE THRESHOLD-FREE FORM OF THE SAME PROPERTY: what is printed must
+        ;; not depend on how large the bounded values were.
+        (is (= (count out)
+               (count (h/bounded-pr-str
+                        (into (sorted-map)
+                              (map (fn [k] [k (apply str (repeat 400000 "y"))]))
+                              ks))))
+            "doubling every value must not change the bounded print by one
+             character")
+        (is (= (str "{" (subs (pr-str (first (keys v))) 0 79))
+               (subs out 0 80))
+            "and the print still opens on the map's own first key")))
+
+    (testing "SETS — a member IS its own key, so there is no slot to put a
+              shortened one back into and the same correction applies"
+      (let [pre     (apply str (repeat 80 "s"))
+            ;; 80 members colliding on their first `preview-limit`
+            ;; characters, plus one member that sorts AFTER all of them and
+            ;; so is never walked. Collapsing the 80 leaves that last one
+            ;; inside the print window, in full.
+            colliding (mapv #(str pre "-" %) (range 80))
+            unwalked  (str "t" (apply str (repeat 200000 "z")))
+            v         (into (sorted-set) (conj colliding unwalked))
+            out       (h/bounded-pr-str v)]
+        (is (= 81 (count v)) "fixture: the unwalked member is the 81st")
+        (is (< (count out) (count unwalked))
+            (str "printed " (count out) " characters for a set whose 81st,"
+                 " never-walked member is " (count unwalked) " characters"))
+        (is (= (str "#{" (subs (pr-str (first v)) 0 78))
+               (subs out 0 80))
+            "and the print opens on the set's own first member")
+        (is (< (count (h/bounded-pr-str #{huge})) 1000)
+            "a single long member is still bounded")))))
+
 (deftest summarize-node-attaches-summaries-leaves-structure
   (let [node {:id [:sub [:article/page "welcome"]] :kind :derivation
               :inputs [[:sub [:article/by-slug "welcome"]]]
