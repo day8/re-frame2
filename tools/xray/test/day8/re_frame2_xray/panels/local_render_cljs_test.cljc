@@ -43,6 +43,19 @@
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            ;; rf2-6j8gd — the ROUTE-OWNED lowering, reached directly so the
+            ;; JVM lane can pin that a `:params` classification path both
+            ;; VALIDATES and RE-ROOTS. `routing_helpers.cljc` already reaches
+            ;; `re-frame.routing.match` the same way, so this is the
+            ;; established grain for a routing internal, not a new one.
+            [re-frame.routing.classification :as rf.routing.classification]
+            ;; Loaded for its LATE-BIND PUBLICATION, not for a symbol: the
+            ;; routing facade is what binds `:routing/route-sub-egress-path`,
+            ;; and without it `local-render-route-sub-value` resolves no seed
+            ;; and walks at the root — which its own docstring says, and which
+            ;; is silently a PASS-shaped failure for a redaction row. The
+            ;; sibling `.cljs` query test requires it for the same reason.
+            [re-frame.routing]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-xray.panels.local-render :as local-render]))
 
@@ -57,6 +70,19 @@
 (def secure-frame :app/secure)
 (def plain-frame  :app/plain)
 
+;; rf2-6j8gd — a third frame carrying a genuine ROUTE-OWNED classification
+;; (`:source :route`), lowered by routing's own `lower-for-route` rather than
+;; hand-written at an absolute path. That distinction is the whole point of
+;; the frame: it means these rows exercise `validate+extract` and
+;; `apply-route-classification` for real, so the JVM lane — not only the node
+;; lane — answers whether a `[:params …]` declaration is supported.
+(def route-frame :app/routed)
+
+(def ^:private route-declaration
+  "A route's PROJECTION-RELATIVE declaration naming one key on EACH covered
+  axis. Nothing in the classification code distinguishes them."
+  {:sensitive [[:params :token] [:query :token]]})
+
 (defn- install-policy! []
   ;; EP-0025: durable app-db classification rides the commit-plane
   ;; classification effects (`:source :effect`) — the frame annotation is removed.
@@ -65,10 +91,17 @@
                {:sensitive [[:auth :token]]
                 :large     [[:catalog :rows]]}))))
 
+(defn- install-route-policy! []
+  (rf.frame/swap-runtime-db! route-frame
+    (fn [rt] (rf.routing.classification/lower-for-route
+               rt :route/user route-declaration))))
+
 (defn- init-fn []
   (rf/make-frame {:id plain-frame})
   (rf/make-frame {:id secure-frame})
-  (install-policy!))
+  (rf/make-frame {:id route-frame})
+  (install-policy!)
+  (install-route-policy!))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -340,3 +373,147 @@
                (pr-str rendered)))
       (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
           "the session token leaked through an unreachable frame"))))
+
+;; ---------------------------------------------------------------------------
+;; 10. rf2-6j8gd — `local-render-route-slice`: BOTH covered projections.
+;;
+;; These rows are DUAL-RUNTIME on purpose. The Routing panel's render path is
+;; `.cljs` and only the node lane grades it, so the view-level regression lives
+;; in `routing_params_egress_cljs_test.cljs`. What is gradeable on the JVM is
+;; the ALGEBRA plus the framework contract it rests on — which keys the arm
+;; touches, that an absent key is left absent, and (row 10a) that a `[:params …]`
+;; declaration is genuinely accepted and re-rooted by routing's own lowering.
+;; ---------------------------------------------------------------------------
+
+(def ^:private route-secret "secret-abc123")
+(def ^:private route-sibling "posts")
+
+(def ^:private route-slice
+  "A route slice as `re-frame.routing.events/merge-route-slice` writes it:
+  each covered axis carries the declared key and an UNCLASSIFIED sibling,
+  and the uncovered keys ride alongside."
+  {:route-id   :route/user
+   :params     {:token route-secret :tab route-sibling}
+   :query      {:token route-secret :tab route-sibling}
+   :fragment   "step-3"
+   :transition :settled})
+
+(deftest route-classification-accepts-and-lowers-a-params-path
+  (testing "rf2-6j8gd — the premise the whole item rests on, measured in the
+            VALIDATION and LOWERING code rather than read off a docstring.
+            Spec 012's worked example declares :sensitive on QUERY paths and
+            :large on the PARAMS path, so ':sensitive on a :params path' is
+            not something the example demonstrates. It is nonetheless fully
+            supported: `normalize-axis-paths` validates any concrete path
+            without inspecting its head, and `apply-route-classification`
+            re-roots every path the same way."
+    (let [extracted (rf.routing.classification/validate+extract
+                      :route/user route-declaration)]
+      (is (= [[:params :token] [:query :token]] (:sensitive extracted))
+          "a [:params …] path was rejected or reshaped at validation")
+      (is (= [] (:large extracted))
+          "the absent :large axis did not normalise to empty"))
+    (let [lowered (rf.routing.classification/apply-route-classification
+                    {} (rf.routing.classification/validate+extract
+                         :route/user route-declaration))
+          claims  (-> lowered :rf.runtime/elision :sensitive-declarations)]
+      ;; The registry is keyed BY PATH, each key carrying the set of owners
+      ;; claiming it — so the coordinates are the KEYS, and `:source :route`
+      ;; is what says route ACTIVATION put them there rather than a
+      ;; commit-plane effect.
+      (is (some? claims)
+          "lowering wrote no sensitive declarations at all")
+      (is (contains? claims [:rf.runtime/routing :current :params :token])
+          (str "the [:params :token] declaration did not re-root to the "
+               "absolute runtime-db coordinate the params seed walks at. got: "
+               (pr-str claims)))
+      (is (= #{{:source :route}}
+             (get claims [:rf.runtime/routing :current :params :token]))
+          "the params coordinate was not claimed by the ROUTE owner")
+      (is (contains? claims [:rf.runtime/routing :current :query :token])
+          "the [:query :token] declaration did not re-root — the control that
+           says the two axes lower identically"))))
+
+(deftest local-render-route-slice-projects-both-covered-keys
+  (testing "rf2-6j8gd — the arm lowers the declared key on BOTH covered axes
+            under a genuine :source :route registry, and leaves each
+            unclassified sibling alone. The sibling is the discriminator: it
+            separates path-precise declaration matching from a fail-closed
+            whole-value redaction that would hide a leak by accident."
+    (let [rendered (local-render/local-render-route-slice route-slice route-frame)]
+      (is (= :rf/redacted (get-in rendered [:params :token]))
+          "the declared PATH CAPTURE did not lower — this is rf2-6j8gd itself")
+      (is (= :rf/redacted (get-in rendered [:query :token]))
+          "the declared QUERY key did not lower — rf2-8nyi2 regressed")
+      (is (= route-sibling (get-in rendered [:params :tab]))
+          "the unclassified params sibling was scrubbed — blanket redaction")
+      (is (= route-sibling (get-in rendered [:query :tab]))
+          "the unclassified query sibling was scrubbed — blanket redaction"))
+
+    (testing "the keys OUTSIDE the classification contract ride unchanged"
+      (let [rendered (local-render/local-render-route-slice route-slice route-frame)]
+        (is (= "step-3" (:fragment rendered)) ":fragment was projected")
+        (is (= :settled (:transition rendered)) ":transition was projected")
+        (is (= :route/user (:route-id rendered)) ":route-id was projected")))
+
+    (testing "a frame that declares NOTHING rides every key verbatim — the
+              ordinary case the fix must not disturb"
+      (is (= route-slice
+             (local-render/local-render-route-slice route-slice plain-frame))
+          "an undeclared frame's slice was altered"))
+
+    (testing "the :rf.egress/local-raw grain reaches this arm too"
+      (is (= route-slice
+             (local-render/local-render-route-slice route-slice route-frame true))
+          "the trusted-local opt-in withheld a declared key"))))
+
+(deftest local-render-route-slice-touches-only-keys-the-router-wrote
+  (testing "rf2-6j8gd — fail-closed must not INVENT a value where the router
+            wrote none, so a key absent from the slice stays absent rather
+            than becoming a sentinel a section would then render."
+    (let [no-query (dissoc route-slice :query)
+          rendered (local-render/local-render-route-slice no-query route-frame)]
+      (is (not (contains? rendered :query))
+          "an absent :query was materialised as a sentinel")
+      (is (= :rf/redacted (get-in rendered [:params :token]))
+          "the present axis stopped projecting once its sibling was absent"))
+
+    (testing "an empty params map is projected, not skipped, and stays empty"
+      (let [rendered (local-render/local-render-route-slice
+                       (assoc route-slice :params {}) route-frame)]
+        (is (= {} (:params rendered))
+            "an empty params map did not survive as an empty map")))
+
+    (testing "no slice at all (no active route) returns nil"
+      (is (nil? (local-render/local-render-route-slice nil route-frame))
+          "a nil slice produced a value"))))
+
+(deftest local-render-route-slice-fails-closed-on-an-unreachable-frame
+  (testing "rf2-6j8gd — the arm inherits the seam's fail-closed behaviour
+            whole: an unreachable observed frame is stamped VERBATIM, so each
+            covered key redacts rather than borrowing an ambient frame's
+            policy. The uncovered keys are not projected and so are not
+            protected — which is exactly why the panel reaches this through a
+            sub whose OTHER input has already failed on such a frame."
+    (let [rendered (local-render/local-render-route-slice
+                     route-slice :app/does-not-exist)]
+      (is (= :rf/redacted (:params rendered))
+          (str "an unreachable frame did not redact params WHOLE. got: "
+               (pr-str (:params rendered))))
+      (is (= :rf/redacted (:query rendered))
+          (str "an unreachable frame did not redact query WHOLE. got: "
+               (pr-str (:query rendered))))
+      (is (not (re-find (re-pattern route-secret) (pr-str rendered)))
+          (str "the secret survived an unreachable-frame projection: "
+               (pr-str rendered))))))
+
+(deftest route-slice-classified-projections-is-the-contract-not-a-convenience
+  (testing "rf2-6j8gd — the table names exactly the two keys the route
+            classification contract covers, each mapped to the routing-owned
+            sub whose seed re-roots it. Pinned because ADDING a key here
+            silently widens what Xray projects beyond what
+            `re-frame.routing.sub-egress` makes any sensitivity claim about,
+            and REMOVING one silently reopens a leak."
+    (is (= {:query :rf.route/query :params :rf.route/params}
+           local-render/route-slice-classified-projections)
+        "the covered-projection table changed")))

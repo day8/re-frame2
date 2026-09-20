@@ -214,11 +214,15 @@
   renders with `pr-str` and no sort, so its keys keep the order the
   router's array-map gave them (rf2-c5cub).
 
-  The `:query` this receives is already the EGRESS PROJECTION, not raw
-  frame state — [[current-route-slice-value]] applies the observed
-  frame's classification before the composite is built (rf2-8nyi2), so a
-  declared-sensitive key reads `:rf/redacted` here. That is why the guard
-  is [[show-query?]] and not `seq`: a whole-value redaction is a scalar."
+  The `:query` AND `:params` this receives are already the EGRESS
+  PROJECTION, not raw frame state — [[current-route-slice-value]] applies
+  the observed frame's classification to both before the composite is
+  built (rf2-8nyi2 the query, rf2-6j8gd the params), so a
+  declared-sensitive key reads `:rf/redacted` here. That is why the query
+  guard is [[show-query?]] and not `seq`: a whole-value redaction is a
+  scalar. The params span needs no such guard — it renders
+  unconditionally through `(or params {})`, so a scalar sentinel simply
+  prints as itself."
   [{:keys [current]}]
   (let [{:keys [route-id params query fragment transition error]} current
         id route-id
@@ -689,48 +693,60 @@
 (defn- current-route-slice-value
   "The live route slice off the target frame's runtime-db
   (`[:rf.runtime/routing :current]`; EP-0001 rf2-vzld77 — runtime-db
-  state, not app-db), with its `:query` PROJECTED for on-box render under
+  state, not app-db), with BOTH classification-covered projections —
+  `:query` and `:params` — PROJECTED for on-box render under
   `observed-frame`'s own classification.
 
-  ## Why the projection is here (rf2-8nyi2)
+  ## Why the projection is here (rf2-8nyi2, rf2-6j8gd)
 
   The slice is raw frame state, and until this the panel rendered its
-  query straight to the DOM with `pr-str`. A route that DECLARED a query
-  key `:sensitive` — Spec 012 §Route data classification's own example
-  promotes `:token` — therefore displayed the live token under the
-  on-box `:rf.egress/local-redacted` default. The declaration was made
-  and nothing consulted it: a missed explicit data-hygiene declaration,
-  not a claim that undeclared carriers are a boundary.
+  query and its params straight to the DOM with `pr-str`. A route that
+  DECLARED a key `:sensitive` — Spec 012 §Route data classification's own
+  example promotes `:token` — therefore displayed the live token under
+  the on-box `:rf.egress/local-redacted` default. The declaration was
+  made and nothing consulted it: a missed explicit data-hygiene
+  declaration, not a claim that undeclared carriers are a boundary.
 
-  `local-render/local-render-route-sub-value` names the framework route
-  read sub `:rf.route/query`, which is what lets the walk re-seed at the
-  slice's runtime-db storage position so the route's RE-ROOTED absolute
-  declarations match. Seeding is routing's to own — see that fn for why
+  rf2-8nyi2 fixed the query and scoped itself to the key it was filed
+  against, recording the params residue in its own notes; rf2-6j8gd is
+  that residue. The two axes were never different in the contract —
+  `re-frame.routing.classification` validates any concrete path
+  (`normalize-axis-paths`) and re-roots every one of them the same way
+  (`apply-route-classification`), and PARAMS are the axis that cannot
+  fail open, because a path capture is always keyword-keyed
+  (`re-frame.routing.match`) where an unpromoted query key stays a
+  string. So a surface projecting query alone honoured half a contract,
+  and honoured the weaker half.
+
+  `local-render/local-render-route-slice` composes the route-sub arm over
+  both keys, each named by the framework route read sub
+  (`:rf.route/query` / `:rf.route/params`) whose seed re-roots the walk to
+  that key's runtime-db storage position so the route's RE-ROOTED absolute
+  declarations match. Seeding is routing's to own — see those fns for why
   naming the sub beats spelling the path here.
 
   ## What is deliberately NOT projected
 
-  `:params` and `:fragment` ride unchanged. The same re-rooting reaches
-  `[:rf.runtime/routing :current :params]` in principle, but this item is
-  scoped to the query it was filed against; widening it is a separate
-  call. Nothing here is a blanket scrub.
+  `:fragment` rides unchanged, and so do `:transition`, `:error` and
+  `:nav-token`. These are outside the route classification contract's
+  `{:query … :params …}` projection, and
+  `re-frame.routing.sub-egress` seeds no sub for them precisely because it
+  makes no sensitivity claim about them. Nothing here is a blanket scrub.
 
   ## Shape
 
-  Only a slice that actually CARRIES a query is touched, so an absent
-  query stays absent rather than becoming a `:rf/redacted` sentinel the
-  section would then render — fail-closed must not invent a value where
-  the router wrote none. `observed-frame` is stamped VERBATIM: nil /
-  destroyed / never-registered fails closed to `:rf/redacted`, which
-  [[show-query?]] renders as itself."
+  Only a key the router actually WROTE is touched, so an absent query
+  stays absent rather than becoming a `:rf/redacted` sentinel the section
+  would then render — fail-closed must not invent a value where the router
+  wrote none. `observed-frame` is stamped VERBATIM: nil / destroyed /
+  never-registered fails closed to `:rf/redacted`, which [[show-query?]]
+  renders as itself and which the params span, having no `seq` guard to
+  break, prints as the scalar it is."
   [target-runtime-db observed-frame]
   (when (map? target-runtime-db)
-    (let [slice (get-in target-runtime-db [:rf.runtime/routing :current])]
-      (if (some? (:query slice))
-        (assoc slice :query
-               (local-render/local-render-route-sub-value
-                 (:query slice) observed-frame :rf.route/query))
-        slice))))
+    (local-render/local-render-route-slice
+      (get-in target-runtime-db [:rf.runtime/routing :current])
+      observed-frame)))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -745,9 +761,10 @@
       target-frame RUNTIME-DB reading the routing slice at
       `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route
       slice is framework-owned runtime-db state, not app-db). Its
-      `:query` is EGRESS-PROJECTED under the OBSERVED frame's own
-      classification before it leaves this sub (rf2-8nyi2) — see
-      [[current-route-slice-value]].
+      `:query` and `:params` — the two keys the route classification
+      contract covers — are EGRESS-PROJECTED under the OBSERVED frame's
+      own classification before it leaves this sub (rf2-8nyi2, rf2-6j8gd)
+      — see [[current-route-slice-value]].
     - `:rf.xray/routing-tab-data` — view-facing topology-plus-overlay
       composite (focused-epoch scoped). Carries `:silent?`, `:topology`,
       `:activity`, `:from-id`, `:to-id`, `:navigated?`, `:current`.
@@ -773,9 +790,12 @@
     (fn [[_buffer] _query]
       (registered-routes-value)))
 
-  ;; rf2-8nyi2 — `:rf.xray/observed-frame` rides as a second input purely
-  ;; so the slice's `:query` can be projected under the frame whose
-  ;; classification actually governs it. It must be the OBSERVED frame and
+  ;; rf2-8nyi2 / rf2-6j8gd — `:rf.xray/observed-frame` rides as a second
+  ;; input purely so the slice's `:query` and `:params` can be projected
+  ;; under the frame whose classification actually governs them. Both keys,
+  ;; because a route declares projection-relative to the whole
+  ;; `{:query … :params …}` shape and the classification code treats the
+  ;; two axes identically. It must be the OBSERVED frame and
   ;; not a resolved or ambient one: the elision registry is per-frame, so
   ;; the ambient read at a panel render (Xray's own chrome frame, which is
   ;; live and declares nothing) would ship the value raw under a borrowed

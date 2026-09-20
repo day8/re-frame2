@@ -254,3 +254,72 @@
   ([v frame-id sub-id raw?]
    (rf/project-egress v (assoc (local-render-opts frame-id raw?)
                                :query-v [sub-id]))))
+
+(def route-slice-classified-projections
+  "The route slice keys the route CLASSIFICATION CONTRACT covers, mapped to
+  the framework route read sub whose seed path re-roots them.
+
+  A route declares `:sensitive` / `:large` projection-relative to its
+  `{:query … :params …}` shape (`re-frame.routing.classification`), so these
+  two keys — and only these two — are the ones an author's declaration can
+  name. Each maps to the routing-owned sub-id whose seed
+  (`re-frame.routing.sub-egress/route-sub-seed-table`) is exactly the
+  storage position that key's value sits at, which is what lets the
+  re-rooted absolute declaration match the bare value.
+
+  Deliberately NOT the whole slice. `:rf/route` would seed at
+  `[:rf.runtime/routing :current]` and project every key at once, which
+  reads as the tidier call — but it would also walk `:fragment`,
+  `:transition`, `:error` and `:nav-token`, which the classification
+  contract does not cover and about which
+  `re-frame.routing.sub-egress` makes no sensitivity claim. Projecting the
+  two covered keys INDIVIDUALLY keeps the blast radius equal to the
+  contract."
+  {:query  :rf.route/query
+   :params :rf.route/params})
+
+(defn local-render-route-slice
+  "Project a route SLICE's classification-covered keys for an on-box render
+  — `:query` and `:params`, each through `local-render-route-sub-value`
+  under its own routing-owned seed (`route-slice-classified-projections`).
+
+  This is the whole-slice composition of the route-sub arm above, and it
+  exists because a route's declaration is projection-relative to the
+  `{:query … :params …}` shape: `[:params :token]` and `[:query :token]`
+  are BOTH ordinary declarations, re-rooted at activation to
+  `[:rf.runtime/routing :current :params :token]` and
+  `[… :query :token]`. Nothing in
+  `re-frame.routing.classification` treats the two axes differently —
+  `normalize-axis-paths` validates any concrete path and
+  `apply-route-classification` re-roots every one of them the same way — so
+  a surface that projects one axis and not the other honours half a
+  contract.
+
+  ## Only a key the router actually WROTE is touched
+
+  A key absent from the slice stays absent rather than becoming a
+  `:rf/redacted` sentinel a section would then render: fail-closed must not
+  INVENT a value where the router wrote none. This is why the walk is
+  per-key and guarded on `some?` rather than a blanket
+  `update`-every-key.
+
+  ## Guarantees inherited whole
+
+  Same fail-closed + per-frame behaviour as the three seams above, which it
+  shares `local-render-opts` with through them: `frame-id` is stamped
+  VERBATIM, so a nil / destroyed / never-registered observed frame redacts
+  rather than borrowing the ambient (Xray chrome) frame's policy. A LIVE
+  frame whose active route declared no classification rides every key
+  verbatim — the walk is path-precise, never a blanket scrub.
+
+  `slice` nil (no active route) returns nil. Pure and JVM-portable."
+  ([slice frame-id] (local-render-route-slice slice frame-id false))
+  ([slice frame-id raw?]
+   (reduce-kv
+     (fn [acc slice-key sub-id]
+       (if (some? (get acc slice-key))
+         (assoc acc slice-key
+                (local-render-route-sub-value (get acc slice-key) frame-id sub-id raw?))
+         acc))
+     slice
+     route-slice-classified-projections)))
