@@ -2558,146 +2558,147 @@
       (when (and stale-read? (seq spine-event-bundles))
         (newer-events-marker newer-count dispatch))]]))
 
-(rf/reg-view event-list
-  "L2 event list — per spec/018 §4 Event list. Single-line rows,
-  latest-on-bottom, ~8 visible at the tightened 22px row height
-  (rf2-htik0 Bug 2 — was 28px row × 224px container; Xray is
-  info-dense and the earlier rhythm wasted vertical canvas).
+(when rf.interop/debug-enabled?
+  (rf/reg-view event-list
+    "L2 event list — per spec/018 §4 Event list. Single-line rows,
+    latest-on-bottom, ~8 visible at the tightened 22px row height
+    (rf2-htik0 Bug 2 — was 28px row × 224px container; Xray is
+    info-dense and the earlier rhythm wasted vertical canvas).
 
-  Container default height: 8 rows × 22px + 7 × 2px gap + 8px outer
-  padding ≈ 200px. The live height reads from
-  `:rf.xray/events-list-height-px` (rf2-t2dsh) so the L2/L3 seam
-  handle's drag writes lift the list reactively. `min-height` drops
-  to `config/min-events-list-height-px` (48px == 2 rows + chrome) —
-  the same floor the seam-handle clamp enforces.
+    Container default height: 8 rows × 22px + 7 × 2px gap + 8px outer
+    padding ≈ 200px. The live height reads from
+    `:rf.xray/events-list-height-px` (rf2-t2dsh) so the L2/L3 seam
+    handle's drag writes lift the list reactively. `min-height` drops
+    to `config/min-events-list-height-px` (48px == 2 rows + chrome) —
+    the same floor the seam-handle clamp enforces.
 
-  Per rf2-t2dsh the bottom-right browser-native `:resize \"vertical\"`
-  corner-grip was retired — the seam handle that sits on the L2/L3
-  boundary is the single resize affordance now, carrying persistence
-  + keyboard + reset that the corner-grip lacked.
+    Per rf2-t2dsh the bottom-right browser-native `:resize \"vertical\"`
+    corner-grip was retired — the seam handle that sits on the L2/L3
+    boundary is the single resize affordance now, carrying persistence
+    + keyboard + reset that the corner-grip lacked.
 
-  Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.xray/filtered-
-  event-bundles` (NOT raw `:rf.xray/event-bundles`) so the L1 ribbon's IN/OUT
-  pills drive the list at the data layer — virtualisation budgets
-  the post-filter row count, and the ribbon's `[◀ ▶ ⏭]` nav walks
-  the same filtered list (per spec/018 §6 'Atomicity contract').
+    Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.xray/filtered-
+    event-bundles` (NOT raw `:rf.xray/event-bundles`) so the L1 ribbon's IN/OUT
+    pills drive the list at the data layer — virtualisation budgets
+    the post-filter row count, and the ribbon's `[◀ ▶ ⏭]` nav walks
+    the same filtered list (per spec/018 §6 'Atomicity contract').
 
-  ## rf2-k97c.3 — THE ONE REGION THAT STAYED AN `rf/reg-view`, and why
+    ## rf2-k97c.3 — THE ONE REGION THAT STAYED AN `rf/reg-view`, and why
 
-  The other five chrome regions are Fresco boundaries. This one is not,
-  and the reason is a CALLER rather than anything about the view:
-  `panels.cljs`'s `mount-event-spine!` — a SHIPPED public embed, the L2
-  spine Story mounts beside a focus-keyed panel (`tools/xray/spec/
-  008-Embedding-Contract.md` §Embeddable event spine) — passes this var
-  to `panels/render-panel!`, which builds `[rf/frame-provider … [view]]`
-  and hands it to the installed adapter's `:render`. `defview`'s own
-  contract is that a boundary is mounted as `[head props]` inside a
-  Fresco body or through `as-component` from OUTSIDE, never as a hiccup
-  render fn in a Reagent tree — which is exactly what `render-panel!`
-  builds. Migrating this view therefore needs a PUBLIC bridge here AND
-  a one-line change at that call site, the shape PR #9581 recorded for
-  `mount-resources!`.
+    The other five chrome regions are Fresco boundaries. This one is not,
+    and the reason is a CALLER rather than anything about the view:
+    `panels.cljs`'s `mount-event-spine!` — a SHIPPED public embed, the L2
+    spine Story mounts beside a focus-keyed panel (`tools/xray/spec/
+    008-Embedding-Contract.md` §Embeddable event spine) — passes this var
+    to `panels/render-panel!`, which builds `[rf/frame-provider … [view]]`
+    and hands it to the installed adapter's `:render`. `defview`'s own
+    contract is that a boundary is mounted as `[head props]` inside a
+    Fresco body or through `as-component` from OUTSIDE, never as a hiccup
+    render fn in a Reagent tree — which is exactly what `render-panel!`
+    builds. Migrating this view therefore needs a PUBLIC bridge here AND
+    a one-line change at that call site, the shape PR #9581 recorded for
+    `mount-resources!`.
 
-  `panels.cljs` was held by another worker when that slice was written, so
-  that one line could not be changed and the migration would have shipped a
-  BROKEN embed — silently, because `panels_mount_cljs_test` drives
-  `render-panel!` through a render STUB that captures the tree and never
-  renders it.
+    `panels.cljs` was held by another worker when that slice was written, so
+    that one line could not be changed and the migration would have shipped a
+    BROKEN embed — silently, because `panels_mount_cljs_test` drives
+    `render-panel!` through a render STUB that captures the tree and never
+    renders it.
 
-  THE CALLER-SIDE HALF HAS SINCE LANDED (rf2-k97c.3, the second alias
-  funnel). [[event-list-bridge]] below is the public bridge name and
-  `mount-event-spine!` already passes it, so the migration no longer waits
-  on `panels.cljs` and no longer touches it. `panel_enum.cljc`'s
-  `:event-spine` row still names `shell/event-list` as a string and stays
-  right: that column records the VIEW, exactly as the already-bridged rows
-  `trace/Panel` and `resources/Panel` do.
+    THE CALLER-SIDE HALF HAS SINCE LANDED (rf2-k97c.3, the second alias
+    funnel). [[event-list-bridge]] below is the public bridge name and
+    `mount-event-spine!` already passes it, so the migration no longer waits
+    on `panels.cljs` and no longer touches it. `panel_enum.cljc`'s
+    `:event-spine` row still names `shell/event-list` as a string and stays
+    right: that column records the VIEW, exactly as the already-bridged rows
+    `trace/Panel` and `resources/Panel` do.
 
-  WHAT REMAINS IS ENTIRELY IN THIS FILE, and it is the whole of it: swap
-  `rf/reg-view` for `rf.fresco/defview` and swap the six
-  `@(rf/subscribe …)` for `rf.fresco/sub`. The body below is already the
-  thin read-and-call shape every migrated view has, [[event-list-tree]] is
-  the pure fn, and the node lane's door already drives it.
+    WHAT REMAINS IS ENTIRELY IN THIS FILE, and it is the whole of it: swap
+    `rf/reg-view` for `rf.fresco/defview` and swap the six
+    `@(rf/subscribe …)` for `rf.fresco/sub`. The body below is already the
+    thin read-and-call shape every migrated view has, [[event-list-tree]] is
+    the pure fn, and the node lane's door already drives it.
 
-  [[dynamic-chrome]] therefore mounts it as the Dynamic chrome's ONE
-  remaining Reagent island, through `substrate/as-element`. Not
-  `as-child` — that parameter is gone from this file — and not the way
-  the L2/L3 seam handle is mounted either: `resize-handle/seam-handle-
-  view` is a boundary now and [[dynamic-chrome]] heads it directly
-  (rf2-k97c.3 retired that island). (rf2-y8doi.30 — this sentence named
-  a parameter and a sibling that had both moved on.)
+    [[dynamic-chrome]] therefore mounts it as the Dynamic chrome's ONE
+    remaining Reagent island, through `substrate/as-element`. Not
+    `as-child` — that parameter is gone from this file — and not the way
+    the L2/L3 seam handle is mounted either: `resize-handle/seam-handle-
+    view` is a boundary now and [[dynamic-chrome]] heads it directly
+    (rf2-k97c.3 retired that island). (rf2-y8doi.30 — this sentence named
+    a parameter and a sibling that had both moved on.)
 
-  Per rf2-639lc the list filters out `:ungrouped` event-bundles (those
-  with no `:event` vector — registry-time emits / frame lifecycle
-  outside a drain / REPL evals). Without the filter the L2 list
-  rendered a leading `<no event>` placeholder row that leaked the
-  projection's internal bucket into the user-facing event timeline.
-  Every other reader of `:rf.xray/event-bundles` itself still gets the
-  unfiltered vector — the sub's comment in `registry.cljs` says who
-  those readers are — so the bucket remains available where it is
-  meaningful.
+    Per rf2-639lc the list filters out `:ungrouped` event-bundles (those
+    with no `:event` vector — registry-time emits / frame lifecycle
+    outside a drain / REPL evals). Without the filter the L2 list
+    rendered a leading `<no event>` placeholder row that leaked the
+    projection's internal bucket into the user-facing event timeline.
+    Every other reader of `:rf.xray/event-bundles` itself still gets the
+    unfiltered vector — the sub's comment in `registry.cljs` says who
+    those readers are — so the bucket remains available where it is
+    meaningful.
 
-  Per rf2-ieg6d Bug 1 the focused row carries a `:ref` callback that
-  scrolls it into view when (a) focus has just moved to a new id AND
-  (b) the spine is in LIVE+head mode (i.e. the auto-tracking branch
-  from `spine/compose-focus`). RETRO clicks place the row where the
-  user clicked, so the scroll-into-view is suppressed there to avoid
-  stealing the cursor. Per rf2-ieg6d Bug 2 the container carries
-  Firefox's standardised `scrollbar-width`/`-color`; WebKit/Blink
-  rules ship via a one-shot `<style>` injection (see
-  `inject-scrollbar-style!`).
+    Per rf2-ieg6d Bug 1 the focused row carries a `:ref` callback that
+    scrolls it into view when (a) focus has just moved to a new id AND
+    (b) the spine is in LIVE+head mode (i.e. the auto-tracking branch
+    from `spine/compose-focus`). RETRO clicks place the row where the
+    user clicked, so the scroll-into-view is suppressed there to avoid
+    stealing the cursor. Per rf2-ieg6d Bug 2 the container carries
+    Firefox's standardised `scrollbar-width`/`-color`; WebKit/Blink
+    rules ship via a one-shot `<style>` injection (see
+    `inject-scrollbar-style!`).
 
-  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
-  documented for exactly this position (`re-frame.core/capture-frame`'s
-  own example is a `reg-view` body) — rather than the lexically injected
-  `dispatch`, so this body is the same shape as its five boundary
-  siblings and the swap above stays a one-line one."
-  []
-  ;; rf2-ieg6d Bug 2 — idempotent stylesheet injection. Lives in the
-  ;; view body so it runs on first paint of the L2 list (which is
-  ;; mounted by the shell-view); defonce + DOM guards keep it a
-  ;; no-op everywhere it matters.
-  (inject-scrollbar-style!)
-  (event-list-tree
-    (:dispatch (rf/capture-frame))
-    {;; rf2-6ni62 — read ONCE per L2 paint; thread the resolved
-     ;; widths map through to the header + every row so the two
-     ;; surfaces never drift out of column alignment.
-     :col-widths      @(rf/subscribe [:rf.xray/event-list-col-widths])
-     ;; rf2-t2dsh — list height is driven by the L2/L3 seam handle.
-     ;; The sub returns a clamped px value; default == 200 px.
-     :list-height-px  @(rf/subscribe [:rf.xray/events-list-height-px])
-     :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
-     ;; rf2-y8doi.30 — the RAW spine vector, beside the filtered one.
-     ;; The newer-events marker's presence and count are derived from
-     ;; this; the rows are rendered from the filtered vector above. The
-     ;; two must not be conflated — see [[newer-event-count]].
-     :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
-     ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
-     ;; events ribbon (`events-ribbon`); the L2 list no longer renders
-     ;; the banner itself. The events ribbon is the always-present
-     ;; second stratum so the count surfaces above the list rather
-     ;; than as an inline banner inside it.
-     :focus           @(rf/subscribe [:rf.xray/focus])
-     ;; rf2-lh98m — the STORED slot beside the composed map. Only its
-     ;; `:frame` is read: the newer-count's domain is the spine's walk,
-     ;; which the picker's stored restriction bounds — never the frame
-     ;; the composer resolved the current row in.
-     :focus-slot      @(rf/subscribe [:rf.xray/focus-slot])
-     ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-event-bundle
-     ;; bucket. Default OFF preserves silent-by-default; ON
-     ;; surfaces the bucket as a muted L2 row that focuses the
-     ;; bucket on click so downstream panels populate.
-     :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-     ;; rf2-0s2at — one read per render drives every chip's
-     ;; relative-time text. The sub returns the dispatched-time of
-     ;; the most recent event-bundle (the anchor flips on event arrival,
-     ;; not on a per-second tick). Falls back to `(rf.interop/now-ms)`
-     ;; when the buffer is empty / no event-bundle carries a stamp — at
-     ;; that point there are no rows to render against the anchor
-     ;; anyway, but the chip's render-time guard keeps the bucket
-     ;; computation defined.
-     :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
-                          (rf.interop/now-ms))}))
+    The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+    documented for exactly this position (`re-frame.core/capture-frame`'s
+    own example is a `reg-view` body) — rather than the lexically injected
+    `dispatch`, so this body is the same shape as its five boundary
+    siblings and the swap above stays a one-line one."
+    []
+    ;; rf2-ieg6d Bug 2 — idempotent stylesheet injection. Lives in the
+    ;; view body so it runs on first paint of the L2 list (which is
+    ;; mounted by the shell-view); defonce + DOM guards keep it a
+    ;; no-op everywhere it matters.
+    (inject-scrollbar-style!)
+    (event-list-tree
+      (:dispatch (rf/capture-frame))
+      {;; rf2-6ni62 — read ONCE per L2 paint; thread the resolved
+       ;; widths map through to the header + every row so the two
+       ;; surfaces never drift out of column alignment.
+       :col-widths      @(rf/subscribe [:rf.xray/event-list-col-widths])
+       ;; rf2-t2dsh — list height is driven by the L2/L3 seam handle.
+       ;; The sub returns a clamped px value; default == 200 px.
+       :list-height-px  @(rf/subscribe [:rf.xray/events-list-height-px])
+       :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
+       ;; rf2-y8doi.30 — the RAW spine vector, beside the filtered one.
+       ;; The newer-events marker's presence and count are derived from
+       ;; this; the rows are rendered from the filtered vector above. The
+       ;; two must not be conflated — see [[newer-event-count]].
+       :spine-event-bundles @(rf/subscribe [:rf.xray/event-bundles])
+       ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
+       ;; events ribbon (`events-ribbon`); the L2 list no longer renders
+       ;; the banner itself. The events ribbon is the always-present
+       ;; second stratum so the count surfaces above the list rather
+       ;; than as an inline banner inside it.
+       :focus           @(rf/subscribe [:rf.xray/focus])
+       ;; rf2-lh98m — the STORED slot beside the composed map. Only its
+       ;; `:frame` is read: the newer-count's domain is the spine's walk,
+       ;; which the picker's stored restriction bounds — never the frame
+       ;; the composer resolved the current row in.
+       :focus-slot      @(rf/subscribe [:rf.xray/focus-slot])
+       ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-event-bundle
+       ;; bucket. Default OFF preserves silent-by-default; ON
+       ;; surfaces the bucket as a muted L2 row that focuses the
+       ;; bucket on click so downstream panels populate.
+       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
+       ;; rf2-0s2at — one read per render drives every chip's
+       ;; relative-time text. The sub returns the dispatched-time of
+       ;; the most recent event-bundle (the anchor flips on event arrival,
+       ;; not on a per-second tick). Falls back to `(rf.interop/now-ms)`
+       ;; when the buffer is empty / no event-bundle carries a stamp — at
+       ;; that point there are no rows to render against the anchor
+       ;; anyway, but the chip's render-time guard keeps the bucket
+       ;; computation defined.
+       :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
+                            (rf.interop/now-ms))})))
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;

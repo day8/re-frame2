@@ -70,6 +70,10 @@
   (:require [clojure.string :as string]
             [cljs.reader :as reader]
             [re-frame.core :as rf]
+            ;; rf2-y8doi.60 — `debug-enabled?` gates the `reg-view` below,
+            ;; so a release bundle that mis-ships the preload registers
+            ;; nothing of Xray's in the host's registrar.
+            [re-frame.interop :as rf.interop]
             ;; rf2-fcy5 — `resizable-table-view` below is the Fresco
             ;; boundary; `resizable-table` stays the Reagent `reg-view`
             ;; head its call sites mount. Both delegate to `render-table`.
@@ -790,64 +794,65 @@
 ;; the widget's one piece of component-local state was the gutter's hover
 ;; flag, and §Header gutter is where that went.
 
-(rf/reg-view resizable-table
-  "THE REAGENT HEAD. See the ns docstring for the consumer API and
-  `render-table` for the option inventory.
+(when rf.interop/debug-enabled?
+  (rf/reg-view resizable-table
+    "THE REAGENT HEAD. See the ns docstring for the consumer API and
+    `render-table` for the option inventory.
 
-  ## NO PRODUCTION CONSUMER — do not mount this (rf2-k97c.3)
+    ## NO PRODUCTION CONSUMER — do not mount this (rf2-k97c.3)
 
-  Every production call site heads `resizable-table-view` since Trace and
-  Epoch became Fresco boundaries; a censused ZERO code references survive
-  under `tools/xray/src`. Mounting this head inside either panel now
-  raises `:rf.error/fresco-bad-head`, which is the refusal
-  `reagent-head-is-invalid-to-the-codec` pins.
+    Every production call site heads `resizable-table-view` since Trace and
+    Epoch became Fresco boundaries; a censused ZERO code references survive
+    under `tools/xray/src`. Mounting this head inside either panel now
+    raises `:rf.error/fresco-bad-head`, which is the refusal
+    `reagent-head-is-invalid-to-the-codec` pins.
 
-  ## WHY IT STILL SHIPS — it is the tree's only pure-render door
+    ## WHY IT STILL SHIPS — it is the tree's only pure-render door
 
-  `render-table` is `defn-`. This head is the one PUBLIC way to drive it
-  and get hiccup back without entering a React render window, and nine
-  live call sites across four test namespaces depend on exactly that:
+    `render-table` is `defn-`. This head is the one PUBLIC way to drive it
+    and get hiccup back without entering a React render window, and nine
+    live call sites across four test namespaces depend on exactly that:
 
-    - `views/resizable_table_key_cljs_test`     renders through it to
-      grade React keys at both substrate doors.
-    - `views/resizable_table_fresco_head_cljs_test`  grades it `:invalid`
-      to the codec, and drives it for `both-heads-resolve-the-same-widths`.
-    - `panels/epoch/view_cljs_test`             substitutes it for the
-      boundary in `expand-widgets` / `call-widget-head`, which is what
-      lets ~40 rows assert on the markup EPOCH supplies; and counts it as
-      the negative control in `panel-emits-the-fresco-widget-heads-test`.
-    - `panels/trace_view_cljs_test`             the same substitution in
-      `lower-head`, plus the `:invalid` control in
-      `panel-heads-are-the-ones-the-codec-accepts`.
+      - `views/resizable_table_key_cljs_test`     renders through it to
+        grade React keys at both substrate doors.
+      - `views/resizable_table_fresco_head_cljs_test`  grades it `:invalid`
+        to the codec, and drives it for `both-heads-resolve-the-same-widths`.
+      - `panels/epoch/view_cljs_test`             substitutes it for the
+        boundary in `expand-widgets` / `call-widget-head`, which is what
+        lets ~40 rows assert on the markup EPOCH supplies; and counts it as
+        the negative control in `panel-emits-the-fresco-widget-heads-test`.
+      - `panels/trace_view_cljs_test`             the same substitution in
+        `lower-head`, plus the `:invalid` control in
+        `panel-heads-are-the-ones-the-codec-accepts`.
 
-  The last two roles are the ones a reader is most likely to mistake for
-  dead weight: those suites assert this head does NOT appear in a panel
-  tree, so the var is the REFERENT that makes a revert detectable. Delete
-  it and those rows cannot be written, let alone go red.
+    The last two roles are the ones a reader is most likely to mistake for
+    dead weight: those suites assert this head does NOT appear in a panel
+    tree, so the var is the REFERENT that makes a revert detectable. Delete
+    it and those rows cannot be written, let alone go red.
 
-  ## Frame-aware via `reg-view` (rf2-r0o63)
+    ## Frame-aware via `reg-view` (rf2-r0o63)
 
-  `resizable-table` is `reg-view`-registered so its rendered component
-  carries `:contextType frame-context`: the injected `subscribe` /
-  `dispatch` resolve to the SURROUNDING instance frame (the shell's
-  `frame-id`) through React-context. The column-widths slot is read via
-  the injected `subscribe` and the raw-window-listener drag flow
-  dispatches via the injected frame-bound `dispatch` — so N shells keep
-  independent column widths. (Pre rf2-r0o63 this was a plain `defn`
-  that escaped to a hardcoded `:rf/xray` frame via `rf/with-frame`,
-  which entrenched the singleton; the `reg-view` registration is the
-  same shape every other Xray panel uses.)
+    `resizable-table` is `reg-view`-registered so its rendered component
+    carries `:contextType frame-context`: the injected `subscribe` /
+    `dispatch` resolve to the SURROUNDING instance frame (the shell's
+    `frame-id`) through React-context. The column-widths slot is read via
+    the injected `subscribe` and the raw-window-listener drag flow
+    dispatches via the injected frame-bound `dispatch` — so N shells keep
+    independent column widths. (Pre rf2-r0o63 this was a plain `defn`
+    that escaped to a hardcoded `:rf/xray` frame via `rf/with-frame`,
+    which entrenched the singleton; the `reg-view` registration is the
+    same shape every other Xray panel uses.)
 
-  Defensive nil: `subscribe` returns nil when the sub isn't registered
-  (a pure-render test that never ran `registry/register-xray-handlers!`).
-  A nil reaction would throw on deref, so `some->` keeps it nil and
-  `render-table` reads that as 'no overrides'."
-  [props]
-  (render-table props
-                (some-> (subscribe [:rf.xray.column-widths/for-table
-                                    (:table-id props)])
-                        deref)
-                dispatch))
+    Defensive nil: `subscribe` returns nil when the sub isn't registered
+    (a pure-render test that never ran `registry/register-xray-handlers!`).
+    A nil reaction would throw on deref, so `some->` keeps it nil and
+    `render-table` reads that as 'no overrides'."
+    [props]
+    (render-table props
+                  (some-> (subscribe [:rf.xray.column-widths/for-table
+                                      (:table-id props)])
+                          deref)
+                  dispatch)))
 
 (rf.fresco/defview resizable-table-view
   "THE FRESCO BOUNDARY — a real React function component, mounted the same

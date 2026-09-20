@@ -60,12 +60,22 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            ;; rf2-y8doi.60 — the four namespaces carrying the gated
+            ;; top-level `rf/reg-view` sites. Required for their ALIASES, so
+            ;; `dev-gated-reg-views-are-live-in-dev` below auto-resolves each
+            ;; id (`::shell/event-list`) instead of hand-typing a second list.
+            ;; All four were already on the `:node-test` classpath through
+            ;; other suites, so this adds no load-time surface.
+            [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.reactive-panel-subs :as reactive-panel-subs]
             [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.self-noise :as self-noise]
+            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
+            [day8.re-frame2-xray.views.edn-inspector :as edn-inspector]
+            [day8.re-frame2-xray.views.resizable-table :as resizable-table]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -1050,6 +1060,68 @@
     (is (= (expected-widget-ids all-event-names)
            (edn-inspector-widget-ids :event))
         "edn-inspector widget event drift — diff names the missing/extra ids")))
+
+;; ---- (0b) the four gated top-level reg-views (rf2-y8doi.60) -------------
+;;
+;; rf2-y8doi.16 moved eleven widget `reg-sub` / `reg-event` writes into
+;; caller-invoked `install!` fns and deliberately LEFT four `rf/reg-view`
+;; sites, because the macro both registers the view AND `def`s the symbol
+;; to `(rf/view id)` — so moving the registration into an `install!` would
+;; bind the top-level symbol to nil in DEV too. rf2-y8doi.60 gates those
+;; four in place instead, wrapping each whole form in the same
+;; `(when rf.interop/debug-enabled? …)` the preload's boot block uses, so
+;; the `def` travels inside the gate with its registration.
+;;
+;; WHAT THE TEST BELOW PINS, AND WHAT IT CANNOT. It is a REGRESSION GUARD,
+;; GREEN BEFORE AND AFTER rf2-y8doi.60 — deliberately NOT a red-first test.
+;; It pins the DEV HALF ONLY: that the wrap disturbed neither the
+;; registration, nor the id, nor the head any dev consumer resolves. Every
+;; lane in this repo runs `goog.DEBUG` TRUE, so it CANNOT discriminate the
+;; production claim — for exactly the reason the comment block above gives
+;; for the sub/event case, and the tell is the same one: the preload's own
+;; boot block runs at ns-load here.
+;;
+;; The production half rests on the READ EXPANSION rather than on a lane:
+;; under `:advanced` + `goog.DEBUG=false` Closure folds `(when false …)`,
+;; so neither the registration nor the `def` survives, and nothing in such
+;; a bundle reaches the four anyway — every caller sits behind the boot
+;; block or the manual verbs. Pinning that would need an `:advanced`
+;; compile of the Xray graph, which this repo does not have; rf2-y8doi.60
+;; ruled it NOT REQUIRED as disproportionate to a claim about a
+;; configuration every carrier of the advice calls a mistake.
+
+(def ^:private gated-reg-view-ids
+  "The four ids rf2-y8doi.60 gated, auto-resolved from the owning
+  namespaces' own aliases rather than hand-typed, so a namespace rename
+  moves them with it. Derivation is the macro's own
+  `(keyword (str *ns*) (str sym))` — none of the four carries `^{:rf/id}`."
+  [::shell/event-list
+   ::machine-canvas/Chart
+   ::edn-inspector/edn-inspector
+   ::resizable-table/resizable-table])
+
+(deftest dev-gated-reg-views-are-live-in-dev
+  (testing "each gated reg-view is registered under kind :view in dev"
+    (doseq [id gated-reg-view-ids]
+      (is (contains? (rf.registrar/registrations :view) id)
+          (str id " is not registered under kind :view. Its `rf/reg-view` "
+               "form is wrapped in `(when rf.interop/debug-enabled? …)` "
+               "(rf2-y8doi.60); every lane runs goog.DEBUG TRUE, so the "
+               "gate must be transparent here. A red means the wrap "
+               "changed DEV behaviour, which it must not."))))
+  (testing "and each head resolves, so `rf/view` consumers still get one"
+    (doseq [id gated-reg-view-ids]
+      (is (some? (rf/view id))
+          (str "(rf/view " id ") is nil in dev — the registration is "
+               "missing or the head no longer derives (rf2-y8doi.60)."))))
+  (testing "CONTROL — an unregistered id in the same namespace reads absent,
+            so the positives above mean presence rather than a registrar
+            that answers yes to everything"
+    (is (not (contains? (rf.registrar/registrations :view)
+                        ::shell/no-such-view))
+        "the :view registrar claims an id that was never registered")
+    (is (nil? (rf/view ::shell/no-such-view))
+        "`rf/view` returned a head for an unregistered id")))
 
 ;; ---- (1) smoke: every registered name resolves -------------------------
 

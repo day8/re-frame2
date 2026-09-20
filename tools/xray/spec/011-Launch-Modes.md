@@ -814,15 +814,32 @@ unconditional `reg-view*` call plus a `def` of the symbol (per
 `implementation/core/src/re_frame/core_reg_view_macro.cljc`
 `expand-reg-view`), and the `debug-enabled?` gates inside that
 expansion cover the injected source-coord literals, not the
-registration itself. As at 2026-09-17 four such sites remain — census
+registration itself. As at 2026-09-17 four such sites remained — census
 them as `rf/reg-view` at column 0 under `tools/xray/src/` — so four
-`:view-kind` slots under `day8.re-frame2-xray.*` ids still land in a
-preload-carrying release bundle. Being Xray-namespaced they cannot
+`:view`-kind slots under `day8.re-frame2-xray.*` ids landed in a
+preload-carrying release bundle. Being Xray-namespaced they could not
 collide with a host's own registrations. Eleven sibling registrations
-were moved into caller-invoked `install!` fns under `rf2-y8doi.16`; the
-four `reg-view` sites are held back there because the macro also `def`s
-the symbol to `(rf/view id)`, so relocating the registration on its own
-would bind `nil`.
+had been moved into caller-invoked `install!` fns under `rf2-y8doi.16`;
+the four `reg-view` sites were held back there because the macro also
+`def`s the symbol to `(rf/view id)`, so relocating the registration on
+its own would have bound `nil`.
+
+Under `rf2-y8doi.60` (2026-09-21) each of those four is wrapped in the
+same `(when rf.interop/debug-enabled? …)` the boot block uses, with the
+whole form inside the gate. The wrap therefore covers the macro's `def`
+as well as its registration, so in a release bundle nothing registers
+and the symbol is simply never assigned — and nothing reaches it there,
+because every caller of the four sits behind the boot block or the
+manual verbs. The column-0 census now reads **0**. The eleven
+`install!`-relocated registrations remain where `rf2-y8doi.16` put them.
+
+What still runs at namespace load in such a bundle is Xray's own
+furniture: nine writes to Xray-private `defonce` atoms — `mount.cljs`'s
+seven `register-first-mount-hook!` forms, `keybinding.cljs`'s popout
+installer and its `add-watch`, and `settings/effects.cljs`'s settings
+applier. None of them touches the host's registrar, which is why the
+honest promise for a mis-shipped preload is "no host-visible side
+effect" rather than "every side effect folds away".
 
 By contrast a Fresco `rf.fresco/defview` does NOT leave a registration
 behind: it publishes its view alias inside its own
