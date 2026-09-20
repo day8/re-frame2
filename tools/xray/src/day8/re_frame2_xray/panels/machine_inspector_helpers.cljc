@@ -23,11 +23,16 @@
     1. **Machine picker** — REMOVED by rf2-y9xmf (003 §What is NOT in
        the Dynamic panel post-rf2-y9xmf). The machine comes from the
        focused event: `project-focused-event-transitions` folds its
-       cascade and `pick-focused-transition` takes the first record.
-       `pick-selected` still resolves `project-data`'s `:selected-id`
-       from the `:selected-machine-id` slot (else the first row), but
-       the panel reads nothing from `project-data` except
-       `:empty-kind`.
+       cascade and `pick-focused-transition` takes the first record in
+       trace order — UNLESS the operator has explicitly selected a
+       machine that this same cascade touched, which outranks trace
+       order so that a Static → Dynamic JUMP lands on the machine it
+       names (rf2-mj4jp). `pick-selected` still resolves
+       `project-data`'s `:selected-id` from the `:selected-machine-id`
+       slot (else the first row); the panel reads `:empty-kind` and the
+       RAW `:selected-machine-id` from `project-data` and nothing else
+       — never `:selected-id`, whose alphabetical-first fallback is the
+       wrong-machine half of rf2-y8doi.23.
 
     2. **MachineChart** — the real machines-viz component, not a
        placeholder. `panels/machine_canvas.cljs` requires
@@ -411,13 +416,25 @@
 
   Returns:
 
-      {:machines     [<machine-row> ...]
-       :total        <int>
-       :selected-id  <id-or-nil>          ;; effective selection
-       :selected     <row-or-nil>
-       :chart-props  <props-or-nil>
-       :transitions  [<transition-row> ...]
-       :empty-kind   <:no-machines / nil>}"
+      {:machines            [<machine-row> ...]
+       :total               <int>
+       :selected-id         <id-or-nil>   ;; EFFECTIVE selection
+       :selected-machine-id <id-or-nil>   ;; RAW slot, verbatim
+       :selected            <row-or-nil>
+       :chart-props         <props-or-nil>
+       :transitions         [<transition-row> ...]
+       :empty-kind          <:no-machines / nil>}
+
+  `:selected-id` and `:selected-machine-id` ARE NOT THE SAME VALUE and
+  the difference is a defect this panel has already shipped once.
+  `:selected-id` is `pick-selected`'s EFFECTIVE answer — the slot when
+  one is set, else the first row of an ALPHABETICALLY sorted list — so
+  it names a machine even when the operator has chosen none. Reading it
+  as though it were the operator's choice is exactly how rf2-y8doi.23's
+  wrong-machine rings arose. `:selected-machine-id` is the raw
+  `selected-id` ARGUMENT echoed back untouched, nil and all, and it is
+  what the Dynamic panel's selection rule (`pick-focused-transition`,
+  rf2-mj4jp) must be given."
   ([machines snapshots trace-buffer selected-id frame-id]
    (project-data machines snapshots nil trace-buffer selected-id frame-id))
   ([machines snapshots definitions trace-buffer selected-id frame-id]
@@ -431,6 +448,10 @@
      {:machines    rows
       :total       total
       :selected-id effective-id
+      ;; rf2-mj4jp — the RAW slot, echoed back so the Dynamic panel can
+      ;; reach the operator's actual choice without going through
+      ;; `effective-id`'s alphabetical-first fallback. See the docstring.
+      :selected-machine-id selected-id
       :selected    selected
       :chart-props props
       :transitions transitions
@@ -1053,17 +1074,53 @@
 ;; tiebreaker is satisfied by `first`. This helper exists to name the
 ;; rule at the call site — the spec text "first by trace order" lands
 ;; here, not buried in a `(first records)` call.
+;;
+;; rf2-mj4jp — AN EXPLICIT SELECTION OUTRANKS TRACE ORDER, AND ONLY
+;; THAT. rf2-y8doi.23 made `:rf.xray/select-machine-id` pin the newest
+;; epoch that touches the requested machine, but the DISPLAY still took
+;; `(first records)` — so when that epoch's cascade touched A and then
+;; B, a Static JUMP to B pinned exactly the right epoch and drew A. The
+;; epoch was right, the slot was written, and the panel ignored both.
+;;
+;; Trace order therefore REMAINS the rule, with the selection layered
+;; above it as an override that can only fire when the operator has
+;; named a machine AND that machine transitioned in the cascade in
+;; front of us. A stale selection — a machine absent from this epoch —
+;; falls straight back to trace order, so ordinary spine following
+;; (Prev/Next, head-tracking, and the no-selection posture the panel
+;; opens in) answers bit-for-bit what it answered before.
 
 (defn pick-focused-transition
   "Pick the focused transition record per the Dynamic-mode single-
   instance rule (spec/003 §Dynamic mode — single-instance, event-driven,
-  rf2-8og3k). Returns the FIRST record in trace order (which is what the
-  upstream projection already produces — this helper names the rule),
-  or nil when no machine transitioned in the focused event's cascade.
+  rf2-8og3k), as refined by rf2-mj4jp.
+
+  Answers, in order:
+
+    1. the record for `selected-machine-id`, when the operator has named
+       a machine AND it transitioned in this cascade — rf2-mj4jp, so the
+       Static → Dynamic JUMP lands on the machine it names rather than
+       on whichever one the cascade happened to touch first;
+    2. otherwise the FIRST record in trace order, which is what the
+       upstream projection already produces — this helper names the rule;
+    3. nil when no machine transitioned in the focused event's cascade.
+
+  The 1-arity is the NO-SELECTION reading, i.e. exactly rule 2, so every
+  caller and test written before rf2-mj4jp keeps its former answer.
+
+  EVERY consumer that needs to know which machine the panel is bound to
+  resolves it through THIS fn — the chart, the `:after` rings and the
+  Prev/Next scope alike — which is what keeps them from drifting apart
+  (rf2-y9xmf, rf2-y8doi.23).
 
   Pure fn — JVM-runnable."
-  [transition-records]
-  (first transition-records))
+  ([transition-records]
+   (pick-focused-transition transition-records nil))
+  ([transition-records selected-machine-id]
+   (or (when (some? selected-machine-id)
+         (first (filter #(= selected-machine-id (:machine-id %))
+                        transition-records)))
+       (first transition-records))))
 
 (defn focused-event-section-key
   "rf2-un3gfo — the STRUCTURAL React `:key` for the per-machine

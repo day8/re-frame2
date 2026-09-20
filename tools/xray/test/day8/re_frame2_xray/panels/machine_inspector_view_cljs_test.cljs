@@ -1334,6 +1334,150 @@
             "the slot write STAYS: it is the picker focus the Static
              surfaces and the cancellation-cascade composite read")))))
 
+;; ---- the JUMP has to LAND ON SCREEN, not merely on the epoch (rf2-mj4jp) --
+;;
+;; rf2-y8doi.23 (above) made the selection move the SPINE. It did not make
+;; the selection move the DISPLAY, and the two come apart the moment one
+;; epoch's cascade touches more than one machine — which is the ordinary
+;; case, not an exotic one. The panel bound to `(first records)`, so a
+;; JUMP to B pinned exactly the epoch B transitioned in and then drew A.
+;;
+;; The rows above this one could not see that: every epoch they seed holds
+;; ONE machine, so `first` and `the selected machine` are the same record
+;; and the bug is invisible. (The suite does seed a three-machine cascade,
+;; at `focused-event-lens-binds-to-first-machine-in-trace-order-rf2-8og3k`,
+;; but with no selection — so neither half of the suite crossed the other.)
+;; These rows seed A and B in ONE epoch and then assert THE RENDERED
+;; RECORD, which is the assertion the defect survives.
+
+(defn- multi-machine-history
+  "Epoch 1: A alone. Epoch 2: B alone. Epoch 3 (newest): A and THEN B in
+  one cascade — the shape the defect needs, and the shape real cascades
+  have."
+  []
+  [{:epoch-id 1
+    :trace-events
+    [{:id 1 :time 10 :operation :rf.machine/transition
+      :tags {:machine-id :auth/login
+             :before {:state :idle :data {}}
+             :after  {:state :authing :data {}}
+             :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
+   {:epoch-id 2
+    :trace-events
+    [{:id 2 :time 20 :operation :rf.machine/transition
+      :tags {:machine-id :checkout/flow
+             :before {:state :idle :data {}}
+             :after  {:state :paying :data {}}
+             :event [:cart/open] :rf.trace/dispatch-id "d-2"}}]}
+   {:epoch-id 3
+    :trace-events
+    [{:id 3 :time 30 :operation :rf.machine/transition
+      :tags {:machine-id :auth/login
+             :before {:state :authing :data {}}
+             :after  {:state :done :data {}}
+             :event [:auth/done] :rf.trace/dispatch-id "d-3"}}
+     {:id 4 :time 31 :operation :rf.machine/transition
+      :tags {:machine-id :checkout/flow
+             :before {:state :paying :data {}}
+             :after  {:state :done :data {}}
+             :event [:cart/sync] :rf.trace/dispatch-id "d-3"}}]}])
+
+(defn- seed-two-machines! []
+  (override-machines!    [:auth/login :checkout/flow])
+  (override-definitions! {:auth/login    fixture-definition
+                          :checkout/flow fixture-definition})
+  (override-epoch-history! (multi-machine-history)))
+
+(deftest jump-renders-the-selected-machine-in-a-multi-machine-epoch-rf2-mj4jp
+  (testing "rf2-mj4jp — PROPERTY 1, the defect itself. The operator is
+            looking at epoch 1 (:auth/login) and JUMPs to :checkout/flow.
+            Its newest epoch is 3, whose cascade transitioned :auth/login
+            FIRST. The spine pin was already right; what was wrong is
+            what appeared. Assert the RENDERED record — the section the
+            panel actually draws — and the nav label beside it, not the
+            focus epoch-id and not the picker slot."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-two-machines!)
+      (focus-epoch! 1)
+      (rf/dispatch-sync [:rf.xray/select-machine-id :checkout/flow])
+      (let [tree     (panel-tree)
+            host     (find-by-testid tree "rf-xray-machine-focused-event")
+            sections (find-all-by-testid-prefix
+                       tree "rf-xray-machine-focused-event-section-")
+            nav      (find-by-testid
+                       tree "rf-xray-machine-inspector-prev-next-nav")
+            xray-db  (rf.frame/frame-app-db-value :rf/xray)]
+        (is (= 3 (get-in xray-db [:focus :epoch-id]))
+            "rf2-y8doi.23's epoch pin is UNCHANGED — the spine still
+             lands on the newest epoch touching the requested machine")
+        (is (= "2" (:data-cascade-transition-count (second host)))
+            "and that epoch really is a two-machine cascade, so `first`
+             and `the selected machine` are genuinely different records")
+        (is (= "1" (:data-section-count (second host)))
+            "still EXACTLY ONE section — rf2-8og3k's single-instance rule
+             is refined, not abandoned")
+        (is (= [":checkout/flow"]
+               (mapv #(:data-machine-id (second %)) sections))
+            "THE DEFECT: the rendered section is the machine the operator
+             asked for. Before rf2-mj4jp this read [\":auth/login\"] —
+             right epoch, right slot, wrong machine on screen")
+        (is (= ":checkout/flow" (:data-machine-id (second nav)))
+            "and the Prev/Next nav names the SAME machine. The nav
+             labels its buttons 'Previous event touching <machine>', so a
+             nav scoped by trace order over a chart drawn by selection
+             would print one machine's name above another's topology")))))
+
+(deftest no-selection-still-binds-to-trace-order-in-a-multi-machine-epoch-rf2-mj4jp
+  (testing "rf2-mj4jp — PROPERTY 2, and the one that makes property 1
+            worth having. The panel opens with NO selection, and in that
+            posture the SAME multi-machine epoch must still bind by trace
+            order. A fix that simply always preferred the slot would pass
+            the row above and break this one."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-two-machines!)
+      (focus-epoch! 3)
+      (let [tree     (panel-tree)
+            sections (find-all-by-testid-prefix
+                       tree "rf-xray-machine-focused-event-section-")
+            nav      (find-by-testid
+                       tree "rf-xray-machine-inspector-prev-next-nav")
+            xray-db  (rf.frame/frame-app-db-value :rf/xray)]
+        (is (nil? (:selected-machine-id xray-db))
+            "no selection has been made — the panel's opening posture")
+        (is (= [":auth/login"]
+               (mapv #(:data-machine-id (second %)) sections))
+            "first in trace order wins, exactly as before rf2-mj4jp")
+        (is (= ":auth/login" (:data-machine-id (second nav)))
+            "and the nav agrees with it")))))
+
+(deftest prev-after-jump-walks-the-selected-machines-epochs-rf2-mj4jp
+  (testing "rf2-mj4jp — ordinary spine following must stay COHERENT with
+            what is on screen, which is the half a display-only fix would
+            have broken. After the JUMP the chart shows :checkout/flow, so
+            Prev must step to :checkout/flow's previous epoch (2). Scoped
+            by trace order it would have scoped to :auth/login — the first
+            record of epoch 3 — and stepped to epoch 1 instead, walking
+            the operator through a machine they are not looking at."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-two-machines!)
+      (focus-epoch! 1)
+      (rf/dispatch-sync [:rf.xray/select-machine-id :checkout/flow])
+      (rf/dispatch-sync [:rf.xray/machine-focus-prev])
+      (let [tree     (panel-tree)
+            sections (find-all-by-testid-prefix
+                       tree "rf-xray-machine-focused-event-section-")
+            xray-db  (rf.frame/frame-app-db-value :rf/xray)]
+        (is (= 2 (get-in xray-db [:focus :epoch-id]))
+            "Prev stepped to epoch 2 — :checkout/flow's previous epoch —
+             not to epoch 1, which is :auth/login's")
+        (is (= [":checkout/flow"]
+               (mapv #(:data-machine-id (second %)) sections))
+            "and the panel is still drawing the machine the operator
+             selected")))))
+
 (deftest select-machine-id-leaves-focus-alone-when-the-machine-has-no-epoch
   (testing "a selection made before the machine has done anything must
             not move the operator off what they were looking at"

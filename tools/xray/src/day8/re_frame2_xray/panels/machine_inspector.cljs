@@ -614,12 +614,23 @@
   epoch's `cascade` (the projected machine-cascade rows the SHARED
   mini-pipeline renders, off `:rf.xray/machine-focused-epoch-cascade`).
   Binds the panel to **exactly one** machine instance per the
-  Dynamic-mode single-instance rule (rf2-8og3k): the first transition
-  record in trace order — that record drives the chart highlights, while
-  the cascade rows show the WHOLE focused epoch's machine cascade
-  (identical to the Epoch panel's EVENT HANDLER step). Returns nil when
-  no machine transitioned in the focused event's cascade — the panel
-  renders the empty-state placeholder in that case (see `blank-state`).
+  Dynamic-mode single-instance rule (rf2-8og3k) — that record drives the
+  chart highlights, while the cascade rows show the WHOLE focused
+  epoch's machine cascade (identical to the Epoch panel's EVENT HANDLER
+  step). Returns nil when no machine transitioned in the focused event's
+  cascade — the panel renders the empty-state placeholder in that case
+  (see `blank-state`).
+
+  rf2-mj4jp — `record` ARRIVES AS AN ARGUMENT rather than being picked
+  here. [[panel-tree]] resolves it ONCE, through
+  `h/pick-focused-transition`, and hands the same value to this view and
+  to the Prev/Next nav beside it. That is deliberate and structural: the
+  nav's buttons are LABELLED with their machine (\"Previous event
+  touching …\"), so a nav scoped by one rule and a chart drawn by
+  another would put a machine's name above a different machine's
+  topology — the rf2-y9xmf symptom, reached from a new side. One value,
+  computed once, cannot drift from itself. `records` stays only for the
+  cascade transition count the host records.
 
   rf2-alsnz — `records` flows in as an arg so the panel reads the
   composite once per render instead of twice.
@@ -631,17 +642,13 @@
   a `rf.fresco/sub` raises outside a collector window, and this fn is
   node-lane-driven. The `as-child` argument that sat between them is gone
   with the island it spelled."
-  [records cascade fit-signal target-frame instance]
-  (let [;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
-        ;; single-instance, event-driven, rf2-8og3k): pick the first
-        ;; transition by trace order. The upstream projection already
-        ;; sorts cascade-document-order, so `first` is the tiebreaker.
-        ;; rf2-un3gfo — `target-frame` (an argument since rf2-k97c.3) is
-        ;; the inspected frame id. Part of the STRUCTURAL section key
-        ;; below so the L1 frame picker (which re-seeds the panel against
-        ;; a different runtime) gets a clean section instance, while
-        ;; ordinary Prev/Next within one frame+machine preserves it.
-        record (h/pick-focused-transition records)]
+  ;; rf2-un3gfo — `target-frame` (an argument since rf2-k97c.3) is the
+  ;; inspected frame id. Part of the STRUCTURAL section key below so the
+  ;; L1 frame picker (which re-seeds the panel against a different
+  ;; runtime) gets a clean section instance, while ordinary Prev/Next
+  ;; within one frame+machine preserves it.
+  [record records cascade fit-signal target-frame instance]
+  (let [cascade-transition-count (count records)]
     (when record
       [:div {:data-testid "rf-xray-machine-focused-event"
              ;; The host carries the count of records the cascade
@@ -649,7 +656,7 @@
              ;; renders — pinned so tests can assert the rule (one
              ;; section even when N > 1).
              :data-section-count "1"
-             :data-cascade-transition-count (str (count records))
+             :data-cascade-transition-count (str cascade-transition-count)
              :style focused-event-view-host-style}
        ;; rf2-un3gfo — STRUCTURAL key (target-frame + machine-id), NOT
        ;; per-epoch. The old key embedded `(:id)` / `(:from-state)` /
@@ -767,12 +774,28 @@
   ([data records cascade fit-signal target-frame]
    (panel-tree data records cascade fit-signal target-frame
                (instance-token nil)))
-  ([{:keys [empty-kind]} records cascade fit-signal target-frame
-    instance]
-  (let [;; The first record's machine-id drives the prev/next nav (a
-        ;; cascade may touch multiple machines; the nav's "this machine"
-        ;; is the head section's machine).
-        scope-machine-id (some-> records first :machine-id)]
+  ([{:keys [empty-kind selected-machine-id]} records cascade fit-signal
+    target-frame instance]
+  (let [;; rf2-mj4jp — THE ONE PLACE the Dynamic panel decides which
+        ;; machine it is bound to. Both consumers below read THIS value:
+        ;; the focused-event view (the chart) takes the record, and the
+        ;; prev/next nav takes its machine-id. They were two separate
+        ;; `(first records)` spellings that agreed only by coincidence
+        ;; of both being `first`; the moment an explicit selection
+        ;; outranked trace order, agreement by coincidence would have
+        ;; ended — with the nav labelled "Previous event touching A"
+        ;; over a chart drawing B, which is rf2-y9xmf's symptom wearing
+        ;; new clothes. Resolved once here, they cannot disagree.
+        ;;
+        ;; `selected-machine-id` is `project-data`'s RAW slot echo, NOT
+        ;; its `:selected-id` — see that fn's docstring for why reading
+        ;; the effective one would re-open rf2-y8doi.23.
+        focused-record   (h/pick-focused-transition records
+                                                   selected-machine-id)
+        ;; The bound machine drives the prev/next nav (a cascade may
+        ;; touch multiple machines; the nav's "this machine" is the
+        ;; machine the panel is actually drawing).
+        scope-machine-id (:machine-id focused-record)]
     [:section {:data-testid "rf-xray-machine-inspector"
                :data-view-mode "focused-event"
                :data-has-records (str (boolean (seq records)))
@@ -801,8 +824,8 @@
        ;; does not duplicate-subscribe the same composite handle.
        [:div {:data-testid "rf-xray-machine-inspector-focused-event-host"
               :style focused-event-host-style}
-        (focused-event-view records cascade fit-signal target-frame
-                            instance)]
+        (focused-event-view focused-record records cascade fit-signal
+                            target-frame instance)]
 
        :else
        (blank-state))])))
@@ -1263,13 +1286,26 @@
                                  (spine/db->event-bundles db)
                                  (spine/db->show-ungrouped? db)
                                  (get db :epoch-history [])))
+          ;; rf2-mj4jp — SCOPED BY THE MACHINE THE PANEL IS DRAWING, via
+          ;; the very rule it draws by. This read `(first records)`,
+          ;; which agreed with the display only because the display read
+          ;; `first` too. Once an explicit selection outranks trace
+          ;; order, `first` would scope the walk to a machine the
+          ;; operator is not looking at: JUMP to B, press Prev, and the
+          ;; spine steps back through A's epochs. The existing
+          ;; `:selected-machine-id` fallback below is UNCHANGED — it
+          ;; still answers when the focused epoch projects no records at
+          ;; all — so a selection only ever gains precedence over trace
+          ;; order for a machine that actually transitioned here.
           (scope-machine-id [db focus]
-            (let [history (vec (or (get db :epoch-history) []))
-                  record  (h/focused-epoch-record history focus)
-                  events  (when record (:trace-events record))
-                  records (h/project-focused-event-transitions events nil)]
-              (or (some-> records first :machine-id)
-                  (get db :selected-machine-id))))
+            (let [history  (vec (or (get db :epoch-history) []))
+                  record   (h/focused-epoch-record history focus)
+                  events   (when record (:trace-events record))
+                  records  (h/project-focused-event-transitions events nil)
+                  selected (get db :selected-machine-id)]
+              (or (some-> (h/pick-focused-transition records selected)
+                          :machine-id)
+                  selected)))
           ;; Pin `target` (an epoch record) as the spine's focus, exactly
           ;; as the nav does. Extracted by rf2-y8doi.23 so the JUMP landing
           ;; below and the Prev/Next walk pin an epoch the SAME way — a

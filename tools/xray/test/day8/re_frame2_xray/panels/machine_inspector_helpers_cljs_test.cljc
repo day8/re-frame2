@@ -948,3 +948,156 @@
                     :from-state :authing :to-state :done})]
       (is (string? k1) "key builds with a nil target-frame")
       (is (= k1 k2) "still stable across Prev/Next when frame is nil"))))
+
+;; ---- (12) pick-focused-transition — the selection rule (rf2-mj4jp) ------
+;;
+;; The Dynamic panel binds to EXACTLY ONE machine per focused event
+;; (spec/003 §Dynamic mode — single-instance, event-driven, rf2-8og3k).
+;; Which one was `(first records)` — trace order, full stop — and that is
+;; the defect rf2-mj4jp closes: rf2-y8doi.23 had already made
+;; `:rf.xray/select-machine-id` pin the newest epoch touching the
+;; requested machine, but when that epoch's cascade touched A and THEN B,
+;; a Static JUMP to B pinned the right epoch and the panel drew A.
+;;
+;; These rows pin TWO properties, and both are load-bearing. Pinning only
+;; the first would have passed against the bug in a recognisable way: a
+;; rule that simply answered "the selected machine, always" satisfies
+;; every A-and-B row below while destroying the no-selection posture the
+;; panel opens in — so the second property is what stops the fix from
+;; being worse than the defect.
+;;
+;;   1. WHICH RECORD IS SELECTED — an explicit selection that the
+;;      cascade touched outranks trace order, wherever in the cascade it
+;;      sits.
+;;   2. ORDINARY FOLLOWING IS UNCHANGED — no selection, a stale
+;;      selection, and the 1-arity all still answer first-in-trace-order,
+;;      byte for byte what they answered before.
+;;
+;; Every row drives the REAL projection (`project-focused-event-
+;; transitions`) rather than hand-built maps, so the records carry the
+;; shape the panel actually receives.
+
+(defn- cascade-records
+  "The A-then-B-then-C multi-machine cascade this section reasons about,
+  projected exactly as the panel projects it. Trace order is
+  `:auth/login`, `:checkout/flow`, `:session/clock`."
+  []
+  (h/project-focused-event-transitions
+    [(t-event 1 :auth/login    :idle   :authing [:auth/submit])
+     (t-event 2 :checkout/flow :idle   :paying  [:cart/sync])
+     (t-event 3 :session/clock :tick-0 :tick-1  [:tick])]))
+
+;; ---- property 1: which record is selected ----
+
+(deftest pick-focused-transition-selection-outranks-trace-order-rf2-mj4jp
+  (testing "rf2-mj4jp — with A, B and C in ONE cascade, an explicit
+            selection of B wins over A's earlier trace position. This is
+            the defect exactly: the JUMP pinned the right epoch, wrote
+            the slot, and the display drew A anyway."
+    (let [records (cascade-records)]
+      (is (= 3 (count records))
+          "fixture really is a multi-machine cascade, not one record")
+      (is (= :checkout/flow
+             (:machine-id (h/pick-focused-transition records
+                                                     :checkout/flow)))
+          "the selected machine is the bound one, though it is SECOND in
+           trace order")
+      (is (= :session/clock
+             (:machine-id (h/pick-focused-transition records
+                                                     :session/clock)))
+          "and when it is LAST — so this is the selection winning, not an
+           off-by-one that happens to land on the second record"))))
+
+(deftest pick-focused-transition-returns-the-whole-selected-record-rf2-mj4jp
+  (testing "rf2-mj4jp — the caller needs the RECORD, not just the id:
+            `machine_after_rings` reads `:frame-id` off it to keep two
+            frames' instances apart, and the chart reads the transition
+            endpoints. Answering the right machine with another machine's
+            endpoints would draw B's name over A's transition."
+    (let [record (h/pick-focused-transition (cascade-records)
+                                            :checkout/flow)]
+      (is (= :checkout/flow (:machine-id record)))
+      (is (= :idle   (:from-state record)))
+      (is (= :paying (:to-state   record)))
+      (is (= :cart/sync (:on-event record))
+          "every field comes off the SELECTED machine's own record"))))
+
+(deftest pick-focused-transition-selection-takes-first-of-its-own-rf2-mj4jp
+  (testing "rf2-mj4jp — a machine may transition more than once in one
+            cascade. The selection names a MACHINE, so trace order still
+            decides WHICH of that machine's records binds: the first."
+    (let [records (h/project-focused-event-transitions
+                    [(t-event 1 :auth/login    :idle    :authing [:go])
+                     (t-event 2 :checkout/flow :idle    :paying  [:sync])
+                     (t-event 3 :checkout/flow :paying  :done    [:ok])])
+          record  (h/pick-focused-transition records :checkout/flow)]
+      (is (= :checkout/flow (:machine-id record)))
+      (is (= :idle (:from-state record))
+          "the FIRST :checkout/flow record in trace order, not the last"))))
+
+;; ---- property 2: ordinary following is unchanged ----
+
+(deftest pick-focused-transition-no-selection-is-trace-order-rf2-mj4jp
+  (testing "rf2-mj4jp — the panel's OPENING posture has no selection at
+            all, and it must be bit-for-bit what it was: first in trace
+            order. `:rf.xray/selected-machine-id` is nil until something
+            writes it, so this is the ordinary case, not the edge one."
+    (let [records (cascade-records)]
+      (is (= :auth/login (:machine-id (h/pick-focused-transition records)))
+          "1-arity — the pre-rf2-mj4jp spelling, unchanged")
+      (is (= :auth/login
+             (:machine-id (h/pick-focused-transition records nil)))
+          "explicit nil selection reads the same as no selection")
+      (is (= (h/pick-focused-transition records)
+             (h/pick-focused-transition records nil))
+          "the two spellings are the SAME answer, so no caller left on
+           the 1-arity can drift from one passing the slot"))))
+
+(deftest pick-focused-transition-stale-selection-falls-back-rf2-mj4jp
+  (testing "rf2-mj4jp — a selection is sticky, so the operator walks
+            Prev/Next into epochs their selected machine never touched.
+            The selection must NOT blank the panel or bind to nothing
+            there: it falls back to trace order, which is what ordinary
+            spine following has always done."
+    (let [records (cascade-records)]
+      (is (= :auth/login
+             (:machine-id (h/pick-focused-transition records :door/main)))
+          "a machine absent from this cascade cannot outrank trace order")
+      (is (= (h/pick-focused-transition records)
+             (h/pick-focused-transition records :door/main))
+          "identical to the no-selection answer — following is intact"))))
+
+(deftest pick-focused-transition-nil-when-nothing-transitioned-rf2-mj4jp
+  (testing "rf2-8og3k — an empty cascade binds to NO machine and the
+            panel renders its placeholder. A selection must not conjure a
+            record out of an empty projection."
+    (is (nil? (h/pick-focused-transition [])))
+    (is (nil? (h/pick-focused-transition [] :checkout/flow)))
+    (is (nil? (h/pick-focused-transition nil :checkout/flow)))))
+
+;; ---- the raw slot the view must be given (rf2-mj4jp / rf2-y8doi.23) ----
+
+(deftest project-data-echoes-the-raw-selection-slot-rf2-mj4jp
+  (testing "rf2-mj4jp — the Dynamic panel feeds the selection rule from
+            `project-data`'s RAW `:selected-machine-id`, never its
+            `:selected-id`. The two differ precisely when no selection
+            has been made: `:selected-id` still names a machine, because
+            `pick-selected` falls back to the ALPHABETICALLY first row.
+            Feeding that to the rule would bind the panel to a machine
+            the operator never chose — which is the wrong-machine half of
+            rf2-y8doi.23, re-entered through the front door."
+    (let [none (h/project-data [:checkout/flow :auth/login] {} [] nil
+                               :rf/default)
+          some (h/project-data [:checkout/flow :auth/login] {} []
+                               :checkout/flow :rf/default)]
+      (is (nil? (:selected-machine-id none))
+          "NO selection stays nil in the raw slot")
+      (is (= :auth/login (:selected-id none))
+          "while the EFFECTIVE id names the alphabetically-first row —
+           the very value that must not reach the rule")
+      (is (not= (:selected-id none) (:selected-machine-id none))
+          "so the two keys are genuinely different values here")
+      (is (= :checkout/flow (:selected-machine-id some))
+          "an explicit selection is echoed back verbatim")
+      (is (= :checkout/flow (:selected-id some))
+          "and both agree once the operator HAS chosen"))))

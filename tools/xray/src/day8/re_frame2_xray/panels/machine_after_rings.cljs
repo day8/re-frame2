@@ -126,7 +126,12 @@
             ;; (`pick-focused-transition`, spec/003 §Dynamic mode) is what
             ;; names the machine the CHART is showing. The rings sub reads
             ;; it so the ring projection and the chart under it can never
-            ;; disagree about which machine they are describing. Pure-data
+            ;; disagree about which machine they are describing.
+            ;; rf2-mj4jp — that rule takes the operator's explicit
+            ;; selection as an ARGUMENT, so this sub must feed it the same
+            ;; `:rf.xray/selected-machine-id` the panel feeds it; calling
+            ;; the shared fn with different arguments is not sharing the
+            ;; rule. See the sub below. Pure-data
             ;; helper ns with no framework require, so no cycle: it is the
             ;; panel's `.cljs` that requires THIS ns, never its helpers.
             [day8.re-frame2-xray.panels.machine-inspector-helpers
@@ -188,8 +193,19 @@
   ;;      for whichever id sorted first while the chart drew the other
   ;;      one, and the operator read a countdown that belonged to a
   ;;      machine not on screen. `pick-focused-transition` is the SAME
-  ;;      rule `machine_inspector/focused-event-view` picks its record
-  ;;      by, so the two cannot drift.
+  ;;      rule the Machine Inspector picks its record by — `panel-tree`
+  ;;      resolves it once and hands it to both the chart and the
+  ;;      Prev/Next nav — so those three cannot drift.
+  ;;
+  ;;      rf2-mj4jp EXTENDED that rule rather than replacing it: an
+  ;;      explicit `:rf.xray/select-machine-id` now outranks trace order
+  ;;      when the focused cascade touched the selected machine. That is
+  ;;      why this sub takes the slot as an input and passes it to the
+  ;;      helper. SHARING THE FN IS NOT BY ITSELF THE GUARANTEE — it is
+  ;;      sharing the fn AND its arguments. Had the slot been added to
+  ;;      the panel's call and not to this one, both would still have
+  ;;      called `pick-focused-transition` and they would still have
+  ;;      disagreed.
   ;;
   ;;   2. WRONG FRAME. See `rings-h/project-timers` — a definition
   ;;      instantiated in two frames collided on one fold key.
@@ -229,12 +245,23 @@
   ;; observe — and it answers the DISPLAY question only when the record
   ;; cannot (a legacy replay whose traces pre-date the `:frame` stamp).
   ;; Both nil still means NO FILTER, exactly as before.
+  ;; rf2-mj4jp — `:rf.xray/selected-machine-id` IS A FOURTH INPUT, and it
+  ;; is here for the same reason `pick-focused-transition` is: the rule
+  ;; gained a clause and the rings have to gain it too, or defect 1 above
+  ;; re-opens from the other side. With A and B in one cascade and the
+  ;; operator having JUMPed to B, the chart now draws B while rings folded
+  ;; by the old rule would still count down A's timers — the same
+  ;; countdown-for-a-machine-not-on-screen, reached by leaving this sub
+  ;; behind rather than by reading the wrong slot. The input feeds the
+  ;; helper's second argument and does nothing else.
   (rf/reg-sub :rf.xray/active-timers-for-focused-machine
     {:inputs [[:rf.xray/trace-buffer]
               [:rf.xray/machine-transitions-for-focused-event]
-              [:rf.xray/target-frame]]}
-    (fn [[buffer records target-frame] _query]
-      (let [record        (mi-h/pick-focused-transition records)
+              [:rf.xray/target-frame]
+              [:rf.xray/selected-machine-id]]}
+    (fn [[buffer records target-frame selected-machine-id] _query]
+      (let [record        (mi-h/pick-focused-transition records
+                                                        selected-machine-id)
             machine-id    (:machine-id record)
             display-frame (or (:frame-id record) target-frame)]
         (rings-h/timers-for-machine buffer machine-id display-frame))))
