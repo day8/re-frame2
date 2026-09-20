@@ -3664,6 +3664,16 @@
                           :path path
                           :depth depth
                           :expansion-map expansion-map
+                          ;; rf2-et4l0 — this context is handed to the
+                          ;; consumer WHOLESALE, so a protocol body that
+                          ;; recurses `render-node` (021 §10.0.6's worked
+                          ;; example) carries it into the nested
+                          ;; container's toggle. Without the mount's
+                          ;; captured dispatcher here that toggle took
+                          ;; `render-container`'s global `rf/dispatch`
+                          ;; fallback and wrote the expansion event off
+                          ;; the frame the widget reads it on.
+                          :dispatch-fn dispatch-fn
                           :opts opts}
         ;; Token renderer for a leaf: the consumer's header when the
         ;; value has one, else the built-in coloured token. `::missing`
