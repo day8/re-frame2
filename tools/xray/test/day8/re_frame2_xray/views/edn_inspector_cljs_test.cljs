@@ -1796,6 +1796,168 @@
     (is (= (vec (ei/children-of-pair before after :vector)) pairs)
         "nil projection falls back to children-of-pair")))
 
+;; ---- rf2-brmyq — the sequential diff ENTRY path is bounded --------------
+;;
+;; rf2-y8doi.24 (PR #10053) bounded `children-of-pair`, but the LIVE diff
+;; render path never calls it for a vector / list / seq: `render-container`
+;; routes those three kinds to `sequential-diff-children`, whose own `let`
+;; realised BOTH sides with a bare `vec` BEFORE the `cond` that would have
+;; delegated. So the new bound was unreachable on exactly the shapes most
+;; likely to be lazy, and — the item's words — "an actual infinite sequence
+;; never reaches the fallback".
+;;
+;; TWO properties are asserted, deliberately, because either alone is green
+;; against a plausible wrong fix:
+;;
+;;   P1 BOUNDED WORK      — the generator is not pulled past the bound. A
+;;                          row-COUNT assertion alone passes against
+;;                          `(take count-bound (vec after))`, which bounds
+;;                          the OUTPUT while still realising the INPUT and
+;;                          therefore still hangs on an endless sequence.
+;;   P2 ALIGNMENT + FINITE — rf2-vu42n's in-place strike still lands on the
+;;                          genuinely-removed member, and an ordinary finite
+;;                          sequence LONGER than the bound is still rendered
+;;                          whole. A bounded-work assertion alone says
+;;                          nothing about either, and a blanket
+;;                          `(take count-bound …)` would silently truncate
+;;                          a perfectly renderable 1050-element vector.
+
+(def ^:private count-bound
+  "Mirrors the view's own private `count-bound` (1001) — the single
+  ceiling `child-count`, `children-of`, `children-of-pair`,
+  `diff-pair-count` and now `bounded-vec` all share."
+  1001)
+
+(defn- counting-seq
+  "Endless lazy seq 0, 1, 2, … that records the high-water mark of
+  REALISED elements in `counter` and THROWS when asked for element
+  `guard`.
+
+  The guard is the instrument, not a shortcut: it converts \"loops for
+  ever\" into \"fails in milliseconds\", so the pre-fix RED is observable
+  at all. A true `(range)` against the unbounded walk does not fail —
+  it exhausts the heap and takes the whole lane's exit file with it.
+  The item's own Babashka probe guarded its generator for this reason.
+
+  `lazy-seq` + `cons` is unchunked, so `counter` tracks single-element
+  pulls exactly."
+  [counter guard]
+  (letfn [(step [i]
+            (lazy-seq
+              (when (>= i guard)
+                (throw (ex-info "realised past the guard"
+                                {:i i :guard guard})))
+              (swap! counter max (inc i))
+              (cons i (step (inc i)))))]
+    (step 0)))
+
+(deftest sequential-diff-children-bounds-the-entry-path-rf2-brmyq
+  ;; The item's reproduction, verbatim: "a guarded lazy sequence throws
+  ;; after element 1500 through `sequential-diff-children`, while
+  ;; `children-of-pair` directly returns 1001 rows from the same
+  ;; generator."
+  (let [guard 1500]
+    (testing "CONTROL — children-of-pair was already bounded (PR #10053)"
+      (let [seen (atom 0)
+            rows (vec (ei/children-of-pair
+                        (counting-seq seen guard) [1 2 3] :vector))]
+        (is (= count-bound (count rows))
+            "children-of-pair returns count-bound rows from this generator")
+        (is (<= @seen count-bound)
+            (str "and realised " @seen " elements, never past the bound"))))
+    (testing "P1 — the ENTRY path the renderer actually calls is bounded too"
+      (let [seen (atom 0)
+            rows (vec (ei/sequential-diff-children
+                        (counting-seq seen guard) [1 2 3] :vector [] nil))]
+        (is (<= @seen count-bound)
+            (str "sequential-diff-children realised " @seen
+                 " elements; the bound is " count-bound
+                 ". A bare `vec` realises the lot and throws at the guard."))
+        (is (= count-bound (count rows))
+            "and emits the same row count children-of-pair does")))
+    (testing "P1 — bounded on the AFTER side as well as the BEFORE side"
+      (let [seen (atom 0)
+            rows (vec (ei/sequential-diff-children
+                        [1 2 3] (counting-seq seen guard) :seq [] nil))]
+        (is (<= @seen count-bound)
+            (str "realised " @seen " elements from the AFTER side"))
+        (is (= count-bound (count rows))
+            "and still emits count-bound rows")))))
+
+(deftest diff-render-path-bounds-an-endless-sequence-rf2-brmyq
+  ;; Through `render-node` — the CALLER the item names — rather than the
+  ;; walker in isolation. `render-container` routes a `:seq` in diff mode
+  ;; to `sequential-diff-children` and NEVER to `children-of-pair`, so
+  ;; this is the path that hung. A guard far above the bound stands in for
+  ;; a truly endless sequence: reaching it at all is the failure.
+  (let [guard 50000]
+    (testing "endless AFTER side renders instead of hanging"
+      (let [seen (atom 0)
+            h    (ei/render-node {:value      (counting-seq seen guard)
+                                  :before     [0 1 2]
+                                  :diff?      true
+                                  :projection nil
+                                  :panel-id   :test :mount-id "m1"
+                                  :path       [] :depth 0
+                                  :expansion-map {} :opts {}})]
+        (is (vector? h) "the diff render path returns hiccup")
+        (is (<= @seen count-bound)
+            (str "and realised " @seen " elements, not " guard))))
+    (testing "endless BEFORE side renders instead of hanging"
+      (let [seen (atom 0)
+            h    (ei/render-node {:value      [0 1 2]
+                                  :before     (counting-seq seen guard)
+                                  :diff?      true
+                                  :projection nil
+                                  :panel-id   :test :mount-id "m1"
+                                  :path       [] :depth 0
+                                  :expansion-map {} :opts {}})]
+        (is (vector? h) "the diff render path returns hiccup")
+        (is (<= @seen count-bound)
+            (str "and realised " @seen " elements, not " guard))))))
+
+(deftest bounding-preserves-removal-alignment-over-the-bound-rf2-brmyq
+  ;; P2. A FINITE vector LONGER than the bound, with a scattered
+  ;; mid-vector removal — the rf2-vu42n shape, at a size where a blanket
+  ;; `(take count-bound …)` would show its hand.
+  ;;
+  ;; A vector is `counted?` and finite by construction, and
+  ;; `diff-pair-count` reports its FULL count, so the body must render it
+  ;; whole: truncating here would put 1001 rows under a header saying
+  ;; 1050, which is the disagreement `children-of`'s docstring refuses in
+  ;; the other direction. `bounded-vec` caps only what is NOT `counted?`.
+  (let [n       1050
+        drop-at 500
+        before  (vec (range n))
+        after   (vec (concat (range drop-at) (range (inc drop-at) n)))
+        proj    (engine/project before after)
+        rows    (vec (ei/sequential-diff-children before after :vector [] proj))]
+    (testing "an ordinary finite diff longer than the bound is NOT truncated"
+      (is (= n (count rows))
+          (str n " rows: " (dec n) " survivors + 1 struck removal. "
+               "A blanket (take count-bound …) would read " count-bound ".")))
+    (testing "the struck row is the genuinely-removed member, not a shifted survivor"
+      (let [struck (->> rows
+                        (filter (fn [[_ a _]] (= a ::ei/missing)))
+                        (mapv (fn [[_ _ b]] b)))]
+        (is (= [drop-at] struck)
+            (str "exactly element " drop-at " is struck — rf2-vu42n's whole "
+                 "point is that index alignment strikes the SURVIVOR that "
+                 "slid up into the vacated slot instead"))))
+    (testing "rows read in BEFORE-order with the deletion struck in place"
+      (let [in-before-order (mapv (fn [[_ a b]] (if (= a ::ei/missing) b a)) rows)]
+        (is (= (vec (range n)) in-before-order)
+            "before-order 0..n-1 reconstructed exactly")))
+    (testing "survivors past the removal carry their SHIFTED after-index"
+      ;; before-index 501 survives at after-index 500.
+      (let [survivors (into {} (comp (remove (fn [[_ a _]] (= a ::ei/missing)))
+                                     (map (fn [[k a _]] [a k])))
+                            rows)]
+        (is (= 500 (get survivors (inc drop-at)))
+            "element 501 renders at after-index 500")
+        (is (= 0 (get survivors 0))
+            "and element 0 is unmoved")))))
+
 (deftest diff-renders-removed-set-member
   ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
   ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER
