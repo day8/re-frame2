@@ -326,8 +326,11 @@
    ;; (`shell.cljs/ribbon`): reads `:rf.xray/current-frame` +
    ;; `:rf.xray/available-frames`, writes via `:rf.xray/select-frame`.
    ;; The picker persists across mode toggles so the user keeps browsing
-   ;; the same frame's registrations as they flip between event-coupled
-   ;; (Dynamic) and event-independent (Static) lenses.
+   ;; the same frame's per-frame projections — machine snapshots, flows,
+   ;; app-db schemas, the current route — as they flip between
+   ;; event-coupled (Dynamic) and event-independent (Static) lenses. The
+   ;; registrar catalogues themselves are process-GLOBAL and do not move
+   ;; with the picker; see this ns's docstring.
    [:div {:data-testid "rf-xray-static-ribbon-selectors"
           :style {:display "flex" :align-items "center" :gap "8px"}}
     ;; rf2-k97c.3 — both are FRESCO BOUNDARIES now, so they arrive here
@@ -348,10 +351,15 @@
   L1 frame-switcher sits between it and the right-icons cluster;
   right-icons (Settings · Close) sit at ribbon-right.
 
-  The frame picker is MODE-INDEPENDENT — Static is also frame-scoped
-  (registrations — events · subs · machines · routes · schemas · flows
-  · interceptors — live in a particular frame, so the user must be
-  able to pick which frame they are browsing). Reaching through
+  The frame picker is MODE-INDEPENDENT — but NOT because registrations
+  belong to a frame. Per Spec 001 the registrar is process-GLOBAL, so
+  the event / sub / route / interceptor / machine-definition catalogues
+  are shared across every frame and read the same whichever frame is
+  picked. What the picker DOES scope is the genuinely per-frame data
+  each Static panel projects beside those catalogues — machine
+  snapshots, the flows registry, the `schemas-by-frame` side-table and
+  the current-route slice — and four of the five Static tabs carry one.
+  This ns's own docstring above splits it per tab. Reaching through
   `frame_switcher.cljs` (the canonical contract surface) keeps Static
   on the same picker as Dynamic; mode toggles preserve the selection.
   Dynamic's nav cluster (`[◀ ▶ ⏭]`) and filter pills remain HIDDEN in
