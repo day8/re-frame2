@@ -642,6 +642,17 @@
   `children-of-pair` has none and asks whether the before side stopped
   AT the ceiling. Neither realises an extra element to find out.
 
+  A THIRD site emits it, and it PROPAGATES rather than originates
+  (rf2-t450s): when one of those surviving elements is a CONTAINER, the
+  renderer descends into it with this marker as the whole before side,
+  and `children-of-pair`'s `unpaired-prior` hands the same marker to
+  every child. The unknown is inherited, because the reason for it is —
+  nobody realised the parent, so nobody realised its members either.
+  `classify-container-op` excludes this marker from its
+  structural-difference override for the same reason `leaf-diff-op`
+  excludes it from its structural one: it is not a value, and differing
+  from one is no evidence that anything changed.
+
   `::missing` would be a lie here, and a loud one: it is the STRUCTURAL
   sentinel, it OVERRIDES the projection in `leaf-diff-op`, and it paints
   a surviving element green as newly added. This keyword is deliberately
@@ -1514,6 +1525,36 @@
            (empty? after)
            (seq before)))))
 
+(defn- unpaired-prior
+  "The BEFORE-slot marker for an after-side child the before side
+  supplied no counterpart for: `::missing` normally, `::unrealised` when
+  the whole before SIDE was itself an unknown prior.
+
+  rf2-t450s — `children-of-pair` is reached RECURSIVELY, and the
+  `before` it is handed can be the `::unrealised` sentinel rather than a
+  collection. `sequential-diff-children` puts that marker on a survivor
+  past the before bound (rf2-zk4he), and when that survivor is itself a
+  CONTAINER the renderer descends into it carrying the marker down as
+  the whole before side. Every arm below then asks
+  `(when (map? before) before)` / `(when (sequential? before) before)`
+  and gets `nil`, because a keyword is neither — so the walk takes its
+  one-sided branch and reports each child's prior ABSENT.
+
+  Nobody looked. Those children's priors are UNKNOWN for exactly the
+  reason their parent's was, and `::missing` says the opposite in the
+  loudest available way: it is the STRUCTURAL sentinel, `leaf-diff-op`
+  reads it AHEAD of the projection, and an entirely unchanged collection
+  gains a full set of fabricated additions. `::unrealised` is not
+  structural, so each child's op falls through to the projection —
+  computed over the FULL inputs, and therefore correct.
+
+  Deliberately keyed on the marker actually BEING there, never on the
+  before side's kind: a genuinely absent prior (a newly-added nested
+  map, an after-only key, a real kind change) still answers `::missing`
+  and still renders `:added`. Realises nothing to decide."
+  [before]
+  (if (= before ::unrealised) ::unrealised ::missing))
+
 (defn children-of-pair
   "Diff-aware children walk — return a seq of `[child-key after-value
   before-value]` triples covering the UNION of `before` + `after` so
@@ -1525,13 +1566,23 @@
   routes through `render-leaf-with-diff`'s `:added` / `:removed` paths
   unchanged.
 
-  ONE EXCEPTION, and it is the difference between not existing and not
-  being looked at (rf2-idydb): where a not-`counted?` BEFORE side was
-  capped at `count-bound` while a `counted?` AFTER side was realised
-  whole, the before slots past that ceiling carry `::unrealised`
-  instead. Their priors are UNKNOWN, not absent, and `::missing` would
-  say the opposite in the loudest available way — it overrides the
-  projection and paints a surviving element green as newly added.
+  TWO EXCEPTIONS, and both are the difference between not existing and
+  not being looked at.
+
+  1. rf2-idydb — where a not-`counted?` BEFORE side was capped at
+     `count-bound` while a `counted?` AFTER side was realised whole, the
+     before slots past that ceiling carry `::unrealised` instead. Their
+     priors are UNKNOWN, not absent, and `::missing` would say the
+     opposite in the loudest available way — it overrides the projection
+     and paints a surviving element green as newly added.
+  2. rf2-t450s — where the whole BEFORE argument is itself that
+     `::unrealised` marker, which is how this walk is reached when the
+     renderer descends into a surviving CONTAINER past that same
+     ceiling. Every child's prior is then unknown for its parent's
+     reason, and `unpaired-prior` carries the marker down instead of
+     flattening it to `::missing`. Only AFTER's children are emitted:
+     there is no before side to union with, and inventing one would be
+     the same lie pointing the other way.
 
   Per collection kind:
   - **Map / record** — AFTER's keys in their natural order, then
@@ -1576,10 +1627,13 @@
               [k (get a k) (get b k ::missing)])
             (for [k extra-keys]
               [k ::missing (get b k)])))
-        ;; Only AFTER is a map (BEFORE missing / different kind): all-added.
+        ;; Only AFTER is a map (BEFORE missing / unknown / different
+        ;; kind). All-added ONLY where the prior is genuinely absent —
+        ;; `unpaired-prior` keeps an `::unrealised` before side unknown
+        ;; rather than converting it to absence here (rf2-t450s).
         a
         (for [[k v] a]
-          [k v ::missing])
+          [k v (unpaired-prior before)])
         ;; Only BEFORE is a map (shouldn't normally happen — render-node
         ;; routes value=::missing through render-leaf-with-diff). Defensive.
         b
@@ -1634,7 +1688,10 @@
              (if (< i a-count) (nth a-vec i) ::missing)
              (if (< i b-count) (nth b-vec i) past-before)]))
         a-vec
-        (map-indexed (fn [i x] [i x ::missing]) a-vec)
+        ;; rf2-t450s — `unpaired-prior`, not a bare `::missing`: this
+        ;; branch is also how a nested VECTOR in the recovered tail is
+        ;; walked, and there the whole before side is `::unrealised`.
+        (map-indexed (fn [i x] [i x (unpaired-prior before)]) a-vec)
         b-vec
         (map-indexed (fn [i x] [i ::missing x]) b-vec)
         :else nil))
@@ -1649,7 +1706,7 @@
             [x
              (if (contains? a x) x ::missing)
              (if (contains? b x) x ::missing)]))
-        a (for [x a] [x x ::missing])
+        a (for [x a] [x x (unpaired-prior before)])
         b (for [x b] [x ::missing x])
         :else nil))
 
@@ -1660,7 +1717,8 @@
         (and a b)
         (list [0 (first a) (first b)]
               [1 (second a) (second b)])
-        a (list [0 (first a) ::missing] [1 (second a) ::missing])
+        a (list [0 (first a) (unpaired-prior before)]
+                [1 (second a) (unpaired-prior before)])
         b (list [0 ::missing (first b)] [1 ::missing (second b)])
         :else nil))
 
@@ -2617,8 +2675,19 @@
       ;; sequences sharing a prefix — so the raw comparison here ran
       ;; for ever on exactly the pairs the projection bound had just
       ;; made safe.
+      ;; rf2-t450s — and never `unrealised-sentinel` either. This
+      ;; override's whole premise is that the two SIDES genuinely
+      ;; differ, so it may only ever compare two VALUES. An
+      ;; `::unrealised` before side is not a value: it is the marker for
+      ;; a prior nobody looked at, and `differs-within-bound?` duly
+      ;; reports a keyword differing from the after collection —
+      ;; promoting an unchanged container to `:children` on no evidence,
+      ;; which auto-expands it and paints it change-bearing. Excluded
+      ;; here exactly as `missing-sentinel` already is, so the
+      ;; projection's own op (computed over the FULL inputs) stands.
       (if (and (= :same proj-op)
                (not= before missing-sentinel)
+               (not= before unrealised-sentinel)
                (not= value missing-sentinel)
                (differs-within-bound? before value))
         :children
