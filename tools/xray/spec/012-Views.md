@@ -186,8 +186,8 @@ data and remains unchanged.
     - `·` → "Sub recomputed, value unchanged — React skipped
       re-render of any view reading only this sub."
   - For each trigger sub, the previous-vs-new value shown in `(was:
-    …)` on the next line; if previous value was large, `inspect-diff`
-    summary used.
+    …)` on the next line; if previous value was large, the widget's
+    opt-in `:before` diff summary used.
   - Multiple triggers → multiple `✱` rows; the most-likely-cause
     (deepest in dependency graph) is rendered first.
   - Parent-forced re-render (no changed sub) → "Rerendered because" reads
@@ -286,7 +286,8 @@ block.
 
 - **Headline content = props diff** — the diff is what the developer
   is most-often after: "what changed about this component's input that
-  the framework saw?" Rendered via `inspect-diff` per the §Renderer.
+  the framework saw?" Rendered via `edn-inspector-diff` per the
+  §Renderer.
 - **Subs consumed** repeats the Re-rendered group's "Rerendered because"
   content (trigger marked with `✱`, sub return value, was-value). For
   mounted: "Subs consumed at mount" (no diff — first read). For
@@ -463,11 +464,15 @@ merge**.
 
 ## Renderer — superseded
 
-The `inspect-inline` / `inspect` / `inspect-diff` trio and the
+The inline / full / diff entry-point trio and the
 `theme/data_inspector.cljc` chrome namespace this section described are
 gone (the namespace was deleted in the rf2-oqa60 phase-5 sweep,
-rf2-q3dzw). The shared renderer — including the spec/015 sentinel
-chrome sketched here — is normative in
+rf2-q3dzw). The live facade is `inspect` / `inspect-view` /
+`inspect-inline`; diff is an opt-in `:before` mode on the same widget —
+`[edn-inspector <after> {:before <before>}]`, or the
+`[edn-inspector-diff <before> <after>]` convenience that threads it —
+rather than a separate entry point. The shared renderer — including the
+spec/015 sentinel chrome sketched here — is normative in
 [`021-Dynamic-Panel-Designs.md` §10](021-Dynamic-Panel-Designs.md#10-shared-edn-inspector-renderer).
 
 ## JVM behaviour

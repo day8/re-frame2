@@ -1171,7 +1171,7 @@ A11y dogfooding is now Story's concern per rf2-18t6p + rf2-qgms1.)
 
 The App-db diff renderer (in `views/edn_inspector.cljs`, driven by
 the Editscript-backed projection from `diff/engine.cljc`) and the
-`inspect-diff` mode of the detail-panel renderer both ship a
+opt-in `:before` diff mode of the detail-panel renderer both ship a
 **per-node gutter**: a 3-px coloured left-border + glyph that
 telegraphs the operation at a glance.
 
@@ -1184,7 +1184,7 @@ telegraphs the operation at a glance.
 | Same (rendered for context) | (space) | tertiary | `:text-tertiary` |
 
 The gutter is a single shared idiom across the App-db diff, the
-sub-output diff, and any nested `inspect-diff` consumer. The
+sub-output diff, and any nested `:before` diff consumer. The
 glyph + colour combination satisfies the "colour is never alone"
 discipline above — the gutter glyph alone is enough to read the op
 without any colour.
