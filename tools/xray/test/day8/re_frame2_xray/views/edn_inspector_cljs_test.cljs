@@ -3954,6 +3954,120 @@
              (ei/estimated-inline-px v))
           "200 elements sits under the char cap, so the answer is exact"))))
 
+;; ---- rf2-re7dn — a long STRING leaf is never serialised in full ---------
+;;
+;; The bounded walk above stops at the budget, but its scalar branch
+;; called `pr-str` on the WHOLE scalar and took `count` afterwards. So
+;; `{:body <500,000 characters>}` against a 100px column returned
+;; `##Inf` — the right answer — only after allocating a 500,002-
+;; character printed leaf, on every render, when the string's own
+;; `count` already proved it could not fit.
+;;
+;; NOTE THE SHAPE OF THESE TESTS, because it is the whole point: one
+;; that asserts only `##Inf` PASSES ON THE UNFIXED TREE, since the
+;; unfixed branch returns `##Inf` too — just expensively. The expense
+;; IS the defect, so these spy on `pr-str` and assert on the SIZES
+;; PRINTED rather than on the value returned.
+;;
+;; The spy's own positive control is load-bearing. Were the
+;; redefinition to miss the call site, `sizes` would be empty and
+;; "nothing large was printed" would pass vacuously on a tree that
+;; still has the bug. So each case asserts a SMALL leaf WAS recorded
+;; before asserting the LARGE one was not.
+
+(defn- printed-sizes
+  "Run thunk `f` with `pr-str` spying, returning `[result sizes]`,
+  where `sizes` holds the character count of every string `pr-str`
+  produced, in call order. The original is captured before the
+  redefinition, so the spy still measures real output."
+  [f]
+  (let [sizes    (atom [])
+        original pr-str
+        result   (with-redefs [cljs.core/pr-str
+                               (fn [& objs]
+                                 (let [s (apply original objs)]
+                                   (swap! sizes conj (count s))
+                                   s))]
+                   (f))]
+    [result @sizes]))
+
+(deftest a-long-string-leaf-is-never-serialised-in-full
+  ;; The item's own probe shape: printed sizes were `[5 500002]`.
+  (let [big                   (apply str (repeat 500000 "x"))
+        [_ control-sizes]     (printed-sizes
+                                #(ei/estimated-inline-px {:body "short"} 100))
+        [px sizes]            (printed-sizes
+                                #(ei/estimated-inline-px {:body big} 100))]
+    (testing "the spy is live and the walk reaches the VALUE position"
+      (is (some #(= 5 %) control-sizes)
+          "the 5-character `:body` key was recorded")
+      (is (some #(= 7 %) control-sizes)
+          "and so was the 7-character printed value beside it, so a
+           missing large print below means the print did not happen —
+           not that the walk stopped short"))
+    (testing "the large leaf is not printed to discover it cannot fit"
+      (is (some #(= 5 %) sizes)
+          "the key is still printed exactly — small scalars are unchanged")
+      (is (not-any? #(>= % 500000) sizes)
+          (str "no print may be proportional to the 500,000-character "
+               "leaf; recorded sizes were " (pr-str sizes))))
+    (testing "and the answer itself does not move"
+      (is (= ##Inf px)
+          "over budget the estimate is still `##Inf`"))))
+
+(deftest a-long-NESTED-string-leaf-is-never-serialised-in-full
+  ;; The scalar branch is reached by recursion, so a top-level-only
+  ;; case would not exercise the path a real app-db takes. The budget
+  ;; here is the default ceiling rather than a column width: under a
+  ;; 100px column the walk passes `cap` on the PREFIX and never
+  ;; reaches the leaf at all, which would pass on the unfixed tree for
+  ;; the wrong reason.
+  (let [big               (apply str (repeat 500000 "x"))
+        [_ control-sizes] (printed-sizes
+                            #(ei/estimated-inline-px {:response {:body "short"}}))
+        [px sizes]        (printed-sizes
+                            #(ei/estimated-inline-px {:response {:body big}}))]
+    (testing "the walk reaches the nested leaf at this budget"
+      (is (some #(= 9 %) control-sizes)
+          "the 9-character `:response` key was recorded")
+      (is (some #(= 7 %) control-sizes)
+          "and the nested value position was printed"))
+    (testing "the nested large leaf is not printed either"
+      (is (some #(= 9 %) sizes)
+          "the walk got as far as `:response`")
+      (is (not-any? #(>= % 500000) sizes)
+          (str "the nested leaf is not serialised; recorded sizes were "
+               (pr-str sizes))))
+    (is (= ##Inf px)
+        "and the nested answer is still `##Inf`")))
+
+(deftest small-strings-are-still-measured-EXACTLY
+  ;; The other half of the fix, and the docstring's standing promise:
+  ;; the lower bound is charged ONLY when it already carries the
+  ;; running total past `cap`. Under budget the print still happens,
+  ;; so escapes — which make `pr-str` longer than `count` — are still
+  ;; counted and no existing estimate moves.
+  (doseq [s ["plain"
+             "has \"quotes\""
+             "has \\ backslash"
+             "has\nnewline"
+             ""]]
+    (is (= (* ei/mono-char-width-px (count (pr-str s)))
+           (ei/estimated-inline-px s))
+        (str "exact for " (pr-str s))))
+  (testing "nested under a key, where escaping makes the print longer
+            than the raw character count"
+    (let [v {:msg "a \"quoted\" word"}]
+      (is (= (* ei/mono-char-width-px (count (pr-str v)))
+             (ei/estimated-inline-px v))
+          "escaped characters are still counted exactly")))
+  (testing "a string just under the ceiling is still measured by its
+            own print, not by a bound"
+    (let [s (apply str (repeat 4000 "y"))]
+      (is (= (* ei/mono-char-width-px (count (pr-str s)))
+             (ei/estimated-inline-px s))
+          "4000 characters sits under `inline-estimate-char-cap`"))))
+
 (deftest preview-and-annotation-paths-return-on-an-infinite-seq
   ;; `estimated-inline-px` is not the only unbounded print on a render
   ;; path — `mini`, the `← was` chip and the collapsed-collection
