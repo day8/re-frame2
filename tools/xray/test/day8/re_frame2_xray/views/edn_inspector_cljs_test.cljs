@@ -2473,6 +2473,55 @@
       (is (empty? (filter (fn [[_ a _]] (= a ::ei/missing)) rows))
           "no row is struck through — this diff removed nothing"))))
 
+(deftest unreached-before-row-is-not-an-unchanged-value-rf2-f8nm7
+  ;; The one place a plausible fix tells a NEW lie, and the reason the
+  ;; recovered row may not simply take `op-at`'s answer. It has NO after-path
+  ;; — that is the whole reason it exists — so a key the projection can be
+  ;; asked about at all gets `op-at`'s documented no-entry default, `:same`.
+  ;; `render-leaf-with-diff`'s `:same` arm paints `present-value`, which for
+  ;; an `::unrealised` after slot falls back to the BEFORE value — so the row
+  ;; would render the PRIOR value, muted, as the settled current one. The
+  ;; render layer says so itself: it falls back that way because a projection
+  ;; `:same` "CERTIFIES the two sides equal", and a default is not a
+  ;; certification. That is a fourth confident falsehood in the family that
+  ;; exists to refuse the other three.
+  ;;
+  ;; `:modified` is the honest op — `leaf-diff-op`'s own rf2-g61nr note calls
+  ;; it "an honest 'something here is not settled'" — and it paints `value`,
+  ;; which `paint` turns into the explicit unknown-value token, beside the
+  ;; `← was <prior>` chip carrying the prior we really do know.
+  (let [n      1050
+        before (assoc (vec (range n)) (dec n) :changed-at-tail)
+        after  (map identity (range n))
+        proj   (engine/project before after)
+        tree   (render-expanded {:value      after
+                                 :before     before
+                                 :diff?      true
+                                 :projection proj})
+        txt    (collect-text tree)]
+    (testing "CONTROL — the body renders every row the header promises"
+      (is (= n (rendered-rows tree))
+          (str "all " n " rows reach the screen; pre-fix the body rendered "
+               count-bound " under a header promising " n)))
+    (testing "the recovered row states the unknown rather than painting a
+              stale value as settled"
+      (is (seq (nodes-with-attr tree :data-rf-diff-value "unrealised-after"))
+          (str "an explicit `(after side bounded — value not realised)` token "
+               "is rendered. Without this the row paints `:changed-at-tail` "
+               "— the PRIOR — in muted `:same` chrome, which says the "
+               "element is settled at a value it no longer has."))
+      (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
+          (str "and NO row is painted as a deletion — nothing was removed "
+               "from this collection, and `::missing` in the after slot "
+               "would be rf2-g61nr's confident lie reached through a new "
+               "door")))
+    (testing "CONTROL — the sentinels never reach the screen (rf2-8pfkk)"
+      (is (not (str/includes? txt "edn-inspector/unrealised"))
+          "the internal unknown-value sentinel is never `pr-str`ed out")
+      (is (not (str/includes? txt "edn-inspector/unreached"))
+          (str "and neither is the synthetic KEY segment the recovered row "
+               "is addressed by")))))
+
 (deftest capped-after-side-stays-bounded-and-aligned-rf2-f8nm7
   ;; P2, all three halves. Each is green on TRUNK and must stay green: their
   ;; job is to refuse a WRONG fix, not to catch the current defect.
