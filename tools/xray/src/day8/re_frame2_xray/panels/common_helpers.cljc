@@ -23,10 +23,11 @@
 
   ## Why a shared cap
 
-  The 200-row budget is pinned in
-  `test/.../perf_budget_cljs_test.cljc:88-92` as a hard contract but
-  was historically enforced only in `machine_inspector_helpers/
-  cap-transitions`. Eight long-list panels silently iterated whole
+  The 200-row budget comes from `tools/xray/spec/007-UX-IA.md`
+  §Performance budget. It was historically enforced only in
+  `machine_inspector_helpers/cap-transitions`, whose own cap tests
+  still live in `panels/machine_inspector_helpers_cljs_test.cljc`.
+  Eight long-list panels silently iterated whole
   row vectors with `for`, exploding DOM mount + React-reconciliation
   cost once the trace ring filled. Promoting the cap to a shared
   helper closes that gap for every panel that adopts it — the same
@@ -58,13 +59,21 @@
 
 (def panel-row-cap
   "The 200-row-per-panel rendering cap pinned in
-  `tools/xray/spec/007-UX-IA.md` §Performance budget L611-612 and
-  asserted by `test/.../perf_budget_cljs_test.cljc:88-92`. A panel
-  that adopts it applies it through `cap-rows` at its row-rendering
+  `tools/xray/spec/007-UX-IA.md` §Performance budget. A panel that
+  adopts it applies it through `cap-rows` at its row-rendering
   boundary before handing rows to the view, so that panel's DOM mount
   count is bounded regardless of how deep the underlying derivation
   grows. Not every long-list panel does — `cap-rows`' callers are the
-  roster (see the ns docstring)."
+  roster (see the ns docstring).
+
+  What is asserted, in `panels/common_helpers_cljs_test.cljc`: this
+  constant equals 200 (`panel-row-cap-is-200`), plus `cap-rows`'
+  truncation algebra — under, at and over cap, explicit cap, nil /
+  empty, row-shape preservation, purity. What is NOT asserted
+  anywhere: the spec's RENDERING budget as such. Nothing counts
+  rendered rows, and nothing asserts adoption. Change the number here
+  and those unit tests go red; drop the `cap-rows` call from a panel
+  and nothing does."
   200)
 
 (defn cap-rows
