@@ -76,11 +76,13 @@
   A single `requestAnimationFrame` loop ticks at the browser's natural
   frame rate (~60fps). On each tick we bump `:rf.xray/now-ms` —
   every consumer of the ring-fraction sub re-fires on the standard
-  reactive path. The loop self-gates: when there are no armed timers
-  OR the scrubber is in retrospective mode, the next rAF is not
-  scheduled; the loop resumes when a fresh `:scheduled` event arrives
-  (the panel re-evaluates `needs-ticking?` on every render and kicks
-  the loop when truthy).
+  reactive path. The loop self-gates: when nothing on screen has a
+  DEADLINE left — no armed timer counting down and no `:cancelled`
+  ring still inside its retention window (rf2-q9x6h) — OR the
+  scrubber is in retrospective mode, the next rAF is not scheduled;
+  the loop resumes when a fresh `:scheduled` event arrives (the panel
+  re-evaluates `needs-ticking?` on every render and kicks the loop
+  when truthy).
 
   Per the bead's divergence allowances: if rAF creates perf issues
   under many concurrent timers, the throttle knob lives in
@@ -323,7 +325,10 @@
 ;; A single rAF loop that bumps `:rf.xray/timer-tick` per frame when
 ;; `needs-ticking?` says so. The loop self-gates so it stops when:
 ;;
-;;   - all timers are cancelled / fired
+;;   - every timer has fired, and every cancelled ring has aged past its
+;;     retention window (rf2-q9x6h — a `:cancelled` ring is NOT static:
+;;     it has a deadline, so the clock outlives the last armed timer by
+;;     at most `cancelled-retention-ms`, then stops)
 ;;   - the scrubber leaves `:present`
 ;;   - the `AfterRingsOverlay` UNMOUNTS (rf2-e64drj) — the loop is
 ;;     MOUNT-gated, not only DATA-gated. Pre-fix the only stop conditions
@@ -436,7 +441,11 @@
                        {:frame frame})
           (swap! tick-state assoc :last-now-ms now))
         ;; Re-schedule only while STILL mounted AND still data-warranted.
-        (if (and (:mounted? @tick-state) (rings-h/needs-ticking? timers scrub))
+        ;; rf2-q9x6h — `now` is the same instant `timers` was pruned against
+        ;; above, so a `:cancelled` ring still in the vector is still inside
+        ;; its window and the loop keeps running until it ages out.
+        (if (and (:mounted? @tick-state)
+                 (rings-h/needs-ticking? timers scrub now))
           (raf! tick-loop!)
           (swap! tick-state assoc :running? false))))
     (catch :default _e
@@ -581,7 +590,9 @@
         ;; this is the SINGLE per-chart clock (O(charts), not
         ;; O(rings × charts)); the machines-viz overlay runs no clock
         ;; of its own — it just re-measures the DOM when `:tick` bumps.
-        _          (when (rings-h/needs-ticking? timers scrub)
+        ;; rf2-q9x6h — `now` is the anchor `timers` was just pruned against,
+        ;; so a crossed ring that is still on screen still gets a clock.
+        _          (when (rings-h/needs-ticking? timers scrub now)
                      (kick-tick! frame))
         specs      (rings-h/timers->ring-specs
                      timers chart-layout/highlight-id now)]

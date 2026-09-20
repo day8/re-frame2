@@ -24,7 +24,9 @@
     7. `timer->ring-spec` / `timers->ring-specs` — xyflow overlay
        ring-spec projection (rf2-uv1on; replaced the SVG-era
        `state-node-center` / `timers->ring-positions`).
-    8. `needs-ticking?`                     — rAF tick driver gate.
+    8. `needs-ticking?` / `cancelled-ring-live?` — rAF tick driver gate,
+       and the retention boundary it shares with `prune-timers`
+       (rf2-q9x6h).
     9. `ms-remaining`                       — tooltip-ms calc.
     10. `focused-cascade-time-ms` / `resolve-now-ms` — rf2-8i1tg3 retro
         now-ms anchor (xray/003 §M.2)."
@@ -591,15 +593,77 @@
 ;; ---- (8) needs-ticking? -------------------------------------------------
 
 (deftest needs-ticking?-true-when-armed-and-at-present
-  (is (h/needs-ticking? [{:status :armed}] :present)))
+  (is (h/needs-ticking? [{:status :armed}] :present 1000)))
 
 (deftest needs-ticking?-falsy-when-no-armed
-  (is (not (h/needs-ticking? [{:status :cancelled}] :present)))
-  (is (not (h/needs-ticking? [] :present))))
+  ;; rf2-q9x6h — a `:cancelled` record with NO `:closed-at` cannot be aged,
+  ;; so `prune-timers` DROPS it rather than keep an unboundable ring; a
+  ;; dropped ring needs no clock. This row pinned the defect's own premise
+  ;; ("`:cancelled` rings are static") and survives it unchanged, because
+  ;; the record it names has no deadline to reach.
+  (is (not (h/needs-ticking? [{:status :cancelled}] :present 1000)))
+  (is (not (h/needs-ticking? [] :present 1000))))
 
 (deftest needs-ticking?-falsy-when-scrubbed-back
-  (is (not (h/needs-ticking? [{:status :armed}] 3)))
-  (is (not (h/needs-ticking? [{:status :armed}] 0))))
+  (is (not (h/needs-ticking? [{:status :armed}] 3 1000)))
+  (is (not (h/needs-ticking? [{:status :armed}] 0 1000))))
+
+;; ---- (8b) rf2-q9x6h — a cancelled ring's DEADLINE keeps the clock alive --
+;;
+;; rf2-y8doi.23 gave `:cancelled` rings a retention window, so they stopped
+;; being static — they acquired a deadline, and a deadline needs a clock.
+;; `needs-ticking?` went on answering false as soon as the last `:armed`
+;; timer went away, which froze `:rings/now-ms` at that instant and left the
+;; crossed ring on screen for ever. These rows pin the predicate; the
+;; scheduled path itself is pinned in
+;; `machine_after_rings_tick_loop_cljs_test`.
+
+(def ^:private cancelled-ring
+  {:status :cancelled :state :idle :closed-at 2000})
+
+(deftest needs-ticking?-true-for-a-cancelled-ring-inside-its-window
+  (is (h/needs-ticking? [cancelled-ring] :present 2000)
+      "at :closed-at itself")
+  (is (h/needs-ticking? [cancelled-ring] :present
+                        (+ 2000 h/cancelled-retention-ms))
+      "and at exactly the retention boundary, where prune-timers still
+       keeps the ring on screen — the clock must not stop one tick before
+       the eviction it exists to reach"))
+
+(deftest needs-ticking?-falsy-once-a-cancelled-ring-has-expired
+  (is (not (h/needs-ticking? [cancelled-ring] :present
+                             (+ 2000 h/cancelled-retention-ms 1)))
+      "one ms past the window the ring is gone, so the clock STOPS —
+       bounded, not perpetual")
+  (is (not (h/needs-ticking? [cancelled-ring] :present 600000))
+      "and it never restarts"))
+
+(deftest needs-ticking?-falsy-for-a-cancelled-ring-in-retrospective-mode
+  (is (not (h/needs-ticking? [cancelled-ring] 3 2000))
+      "retro mode freezes EVERY ring, cancelled ones included — widening
+       the predicate must not reanimate the clock behind the scrubber"))
+
+(deftest needs-ticking?-true-without-a-clock-so-the-first-tick-can-age-it
+  (is (h/needs-ticking? [cancelled-ring] :present nil)
+      "nil now-ms means no clock yet: nothing can be aged, so the ring is
+       still live and the loop is what supplies the clock that ages it —
+       the same nil semantics prune-timers has")
+  (is (not (h/needs-ticking? [{:status :cancelled :state :idle}] :present nil))
+      "but a record with no :closed-at has no deadline to reach"))
+
+(deftest cancelled-ring-live?-owns-the-boundary-prune-timers-evicts-on
+  ;; The two readings cannot drift: same fn, same comparison.
+  (let [at (fn [now] (h/prune-timers [cancelled-ring] now))]
+    (is (= [cancelled-ring] (at (+ 2000 h/cancelled-retention-ms)))
+        "visible at the boundary")
+    (is (true? (h/cancelled-ring-live? cancelled-ring
+                                       (+ 2000 h/cancelled-retention-ms)))
+        "and live there")
+    (is (= [] (at (+ 2000 h/cancelled-retention-ms 1)))
+        "gone one ms later")
+    (is (false? (h/cancelled-ring-live? cancelled-ring
+                                        (+ 2000 h/cancelled-retention-ms 1)))
+        "and not live there")))
 
 ;; ---- (9) ms-remaining ---------------------------------------------------
 
