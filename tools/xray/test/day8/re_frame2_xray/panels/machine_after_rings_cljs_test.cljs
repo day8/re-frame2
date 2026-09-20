@@ -145,6 +145,58 @@
             :epoch epoch
             :reason :on-exit}}))
 
+;; rf2-a28eo — FRAME-STAMPED fixtures. Read off the PRODUCERS rather than
+;; composed by hand: `machines/timer.cljc`'s `:rf.machine.timer/scheduled`
+;; + `/cancelled` emits and `machines/transition.cljc`'s `/fired`,
+;; `/stale-after` and `/skipped-on-server` emits all stamp `:frame
+;; frame-id`, and so does `machines/lifecycle_fx/registration.cljc`'s
+;; `:rf.machine/transition`. The UNSTAMPED fixtures above omit it
+;; DELIBERATELY: that is what a legacy replay looks like, and the
+;; no-filter branch must still fold one — `active-timers-still-fold-when-
+;; no-frame-can-be-resolved` below is what keeps that honest.
+
+(defn- focus-machine-in!
+  "[[focus-machine!]] with the focused transition trace carrying its
+  owning FRAME, exactly as the producer's `:rf.machine/transition` emit
+  stamps it. That stamp is the DISPLAY coordinate the rings sub resolves
+  its frame scope from (rf2-a28eo) — the same record that already names
+  which machine the chart is drawing."
+  [frame machine-id]
+  (rf/dispatch-sync
+    [:rf.xray/set-epoch-history-for-test
+     [{:epoch-id 1
+       :trace-events
+       [{:id 1 :time 10 :operation :rf.machine/transition
+         :tags {:machine-id           machine-id
+                :frame                frame
+                :before               {:state :idle :data {}}
+                :after                {:state :authing :data {}}
+                :event                [:auth/submit]
+                :rf.trace/dispatch-id "d-1"}}]}]]))
+
+(defn- push-scheduled-in!
+  [frame id machine-id state delay epoch]
+  (trace-collector/seed-trace-for-test!
+    {:id id :time id
+     :operation :rf.machine.timer/scheduled
+     :tags {:machine-id machine-id
+            :frame frame
+            :state state
+            :delay delay
+            :delay-source :literal
+            :epoch epoch}}))
+
+(defn- push-cancelled-in!
+  [frame id machine-id state epoch]
+  (trace-collector/seed-trace-for-test!
+    {:id id :time id
+     :operation :rf.machine.timer/cancelled
+     :tags {:machine-id machine-id
+            :frame frame
+            :state state
+            :epoch epoch
+            :reason :on-exit}}))
+
 (def ^:private fixture-definition
   {:initial :idle
    :states  {:idle    {:on    {:start :authing}
@@ -216,6 +268,116 @@
                         [:rf.xray/active-timers-for-focused-machine])]
           (is (= 1 (count active)))
           (is (= :auth/main (-> active first :machine-id))))))))
+
+;; ---- (2b) rf2-a28eo — display scope vs the collector's target ----------
+
+(deftest active-timers-scope-to-the-focused-frame-with-no-target-selected
+  (testing "rf2-a28eo — ONE singleton actor `:m` instantiated in TWO
+            frames, with `:rf.xray/target-frame` at its DEFAULT of nil
+            (UNSELECTED, EP-0002). Frame A arms at 1000, frame B arms at
+            1500, frame A cancels at 2000 — all `:idle`, epoch 0, delay
+            5000, so the fold key `(machine-id, state, epoch, delay)` is
+            IDENTICAL across the two frames and a singleton's actor-id is
+            identical too.
+
+            rf2-y8doi.23 gave the helper a frame filter, but the sub fed
+            it `:rf.xray/target-frame` raw — and that slot is nil in the
+            posture the panel OPENS in, which takes the no-filter branch.
+            So the narrowing was off exactly when it was needed: frame A's
+            `/cancelled` closed the record frame B's `/scheduled` had
+            opened, and B's LIVE countdown was drawn as a grey crossed
+            CANCELLED ring — a timer still armed in another runtime
+            reported as torn down.
+
+            The fix supplies a frame rather than removing the guard: the
+            focused transition record carries its own `:frame-id`, so the
+            coordinate that names the machine on screen names its INSTANCE
+            too."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:m])
+      (override-definitions! {:m fixture-definition})
+      (push-scheduled-in! :rf/a 1000 :m :idle 5000 0)
+      (push-scheduled-in! :rf/b 1500 :m :idle 5000 0)
+      (push-cancelled-in! :rf/a 2000 :m :idle 0)
+
+      (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+          "the posture under test — an UNSELECTED collector target, which
+           is EP-0002's default and not something this row arranges")
+
+      (testing "focused on frame B, B's own timer is still ARMED"
+        (focus-machine-in! :rf/b :m)
+        (let [active @(rf/subscribe
+                        [:rf.xray/active-timers-for-focused-machine])]
+          (is (= 1 (count active)))
+          (is (= :armed (-> active first :status))
+              "pre-fix this read :cancelled — frame A's teardown closing
+               frame B's live arm")
+          (is (= 1500 (-> active first :armed-at))
+              "and it is B's OWN arm at 1500, not A's at 1000")))
+
+      (testing "and the control from the other side, so the row cannot
+                pass by ignoring frames altogether: focused on frame A,
+                A's timer IS cancelled — by its own teardown"
+        (focus-machine-in! :rf/a :m)
+        (let [active @(rf/subscribe
+                        [:rf.xray/active-timers-for-focused-machine])]
+          (is (= 1 (count active)))
+          (is (= :cancelled (-> active first :status)))
+          (is (= 1000 (-> active first :armed-at)))
+          (is (= 2000 (-> active first :closed-at))))))))
+
+(deftest active-timers-fall-back-to-the-target-frame-when-the-record-carries-none
+  (testing "rf2-a28eo — `:rf.xray/target-frame` remains a LEGITIMATE
+            input, demoted to the FALLBACK. When the focused record
+            carries no `:frame-id` (a legacy replay predating the
+            producer's `:frame` stamp) the collector's target still
+            answers the display question.
+
+            `:rf.xray/set-target-frame` re-seeds `:epoch-history` from the
+            framework's per-frame ring, so it must be dispatched BEFORE
+            the test override or it wipes the focused record."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:m])
+      (override-definitions! {:m fixture-definition})
+      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/a])
+      (focus-machine! :m)
+      (push-scheduled-in! :rf/a 1000 :m :idle 5000 0)
+      (push-scheduled-in! :rf/b 1500 :m :idle 5000 0)
+      (push-cancelled-in! :rf/a 2000 :m :idle 0)
+
+      (is (= :rf/a @(rf/subscribe [:rf.xray/target-frame]))
+          "the collector target is selected; the focused record is the
+           UNSTAMPED fixture, so it carries no :frame-id")
+      (let [active @(rf/subscribe
+                      [:rf.xray/active-timers-for-focused-machine])]
+        (is (= 1 (count active)))
+        (is (= :cancelled (-> active first :status))
+            "scoped to A by the fallback — A's own arm, closed by A's
+             own cancel")
+        (is (= 1000 (-> active first :armed-at)))))))
+
+(deftest active-timers-still-fold-when-no-frame-can-be-resolved
+  (testing "rf2-a28eo — the no-filter branch is KEPT, not removed. With a
+            legacy replay stamping no `:frame` anywhere, the focused
+            record carries no `:frame-id` AND the collector target is
+            unselected, so there is genuinely nothing to disambiguate
+            against. Dropping every event would BLANK the rings on the
+            default posture, which is the failure that branch exists to
+            prevent — and it is still prevented."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (focus-machine!        :auth/login)
+      (push-scheduled!       1000 :auth/login :idle 5000 0)
+      (is (nil? @(rf/subscribe [:rf.xray/target-frame])))
+      (let [active @(rf/subscribe
+                      [:rf.xray/active-timers-for-focused-machine])]
+        (is (= 1 (count active))
+            "the unselected posture still renders a ring; nothing blanked")
+        (is (= :armed (-> active first :status)))))))
 
 (deftest active-timers-folds-scheduled-into-armed
   (setup-xray-frame!)
