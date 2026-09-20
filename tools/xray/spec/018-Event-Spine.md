@@ -2063,7 +2063,7 @@ rf2-f7748x — tab mnemonics, tab numbers, `Ctrl`+arrows, `r`/`R`, `*`,
 - `s` (Subscriptions) — Subs panel folded into Views; `s` repurposed to Settings popup.
 - `c` (Causality tab) — Causality surface dropped entirely (rf2-y0z5b); `c` is unused.
 - `p` (Performance) — Performance panel dropped; `p` unused (available for future tab if added).
-- `w` (Flows) — Flows folded into Views; `w` unused.
+- `w` (Flows) — Flows did **not** fold into Views. The pre-rewrite Flows panel is gone: a flow that FIRED is the Epoch panel's **FLOW** step, right after HANDLER (§5.1 above + [`016-Auxiliary-Panels.md` §Flows content](./016-Auxiliary-Panels.md#flows-content--epoch-panel-flow-step-rf2-lo37i)); REGISTERED flows are browsed in the **Static Flows tab**, reached by click or command palette (its `f` is a label, not a key — see §Mnemonic mode-scoping rule above). The flow-output glyph an earlier draft promised on Views was never built. `w` unused.
 - `r` — neither the **Routing tab** mnemonic nor the event-list rewind binding is wired as a key (both were trimmed under rf2-f7748x — see §Complete map above + [`007-UX-IA.md` §Trimmed pending demand](./007-UX-IA.md#trimmed-pending-demand-rf2-f7748x--the-post-freeze-upgrade-path)). Routing is still its own L3 tab (rf2-nrbs9, reached by click or command palette); the rewind *feature* still ships as the Epoch-panel button + `:rf.xray/reset-to-epoch` — only the `r` key is gone.
 - `S` (Schemas) — schema violations surface inline in the Epoch panel's EFFECT HANDLERS step (rf2-kt6js); `S` unused.
 - `h` (Hydration) — hydration mismatches surface via the L2 event-row signal + the issues ribbon; `h` unused.
