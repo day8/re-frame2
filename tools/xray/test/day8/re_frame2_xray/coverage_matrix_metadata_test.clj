@@ -158,9 +158,18 @@
     - `Effects` → `Event Detail`: the dedicated Effects panel was
       dropped (rf2-xy4yb); fx/effects rows fold into the Epoch panel's
       numbered cascade, whose matrix row is `Event Detail`.
-    - `Flows` → `Views (incl. nested subs)`: the dedicated Flows panel
-      was dropped (rf2-xy4yb / spec 018 §5); flows fold into the Views
-      tab as derived state.
+    - `Flows` → `Event Detail`: the dedicated Flows panel was dropped
+      (rf2-xy4yb); a flow that fired is a FLOW step of the Epoch panel's
+      numbered cascade, sitting right after HANDLER and before FX
+      (`016-Auxiliary-Panels.md` §Flows content, rf2-lo37i; `021` §9.1
+      owns the step roster and `018-Event-Spine.md` §5.1 entry 6 the
+      content contract). The Epoch panel's matrix row is `Event Detail`,
+      so this is the same fold as `Effects` above, one step along the
+      same cascade. Until rf2-onaxh this alias read
+      `Views (incl. nested subs)`, which credited a tab no flow evidence
+      opens — 016 §Flows content records that the glyph an earlier draft
+      promised on flow-output subs in the Views tab was NEVER BUILT, so
+      there is no flows surface in Views to cover.
     - `Pop-out, Docking, and Inline Embedding` →
       `Pop-out and Default True-Inline Embedding`: the `dock!`/`undock!`
       body-padding surface was removed (rf2-sbfb7); the matrix row was
@@ -168,7 +177,7 @@
       the old phrasing."
   {"Epoch Panel"                              "Event Detail"
    "Effects"                                  "Event Detail"
-   "Flows"                                    "Views (incl. nested subs)"
+   "Flows"                                    "Event Detail"
    "Pop-out, Docking, and Inline Embedding"   "Pop-out and Default True-Inline Embedding"})
 
 ;; ---- bug-class catalogue parse + coverage mapping -----------------------
@@ -300,7 +309,22 @@
       ;; and-boot smoke, not coverage of either row. The count holds because
       ;; both rows keep another claimant: the shell handoff sweep claims
       ;; `App-DB Diff` and the deterministic-exceptions scenario `Flows`.
-      (is (= 12 (count canonical))
+      ;; 12 -> 11 (rf2-onaxh): the `Flows` alias was remapped from
+      ;; `Views (incl. nested subs)` to `Event Detail`, and `Views` lost its
+      ;; ONLY claimant with it. `Flows` is claimed by exactly one scenario —
+      ;; deterministic-exceptions — which declares `panels: ['epoch',
+      ;; 'trace']` and never opens the Views tab, so canonicalising its claim
+      ;; onto `Views` reported a panel covered without opening it. Flows are
+      ;; the Epoch cascade's FLOW step (016 §Flows content), whose row is
+      ;; `Event Detail` — which that scenario already claims via `Epoch
+      ;; Panel`, so the remap is a pure loss of the false credit and adds no
+      ;; row. This is a false ATTRIBUTION, not missing Views coverage: no
+      ;; scenario claims that row by name, and the one scenario that DOES
+      ;; open the Views tab (the shell handoff sweep, via the computed
+      ;; `PANEL_HANDOFFS` roster) deliberately does not claim it — a
+      ;; root-testid handoff is chrome wiring, not the row's contract, which
+      ;; demands the graph's changed/unchanged sub and view nodes.
+      (is (= 11 (count canonical))
           (str "canonical covered-row count drifted to " (count canonical)
                " (" (str/join ", " (sort canonical)) ") — update this pin "
                "when a scenario's coverage changes, deliberately")))))
