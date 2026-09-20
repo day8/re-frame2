@@ -41,7 +41,7 @@ The chrome is a 4-layer spine (chrome ribbon · event list · tab bar ·
 detail panel) per [`spec/018-Event-Spine.md`](./spec/018-Event-Spine.md).
 Selecting an event in the L2 event list moves a single spine sub
 (`:rf.xray/focus`); every Dynamic tab is a lens on that one focused
-event. Time-travel is the spine itself — the events-ribbon nav cluster
+event. Time-travel is the spine itself — the chrome-ribbon nav cluster
 plus the event list are the scrubber; there is no bottom rail. Issues are
 not a tab — they surface inline in the Epoch panel, the L2 event-row
 pink-wash, and the always-on issues ribbon signal.
