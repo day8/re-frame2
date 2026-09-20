@@ -23,7 +23,9 @@
 
   Same contract as every other Xray view — pure hiccup, no Reagent
   / UIx references. Frame isolation comes from the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `static/shell.cljs`."
+  `[rf.fresco/frame-provider {:frame frame-id}]` that `shell.cljs`'s
+  `shell-view-tree` opens — `static/shell.cljs` owns none — with the
+  frame the parameterized instance frame-id, default `:rf/xray`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))

@@ -20,8 +20,10 @@
   ## Pure hiccup
 
   Same contract as every Xray view — pure hiccup, no Reagent /
-  UIx references. Subscribes resolve to `:rf/xray` via the
-  enclosing frame-provider in `static/shell.cljs`."
+  UIx references. Subscribes resolve to the shell's instance frame
+  (default `:rf/xray`) via the enclosing
+  `[rf.fresco/frame-provider {:frame frame-id}]` that `shell.cljs`'s
+  `shell-view-tree` opens — `static/shell.cljs` owns none."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.static.routes.row-expand :as row-expand]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]

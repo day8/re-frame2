@@ -2277,12 +2277,32 @@ mutation round-trips through localStorage under the canonical key
 
 ### Frame isolation
 
-Same discipline as the Dynamic shell. The Static surface composer
-inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame
-:rf/xray}]`; every subscribe + dispatch inside the surface resolves
-to `:rf/xray`. Each subscribing region is `reg-view`-registered so
-its rendered component carries `:contextType frame-context` (rf2-in6l2
-+ Spec 000 §Plain Reagent fns do not pick up the surrounding frame).
+Same discipline as the Dynamic shell. The Static surface composer is
+wrapped in a frame provider for `:rf/xray`; every subscribe + dispatch
+inside the surface resolves to `:rf/xray`.
+
+**The mechanism is `rf.fresco/defview` boundaries, not `reg-view`
+registration (corrected 2026-09-20 under rf2-xyil1 — the twin of
+[`018-Event-Spine.md` §Frame isolation](./018-Event-Spine.md#frame-isolation),
+corrected there 2026-09-18).** This paragraph named `[rf/frame-provider
+…]` as the enclosing provider, placed it in `shell.cljs` as though the
+Static shell owned it, and said each subscribing region is
+`reg-view`-registered so its rendered component carries `:contextType
+frame-context`. The shell writes neither today: after the rf2-k97c.3
+root swap the enclosing provider is **`rf.fresco/frame-provider`**,
+opened by `shell-view-tree` in `shell.cljs`, and its frame is the
+parameterized instance frame-id, default `:rf/xray` (rf2-lnluk).
+`static/shell.cljs` owns no provider and says so in its own docstring.
+The Static surface's four regions (ribbon, tab bar, detail panel,
+surface composer) are **`rf.fresco/defview` boundaries** reading through
+`rf.fresco/sub` and dispatching through `(:dispatch (rf/capture-frame))`.
+The ISOLATION GUARANTEE is unchanged, and so is the reason it holds —
+the frame is resolved from REACT CONTEXT, the same context both
+`rf/frame-provider` and `rf.fresco/frame-provider` write, which is why
+the chrome renders identically under a Reagent parent's provider. What
+changed is only which construct writes it. (rf2-in6l2 + Spec 000 §Plain
+Reagent fns do not pick up the surrounding frame remains the reason a
+bare `defn` is not enough.)
 
 ### Availability
 

@@ -28,7 +28,9 @@
   component whose three reads are `rf.fresco/sub`, recorded by Fresco's
   own collector rather than by the installed adapter's observer. Frame
   isolation still comes from the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `static/shell.cljs`, which
+  `[rf.fresco/frame-provider {:frame frame-id}]` that `shell.cljs`'s
+  `shell-view-tree` opens — `static/shell.cljs` owns none — with the
+  frame the parameterized instance frame-id, default `:rf/xray`, which
   the boundary reads out of React context exactly as the `reg-view` did.
 
   Every helper below is CALLED rather than used as a hiccup head. A plain

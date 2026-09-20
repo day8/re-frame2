@@ -459,9 +459,10 @@ is the same as Dynamic (bare `Panel` per `rf2-qiek0`).
 Registration WAS `rf/reg-view` per `rf2-in6l2`. Since rf2-k97c.3 all
 five are `rf.fresco/defview` boundaries reading through Fresco's
 shipped collector, and the frame arrives from **React context** —
-written by the Static shell's enclosing `rf/frame-provider` — rather
-than from `reg-view`'s render capture, so subscribes still resolve to
-`:rf/xray`. The L4 tab registry's `reg-l4-tab!` requires `:panel` to be
+written by the `rf.fresco/frame-provider` that `shell.cljs`'s
+`shell-view-tree` opens, not by the Static shell, which owns none —
+rather than from `reg-view`'s render capture, so subscribes still
+resolve to the shell's instance frame, `:rf/xray` by default. The L4 tab registry's `reg-l4-tab!` requires `:panel` to be
 CALLABLE and `static/shell.cljs` mounts it as the Reagent hiccup head
 `[(:panel tab)]`, neither of which a React component is, so each of the
 five registers a small **private** bridge

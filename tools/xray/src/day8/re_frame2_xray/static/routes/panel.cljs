@@ -300,8 +300,10 @@
 
 (defn ^:private Panel-bridge
   "The callable the L4 tab registry stores. Returns Reagent-shaped hiccup
-  interoping to the React component above; the Static shell's enclosing
-  `rf/frame-provider` is what puts `:rf/xray` in React context for it."
+  interoping to the React component above; the `rf.fresco/frame-provider`
+  that `shell.cljs`'s `shell-view-tree` opens — the Static shell owns
+  none — is what puts the instance frame, default `:rf/xray`, in React
+  context for it."
   []
   [:> Panel-component {}])
 

@@ -69,8 +69,10 @@
   ## Pure hiccup
 
   Same contract as every Xray view — pure hiccup. Frame isolation
-  comes from the enclosing `[rf/frame-provider {:frame :rf/xray}]`
-  in `static/shell.cljs`.
+  comes from the enclosing `[rf.fresco/frame-provider {:frame frame-id}]`
+  that `shell.cljs`'s `shell-view-tree` opens — `static/shell.cljs` owns
+  none — with the frame the parameterized instance frame-id, default
+  `:rf/xray`.
 
   ## Public surface
 
@@ -488,8 +490,10 @@
 
 (defn ^:private Panel-bridge
   "The callable the L4 tab registry stores. Returns Reagent-shaped hiccup
-  interoping to the React component above; the Static shell's enclosing
-  `rf/frame-provider` is what puts `:rf/xray` in React context for it."
+  interoping to the React component above; the `rf.fresco/frame-provider`
+  that `shell.cljs`'s `shell-view-tree` opens — the Static shell owns
+  none — is what puts the instance frame, default `:rf/xray`, in React
+  context for it."
   []
   [:> Panel-component {}])
 
