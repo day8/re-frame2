@@ -545,7 +545,50 @@ This is the v1 rule. Future iterations may surface a per-event hint
 in the event payload (e.g. a `:rf.machine/primary-target` tag
 written by the event handler) to override the first-by-trace-order
 default; until then the framework offers no such hook and trace
-order is authoritative.
+order is authoritative **for every instance the operator has not
+explicitly asked for** — see the next section.
+
+### Explicit selection outranks the tiebreaker (rf2-mj4jp)
+
+The tiebreaker above answers "which instance did this EVENT most
+likely mean?". It does not answer "which instance did the OPERATOR
+ask for?", and when the operator has answered that question
+themselves, their answer wins.
+
+When `:rf.xray/select-machine-id` names a machine **and that machine
+transitioned in the focused event's cascade**, the panel binds to
+that machine's first record rather than to the cascade's first
+record. In every other case — no selection, or a selection naming a
+machine this cascade did not touch — the tiebreaker above is
+unchanged and authoritative.
+
+Rationale: the Static → Dynamic JUMP — the `Instances` pill's
+`:rf.xray/select-machine-id` dispatch, in the Static-panel affordance
+table below — promises the operator lands on the machine it names.
+rf2-y8doi.23 made that promise reach the SPINE,
+moving focus to the newest epoch touching the requested machine. It
+did not reach the DISPLAY, and the two come apart precisely when a
+cascade touches more than one machine — which is the ordinary case,
+not an exotic one. A JUMP to B would pin exactly the epoch B
+transitioned in and then draw A, so the one affordance whose whole
+purpose is "show me THIS machine" was the one that could not keep
+its word. Trace order is the right default for an event nobody has
+made a claim about; it is the wrong answer to an explicit request.
+
+**The scope of the override is deliberately narrow, and the narrowness
+is the design.** A selection is sticky, so the operator carries it
+into epochs their machine never touched; there it must fall back to
+trace order rather than blank the panel or hold a stale instance on
+screen. The panel's opening posture has no selection at all, and in
+that posture nothing about this section applies.
+
+**Every consumer of the rule inherits it, and that is normative rather
+than incidental.** The chart, the `:after` countdown rings and the
+Prev/Next nav — both its label and the epochs it will step to — must
+name the SAME instance. rf2-y9xmf's defect was a countdown belonging
+to a machine that was not on screen, and a rule applied to one
+consumer and not another reproduces it exactly, whichever consumer is
+left behind.
 
 ### Empty state — focused event does not target a state machine
 
@@ -1414,7 +1457,7 @@ The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) liv
 |---|---|---|
 | **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/MachineChart` (xyflow + elkjs) primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.xray.static.machines/state-clicked`; the **per-state metadata rail is NOT built** — that event is a registered no-op slot (`{:db db}`), present so the click lands on a known handler instead of raising `:rf.warning/no-handler`. There is **no pop-out button**: the pop-out window orchestration is unbuilt, so the affordance is hidden until it does something (rf2-h6ooa). Its event, `:rf.xray.static.machines/open-chart-popout`, stays registered as the second no-op slot, reserved for that affordance; nothing dispatches it today. | xyflow MachineChart |
 | **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is **the runtime's own initial snapshot**, built by handing the definition to the engine's `build-initial-snapshot` (rf2-y8doi.21), so a compound root opens at its LEAF and a parallel root at its region map — exactly where the runtime would have opened. **`:entry` actions are not run at seed time**; action evaluation starts from step 1, and the rail says so. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). **What ships is the list at the head of [§UC1 — Sim sub-mode (historical — not built)](#uc1--sim-sub-mode-historical--not-built) below, NOT that section's guard-verdict UI**: the rail lists the current state's outgoing `:on` transitions with their targets, tagging a guarded one `[guard]` without predicting a verdict, and a step that moved nothing surfaces as one inline diagnostic naming all three possible causes (no transition matched · a guard declined · the matched transition was a no-op), because the engine's public result cannot tell them apart. | Sim body panel (banner + on-chart highlight + event/payload inputs + Step / Reset / Exit + available-transitions list + audit trail) |
-| **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected, and **the pre-selection LANDS** (rf2-y8doi.23): `:rf.xray/select-machine-id` both writes the selection slot and moves the spine focus to the newest epoch touching that machine, through the same epoch walk Prev/Next uses — which is what makes it stick against the panel's live head-tracking. It is a deliberate no-op when the machine has no epoch in the window, so a JUMP made before the machine has done anything leaves the spine where it was. **There is no Mode A/B/C auto-detection to defer to** — rf2-y9xmf collapsed the Dynamic panel to a single event-driven lens, so no live-instance-count thresholds exist anywhere in the shipped tree. | no body — the click is the surface |
+| **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected, and **the pre-selection LANDS — on the epoch AND on the screen**: `:rf.xray/select-machine-id` writes the selection slot and moves the spine focus to the newest epoch touching that machine, through the same epoch walk Prev/Next uses, which is what makes it stick against the panel's live head-tracking (rf2-y8doi.23); **and the panel then BINDS to that machine** rather than to the cascade's first-by-trace-order record (rf2-mj4jp — see [§Explicit selection outranks the tiebreaker (rf2-mj4jp)](#explicit-selection-outranks-the-tiebreaker-rf2-mj4jp)). Both halves are needed and the first alone was shipped: when the landing epoch's cascade touches A and then B, a JUMP to B pinned exactly the right epoch and drew A, so the slot write and the epoch move were both correct and invisible. It is a deliberate no-op when the machine has no epoch in the window, so a JUMP made before the machine has done anything leaves the spine where it was. **There is no Mode A/B/C auto-detection to defer to** — rf2-y9xmf collapsed the Dynamic panel to a single event-driven lens, so no live-instance-count thresholds exist anywhere in the shipped tree. | no body — the click is the surface |
 | **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view."* The pill renders for muscle-memory consistency with the Dynamic sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
 
 The sub-strip mnemonics (`t` · `s` · `i` · `c` above) are mode-scoped under the same rule the L3 tabs follow (see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Mnemonic mode-scoping rule) — and, like those, they are labels rather than keys. `static/machines/helpers.cljc` `sub-mode-mnemonics` carries the letters so each pill can surface one in its `title`, and marks the keybindings that would act on them as a TODO; nothing presses them today.
