@@ -208,10 +208,10 @@ browse is noise.
 See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 for the
 direction-setting trail · [`018-Event-Spine.md`](018-Event-Spine.md)
 §2.5 Static surface for the architectural spine (3-layer silhouette,
-the 4 stacked mode signals, the mode-state lifecycle slots, the
-localStorage key, the feature flag) · [`007-UX-IA.md`](007-UX-IA.md)
-§Static mode for the visual-language details (mode pill chrome, edge
-stripe colour tokens, motion dampening, sub-tab inventory) ·
+the mode signals, the mode-state lifecycle slots, the localStorage
+key, the feature flag) · [`007-UX-IA.md`](007-UX-IA.md) §Static mode
+for the visual-language details (mode dropdown widget chrome, motion
+dampening, sub-tab inventory) ·
 [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static
 Machines surface for the concrete Static Machines tab (master-detail
 browse + 4-mode sub-strip + JUMP-to-Dynamic semantics).

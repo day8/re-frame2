@@ -1443,7 +1443,7 @@ Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018
 ### See also
 
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) Lock #14 — the direction-setting decision behind Two modes (Dynamic + Static).
-- [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Static surface — the architectural spine for the Static mode (3-layer chrome · 4 mode signals · mode-state lifecycle · localStorage `xray.mode` · feature flag · mnemonic mode-scoping).
+- [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 Static surface — the architectural spine for the Static mode (3-layer chrome · mode signals · mode-state lifecycle · localStorage `xray.mode` · feature flag · mnemonic mode-scoping).
 - [`007-UX-IA.md`](007-UX-IA.md) §Static mode — the visual-language details (mode dropdown widget chrome, motion dampening, sub-tab inventory).
 - §Sim re-host reference (rf2-r4nao — landed) below — the historical UC1 Sim + UC2 Mode A/B/C prose preserved as design-reference. The Sim sub-mode now ships per rf2-r4nao at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` with engine events/subs under `:rf.xray.static.machines/sim-*`.
 

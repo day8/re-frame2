@@ -673,7 +673,7 @@ the toggle, not the indicator.
 
 The architectural spine for this lock lives in
 [`018-Event-Spine.md`](018-Event-Spine.md) §Static surface
-(the 3-layer silhouette + the 4 mode signals + the mode-state
+(the 3-layer silhouette + the mode signals + the mode-state
 lifecycle slots + the localStorage `xray.mode` key). The concrete Static
 sub-tab surfaces are catalogued in [`007-UX-IA.md`](007-UX-IA.md)
 §Static mode and (for Machines specifically)
