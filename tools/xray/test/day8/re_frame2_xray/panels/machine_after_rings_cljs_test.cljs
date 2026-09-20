@@ -20,7 +20,8 @@
        active timers; one ring-spec per active timer; hover keys the
        timer-hover slot by node-id).
     6. The rAF tick loop's `needs-ticking?` gate stops the loop when
-       no armed timers are present."
+       nothing on screen has a deadline left — no armed timer, and no
+       `:cancelled` ring still inside its retention window (rf2-q9x6h)."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]

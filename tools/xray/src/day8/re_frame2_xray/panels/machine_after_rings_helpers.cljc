@@ -362,6 +362,32 @@
   all N sat under ONE React key."
   2000)
 
+(defn cancelled-ring-live?
+  "True while a `:cancelled` record is still inside its retention window
+  at `now-ms` — i.e. while the crossed ring is still ON SCREEN.
+
+  The SINGLE owner of that boundary (rf2-q9x6h). [[prune-timers]] evicts
+  exactly when this goes false and [[needs-ticking?]] keeps the clock
+  alive exactly while it holds, so \"the ring is visible\" and \"the clock
+  still owes this ring a tick\" cannot drift apart. Before this they were
+  two separate readings of the same window, and only one of them existed:
+  the ring had a deadline and nothing kept a clock running to reach it.
+
+  A record carrying NO `:closed-at` cannot be aged, so it is NOT live —
+  [[prune-timers]] drops it rather than keep an unboundable ring, and a
+  dropped ring needs no clock.
+
+  `now-ms` nil means NO CLOCK: nothing can be aged, so the ring is still
+  live and [[needs-ticking?]] asks for the clock that will age it. That
+  matches [[prune-timers]]'s own nil semantics (it returns the vector
+  unchanged), and it is self-correcting — the first tick supplies a real
+  `now-ms`. Pure fn — JVM-runnable."
+  [r now-ms]
+  (and (= :cancelled (:status r))
+       (some? (:closed-at r))
+       (or (nil? now-ms)
+           (<= (- now-ms (:closed-at r)) cancelled-retention-ms))))
+
 (defn timers-for-machine
   "The BUFFER-KEYED half of the rings projection: the timer records the
   chart could render a ring for, given the trace buffer alone.
@@ -426,10 +452,7 @@
                             timers)
             newest (reduce
                      (fn [acc r]
-                       (if (and (= :cancelled (:status r))
-                                (:closed-at r)
-                                (<= (- now-ms (:closed-at r))
-                                    cancelled-retention-ms))
+                       (if (cancelled-ring-live? r now-ms)
                          (let [k   (:state r)
                                cur (get acc k)]
                            (if (or (nil? cur)
@@ -636,15 +659,38 @@
 (defn needs-ticking?
   "True when the rings panel should run its rAF tick driver. False when:
 
-    - There are no armed timers (`:cancelled` rings are static).
+    - NOTHING ON SCREEN HAS A DEADLINE: no `:armed` timer is counting
+      down, and no `:cancelled` ring is still inside its retention
+      window ([[cancelled-ring-live?]]).
     - The scrubber is NOT at `:present` (retrospective mode freezes
       every ring at the scrubber's anchor time).
 
+  rf2-q9x6h — this used to read \"there are no armed timers
+  (`:cancelled` rings are static)\", and `:cancelled` rings STOPPED
+  being static when rf2-y8doi.23 gave them a retention window. They
+  have a DEADLINE now, and a deadline needs a clock to reach it. Both
+  gates read this predicate — `tick-loop!` to decide whether to
+  re-schedule, `overlay-tree` to decide whether to kick — so in an
+  otherwise idle LIVE chart, cancelling the LAST armed timer froze
+  `:rings/now-ms` at that instant, `now-ms` never reached `:closed-at`
+  + the window, [[prune-timers]] never evicted, and the crossed ring
+  stayed on screen FOR EVER.
+
+  IT STILL STOPS, which is the other half of the contract: the window
+  is bounded, so once the last cancelled ring ages out this goes false
+  and the loop stops re-scheduling. The clock outlives the last armed
+  timer by at most [[cancelled-retention-ms]] — one per chart, never
+  one per ring (Lock #8).
+
   Pure fn — keeps the rAF gate testable. The view passes the result
   to a side-effect that starts / stops the loop."
-  [timers scrubber-position]
+  [timers scrubber-position now-ms]
   (and (= :present scrubber-position)
-       (some (fn [t] (= :armed (:status t))) (or timers []))))
+       (boolean
+         (some (fn [t]
+                 (or (= :armed (:status t))
+                     (cancelled-ring-live? t now-ms)))
+               (or timers [])))))
 
 ;; ---- retro now-ms anchor (rf2-8i1tg3 · xray/003 §M.2) --------------------
 
