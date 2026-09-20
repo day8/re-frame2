@@ -1401,7 +1401,14 @@ over-engineering, no demand today) is why none is being built now.
 - `c` (Causality) — Causality surface dropped entirely (rf2-y0z5b);
   `c` unused.
 - `p` (Performance) — Performance panel dropped; `p` unused.
-- `w` (Flows) — Flows folded into Views; `w` unused.
+- `w` (Flows) — Flows did **not** fold into Views. The pre-rewrite
+  Flows panel is gone: a flow that FIRED is the Epoch panel's **FLOW**
+  step, right after HANDLER — see
+  [`016-Auxiliary-Panels.md` §Flows content](./016-Auxiliary-Panels.md#flows-content--epoch-panel-flow-step-rf2-lo37i).
+  REGISTERED flows are browsed in the **Static Flows tab** (§Sub-tab
+  inventory, Static L3), whose `f` is a LABEL, not a key — reached by
+  click or the palette's tab-jump verb. The flow-output glyph an
+  earlier draft promised on Views was never built. `w` unused.
 - `S` (Schemas) — schema violations surface inline in the Epoch panel
   (rf2-gbz39 removed the Issues tab per Option (c)); `S` unused.
 - `h` (Hydration) — hydration mismatches surface inline in the Epoch panel
