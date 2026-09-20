@@ -24,6 +24,13 @@ those sessions produced.
 
 **Locked 2026-05-11 (Mike).** **Xray.** Package: `day8/re-frame2-xray`.
 
+**Updated 2026-09-21 (rf2-l3jfw).** Locked 2026-05-11 as **Causa** —
+Latin for "cause" — and renamed **Xray** on 2026-05-24 by the repo-wide
+token sweep (PR #2067, commit 731188b1fb), which left the Latin
+etymology in the option bullet and the Why standing under the new name.
+Both now read for Xray; the tagline and the rest of the reasoning are
+unchanged.
+
 ### Question
 
 What does the re-frame-10x successor get called?
@@ -39,8 +46,8 @@ What does the re-frame-10x successor get called?
   un-Googleable.
 - **`re-frame2-devtools`** — descriptive. Rejected as above plus
   awkward.
-- **`Xray`** — Latin for "cause." Single word. Picks up the
-  causality theme directly. The headline reads naturally:
+- **`Xray`** — x-ray vision into the app: point at one event and see
+  the cascade behind it. Single word. The headline reads naturally:
   "Xray shows the cascade your last click triggered."
 - **`Cascade`** — works thematically but is already a CSS term and
   blurs in search results.
@@ -55,7 +62,7 @@ What does the re-frame-10x successor get called?
 ### Why
 
 - Single word, distinctive, lower-case-friendly.
-- Latin root signals "cause" without saying it three times.
+- Signals seeing through to the cause without saying "cause".
 - Reads naturally in marketing copy and in the panel's title bar.
 - The brand mark (three nodes connected by arrows from one parent)
   illustrates the cascade gesture without spelling the word.
