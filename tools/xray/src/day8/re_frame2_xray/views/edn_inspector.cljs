@@ -1996,8 +1996,11 @@
   infinite lazy seq included. That is the whole point: `pr-str` on
   `(range)` never returns.
 
-  Scalars are measured by their own `pr-str` (exact); containers are
-  charged 2 for the delimiters and 1 per element gap. That undercounts
+  Scalars are measured by their own `pr-str` (exact) — except a
+  STRING whose raw length already carries the total past `cap`, which
+  is charged an unprinted lower bound instead (rf2-re7dn; see the
+  branch below). Containers are charged 2 for the delimiters and 1
+  per element gap. That undercounts
   a map's `\", \"` separator by one per entry and omits a record's
   `#tag` prefix, which is why this is the DECIDER and not the answer —
   `estimated-inline-px` measures exactly once this says the value is
@@ -2005,8 +2008,26 @@
   [value total cap]
   (when (<= @total cap)
     (if-not (coll? value)
-      (vswap! total + (count (try (pr-str value)
-                                  (catch :default _ (str value)))))
+      ;; rf2-re7dn — DON'T PRINT A SCALAR TO DISCOVER IT CANNOT FIT.
+      ;; A string's `count` is O(1) on this host, and `pr-str` can only
+      ;; ever make it LONGER — two quotes, plus a character per escape
+      ;; — so `(+ @total (count s) 2)` is a lower bound on where the
+      ;; running total lands. When that bound alone already passes
+      ;; `cap`, printing cannot change the outcome, so the walk charges
+      ;; the bound and skips the print. Without this a 500,000-
+      ;; character `:body` was serialised in full on EVERY render to
+      ;; establish that it could not fit a 100px column.
+      ;;
+      ;; Under budget nothing changes: the print still happens, so
+      ;; escapes are still counted and no existing estimate moves.
+      ;; `estimated-inline-px` asks only whether `@total` passed `cap`,
+      ;; and both paths agree on that — the ANSWER is identical either
+      ;; way, only the work differs.
+      (let [n (when (string? value) (count value))]
+        (if (and n (> (+ @total n 2) cap))
+          (vswap! total + (+ n 2))
+          (vswap! total + (count (try (pr-str value)
+                                      (catch :default _ (str value)))))))
       (let [entries? (map? value)]
         (vswap! total + 2)
         (loop [xs (seq value)]
