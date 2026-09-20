@@ -629,6 +629,65 @@
                     (:data-testid (second %)))
                 available)))))
 
+;; rf2-pzuqw — the rail lists each `:after` timer declared on the active
+;; path as a `⌚` row, and clicking one fires the engine's own synthetic
+;; elapsed event through the EXISTING `:sim-step`. The whole path is real
+;; here: the real registry, the real `rf.machines/machine-transition`, and
+;; the row's own `:on-click` invoked against a synchronous dispatcher — so
+;; this grades the WIRING, not just the rendered testid.
+
+(def ^:private timer-fixture-definition
+  {:initial :idle
+   :states  {:idle    {:on {:start :loading}}
+             :loading {:after {5000 :timeout} :on {:loaded :ready}}
+             :timeout {}
+             :ready   {}}})
+
+(deftest rail-renders-an-after-timer-row-that-fires-the-timer
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (override-machines!    [:auth/login])
+    (override-definitions! {:auth/login timer-fixture-definition})
+    (select-static-machine! :auth/login)
+    (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                       {:machine-id :auth/login
+                        :definition timer-fixture-definition}])
+    (testing "no timer row on :idle, which declares no :after — the control
+              that makes the positive reading below mean something"
+      (let [tree (sim/SimRail rf/dispatch-sync (sim-rail-values))]
+        (is (empty? (find-all-by-testid-prefix
+                      tree "rf-xray-static-machines-sim-available-after-")))))
+    (rf/dispatch-sync [:rf.xray.static.machines/sim-step
+                       {:machine-id :auth/login :event [:start]}])
+    (is (= :loading (get-in @(rf/subscribe
+                               [:rf.xray.static.machines/sim-state])
+                            [:snapshot :state]))
+        "the real engine advanced to the :after-bearing state")
+    (let [tree  (sim/SimRail rf/dispatch-sync (sim-rail-values))
+          rows  (find-all-by-testid-prefix
+                  tree "rf-xray-static-machines-sim-available-after-")
+          row   (first rows)]
+      (is (= 1 (count rows)) "exactly one timer row on :loading")
+      (is (= "rf-xray-static-machines-sim-available-after-5000"
+             (:data-testid (second row)))
+          "the testid names the delay key")
+      (let [text (->> (hiccup-seq row) (filter string?) (apply str))]
+        (is (re-find #"5000ms" text) (str "got: " (pr-str text)))
+        (is (re-find #"timer" text)
+            (str "the row says it is a timer; got: " (pr-str text)))
+        (is (not (re-find #"after-elapsed" text))
+            "the raw event shape stays OUT of the label"))
+      (testing "and clicking it fires the timer through the existing :sim-step"
+        ((:on-click (second row)) nil)
+        (is (= :timeout (get-in @(rf/subscribe
+                                   [:rf.xray.static.machines/sim-state])
+                                [:snapshot :state]))
+            "the engine honoured the epoch the row read off the stored fx")
+        (is (= 2 (count (:audit-trail
+                          @(rf/subscribe
+                             [:rf.xray.static.machines/sim-state]))))
+            "and the timer step is a real audit row")))))
+
 (deftest rail-renders-audit-trail-after-step
   (setup-xray-frame!)
   (rf/with-frame :rf/xray

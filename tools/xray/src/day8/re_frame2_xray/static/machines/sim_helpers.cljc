@@ -54,6 +54,13 @@
                                      seeder) → seed `{:state :data}`
     2. `available-transitions`     — definition + snapshot → seq of
                                      {:event :target :guard} maps
+    2b. `available-after-transitions` /
+        `after-elapsed-event`      — the `:after` timer rows on the
+                                     active path, and the engine's own
+                                     synthetic timer event for one of
+                                     them, its epoch read back off the
+                                     stored `:rf.machine/after-schedule`
+                                     fx (rf2-pzuqw)
     3. `event-id-suggestions`      — definition → distinct sorted
                                      event-ids (autocomplete source)
     4. `parse-event-vector`        — string \"[:foo {:x 1}]\" → vector
@@ -167,6 +174,143 @@
            :target  t
            :guard?  (some? (:guard candidate))
            :guard   (:guard candidate)})))))
+
+;; ---- `:after` timer rows (rf2-pzuqw) ------------------------------------
+;;
+;; The rail lists each `:after` timer declared on the ACTIVE PATH beside the
+;; `:on` rows, and clicking one fires the engine's own synthetic
+;; `[:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]`
+;; (Spec 005 §Timer events) through the SAME `sim-step` the Step button
+;; drives. No new registration, no clock, no chart change.
+;;
+;; These are MANUAL TIMEOUT TRIGGERS, not an armed-timer inventory. The sim
+;; keeps no clock and does not advance simulated time; it lists what the
+;; definition DECLARES on the active path and lets the engine answer. A
+;; stale epoch or a declined guard therefore comes back as the existing
+;; amber "No change" diagnostic and the row stays listed — where the real
+;; runtime would have reaped a spent one-shot.
+;;
+;; The epoch is the one value the definition cannot supply, and it is NOT
+;; re-derived here: `step-sim` already stores each step's `:fx` on its audit
+;; row, and the engine puts `[:rf.machine/after-schedule {:rf/invoke-id …
+;; :delay-key … :epoch …}]` there on every step that enters an
+;; `:after`-bearing node. Reading it back off that public Level 1 contract
+;; is the whole mechanism — the sim reaches into no
+;; `re-frame.machines.transition` internals, and for a parallel region the
+;; engine has ALREADY region-prefixed `:rf/invoke-id` before the result left
+;; it, so the region rules stay the engine's.
+
+(defn- after-rows-at
+  "The `:after` rows one state-node declares, stamped with the absolute
+  `decl-path` that node sits at. Normalised through `candidates`, so the
+  `{5000 :t}`, `{5000 {:target :t :guard :g}}` and vector-of-candidates
+  forms all list."
+  [node decl-path]
+  (for [[delay-key spec] (:after node)
+        candidate        (candidates spec)
+        :let  [t (:target candidate)]
+        :when (some? t)]
+    {:delay-key delay-key
+     :target    t
+     :guard?    (some? (:guard candidate))
+     :guard     (:guard candidate)
+     :decl-path decl-path}))
+
+(defn- path-nodes
+  "Every `[decl-path node]` pair along `state` inside `state-map`, ANCESTORS
+  FIRST — `[:auth]` then `[:auth :form]`. `prefix` is prepended to each
+  decl-path so a parallel region's walk comes back region-prefixed.
+
+  Deliberately NOT `node-at`, which resolves the leaf alone: an `:after` is
+  commonly declared on a compound ancestor while a descendant is active, and
+  a leaf-only lookup lists nothing there. Stops at the first unresolvable
+  segment rather than throwing."
+  [state-map state prefix]
+  (loop [m   state-map
+         p   (cond
+               (nil? state)     []
+               (keyword? state) [state]
+               (vector? state)  state
+               :else            [])
+         at  (vec prefix)
+         acc []]
+    (if (or (empty? p) (nil? m))
+      acc
+      (if-let [n (get m (first p))]
+        (let [at' (conj at (first p))]
+          (recur (:states n) (rest p) at' (conj acc [at' n])))
+        acc))))
+
+(defn available-after-transitions
+  "Return a vector of `{:delay-key :target :guard? :guard :decl-path}` maps
+  — one per `:after` candidate declared anywhere on the snapshot's ACTIVE
+  PATH. The rail renders these as `⌚` timer rows beside the `:on` rows.
+
+  Three shapes, because all three are supported machine shapes and the leaf
+  alone answers for none of them:
+
+    - a keyword `:state` walks the one node;
+    - a hierarchical path vector walks EVERY prefix, so an `:after` on a
+      compound ancestor lists while its leaf is active;
+    - a parallel region-map walks each region's own state inside
+      `[:regions <region> :states]`, with `:decl-path` region-prefixed to
+      match what the engine puts on its fx — plus the parallel ROOT's own
+      `:after` at `:decl-path []` when the definition declares one (a flat
+      or region-root `:after` is rejected at registration, so `[]` only
+      ever means the parallel root).
+
+  Returns `[]` for a nil / non-map definition, a nil snapshot, or a state
+  that doesn't resolve."
+  [definition snapshot]
+  (if-not (map? definition)
+    []
+    (let [state (:state snapshot)
+          pairs (if (map? state)
+                  (into (if (seq (:after definition)) [[[] definition]] [])
+                        (mapcat (fn [[region region-state]]
+                                  (path-nodes
+                                    (get-in definition [:regions region :states])
+                                    region-state
+                                    [region])))
+                        state)
+                  (path-nodes (:states definition) state []))]
+      (vec (mapcat (fn [[decl-path node]] (after-rows-at node decl-path))
+                   pairs)))))
+
+(defn after-elapsed-event
+  "Build the engine's synthetic timer event for one `available-after-
+  transitions` row:
+
+      [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]
+
+  `epoch` is the `:epoch` of the NEWEST stored `:rf.machine/after-schedule`
+  fx matching this row's `[decl-path delay-key]`, folded over the audit
+  trail (newest-LAST per `append-audit-row`, so a re-entry's fresh epoch
+  wins). It defaults to **0**, which is not a fallback but the right answer
+  for the seed: the engine's own `node-epoch` reads an absent node as 0, so
+  a timer declared on the initial state fires at 0 before any step has run.
+
+  A wrong epoch is not this fn's problem to detect — the engine declines it
+  and `step-sim` already reports that as the amber \"No change\".
+
+  Pure data → data; JVM-runnable, and it never touches the machines
+  artefact."
+  [sim-state {:keys [delay-key decl-path]}]
+  [:rf.machine.timer/after-elapsed
+   delay-key
+   (or (->> (:audit-trail sim-state)
+            (mapcat :fx)
+            (filter #(and (vector? %)
+                          (= :rf.machine/after-schedule (first %))))
+            (map second)
+            (filter #(and (map? %)
+                          (= decl-path  (:rf/invoke-id %))
+                          (= delay-key  (:delay-key %))))
+            (map :epoch)
+            (remove nil?)
+            last)
+       0)
+   decl-path])
 
 ;; ---- initial snapshot ---------------------------------------------------
 

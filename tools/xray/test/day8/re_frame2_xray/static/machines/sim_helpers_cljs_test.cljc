@@ -221,6 +221,242 @@
   (is (= [] (sim-h/available-transitions nil nil)))
   (is (= [] (sim-h/available-transitions flat-definition nil))))
 
+;; ---- (3b) `:after` timer rows (rf2-pzuqw) -------------------------------
+;;
+;; The rail lists each `:after` timer declared on the ACTIVE PATH as a
+;; MANUAL TIMEOUT TRIGGER, and firing one sends the engine's own synthetic
+;; `[:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]`. The
+;; epoch is read back off the `:rf.machine/after-schedule` fx `step-sim`
+;; already stores on every audit row, so the sim re-derives NONE of the
+;; engine's timer-addressing rules (region prefixes, per-node epoch slots).
+;;
+;; Every fixture below is driven through the REAL engine (`engine-seed` /
+;; `engine-step`), so no test here can pin a shape the engine never returns.
+
+(def ^:private timer-definition
+  "Flat machine with one `:after` on a NON-initial state, so entering it
+  produces a real after-schedule fx with a non-zero epoch."
+  {:initial :idle
+   :states  {:idle    {:on {:start :loading}}
+             :loading {:after {5000 :timeout} :on {:loaded :ready}}
+             :timeout {}
+             :ready   {}}})
+
+(def ^:private seed-timer-definition
+  "`:after` on the INITIAL state. The seed runs no step, so no fx has ever
+  been stored and the epoch must fall back to 0 — which is exactly what
+  the engine's own `node-epoch` reads for an absent node."
+  {:initial :loading
+   :states  {:loading {:after {5000 :timeout}}
+             :timeout {}}})
+
+(def ^:private ancestor-timer-definition
+  "`:after` declared on a COMPOUND ancestor while its leaf is active. A
+  leaf-only lookup lists nothing here, which is what makes T3 bite."
+  {:initial :auth
+   :states  {:auth    {:initial :form
+                       :after   {9000 :expired}
+                       :states  {:form    {:on {:submit :loading}}
+                                 :loading {}}}
+             :expired {}}})
+
+(def ^:private parallel-timer-definition
+  "`:after` inside ONE region of a parallel root. The engine prefixes the
+  decl-path with the region name before the result leaves it, so the sim
+  never has to know that rule."
+  {:type    :parallel
+   :data    {}
+   :regions {:net  {:initial :idle
+                    :states  {:idle    {:on {:go :busy}}
+                              :busy    {:after {3000 :timeout}}
+                              :timeout {}}}
+             :form {:initial :editing
+                    :states  {:editing {} :submitted {}}}}})
+
+(def ^:private declined-timer-definition
+  "A timer whose guard always declines — an ordinary machine outcome, not
+  an error."
+  {:initial :loading
+   :data    {:ok? false}
+   :guards  {:never (fn [_] false)}
+   :states  {:loading {:after {5000 {:target :timeout :guard :never}}}
+             :timeout {}}})
+
+(defn- step!
+  "One `step-sim` fold through the REAL engine against `sim-state`'s own
+  current snapshot — the production call shape."
+  [sim-state event definition]
+  (sim-h/step-sim sim-state event
+                  (engine-step definition (:snapshot sim-state))))
+
+(defn- stored-epochs
+  "Every after-schedule epoch the sim has stored, oldest-first."
+  [sim-state decl-path delay-key]
+  (->> (:audit-trail sim-state)
+       (mapcat :fx)
+       (filter #(and (vector? %) (= :rf.machine/after-schedule (first %))))
+       (map second)
+       (filter #(and (= decl-path (:rf/invoke-id %))
+                     (= delay-key (:delay-key %))))
+       (mapv :epoch)))
+
+(deftest available-after-transitions-lists-a-flat-timer-and-fires-it
+  (testing "T1 — a timer on the active leaf lists, and its event carries the
+            epoch the engine itself handed the sim"
+    (let [s0   (sim-h/make-sim-state :t timer-definition engine-seed)
+          s1   (step! s0 [:start] timer-definition)
+          rows (sim-h/available-after-transitions (:definition s1) (:snapshot s1))
+          row  (first rows)]
+      (is (= 1 (count rows)))
+      (is (= 5000 (:delay-key row)))
+      (is (= :timeout (:target row)))
+      (is (= [:loading] (:decl-path row)) "the engine's own decl-path")
+      (is (false? (:guard? row)))
+      (let [fx-epoch (last (stored-epochs s1 [:loading] 5000))
+            event    (sim-h/after-elapsed-event s1 row)]
+        (is (some? fx-epoch) "the step really did store an after-schedule fx")
+        (is (not= 0 fx-epoch)
+            "THE CONTROL — a stored epoch is NOT the 0 default, so this test
+             would still bite if the fold silently found nothing")
+        (is (= [:rf.machine.timer/after-elapsed 5000 fx-epoch [:loading]] event))
+        (testing "and the engine honours it"
+          (let [s2 (step! s1 event timer-definition)]
+            (is (= :timeout (sim-h/current-sim-state s2)))
+            (is (= 2 (count (:audit-trail s2))))
+            (is (= event (-> s2 :audit-trail last :event)))))))))
+
+(deftest after-elapsed-event-with-a-stale-epoch-is-the-no-change-diagnostic
+  (testing "T1 control — the engine is the arbiter: a stale epoch moves
+            nothing and reads as the EXISTING amber 'No change', not as a
+            new diagnostic"
+    (let [s0 (sim-h/make-sim-state :t timer-definition engine-seed)
+          s1 (step! s0 [:start] timer-definition)
+          s2 (step! s1 [:rf.machine.timer/after-elapsed 5000 99 [:loading]]
+                    timer-definition)]
+      (is (= :loading (sim-h/current-sim-state s2)) "snapshot unchanged")
+      (is (= 1 (count (:audit-trail s2))) "no row appended")
+      (is (= :rf.xray.static.machines.sim/no-change
+             (-> s2 :last-error :info :kind))))))
+
+(deftest available-after-transitions-lists-a-timer-on-the-seed-state
+  (testing "T2 — a timer on the initial state lists before any step, its
+            event carries epoch 0, and the engine fires it"
+    (let [s0   (sim-h/make-sim-state :t seed-timer-definition engine-seed)
+          rows (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
+          row  (first rows)]
+      (is (= 1 (count rows)))
+      (is (= [:loading] (:decl-path row)))
+      (is (= [] (:audit-trail s0)) "nothing has been stored yet")
+      (let [event (sim-h/after-elapsed-event s0 row)]
+        (is (= [:rf.machine.timer/after-elapsed 5000 0 [:loading]] event)
+            "the seed default is 0, which is what `node-epoch` reads")
+        (let [s1 (step! s0 event seed-timer-definition)]
+          (is (= :timeout (sim-h/current-sim-state s1)))
+          (is (= 1 (count (:audit-trail s1)))))))))
+
+(deftest available-after-transitions-walks-compound-ancestors
+  (testing "T3 — an `:after` on a COMPOUND ancestor lists while its LEAF is
+            active, and firing it exits the compound"
+    (let [s0   (sim-h/make-sim-state :t ancestor-timer-definition engine-seed)
+          s1   (step! s0 [:submit] ancestor-timer-definition)
+          rows (sim-h/available-after-transitions (:definition s1) (:snapshot s1))
+          row  (first rows)]
+      (is (= [:auth :loading] (sim-h/current-sim-state s1))
+          "the leaf is active and declares NO :after of its own")
+      (is (= [] (sim-h/available-after-transitions
+                  {:states (select-keys (:states ancestor-timer-definition) [:expired])}
+                  (:snapshot s1)))
+          "THE CONTROL — with the ancestor removed there is nothing to list,
+           so the row below really does come from the ancestor walk")
+      (is (= 1 (count rows)))
+      (is (= 9000 (:delay-key row)))
+      (is (= :expired (:target row)))
+      (is (= [:auth] (:decl-path row)) "the ANCESTOR's path, not the leaf's")
+      (let [event (sim-h/after-elapsed-event s1 row)
+            s2    (step! s1 event ancestor-timer-definition)]
+        (is (= [:rf.machine.timer/after-elapsed 9000 0 [:auth]] event))
+        (is (= :expired (sim-h/current-sim-state s2))
+            "firing the ancestor's timer exits the compound")))))
+
+(deftest available-after-transitions-region-prefixes-a-parallel-timer
+  (testing "T4 — a timer inside one parallel region lists with the engine's
+            own region-prefixed decl-path, and firing it moves THAT region
+            only"
+    (let [s0   (sim-h/make-sim-state :t parallel-timer-definition engine-seed)
+          s1   (step! s0 [:go] parallel-timer-definition)
+          rows (sim-h/available-after-transitions (:definition s1) (:snapshot s1))
+          row  (first rows)]
+      (is (= {:net :busy :form :editing} (sim-h/current-sim-state s1)))
+      (is (= 1 (count rows)))
+      (is (= [:net :busy] (:decl-path row))
+          "region-prefixed — the sim reads it off the fx, it does not derive it")
+      (is (= [[:net :busy]]
+             (->> (:audit-trail s1)
+                  (mapcat :fx)
+                  (filter #(= :rf.machine/after-schedule (first %)))
+                  (mapv (comp :rf/invoke-id second))))
+          "and that IS the path the engine put on its own fx")
+      (let [event (sim-h/after-elapsed-event s1 row)
+            s2    (step! s1 event parallel-timer-definition)]
+        (is (= [:rf.machine.timer/after-elapsed 3000 1 [:net :busy]] event))
+        (is (= {:net :timeout :form :editing} (sim-h/current-sim-state s2))
+            "the other region is untouched")))))
+
+(deftest available-after-transitions-keeps-listing-a-guard-declined-timer
+  (testing "T5 — a declined guard is ordinary machine behaviour: no row, the
+            existing no-change diagnostic, and the timer STAYS listed (the
+            sim keeps no clock and reaps nothing)"
+    (let [s0 (sim-h/make-sim-state :t declined-timer-definition engine-seed)
+          r0 (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
+          ev (sim-h/after-elapsed-event s0 (first r0))
+          s1 (step! s0 ev declined-timer-definition)]
+      (is (= 1 (count r0)))
+      (is (true? (:guard? (first r0))) "the row is tagged as guarded")
+      (is (= :never (:guard (first r0))))
+      (is (= :loading (sim-h/current-sim-state s1)) "snapshot unchanged")
+      (is (= [] (:audit-trail s1)) "no row appended")
+      (is (= :rf.xray.static.machines.sim/no-change
+             (-> s1 :last-error :info :kind)))
+      (is (= 1 (count (sim-h/available-after-transitions
+                        (:definition s1) (:snapshot s1))))
+          "and it is still listed afterwards"))))
+
+(deftest after-elapsed-event-takes-the-newest-epoch-on-re-entry
+  (testing "re-entering an `:after` node bumps the engine's epoch, so the
+            fold must take the NEWEST stored fx or the row fires stale"
+    (let [d  {:initial :idle
+              :states  {:idle    {:on {:start :loading}}
+                        :loading {:after {5000 :timeout} :on {:back :idle}}
+                        :timeout {}}}
+          s0 (sim-h/make-sim-state :t d engine-seed)
+          s1 (step! s0 [:start] d)
+          s2 (step! s1 [:back] d)
+          s3 (step! s2 [:start] d)
+          epochs (stored-epochs s3 [:loading] 5000)
+          row    (first (sim-h/available-after-transitions (:definition s3)
+                                                           (:snapshot s3)))]
+      (is (= 2 (count epochs)) "two entries were stored")
+      (is (apply not= epochs)
+          "THE CONTROL — the two epochs genuinely differ, so newest-vs-oldest
+           is a distinction this test can see")
+      (is (= (last epochs) (nth (sim-h/after-elapsed-event s3 row) 2)))
+      (is (= :timeout (sim-h/current-sim-state
+                        (step! s3 (sim-h/after-elapsed-event s3 row) d)))))))
+
+(deftest available-after-transitions-is-empty-where-nothing-is-declared
+  (testing "negative controls — no `:after` on the active path, and nil input"
+    (is (= [] (sim-h/available-after-transitions flat-definition
+                                                 {:state :idle :data {}}))
+        "flat-definition declares no :after anywhere")
+    (is (= [] (sim-h/available-after-transitions nil nil)))
+    (is (= [] (sim-h/available-after-transitions timer-definition nil)))
+    (is (= [] (sim-h/available-after-transitions timer-definition
+                                                 {:state :nonexistent}))))
+  (testing "and the positive control on the SAME instrument, so an empty
+            reading means absence rather than a broken walk"
+    (is (= 1 (count (sim-h/available-after-transitions
+                      timer-definition {:state :loading :data {}}))))))
+
 ;; ---- (4) parse-event-vector ---------------------------------------------
 
 (deftest parse-event-vector-accepts-keyword-string

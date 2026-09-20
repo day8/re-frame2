@@ -48,7 +48,10 @@
   is the PRIMARY surface — the active state highlights amber, the taken
   transition's edge animates, and clicking an outgoing transition edge
   SENDS that event into the sim. The `SimRail` side column carries the
-  payload input + Reset / Exit + guard error toast + audit trail. The
+  payload input + Reset / Exit + guard error toast + audit trail, and its
+  \"Available from current state\" list carries one `⌚` row per `:after`
+  timer declared on the active path — a MANUAL timeout trigger that fires
+  the engine's own elapsed event (rf2-pzuqw; the sim keeps no clock). The
   on-chart path REUSES the existing engine end-to-end (no new
   transition logic): an edge click coerces the edge's fireable
   event-id and folds ONE `step-sim` through the same
@@ -549,16 +552,87 @@
            :else             (str target))
          (when guard? " [guard]"))]])
 
+;; ---- `:after` timer rows (rf2-pzuqw) ------------------------------------
+;;
+;; One extra row kind in the SAME list, doing what the `:on` rows do. These
+;; are MANUAL TIMEOUT TRIGGERS: the sim keeps no clock and does not advance
+;; simulated time, so a row fires its timer's elapsed event NOW and the
+;; engine answers. A stale epoch or a declined guard reads as the existing
+;; amber "No change" and the row stays listed — no new diagnostic, no chart
+;; mode, no prop, no new registration.
+;;
+;; The click steps DIRECTLY through the existing `:sim-step` (a timer takes
+;; no payload) rather than filling the pending-event input, for two reasons
+;; the `:on` rows don't have: a Spec 005 fn-valued delay key cannot
+;; round-trip EDN, and the epoch is not something a user should read or type.
+
+(defn- format-delay-key
+  "User-facing label for an `:after` map key. A literal is milliseconds; a
+  sub-vector prints as data; a fn key has no readable form at all."
+  [delay-key]
+  (cond
+    (number? delay-key)  (str delay-key "ms")
+    (vector? delay-key)  (pr-str delay-key)
+    (keyword? delay-key) (str delay-key)
+    (fn? delay-key)      "(fn)"
+    :else                (str delay-key)))
+
+(defn- after-row-testid-suffix
+  "A stable, testid-safe suffix. A literal or keyword delay key names
+  itself; anything without a readable spelling (a sub-vector, a fn) falls
+  back to the row index, which is stable for a given active path."
+  [delay-key idx]
+  (if (or (number? delay-key) (keyword? delay-key))
+    (str (if (keyword? delay-key) (name delay-key) delay-key))
+    (str idx)))
+
+(defn- available-after-row
+  [dispatch machine-id sim idx {:keys [delay-key target guard?] :as row}]
+  [:li
+   {:data-testid (str "rf-xray-static-machines-sim-available-after-"
+                      (after-row-testid-suffix delay-key idx))
+    :title       (str "Manual timeout trigger — fires this timer's elapsed "
+                      "event now. The sim keeps no clock and does not "
+                      "advance simulated time.")
+    :on-click    (fn [_]
+                   (dispatch
+                     [:rf.xray.static.machines/sim-step
+                      {:machine-id machine-id
+                       :event      (sim-h/after-elapsed-event sim row)}]))
+    :style       {:display "flex"
+                  :justify-content "space-between"
+                  :align-items "center"
+                  :padding "4px 8px"
+                  :margin "2px 0"
+                  :background "transparent"
+                  :border (str "1px solid " (:border-subtle tokens))
+                  :border-radius "3px"
+                  :cursor "pointer"
+                  :font-family mono-stack
+                  :font-size "11px"}}
+   [:span {:style {:color (:text-primary tokens)}}
+    (str "⌚ " (format-delay-key delay-key))]
+   [:span {:style {:color (:text-tertiary tokens)}}
+    (str "→ "
+         (cond
+           (keyword? target) (str target)
+           (vector? target)  (pr-str target)
+           :else             (str target))
+         (when guard? " [guard]")
+         " (timer)")]])
+
 (defn- available-transitions-list
-  [dispatch machine-id pending-event transitions]
+  [dispatch machine-id sim pending-event transitions after-rows]
   [:div {:style {:display "flex" :flex-direction "column" :gap "4px"}}
    [:label {:style {:color (:text-tertiary tokens)
                     :font-family sans-stack
                     :font-size "10px"
                     :text-transform "uppercase"
                     :letter-spacing "0.5px"}}
-    (str "Available from current state (" (count transitions) ")")]
-   (if (empty? transitions)
+    (str "Available from current state ("
+         (+ (count transitions) (count after-rows))
+         ")")]
+   (if (and (empty? transitions) (empty? after-rows))
      [:div {:data-testid "rf-xray-static-machines-sim-available-empty"
             :style {:padding "8px"
                     :color (:text-tertiary tokens)
@@ -579,9 +653,17 @@
            ;; Clojure metadata nowhere, so the key vanished silently
            ;; under a boundary. A KEYED FRAGMENT carries it on a head
            ;; both substrates honour without touching the call.
-           (for [t transitions]
-             [:<> {:key (str (:event t))}
-              (available-transition-row dispatch machine-id pending-event t)])))])
+           (concat
+             (for [t transitions]
+               [:<> {:key (str (:event t))}
+                (available-transition-row dispatch machine-id pending-event t)])
+             ;; The timer rows come AFTER the `:on` rows. Their keys carry
+             ;; the `after-` prefix and the row index, so a machine
+             ;; declaring the same delay key on two active-path nodes
+             ;; still yields distinct sibling keys.
+             (for [[idx row] (map-indexed vector after-rows)]
+               [:<> {:key (str "after-" idx "-" (pr-str (:decl-path row)))}
+                (available-after-row dispatch machine-id sim idx row)]))))])
 
 (defn- error-toast
   "The rail's step diagnostic. Two kinds, deliberately styled apart
@@ -667,8 +749,9 @@
 
 (defn SimRail
   "The Sim sub-mode's content rail — banner + current state + event
-  picker + Step / Reset / Exit + available transitions + audit trail.
-  Pure hiccup (per Xray convention).
+  picker + Step / Reset / Exit + available transitions (`:on` rows plus
+  one `⌚` manual-timeout row per `:after` declared on the active path,
+  rf2-pzuqw) + audit trail. Pure hiccup (per Xray convention).
 
   Returns nil when sim is not active for the currently-selected
   machine (the caller is expected to dispatch `:sim-start` BEFORE
@@ -692,7 +775,15 @@
   `:sim-event-suggestions` where the frame IS in context and passes the
   values down."
   [dispatch {:keys [sim transitions suggestions]}]
-  (let [machine-id (:machine-id sim)]
+  (let [machine-id (:machine-id sim)
+        ;; rf2-pzuqw — the `:after` timer rows are derived HERE rather than
+        ;; behind a new sub, for the reason the docstring above gives: the
+        ;; whole `sim` map is already threaded in, and it carries the three
+        ;; inputs (`:definition`, `:snapshot`, `:audit-trail`) the pure
+        ;; helpers need. A new sub would also be a new registration, and
+        ;; `registry_cljs_test.cljs` pins the `:rf.xray/*` set exactly.
+        after-rows (sim-h/available-after-transitions
+                     (:definition sim) (:snapshot sim))]
     (when sim
       [:section
        {:data-testid "rf-xray-static-machines-sim-rail"
@@ -714,7 +805,8 @@
         (step-button dispatch machine-id (:pending-event sim) (:pending-data sim))
         (reset-button dispatch machine-id)
         (exit-button dispatch machine-id)]
-       (available-transitions-list dispatch machine-id (:pending-event sim) transitions)
+       (available-transitions-list dispatch machine-id sim (:pending-event sim)
+                                   transitions after-rows)
        (audit-trail (:audit-trail sim))])))
 
 ;; ---- on-chart simulation surface ---------------------------------------
