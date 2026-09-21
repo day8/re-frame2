@@ -1361,6 +1361,13 @@ M1_FLAG_NSES = [
     # rf2-z9xl: a private subs sibling. With bare `re-frame.subs` it proves the
     # `re-frame.subs.tooling` exemption stays exact, not subtree-wide.
     "re-frame.subs.cache",
+    # rf2-zjss3: the substrate siblings the plain-atom/adapter carve-out must NOT
+    # reach. The three view substrates are the v1 namespaces M-38 really does
+    # rename to `re-frame.adapter.<name>`, so they stay M-1 sites; `spine` is a
+    # private v2 internal. Together they prove the exemption stays exact — a
+    # subtree-wide `substrate\b` spelling would exempt all four and silence M-38.
+    "re-frame.substrate.reagent", "re-frame.substrate.uix",
+    "re-frame.substrate.context", "re-frame.substrate.spine",
 ]
 # The M-1 scan MUST NOT flag these (the public-surface exceptions — the
 # invert-filter removes them).
@@ -1379,6 +1386,12 @@ M1_EXEMPT_NSES = [
     # rf2-z9xl: O-12 tells tools, dev overlays and tests to require this exact
     # namespace (sub-topology / sub-cache-snapshot), and core has no alias.
     "re-frame.subs.tooling",
+    # rf2-zjss3: the two namespaces M-38 carves OUT of its own rename and that
+    # stay as-is — the headless boot ns `setup.md` prescribes for a project with
+    # no view layer (there is no `re-frame.adapter.plain-atom`) and the substrate
+    # contract ns. M-1's rewrite says "remove the :require entirely", so a false
+    # flag deletes a live import and the headless boot stops compiling.
+    "re-frame.substrate.plain-atom", "re-frame.substrate.adapter",
 ]
 
 # Extract the documented rg patterns. The broad-scan line ends `' . \` (space-dot);
@@ -3168,17 +3181,28 @@ def _self_test() -> int:
     good_broad = re.compile(r"\[\s*re-frame\.[a-z-]+")
     good_invert = re.compile(
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
-        r"http|ssr|epoch|resources|fresco|story|subs\.tooling|test-support|"
+        r"http|ssr|epoch|resources|fresco|story|subs\.tooling|"
+        r"substrate\.(plain-atom|adapter)|test-support|"
         r"test-helpers|spec)\b"
     )
     pre_z9xl_invert = re.compile(  # the rf2-0tur filter rf2-z9xl widened
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|test-support|test-helpers|spec)\b"
     )
+    pre_zjss3_invert = re.compile(  # the rf2-z9xl filter rf2-zjss3 widened
+        r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
+        r"http|ssr|epoch|resources|fresco|story|subs\.tooling|test-support|"
+        r"test-helpers|spec)\b"
+    )
     subtree_invert = re.compile(  # the over-wide fix rf2-z9xl refuses: all of subs
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|subs|test-support|test-helpers|"
         r"spec)\b"
+    )
+    substrate_subtree_invert = re.compile(  # the over-wide fix rf2-zjss3 refuses
+        r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
+        r"http|ssr|epoch|resources|fresco|story|subs\.tooling|substrate|"
+        r"test-support|test-helpers|spec)\b"
     )
     bad_invert = re.compile(  # the exact pre-fix filter — no `adapter`, no `spec`
         r"\[\s*re-frame\.(core|interop|schemas|machines|routing|flows|"
@@ -3233,6 +3257,21 @@ def _self_test() -> int:
         m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
     for ns in ("re-frame.subs", "re-frame.subs.cache"):
         m1_expect(ns, subtree_invert, "exempt", f"M1-subtree-overreach-seen {ns}")
+    # rf2-zjss3: M-38 carves plain-atom + the substrate contract ns out of its own
+    # rename, so both are exempt and the pre-rf2-zjss3 filter flags them — the
+    # false positive that would tell a headless project to delete its boot
+    # require. The view substrates M-38 does rename, and a private v2 internal,
+    # stay flagged; the subtree-wide spelling is caught because it exempts them.
+    for ns in ("re-frame.substrate.plain-atom", "re-frame.substrate.adapter"):
+        m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
+        m1_expect(ns, pre_zjss3_invert, "flag", f"M1-regression-detected {ns}")
+    for ns in (
+        "re-frame.substrate.reagent", "re-frame.substrate.uix",
+        "re-frame.substrate.context", "re-frame.substrate.spine",
+    ):
+        m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
+        m1_expect(ns, substrate_subtree_invert, "exempt",
+                  f"M1-subtree-overreach-seen {ns}")
 
     # --- M-51 sweep fixtures (rf2-0tur) -----------------------------------------
     # The corrected sweep sees all four unary shapes and skips the binary control;
