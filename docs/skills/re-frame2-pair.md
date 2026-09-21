@@ -9,7 +9,7 @@ The `re-frame2-pair` skill is the AI pair-programming companion for a running re
 Three primitives carry the skill's agency, all part of re-frame2's [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md):
 
 1. **The REPL** — ClojureScript forms evaluated against the real app, usually through helpers in the preloaded `re-frame2-pair.runtime` namespace.
-2. **The trace stream** — `(rf/register-listener! id listener)` for live trace events; `(rf/trace-buffer frame-id)` for the retain-N ring of recent events (frame-id is the first positional arg, `(rf/trace-buffer frame-id opts)` filters, and the fn exists on both platforms).
+2. **The trace stream** — `(rf/register-listener! :trace id listener)` for live trace events (the verb is stream-parameterised across the two raw dev streams, `:trace` and `:epoch` — a closed vocabulary with no bare two-argument default); `(rf/trace-buffer frame-id)` for the retain-N ring of recent events (frame-id is the first positional arg, `(rf/trace-buffer frame-id opts)` filters, and the fn exists on both platforms).
 3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying `:db-before`, `:db-after`, `:trace-events`, and the assembled `:sub-runs` / `:renders` / `:effects` projections.
 
 The skill is **multi-frame aware** (Spec 002 — most apps run with one frame, larger apps run several). It registers exactly **one** trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`) so it coexists with other tools (e.g. `re-frame-10x` v2) on the same bus. Mutating ops refuse with `:ambiguous-frame` when the operating frame is unclear.
@@ -18,7 +18,7 @@ The cardinal rule: **REPL changes are ephemeral, source edits are permanent.** A
 
 ## When to reach for it
 
-Load this skill when the user mentions a **running** re-frame2 app, or any of: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, frame, epoch, interceptor, sub-cache, trace-buffer, `register-listener!`, `register-epoch-listener!`, `restore-epoch`, re-com, shadow-cljs — *and the question is about the live runtime*, not about writing new code.
+Load this skill when the user mentions a **running** re-frame2 app, or any of: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, frame, epoch, interceptor, sub-cache, trace-buffer, `register-listener!`, `restore-epoch`, re-com, shadow-cljs — *and the question is about the live runtime*, not about writing new code.
 
 Do **not** use this skill for:
 
@@ -48,9 +48,10 @@ Three steps, the first two one-time setup on the app you are pairing with:
    per-session inject fallback.** See [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
    for the branch and the snippets.
 3. **Run `discover-app`**, via the `re-frame2-pair-mcp` server — the only
-   skill-facing transport (see [Transport](#transport) below). The `scripts/`
-   shims are not part of the skill surface: they exist only for the project's own
-   e2e harness and ad-hoc manual use.
+   skill-facing transport (see [Transport](#transport) below). The bash/babashka
+   `scripts/` shims that once fronted these ops have been removed; the live
+   connect/dispatch/trace/hot-reload coverage now drives the MCP server over
+   stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.
 
 ```
 discover-app
@@ -81,7 +82,7 @@ To force-load in Claude Code:
 /skill re-frame2-pair
 ```
 
-After connect, work in structured ops (read, write, trace, DOM bridge, watch, hot-reload, time-travel) rather than ad-hoc `repl/eval` — the escape hatch is available for probes that don't fit the catalogue.
+After connect, prefer a structured op (read, write, trace, DOM bridge, watch, hot-reload, time-travel) whenever one fits the gesture — and reach for `eval-cljs` as a first-class workhorse for the long tail no typed tool covers (epoch forensics, arbitrary-selector DOM reads, cross-referencing, recovery), not as a last resort.
 
 ## Where the skill lives
 
