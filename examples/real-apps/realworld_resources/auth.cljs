@@ -69,13 +69,14 @@
 ;; Another conformance surface. The official RealWorld browser/E2E suite reads the
 ;; session from `localStorage["jwtToken"]` — that exact key IS the contract, so we
 ;; use it verbatim rather than namespacing it under `conduit-resources/…` as we
-;; otherwise would. One caveat, since it can bite you locally: the contract
-;; assumes one RealWorld app per origin. The repo's dev orchestrator serves both
-;; variants from a single origin (`/realworld/` and `/realworld-resources/`), so
-;; the two conforming apps share — and cheerfully clobber — each other's
-;; `jwtToken`. That's a dev-mode artifact, not a contract violation: conformance
-;; is validated against standalone serving (one app per origin), which is what the
-;; external suite actually does. See the README §RealWorld contract conformance.
+;; otherwise would. One caveat worth knowing before you host this app alongside
+;; the `realworld_http/` sibling: the contract assumes one RealWorld app per
+;; origin, so two conforming apps served from a SINGLE origin would share — and
+;; cheerfully clobber — each other's `jwtToken`. The repo's own runner never puts
+;; you there: `npm run dev:example -- <build-id>` stages ONE build on its own
+;; loopback port. Conformance is validated against standalone serving (one app
+;; per origin), which is what the external suite does too.
+;; See the README §RealWorld contract conformance.
 (rf/reg-fx :realworld-resources.session/persist
   {:doc       "Persist (or clear) the JWT in localStorage under the official
                contract key `jwtToken`. `{:token t}` writes a truthy token; a

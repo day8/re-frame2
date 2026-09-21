@@ -380,8 +380,10 @@
     ;; above). The frame is created synchronously during render, so by the time
     ;; this call returns it's live and seeded.
     ;;
-    ;; `:url-strategy routing/url-strategy` is what makes this work under the
-    ;; dev orchestrator's `/realworld-resources/` mount point: it wraps the
+    ;; `:url-strategy routing/url-strategy` is what makes this work under a host
+    ;; that mounts this demo at a `/realworld-resources/` sub-path (the repo's
+    ;; own runner serves one build at the server ROOT, and `strip-base-path`
+    ;; fails safe there — see routing.cljs §ROUTER WIRING): it wraps the
     ;; default history strategy with `with-base-path` so that
     ;; prefix is stripped before the matcher ever sees the URL, and re-added on
     ;; the way out. `:url-bound? true` frame creation then automatically
