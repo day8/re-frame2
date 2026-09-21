@@ -308,10 +308,11 @@ The view reads the combined `[:rf.resource/infinite-state …]` subscription and
       ;; First load (page 0), no usable data yet.
       (:loading? feed) [feed-skeleton]
 
-      ;; First load failed with no data. Split the full error screen from the
-      ;; inline retry by :has-data?.
-      (and (:page-error feed) (not (:has-data? feed)))
-      [feed-error (:page-error feed)]
+      ;; First load failed with no data. The full error screen reads :error —
+      ;; the first-load channel — not :page-error, which is the separate
+      ;; load-more channel the inline retry below reads.
+      (and (:error feed) (not (:has-data? feed)))
+      [feed-error (:error feed)]
 
       :else
       [:<>
