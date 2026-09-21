@@ -588,14 +588,26 @@ available. The lifecycle is normative.
    MUST **seat the `:rf/xray` frame**, and MUST then open the default
    true-inline shell unless `:rf.xray/auto-open?` is false.
 
-**Seating is unconditional; opening is not (rf2-avi7).** Step 1 registers
-Xray's whole instruction set, but `:rf/xray` is an ordinary frame, so
-`rf/make-frame` needs an installed substrate adapter and cannot run at
+**Seating is unconditional with respect to OPENING (rf2-avi7).** Step 1
+registers Xray's whole instruction set, but `:rf/xray` is an ordinary frame,
+so `rf/make-frame` needs an installed substrate adapter and cannot run at
 preload namespace load (`:rf.error/no-adapter-installed`). Adapter readiness
 is therefore the earliest moment the frame can exist, and the probe of step 5
 MUST seat it there whether or not it goes on to open — a host is entitled to
 drive Xray purely by dispatch (`set-target-frame!`, `focus!`, the
 `:rf.xray/*` events) without ever showing the shell.
+
+That is independence from the OPEN, and NOT from Xray's own registration
+(rf2-atecy). Step 1 is what satisfies the other precondition: a seat
+assembles Xray's image, and that image fails loud with
+`:rf.error/image-zero-match` over a pool carrying no `:rf.xray/*`
+registration. So if the instruction set is gone by the time a tick lands —
+`rf.registrar/clear-all!` from a test fixture, between the preload's load
+and adapter readiness — the probe MUST end the loop WITHOUT seating rather
+than throw, because a throw from a timer crashes the runtime before it can
+report a verdict. That decline belongs to the readiness probe ALONE: every
+EXPLICIT seat still fails loud, and the guard MUST NOT be weakened to make
+this case quiet.
 
 Binding the seat to the open instead leaves Xray **addressable but not
 writable** for the whole window between preload and first open: a dispatch
