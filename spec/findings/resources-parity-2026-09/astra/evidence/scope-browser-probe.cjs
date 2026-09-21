@@ -1,3 +1,4 @@
+/* global cljs, re_frame */
 const { chromium } = require('<HOME>/code/re-frame2/implementation/node_modules/playwright');
 const http = require('node:http'), fs = require('node:fs'), path = require('node:path');
 const root = __dirname;

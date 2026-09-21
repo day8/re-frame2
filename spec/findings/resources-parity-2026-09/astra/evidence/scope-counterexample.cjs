@@ -1,3 +1,4 @@
+/* global cljs, re_frame, realworld_shared */
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
 module.exports = async function scopeCounterexample(page) {
   await page.evaluate(() => {
