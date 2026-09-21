@@ -129,7 +129,16 @@
   is to harvest the trace and epoch rings the user filled BEFORE opening
   Xray. Firing it from here would spend that one run on an empty
   boot-time ring. Seating is idempotent and is a no-op until a substrate
-  adapter exists, so it costs a live host nothing.
+  adapter exists — but adapter presence is NOT the only precondition
+  (rf2-1t0d5). A FRESH seat assembles Xray's own image, which fails loud
+  with `:rf.error/image-zero-match` when Xray's `:rf.xray/*` instruction
+  set is not registered; that is deliberate for an EXPLICIT seat
+  (rf2-atecy) — see `mount/ensure-seated!` §Adapter presence is NOT the
+  only precondition. So the seat costs an INSTALLED host nothing, and
+  the two callers below differ in who guarantees the install: `init!`
+  registers the instruction set before it reaches here, while
+  `set-target-frame!` assumes an Xray the preload — or an earlier
+  `init!` — already installed.
 
   Factored out under rf2-bitb: `set-target-frame!` was correct and
   `init!` — the other supported way a host states its boot target — was
@@ -303,7 +312,19 @@
   `seat-and-set-target-frame!` seam above — see its docstring for why the
   seat is load-bearing, and why it is `ensure-seated!` rather than
   `ensure-xray-frame!`. `init!` takes the same seam (rf2-bitb), so the
-  two supported ways a host states its boot target now behave alike.
+  two supported ways a host states its boot target land it the same way.
+
+  ## What that equivalence is, and what it is not (rf2-1t0d5)
+
+  It is an equivalence of SEAM, not of preconditions. `init!` INSTALLS
+  Xray — it registers the `:rf.xray/*` instruction set and only then
+  reaches the seam — whereas this fn assumes an Xray already installed,
+  by the preload or by an earlier `init!`. Called on a live host before
+  either, the seat assembles Xray's image over a pool carrying no Xray
+  registration and fails loud with `:rf.error/image-zero-match`. That
+  is deliberate for an EXPLICIT seat (rf2-atecy); only the preload's
+  background readiness tick declines instead — see
+  `mount/ensure-seated!` §Adapter presence is NOT the only precondition.
 
   Returns nothing."
   [frame-id]

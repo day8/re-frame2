@@ -523,6 +523,27 @@
   (`rf/make-frame` raises `:rf.error/no-adapter-installed` without one —
   the constraint `boot-on-runtime-ready!` polls for).
 
+  ## Adapter presence is NOT the only precondition (rf2-1t0d5)
+
+  An adapter makes the seat POSSIBLE, not safe. A fresh seat assembles
+  Xray's own image, and that image's `day8.re-frame2-xray.**`
+  `:select-ns :include` glob is fail-loud on zero matches — so with an
+  adapter installed but Xray's `:rf.xray/*` instruction set NOT
+  registered (before `registry/register-xray-handlers!`, or after a
+  fixture's `rf.registrar/clear-all!`), this call THROWS
+  `:rf.error/image-zero-match` rather than no-opping.
+
+  That is deliberate rather than an oversight, and it is not to be
+  repaired by guarding the seat (rf2-atecy): an EXPLICIT seat fails
+  loud, so a caller who asked to seat gets the diagnostic. The
+  background readiness tick is the one path that declines instead, and
+  only because a throw from a timer crashes the runtime before it can
+  report a verdict — see `boot-on-runtime-ready!` §A registrar cleared
+  under the preload. A caller that does not install Xray itself must
+  therefore reach this fn on a path where the instruction set is
+  already registered: the preload's step 1, or `core/init!`, which
+  registers before it seats.
+
   ## Why this is NOT `ensure-xray-frame!` (rf2-88f1)
 
   `ensure-xray-frame!` is the seat PLUS the first-mount hook fan-out,
