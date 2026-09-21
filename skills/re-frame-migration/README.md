@@ -97,7 +97,7 @@ skills/re-frame-migration/
 
 ## Source of truth
 
-`migration/from-re-frame-v1/README.md` at the repo root. Every rule the skill applies cites an `M-N` or `O-N` rule id from that doc. If the skill and the migration corpus disagree, the corpus wins.
+`migration/from-re-frame-v1/README.md` at the repo root. Every rule the skill applies cites an `M-N` or `O-N` rule id from that doc. If the skill and the migration corpus disagree, **the corpus wins on rule *scope* and *type*** — which sites a rule covers, and whether it is Type A or Type B. **On runtime *behaviour*, trunk wins**: the corpus carries rows that describe a runtime the implementation has since moved past, and a leaf that contradicts one has usually been re-verified against the code. The live instance is M-8 — the corpus body still says an un-migrated top-level effect key is "dropped silently … no error, no warning, no crash", while the effect-map top level is now a closed set of seven keys and a foreign one **refuses the whole event pre-commit** with an always-on `:rf.error/effect-map-shape` (`implementation/core/src/re_frame/events.cljc`; [`references/breaking-changes.md` §M-8](references/breaking-changes.md#required-m-rules-by-trigger-surface) teaches the fail-closed version, and M-8's own callout in the corpus agrees with the skill against the corpus body). Where a leaf and the corpus disagree about what the *runtime does*, check the implementation and say which you followed.
 
 ## Licence
 

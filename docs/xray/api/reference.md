@@ -59,7 +59,7 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 | `default-accent-css-var` | `"--rf-xray-accent"` | The CSS custom property the host snippet publishes on `:root`. |
 | `default-accent` | `"#539bf5"` | The default brand-accent hex (matches `theme/tokens.cljc :accent`). |
 | `default-layout-host-snippet` | HTML + CSS block | Copy-pasteable host snippet. Carried in the missing-host diagnostic. |
-| `settings-storage-key` | `"day8.re-frame2-xray/settings/v1"` | localStorage key for the Settings popup state. |
+| `settings-storage-key` | `"re-frame2.xray.settings.v1"` | localStorage key for the Settings popup state. |
 
 ## `day8.re-frame2-xray.keybinding`
 
