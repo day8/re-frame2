@@ -43,8 +43,9 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 | **Frames** | `u` | process-global | The EP-0023 `image → frame` lens — which image loaded each live frame, and how it resolves registrations. | [panels-structure.md](panels-structure.md) |
 | **Fresco** | `h` | live runtime (not epoch-coupled) | The Fresco evidence lens — six views (Mounted · Reads · Intents · Why · Advisor · Causal) over four envelopes taken in one turn. | [panels-structure.md](panels-structure.md) |
 
-Cross-epoch signal lives on the L2 timeline (badges + the issue
-pink-wash); **no Dynamic tab shows a cross-epoch aggregate** (binding,
+Cross-epoch signal lives on the L2 timeline (the text `source` column +
+the issue pink-wash — the row is glyph-free post-rf2-pjjwh);
+**no Dynamic tab shows a cross-epoch aggregate** (binding,
 §021 §1.2). Internal tab ids are not user labels — route users by the
 visible labels above (the ninth tab is **Frames**; its internal id
 `:module-view` and the retired "Modules" label are not answers).

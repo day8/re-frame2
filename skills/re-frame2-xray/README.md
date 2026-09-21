@@ -12,7 +12,7 @@ Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction
 
 ## What Xray is
 
-An in-app true-inline devtools panel for re-frame2 applications, preloaded into dev builds via shadow-cljs `:preloads`. Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus, Tool-Pair epoch history, the registrar query API) — it adds nothing the framework didn't already expose. The preload's `interop/debug-enabled?` gate is what keeps the surface out of production builds — it wraps the preload's boot block and nothing else. The programmatic `init!` path is not behind it, so a host that installs Xray from app code keeps the require out of its own release build.
+An in-app true-inline devtools panel for re-frame2 applications, preloaded into dev builds via shadow-cljs `:preloads`. Xray consumes re-frame2's instrumentation surface (Spec 009 trace bus, Tool-Pair epoch history, the registrar query API) — it adds nothing the framework didn't already expose. The preload's `interop/debug-enabled?` gate is what keeps the surface out of production builds — it wraps the preload's boot block (and, since rf2-y8doi.60, the four top-level `reg-view` sites; it is not the *only* gate in the tree). The programmatic `init!` path is not behind any of them, so a host that installs Xray from app code keeps the require out of its own release build.
 
 Xray is the human-facing panel; when the user asks an agent to inspect or change the running app — read-only included — that is [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair), the agent-facing runtime companion. The boundary is human panel vs agent runtime, not read vs write.
 
@@ -25,7 +25,7 @@ Xray is the human-facing panel; when the user asks an agent to inspect or change
 - `references/panels.md` — the compact canonical tab inventory (10 Dynamic + 5 Static), the scope matrix, and the panel → content-home mapping for surfaces that are not their own tab
 - `references/panels-epoch.md` · `panels-state.md` · `panels-domains.md` · `panels-resources.md` · `panels-structure.md` — one leaf per panel family (the Epoch cascade + Trace + issues; app-db + Views; Machine + Routes; Resources; Graph + Frames + Fresco) — a deep question loads only its family
 - `references/chrome.md` — the first-screen chrome inventory in depth (LIVE/RETRO, time-travel rewind, filter pills, command-palette sources, the Settings-popup tabs, the Snapshot app-db redaction contract)
-- `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
+- `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `focus_resolver`) + the tab-icon / cross-panel-arrow glyph reference and what the L2 row actually carries
 - `evals/evals.json` — eval fixtures (trigger accuracy + answer-quality/route-quality assertions for the high-drift launch / chrome / tab-routing prompts)
 - `evals/README.md` — the eval harness: coverage table, schema, and how to run the answer-quality checks
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata

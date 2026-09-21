@@ -51,9 +51,9 @@ dev build's entry point loads and your release build never names:
 
 (xray/init!
  {:target-frame :app/main ; observed frame for the spine
- :theme :dark ; / :light (settings persist)
- :density :compact ; / :cosy (settings persist)
- :buffer-depths {:epoch 50}}) ; per-frame ring depth
+ :theme :dark ; / :light (pinned each boot)
+ :density :compact ; / :cosy (pinned each boot)
+ :buffer-depths {:epoch 50}}) ; per-frame ring depth (pinned each boot)
 
 (xray/open!) ; make it visible — init! installs but does not show
 ```
@@ -69,6 +69,21 @@ in [`core.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8
  per-frame ring (depth + trace-keep to the same `n`). A `:trace` axis is
  **silently dropped** (folded into the one `:epoch` knob).
 
+**`init! opts` is a per-mount PIN, not a boot default.** `init!` loads
+the user's persisted Settings FIRST, then writes each supplied opt
+through `update-setting!`, which persists — so the merge order is
+`defaults < configure! {:rf.xray/settings …} < persisted Settings <
+init! opts`, and for the keys the opts name they win. The user's
+Settings-popup choice survives for the rest of the session and is
+overwritten again on the next reload. That is exactly what a harness or
+testbed wants; a host that wants a **user-overridable** boot default
+uses `(xray-config/configure! {:rf.xray/settings {:general
+{:epoch-history 50 :density :compact}} :theme :dark})` instead — bare
+top-level `:density` / `:buffer-depths` are not `configure!` keys.
+Authority:
+[`spec/015-Configuration.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/015-Configuration.md)
+§`configure!` vs `init!` vs persisted Settings, step 4.
+
 Unknown opt keys are silently ignored for forward-compat — so an `init!`
 that worked against a newer Xray won't break an older one. (There is **no**
 `:ai-provider` opt — AI access is the separate `re-frame2-pair-mcp` MCP
@@ -77,9 +92,12 @@ authoritative per-opt contract.
 
 ## Keeping the manual path out of production
 
-**The preload's `(when rf.interop/debug-enabled? …)` block is the only
-`goog.DEBUG` gate in Xray.** `init!`, `open!`, `open-overlay!`, `toggle!`
-and `popout!` carry none of their own:
+**The gated paths are the preload's `(when rf.interop/debug-enabled? …)`
+boot block plus — since rf2-y8doi.60 — the four top-level `reg-view`
+sites (`shell.cljs`, `panels/machine_canvas.cljs`,
+`views/edn_inspector.cljs`, `views/resizable_table.cljs`).** `init!`,
+`open!`, `open-overlay!`, `toggle!` and `popout!` carry none of their
+own:
 
 - `init!` registers the `:rf.xray/*` handlers, the trace + epoch collectors,
  the browser-API exports and the keybinding listener **unconditionally**.
