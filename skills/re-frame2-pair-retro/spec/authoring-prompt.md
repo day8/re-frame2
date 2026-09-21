@@ -31,10 +31,9 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > │ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 > ├── references/
 > │ └── known-frictions.md (recurring pain patterns; the one on-demand leaf)
-> ├── tests/                          # repo-maintenance artifact; excluded from the npm `files` array
+> ├── tests/                          # repo-maintenance artifact; excluded from the npm `files` array; CI's skills-structural job loops every tests/*_test.clj, so both files below are gated
 > │ ├── duplicate_search_test.clj (command-contract pin on the duplicate-search argv)
 > │ └── eval_corpus_shape_test.clj (data-shape pin on the eval corpus + its documented conversion)
-> │   (CI's skills-structural job loops every tests/*_test.clj, so both are gated)
 > └── spec/
 > ├── design.md
 > ├── inputs.md
