@@ -1,0 +1,2 @@
+Global-scope counterexample reproduced: Bob reads the synthetic prior-viewer marker with no second request.
+scope: browser smoke passed

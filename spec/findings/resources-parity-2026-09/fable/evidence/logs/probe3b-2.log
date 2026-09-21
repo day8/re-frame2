@@ -1,0 +1,9 @@
+P3b.1 baseline: alice and anonymous feed entries loaded; ledger => {:ledger [[:get "/api/articles/feed"] [:get "/api/articles/feed"]], :alice :loaded, :anon :loaded}
+P3b.2 UNSCOPED invalidate-tags {:tags #{[:feed]}} -> thrown? error-sink record? any refetch? => {:dispatch :DISPATCHED, :new-requests [], :errors-recorded [{:keys [:elapsed-ms :error :event :event-id :exception :frame :kind :time], :kind :rf.observe/error, :rf.error/id nil, :id nil, :where nil}], :alice :loaded, :anon :loaded}
+P3b.3 cross-scope explicit opt-in {:cross-scope? true} -> reaches both scopes (owned -> refetch)? => {:dispatch :DISPATCHED, :new-requests [[:get "/api/articles/feed"] [:get "/api/articles/feed"]], :alice :fetching, :anon :fetching}
+P3b.4 SCOPED invalidate for alice only -> alice refetches (owned), anonymous untouched => {:new-requests [[:get "/api/articles/feed"]], :alice :fetching, :anon :loaded}
+P3b.5 COLD BOOT (token, no user): full :rf/resource sub value while the scope resolver returns nil => nil
+P3b.6 COLD BOOT: ensure with unresolved scope -> thrown? error-sink? requests? => {:dispatch :DISPATCHED, :new-requests 0, :errors-recorded [{:keys [:elapsed-ms :error :event :event-id :exception :frame :kind :time], :kind :rf.observe/error, :rf.error/id nil, :id nil, :where nil}]}
+P3b.7 resolve-resource-scope is pure and fails closed: alice / anonymous / unresolved => {:alice [:rf.scope/viewer {:username "alice"}], :anon [:rf.scope/viewer :anonymous], :unresolved nil}
+P3b.8 all error-sink records seen => [{:keys [:elapsed-ms :error :event :event-id :exception :frame :kind :time], :kind :rf.observe/error, :rf.error/id nil, :id nil, :where nil} {:keys [:elapsed-ms :error :event :event-id :exception :frame :kind :time], :kind :rf.observe/error, :rf.error/id nil, :id nil, :where nil} {:keys [:elapsed-ms :error :event :event-id :exception :frame :kind :time], :kind :rf.observe/error, :rf.error/id nil, :id nil, :where nil}]
+DONE

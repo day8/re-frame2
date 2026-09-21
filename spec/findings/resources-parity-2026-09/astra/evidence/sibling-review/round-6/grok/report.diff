@@ -1,0 +1,112 @@
+--- 
++++ 
+@@ -4,5 +4,6 @@
+-Intermediates: `intermediate/landscape.md`, `closeness-test.md`, `scoreboard.md`, `advantage.md`, `evidence-ledger.md`  
+-Evidence pin: **`a5f883b5691b83ac258121eb5c046df87be6d03d`** (Conduit, Spec 016, JVM pins, browser walk)  
+-HEAD at close: **`f680007c6b7dcb63cf4dd4bdd7b39f83d8c4c9d4`** — window is Story spec + beads checkpoints only (`tools/story/spec/*`, `.beads/issues.jsonl`). **No Resources/Conduit repair in the window.** Present-tense product claims stay on `a5f883b569`.  
+-When: **2026-09-14**, +10:00  
+-Comparators: TanStack Query **v5** (npm `5.102.8`, docs `latest` 2026-09-14); RTK Query tags; SWR mutate; Apollo entity cache as **OUT**; TanStack DB **0.9.0** (2026-09-10) as a **separate package**, not Query core.
++Intermediates: `intermediate/landscape.md`, `closeness-test.md`, `scoreboard.md`, `advantage.md`, `evidence-ledger.md`, **`sibling-synthesis.md`**  
++Evidence pin: **`a5f883b5691b83ac258121eb5c046df87be6d03d`** (Conduit walk, JVM pins, landscape)  
++Tutorial repair: **`19dffcdb42`…`cc26e2d900`** (2026-09-15 00:37 +10) — Parts 1–5 docs. Conduit example / runtime / translation scorecard **unchanged**.  
++HEAD at this revision: **`f2f9ffd654b70da97e907758cc73daa3bd205d57`** (2026-09-15 03:08 +10)  
++When: independent pass 2026-09-14; **synthesis 2026-09-15 +10:00**  
++Comparators: TanStack Query **v5** (npm `5.102.8`, docs `latest` 2026-09-14); RTK Query tags; SWR mutate; Apollo entity cache as **OUT**; TanStack DB **0.9.0** as a **separate package**.
+@@ -10 +11 @@
+-Sibling `astra/` / `fable/` reports were **not** read. This is an independent draft.
++**Independence then synthesis.** The scoreboard and Conduit walk were written **before** reading `astra/` or `fable/` reports. This revision **did** read them, source-checked the leads, and is labelled synthesis — not a second independent pass. Sibling request-ledger numbers and WIN labels are **not** this run’s measurements. Narrow consensus and declined leads: `intermediate/sibling-synthesis.md`.
+@@ -20 +21 @@
+-**Thesis.** Keep **register / cause / project + tags on writes**. The surviving structural advantages after steelmanning Query’s *practical* workflow (loaders, per-request clients, official Devtools, persist plugin) are: a subscription **cannot** fetch; scope **cannot** be forgotten; a write’s consequences are **data** (and scoped). Contested optimistic rollback (`:on-conflict :invalidate`) is real vs Query’s *cache* recipe, not vs SWR or Query’s *UI* recipe. Do not sell Xray-on-Conduit or SSR isolation until the examples show them.
++**Overnight (historical defect → landed repair).** Independent stall log’s *blocking* tutorial items — unnamed `day8/re-frame2-http`, `api.realworld.io`, Part 4 populating a **global** article from an authenticated favourite, Part 5 testing a machine Part 3 didn’t build — **landed as docs** (`19dffcdb42` and siblings). Part 2’s global articles are now a timed lesson until Part 3. **Evidence still needed:** a fresh-consumer compile at HEAD (not re-run here); Conduit still has no Xray host; translation page still says `:keep-previous?` is “on the route/resource”; tutorial still never names `:revalidate-on` or the **absent** `:stale-after-ms` = never-stale default.
+@@ -22 +23,3 @@
+-**Do first.** Make claimed wins honest in Conduit + tutorial (Xray rail, viewer scope in Part 2/4, current API URL, “this example does not show X — see Y”). Do **not** add a hook wrapper, a second cache, or GraphQL-in-016.
++**Thesis.** Keep **register / cause / project + tags on writes**. Surviving structural advantages after steelmanning Query’s *practical* workflow (loaders, per-request clients, official Devtools, persist plugin, **`mutation.scope`**, UI `variables` recipe): a subscription **cannot** fetch; scope **cannot** be forgotten; a write’s consequences are **data** (and scoped). Contested `:on-conflict :invalidate` is real vs Query’s *cache* snapshot recipe (sibling-executed clobber window — not grok-timed). It is **not** unique vs SWR `rollbackOnError` or Query’s UI recipe. Do not sell Xray-on-Conduit until the example mounts it.
++
++**Do first (after the tutorial repair).** (1) Translation-page honesty (`:keep-previous?` is a route/ensure key; name loaders + `variables` + `mutation.scope`). (2) One tutorial sentence on absent stale default + `:revalidate-on`. (3) Mount Xray on Conduit’s **dev** build. Do **not** add a hook wrapper, a second cache, GraphQL-in-016, or re-do the HTTP-dep / `.show` URL work that already landed.
+@@ -36 +39 @@
+-| J5 | Optimistic + contested rollback | COMPLETE | TAUGHT | EXERCISED apply; JVM rollback | **AHEAD** Query cache recipe |
++| J5 | Optimistic + contested rollback | COMPLETE | TAUGHT | EXERCISED apply; JVM rollback | **AHEAD** Query **cache** recipe; **MATCH** SWR / Query **UI** `variables`; Query `mutation.scope` is another answer |
+@@ -51 +54 @@
+-| J20 | Dependent read from A’s data | PARTIAL | INTERNAL | SOURCE-TRACED (`:after` ≠ data waterfall) | **BEHIND** Query `enabled` |
++| J20 | Dependent read from A’s data | PARTIAL | INTERNAL | SOURCE-TRACED | **DIVERGENT** (`:reply-to` can chain; Conduit editor seeds a draft) + **TARGET** (planner cannot take B’s params from A’s **loaded data**; 016 `:after` is dispatch-order only). Not BEHIND the *job* if a continuation serves it |
+@@ -67 +70,2 @@
+-- TanStack **always** restores `onError` context — **true of the cache recipe**, false of the UI `variables` recipe.
++- TanStack **always** restores `onError` context — **true of the cache recipe**, false of the UI `variables` recipe. Query also documents **`mutation.scope`** to serialise overlapping writes — a third answer, not named on the page.
++- **`:keep-previous?` “on the route/resource”** (`coming-from-tanstack-query.md:194`) — **wrong.** It is a **route-entry / `ensure` payload** key. Conduit sets it on routes (`routing.cljs`); `reg-resource` does not take it.
+@@ -69 +73,3 @@
+-**Stale teaching vs trunk Conduit.** Tutorial Part 2/4 uses `:scope :rf.scope/global` for articles whose payloads carry per-viewer `favorited`. That is the leak Conduit exists to make unrepresentable. Tutorial API `api.realworld.io` vs README/current spec `api.realworld.show`.
++**Stale teaching vs trunk — clocked.** At evidence pin `a5f883b569`, tutorial Part 2/4 used global article scopes and `api.realworld.io`. **Landed repair** `19dffcdb42`…`abc3ae0fc1`: HTTP artefact named; `.show` + local Bun backend; Part 3 moves reads to `:conduit/viewer`; Part 4 populate/invalidate uses viewer + session descriptors. Part 2 global remains **only until Part 3**, with that sentence on the page. Do not leave the old present-tense leak under this SHA.
++
++**Still stale at HEAD.** `:keep-previous?` wording (above). Tutorial never mentions `:revalidate-on`. Samples always set `:stale-after-ms 60000`, so a migrant never meets the **absent = never-stale** default the scorecard names.
+@@ -83 +89 @@
+-**IMAGINED.** Completed agent loop from enumerable keys. User-facing epoch replay of a stale page (restore ≠ undo server writes). Offline persister.
++**IMAGINED.** Completed agent loop from enumerable keys. User-facing epoch replay of a stale page (restore ≠ undo server writes). Offline persister. **Write-reach lint** (Xray): set-difference of optimistic keys vs settlement `:affected-keys` / `:rf.mutation/optimistic-reconciled` — a tool lint, never a runtime warning; `:affected-keys` is **not** a history of every optimistic touch.
+@@ -85 +91 @@
+-**Steelmanned away.** “Query cannot prefetch.” “Query cannot isolate SSR.” “Only we do optimistic.” “RTK has no tag invalidation.”
++**Steelmanned away.** “Query cannot prefetch.” “Query cannot isolate SSR.” “Only we do optimistic.” “RTK has no tag invalidation.” “Comparators have no isolation boundary” (Query key factories, providers, per-request clients **are** boundaries; ours is louder). “Query cannot handle overlap” (`mutation.scope` serialises; UI `variables` never write the cache).
+@@ -93 +99 @@
+-Ranked by job leverage per concept. **Do not file beads.** Sequence below; **stop after step 3.**
++Ranked by job leverage per concept. **Do not file beads.** Sequence below; **stop after #4.** Tutorial HTTP-dep / `.show` / Part 4 global populate are **done on trunk** — do not re-propose them.
+@@ -99 +105,3 @@
+-If HEAD moves: historical defect → landed repair → evidence still needed.
++If HEAD moves: historical defect → landed repair → evidence still needed. This revision is that form for the tutorial.
++
++**Methodology (from siblings, now in the test).** Wait on **data identity**, not “list visible” (keep-previous). Plant missing invalidation on a tag **member tags will not mask**. Record the **interval** between a rejected older write and recovery, not only the settled UI. Attribute competitor ledgers you did not run.
+@@ -105,2 +113,3 @@
+-| 1 | Flagship shows Xray + an honest “not in this example” table | J6 J9 J10 J13 | Conduit cloners | No Xray host; no infinite/SSR/poll/prefetch in Conduit | Xray rail like tutorial HTML; README pointers to `infinite_feed` / `resources_ssr` | Landed-but-invisible | S | Open Conduit, favourite, see the write on the invalidation graph |
+-| 2 | Tutorial scope + API URL match the product | J1 J7 | Part 2/4 readers | Global articles vs viewer-scoped Conduit; `.io` vs `.show` | Viewer scope **or** a loud “illegal for RealWorld payloads”; pin `api.realworld.show` or default to the stub | Taught leak; 404 | S | Tutorial favourite does not warn-mismatch against viewer reads |
++| 1 | Translation page: keep-previous site + fair Query portraits | J6 J5 J8 | Migrants | Line 194 “on the route/resource”; caricatures of mount-fetch and only-one optimistic recipe | Quote route/ensure; name loaders, `variables`, `mutation.scope` | Unfair page a Query user bounces on | S | Those three sentences match current Query docs and Conduit’s route keys |
++| 2 | Tutorial: name the **absent** stale default and `:revalidate-on` | J3 J10 | Part 2 readers | Samples always set 60s; 0 hits for `revalidate-on` under `tutorial/` | One paragraph + optional “migration profile” map (stale-at-once, focus/reconnect on) | Silent never-stale surprise | S | A migrant who omits `:stale-after-ms` is told what happens |
++| 3 | Flagship shows Xray + “not in this example” table | J6 J9 J10 J13 | Conduit cloners | No Xray host; no infinite/SSR/poll/prefetch in Conduit | Dev-only Xray rail; README pointers | Landed-but-invisible | S | Favourite in dev, Resources panel names the write and the two reads. **shadow-cljs.edn is a hot zone** if a preload is required |
+@@ -108 +117 @@
+-These are **inaccurate comparison prose / missing packaging**, not library defects.
++These are **docs / packaging**, not library defects. Item 2 in the independent draft (scope + API URL) **landed** — do not re-open.
+@@ -112 +121 @@
+-Clustered with #1: J13 is INTERNAL until Xray is on the example. Hover prefetch and polling stay UNDERMARKETED — mention in the table, don’t build chrome.
++Clustered with #3. Hover prefetch and polling stay UNDERMARKETED — mention in the table, don’t add them to Conduit.
+@@ -118,3 +127,3 @@
+-| 3 | First-hour without a hook wrapper | J1 | Part 1 = pages/routing only (no throwaway `:status` slice); Part 2 is the first server feed; Clojars note stays honest | Deleted Part 1 RemoteData; extra concepts | S |
+-| — | Persist | TARGET | **Docs omit-path** (Query plugin is the honest miss; don’t hand-roll a second cache). Library persister only when 016’s fires-when hits | Silent DIVERGENT | S docs |
+-| — | `enabled`-style data waterfall (J20) | PARTIAL | Don’t clone `enabled`. If a consumer needs B’s params from A’s **data**, that’s a plan re-run — currently deferred in 016. Until then, `:reply-to` / a second cause | Fake DIVERGENT | none now |
++| — | First-hour colocated read | J1 | **Do not** wrap `ensure` in a view. Remaining cost is three lanes + Clojars, not the repaired compile stalls. Soften “delete Part 1 RemoteData”: it is taught-then-replaced on purpose | — | none now |
++| 4 | Persist omit-path | TARGET | Query plugin is the honest miss; don’t hand-roll a second cache | Silent DIVERGENT | S docs |
++| — | Planner data waterfall (J20) | TARGET | Don’t clone `enabled`. `:reply-to` already serves “then do this.” A plan re-run is 016 deferred | Fake BEHIND | none now |
+@@ -122 +131 @@
+-No hook-shaped `useQuery`. No `:select`.
++No hook-shaped `useQuery`. No `:select`. No new `handler-meta` arity (map form is the public API; tutorial 05 already uses it for events).
+@@ -126 +135 @@
+-Xray on Conduit **is** the productization of “which write” (O3 = O1). Machines-as-owners stay specified; Conduit auth-as-command is the right omit.
++Xray on Conduit **is** the productization of “which write.” After #3 is visible: an Xray **write-reach lint** (optimistic keys not in settlement reach) — tool only, trust the programmer. Machines-as-owners stay specified; Conduit auth-as-command is the right omit. A request-ledger assertion in test-support: **docs first** if canned stubs already record issues; no helper until that is grepped.
+@@ -139,0 +149,3 @@
++- Re-adding `day8/re-frame2-http` / `.show` / Part 4 viewer populate (already on trunk).
++- Automatic member tags on every list (masking is the TanStack failure in reverse).
++- Serialising writes by scope (`mutation.scope` clone) — revision conflict already converges.
+@@ -141 +153 @@
+-**Stopping point.** After #1–#3 (honest flagship, tutorial, first-hour). Re-measure. Do not start persist or GraphQL.
++**Stopping point.** After #1–#3 (translation page, remaining tutorial nits, Conduit Xray). Re-measure. Lint (# after 3) only if a real “feed kept my guess” bug shows up. Do not start persist or GraphQL.
+@@ -151,4 +163,4 @@
+-3. Execute the minimum subset (tutorial stall, Conduit walk with **request ledger or fixture**, favourite membership, logout, HTTP sibling slices, infinite **or** SSR example). Use a **wait on data identity**, not “list visible,” because keep-previous keeps the list visible.  
+-4. Fill four fields. Challenge the translation page.  
+-5. Headline categorical; no percentage.  
+-6. If HEAD moved: do not leave old present-tense defects under a new SHA.
++3. Execute the minimum subset (tutorial stall **at HEAD**, Conduit walk with **request ledger or fixture**, favourite membership, logout, HTTP sibling slices, infinite **or** SSR example). Use a **wait on data identity**, not “list visible.” Plant missing invalidation on a tag **member tags will not already provide**. Record the **interval** after an older failure, not only the settled UI.  
++4. Fill four fields. Challenge the translation page. Re-read tutorial if HEAD moved under `docs/resources/tutorial/`.  
++5. Headline categorical; no percentage. Do not import sibling WIN labels.  
++6. If HEAD moved: historical defect → landed repair → evidence still needed. This file’s tutorial section is the template.
+@@ -162,8 +174 @@
+-- Read `astra/` / `fable/` / Story reports.  
+-- Edit tracked files, open a PR, write beads.  
+-- Scaffold a greenfield tutorial project (Clojars/`local/root` cost recorded only).  
+-- Run a TanStack Query Conduit twin.  
+-- Open Xray, force a refresh 5xx, abort a real fetch, switch Alice→Bob with a delayed reply.  
+-- Plant a red by editing a tracked fixture (positive-control fault).  
+-- Browser-run `infinite_feed` or `resources_ssr`.  
+-- Verify UI in a second viewport (not a visual-design change). Fake-backend boundary stated.
++Independent pass: did not read siblings; did not edit tracked files; no PR; no beads; no greenfield tutorial scaffold; no TanStack twin; no Xray UI; no 5xx refresh; no AbortController; no Alice→Bob delayed reply; no red plant on a tracked fixture; no browser `infinite_feed` / `resources_ssr`.
+@@ -171 +176,5 @@
+-**Stance.** Pre-alpha, elegance, not gold-plate, trust the programmer. The first move is teaching and honesty, not a larger cache.
++**This synthesis pass:** read astra/fable reports; source-checked tutorial at HEAD; did **not** re-serve Conduit or re-run JVM pins; did **not** re-scaffold a consumer after `19dffcdb42`. Sibling-executed request ledgers and clobber windows are **attributed**, not claimed as grok measurements.
++
++**Narrow consensus with siblings (not every ranking):** no persist/GraphQL/hook wrapper now; RTK tags MATCH; translation-page caricatures; Conduit is not the ceiling; Xray is missing on the flagship. **Disagreement remains** on WIN vs AHEAD vocabulary, J20 BEHIND vs DIVERGENT (this revision moved to DIVERGENT+TARGET), and how large the ergonomic win is (nobody timed a diagnosis). Fake-backend boundary stated.
++
++**Stance.** Pre-alpha, elegance, not gold-plate, trust the programmer. After the tutorial repair, the first remaining move is honest comparison prose and making Xray visible on the flagship — not a larger cache.

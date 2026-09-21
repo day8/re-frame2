@@ -1,0 +1,165 @@
+[
+  {
+    "t": "2026-09-14T12:53:48.576Z",
+    "step": "home-loaded",
+    "n": 10,
+    "first": "Hello, Conduit",
+    "titles": [
+      "Hello, Conduit",
+      "Second article",
+      "Article 2"
+    ]
+  },
+  {
+    "t": "2026-09-14T12:53:48.821Z",
+    "step": "screenshot",
+    "name": "01-home",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\01-home.png"
+  },
+  {
+    "t": "2026-09-14T12:53:48.825Z",
+    "step": "pagination",
+    "hasPage2": true
+  },
+  {
+    "t": "2026-09-14T12:53:49.052Z",
+    "step": "page-2",
+    "keepingPreviousSeen": true,
+    "n": 10,
+    "first": "Article 10",
+    "url": "http://127.0.0.1:8051/realworld-resources/?page=2"
+  },
+  {
+    "t": "2026-09-14T12:53:49.277Z",
+    "step": "screenshot",
+    "name": "02-page2",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\02-page2.png"
+  },
+  {
+    "t": "2026-09-14T12:53:49.346Z",
+    "step": "back-page-1",
+    "first": "Article 10",
+    "matchesOriginal": false,
+    "url": "http://127.0.0.1:8051/realworld-resources/"
+  },
+  {
+    "t": "2026-09-14T12:53:49.609Z",
+    "step": "detail",
+    "title": "Hello, Conduit",
+    "commentsList": true,
+    "url": "http://127.0.0.1:8051/realworld-resources/article/hello-conduit"
+  },
+  {
+    "t": "2026-09-14T12:53:49.722Z",
+    "step": "screenshot",
+    "name": "03-detail",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\03-detail.png"
+  },
+  {
+    "t": "2026-09-14T12:53:49.848Z",
+    "step": "return-home",
+    "url": "http://127.0.0.1:8051/realworld-resources/"
+  },
+  {
+    "t": "2026-09-14T12:53:49.904Z",
+    "step": "tag-intro",
+    "n": 10,
+    "first": "Hello, Conduit",
+    "url": "http://127.0.0.1:8051/realworld-resources/"
+  },
+  {
+    "t": "2026-09-14T12:53:50.208Z",
+    "step": "logged-out-favorite-bounces-to-login",
+    "url": "http://127.0.0.1:8051/realworld-resources/login"
+  },
+  {
+    "t": "2026-09-14T12:53:50.299Z",
+    "step": "screenshot",
+    "name": "04-login",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\04-login.png"
+  },
+  {
+    "t": "2026-09-14T12:53:50.445Z",
+    "step": "signed-in",
+    "who": "demo"
+  },
+  {
+    "t": "2026-09-14T12:53:50.582Z",
+    "step": "screenshot",
+    "name": "05-signed-in-home",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\05-signed-in-home.png"
+  },
+  {
+    "t": "2026-09-14T12:53:50.784Z",
+    "step": "favorite-list",
+    "countBefore": "1",
+    "countAfterClick": "0",
+    "btnClass": "btn btn-outline-primary btn-sm pull-xs-right  optimistic"
+  },
+  {
+    "t": "2026-09-14T12:53:50.879Z",
+    "step": "favorite-list-settled",
+    "countSettled": "0",
+    "btnClassSettled": "btn btn-outline-primary btn-sm pull-xs-right "
+  },
+  {
+    "t": "2026-09-14T12:53:51.092Z",
+    "step": "screenshot",
+    "name": "06-favorited-list",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\06-favorited-list.png"
+  },
+  {
+    "t": "2026-09-14T12:53:51.218Z",
+    "step": "favorite-detail",
+    "detailFavClass": "btn btn-sm btn-outline-primary",
+    "detailCount": "(0)"
+  },
+  {
+    "t": "2026-09-14T12:53:51.353Z",
+    "step": "screenshot",
+    "name": "07-favorited-detail",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\07-favorited-detail.png"
+  },
+  {
+    "t": "2026-09-14T12:53:51.542Z",
+    "step": "comment-posted",
+    "n": 2,
+    "last": "walk-comment-1789390431353"
+  },
+  {
+    "t": "2026-09-14T12:53:51.664Z",
+    "step": "screenshot",
+    "name": "08-comment",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\08-comment.png"
+  },
+  {
+    "t": "2026-09-14T12:53:51.939Z",
+    "step": "favorited-tab",
+    "helloPresent": false,
+    "url": "http://127.0.0.1:8051/realworld-resources/profile/demo/favorites"
+  },
+  {
+    "t": "2026-09-14T12:53:52.112Z",
+    "step": "screenshot",
+    "name": "09-favorited-tab",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\09-favorited-tab.png"
+  },
+  {
+    "t": "2026-09-14T12:53:52.343Z",
+    "step": "after-logout",
+    "loggedOutFavClass": "btn btn-outline-primary btn-sm pull-xs-right  active",
+    "url": "http://127.0.0.1:8051/realworld-resources/"
+  },
+  {
+    "t": "2026-09-14T12:53:52.538Z",
+    "step": "screenshot",
+    "name": "11-after-logout",
+    "dest": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\intermediate\\conduit-walk\\11-after-logout.png"
+  },
+  {
+    "t": "2026-09-14T12:53:52.687Z",
+    "step": "leave-return-pagination",
+    "first": "Article 10",
+    "url": "http://127.0.0.1:8051/realworld-resources/?page=2"
+  }
+]

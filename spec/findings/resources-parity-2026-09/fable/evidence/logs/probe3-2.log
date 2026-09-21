@@ -1,0 +1,13 @@
+P3.1 DELIBERATE LEAK 1: register a resource with NO :scope => {:refused "resource :p3/unscoped declares no valid :scope policy. :scope is REQUIRED (fail-closed) and is EXACTLY one of two shapes: :rf.scope/global (an explicit, auditable global claim) or {:from-db <resource-scope-id>} (a named resolver registered with rf/reg-resource-scope). There is no implicit default; a user-scoped read must say so. Per Spec 016 §Every resource declares a scope policy. [:rf.error/resource-missing-scope-policy]", :error-id :rf.error/resource-missing-scope-policy, :keys (:reason :recovery :resource-id :scope :where :rf.error/id)}
+P3.2 alice logged in; ensure feed via from-db scope -> request in flight; resolved scope => {:ledger [[:get "/api/articles/feed"]], :alice-entry-status :loading, :sub {:status :loading, :has-data? false, :data nil}}
+P3.3 switch principal to bob by db write only (no logout), Alice's reply still pending: what does the sub read? => {:sub-as-bob {:status :idle, :has-data? false, :data nil}, :ledger-count 1}
+P3.4 release Alice's delayed reply -> lands under Alice's key only; bob's sub unchanged => {:alice-entry {:status :loaded, :data {:articles [{:slug "alices-secret"}]}}, :bob-entry nil, :sub-as-bob {:status :idle, :has-data? false, :data nil}}
+P3.5 DELIBERATE LEAK 2: explicit wrong-scope read (bob asks with alice's scope literal) -> what does it return? => {:status :loaded, :data {:articles [{:slug "alices-secret"}]}}
+P3.6 logout as alice would: clear-scope alice -> entry gone; no requests issued => {:alice-entry nil, :new-requests 0}
+P3.7 bob ensures -> own request; reply; bob reads own data => {:sub-as-bob {:status :loaded, :has-data? true, :data {:articles [{:slug "bobs"}]}}, :ledger [[:get "/api/articles/feed"] [:get "/api/articles/feed"]]}
+P3.8 COLD BOOT: token present, user unresolved -> resolver nil: ensure and sub fail closed? => {:ensure :DISPATCHED, :new-requests 0, :sub {}}
+P3.9 confirmed anonymous (blank token, no user) -> scope [:viewer :anonymous]; ensure works => {:new-requests 1, :sub {:status :loaded, :has-data? true, :data {:articles [{:slug "public"}]}}, :anon-entry-status :loaded}
+P3.10 DELIBERATE LEAK 3: invalidate-tags with no scope -> loud error? => :ACCEPTED-SILENTLY
+P3.11 scoped invalidate reaches only the named scope: invalidate bob's feed tag while anon entry stays => {:new-requests [], :bob-status :loaded, :anon-status :loaded}
+P3.12 final ledger => [[:get "/api/articles/feed"] [:get "/api/articles/feed"] [:get "/api/articles/feed"]]
+DONE

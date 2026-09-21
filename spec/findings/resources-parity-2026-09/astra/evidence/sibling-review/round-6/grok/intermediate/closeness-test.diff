@@ -1,0 +1,23 @@
+--- 
++++ 
+@@ -97 +97 @@
+-| J20 | Dependent / serial read (B needs A's result) without a hidden fetch in the view | `:after` is dispatch-order only, not a data-waterfall (016) | Query `enabled` | Spec 016 `:after`; Conduit does **not** exercise data-waterfall — likely `PARTIAL` / `UNVERIFIED` |
++| J20 | Dependent / serial read (B needs A's result) without a hidden fetch in the view | `:after` is dispatch-order only, not a data-waterfall (016). The *job* can still be served by `:reply-to` (Conduit editor seeds a draft). Score **DIVERGENT** if a continuation does it; **TARGET** for planner-derived params from A's **data**; not BEHIND merely because `enabled` is a different spelling | Query `enabled` | Spec 016 `:after`; `article_editor.cljs` `:reply-to` |
+@@ -133,7 +133,10 @@
+-6. Do not let many minor `MATCH`es cancel one leak or one install stall.
+-7. No weighted percentage required. If one is computed: show denominator, weights, exclusions, and how `UNVERIFIED` moves it. Prefer a **categorical headline**.
+-8. Challenge caricatures on `coming-from-tanstack-query.md` before scoring Query `BEHIND` on J8/J9/J5.
+-9. Request **ledger** (count), not a timeout, to claim "no duplicate fetch." Controlled completion / fake clock, not `sleep`, for delayed replies.
+-10. Do not infer an agent workflow from enumerable metadata or a tool name. Name host (JVM vs browser), skill/MCP surface, and what a planted fault still cannot discover.
+-11. Function-valued `:invalidates` / `:optimistic` patches are **not** statically enumerable from the registry alone.
+-12. Classification, hydration payload, epoch export, and restore/replay are **different consumers**. Restoring client history cannot undo a server write.
++6. **Planted missing invalidation** must use a tag **member tags will not already provide** (Conduit lists tag `[:article slug]`; forgetting `[:feed]` can be masked if the feed also carries article tags). The unmasked case is collection **membership** (`[:favorited-articles username]`).
++7. **Keep-previous:** wait on **data identity** (first title / page param), not “list visible.”
++8. **Contested optimistic:** record the **interval** between an older rejection and recovery, not only the settled UI. Steelman Query’s UI `variables` recipe and `mutation.scope`, not only the cache snapshot recipe.
++9. Do not let many minor `MATCH`es cancel one leak or one install stall.
++10. No weighted percentage required. If one is computed: show denominator, weights, exclusions, and how `UNVERIFIED` moves it. Prefer a **categorical headline**.
++11. Challenge caricatures on `coming-from-tanstack-query.md` before scoring Query `BEHIND` on J8/J9/J5.
++12. Request **ledger** (count), not a timeout, to claim "no duplicate fetch." Controlled completion / fake clock, not `sleep`, for delayed replies.
++13. Do not infer an agent workflow from enumerable metadata or a tool name. Name host (JVM vs browser), skill/MCP surface, and what a planted fault still cannot discover.
++14. Function-valued `:invalidates` / `:optimistic` patches are **not** statically enumerable from the registry alone.
++15. Classification, hydration payload, epoch export, and restore/replay are **different consumers**. Restoring client history cannot undo a server write.

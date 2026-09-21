@@ -1,0 +1,17 @@
+{
+  "utc": "2026-09-14T13:28:51.097569+00:00",
+  "files": [
+    {
+      "path": "fable/evidence.md",
+      "sha256": "1560b171b83a92c4ed045d04a29bea46ced2c28255727129761059c3b40b8cce"
+    },
+    {
+      "path": "fable/probes/tq-probe2.mjs",
+      "sha256": "6418e8c20dee5dd2e156e5523904e90e8ec26679255f76c04b2a9f835c63bdc6"
+    },
+    {
+      "path": "fable/evidence/logs/tq-2.log",
+      "sha256": "cc5b4ce4d485623febf6b1623805e4c025063c64d25c37b31ae8165e051158b9"
+    }
+  ]
+}

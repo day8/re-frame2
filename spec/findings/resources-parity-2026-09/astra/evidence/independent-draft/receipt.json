@@ -1,0 +1,31 @@
+{
+  "files": [
+    {
+      "words": 2695,
+      "file": "report.md",
+      "sha256": "62E31F979060A757F1CF415915E9E46B7F2DA91605F367ED571053C838D54AA1"
+    },
+    {
+      "words": 1250,
+      "file": "parity-matrix.md",
+      "sha256": "22270DA3477CAC197C3F0CCFFABA70402084CB1BE38F798F84FB788513EBAB64"
+    },
+    {
+      "words": 1570,
+      "file": "evaluation-plan.md",
+      "sha256": "564D9B67920EBCDB041778F64D56D632626C1E5CEF06D2EDCF10C365F157C97B"
+    },
+    {
+      "words": 833,
+      "file": "scorecard-audit.md",
+      "sha256": "BFCCA92CFDBCF8C655BE58B8210FE2C6C232DC7FE29BC6DF9A32E899BF6A102B"
+    },
+    {
+      "words": 1004,
+      "file": "evidence.md",
+      "sha256": "90AB7A55A86BC82DC81140A0818F27852DE505AB843C0B59B52F1D100A8CDDF8"
+    }
+  ],
+  "revision": "f680007c6b7dcb63cf4dd4bdd7b39f83d8c4c9d4",
+  "preserved_utc": "2026-09-14T13:14:46.0995178Z"
+}

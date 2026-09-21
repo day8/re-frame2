@@ -1,0 +1,12 @@
+{
+  "state": {
+    "user": "demo",
+    "body": "conduit\nHome\nNew Article\nSettings\n demo\nLogout\nHello, Conduit\n\nA short greeting from the shared demo backend.\n\nFavorite Article (0)\nstub-bot2026-01-01T00:00:00.000Z\nFollow stub-bot\nHello, Conduit\n\nThis article is served by the demo :rf.http/managed backend both RealWorld examples share, rendered as markdown with emphasis.\n\nSee the RealWorld spec for the reference behaviour.\n\nHighlights\nSanitized by construction (hiccup, never raw HTML)\nFull CommonMark via nextjournal/markdown\ntables, nested lists, images\nsafe-by-construction link/image schemes\nFeature\tStatus\nmarkdown\tCommonMark\nlinks\tscheme-allowlisted\n(rf/reg-event :hello (fn [{:keys [db]} _] {:db db}))\n\n\nA blockquote, for good measure.\n\nintro\ndemo\nstub-bot2026-01-01T00:00:00.000Z\nFollow stub-bot\nPost Comment\n\nLoading comments…\n\n← Back to feed\n\nconduitAn interactive learning project from Thinkster. Code & design licensed under MIT.",
+    "globals": {
+      "cljsReader": "object",
+      "resourceRuntime": "object"
+    }
+  },
+  "countBefore": "1",
+  "errors": []
+}

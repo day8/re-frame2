@@ -1,0 +1,5 @@
+page.waitForFunction: Timeout 30000ms exceeded.
+    at cases (C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\conduit-cases.cjs:50:14)
+    at async C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\browser-probe.cjs:39:7 {
+  name: 'TimeoutError'
+}

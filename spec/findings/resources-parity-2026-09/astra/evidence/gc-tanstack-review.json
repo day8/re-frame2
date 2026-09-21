@@ -1,0 +1,34 @@
+{
+  "package": "@tanstack/query-core",
+  "version": "5.102.8",
+  "gcTime": 1000,
+  "ownerReleasedAt": 1990,
+  "stillPresentAt": 2989,
+  "collectedAt": 2990,
+  "intervalAfterRelease": 1000,
+  "ledger": [
+    {
+      "kind": "arm",
+      "id": 1,
+      "at": 0,
+      "due": 1000
+    },
+    {
+      "kind": "cancel",
+      "id": 1,
+      "at": 0
+    },
+    {
+      "kind": "arm",
+      "id": 2,
+      "at": 1990,
+      "due": 2990
+    },
+    {
+      "kind": "cancel",
+      "id": 2,
+      "at": 2990
+    }
+  ],
+  "limit": "Controlled timeout provider; not browser wall-clock timing or cache memory benchmarking."
+}

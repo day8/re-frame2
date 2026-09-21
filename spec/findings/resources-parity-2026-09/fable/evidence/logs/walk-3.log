@@ -1,0 +1,6 @@
+home.fav_buttons_before ["1","0","0","1","0","0","1","0","0","1"]
+article.fav_timeline_after_one_click [{"ms":0,"text":"Unfavorite Article (1)"},{"ms":16,"text":"Favorite Article (0)"},{"ms":1320,"text":"Favorite Article (0)","final":true}]
+home.fav_buttons_after_one_unfavourite ["0","0","0","1","0","0","1","0","0","1"]
+home.first_changed {"before":"1","after":"0"}
+profile.favorited_previews_after 7
+DONE

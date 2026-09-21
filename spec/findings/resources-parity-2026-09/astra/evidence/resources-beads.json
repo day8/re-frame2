@@ -1,0 +1,20 @@
+[
+  {
+    "id": "rf2-ylmcn",
+    "title": "Research Resources parity and ergonomic advantages",
+    "description": "Execute ai/findings/Resources/astra/prompt.md after the second sibling review. Independently inspect Resources and Conduit, verify current primary comparator sources, run bounded discriminating experiments, and produce report, parity matrix, evaluation plan and evidence in the same ignored local folder. No production implementation changes.",
+    "status": "in_progress",
+    "priority": 2,
+    "issue_type": "task",
+    "assignee": "Mike Thompson",
+    "owner": "mike.thompson@day8.com.au",
+    "created_at": "2026-09-14T12:39:45Z",
+    "created_by": "Mike Thompson",
+    "updated_at": "2026-09-14T12:39:59Z",
+    "started_at": "2026-09-14T12:39:59Z",
+    "dependency_count": 0,
+    "dependent_count": 0,
+    "comment_count": 0
+  }
+]
+

@@ -1,0 +1,10 @@
+shadow-cljs - config: C:\Users\miket\code\re-frame2\implementation\shadow-cljs.edn
+shadow-cljs - socket connect failed, server process dead?
+[:examples/realworld-resources] Compiling ...
+[:examples/realworld-resources] Build completed. (324 files, 0 compiled, 0 warnings, 8.91s)
+
+serve-example: examples/realworld-resources is live at http://127.0.0.1:8050/  (one-shot compile)
+  Press Ctrl+C to stop.
+
+(node:25676) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)

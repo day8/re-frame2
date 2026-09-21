@@ -1,0 +1,118 @@
+[
+  {
+    "name": "@tanstack/query-core",
+    "version": "5.102.8",
+    "url": "https://registry.npmjs.org/@tanstack/query-core/latest",
+    "integrity": "sha512-ZNjkJ33CqvPNec/6lZBnHqLc3EVGPZ9ySLhYahU9TcuRFdmwXewuj0c4hwSWcGHqEUwcSrKeZ+oGcvPBqXcQcg==",
+    "repository": {
+      "url": "git+https://github.com/TanStack/query.git",
+      "type": "git",
+      "directory": "packages/query-core"
+    }
+  },
+  {
+    "name": "@tanstack/react-query",
+    "version": "5.102.8",
+    "url": "https://registry.npmjs.org/@tanstack/react-query/latest",
+    "integrity": "sha512-TYBea4OuXWD7MhaSHq069TWbFe7rcwWN6kzT7JF0OKi1K6c1gTv2IzD6A6ExJsCMozdkqBWeuIUZmu4KQg0O5A==",
+    "repository": {
+      "url": "git+https://github.com/TanStack/query.git",
+      "type": "git",
+      "directory": "packages/react-query"
+    }
+  },
+  {
+    "name": "@tanstack/react-query-devtools",
+    "version": "5.102.8",
+    "url": "https://registry.npmjs.org/@tanstack/react-query-devtools/latest",
+    "integrity": "sha512-QKb7A44BZOU7nxsGA4gFN1fofjYovar5O0T83Ff4Y+2eRq09RGFrAzzutVdF/6/emfSaMDohp6e759BjB3fxEw==",
+    "repository": {
+      "url": "git+https://github.com/TanStack/query.git",
+      "type": "git",
+      "directory": "packages/react-query-devtools"
+    }
+  },
+  {
+    "name": "@reduxjs/toolkit",
+    "version": "2.12.0",
+    "url": "https://registry.npmjs.org/@reduxjs/toolkit/latest",
+    "integrity": "sha512-KiT+RzZbp6mQET+Mg+h2c97+9j1sNflUxQkIHI7Yuzf6Peu+OYpmkn6nbHWmLLWj+1ZODUJFwGZ7gx3L9R9EOw==",
+    "repository": {
+      "url": "git+https://github.com/reduxjs/redux-toolkit.git",
+      "type": "git"
+    }
+  },
+  {
+    "name": "swr",
+    "version": "2.5.1",
+    "url": "https://registry.npmjs.org/swr/latest",
+    "integrity": "sha512-BRw55e8r0B7SpDN20CAzoQAHl7y1yP7/Zt7oqUjMv0vSt2u2Xnkm88Ws+VypbV9BXHQVuSuyVq7zMjO16wSExw==",
+    "repository": {
+      "url": "git+https://github.com/vercel/swr.git",
+      "type": "git"
+    }
+  },
+  {
+    "name": "@apollo/client",
+    "version": "4.3.0",
+    "url": "https://registry.npmjs.org/@apollo/client/latest",
+    "integrity": "sha512-1ESwmPyTo3MEVuYGxMclwVGTEzTv+DEy9ZwKJqWzT436Ei4SMfGZnGaH6WUtuAH7FrEHptXGBFMixsX+ECnbJA==",
+    "repository": {
+      "url": "git+https://github.com/apollographql/apollo-client.git",
+      "type": "git"
+    }
+  },
+  {
+    "name": "@tanstack/db",
+    "version": "0.9.0",
+    "url": "https://registry.npmjs.org/@tanstack/db/latest",
+    "integrity": "sha512-wV8ln5zqTSM0Cn9eu+ePHExvzCa3A3cS+kxgRGryeBjDbMuLHrcTU1uGE8/6Etp+60LSfJFbhlojOZgj/kH/eQ==",
+    "repository": {
+      "url": "git+https://github.com/TanStack/db.git",
+      "type": "git",
+      "directory": "packages/db"
+    }
+  },
+  {
+    "name": "react",
+    "version": "19.3.0",
+    "url": "https://registry.npmjs.org/react/latest",
+    "integrity": "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==",
+    "repository": {
+      "url": "git+https://github.com/react/react.git",
+      "type": "git",
+      "directory": "packages/react"
+    }
+  },
+  {
+    "name": "react-dom",
+    "version": "19.3.0",
+    "url": "https://registry.npmjs.org/react-dom/latest",
+    "integrity": "sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==",
+    "repository": {
+      "url": "git+https://github.com/react/react.git",
+      "type": "git",
+      "directory": "packages/react-dom"
+    }
+  },
+  {
+    "name": "esbuild",
+    "version": "0.28.2",
+    "url": "https://registry.npmjs.org/esbuild/latest",
+    "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==",
+    "repository": {
+      "url": "git+https://github.com/evanw/esbuild.git",
+      "type": "git"
+    }
+  },
+  {
+    "name": "typescript",
+    "version": "7.0.2",
+    "url": "https://registry.npmjs.org/typescript/latest",
+    "integrity": "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==",
+    "repository": {
+      "url": "git+https://github.com/microsoft/TypeScript.git",
+      "type": "git"
+    }
+  }
+]

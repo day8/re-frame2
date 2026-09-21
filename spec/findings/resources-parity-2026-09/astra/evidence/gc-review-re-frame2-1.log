@@ -1,0 +1,3 @@
+gate root: C:/Users/miket/code/re-frame2
+{:gc-policy-ms 1000, :controlled-scheduler [{:at 0, :due 1000, :key [:rf.scope/global :research/gc {}]} {:at 1000, :due 2000, :key [:rf.scope/global :research/gc {}]}], :owner-released-at 1990, :collected-at 2000, :interval-after-release 10, :release-rearmed? false, :limit "Captured timer requests and explicit scheduled wake events; not a wall-clock browser timing measurement."}
+GC review assertions passed.

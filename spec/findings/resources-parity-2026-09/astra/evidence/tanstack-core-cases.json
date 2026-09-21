@@ -1,0 +1,103 @@
+{
+  "version": "5.102.8",
+  "observations": [
+    {
+      "case": "dedupe-specific-fault-control",
+      "fault": true,
+      "requests": 2,
+      "oraclePass": false
+    },
+    {
+      "case": "dedupe-specific-fault-control",
+      "fault": false,
+      "requests": 1,
+      "oraclePass": true
+    },
+    {
+      "case": "dedupe-specific-fault-control",
+      "fault": true,
+      "requests": 2,
+      "oraclePass": false
+    },
+    {
+      "case": "freshness-default-and-matched",
+      "samples": [
+        {
+          "staleTime": "native",
+          "requests": 2
+        },
+        {
+          "staleTime": "60000",
+          "requests": 1
+        },
+        {
+          "staleTime": "Infinity",
+          "requests": 1
+        }
+      ]
+    },
+    {
+      "case": "refresh-error-keeps-data",
+      "status": "error",
+      "data": {
+        "title": "Existing article"
+      },
+      "error": "refresh rejected"
+    },
+    {
+      "case": "viewer-key-isolation",
+      "bob": "Bob result",
+      "alice": "Alice late result",
+      "limit": "Application must include viewer in the key or isolate the client."
+    },
+    {
+      "case": "retained-observer-late-result",
+      "requests": 1,
+      "data": "late but still owned"
+    },
+    {
+      "case": "serialization-and-hydration",
+      "requests": 0,
+      "data": {
+        "title": "Hydrated article"
+      },
+      "limit": "Core serialization round trip, not streamed HTML hydration."
+    },
+    {
+      "case": "infinite-bounded-pages",
+      "ledger": [
+        0,
+        1,
+        2
+      ],
+      "data": {
+        "pages": [
+          {
+            "items": [
+              1
+            ],
+            "next": 2
+          },
+          {
+            "items": [
+              2
+            ]
+          }
+        ],
+        "pageParams": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "case": "serialized-mutations",
+      "started": [
+        1,
+        2
+      ],
+      "secondPaused": true,
+      "limit": "Serialization trades parallel completion for ordering; no automatic server rollback."
+    }
+  ]
+}

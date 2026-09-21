@@ -1,0 +1,802 @@
+[
+  {
+    "path": "docs/EP/EP-0003-resource-queries.md",
+    "sha256": "191704d4d73b8b12acbd915f61534b3aa1eeeba94ba1344b4da05e2a68d7a4ee",
+    "bytes": 155883
+  },
+  {
+    "path": "docs/EP/EP-0016-resource-mutation-completion.md",
+    "sha256": "b81beafc8ef17a8bafa47b3a34e434f6692bd66b6aed6bf9b39dd5d4ec7d3b7f",
+    "bytes": 65468
+  },
+  {
+    "path": "docs/EP/EP-0019-optimistic-mutation-rollback.md",
+    "sha256": "26ba2e4b8b42ccb21825555af40521618060bcc919b7ebc6bbaf854334ef1c1a",
+    "bytes": 55094
+  },
+  {
+    "path": "docs/EP/EP-0021-infinite-resources.md",
+    "sha256": "85ea37d4248c687dbc4e574116797324f799963ab9a0e69020ba90dffc7198c3",
+    "bytes": 49465
+  },
+  {
+    "path": "docs/resources/coming-from-tanstack-query.md",
+    "sha256": "1a21dd97ab49d9c917256505fd5c9c8d08dcb6be46f5e9890e9b981ac3c66277",
+    "bytes": 32672
+  },
+  {
+    "path": "docs/resources/concepts.md",
+    "sha256": "5923619c5ccbdb8f04c72309dff7c7d2070f4aefe58c7bdb4ab3043e862181b1",
+    "bytes": 18351
+  },
+  {
+    "path": "docs/resources/examples.md",
+    "sha256": "88a5b2ba29e6cdcdefdd14a2a84cc87f11261994fa7d8000dd5193a49bff07f2",
+    "bytes": 1093
+  },
+  {
+    "path": "docs/resources/glossary.md",
+    "sha256": "d78078be703b0f266f075c03057445c62759ba8a1ea2860ee2d920aa531d883b",
+    "bytes": 4920
+  },
+  {
+    "path": "docs/resources/how-to/invalidate-after-a-mutation.md",
+    "sha256": "0d8a263cd30f1f2c47277bd5ad5154237b9e70b2b0e8d91790ce44fd3910a25f",
+    "bytes": 38216
+  },
+  {
+    "path": "docs/resources/how-to/paginate-a-feed.md",
+    "sha256": "fb07aae1cc217a82ba778233a371f6c4f41a0a442562b9fdbe5e9ff0fbf7cd76",
+    "bytes": 41129
+  },
+  {
+    "path": "docs/resources/index.md",
+    "sha256": "71b5f5a06393038799d0adf161e5145b50ca1271058781640d1519a2bdc3ed70",
+    "bytes": 3290
+  },
+  {
+    "path": "docs/resources/testing.md",
+    "sha256": "1eb3cdc8e9ad0323c6c94f6112e4fd8ef175845ae4ffe31466357ccd81108512",
+    "bytes": 7922
+  },
+  {
+    "path": "docs/resources/tutorial/01-pages-and-state.md",
+    "sha256": "3bd8673e0caf9fc8f0c3be35bf42f5c51c92c8a5d1364c69798c5f23dcb74d2b",
+    "bytes": 35217
+  },
+  {
+    "path": "docs/resources/tutorial/02-server-data.md",
+    "sha256": "1525360e77952f010269b30e0321546842f80ce91eb9ec65e930e223ee3124cc",
+    "bytes": 28888
+  },
+  {
+    "path": "docs/resources/tutorial/03-auth-and-forms.md",
+    "sha256": "820ca86565b18f20444f9d303359f88484a99088630d5441afc4b08798c4243c",
+    "bytes": 53800
+  },
+  {
+    "path": "docs/resources/tutorial/04-mutations-and-invalidation.md",
+    "sha256": "feb3cd5b07bb717b4feba4ff2bda24cc99fe22ed2873342fcd58a943e60d92a8",
+    "bytes": 46057
+  },
+  {
+    "path": "docs/resources/tutorial/05-test-and-ship.md",
+    "sha256": "08495c3e7fa5a2597822c9eaff479784796c8d574c39be90c600f0e1af9dc367",
+    "bytes": 34123
+  },
+  {
+    "path": "docs/resources/tutorial/index.md",
+    "sha256": "c5bc690d34b99ca1b106f35f6d1c3c118c245c584c196d1192faedc61f893dcb",
+    "bytes": 23952
+  },
+  {
+    "path": "examples/capabilities/resources/infinite_feed/core.cljs",
+    "sha256": "75053431f3bca7e6e0c59cd6ad227ac45c2d97d52c997c653d7be2006e8c8df1",
+    "bytes": 20044
+  },
+  {
+    "path": "examples/capabilities/resources/linearlite/core.cljs",
+    "sha256": "c9c0c1de484bad49c691d10feb286f64bdf3285acb69878dc4a62dc50e027db3",
+    "bytes": 40737
+  },
+  {
+    "path": "examples/capabilities/resources/resources/core.cljs",
+    "sha256": "4aafe9c1cf274648137daf724043824c074643cf7dbfef5888c2f4a5ffb139c3",
+    "bytes": 30247
+  },
+  {
+    "path": "examples/capabilities/ssr/resources_ssr/README.md",
+    "sha256": "5e1701eb86241fcd43404954b3092a82fe8f4c5e2d4e705919f62964e97876c9",
+    "bytes": 12976
+  },
+  {
+    "path": "examples/capabilities/ssr/resources_ssr/core.cljc",
+    "sha256": "5f494acdb95dbf1c0b3bd31991023086aae0cd862d594249700b0f26c3a8a4b7",
+    "bytes": 31916
+  },
+  {
+    "path": "examples/capabilities/ssr/resources_ssr/index.html",
+    "sha256": "ad6f6aca1ea87140811def5e0597ea52fae0b9f4dacc79648a3155ef366d0f61",
+    "bytes": 5850
+  },
+  {
+    "path": "examples/real-apps/realworld_http/article_editor.cljs",
+    "sha256": "32d0addcf1f2e27d8fc15997aecf5e8972ca4ea3588a450783898ede2ddf8586",
+    "bytes": 36697
+  },
+  {
+    "path": "examples/real-apps/realworld_http/articles.cljs",
+    "sha256": "9f0574849c73c0417c10b551a4d22262ddd7c8e1fd3b6e32680f650e8270c4c7",
+    "bytes": 27844
+  },
+  {
+    "path": "examples/real-apps/realworld_http/auth.cljs",
+    "sha256": "53954b6f4931fba5f6200a39f77ea18f091a16a3ed32268a00747e9b8c927610",
+    "bytes": 44088
+  },
+  {
+    "path": "examples/real-apps/realworld_http/comments.cljs",
+    "sha256": "091ad5a544741aba2a4adc850087e671cade545941fc61451c3454ecef58bef5",
+    "bytes": 47561
+  },
+  {
+    "path": "examples/real-apps/realworld_http/core.cljs",
+    "sha256": "e646893603fd65551d8579bb098d2c8eac508367ce8fc2725d2ce4f340e7f8a0",
+    "bytes": 25837
+  },
+  {
+    "path": "examples/real-apps/realworld_http/favorites.cljs",
+    "sha256": "50d38a50c454f5fe65b84719f53d1fd8676705c145c945f5d194d94579f4c656",
+    "bytes": 11094
+  },
+  {
+    "path": "examples/real-apps/realworld_http/http.cljs",
+    "sha256": "7ca698ab5061e49ecf285048bc2402e6524af4b4f43e0b6a45d2aff1da652890",
+    "bytes": 15473
+  },
+  {
+    "path": "examples/real-apps/realworld_http/profile.cljs",
+    "sha256": "9e2e6311cc7fb9e1201059b95c6da07ff45c0699c54e6a021ba9d0a903a02f1d",
+    "bytes": 42451
+  },
+  {
+    "path": "examples/real-apps/realworld_http/routing.cljs",
+    "sha256": "6ca9c800668b7bf117ecf6b40cd0fa7d2367d78063616cafe39c86bdca1d576c",
+    "bytes": 13714
+  },
+  {
+    "path": "examples/real-apps/realworld_http/schema.cljs",
+    "sha256": "685db53a2f33f8e192988ad7f62ff90998ab9d666b2672839aee4eecebe8894c",
+    "bytes": 15902
+  },
+  {
+    "path": "examples/real-apps/realworld_http/settings.cljs",
+    "sha256": "0d7f9b763f1676198da3dcb0a8aaa8f389143895c5409481cca89802b143927a",
+    "bytes": 26594
+  },
+  {
+    "path": "examples/real-apps/realworld_http/tags.cljs",
+    "sha256": "3f53eaba63ad4acdeb8c27f9917248dc5804052f4fc8063755bf0ff8aef2fe26",
+    "bytes": 16278
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/README.md",
+    "sha256": "ed95b2ae9cd7122c01390eacfb403d4000419ac6e7ac27e6ade071fed4ae6388",
+    "bytes": 38034
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/article_editor.cljs",
+    "sha256": "9c368b893dd0f0983aa33b56e1bf521a4c0f57cc730cf9de940ecd303c2268fc",
+    "bytes": 36033
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/auth.cljs",
+    "sha256": "3b17413a13ded696f78720f4752e63d310f957b0b36e25b713b1b60a3c491207",
+    "bytes": 47173
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/core.cljs",
+    "sha256": "7f0172abba47178856c40fe81a1575e226cbd2c236fa234e03e36ad91de754b5",
+    "bytes": 26272
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/default-avatar.svg",
+    "sha256": "031fc96d324f5c899ef00e03cdef7ebbee04d1228f079fc84bb9993495d6cf39",
+    "bytes": 578
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/http.cljs",
+    "sha256": "c0b800e84747f4673cdafdd5594d141558584fd725e23ee07da77586aae44e4c",
+    "bytes": 8113
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/index.html",
+    "sha256": "4c807121668612e4cd2b211c38b445e31f92de194a9603278009fa75dfa08bfb",
+    "bytes": 1650
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/mutations.cljs",
+    "sha256": "ce16019fe707bea1a8441db5d3f93c52d8257c860c4dd8d2eebcf159fb772640",
+    "bytes": 19425
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/resources.cljs",
+    "sha256": "fdef0f3eba606f83160546cfdc17ed65bb6b59d937f37a6d1997248149aacabc",
+    "bytes": 16718
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/routing.cljs",
+    "sha256": "715a527bcebf18eea171f68bda45b7588b5ac92dca4ab2fde35df8ecaad646dd",
+    "bytes": 21724
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/schema.cljs",
+    "sha256": "9f016d95d2df9660a14d4e1c30a4027dabb1503921e9742f7fb8c29dd2cc45cf",
+    "bytes": 9093
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/scope.cljs",
+    "sha256": "3ba947dbc1d0927e7bdb05181a7fc3a8c5130a9aabb700c7a7e46fa8fdddca7c",
+    "bytes": 9834
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/settings.cljs",
+    "sha256": "b88f1ae4d4bde6d87c54cb78e2b4a1e1ae50464937f5fd61df65904109befff2",
+    "bytes": 17393
+  },
+  {
+    "path": "examples/real-apps/realworld_resources/views.cljs",
+    "sha256": "c53462c15a6c17d299b22126aa0ec5adfd14878d7dd428fbbaabd750797f558a",
+    "bytes": 40196
+  },
+  {
+    "path": "examples/real-apps/realworld_shared/avatar.cljs",
+    "sha256": "bf27971b4cf72f044c8639b7a55ec7e81efaa7e47faf62359deed4c10253d61c",
+    "bytes": 1536
+  },
+  {
+    "path": "examples/real-apps/realworld_shared/demo_backend.cljs",
+    "sha256": "2b2d12094bbb061f68fdbdf3eeffaf60678d41a5de9e9ba737467238204ba03a",
+    "bytes": 28615
+  },
+  {
+    "path": "examples/real-apps/realworld_shared/http.cljs",
+    "sha256": "3cd2274246090c9d6d13c80d06e2a800271769e7a94b7da71650c1acf65f7655",
+    "bytes": 7471
+  },
+  {
+    "path": "examples/real-apps/realworld_shared/markdown.cljs",
+    "sha256": "b2fe6a7835548304c68dacd14e013d2fe2f744eb01e9c5fb944df53503de38b8",
+    "bytes": 9416
+  },
+  {
+    "path": "examples/real-apps/realworld_shared/schema.cljs",
+    "sha256": "8b040b32ff40fa14f061621711e5d609286602e64c7a1545617258c5586d83ff",
+    "bytes": 7573
+  },
+  {
+    "path": "implementation/adapters/reagent/test/re_frame/realworld_resources_cljs_test.cljs",
+    "sha256": "01512e98f6c47d49e8d4442e6b2c8533529a39e5fe3990c33d56d5eeb1286f59",
+    "bytes": 160250
+  },
+  {
+    "path": "implementation/adapters/reagent/test/re_frame/realworld_resources_observability_cljs_test.cljs",
+    "sha256": "6405cc3fdaa74b76ec759f26be1c850051829a993ec5f721ef351b9cc8cff3f8",
+    "bytes": 10449
+  },
+  {
+    "path": "implementation/core/src/re_frame/core_resources.cljc",
+    "sha256": "4f194587e832d3ae221d9889093686fc48f7f185cff6a2124c53e8126c573789",
+    "bytes": 9085
+  },
+  {
+    "path": "implementation/core/test/re_frame/example_realworld_resources_boot_seed_cljs_test.cljs",
+    "sha256": "af41c1d08151629dd9ad3d2be7cdf014ace571599084948f606fb8b110629769",
+    "bytes": 16127
+  },
+  {
+    "path": "implementation/deps.edn",
+    "sha256": "7170dafc425f43f9750cbd50ff0c7caa3f31ee6a0c49098a8a0dffecd2308120",
+    "bytes": 8865
+  },
+  {
+    "path": "implementation/package.json",
+    "sha256": "3a3760f2ac3d54b54de502fd5781a37f15919928cf0a934bbbf95f42fd289a94",
+    "bytes": 5898
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources.cljc",
+    "sha256": "3810f8c2d3ad3edc8a63f1b6df7358d296d484974197fb9e1ed1337305743715",
+    "bytes": 44350
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/classification.cljc",
+    "sha256": "5fdecc81503eccd943524b977bb4989d0ab38421c89320e2f2461e642e64d37d",
+    "bytes": 53411
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/events.cljc",
+    "sha256": "0f33b0d7c874ce6ba7bc47115397418076cc7d1505b1f45749582eade7c7ee4d",
+    "bytes": 223349
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/mutation_events.cljc",
+    "sha256": "a5daf556b3d70e9149f7d7fb7e13c3b2897fe9c08c4b8f4d9720a563b29036b9",
+    "bytes": 143785
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/mutation_registry.cljc",
+    "sha256": "35951c5e7f1d9550ef77f843f172691332e5848eb6222517ff2aa3891c676771",
+    "bytes": 28416
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/mutation_runtime.cljc",
+    "sha256": "0a8f08b1823036e40f063b94bc0544cba769efe13d61c7c3828eaeabca740800",
+    "bytes": 66255
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/mutation_subs.cljc",
+    "sha256": "559f510c0db574a1f9b6fa3218db8e4abdbba2dfe1ce8119e584361d0fe059c1",
+    "bytes": 6891
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/params.cljc",
+    "sha256": "333d5403bbdde2d3acf881185097788a4ddb340a270e95df4f42a6aa01c81220",
+    "bytes": 5440
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/registry.cljc",
+    "sha256": "6e152ee02339dae50a35712302ca97b6a285bbf70e9c913d713210012f0859d3",
+    "bytes": 53037
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/reply.cljc",
+    "sha256": "626a4ef73e31c06b2c08407bf57598aabb66d38db015382c07673c62785864f6",
+    "bytes": 17489
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/reply_handlers.cljc",
+    "sha256": "a3096abc75d790019f41868571c7d5a704c885b3e0f3b4b441f95f34341266c6",
+    "bytes": 12633
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/revalidate_listeners.cljc",
+    "sha256": "640384af0911684104f0a4c9832ddf5439d6440b7e3a13e04cdb523af52dd492",
+    "bytes": 15401
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/route.cljc",
+    "sha256": "50457718c8208a44aae9611ecffc2792d5846d789ac17a553c48b7e0edc01620",
+    "bytes": 96729
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/scope_registry.cljc",
+    "sha256": "934332eb58632de82bba476afabc20b37cd74030229606cd426510d47f9a219e",
+    "bytes": 37727
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/ssr.cljc",
+    "sha256": "40d48901bb95072b2e992217feaa15dcabdbf178313c476c9ba3d90966c76f79",
+    "bytes": 156433
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/state.cljc",
+    "sha256": "783ad1b4b95893c1c202c46f312df3ec36321eb8ab5bdf02f19b5b9f98d1f244",
+    "bytes": 93395
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/subs.cljc",
+    "sha256": "0c96033ca578e4b658b18e68db4cc2fb7cb5d0bf156223780d5f0d6e993c3683",
+    "bytes": 33629
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/test_support.cljc",
+    "sha256": "ce8103bcd6a1d848980ead36652df4a69e986362cc434971b8bf64587f56aa34",
+    "bytes": 5498
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/timers.cljc",
+    "sha256": "9f0b0c859a9feabbb8e3148e4bac682fce67a4b5b8c7acfd388f7fe2754a46b9",
+    "bytes": 29726
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/tooling.cljc",
+    "sha256": "1565590fab64c0cb744c2d5b4b79d36dbdd8d92cefcad2e663f6198582a967d4",
+    "bytes": 35146
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/trace_egress.cljc",
+    "sha256": "229d26f09c922850c08afb8561b7f97a3e7de9d037aa77bd7c7fc1bd9564b5cd",
+    "bytes": 97123
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/transport.cljc",
+    "sha256": "2cc2c44302060a590d901e874e3722e7f5f2fc96f668602a56c303e9547b3198",
+    "bytes": 3085
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/transport/http.cljc",
+    "sha256": "498bdbbd95d9f534a30bc7dc142f45887bafbcc4a590df824ff8e5898195b0ef",
+    "bytes": 9120
+  },
+  {
+    "path": "implementation/resources/src/re_frame/resources/work_ledger.cljc",
+    "sha256": "cfed3cf1bf16ecde43b28f7bdc317e68494ae400cc00e930eb6b2c3c0f295e9e",
+    "bytes": 50892
+  },
+  {
+    "path": "implementation/resources/test/re_frame/ep0037_r6_integrated_proof_cljs_test.cljc",
+    "sha256": "56c0963a4a0b2d8fc7f21223d848da1092e68f89a2a7faef883f14998ebb3881",
+    "bytes": 59997
+  },
+  {
+    "path": "implementation/resources/test/re_frame/readiness_projector_conformance_cljs_test.cljc",
+    "sha256": "da61ea2ec07c417aaa9147945f59c4e6c2cba6c1a7139e1f937973ddc3823938",
+    "bytes": 10996
+  },
+  {
+    "path": "implementation/resources/test/re_frame/replay_determinism_e2e_cljs_test.cljc",
+    "sha256": "acb29d5cb830c2d452a3a9a6307aad40329379a71bbc867b47900768d9310975",
+    "bytes": 19099
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resource_algebra_view_cljs_test.cljc",
+    "sha256": "37215f89b84fa16dd2dbb07676686f0861b673f89dda806b02db210f90cfd86c",
+    "bytes": 26524
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resource_generation_recordable_cljs_test.cljc",
+    "sha256": "181f731d5b2705527e2e3711e1ab2bb8307c0daffe78b2cf8a6b2334910411fc",
+    "bytes": 14896
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_cache_key_identity_cljs_test.cljc",
+    "sha256": "a4241b3071d777ff3b9a5dd8f53a340c3043c765922874992e8cc0868198ac8f",
+    "bytes": 19973
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_classification_cljs_test.cljc",
+    "sha256": "c3ccf252aecd79ea6b943ea487d912660445b429b3e2318ff3a748c08c6aed28",
+    "bytes": 34773
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_classification_lowering_cljs_test.cljc",
+    "sha256": "99234d1e8bd056dd63d72c6a837d3456ac140275120fb3f9160d32df203ac79b",
+    "bytes": 13832
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_clear_artefact_missing_cljs_test.cljc",
+    "sha256": "780671c0a79e83aac1994ef0159103066ffb21e960ffbb9e0bd2e3c67d1b6c50",
+    "bytes": 5964
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_derived_scope_sensitivity_cljs_test.cljc",
+    "sha256": "e8424b9cc19aff5bfa51458275db3d96663cd51722f384ea9f849f58140fae74",
+    "bytes": 11941
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_frame_value_target_cljs_test.cljc",
+    "sha256": "fc5bf72429ac3960949196a26f7dd5c04705630966836cecea03927ee10bfc5a",
+    "bytes": 9713
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_from_db_scope_cljs_test.cljc",
+    "sha256": "e31242509471c6987a360300ba7f32779a15e77e8a0254be1881631d460e51f7",
+    "bytes": 47231
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_http_completed_at_clock_cljs_test.cljs",
+    "sha256": "4718d702fb87c18dd227556f7a80850d5333280be50c52736e212d3e1f2e9a60",
+    "bytes": 8168
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_infinite_initial_page_param_cljs_test.cljc",
+    "sha256": "614cde0606cfb2c0e0bc759b821d2be34e31961c3e2db1c2555d9ecf04d4d0fa",
+    "bytes": 6538
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_infinite_load_more_cljs_test.cljc",
+    "sha256": "3e4a4fd31f26f5257d44f3b8d74cc08ffa8d0e6380fca8c6076d2963c763ddf3",
+    "bytes": 58676
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_infinite_registration_cljs_test.cljc",
+    "sha256": "22380acca38a42ebf9021dc36175a656734cf99cfd9367fa4706aad244a442c9",
+    "bytes": 12878
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_infinite_ssr_restore_cljs_test.cljc",
+    "sha256": "10846a956a4b8649aff0e46f8753b66683eddee4da302afe1c318eaa17aaf8e4",
+    "bytes": 25487
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_infinite_state_cljs_test.cljc",
+    "sha256": "69bf68d164e749022b2522bc2b3bb19e3f719e4b5a541778628ba3421c9418b8",
+    "bytes": 28792
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_infinite_subs_cljs_test.cljc",
+    "sha256": "073d7d9093e22b0c4330d77bdae2b9b0d7b5d1fe512e6b18fd52e97d875a3da9",
+    "bytes": 21920
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_invalid_params_redaction_cljs_test.cljc",
+    "sha256": "d521ff04467473928e5a60641d0ff37b8e052791e18efe06b98545d18c26e898",
+    "bytes": 8888
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_invalidation_descriptors_cljs_test.cljc",
+    "sha256": "d757f845ae31dce6bfee826261a00bdfa5d3eae7b9019d38dbefc79bca71cca4",
+    "bytes": 46381
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_invalidation_gc_cljs_test.cljc",
+    "sha256": "af5aaf4aa72a7744373aaa482b431027253e3f65ec88f92463a636b925d488f7",
+    "bytes": 55439
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_lifecycle_trace_ops_cljs_test.cljc",
+    "sha256": "7ecebcb9b3919780901a619b654dae1af93b22ba6ac6d90abe56910dcc447c3f",
+    "bytes": 24419
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_machine_owner_release_cljs_test.cljc",
+    "sha256": "29903fbd38040d8b9f7fec4c4bda58a4c7d69bcd440cd926c9249884e9f697aa",
+    "bytes": 17154
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_managed_http_cljs_test.cljc",
+    "sha256": "40c682dc1e173f49b9dddc51432bef899092c1ecf724f6639f4b26de04e3c8a3",
+    "bytes": 42283
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_mutation_classification_cljs_test.cljc",
+    "sha256": "a0a58b95ba02568ba920a7f6fac6a1ffdbab9ba22f77c542841863537101bcda",
+    "bytes": 23949
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_mutation_cljs_test.cljc",
+    "sha256": "2b7fa085fdcdfba3fcf116649dfc177bc07b2ecedb57b050bbf1671713e9d125",
+    "bytes": 138925
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_mutation_scope_mismatch_cljs_test.cljc",
+    "sha256": "8b0422c99dc8e683c00855b56824f58a4287ee79cbdae96df1c4b2750b34ceb9",
+    "bytes": 16072
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_optimistic_apply_cljs_test.cljc",
+    "sha256": "8ab5520aa867c38f931e7a29ab6a8c3fd348c4138d0452414c239abb72cf22c4",
+    "bytes": 20776
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_optimistic_settle_cljs_test.cljc",
+    "sha256": "1f1e3fe1f2932e7898995f5a61e245afd9ae04bc47da06b25ba47e2893855e3d",
+    "bytes": 50121
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_optimistic_validation_cljs_test.cljc",
+    "sha256": "872d7a32134da6ee09aa2018f38707ff294b7dd9ba4468d5e67e156cbaec2281",
+    "bytes": 52799
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_polling_cljs_test.cljc",
+    "sha256": "68e630b9c0138df9f1cd1d27e33b3cc9671d9dca6bb5f257e96ac4d385830637",
+    "bytes": 29304
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_populate_exact_target_cljs_test.cljc",
+    "sha256": "42e5d6cbca3990876ddd16eccbdda775214fc9a6859668d4c730bbc85604962b",
+    "bytes": 29302
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_reply_correlation_egress_cljs_test.cljc",
+    "sha256": "d1c1f5c7fb46d6dea348753a76fdbb64386eb3971cdbda0f2d0537f8fe904831",
+    "bytes": 21786
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_reply_lowering_cljs_test.cljc",
+    "sha256": "7f255e49682dcb237009facb5abc442e2f42ec394d91bee8a2791e7699b6de80",
+    "bytes": 7682
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_reply_to_reads_cljs_test.cljc",
+    "sha256": "cf149fc5f111ba70fc2424dcdc2de5a07c616d5399ae253019caa6301a383625",
+    "bytes": 23971
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_request_decoration_cljs_test.cljc",
+    "sha256": "e659eb5fded09887c2d69b7409a8c03e1f484ce1318fcb7cda535098ff2dd9fc",
+    "bytes": 20353
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_restore_cljs_test.cljc",
+    "sha256": "07ce66e29c6592fe350f37014bb3714fdf510d17948b7bc6507e6637a15e4fe3",
+    "bytes": 69867
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_revalidation_cljs_test.cljc",
+    "sha256": "688b9dd88b104a8c3706289c80b92dc1e511c22a5d80590e93088ff8def806d1",
+    "bytes": 39813
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_revision_substrate_cljs_test.cljc",
+    "sha256": "0946dd1292ab8394da4519395a6c803213939360b3fc43ea73cff5c6b263f1e4",
+    "bytes": 29870
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_route_cljs_test.cljc",
+    "sha256": "f072402bf44ac129e43168aea3c5de9bdcf59d4084f301ed2c76476995ed2324",
+    "bytes": 142054
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_route_infinite_blocking_cljs_test.cljc",
+    "sha256": "d8cc7542f4ca0bf89ff162678b3e514d39e9c35b4325422ae6c78a3ae33d8056",
+    "bytes": 19075
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_route_plan_recovery_cljs_test.cljc",
+    "sha256": "b8ee734f43b6e871b39a63f65cda1470ff33f51121de2e07538403f74a485236",
+    "bytes": 10907
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_route_prefetch_cljs_test.cljc",
+    "sha256": "51b0f481bd927ac54f419491cd5779e5e2fc14257dbbb5d5f040e5a7a6104bd1",
+    "bytes": 4782
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_route_replan_cljs_test.cljc",
+    "sha256": "b568cd915ef2501874700a51fcd8b08b9bddedca9b808c4d8e2c28b8677d9ead",
+    "bytes": 27147
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_runtime_cljs_test.cljc",
+    "sha256": "e2440db58d78e2de75f5559b4e590ba0e1954b203ebd6bca2d266feabdb7b0c8",
+    "bytes": 96284
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_scope_leak_boundary_cljs_test.cljc",
+    "sha256": "b0ab3dc5b90c0b6ac23c98c82773dc3dac8eef865e806e8e9a0545f8887c0264",
+    "bytes": 23092
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_scope_registry_cljs_test.cljc",
+    "sha256": "00f36e5e205b28f0bd090960005a3c2a436e34a6aa36d0462ab54d7f763c28fb",
+    "bytes": 22562
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_scoped_owner_lifecycle_cljs_test.cljc",
+    "sha256": "0176108ed08705acac76724009e3af6591fe617f5ce720bf890b82c16082519d",
+    "bytes": 15243
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_skeleton_cljs_test.cljs",
+    "sha256": "92cd7b81a7a38d531ef17160acf9cbfc1c4417ad602e133bc3487891a12e7baf",
+    "bytes": 21760
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_ssr_cljs_test.cljc",
+    "sha256": "beeebf03e87a3ed34d45c637b5f5c83b8b825932d35c004f7276e3251aaed3fa",
+    "bytes": 86384
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_ssr_projected_key_refetch_cljs_test.cljc",
+    "sha256": "1b2c3de7481f598d67aa651a28d2d1aa0a0a35ca79709f7b8b795f5f8b98947c",
+    "bytes": 47241
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_ssr_wire_key_scope_declaration_cljs_test.cljc",
+    "sha256": "292af95181e46ec053235df0a9b3bc5c13e08daf72f19af52618b2f1eb34c532",
+    "bytes": 33613
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_time_ms_cofx_cljs_test.cljc",
+    "sha256": "cdcdad674af7d48614900b8a804344551ce80b51c432ced6e7f2da42c40268ee",
+    "bytes": 14435
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_timer_arm_publish_race_cljs_test.cljc",
+    "sha256": "453c7e26316499537e9d786c1628a30da4da7225d3af511e341e344445ed04f9",
+    "bytes": 9705
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_timer_rearm_cljs_test.cljc",
+    "sha256": "3f4aa66400cdfefd91f7745bef866ba872e2340e7cb760f241c236108eb907f2",
+    "bytes": 14187
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_trace_egress_enumerable_token_cljs_test.cljc",
+    "sha256": "10f86ffc99aea0885c3617c59c86e3e882a53741adb832bf4e6a3e55aa4713b7",
+    "bytes": 12956
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_trace_key_declarations_egress_cljs_test.cljc",
+    "sha256": "04f24b9995f7bebbfde68574efe14dd5e522c2366ca666e2966015cf92c32b16",
+    "bytes": 25779
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_trace_keyid_egress_cljs_test.cljc",
+    "sha256": "0c729aca465e6aa8a67251fafbe098238d95fdfbb63ad36d2e99e0342d4a8037",
+    "bytes": 30478
+  },
+  {
+    "path": "implementation/resources/test/re_frame/resources_work_ledger_cljs_test.cljc",
+    "sha256": "114c57174143cfbbfd1ddc03feb7b0fafa95986114b3676811995cc85bef4673",
+    "bytes": 54216
+  },
+  {
+    "path": "implementation/shadow-cljs.edn",
+    "sha256": "00d2501f263eb049d423f4854cce99ced30ec6bf62e2dfaec3ad255a7d187447",
+    "bytes": 139810
+  },
+  {
+    "path": "skills/re-frame2/patterns/resources-mutations.md",
+    "sha256": "84dc85d3fcb33214d318f03a5f5293b23bbb3f773394aeef199e1d0f0ce9fda7",
+    "bytes": 19064
+  },
+  {
+    "path": "skills/re-frame2/patterns/resources.md",
+    "sha256": "9fb5fb7a00de6028d8c1d494b4dd82ea3eedaec0737880914ec8cc8ea67c44e2",
+    "bytes": 29464
+  },
+  {
+    "path": "spec/015-Data-Classification.md",
+    "sha256": "e1785c61ba1e379704709ef49b052346578ac8a27dc65fc2a53b2c89d9d7c3db",
+    "bytes": 86797
+  },
+  {
+    "path": "spec/016-Resources.md",
+    "sha256": "1d6cc1c9b1def5ec3b7881d22e51fea370ad1a40c36b4ba34b2efc6cf86d4c3e",
+    "bytes": 332929
+  },
+  {
+    "path": "spec/conformance/fixtures/resources-dedupe-join.edn",
+    "sha256": "254b5b650181e37d1c7171595edf01abc570ef7ee6de203fb5c1e8fb98fb4fd9",
+    "bytes": 2923
+  },
+  {
+    "path": "spec/conformance/fixtures/resources-ensure-fresh-skip.edn",
+    "sha256": "c4e582a25941384cb21407304bd4c3793d2b2a251bff8dfc188144f5ff0e1232",
+    "bytes": 4607
+  },
+  {
+    "path": "spec/conformance/fixtures/resources-owner-release-gc.edn",
+    "sha256": "e3fde74d72bfb96ec2c940f84bb5fac892e77c531853847521da50bd26749651",
+    "bytes": 6931
+  },
+  {
+    "path": "spec/conformance/fixtures/resources-refresh-error-keeps-data.edn",
+    "sha256": "7050488d4c5ff7fc121a8b0ee8275f07fe7ac0f4d58d80ed23efc54a41670596",
+    "bytes": 3700
+  },
+  {
+    "path": "spec/conformance/fixtures/resources-scope-fail-closed.edn",
+    "sha256": "18f9bed818ee025bb3da8fd99d1f8c0de3276c4ec738c82c546711b11014217d",
+    "bytes": 5441
+  },
+  {
+    "path": "spec/conformance/fixtures/resources-stale-reply-suppression.edn",
+    "sha256": "3d204615633a3dca375c570b1fd3d9e7e15e82ba5524b1bf72090e7e852ccae0",
+    "bytes": 3450
+  },
+  {
+    "path": "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/handler_meta.cljs",
+    "sha256": "e97d9e41d4e9641f5116c201718bc8eb46e9fd164131ac9afefebd4fd89f8dd7",
+    "bytes": 25549
+  },
+  {
+    "path": "tools/xray/spec/024-Resources-Panel.md",
+    "sha256": "644145a3e34563cb10757245c4d652562929a05b155cc0281a5ed3765dd4d5fc",
+    "bytes": 46306
+  },
+  {
+    "path": "tools/xray/src/day8/re_frame2_xray/panels/resources.cljs",
+    "sha256": "1f3d33d01dfb59e40a609978c628aaa56f4898ff9ceaf98177cada9b10782f45",
+    "bytes": 82867
+  },
+  {
+    "path": "tools/xray/src/day8/re_frame2_xray/panels/resources_helpers.cljc",
+    "sha256": "870857f7f236abe935faae6ef89afbd4bd2e25909d75f334bdf63bcb79ca4644",
+    "bytes": 102949
+  }
+]

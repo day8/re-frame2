@@ -1,0 +1,14 @@
+--- 
++++ 
+@@ -11,2 +11,9 @@
+-| HEAD at close `f680007c6b` | source | `git rev-parse` after Conduit stop |
+-| Window `a5f883b569..f680007c6b` is Story spec + beads, not Resources | source | `git diff --stat` |
++| HEAD at independent close `f680007c6b` | source | after Conduit stop |
++| Tutorial repair `19dffcdb42`…`cc26e2d900` (2026-09-15 00:37 +10) | source | `git log -- docs/resources/tutorial` |
++| HEAD at synthesis `f2f9ffd654` | source | 2026-09-15 03:08 +10 |
++| Sibling reports read 2026-09-15 | measurement | `astra/report.md`, `fable/report.md` + sibling-review.md |
++| Part 2 deps names `day8/re-frame2-http`; API is `.show` | source | `02-server-data.md:22–40` at HEAD |
++| Part 4 populate is viewer-scoped | source | `04-mutations-and-invalidation.md:99` |
++| `:keep-previous?` still “on the route/resource” | source | `coming-from-tanstack-query.md:194` |
++| `handler-meta` is one query map | source | `core.cljc:2030–2044` |
++| `:revalidate-on` absent from tutorial | source | 0 hits under `docs/resources/tutorial/` |

@@ -1,0 +1,13 @@
+gate root: C:/Users/miket/code/re-frame2
+
+Testing re-frame.realworld-resources-cljs-test
+
+Testing re-frame.realworld-resources-observability-cljs-test
+
+Testing re-frame.example-realworld-resources-boot-seed-cljs-test
+
+Testing day8.re-frame2-xray.panels.resources-helpers-cljs-test
+
+Ran 79 tests containing 724 assertions.
+0 failures, 0 errors.
+RESEARCH-SUMMARY {:type :end-run-tests, :fail 0, :error 0, :pass 724, :test 79}

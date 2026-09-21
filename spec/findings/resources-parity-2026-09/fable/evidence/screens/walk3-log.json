@@ -1,0 +1,66 @@
+[
+  {
+    "t": 1789391554877,
+    "k": "home.fav_buttons_before",
+    "v": [
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1"
+    ]
+  },
+  {
+    "t": 1789391557439,
+    "k": "article.fav_timeline_after_one_click",
+    "v": [
+      {
+        "ms": 0,
+        "text": "Unfavorite Article (1)"
+      },
+      {
+        "ms": 16,
+        "text": "Favorite Article (0)"
+      },
+      {
+        "ms": 1320,
+        "text": "Favorite Article (0)",
+        "final": true
+      }
+    ]
+  },
+  {
+    "t": 1789391559503,
+    "k": "home.fav_buttons_after_one_unfavourite",
+    "v": [
+      "0",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1"
+    ]
+  },
+  {
+    "t": 1789391559503,
+    "k": "home.first_changed",
+    "v": {
+      "before": "1",
+      "after": "0"
+    }
+  },
+  {
+    "t": 1789391562053,
+    "k": "profile.favorited_previews_after",
+    "v": 7
+  }
+]

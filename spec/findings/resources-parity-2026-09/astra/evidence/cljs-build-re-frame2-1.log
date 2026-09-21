@@ -1,0 +1,77 @@
+------------------------------------------------------------------------------
+
+   WARNING: shadow-cljs not installed in project.
+   See https://shadow-cljs.github.io/docs/UsersGuide.html#project-install
+
+------------------------------------------------------------------------------
+shadow-cljs - config: C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\shadow-cljs.edn
+shadow-cljs - updating dependencies
+shadow-cljs - dependencies updated
+[:conduit] Compiling ...
+[:conduit] Build completed. (324 files, 323 compiled, 0 warnings, 28.31s)
+[:research-tests] Compiling ...
+[:research-tests] Build completed. (313 files, 312 compiled, 4 warnings, 12.96s)
+
+[1m------ WARNING #1 - :infer-warning ---------------------------------------------[0m
+ File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1382:70
+--------------------------------------------------------------------------------
+[2m1379 |                            (.render r (wrap render-tree))[0m
+[2m1380 |                            r))[0m
+[2m1381 |           ;; rf2-w1g0d2: shared track-and-unmount tail (unmount-op = .unmount).[0m
+[1m1382 |           unmount      (track-active-root! active-roots-cell (fn [r] (.unmount r)) root)][0m
+----------------------------------------------------------------------------^---
+ [33;1mCannot infer target type in expression (. r unmount)[0m
+--------------------------------------------------------------------------------
+[2m1383 |       {:live?    (fn live? [] (contains? @active-roots-cell root))[0m
+[2m1384 |        ;; A hydrated Root is UPDATED with the plain render op, never hydrated[0m
+[2m1385 |        ;; again, whatever `opts` later calls carry (Spec 006 �The client root).[0m
+[2m1386 |        :update!  (fn update! [tree][0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #2 - :infer-warning ---------------------------------------------[0m
+ File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1915:20
+--------------------------------------------------------------------------------
+[2m1912 |           (when warn-cache (reset! warn-cache #{}))[0m
+[2m1913 |           (when after-render-driver-root-cell[0m
+[2m1914 |             (when-let [root @after-render-driver-root-cell][0m
+[1m1915 |               (try (.unmount root)[0m
+--------------------------^-----------------------------------------------------
+ [33;1mCannot infer target type in expression (. root unmount)[0m
+--------------------------------------------------------------------------------
+[2m1916 |                    (catch :default e (record-teardown-failure! failures e))))[0m
+[2m1917 |             (reset! after-render-driver-root-cell nil))[0m
+[2m1918 |           (when after-render-set-tick-ref[0m
+[2m1919 |             (reset! after-render-set-tick-ref nil))))[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #3 - :infer-warning ---------------------------------------------[0m
+ File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1908:51
+--------------------------------------------------------------------------------
+[2m1905 |     (let [failures (make-teardown-failures)][0m
+[2m1906 |       (try[0m
+[2m1907 |         (dispose-active-roots-and-caches! rf.disposable/-dispose[0m
+[1m1908 |                                           (fn [r] (.unmount r))[0m
+---------------------------------------------------------^----------------------
+ [33;1mCannot infer target type in expression (. r unmount)[0m
+--------------------------------------------------------------------------------
+[2m1909 |                                           active-roots-cell emitter-cell[0m
+[2m1910 |                                           failures)[0m
+[2m1911 |         (finally[0m
+[2m1912 |           (when warn-cache (reset! warn-cache #{}))[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #4 - :infer-warning ---------------------------------------------[0m
+ File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:2204:29
+--------------------------------------------------------------------------------
+[2m2201 |   [warn-fn id coord-attr view-attr out][0m
+[2m2202 |   (cond[0m
+[2m2203 |     (dom-element? out)[0m
+[1m2204 |     (let [props             (.-props out)[0m
+-----------------------------------^--------------------------------------------
+ [33;1mCannot infer target type in expression (. out -props)[0m
+--------------------------------------------------------------------------------
+[2m2205 |           existing-coord    (when props (aget props "data-rf2-source-coord"))[0m
+[2m2206 |           existing-view     (when props (aget props "data-rf-view"))[0m
+[2m2207 |           patch             #js {}][0m
+[2m2208 |       (when-not existing-coord[0m
+--------------------------------------------------------------------------------

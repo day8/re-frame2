@@ -1,0 +1,4 @@
+consumer: C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\consumer
+{clear true, clear-resource false, clear-mutation false, resource-state true, mutation-state true, resource-meta false, mutation-meta false}
+Rename-only portability counterexample: No such namespace: js
+Facade exports and portability counterexample verified.

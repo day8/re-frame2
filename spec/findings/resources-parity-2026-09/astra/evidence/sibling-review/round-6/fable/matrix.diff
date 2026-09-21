@@ -1,0 +1,16 @@
+--- 
++++ 
+@@ -26 +26 @@
+-| R18 | An assistant adds a write with declared consequences from the public surfaces | important | **UNDERMARKETED** (vs TanStack docs + Devtools + ESLint plugin) — **unverified** | 016 §Xray and AI tooling | `handler-meta`, pair-MCP handler_meta, three skills leaves | skills leaves are 20–28 KB each | registry is data; consequences are functions of params (not statically enumerable) | **unverified** — J4 not executed | skills leaves; handler_meta.cljs |
++| R18 | An assistant adds a write with declared consequences from the public surfaces | important | **UNDERMARKETED** (vs TanStack docs + Devtools + ESLint plugin) — **unverified** | 016 §Xray and AI tooling | `handler-meta` (one query map; returns the registration map with source coordinates and fn-valued consequences, P2c.5), pair-MCP handler_meta, three skills leaves | skills leaves are 20–28 KB each | registry is data; consequences are functions of params (not statically enumerable) | **unverified** — J4 not executed | skills leaves; handler_meta.cljs |
+@@ -66,0 +67,10 @@
++
++### Second pass (2026-09-15)
++
++- **R18**: `handler-meta` resolved — one query map, returns the registration map with source coords and fn-valued consequences (P2c.5, `core.cljc:2030`, `spec/API.md:475`). The row stays unverified because J4 was not executed, not because of the call.
++- **R19**: two tutorial claims verified false — "exactly two keys" (`01:77`, contradicted by tutorial 03's `:sensitive` beside `:db`) and `:instance` "Required: yes" (`04:210`; P2c.6 executes without one). `:params` "Required" holds when a schema is declared (P2c.7).
++- **R4**: the scorecard's GC wording verified at source — the timer arms after `:loaded-at` and re-checks owners on fire (`timers.cljc:89`); no frame-wide `:stale-after-ms` exists (016 line 1213).
++- **R17**: the recording override the probes used is the public `rf/with-fx-overrides` seam that `with-request-stubs` is built on (`test_support.cljc:641-650`); test-support carries no request ledger. ERGONOMICS unchanged; the first draft's "reached under the public surface" wording in the report was wrong.
++- **R15**, **R5**: wording only — a comparator's boundary is a convention that holds while remembered, not "no boundary"; the 2-versus-3 refetch count is a recipe artefact, the win is where the knowledge lives.
++- **Post-pin repair (rf2-oyr9f, four commits between `afdd6ee8789e` and `f2f9ffd654b7`)**: the tutorial now names the http artefact, uses the `.show` API base, scopes article reads by viewer from Part 3 with a logout `clear-scope`, scopes Part 4's writes, guards Part 3's interop, and tests Part 3's handlers in Part 5 (`evidence.md` §10 W10). The DOCS cells of R1 and R15 describe the pin. On the current trunk R15's taught leak is gone; R1 re-scores only when a fresh consumer walks the repaired chapters, which has not happened. R4's stale policy is now set explicitly in Part 2 (`02:78`, `02:121`); `:revalidate-on` is still untaught. R19's two tutorial wording items are unchanged (`01:77`, `04:210`).
++- No pin-time status changed.

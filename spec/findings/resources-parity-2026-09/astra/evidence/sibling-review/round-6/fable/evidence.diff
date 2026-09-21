@@ -1,0 +1,39 @@
+--- 
++++ 
+@@ -29,0 +30 @@
++| P2c | `probes/probe2c.clj` | `logs/probe2c-1.log` (0) | second pass: P2b re-run with the correct one-map `handler-meta` call, plus `:rf.mutation/execute` without `:instance`, without `:params`, without `:cause` |
+@@ -96 +97,12 @@
+-| P2b.5 | `(rf/handler-meta :mutation id)` threw "Wrong number of args (2)"; the docstring's `[kind id]` form is not the arity accepted; unverified beyond that |
++| P2b.5 | `(rf/handler-meta :mutation id)` threw "Wrong number of args (2)" — the probe's mistake: the fn takes one query map (see P2c.5) |
++
++### P2c — second pass (`probe2c-1.log`)
++
++Same setup as P2b; steps 1–4 reproduce P2b.1–4 exactly (the planted fault is still detected).
++
++| Step | Result |
++|---|---|
++| P2c.5 | `(rf/handler-meta {:source :store :kind :mutation :id :p2b/favorite-forgets-feed})` → `{:ns probe2c :file … :line 67 :column 6 :doc nil :rf/mutation {:params-schema [:map [:slug :string]] :optimistic-tags :fn :populates :fn :invalidates :fn :request :fn} :handler-fn :fn}` — registration metadata with source coordinates; every consequence is a function, so nothing about reach is enumerable without executing |
++| P2c.6 | execute **without `:instance`** → accepted: 1 request, 0 error records (tutorial `04:210` marks it Required: yes while saying "caller-supplied … or generated") |
++| P2c.7 | execute **without `:params`** (schema `[:map [:slug :string]]`) → refused at the schema: 0 requests, 1 error record |
++| P2c.8 | execute **without `:cause`** → accepted: 1 request |
+@@ -226 +238 @@
+-- **`handler-meta`** 2-arity threw; the correct call was not found.
++- **`handler-meta`**: P2b.5's two-argument call was wrong; the one-map form works (P2c.5). Resolved in the second pass.
+@@ -274,0 +287,17 @@
++
++## 10. Second pass (2026-09-15)
++
++Sibling state: grok unchanged since 2026-09-14 23:00; astra revised `report.md`, `parity-matrix.md`, `scorecard-audit.md`, `evidence.md`, `evaluation-plan.md` (23:25–23:31) and added `sibling-review.md` and `evidence/tutorial-repair-bead.md`, having read this folder's report. The diffs against astra's `evidence/independent-draft/` copies were read rather than the whole files. Verifications this pass were read at trunk `f2f9ffd654b7`. The only studied paths that changed since the pin are the six tutorial pages (W10); W1–W4 and W7–W9 cite files outside them, and W5–W6 were re-read on the new trunk (`01:77`, `04:210` unchanged).
++
++| # | Claim (origin) | Where read | Result | Disposition |
++|---|---|---|---|---|
++| W1 | `handler-meta` takes `[kind id]` (this folder, P2b.5) | `core.cljc:2030` docstring; `spec/API.md:475`; P2c.5 | one query map `{:source :store :kind k :id id}` or `{:frame f :kind k :id id}`; the call returns the registration map | **withdrawn** (L2); R18 cell updated |
++| W2 | a frame-wide `:stale-after-ms` default may exist (this folder, G2) | `grep stale-after-ms implementation/core/src/re_frame/*.cljc` (docstrings only); 016 line 1213; `registry.cljc` `default-gc-after-ms` docstring | none; per registration, absent = never time-stale; `:revalidate-on` is the frame-level half | **closed** (G2) |
++| W3 | http test-support may record issued requests (this folder, L3) | `test_support.cljc` defn list; `:83-85` `run-request-chain` "fires for every issued request"; `:641-650` `with-request-stubs` built on `rf/with-fx-overrides` | no ledger; the recording override is the same public seam | **closed** (L3 docs only); report wording corrected |
++| W4 | GC timer wording (this folder's agent) | `timers.cljc:82-93` | `:gc` kind "arms `:gc-after-ms` after `:loaded-at`; on fire … removes the entry ONLY if it is still owner-free + not in flight" | verified; H1 kept |
++| W5 | tutorial "exactly two keys" (stall log) | `01:77`; `03:373`, `03:430` | tutorial 03 returns `:sensitive [[:auth :token]]` beside `:db` | verified false |
++| W6 | tutorial `:instance` / `:params` "Required: yes" (stall log) | `04:206-214`; P2c.6–7 | `:instance` accepted when absent (1 request); `:params` refused at the schema | `:instance` claim false; `:params` claim holds with a schema |
++| W7 | Conduit has a dev launch with Xray (astra's caveat) | `implementation/shadow-cljs.edn` `:examples/realworld-resources` | `:target`, `:output-dir`, `:asset-path`, `:modules` only — no preloads | D3b stands |
++| W8 | reconciliation trace field names (astra) | `mutation_events.cljc:1403,1803-1804` | `:optimistic-keys`, `:committed`, `:reconciliation-refetches` | cited in L1 |
++| W9 | astra: "no comparator has a boundary" is too broad; 2-vs-3 refetches is not an unavoidable cost; the read-side ban is stronger than pre-alpha warrants | astra `sibling-review.md` §Claims deliberately not imported | accepted as critique | wording softened in report §1 and DO NOT BUILD 10 |
++| W10 | the tutorial was repaired after the pin | `git log afdd6ee8789e..f2f9ffd654b7` (four docs commits under rf2-oyr9f: `19dffcdb42`, `abc3ae0fc1`, `0eb2cb234d`, `cc26e2d900`); `git diff --stat` on the studied paths: six tutorial pages, +412/−158; per-defect greps | http artefact named (`02:26`, `02:31`); `.show` base (`02:40`); Part 2 global "until Part 3" (`02:77`); viewer scope + logout clear (`03:561-579`, `03:745`); Part 4 writes scoped (`04:99-106`, `04:248-263`); interop guarded (`03:284-286`, `03:368`); Part 5 tests Part 3. Unchanged: "exactly two keys" (`01:77`), `:instance` Required (`04:210`); `:revalidate-on` untaught; `:stale-after-ms 60000` now explicit (`02:78`) | report §0, §1, §6 D1, §8 and matrix annotated; pin-time statuses unchanged; the repaired pages were **not** walked by a fresh consumer |

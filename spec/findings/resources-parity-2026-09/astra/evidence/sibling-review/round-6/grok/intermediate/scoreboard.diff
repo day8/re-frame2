@@ -1,0 +1,37 @@
+--- 
++++ 
+@@ -54 +54 @@
+-| J20 Dependent / serial read | PARTIAL | INTERNAL | SOURCE-TRACED Spec 016: `:after` is **dispatch-order**, not a data-waterfall. Conduit does not need B-from-A-data | **BEHIND** Query `enabled` for data-dependent params | Not silent DIVERGENT. A later entry cannot read an earlier entry’s **loaded data** at plan time. |
++| J20 Dependent / serial read | PARTIAL | INTERNAL | SOURCE-TRACED Spec 016 `:after` + editor `:reply-to` (sibling/source: seeds a draft from a read) | **DIVERGENT** (continuation serves “then this”) + **TARGET** (planner cannot take B params from A’s **data**) | Not BEHIND the *job*. Query `enabled` is a different spelling of the deferred waterfall |
+@@ -93 +93 @@
+-## Tutorial stall log (literal read)
++## Tutorial stall log
+@@ -95,10 +95 @@
+-| Stall | Where | Kind |
+-|---|---|---|
+-| Three runtimes (Node, JDK, Clojure CLI) + **not on Clojars** (`:local/root`) | tutorial index | packaging. Pre-alpha honesty, still a first-hour tax. |
+-| Part 1 is **offline app-db** with `{:status :loaded}` RemoteData | 01 | extra concept; Part 2 replaces it. Easy to copy Part 1 into production. |
+-| Forgot `(:require [re-frame.resources])` | 02 warning | loud `:rf.error/resources-artefact-missing` — good. |
+-| Tutorial articles `:scope :rf.scope/global` | 02 | **contradicts Conduit** (viewer-scoped articles because `favorited` is per-viewer). Copying tutorial into a RealWorld payload **is** the leak the flagship exists to prevent. |
+-| Tutorial 04 favourite invalidates **global** article tags | 04 | same mismatch. Would trip `:rf.warning/mutation-scope-mismatch` against Conduit-shaped reads. |
+-| Hosted API `https://api.realworld.io/api` in 02 vs README `https://api.realworld.show/api` | 02 vs Conduit README | **docs drift.** Current RealWorld OpenAPI server URL is `https://api.realworld.show/api` (openapi.yml, 2026-09-14). Offline stub path is documented. |
+-| Index.md sample resource is global, shows idle-until-ensure | index | cause is taught; scope is oversimplified. |
+-| Xray in tutorial HTML, **absent** from Conduit `index.html` | tutorial vs flagship | J13 not discoverable in the example people clone. |
++**Clocked.** The independent read was at `a5f883b569`. Overnight `19dffcdb42`…`cc26e2d900` repaired several **BLOCKING** items. Present-tense stalls below are **HEAD `f2f9ffd654`**. Do not re-cite repaired rows as current.
+@@ -106 +97,15 @@
+-No retired `useQuery`-era spellings in the tutorial path followed. Public vocabulary matches trunk (`reg-resource`, `ensure`, `:rf/resource`).
++| Stall | Where | Kind | Status at HEAD |
++|---|---|---|---|
++| Unnamed `day8/re-frame2-http` | 02 deps snippet at the pin | packaging | **Landed repair** — artefact named, leave-out called out |
++| `api.realworld.io` vs `.show` | 02 vs README | docs drift | **Landed repair** — `.show` + local Bun backend note |
++| Part 4 populate global detail from authenticated favourite | 04 at the pin | taught leak | **Landed repair** — viewer/session descriptors; Part 3 moves reads |
++| Part 5 tests a machine Part 3 didn’t build; unguarded `js/` | 05 | continuity | **Landed repair** — tests `conduit.auth`; warns `js/` |
++| Three runtimes + not on Clojars | index | packaging | **Still true** (pre-alpha) |
++| Part 1 offline app-db RemoteData | 01 | pedagogy | **Still true**; taught-then-replaced on purpose — not a compile stall |
++| Forgot `re-frame.resources` | 02 warning | loud error | **Still true** (good) |
++| Part 2 articles `:scope :rf.scope/global` | 02 | timed lesson | **Still present**, now labelled “Part 3 changes this” |
++| `:revalidate-on` never mentioned | tutorial/ | migrant surprise | **Still true** (0 hits) |
++| Absent `:stale-after-ms` = never-stale untaught | 02 samples always 60000 | default divergence | **Still true** |
++| Xray in tutorial HTML, absent from Conduit `index.html` | tutorial vs flagship | J13 | **Still true** |
++
++No retired `useQuery`-era spellings in the path followed. Public vocabulary matches trunk (`reg-resource`, `ensure`, `:rf/resource`).

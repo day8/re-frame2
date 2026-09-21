@@ -1,0 +1,220 @@
+[
+  {
+    "t": 1789391433788,
+    "k": "home.load_ms",
+    "v": 719
+  },
+  {
+    "t": 1789391433796,
+    "k": "home.previews",
+    "v": 10
+  },
+  {
+    "t": 1789391433801,
+    "k": "home.fav_buttons",
+    "v": [
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1"
+    ]
+  },
+  {
+    "t": 1789391433803,
+    "k": "home.nav",
+    "v": "conduitHomeSign inSign up"
+  },
+  {
+    "t": 1789391435485,
+    "k": "login.ms_to_home_list",
+    "v": 874
+  },
+  {
+    "t": 1789391435487,
+    "k": "login.nav",
+    "v": "conduitHome New Article Settings demoLogout"
+  },
+  {
+    "t": 1789391435489,
+    "k": "home.fav_buttons_logged_in",
+    "v": [
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1"
+    ]
+  },
+  {
+    "t": 1789391435492,
+    "k": "home.tabs",
+    "v": [
+      "Home",
+      "New Article",
+      "Settings",
+      "demo",
+      "Logout",
+      "Your Feed",
+      "Global Feed"
+    ]
+  },
+  {
+    "t": 1789391436776,
+    "k": "article.h1",
+    "v": "Hello, Conduit"
+  },
+  {
+    "t": 1789391436777,
+    "k": "article.nav",
+    "v": "conduitHome New Article Settings demoLogout"
+  },
+  {
+    "t": 1789391436779,
+    "k": "article.buttons",
+    "v": [
+      "Unfavorite Article (1)",
+      "Follow stub-bot",
+      "Follow stub-bot",
+      "Post Comment"
+    ]
+  },
+  {
+    "t": 1789391438374,
+    "k": "article.fav_click",
+    "v": {
+      "before": "Unfavorite Article (1)",
+      "immediate": "Unfavorite Article (1)",
+      "ms_immediate": 34,
+      "settled": "Favorite Article (0)"
+    }
+  },
+  {
+    "t": 1789391439964,
+    "k": "article.fav_click_2",
+    "v": {
+      "immediate": "Favorite Article (0)",
+      "settled": "Unfavorite Article (1)",
+      "ms": 1552
+    }
+  },
+  {
+    "t": 1789391441203,
+    "k": "article.follow",
+    "v": {
+      "before": "Follow stub-bot",
+      "after": "Unfollow stub-bot"
+    }
+  },
+  {
+    "t": 1789391442776,
+    "k": "comment",
+    "v": {
+      "cards_before": 2,
+      "cards_after": 3,
+      "body_present": true
+    }
+  },
+  {
+    "t": 1789391444271,
+    "k": "home.fav_buttons_after_article_actions",
+    "v": [
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1"
+    ]
+  },
+  {
+    "t": 1789391445546,
+    "k": "feed.previews",
+    "v": 10
+  },
+  {
+    "t": 1789391445547,
+    "k": "feed.first",
+    "v": "stub-bot2026-01-01T00:00:00.000Z 1Hello, ConduitA short greeting from the shared demo backend.Read more...introdemo"
+  },
+  {
+    "t": 1789391447315,
+    "k": "profile.nav",
+    "v": "conduitHome New Article Settings demoLogout"
+  },
+  {
+    "t": 1789391448540,
+    "k": "profile.favorited_previews",
+    "v": 8
+  },
+  {
+    "t": 1789391448542,
+    "k": "profile.favorited_titles",
+    "v": [
+      "Hello, ConduitA short greeting from the shared demo backend.Read more...introdemo",
+      "Hello, Conduit",
+      "Article 3Synthetic demo article #3 (pagination set).Read more...demore-frame",
+      "Article 3",
+      "Article 6Synthetic demo article #6 (pagination set).Read more...democlojure",
+      "Article 6",
+      "Article 9Synthetic demo article #9 (pagination set).Read more...demore-frame",
+      "Article 9",
+      "Article 12Synthetic demo article #12 (pagination set).Read more...democlojure",
+      "Article 12",
+      "Article 15Synthetic demo article #15 (pagination set).Read more...demore-frame",
+      "Article 15"
+    ]
+  },
+  {
+    "t": 1789391451347,
+    "k": "logout.nav",
+    "v": "conduitHomeSign inSign up"
+  },
+  {
+    "t": 1789391451347,
+    "k": "logout.url",
+    "v": "http://127.0.0.1:8050/realworld-resources/"
+  },
+  {
+    "t": 1789391452786,
+    "k": "home.fav_buttons_after_logout",
+    "v": [
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "1"
+    ]
+  },
+  {
+    "t": 1789391452812,
+    "k": "console.errors",
+    "v": [
+      "WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED",
+      "shadow-cljs - remote-error Event",
+      "WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED",
+      "shadow-cljs - remote-error Event",
+      "WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED",
+      "shadow-cljs - remote-error Event"
+    ]
+  }
+]
