@@ -55,13 +55,47 @@ The shell honours a second compile-time flag —
   manual `?` chip still renders so on-demand help is reachable; the
   modal just doesn't pop unprompted. Visitors arriving at a
   published docs site already arrived with intent.
-- **Xray preload omitted.** The Xray devtools preload
-  (`day8.re-frame2-xray.preload`) is wired via shadow-cljs's
-  `:devtools/preloads` slot — which the documentation specifies
-  applies to `watch`/`compile` only, NOT `release`. The static-export
-  build is a `release`, so that devtools preload is omitted. This does
-  **not** remove the Xray panel embed that Story imports directly; the
-  published shell can retain its inspector without the devtools preload.
+- **Xray preload omitted, and the Xray band is not mounted.** The Xray
+  devtools preload (`day8.re-frame2-xray.preload`) is wired via
+  shadow-cljs's `:devtools/preloads` slot — which the documentation
+  specifies applies to `watch`/`compile` only, NOT `release`. The
+  static-export build is a `release`, so that devtools preload is
+  omitted.
+
+  Until rf2-n7lql this bullet went on to say that the omission did not
+  remove Story's directly-imported Xray panel embed, and that "the
+  published shell can retain its inspector without the devtools
+  preload". **That was wrong, and the published export was crashing on
+  it.** Xray cannot render in a `release` build, for two independent
+  reasons:
+
+  1. **Nothing registers Xray.** The preload is what normally installs
+     the `:rf.xray/*` instruction set, and `release` ignores the preload
+     slot. Story never calls `day8.re-frame2-xray.core/init!`, which is
+     the only other supported install route. Seating Xray's frame
+     assembles its image by globbing `day8.re-frame2-xray.**` over the
+     registrar, so with nothing registered that glob matches an empty
+     pool and core's deliberate `:rf.error/image-zero-match` guard
+     fires.
+  2. **Xray's views are undefined.** rf2-y8doi.60 gates Xray's four
+     top-level `rf/reg-view` forms on `re-frame.interop/debug-enabled?`,
+     and `reg-view` carries its `def` INSIDE the gate, so under
+     `:advanced` with `goog.DEBUG` false those symbols never bind.
+     Ungated consumers that render them throw a `TypeError`.
+
+  Both guards are correct and neither is weakened: the defect was asking
+  a dev tool to work in a build that deliberately elides it. So under
+  `static-mode?` the shell omits the RHS Xray band entirely and does not
+  drive Xray on variant selection — no `core/set-target-frame!`, no
+  `xray-preset` cross-host wiring or per-variant preset. This matches
+  the "published export is dev-tool-free" note already carried by
+  `:story-static/counter-with-stories` in
+  `implementation/shadow-cljs.edn`.
+
+  The embed's namespaces are still `:require`d and so are still present
+  in the bundle — genuine exclusion is build placement, a separate and
+  larger change per `day8.re-frame2-xray.core/init!` §Production
+  posture — but nothing mounts or drives them.
 - **Shadow-cljs hot-reload connection elided.** `release` builds
   don't include the websocket bridge to the dev server, so the bundle
   is self-contained the moment it leaves the compiler. The
@@ -279,13 +313,14 @@ their `staticwebapp.config.json` under Azure, etc.).
 | The chrome-level toolbar + mode-tabs strip | bundled |
 | The a11y panel (axe-core lazy-load endpoint stays the same) | bundled |
 | The per-variant trace-buffer infra (feeds the schema-validation panel) | bundled |
-| Story's directly imported Xray panel embed | bundled; distinct from the omitted devtools preload |
+| Story's directly imported Xray panel embed | bundled (the `:require` is unchanged) but NOT mounted — see §Static-mode runtime semantics, rf2-n7lql |
 
 ## What gets stripped
 
 | Surface | Why |
 |---|---|
-| `:devtools/preloads` (Xray preload) | `release` builds ignore the preload slot; Story's direct Xray embed import is separate |
+| `:devtools/preloads` (Xray preload) | `release` builds ignore the preload slot |
+| The RHS Xray band + the per-variant Xray drive | gated on `(not static-mode?)`; Xray cannot render in a `release` build (rf2-n7lql) |
 | `shadow-cljs` websocket bridge | `release` builds don't include the dev-server connection |
 | Registrar-fingerprint poll (the 500ms `setInterval`) | gated on `(not static-mode?)`; DCEs under `:advanced` |
 | First-visit help overlay auto-open | gated on `(not static-mode?)` |
