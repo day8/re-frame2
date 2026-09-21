@@ -1,0 +1,8 @@
+P4.1 idle before any cause (the sub, in the new frame) => {:status :idle, :has-data? false, :loading? false}
+P4.2 ensure with a :cause (no owner) -> stub answers inside the drain -> resource-state => {:status :loaded, :data {:article {:slug "intro", :title "Welcome"}}}
+P4.3 the sub after the cause => {:status :loaded, :has-data? true, :loading? false, :fetching? false, :stale? false}
+P4.4 first-load failure is :error with no data => {:status :error, :error {:status 503, :kind :rf.http/http-5xx}}
+P4.5 a fresh ensure is a cache hit: ensure intro again; the stub table has no second reply queued and nothing is fetched => {:status :loaded}
+P4.6 an unstubbed url: what does the documented route do with a request the table does not answer? => {:status :error, :error {:message "no stub matched", :method :get, :url "/api/articles/nope", :kind :rf.http/transport}}
+P4.7 ceremony: requires used by this file => [re-frame.core re-frame.resources re-frame.http.managed re-frame.http.test-support re-frame.test-support re-frame.schemas]
+DONE

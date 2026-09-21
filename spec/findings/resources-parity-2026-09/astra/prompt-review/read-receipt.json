@@ -1,0 +1,17 @@
+{
+  "timeUtc": "2026-09-14T12:27:55.0711924Z",
+  "head": "880223931199c22f626f1653372144185abd0c1d",
+  "bead": "rf2-11w9f",
+  "siblings": [
+    {
+      "author": "grok",
+      "source": "ai/findings/Resources/grok/prompt.md",
+      "sha256": "8127E4AAC603C022A2B4B1694456304AD41E9C17D4085F505F964530C801AA12"
+    },
+    {
+      "author": "fable",
+      "source": "ai/findings/Resources/fable/prompt.md",
+      "sha256": "9AB7E33FD5194357FF312939A1D2A08532D0E537EB8F081BA97FEE1F3CA3E0F4"
+    }
+  ]
+}

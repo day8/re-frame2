@@ -1,0 +1,6 @@
+P2b.1 baseline loaded; ledger => {:ledger [[:get "/api/articles/hello"] [:get "/api/articles"] [:get "/api/articles/feed"]], :feed [:loaded 1 nil]}
+P2b.2 correct mutation: at :reply-to time, what do list and feed read, and how many requests are in the ledger? => {:reply-to-saw {:slug "hello", :ledger 4, :reply :ok, :list [:loaded 3 nil], :feed [:loaded 3 nil]}, :ledger-now 6, :issued-after-reply [[:get "/api/articles"] [:get "/api/articles/feed"]]}
+P2b.3 REAL PLANTED FAULT: mutation forgets the session feed descriptor -> feed must NOT refetch and must NOT be marked stale; assertion goes red => {:issued-after-reply [[:get "/api/articles"]], :feed-state [:loaded 5 nil], :feed-refetched? false, :verdict :FAULT-DETECTED}
+P2b.4 diagnosis surface: the mutation row's :affected-keys (optimistic reach) vs its declared invalidation reach => {:affected-keys [[:rf.scope/global :p2b/article {:slug "hello"}] [:rf.scope/global :p2b/list {}]], :declared-invalidates-note "the registration's :invalidates fn is app code; see step 5 for what the framework exposes"}
+P2b.5 diagnosis surface: handler-meta for the mutation (what an agent/Xray can read without executing) => {:THREW "Wrong number of args (2) passed to: re-frame.core/handler-meta"}
+DONE

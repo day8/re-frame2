@@ -1,0 +1,69 @@
+{
+  "before": {
+    "refresh-error": null,
+    "previous?": false,
+    "loading?": false,
+    "fetching?": false,
+    "stale?": false,
+    "has-data?": true,
+    "status": "loaded",
+    "error": null,
+    "data": {
+      "article": {
+        "description": "Synthetic demo article #22 (pagination set).",
+        "slug": "article-22",
+        "updatedAt": "2025-12-10T00:00:00.000Z",
+        "createdAt": "2025-12-10T00:00:00.000Z",
+        "title": "DEMO-ONLY-SYNTHETIC",
+        "author": {
+          "username": "stub-bot",
+          "bio": "A friendly stub.",
+          "image": "",
+          "following": false
+        },
+        "favoritesCount": 0,
+        "body": "Canned demo content for article 22.",
+        "favorited": false,
+        "tagList": [
+          "demo",
+          "clojure"
+        ]
+      }
+    }
+  },
+  "after": {
+    "refresh-error": null,
+    "previous?": false,
+    "loading?": false,
+    "fetching?": false,
+    "stale?": false,
+    "has-data?": true,
+    "status": "loaded",
+    "error": null,
+    "data": {
+      "article": {
+        "description": "Synthetic demo article #22 (pagination set).",
+        "slug": "article-22",
+        "updatedAt": "2025-12-10T00:00:00.000Z",
+        "createdAt": "2025-12-10T00:00:00.000Z",
+        "title": "DEMO-ONLY-SYNTHETIC",
+        "author": {
+          "username": "stub-bot",
+          "bio": "A friendly stub.",
+          "image": "",
+          "following": false
+        },
+        "favoritesCount": 0,
+        "body": "Canned demo content for article 22.",
+        "favorited": false,
+        "tagList": [
+          "demo",
+          "clojure"
+        ]
+      }
+    }
+  },
+  "requests": 1,
+  "conclusion": "An explicit global claim is honored across viewer changes; the programmer must correctly identify viewer-relative representations.",
+  "limit": "Isolated erroneous registration, not the correctly scoped reference Conduit declarations or a backend authorization test."
+}

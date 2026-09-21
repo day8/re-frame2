@@ -1,0 +1,6 @@
+reqA true reqB true
+TQ2.1 context-rollback recipe under overlap with server drift => {"after_A_apply":{"favorited":true,"count":2},"after_B_apply":{"favorited":false,"count":1},"after_B_settled_and_refetched":{"favorited":false,"count":7},"after_A_fail_restores_A_snapshot":{"favorited":false,"count":1},"after_onSettled_refetch":{"favorited":false,"count":7},"clobber_window":true}
+TQ2.2 variables pattern: cache untouched while pending; UI reads mutation.variables => {"cache":{"favorited":false,"count":7},"pending":"pending","variables":{"fav":true},"isPending":true}
+TQ2.3 after settle + refetch => {"favorited":true,"count":8}
+TQ2.4 ledger => [["GET","/api/articles/hello"],["POST","/api/articles/hello/favorite"],["DELETE","/api/articles/hello/favorite"],["GET","/api/articles/hello"],["GET","/api/articles/hello"],["POST","/api/articles/hello/favorite"],["GET","/api/articles/hello"]]
+DONE

@@ -1,0 +1,40 @@
+--- 
++++ 
+@@ -41,3 +41,3 @@
+-**Disproof.** SWR `rollbackOnError` records/rolls back for you. Query’s **UI** recipe (render `variables`) needs no cache inverse. TkDodo has a concurrent-optimistic guide.
+-
+-**What remains.** Runtime-recorded inverse + default `:on-conflict :invalidate` is BUILT (tests + Conduit apply). Query cache recipe still clobbers if you follow the docs literally. **Keep the contested default; do not claim “only we do optimistic.”**
++**Disproof.** SWR `rollbackOnError` records/rolls back for you. Query’s **UI** recipe (render `variables`) needs no cache inverse. Query **`mutation.scope`** serialises overlapping writes. TkDodo has a concurrent-optimistic guide. A sibling (fable) **executed** a clobber window on the cache recipe (`clobber_window: true`) until `onSettled` refetch; that is their measurement, not grok’s.
++
++**What remains.** Runtime-recorded inverse + default `:on-conflict :invalidate` is BUILT (tests + Conduit apply). Query cache recipe still clobbers if you follow *that* docs page literally. **Keep the contested default; do not claim “only we do optimistic” or “Query cannot handle overlap.”**
+@@ -165,3 +165,3 @@
+-### O2. First-hour path without a hook wrapper (S)
+-
+-**Jobs:** J1.  
++### O2. Remaining first-hour honesty (S) — most of the independent O2 **landed**
++
++**Jobs:** J1, J3, J10.  
+@@ -169,4 +169,4 @@
+-**Evidence:** three runtimes, `:local/root`, Part 1 throwaway RemoteData, API URL drift (`.io` vs `.show`).  
+-**Change:** Part 2 as the first *server* page; Part 1 stays routing-only without a fake `:status` slice; pin the hosted API to the current RealWorld server URL **or** default the tutorial to the in-repo stub.  
+-**Removes:** a deleted feed implementation; a 404 on `api.realworld.io`.  
+-**Does not add** a `useQuery`-shaped helper.
++**Evidence at HEAD:** HTTP artefact and `.show` URL **repaired** (`19dffcdb42`). Part 1 RemoteData is taught-then-replaced on purpose (do not treat as a blocking stall). **Still missing:** tutorial never names `:revalidate-on`; samples always set `:stale-after-ms 60000`, so the absent = never-stale default is untaught.  
++**Change:** one paragraph + optional migration-profile map (stale-at-once, focus/reconnect on).  
++**Removes:** silent never-stale surprise.  
++**Does not add** a `useQuery`-shaped helper. Do not re-add the HTTP dep.
+@@ -202,6 +202,8 @@
+-1. O1 + O3 (honest flagship + Xray).  
+-2. O2 (tutorial first hour).  
+-3. O4 (docs omit-path).  
+-**Stop.** Do not start persist, GraphQL, or a hook helper. Re-run the closeness test when Query v6 is stable on React, when Conduit is rewritten, or when a 016 deferred slice lands.
+-
+-Hot-zone if O2/O1 touch `docs/resources/tutorial/**` — not Spec 016 / API.md unless the tutorial’s global-scope sample is treated as normative (it must not be).
++1. Translation-page keep-previous + fair Query portraits (report rec #1).  
++2. O2 remaining nits (absent stale default, `:revalidate-on`).  
++3. O1 + O3 (Conduit Xray + “not in this example”). **shadow-cljs.edn is sequential** if a preload is required.  
++4. O4 persist omit-path.  
++5. After Xray is visible: write-reach lint (optimistic keys ∖ settlement reach) in the panel only.  
++**Stop.** Do not start persist, GraphQL, or a hook helper. Do not re-do landed tutorial HTTP/URL/scope repairs.
++
++Hot-zone: `implementation/shadow-cljs.edn` for O1 preload; tutorial/docs otherwise. Not Spec 016.

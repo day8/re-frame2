@@ -1,0 +1,5 @@
+Syntax error compiling at (C:\Users\miket\AppData\Local\Temp\claude\C--Users-miket-code-re-frame2\42c31ef4-cd81-4ccf-920a-6070745a6efa\scratchpad\rprobe\probe2b.clj:93:46).
+No such var: rf/resource-meta
+
+Full report at:
+C:\Users\miket\AppData\Local\Temp\clojure-456141373215698136.edn

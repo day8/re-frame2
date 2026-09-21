@@ -1,0 +1,619 @@
+{
+  "outcomes": [
+    "fail",
+    "pass",
+    "fail"
+  ],
+  "snapshots": [
+    {
+      "broken": true,
+      "oraclePass": false,
+      "body": "favorites:  count=0 ",
+      "data": {
+        "articles": [],
+        "articlesCount": 0
+      },
+      "ledger": [
+        {
+          "id": 1,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 1,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 2,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 2,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 3,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 3,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 4,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 4,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 5,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 5,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 6,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 6,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 7,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 7,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 8,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 8,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 9,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 9,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 10,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 10,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 11,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 11,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 12,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 12,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 13,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 13,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 14,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 14,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 15,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 15,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 16,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 16,
+          "delivered": true,
+          "failed": false
+        }
+      ],
+      "server": {
+        "slug": "hello-conduit",
+        "title": "Hello Conduit",
+        "favorited": true,
+        "favoritesCount": 1
+      }
+    },
+    {
+      "broken": false,
+      "oraclePass": true,
+      "body": "favorites: hello-conduit:true:1 count=1 ",
+      "data": {
+        "articles": [
+          {
+            "slug": "hello-conduit",
+            "title": "Hello Conduit",
+            "favorited": true,
+            "favoritesCount": 1
+          }
+        ],
+        "articlesCount": 1
+      },
+      "ledger": [
+        {
+          "id": 1,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 1,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 2,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 2,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 3,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 3,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 4,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 4,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 5,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 5,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 6,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 6,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 7,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 7,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 8,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 8,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 9,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 9,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 10,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 10,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 11,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 11,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 12,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 12,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 13,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 13,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 14,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 14,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 15,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 15,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 16,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 16,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 17,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 17,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 18,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 18,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 19,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 19,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 20,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 20,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 21,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 21,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 22,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 22,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 23,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 23,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 24,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 24,
+          "delivered": true,
+          "failed": false
+        }
+      ],
+      "server": {
+        "slug": "hello-conduit",
+        "title": "Hello Conduit",
+        "favorited": true,
+        "favoritesCount": 1
+      }
+    },
+    {
+      "broken": true,
+      "oraclePass": false,
+      "body": "favorites:  count=0 ",
+      "data": {
+        "articles": [],
+        "articlesCount": 0
+      },
+      "ledger": [
+        {
+          "id": 1,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 1,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 2,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 2,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 3,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 3,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 4,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 4,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 5,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 5,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 6,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 6,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 7,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 7,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 8,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 8,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 9,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 9,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 10,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 10,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 11,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 11,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 12,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 12,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 13,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 13,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 14,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 14,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 15,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 15,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 16,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 16,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 17,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 17,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 18,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 18,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 19,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 19,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 20,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 20,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 21,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 21,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 22,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 22,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 23,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 23,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 24,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 24,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 25,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 25,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 26,
+          "kind": "detail",
+          "viewer": "Alice",
+          "commitOrder": 26,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 27,
+          "kind": "list",
+          "viewer": "Alice",
+          "commitOrder": 27,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 28,
+          "kind": "favorites",
+          "viewer": "Alice",
+          "commitOrder": 28,
+          "delivered": true,
+          "failed": false
+        },
+        {
+          "id": 29,
+          "kind": "write",
+          "viewer": "Alice",
+          "commitOrder": 29,
+          "delivered": true,
+          "failed": false
+        }
+      ],
+      "server": {
+        "slug": "hello-conduit",
+        "title": "Hello Conduit",
+        "favorited": true,
+        "favoritesCount": 1
+      }
+    }
+  ]
+}

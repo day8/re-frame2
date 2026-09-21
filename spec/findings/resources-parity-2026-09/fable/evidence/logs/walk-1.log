@@ -1,0 +1,28 @@
+home.load_ms 1829
+home.article_previews 10
+home.first_preview_text "stub-bot2026-01-01T00:00:00.000Z 1Hello, ConduitA short greeting from the shared demo backend.Read more...introdemo"
+home.first_fav_button_text "1"
+after_fav_logged_out.url "http://127.0.0.1:8050/realworld-resources/login"
+login.url "http://127.0.0.1:8050/realworld-resources/"
+login.nav "conduitHome New Article Settings demoLogout"
+article.h1 "Hello, Conduit"
+article.fav_button_before "Unfavorite Article (1)"
+article.fav_button_immediately_after_click {"text":"Unfavorite Article (1)","ms":45}
+article.fav_button_after_settle ""
+home.fav_buttons_after_favourite ["1","0","0","1","0","0","1","0","0","1"]
+profile.favorites_previews 8
+article.follow_button_before ""
+article.follow_click_error "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"ollow\")')"
+article.follow_button_after ""
+home.your_feed_click_error "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('a:has-text(\"Your Feed\")')."
+feed.previews 10
+comment.fill_error "TimeoutError: page.fill: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('textarea')\u001b[22m\n"
+comment.submit_error "TimeoutError: page.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form button[type=\"submit\"], b"
+comment.count_before_after [3,3]
+comment.body_text_present false
+logout.click_error "TimeoutError: page.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"logout\"), bu"
+logout.url "http://127.0.0.1:8050/realworld-resources/login"
+logout.nav "conduitHomeSign inSign up"
+home.fav_buttons_after_logout []
+console.errors_and_warnings [{"type":"warning","text":"[re-frame] reg-view :realworld-resources.views/article-list — root element is :<>; data-rf2-source-coord skipped (Spec 006 §Source-coord annotation: pair tools fall back to :rf/id for non-DOM roots)."},{"type":"error","text":"shadow-cljs watch for build :realworld-resources not running!"},{"type":"error","text":"shadow-cljs watch for build :realworld-resources not running!"},{"type":"error","text":"shadow-cljs watch for build :realworld-resources not running!"},{"type":"warning","text":"[re-frame] reg-view :realworld-resources.views/article-list — root element is :<>; data-rf2-source-coord skipped (Spec 006 §Source-coord annotation: pair tools fall back to :rf/id for non-DOM roots)."},{"type":"error","text":"shadow-cljs watch for build :realworld-resources not running!"},{"type":"warning","text":"[re-frame] reg-view :realworld-resources.views/article-list — root element is :<>; data-rf2-source-coord skipped (Spec 006 §Source-coord annotation: pair tools fall back to :rf/id for non-DOM roots)."},{"type":"error","text":"shadow-cljs watch for build :realworld-resources not running!"},{"type":"error","text":"shadow-cljs watch for build :realworld-resources not running!"},{"type":"warning","text":"[re-frame] reg-view :realworld-resources.views/article-list — root element is :<>; data-rf2-source-coord skipped (Spec 006 §Source-coord annotation: pair tools fall back to :rf/id for non-DOM roots)."},{"type":"error","text":"shadow-cljs watch for build :realworld-resources not running!"},{"type":"error","text":"WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"},{"type":"error","text":"shadow-cljs - remote-error Event"},{"type":"error","text":"WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"},{"type":"error","text":"shadow-cljs - remote-error Event"},{"type":"error","text":"WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"},{"type":"error","text":"shadow-cljs - remote-error Event"},{"type":"error","text":"WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"},{"type":"error","text":"shadow-cljs - remote-error Event"},{"type":"error","text":"WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED"}]
+DONE

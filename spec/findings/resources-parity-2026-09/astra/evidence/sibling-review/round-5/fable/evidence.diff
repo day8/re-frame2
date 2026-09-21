@@ -1,0 +1,26 @@
+--- ai\findings\Resources\astra\evidence\sibling-review\round-3\fable\evidence.md
++++ ai\findings\Resources\fable\evidence.md
+@@ -252 +252,23 @@
+ `probes/deps.edn` is the exact dependency file used. Expected sentinels: every log ends in `DONE`; P1.13, P2b.3, TQ.18 read `FAULT-DETECTED`; P2.8 reads `FAULT-MISSED` (the masked fault is the expected value, see P2.8).
++
++## 9. Verifications after the sibling review (2026-09-14, later the same evening)
++
++Each is a source read at trunk `f680007c6b7d` (no studied path changed since the pin). "Positive control" is the neighbouring string that proves the grep can see the file.
++
++| # | Claim (origin) | Command | Result | Disposition |
++|---|---|---|---|---|
++| V1 | `clear-resource` / `clear-mutation` exist though `spec/API.md` says otherwise (this folder's scorecard-verification agent) | `grep -n "clear-resource" implementation/core/src/re_frame/core.cljc`; `sed -n '466,475p' spec/API.md` | `core.cljc:1232-1234` delegates `(rf/clear :resource id)` to `rf.core-resources/clear-resource`; the wrappers live in the internal `re-frame.core-resources` ns (`:36`, `:83`, `:127`); `spec/API.md` rows say "there is no `clear-resource` name (rf2-kuky.80)"; the generated manifest has 0 hits, the metadata sidecar 3 (its note) | **withdrawn** — astra's reading was right: public name is `rf/clear`; the pages agree |
++| V2 | tutorial registers viewer-relative reads as global (astra, grok) | `grep -n "rf.scope/global\|api.realworld" docs/resources/tutorial/02-server-data.md`; same for `04` | `02:66,80` global on list and detail; `02:34` `api.realworld.io`; `04:67-78` global tags and `{:from-db :conduit/session}` only for the feed; `04:71,207` populate the global detail from the favourite reply; `04:170` "writes are fail-open on a missing scope"; Conduit README `:221` `api.realworld.show`; Conduit `resources.cljs:124,144,163` `{:from-db :realworld/viewer}` | **adopted** (R15 DOCS, D1 items i–ii) |
++| V3 | a dev-mode write-side scope tripwire exists (grok's "mismatch warning") | `grep -rn "mutation-scope-mismatch" implementation/resources/src`; `spec/016-Resources.md:878` | `mutation_events.cljc:916-946`; 016 line 878 defines `:rf.warning/mutation-scope-mismatch` (fires when a descriptor matches zero entries in its scope while the tags match an entry in another scope; `:cross-scope? true` never flagged; dev-only) ; 2 test files | **adopted** (R5 ERGO, report §4 BUILT) — source-traced, not exercised |
++| V4 | the optimistic reach is already recorded in a trace (astra) | `grep -n "optimistic\|affected-keys\|authoritative" implementation/resources/src/re_frame/resources/mutation_events.cljc` | `:539-543` `:rf.mutation/optimistic-reconciled` records which optimistic keys the authoritative write owned; 016 line 863: `:affected-keys` carries populated, patched, removed and stale-marked keys | **adopted** (L1 rewritten to read existing records; no runtime change) |
++| V5 | route `:after` is dispatch order only; no data waterfall (astra, grok) | `grep -n ":after" spec/016-Resources.md` | line 1307: "`:after` is dispatch-order only, not a data-waterfall … a true data-waterfall … is a deferred slice" | **adopted** (R10 split: DIVERGENT + TARGET) |
++| V6 | six conformance fixtures (grok) | `ls spec/conformance/fixtures \| grep "^resources-"` | 6: dedupe-join, ensure-fresh-skip, owner-release-gc, refresh-error-keeps-data, scope-fail-closed, stale-reply-suppression | **adopted** (matrix controls) |
++| V7 | Conduit sets stale/GC explicitly (astra, grok) | `grep -n "stale-after-ms\|gc-after-ms" examples/real-apps/realworld_resources/resources.cljs` | `:41`, `:47` defs; `:125-126`, `:145-146` on registrations | **adopted** (R4 DOCS) |
++| V8 | Conduit's page has no Xray host (grok) | `grep -c -i xray examples/real-apps/realworld_resources/index.html` | 0 (and `core.cljs:211` says so) | consistent; D3b added |
++| A | `docs/api/re-frame.resources.md:674` names `:rf.resource.internal/aborted` (this folder's agent) | `grep -rn "aborted" docs/api/*.md` | 0 hits on the resources page; positive control `:rf.http/aborted` on `re-frame.http.md` reads 4 | **withdrawn** |
++| B | tutorial spells `:sensitive?` (this folder's stall-log agent) | `grep -rn "sensitive" docs/resources/tutorial/*.md` | `02:123` lists `:sensitive`; `03:373` `:sensitive [[:auth :token]]`; no `:sensitive?` | **withdrawn** |
++| C | scorecard `:keep-previous?` attribution (this folder's agent) | `grep -n -i "keep-previous" docs/resources/coming-from-tanstack-query.md` | `:194` "`:keep-previous?` on the route/resource" | **kept** (H1) |
++| D | tutorial "exactly two keys" / "Required" (stall log) | `grep -rn "Required\|exactly two" docs/resources/tutorial/*.md` | `01:77`, `04:165` exist; truth of the claims not re-read | kept as agent-reported |
++| E | Part 1's offline slice is a throwaway concept (grok) | `grep -n "Part 2" docs/resources/tutorial/01-pages-and-state.md` | `:4`, `:10`, `:63` say Part 2 replaces it | **declined** |
++
++Also checked: the tutorial HTML "Xray rail" grok cites could not be located under `docs/resources/tutorial` (no `.html` tracked there); not relied on.

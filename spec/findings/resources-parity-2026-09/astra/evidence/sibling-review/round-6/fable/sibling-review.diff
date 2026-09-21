@@ -1,0 +1,28 @@
+--- 
++++ 
+@@ -54,0 +55,25 @@
++
++## 7. Round two (2026-09-15)
++
++**What moved in the siblings.** Grok: nothing since 2026-09-14 23:00. Astra: revised its report, matrix, scorecard audit, evidence and evaluation plan between 23:25 and 23:31, added `sibling-review.md`, and drafted `evidence/tutorial-repair-bead.md` (bead text, not filed). Astra read this folder's report before its final hand-off and snapshotted it under `evidence/sibling-review/round-4/fable/`. Only the diffs against astra's `evidence/independent-draft/` copies were read this round (`evidence.md` §10).
++
++**Astra's critique of this report, and what was done with it.**
++
++| Astra's point | Response |
++|---|---|
++| "No comparator has a boundary at all" is too broad: scoped keys, providers and per-request clients are real boundaries | Accepted. §1 now says no comparator *refuses a registration that forgets its principal*; their boundaries are conventions that hold while remembered. |
++| Two versus three refetches in particular recipes does not establish an unavoidable competitor cost | Accepted. §1 and R5 now say the count is a recipe artefact (a `setQueryData` from the reply closes it) and the win is where the knowledge lives. |
++| The unconditional ban on read-API change is stronger than pre-alpha warrants | Accepted. DO NOT BUILD 10 now forbids only parity-motivated change, with a trigger. |
++| A two-argument `handler-meta` attempt does not justify a new arity; astra's browser run used the one-map form | Accepted and exercised: P2c.5 reads the mutation's metadata with `{:source :store :kind :mutation :id …}`. L2 withdrawn. |
++| Absence of a production HTML mount is not proof of a missing dev integration | Checked: the Conduit build declares no preloads at all (`shadow-cljs.edn`), so D3b stands, with that evidence added. |
++| Lack of a Conduit demonstration does not demote SSR or infinite to specification-only | Agreed; the SPECIFIED tier in §4 now says it means "built, tested, not yet shown". |
++| A migration-policy recipe should state per-registration freshness and frame revalidation separately | Adopted in G2 after verifying there is no frame-wide `:stale-after-ms` (016 line 1213). |
++| Try the supported test surfaces before proposing a request-ledger helper | Done: `with-request-stubs` is built on `rf/with-fx-overrides`, the seam the probes used; L3 is docs only. |
++| Follow one feature change across all affected views, with the first result, an intervening failure and recovery | Adopted as re-run step 6 in §7. |
++| The five WIN labels do not resolve the comparative evidence limits | Partly accepted: each WIN's evidence column names what was exercised and against which recipe; the labels stay because the rubric defines WIN structurally (a job the comparator cannot do the same way), not as a measured productivity gain, and the report says so in §4. |
++
++**New leads verified this round** (not from the siblings): the tutorial's "exactly two keys" claim is contradicted by tutorial 03 itself; the `:instance` "Required: yes" row is false at runtime (P2c.6); the GC timer arms after `:loaded-at` (`timers.cljc:89`).
++
++**Astra's drafted bead** (`tutorial-repair-bead.md`) matches this folder's D1 in scope and adds the Part 5 continuity defects this folder's stall log also recorded (S5.1–S5.3). No bead is filed from here; Mike's instruction stands.
++
++**Between the passes** the tutorial repair that both siblings and this folder put first landed on trunk as rf2-oyr9f (four docs commits, `19dffcdb42` … `cc26e2d900`). `evidence.md` §10 W10 lists what landed and what remains; report §6 D1 carries the same split, and the pin-time rows are annotated rather than re-scored, because nobody has yet walked the repaired chapters as a fresh consumer.

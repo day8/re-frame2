@@ -1,0 +1,36 @@
+AssertionError [ERR_ASSERTION]: Bob must not project the old viewer representation
++ actual - expected
+
++ {
++   article: {
++     author: {
++       bio: 'A friendly stub.',
++       following: false,
++       image: '',
++       username: 'stub-bot'
++     },
++     body: 'Canned demo content for article 21.',
++     createdAt: '2025-12-11T00:00:00.000Z',
++     description: 'Synthetic demo article #21 (pagination set).',
++     favorited: true,
++     favoritesCount: 1,
++     slug: 'article-21',
++     tagList: [
++       'demo',
++       're-frame'
++     ],
++     title: 'ALICE-ONLY-SYNTHETIC',
++     updatedAt: '2025-12-11T00:00:00.000Z'
++   }
++ }
+- null
+
+    at cases (C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\conduit-cases.cjs:144:10)
+    at async C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\browser-probe.cjs:39:7 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: [Object],
+  expected: null,
+  operator: 'strictEqual',
+  diff: 'simple'
+}

@@ -1,0 +1,20 @@
+P1.1 views-never-fetch: resource-state before any cause (public read) => nil
+P1.2 ensure (owner a1) -> status, ledger => {:status :loading, :ledger [[:get "/api/articles/hello"]], :args-keys (:on-failure :on-success :request :request-id)}
+P1.3 reply ok -> status/data (public resource-state) => {:status :loaded, :data {:article {:slug "hello", :title "Welcome", :favorited false, :favoritesCount 1}}}
+P1.4 fresh-skip: second ensure same key (owner a2) -> ledger unchanged, owners => {:ledger-count 1, :owners #{[:app :a 1] [:app :a 2]}, :status :loaded}
+P1.5 dedupe: two ensures of the list while in flight -> one request => {:ledger [[:get "/api/articles/hello"] [:get "/api/articles"]], :status :loading, :owners #{[:app :sidebar 1] [:route :home 1]}}
+P1.6 list reply -> loaded; tags derived from data => {:status :loaded, :tags #{[:article "second"] [:article "hello"] [:article-list]}}
+P1.7 refetch article -> :fetching with data kept => {:status :fetching, :data-kept? true, :ledger-count 3}
+P1.8 refresh FAILS 503 -> :loaded, data kept, :refresh-error set, :error nil => {:status :loaded, :data {:article {:slug "hello", :title "Welcome", :favorited false, :favoritesCount 1}}, :refresh-error {:kind :rf.http/http-5xx, :status 503}, :error nil}
+P1.9 public projection after refresh-error: resource-state keys => {:status :loaded, :refresh-error {:kind :rf.http/http-5xx, :status 503}, :error nil}
+P1.10 first-load failure 404 -> :error, no data => {:status :error, :data nil, :error {:kind :rf.http/http-4xx, :status 404}}
+P1.11 ensure again after first-load error -> refetch? ledger delta => {:new-requests 1, :status :loading}
+P1.12 stale-reply suppression: refetch A then refetch B; reply A(old) then B(new); data must be NEW => {:after-a "Welcome", :after-b "NEW", :after-late-a "NEW", :generation 7}
+P1.13 FAULT CONTROL: reply with the wrong article; an assertion on the title must go red => :FAULT-DETECTED
+P1.14 defaults: entry policy fields present on a loaded entry (stale/gc) => {:loaded-at 1789390192761}
+P1.15 entry-stale? on default-policy entry at now = loaded-at + 1 day => {:fn-arglists ([entry clock-ms]), :result false}
+P1.16 entry-stale? on :stale-after-ms 1000 entry at +2s => {:policy {}, :at+2s true, :at+0.5s false}
+P1.17 release both owners of hello -> owners empty, entry kept, timers scheduled (gc) => {:owners #{}, :status :loaded, :timers [{} {} {}], :timer-count 6}
+P1.18 leave-and-return at owner level: ensure (owner r1) in flight, release r1, reply arrives, ensure again (owner r2) => {:after-release {:status :loading, :data nil, :error nil, :refresh-error nil, :generation 10, :active-owners #{}, :revision 1}, :after-late-reply {:status :loaded, :data {:article {:slug "leave", :title "Late"}}, :error nil, :refresh-error nil, :generation 10, :active-owners #{}, :revision 2}, :return-status :loaded, :return-new-requests 0}
+P1.19 final request ledger => [[:get "/api/articles/hello"] [:get "/api/articles"] [:get "/api/articles/hello"] [:get "/api/articles/missing"] [:get "/api/articles/missing"] [:get "/api/articles/hello"] [:get "/api/articles/hello"] [:get "/api/articles/faulted"] [:get "/api/stale-soon"] [:get "/api/articles/leave"]]
+DONE

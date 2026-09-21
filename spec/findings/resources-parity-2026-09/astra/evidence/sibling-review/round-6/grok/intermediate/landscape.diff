@@ -1,0 +1,10 @@
+--- 
++++ 
+@@ -196,3 +196,4 @@
+-- Did not clone a maintained TanStack RealWorld app this phase; Phase C will look for one and otherwise use a compact scratch slice **outside this repo**.
+-- Did not run Conduit yet — that is Phase C. Run recipe recorded above.
+-- Did not read sibling `astra/` / `fable/` reports.
++- Weak community RealWorld Query ports (fable index search, attributed): `yurisldk/realworld-react-fsd` is v5 but uses no `invalidateQueries`; `jiheon788/react-query-realworld` is v4 and unmaintained. Do not treat either as a library limitation. Grok still did not run a twin.
++- Query **`mutation.scope`** serialises overlapping writes — steelman for J5, not a Resources gap.
++- Did not run Conduit in Phase A — that is Phase C. Run recipe recorded above.
++- This landscape was written **before** sibling reports. Synthesis (2026-09-15) is `sibling-synthesis.md`, not a rewrite of this survey.

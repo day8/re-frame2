@@ -1,0 +1,16 @@
+{
+  "utc": "2026-09-14T21:48:47.255930+00:00",
+  "head": "f2f9ffd654b70da97e907758cc73daa3bd205d57",
+  "merged_commits_are_ancestors": {
+    "cc26e2d900c741a065b79a4f81d648e0b8fd0d5c": true,
+    "d240f7adbd449c94853ef7ff1ac7c03ff6e2a644": true
+  },
+  "changed_from_initial_source_snapshot": [
+    "docs/resources/tutorial/01-pages-and-state.md",
+    "docs/resources/tutorial/02-server-data.md",
+    "docs/resources/tutorial/03-auth-and-forms.md",
+    "docs/resources/tutorial/04-mutations-and-invalidation.md",
+    "docs/resources/tutorial/05-test-and-ship.md",
+    "docs/resources/tutorial/index.md"
+  ]
+}

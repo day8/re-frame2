@@ -1,0 +1,1075 @@
+{
+  "membership": {
+    "before": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "articles": [
+          {
+            "description": "Synthetic demo article #3 (pagination set).",
+            "slug": "article-3",
+            "updatedAt": "2025-12-29T00:00:00.000Z",
+            "createdAt": "2025-12-29T00:00:00.000Z",
+            "title": "Article 3",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 3.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #6 (pagination set).",
+            "slug": "article-6",
+            "updatedAt": "2025-12-26T00:00:00.000Z",
+            "createdAt": "2025-12-26T00:00:00.000Z",
+            "title": "Article 6",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 6.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #9 (pagination set).",
+            "slug": "article-9",
+            "updatedAt": "2025-12-23T00:00:00.000Z",
+            "createdAt": "2025-12-23T00:00:00.000Z",
+            "title": "Article 9",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 9.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #12 (pagination set).",
+            "slug": "article-12",
+            "updatedAt": "2025-12-20T00:00:00.000Z",
+            "createdAt": "2025-12-20T00:00:00.000Z",
+            "title": "Article 12",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 12.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #15 (pagination set).",
+            "slug": "article-15",
+            "updatedAt": "2025-12-17T00:00:00.000Z",
+            "createdAt": "2025-12-17T00:00:00.000Z",
+            "title": "Article 15",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 15.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #18 (pagination set).",
+            "slug": "article-18",
+            "updatedAt": "2025-12-14T00:00:00.000Z",
+            "createdAt": "2025-12-14T00:00:00.000Z",
+            "title": "Article 18",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 18.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #21 (pagination set).",
+            "slug": "article-21",
+            "updatedAt": "2025-12-11T00:00:00.000Z",
+            "createdAt": "2025-12-11T00:00:00.000Z",
+            "title": "Article 21",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 21.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          }
+        ],
+        "articlesCount": 7
+      }
+    },
+    "faulty": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "articles": [
+          {
+            "description": "Synthetic demo article #3 (pagination set).",
+            "slug": "article-3",
+            "updatedAt": "2025-12-29T00:00:00.000Z",
+            "createdAt": "2025-12-29T00:00:00.000Z",
+            "title": "Article 3",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 3.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #6 (pagination set).",
+            "slug": "article-6",
+            "updatedAt": "2025-12-26T00:00:00.000Z",
+            "createdAt": "2025-12-26T00:00:00.000Z",
+            "title": "Article 6",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 6.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #9 (pagination set).",
+            "slug": "article-9",
+            "updatedAt": "2025-12-23T00:00:00.000Z",
+            "createdAt": "2025-12-23T00:00:00.000Z",
+            "title": "Article 9",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 9.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #12 (pagination set).",
+            "slug": "article-12",
+            "updatedAt": "2025-12-20T00:00:00.000Z",
+            "createdAt": "2025-12-20T00:00:00.000Z",
+            "title": "Article 12",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 12.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #15 (pagination set).",
+            "slug": "article-15",
+            "updatedAt": "2025-12-17T00:00:00.000Z",
+            "createdAt": "2025-12-17T00:00:00.000Z",
+            "title": "Article 15",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 15.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #18 (pagination set).",
+            "slug": "article-18",
+            "updatedAt": "2025-12-14T00:00:00.000Z",
+            "createdAt": "2025-12-14T00:00:00.000Z",
+            "title": "Article 18",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 18.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #21 (pagination set).",
+            "slug": "article-21",
+            "updatedAt": "2025-12-11T00:00:00.000Z",
+            "createdAt": "2025-12-11T00:00:00.000Z",
+            "title": "Article 21",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 21.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          }
+        ],
+        "articlesCount": 7
+      }
+    },
+    "repaired": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "articles": [
+          {
+            "description": "A second short article.",
+            "slug": "second-article",
+            "updatedAt": "2025-12-31T00:00:00.000Z",
+            "createdAt": "2025-12-31T00:00:00.000Z",
+            "title": "Second article",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "More canned demo content.",
+            "favorited": true,
+            "tagList": [
+              "demo"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #3 (pagination set).",
+            "slug": "article-3",
+            "updatedAt": "2025-12-29T00:00:00.000Z",
+            "createdAt": "2025-12-29T00:00:00.000Z",
+            "title": "Article 3",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 3.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #6 (pagination set).",
+            "slug": "article-6",
+            "updatedAt": "2025-12-26T00:00:00.000Z",
+            "createdAt": "2025-12-26T00:00:00.000Z",
+            "title": "Article 6",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 6.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #9 (pagination set).",
+            "slug": "article-9",
+            "updatedAt": "2025-12-23T00:00:00.000Z",
+            "createdAt": "2025-12-23T00:00:00.000Z",
+            "title": "Article 9",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 9.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #12 (pagination set).",
+            "slug": "article-12",
+            "updatedAt": "2025-12-20T00:00:00.000Z",
+            "createdAt": "2025-12-20T00:00:00.000Z",
+            "title": "Article 12",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 12.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #15 (pagination set).",
+            "slug": "article-15",
+            "updatedAt": "2025-12-17T00:00:00.000Z",
+            "createdAt": "2025-12-17T00:00:00.000Z",
+            "title": "Article 15",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 15.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #18 (pagination set).",
+            "slug": "article-18",
+            "updatedAt": "2025-12-14T00:00:00.000Z",
+            "createdAt": "2025-12-14T00:00:00.000Z",
+            "title": "Article 18",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 18.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #21 (pagination set).",
+            "slug": "article-21",
+            "updatedAt": "2025-12-11T00:00:00.000Z",
+            "createdAt": "2025-12-11T00:00:00.000Z",
+            "title": "Article 21",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 21.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          }
+        ],
+        "articlesCount": 8
+      }
+    },
+    "reintroduced": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "articles": [
+          {
+            "description": "Synthetic demo article #3 (pagination set).",
+            "slug": "article-3",
+            "updatedAt": "2025-12-29T00:00:00.000Z",
+            "createdAt": "2025-12-29T00:00:00.000Z",
+            "title": "Article 3",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 3.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #6 (pagination set).",
+            "slug": "article-6",
+            "updatedAt": "2025-12-26T00:00:00.000Z",
+            "createdAt": "2025-12-26T00:00:00.000Z",
+            "title": "Article 6",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 6.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #9 (pagination set).",
+            "slug": "article-9",
+            "updatedAt": "2025-12-23T00:00:00.000Z",
+            "createdAt": "2025-12-23T00:00:00.000Z",
+            "title": "Article 9",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 9.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #12 (pagination set).",
+            "slug": "article-12",
+            "updatedAt": "2025-12-20T00:00:00.000Z",
+            "createdAt": "2025-12-20T00:00:00.000Z",
+            "title": "Article 12",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 12.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #15 (pagination set).",
+            "slug": "article-15",
+            "updatedAt": "2025-12-17T00:00:00.000Z",
+            "createdAt": "2025-12-17T00:00:00.000Z",
+            "title": "Article 15",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 15.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #18 (pagination set).",
+            "slug": "article-18",
+            "updatedAt": "2025-12-14T00:00:00.000Z",
+            "createdAt": "2025-12-14T00:00:00.000Z",
+            "title": "Article 18",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 18.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "clojure"
+            ]
+          },
+          {
+            "description": "Synthetic demo article #21 (pagination set).",
+            "slug": "article-21",
+            "updatedAt": "2025-12-11T00:00:00.000Z",
+            "createdAt": "2025-12-11T00:00:00.000Z",
+            "title": "Article 21",
+            "author": {
+              "username": "stub-bot",
+              "bio": "A friendly stub.",
+              "image": "",
+              "following": false
+            },
+            "favoritesCount": 1,
+            "body": "Canned demo content for article 21.",
+            "favorited": true,
+            "tagList": [
+              "demo",
+              "re-frame"
+            ]
+          }
+        ],
+        "articlesCount": 7
+      }
+    },
+    "oracle": "second-article is a member after accepted favorite",
+    "outcomes": [
+      "fail",
+      "pass",
+      "fail"
+    ]
+  },
+  "refreshFailure": {
+    "refresh-error": {
+      "status": 503,
+      "kind": "http-5xx"
+    },
+    "previous?": false,
+    "loading?": false,
+    "fetching?": false,
+    "stale?": false,
+    "has-data?": true,
+    "status": "loaded",
+    "error": null,
+    "data": {
+      "article": {
+        "description": "A second short article.",
+        "slug": "second-article",
+        "updatedAt": "2025-12-31T00:00:00.000Z",
+        "createdAt": "2025-12-31T00:00:00.000Z",
+        "title": "Second article",
+        "author": {
+          "username": "stub-bot",
+          "bio": "A friendly stub.",
+          "image": "",
+          "following": false
+        },
+        "favoritesCount": 1,
+        "body": "More canned demo content.",
+        "favorited": true,
+        "tagList": [
+          "demo"
+        ]
+      }
+    }
+  },
+  "freshEnsure": {
+    "beforeFreshEnsure": 14,
+    "afterFreshEnsure": 14,
+    "requestsBeforeOwner": 14,
+    "requestsAfterOwner": 14
+  },
+  "dedupe": {
+    "requests": 1,
+    "retainedOwner": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "article": {
+          "description": "Synthetic demo article #20 (pagination set).",
+          "slug": "article-20",
+          "updatedAt": "2025-12-12T00:00:00.000Z",
+          "createdAt": "2025-12-12T00:00:00.000Z",
+          "title": "Article 20",
+          "author": {
+            "username": "stub-bot",
+            "bio": "A friendly stub.",
+            "image": "",
+            "following": false
+          },
+          "favoritesCount": 0,
+          "body": "Canned demo content for article 20.",
+          "favorited": false,
+          "tagList": [
+            "demo",
+            "clojure"
+          ]
+        }
+      }
+    }
+  },
+  "metadata": "{:ns realworld-resources.mutations, :file \"C:/Users/miket/code/re-frame2/examples/real-apps/realworld_resources/mutations.cljs\", :line 163, :column 1, :doc \"Favorite an article (optimistic). POST /articles/:slug/favorite.\", :rf/mutation {:doc \"Favorite an article (optimistic). POST /articles/:slug/favorite.\", :params-schema [:map [:slug :string] [:username {:optional true} :string]], :optimistic-tags #object[Function], :populates #object[Function], :invalidates #object[Function], :on-conflict :invalidate, :request #object[Function]}, :handler-fn #object[Function]}",
+  "optimisticOverlap": {
+    "older": 20,
+    "newer": 21,
+    "afterNewer": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "article": {
+          "description": "A second short article.",
+          "slug": "second-article",
+          "updatedAt": "2025-12-31T00:00:00.000Z",
+          "createdAt": "2025-12-31T00:00:00.000Z",
+          "title": "Second article",
+          "author": {
+            "username": "stub-bot",
+            "bio": "A friendly stub.",
+            "image": "",
+            "following": false
+          },
+          "favoritesCount": 1,
+          "body": "More canned demo content.",
+          "favorited": true,
+          "tagList": [
+            "demo"
+          ]
+        }
+      }
+    },
+    "afterOlder": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "article": {
+          "description": "A second short article.",
+          "slug": "second-article",
+          "updatedAt": "2025-12-31T00:00:00.000Z",
+          "createdAt": "2025-12-31T00:00:00.000Z",
+          "title": "Second article",
+          "author": {
+            "username": "stub-bot",
+            "bio": "A friendly stub.",
+            "image": "",
+            "following": false
+          },
+          "favoritesCount": 1,
+          "body": "More canned demo content.",
+          "favorited": true,
+          "tagList": [
+            "demo"
+          ]
+        }
+      }
+    }
+  },
+  "viewerSwitch": {
+    "oldViewerReply": 26,
+    "afterSwitch": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": false,
+      "status": "idle",
+      "error": null,
+      "data": null
+    },
+    "bobResult": {
+      "refresh-error": null,
+      "previous?": false,
+      "loading?": false,
+      "fetching?": false,
+      "stale?": false,
+      "has-data?": true,
+      "status": "loaded",
+      "error": null,
+      "data": {
+        "article": {
+          "description": "Synthetic demo article #21 (pagination set).",
+          "slug": "article-21",
+          "updatedAt": "2025-12-11T00:00:00.000Z",
+          "createdAt": "2025-12-11T00:00:00.000Z",
+          "title": "Article 21",
+          "author": {
+            "username": "stub-bot",
+            "bio": "A friendly stub.",
+            "image": "",
+            "following": false
+          },
+          "favoritesCount": 1,
+          "body": "Canned demo content for article 21.",
+          "favorited": true,
+          "tagList": [
+            "demo",
+            "re-frame"
+          ]
+        }
+      }
+    },
+    "unresolved": {
+      "evidence": "Separate scope-boundary suite and source trace; a complete cold browser restart is not claimed by this fixture."
+    },
+    "limit": "Synthetic representation boundary, not server authorization or a full cold restart."
+  },
+  "ledger": [
+    {
+      "id": 1,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles?favorited=demo&limit=10&offset=0",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 1
+    },
+    {
+      "id": 2,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/second-article",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 2
+    },
+    {
+      "id": 3,
+      "method": "post",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 3
+    },
+    {
+      "id": 4,
+      "method": "delete",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 4
+    },
+    {
+      "id": 5,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/hello-conduit",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 5
+    },
+    {
+      "id": 6,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles?favorited=demo&limit=10&offset=0",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 6
+    },
+    {
+      "id": 7,
+      "method": "post",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 7
+    },
+    {
+      "id": 8,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/hello-conduit",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 8
+    },
+    {
+      "id": 9,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles?favorited=demo&limit=10&offset=0",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 9
+    },
+    {
+      "id": 10,
+      "method": "delete",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 10
+    },
+    {
+      "id": 11,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/hello-conduit",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 11
+    },
+    {
+      "id": 12,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles?favorited=demo&limit=10&offset=0",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 12
+    },
+    {
+      "id": 13,
+      "method": "post",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 13
+    },
+    {
+      "id": 14,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/second-article",
+      "failed": true,
+      "delivered": true,
+      "serverCommitOrder": 14
+    },
+    {
+      "id": 15,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/article-20",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 15
+    },
+    {
+      "id": 16,
+      "method": "delete",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 16
+    },
+    {
+      "id": 17,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/hello-conduit",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 17
+    },
+    {
+      "id": 18,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles?favorited=demo&limit=10&offset=0",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 18
+    },
+    {
+      "id": 19,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/article-20",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 19
+    },
+    {
+      "id": 20,
+      "method": "post",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": true,
+      "delivered": true,
+      "serverCommitOrder": 20
+    },
+    {
+      "id": 21,
+      "method": "post",
+      "url": "https://api.realworld.show/api/articles/second-article/favorite",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 21
+    },
+    {
+      "id": 22,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/hello-conduit",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 22
+    },
+    {
+      "id": 23,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles?favorited=demo&limit=10&offset=0",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 23
+    },
+    {
+      "id": 24,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/article-20",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 24
+    },
+    {
+      "id": 25,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/second-article",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 25
+    },
+    {
+      "id": 26,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/article-21",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 26
+    },
+    {
+      "id": 27,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/hello-conduit",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 27
+    },
+    {
+      "id": 28,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/hello-conduit/comments",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 28
+    },
+    {
+      "id": 29,
+      "method": "get",
+      "url": "https://api.realworld.show/api/articles/article-21",
+      "failed": false,
+      "delivered": true,
+      "serverCommitOrder": 29
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "utc": "2026-09-14T21:57:51.330342+00:00",
+  "files": [
+    {
+      "path": "grok/intermediate/advantage.md",
+      "sha256": "31aae45c53794d3a8388e06d68881c17efaa5da69cafef9c6606c950b2aca219",
+      "changed": true
+    },
+    {
+      "path": "grok/intermediate/closeness-test.md",
+      "sha256": "2bd45ad7a2c67f6a64b215d28ec8b40ccbea4f8b3cd1f0652e93e7e984a25b1a",
+      "changed": true
+    },
+    {
+      "path": "grok/intermediate/evidence-ledger.md",
+      "sha256": "abc12ed6f3bf90a9c3c8f1d3f54528d425b879f9ac0406adfe278ae5a469e9f1",
+      "changed": true
+    },
+    {
+      "path": "grok/intermediate/landscape.md",
+      "sha256": "ce019a48509d84610f39de79385cfe1d7c8f9002b81287b854b5af9981a16dd6",
+      "changed": true
+    },
+    {
+      "path": "grok/intermediate/scoreboard.md",
+      "sha256": "71795e6686998de5ad4bde5e02f4c3aade0c1b8501752ad38b5d0d0a8dbde84c",
+      "changed": true
+    },
+    {
+      "path": "grok/intermediate/sibling-synthesis.md",
+      "sha256": "aef6ae2d49f9141161ff775ff9e33f2eb913889cfb696d4188d7f84cbb5829d7",
+      "changed": true
+    },
+    {
+      "path": "grok/report.md",
+      "sha256": "38ee4e2b79a9b7f5b06099fede60fd3580f53bb1250f0bdaf980d5015abb5758",
+      "changed": true
+    },
+    {
+      "path": "fable/evidence/conduit-trace.md",
+      "sha256": "aa802147e07945d58d1e16bbc7b25013a73381465057fc632db16539a06e03c8",
+      "changed": false
+    },
+    {
+      "path": "fable/evidence/landscape.md",
+      "sha256": "34d06033f0925a5b153ab105935f5ac25cd3f1bac418c650f464c434031679ab",
+      "changed": false
+    },
+    {
+      "path": "fable/evidence/scorecard-verification.md",
+      "sha256": "071763b3e9a2ea2d57f2a0e9b8b9997a9705a88d1bec608d2fa97d7cac1f1f6f",
+      "changed": false
+    },
+    {
+      "path": "fable/evidence/tutorial-stall-log.md",
+      "sha256": "ebab1ea83c1d4bf1d119950f8733218ce51f602e0631fdc1440cf12b06f03c57",
+      "changed": false
+    },
+    {
+      "path": "fable/evidence.md",
+      "sha256": "6a6c124fffa276e5d6d05ee08a1d4d91eaec2eb4eae2c5f8bc85ff18cd79068c",
+      "changed": true
+    },
+    {
+      "path": "fable/matrix.md",
+      "sha256": "6ae60f21d57d20c8752b83ab91c963305419f4fd74bf18cee237439ea827e461",
+      "changed": true
+    },
+    {
+      "path": "fable/report.md",
+      "sha256": "f8668c4bb683601fadb8928a5d0499cae6264016cccdd3a2629166e18d37f1b3",
+      "changed": true
+    },
+    {
+      "path": "fable/rubric.md",
+      "sha256": "4b6be0983e779309372b7285ab1c9f5299cfc155446e4ac9a53f0966e151442e",
+      "changed": false
+    },
+    {
+      "path": "fable/sibling-review.md",
+      "sha256": "cd879fffd9df987fe1d8e8af12f78f61d41c91327fe5d8e7173bfb55d1c1f5a0",
+      "changed": true
+    }
+  ]
+}

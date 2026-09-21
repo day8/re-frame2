@@ -1,0 +1,6 @@
+consumer: C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\consumer
+Execution error (FileNotFoundException) at user/eval3 (probe.clj:2).
+Could not locate re_frame/http/managed__init.class, re_frame/http/managed.clj or re_frame/http/managed.cljc on classpath. Please check that namespaces with dashes use underscores in the Clojure file name.
+
+Full report at:
+C:\Users\miket\AppData\Local\Temp\clojure-13470112826864821934.edn

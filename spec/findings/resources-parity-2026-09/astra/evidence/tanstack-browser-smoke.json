@@ -1,0 +1,96 @@
+{
+  "initial": [
+    {
+      "id": 1,
+      "kind": "detail",
+      "viewer": "Alice",
+      "commitOrder": 1,
+      "delivered": true,
+      "failed": false
+    },
+    {
+      "id": 2,
+      "kind": "list",
+      "viewer": "Alice",
+      "commitOrder": 2,
+      "delivered": true,
+      "failed": false
+    },
+    {
+      "id": 3,
+      "kind": "favorites",
+      "viewer": "Alice",
+      "commitOrder": 3,
+      "delivered": true,
+      "failed": false
+    }
+  ],
+  "final": {
+    "ledger": [
+      {
+        "id": 1,
+        "kind": "detail",
+        "viewer": "Alice",
+        "commitOrder": 1,
+        "delivered": true,
+        "failed": false
+      },
+      {
+        "id": 2,
+        "kind": "list",
+        "viewer": "Alice",
+        "commitOrder": 2,
+        "delivered": true,
+        "failed": false
+      },
+      {
+        "id": 3,
+        "kind": "favorites",
+        "viewer": "Alice",
+        "commitOrder": 3,
+        "delivered": true,
+        "failed": false
+      },
+      {
+        "id": 4,
+        "kind": "write",
+        "viewer": "Alice",
+        "commitOrder": 4,
+        "delivered": true,
+        "failed": false
+      },
+      {
+        "id": 5,
+        "kind": "detail",
+        "viewer": "Alice",
+        "commitOrder": 5,
+        "delivered": true,
+        "failed": false
+      },
+      {
+        "id": 6,
+        "kind": "list",
+        "viewer": "Alice",
+        "commitOrder": 6,
+        "delivered": true,
+        "failed": false
+      },
+      {
+        "id": 7,
+        "kind": "favorites",
+        "viewer": "Alice",
+        "commitOrder": 7,
+        "delivered": true,
+        "failed": false
+      }
+    ],
+    "server": {
+      "slug": "hello-conduit",
+      "title": "Hello Conduit",
+      "favorited": true,
+      "favoritesCount": 1
+    },
+    "body": "Conduit server-state slice\nHello Conduit: true (1)\nHello Conduit: true (1)\nlist: hello-conduit:true:1 count=1\nfavorites: hello-conduit:true:1 count=1\nFavoriteUnfavorite\n\nsuccess\n\nTANSTACK\nReact Query v5\nQueries\nMutations\nFresh\n3\nFetching\n0\nPaused\n0\nStale\n0\nInactive\n0\nSort by status\nSort by query hash\nSort by last updated\nAsc\n1\n[\"viewer\",\"Alice\",\"list\",\"hello-conduit\"]\n1\n[\"viewer\",\"Alice\",\"favorites\",\"hello-conduit\"]\n2\n[\"viewer\",\"Alice\",\"detail\",\"hello-conduit\"]"
+  },
+  "errors": []
+}

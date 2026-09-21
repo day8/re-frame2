@@ -1,0 +1,5 @@
+Execution error (ExceptionInfo) at re-frame.error/thrown-ex-info (error.cljc:138).
+resource :p2/feed declares no valid :scope policy. :scope is REQUIRED (fail-closed) and is EXACTLY one of two shapes: :rf.scope/global (an explicit, auditable global claim) or {:from-db <resource-scope-id>} (a named resolver registered with rf/reg-resource-scope). There is no implicit default; a user-scoped read must say so. Per Spec 016 §Every resource declares a scope policy. [:rf.error/resource-missing-scope-policy]
+
+Full report at:
+C:\Users\miket\AppData\Local\Temp\clojure-14843813644411937510.edn

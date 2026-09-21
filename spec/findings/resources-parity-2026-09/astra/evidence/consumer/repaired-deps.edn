@@ -1,0 +1,5 @@
+{:deps {day8/re-frame2-http {:local/root "C:/Users/miket/code/re-frame2/implementation/http"} day8/re-frame2              {:local/root "C:/Users/miket/code/re-frame2/implementation/core"}
+        day8/re-frame2-reagent      {:local/root "C:/Users/miket/code/re-frame2/implementation/adapters/reagent"}
+        day8/re-frame2-routing      {:local/root "C:/Users/miket/code/re-frame2/implementation/routing"}
+        day8/re-frame2-resources    {:local/root "C:/Users/miket/code/re-frame2/implementation/resources"}}}
+

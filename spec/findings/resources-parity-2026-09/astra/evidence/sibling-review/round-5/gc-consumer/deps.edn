@@ -1,0 +1,1 @@
+{:deps {day8/re-frame2-resources {:local/root "C:/Users/miket/code/re-frame2/implementation/resources"} day8/re-frame2-http {:local/root "C:/Users/miket/code/re-frame2/implementation/http"} day8/re-frame2-schemas {:local/root "C:/Users/miket/code/re-frame2/implementation/schemas"}}}

@@ -36,6 +36,7 @@ exclude_docs: |
   design/freehand/
   design/fresco/
   design/retirement/
+  spec/findings/
 
 # Link validation levels (rf2-5exqc).
 #

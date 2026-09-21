@@ -1,0 +1,66 @@
+gate root: C:\Users\miket\code\re-frame2
+{
+  "utc": "2026-09-14T22:04:24.537211+00:00",
+  "repo": "C:\\Users\\miket\\code\\re-frame2",
+  "head": "0d71ec8f766c4fe902a05e8a90a37041c293dc65",
+  "documents": [
+    {
+      "path": "prompt.md",
+      "words": 3839,
+      "local_links": 0,
+      "sha256": "95675eee1ccd3635d4ebe51bd67484d20b5a3e1aca065885541641c5170244ce"
+    },
+    {
+      "path": "report.md",
+      "words": 3360,
+      "local_links": 42,
+      "sha256": "9bc6384d42baf40a1d2d57c18419f9062ec7ef234fec458c5e2056bfcb3523ed"
+    },
+    {
+      "path": "parity-matrix.md",
+      "words": 1349,
+      "local_links": 5,
+      "sha256": "37baa085c1efe4a36a21635e389339f0dc95bafd5416b66a3a87269543671dfc"
+    },
+    {
+      "path": "evaluation-plan.md",
+      "words": 2159,
+      "local_links": 8,
+      "sha256": "9a813936a267b96aab8fdcc43cab240477815dbf43b7e0412ba68acf0d1f7fc9"
+    },
+    {
+      "path": "scorecard-audit.md",
+      "words": 1024,
+      "local_links": 7,
+      "sha256": "1406a337ec25793084e60ed594f08099dc7d6c5744c651152f0b7fd78dc2f773"
+    },
+    {
+      "path": "evidence.md",
+      "words": 1495,
+      "local_links": 55,
+      "sha256": "0e45905cc7affd671de83853b1ffd95e8b83fc8263ae6aa7c4ca17aefdeca800"
+    },
+    {
+      "path": "sibling-review.md",
+      "words": 1303,
+      "local_links": 15,
+      "sha256": "9107a1213d67c664e7f511d78588e32d49af99b47b2d72c6d50a41b80bd16b08"
+    },
+    {
+      "path": "review-round-2.md",
+      "words": 974,
+      "local_links": 10,
+      "sha256": "bc7c572e2d09962e71413f3bc2c39707f8353ae0c44369285872459f97eaf09f"
+    }
+  ],
+  "pinned_source_files": 160,
+  "changed_since_snapshot": [
+    "docs/resources/tutorial/01-pages-and-state.md",
+    "docs/resources/tutorial/02-server-data.md",
+    "docs/resources/tutorial/03-auth-and-forms.md",
+    "docs/resources/tutorial/04-mutations-and-invalidation.md",
+    "docs/resources/tutorial/05-test-and-ship.md",
+    "docs/resources/tutorial/index.md"
+  ],
+  "errors": []
+}

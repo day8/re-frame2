@@ -1,0 +1,53 @@
+gate root: C:\Users\miket\code\re-frame2
+{
+  "utc": "2026-09-14T13:30:21.102508+00:00",
+  "repo": "C:\\Users\\miket\\code\\re-frame2",
+  "head": "f680007c6b7dcb63cf4dd4bdd7b39f83d8c4c9d4",
+  "documents": [
+    {
+      "path": "prompt.md",
+      "words": 3839,
+      "local_links": 0,
+      "sha256": "95675eee1ccd3635d4ebe51bd67484d20b5a3e1aca065885541641c5170244ce"
+    },
+    {
+      "path": "report.md",
+      "words": 3172,
+      "local_links": 41,
+      "sha256": "ff6691d46af9c5147b1491f03b5152364320b26923dd05caa2799dcf814dd24f"
+    },
+    {
+      "path": "parity-matrix.md",
+      "words": 1285,
+      "local_links": 4,
+      "sha256": "10a8557b3e487d4ac14e0770526231671ddb94eb6b389cb3427d9fde8b276b21"
+    },
+    {
+      "path": "evaluation-plan.md",
+      "words": 1861,
+      "local_links": 6,
+      "sha256": "b22aad5cd0b31bf66a246794308875a9778f037d6f5a223c92901644315671b3"
+    },
+    {
+      "path": "scorecard-audit.md",
+      "words": 917,
+      "local_links": 4,
+      "sha256": "57850d10f0d7fac3d9ed54c5df8b629630ba59c352690bbe0e27ef555b32946c"
+    },
+    {
+      "path": "evidence.md",
+      "words": 1191,
+      "local_links": 41,
+      "sha256": "805df92a98c6823ae0df59f3fec0b9f8240b88fd5dc1f63e7e7381dd0d00acb1"
+    },
+    {
+      "path": "sibling-review.md",
+      "words": 1084,
+      "local_links": 12,
+      "sha256": "d364139a5fc9f8f14ef63c14e6a8d92441b65a6d0ab827b14be14e9620ec4b40"
+    }
+  ],
+  "pinned_source_files": 160,
+  "changed_since_snapshot": [],
+  "errors": []
+}

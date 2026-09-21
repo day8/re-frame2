@@ -1,0 +1,84 @@
+# Sibling synthesis (not the independent pass)
+
+Read **after** grok `report.md` was drafted. Sources: `ai/findings/Resources/astra/report.md` + `sibling-review.md`; `ai/findings/Resources/fable/report.md` + `sibling-review.md` + matrix/evidence as cited. Independent grok evidence remains pin `a5f883b569`. This file is what was **checked at source on 2026-09-15** and what changed in grok’s corpus.
+
+Do not treat sibling scores, WIN labels, or 872-test totals as this run’s measurements.
+
+---
+
+## Clock
+
+| SHA | When | What |
+|---|---|---|
+| `a5f883b569` | 2026-09-14 22:38 +10 | Independent grok evidence (Conduit walk, JVM pins, landscape) |
+| `19dffcdb42` … `cc26e2d900` | 2026-09-15 00:37 +10 | **Tutorial repair** (Parts 1–5). Historical defect → landed docs |
+| `f2f9ffd654` | 2026-09-15 03:08 +10 | HEAD at this synthesis (`chore(beads): checkpoint`) |
+
+`git log a5f883b569..HEAD -- spec/016 docs/resources/tutorial examples/real-apps/realworld_resources implementation/resources`: **tutorial docs only**. Conduit example, runtime, translation scorecard **unchanged**.
+
+---
+
+## Absorbed (source-checked here)
+
+| Lead | From | Check | Grok change |
+|---|---|---|---|
+| Tutorial omitted `day8/re-frame2-http` | astra (failed then repaired JVM probe) | **Was true at `a5f883b569`.** **False at HEAD:** `02-server-data.md:22–31` names the artefact and the leave-out failure | Stall log → historical defect → landed repair. Do **not** re-recommend adding the dep |
+| Tutorial `api.realworld.io` vs `.show` | grok independent; astra/fable | **Repaired.** `02:40` is `https://api.realworld.show/api`; local Bun backend note added | Same: landed. Remaining: no grok re-walk of a **fresh consumer** after the repair |
+| Part 4 populated **global** detail from an authenticated favourite | astra, grok, fable | **Repaired.** `04:99` populate target is `{:from-db :conduit/viewer}`; Part 3 (`03:576–579`) moves Part 2’s global reads to viewer | Taught-leak rec narrowed: Part 2 global is now a **timed lesson** (“nobody can sign in yet — Part 3 changes this”), not a leftover |
+| Part 5 tested a machine Part 3 didn’t build; `.cljc` rename vs `js/` | astra, fable | **Repaired.** `05` tests `conduit.auth` (Part 3); warns unguarded `js/` | Drop that stall as current |
+| `:keep-previous?` is a **route-entry / ensure** key, not a `reg-resource` key | fable | **True.** Translation page still says “on the route/resource” (`coming-from-tanstack-query.md:194`). Conduit uses it on routes (`routing.cljs`). Registry has no `:keep-previous?` | New honesty rec for the translation page |
+| `handler-meta` is **one map argument**, not `[kind id]` | fable 2-arity throw; astra map form | **True.** `core.cljc:2030–2044`. Tutorial 05 already uses the map form for events | Do **not** recommend a new arity. Skills/docs for mutations should show the map form |
+| Public clear is `rf/clear`, not `clear-resource` | astra, fable | Matches grok landscape note. `docs/api` already says so | Keep; don’t claim API-page disagreement |
+| Route `:after` ≠ data waterfall | grok J20; astra; fable | 016 still: dispatch-order only. Editor `:reply-to` **does** seed a draft from a read | **J20 verdict revised:** DIVERGENT (job served by continuation) + TARGET (planner deriving B params from A’s **data**). Not BEHIND |
+| Member tags can **mask** a planted missing invalidation | fable P2.8 vs P2b.3 | Mechanism is in Conduit: lists tag `[:article slug]` so forgetting `[:feed]` can still be reached if the feed also carries article tags (`resources.cljs` feed tags include per-article). Forgetting **membership** (`[:favorited-articles username]`) is the unmasked case grok already walked | Closeness-test honesty: plant on a tag the list **does not** already provide |
+| Inspect the **interval** between rejection and recovery, not only the settled UI | astra sibling-review; fable TQ2.1 `clobber_window` | Query **docs** cache recipe restores a snapshot (we already had). Sibling **executed** a clobber window. Not grok-executed | J5 comparison: steelman Query `variables` + `mutation.scope`; attribute clobber-window to sibling, not this walk |
+| Infinite default refresh preserves tail, not “every retained page is fresh” | astra | Spec 016 R6 / EP-0021 | J6 note added |
+| Weak community RealWorld Query apps | fable | Index search: one v5 app without invalidateQueries; one v4 unmaintained | Confirms grok’s “don’t use a weak port as a library limit.” Still no grok TanStack twin |
+| Write-reach lint = optimistic keys minus settlement `:affected-keys` | fable L1; astra: don’t treat `:affected-keys` as history | 016 settlement field vs `:rf.mutation/optimistic-reconciled` | New **tooling** opportunity (Xray lint), not a runtime warning |
+| `:revalidate-on` absent from tutorial | fable | **Still true at HEAD** (0 hits under `docs/resources/tutorial/`) | Remaining first-hour **docs** gap, smaller than the landed ones |
+| Never-stale **absent** default vs samples that always set 60000 | fable R4 | Tutorial always sets 60s; scorecard names the default. Migrant who omits the key gets never-stale | Remaining: one sentence in tutorial or a “migration profile” map |
+| Sequence: tutorial before Xray | fable | After overnight repairs, tutorial is no longer the blocking compile stall | **Reorder:** remaining tutorial nits + translation-page wording, then Conduit Xray |
+
+---
+
+## Declined (and why)
+
+| Lead | From | Why |
+|---|---|---|
+| WIN row vocabulary / 5 WIN headline | fable | Grok rubric keeps AHEAD/MATCH. Same jobs, different words |
+| 872 JVM tests as parity evidence | astra | Hygiene, not a job. Fable also declined as a row input |
+| “No comparator has an isolation boundary” | fable §1 win 1 | Astra correctly: Query key factories, providers, per-request clients **are** boundaries. Ours is **louder**, not unique existence |
+| Part 1 offline slice is a blocking stall | grok independent; fable declined | Soften: intentional pedagogy; Part 2 still replaces it. First-hour cost remains three lanes, not “deleted RemoteData” |
+| Riverpod as a required comparator | astra | Does not change Phase B jobs |
+| New `handler-meta` arity | fable L2 | Map form already exists |
+| New request-ledger helper without checking test-support | fable L3 | Canned stubs already walk the interceptor chain; no grok proof a helper is missing. Docs-first |
+| Adding infinite/SSR/poll to Conduit | both, then fable D3 | Still decline. Point at capability examples |
+| Weighted totals | none adopted | Unchanged |
+| Steal sibling request-ledger numbers as grok-executed | — | Attribute only |
+
+---
+
+## Consensus (narrow, not “every ranking”)
+
+All three independent drafts, after steelmanning Query:
+
+- No GraphQL-in-016, no entity store, no hook wrapper, no second cache, no persist **now**.
+- RTK tags are the fair write-consequence comparator (**MATCH**, not a Query `onSuccess` win).
+- Translation page caricatures fetch-from-render and “always restore onError.”
+- Categorical headline, no percentage.
+- Conduit is anchor not ceiling.
+- Flagship does not mount Xray.
+
+They do **not** agree on: WIN vs AHEAD labels; whether dependent reads are BEHIND or DIVERGENT; whether to mount Xray first or tutorial first (tutorial repairs moved that fight); magnitude of ergonomic superiority (none measured a timed diagnosis).
+
+---
+
+## Remaining evidence still needed (after the tutorial repair)
+
+- Fresh-consumer compile of Parts 1–2 **at HEAD** (grok did not re-scaffold).
+- Xray-attached favourite diagnosis (nobody opened the panel; Conduit still has no host).
+- Grok-owned contested-overlap **interval** capture (siblings did; grok JVM settle tests did not record the in-between UI).
+- Translation-page `:keep-previous?` wording.
+- Tutorial sentence on absent `:stale-after-ms` and `:revalidate-on`.
+- Request ledger in **browser** Conduit (still in-process stub).
+)

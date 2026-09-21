@@ -1,0 +1,29 @@
+{
+  "utc": "2026-09-14T21:44:41.042400+00:00",
+  "files": [
+    {
+      "path": "docs/resources/tutorial/01-pages-and-state.md",
+      "sha256": "6a65788ca7665f3b932c3b7d9d0c850610adbe071835a3c9a0e8bc8703ebdb28"
+    },
+    {
+      "path": "docs/resources/tutorial/02-server-data.md",
+      "sha256": "85707b780679278c87876387c37a567233e513f6556936d85f09f74c00e8cb10"
+    },
+    {
+      "path": "docs/resources/tutorial/03-auth-and-forms.md",
+      "sha256": "4d92e9f8d8dfba58bd4d1fb28460b7db15e61f5de3b9edd5e06a8abbe428fccc"
+    },
+    {
+      "path": "docs/resources/tutorial/04-mutations-and-invalidation.md",
+      "sha256": "7751d2eda79c4c992137c23abbdd074a0b3af6cbf41def4e8792b5cce57d4eba"
+    },
+    {
+      "path": "docs/resources/tutorial/05-test-and-ship.md",
+      "sha256": "26e05afd13fc8d778114d29c22a949e16ab287622a039e30321d52e29c9e6114"
+    },
+    {
+      "path": "docs/resources/tutorial/index.md",
+      "sha256": "30b9db90518b607314d17b00e7f5b262413890ad7dad099bba0d71d6ecc5a49f"
+    }
+  ]
+}

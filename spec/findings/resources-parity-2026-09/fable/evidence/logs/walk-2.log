@@ -1,0 +1,26 @@
+home.load_ms 719
+home.previews 10
+home.fav_buttons ["1","0","0","1","0","0","1","0","0","1"]
+home.nav "conduitHomeSign inSign up"
+login.ms_to_home_list 874
+login.nav "conduitHome New Article Settings demoLogout"
+home.fav_buttons_logged_in ["1","0","0","1","0","0","1","0","0","1"]
+home.tabs ["Home","New Article","Settings","demo","Logout","Your Feed","Global Feed"]
+article.h1 "Hello, Conduit"
+article.nav "conduitHome New Article Settings demoLogout"
+article.buttons ["Unfavorite Article (1)","Follow stub-bot","Follow stub-bot","Post Comment"]
+article.fav_click {"before":"Unfavorite Article (1)","immediate":"Unfavorite Article (1)","ms_immediate":34,"settled":"Favorite Article (0)"}
+article.fav_click_2 {"immediate":"Favorite Article (0)","settled":"Unfavorite Article (1)","ms":1552}
+article.follow {"before":"Follow stub-bot","after":"Unfollow stub-bot"}
+comment {"cards_before":2,"cards_after":3,"body_present":true}
+home.fav_buttons_after_article_actions ["1","0","0","1","0","0","1","0","0","1"]
+feed.previews 10
+feed.first "stub-bot2026-01-01T00:00:00.000Z 1Hello, ConduitA short greeting from the shared demo backend.Read more...introdemo"
+profile.nav "conduitHome New Article Settings demoLogout"
+profile.favorited_previews 8
+profile.favorited_titles ["Hello, ConduitA short greeting from the shared demo backend.Read more...introdemo","Hello, Conduit","Article 3Synthetic demo article #3 (pagination set).Read more...demore-frame","Article 3","Article 6Synthetic demo article #6 (pagination set).Read more...democlojure","Article 6","Article 9Synthetic demo article #9 (pagination set).Read more...demore-frame","Article 9","Article 12Synthetic demo article #12 (pagination set).Read more...democlojure","Article 12","Article 15Synthetic demo article #15 (pagination set).Read more...demore-frame","Article 15"]
+logout.nav "conduitHomeSign inSign up"
+logout.url "http://127.0.0.1:8050/realworld-resources/"
+home.fav_buttons_after_logout ["1","0","0","1","0","0","1","0","0","1"]
+console.errors ["WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","shadow-cljs - remote-error Event","WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","shadow-cljs - remote-error Event","WebSocket connection to 'ws://127.0.0.1:9630/api/remote-relay?server-token=52e24c28-8d90-4abe-9e48-792d08bb69f0' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED","shadow-cljs - remote-error Event"]
+DONE
