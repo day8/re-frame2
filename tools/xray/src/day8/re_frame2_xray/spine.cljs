@@ -839,7 +839,7 @@
   inside the `:focus` slot. Mode stays `:live` — the LIVE buffer
   continues collecting; only auto-scrolling stops. When already in
   `:retro`, toggling is a no-op (the Space key has no meaning when
-  the user has already pinned an older row — they would press `L` to
+  the user has already pinned an older row — they would press `l` to
   resume LIVE in that case).
 
   ## rf2-fzbj.2 — pausing pins what LIVE is SHOWING

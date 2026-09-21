@@ -309,7 +309,7 @@
 ;; Xray attaches a window-level capture-phase `keydown` listener
 ;; (`keybinding/attach!`) that handles `Ctrl+Shift+C` (shell toggle),
 ;; `Cmd/Ctrl+K` (command palette), and the unmodified spine bindings
-;; (`Space` / `L` / `j` / `k` / `G` / `c` / `Esc`). The handler calls
+;; (`Space` / `l` / `j` / `k` / `G` / `c` / `Esc`). The handler calls
 ;; `stopPropagation()` for keys it consumes so host bindings further down
 ;; the event path don't double-fire.
 ;;

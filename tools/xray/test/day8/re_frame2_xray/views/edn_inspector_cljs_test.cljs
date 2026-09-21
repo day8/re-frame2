@@ -5378,7 +5378,7 @@
       (is (= :rf.xray.edn-inspector/toggle-node (ffirst @captured))))))
 
 (deftest other-keys-and-modified-enter-pass-through-untouched
-  ;; The surrounding spine bindings (j/k/L/G, Esc-zoom-out) must keep
+  ;; The surrounding spine bindings (j/k/l/G, Esc-zoom-out) must keep
   ;; working, exactly as `zoom-trigger-attrs` leaves them.
   (let [on-key-down (toggle-span-keydown)]
     (doseq [k ["j" "k" "Escape" "Tab" "ArrowDown"]]
@@ -5491,7 +5491,7 @@
 
 (deftest zoom-trigger-enter-ignores-modifiers-and-other-keys
   ;; A bare Enter zooms; Ctrl/Cmd/Alt/Shift+Enter and non-Enter keys do
-  ;; NOT — so Esc-zoom-out + the spine bindings (j/k/L/G) pass through.
+  ;; NOT — so Esc-zoom-out + the spine bindings (j/k/l/G) pass through.
   (let [mk (fn [opts]
              (js-obj "key" (:key opts)
                      "ctrlKey" (boolean (:ctrl? opts))

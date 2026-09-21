@@ -1792,7 +1792,7 @@
                     ;; rf2-61i5 — the pop-out's OWN keydown listener.
                     ;; Key events do not cross realms, so without this
                     ;; the documented keyboard workflow (Cmd/Ctrl+K,
-                    ;; Cmd/Ctrl+Shift+M, Space / L / j / k / G, `,`/s)
+                    ;; Cmd/Ctrl+Shift+M, Space / l / j / k / G, `,`/s)
                     ;; is inert whenever focus is in this window.
                     ;; `keydown-dispose` is nil when keybinding is not
                     ;; loaded or the host disabled it.

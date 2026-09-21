@@ -304,7 +304,7 @@ showing an older epoch with newer events waiting, and nothing at all
 while the spine is following. No head-row pulse cue was ever built
 (rf2-pjjwh removed the gutter glyph that would have carried one) and
 the continuous pulse was refused (rf2-2sez0). LIVE/RETRO transitions
-ride the `Space` / `L` keys + the `⏭` ribbon button + ordinary row
+ride the `Space` / `l` keys + the `⏭` ribbon button + ordinary row
 clicks (clicking any non-head row flips LIVE→RETRO). The spine sub
 carries `:mode :live | :retro` for downstream consumers; there is no
 separate LIVE/RETRO pill widget.
@@ -1320,7 +1320,7 @@ The single-axis selection that every layer reads from.
 | `:rf.xray/focus-event <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
 | `:rf.xray/focus-event-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` |
 | `:rf.xray/focus-event-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` if not already at head |
-| `:rf.xray/follow-head` | `⏭` button · `L` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
+| `:rf.xray/follow-head` | `⏭` button · `l` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
 | `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
 | `:rf.xray/preview-event <id> [<frame>]` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id` / `:epoch-id` `<id>` transiently. A non-destructive overlay: it snapshots the committed selection into `[:focus :pre-preview]` on the first hover of a gesture and RESTORES it on hover-out (nil `<id>`), and resolves the previewed epoch against the previewed frame's ring DIRECTLY without persisting a cross-frame `:target-frame` / `:epoch-history` re-key (rf2-uo0rc.5). The optional `<frame>` hint disambiguates a dispatch-id present in two frames (rf2-bz7flo) — the L2 row knows its frame; when omitted the lookup degrades to an id-only match. |
@@ -1380,9 +1380,9 @@ The scoping + filtering happens at the data layer (`:rf.xray/filtered-event-bund
 | From | To | Trigger |
 |---|---|---|
 | LIVE | RETRO | Click any row that isn't head · `j` / `k` / `◀` / `▶` step |
-| RETRO | LIVE | `L` key · `⏭` button |
+| RETRO | LIVE | `l` key · `⏭` button |
 | LIVE | LIVE (paused) | `Space` key |
-| LIVE (paused) | LIVE | `Space` key · `L` key (snap-LIVE implies resume) |
+| LIVE (paused) | LIVE | `Space` key · `l` key (snap-LIVE implies resume) |
 
 The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky-on-older + the newer-events marker (`shell.cljs`'s `newer-events-marker`, rf2-y8doi.30), which paints only while the list is showing an older epoch with newer events waiting and nothing at all while the spine is following. There is no head-row pulse cue — none was ever built (rf2-pjjwh removed the gutter glyph that would have carried one; rf2-2sez0 refused the continuous pulse). (The dedicated `● LIVE` / `◐ RETRO` Mode pill widget that earlier drafts placed in the ribbon was dropped — rf2-g9pee. That is a different control from the Dynamic/Static mode dropdown at chrome-ribbon-left, which ships.)
 

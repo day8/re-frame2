@@ -4964,7 +4964,7 @@ carries:
   INNERMOST container rather than an ancestor.
 - `:on-key-down` — bare **Enter** (no Ctrl/Cmd/Alt/Shift) re-roots, same
   as the double-click. Every other key passes through untouched, so the
-  Esc-zoom-out handler and the global spine bindings (Space/L/j/k/G) are
+  Esc-zoom-out handler and the global spine bindings (Space/l/j/k/G) are
   never swallowed.
 - `:tab-index 0` + `:aria-label "Zoom into <path>"` — keyboard-focusable
   and screen-reader-announced, preserving the a11y the removed glyph

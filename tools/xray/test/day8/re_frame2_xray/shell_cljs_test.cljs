@@ -18,7 +18,7 @@
        sits inline next to the right-icons cluster when the
        suppressed-sensitive count is positive. (Round-3 rf2-g9pee
        dropped the explicit `● LIVE` / `◐ RETRO` mode pill — the
-       state is derivable, and Space / L / G preserve toggles.)
+       state is derivable, and Space / l / G preserve toggles.)
 
     3. The L3 tab bar renders one button per registered Dynamic tab
        (Epoch / app-db / Views / Trace / Machine / Routes / Resources /
