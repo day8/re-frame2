@@ -98,6 +98,18 @@
   [definition snapshot]
   (fn [event] (rf.machines/machine-transition definition snapshot event)))
 
+(defn- step!
+  "One `step-sim` fold through the REAL engine against `sim-state`'s own
+  current snapshot — the production call shape.
+
+  Lives here with the other two harness fns rather than down in the timer
+  section where it was introduced: the `:on` exercises use it too, and a
+  helper defined below its first caller is an ordering trap for whoever
+  adds the next test."
+  [sim-state event definition]
+  (sim-h/step-sim sim-state event
+                  (engine-step definition (:snapshot sim-state))))
+
 ;; ---- (1) initial-snapshot -----------------------------------------------
 
 (deftest initial-snapshot-builds-seed-from-flat-definition
@@ -555,13 +567,6 @@
    :guards  {:never (fn [_] false)}
    :states  {:loading {:after {5000 {:target :timeout :guard :never}}}
              :timeout {}}})
-
-(defn- step!
-  "One `step-sim` fold through the REAL engine against `sim-state`'s own
-  current snapshot — the production call shape."
-  [sim-state event definition]
-  (sim-h/step-sim sim-state event
-                  (engine-step definition (:snapshot sim-state))))
 
 (defn- stored-epochs
   "Every after-schedule epoch the sim has stored, oldest-first."
