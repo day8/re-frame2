@@ -1,9 +1,15 @@
 (ns seven-guis.circle-drawer.core
   "7GUIs #6 — Circle Drawer.
 
-   Click on a canvas to drop a circle. Right-click one to resize it: a slider
-   pops up in a modal, and closing the modal commits the new size. Undo and
-   Redo walk back and forth through everything you've done.
+   Click an empty patch of canvas to drop a circle. Right-click one to resize
+   it: a slider pops up in a modal, and closing the modal commits the new size.
+   Undo and Redo walk back and forth through everything you've done.
+
+   Two flourishes from the published task are deliberately left out, because
+   they are about hit-testing rather than about state: the grey fill that marks
+   the circle nearest the pointer on hover, and the little popup menu that
+   right-click is supposed to raise before the resize dialog. Right-click opens
+   the dialog directly here.
 
    This is the 7GUIs undo/redo challenge, and undo is the whole point. The
    trick is *where* the history lives: not tangled up inside a component, but
@@ -121,18 +127,30 @@
     {:db (assoc db :drawer {:circles [] :next-id 1 :dialog nil :undo [] :redo []})}))
 
 (rf/reg-event :drawer/add-circle
-  {:doc "You clicked the canvas, so a new circle appears at default size. It
-         takes the next id from `:next-id`, then bumps the counter — that's how
-         the id stays a function of prior state instead of a roll of the dice.
-         The counter sits *outside* the `:circles` snapshot that undo/redo
-         tracks, so it just keeps climbing and can never accidentally reissue an
-         id that's still in use."
+  {:doc "You clicked an empty patch of canvas, so a new circle appears at
+         default size. It takes the next id from `:next-id`, then bumps the
+         counter — that's how the id stays a function of prior state instead of
+         a roll of the dice. The counter sits *outside* the `:circles` snapshot
+         that undo/redo tracks, so it just keeps climbing and can never
+         accidentally reissue an id that's still in use.
+
+         A click that lands *inside* an existing circle is not a request for a
+         new one — the task creates a circle only in an empty area — so the
+         handler returns `db` untouched. Returning the same value is all it
+         takes: the `:drawer/undoable` interceptor compares `:circles` before
+         and after, so a click that changed nothing records no undo step either."
    :interceptors [:drawer/undoable]}
   (fn handler-drawer-add-circle [{:keys [db]} [_ x y]]
-    {:db (let [id (get-in db [:drawer :next-id])]
-      (-> db
-          (update-in [:drawer :circles] conj {:id id :x x :y y :radius 30})
-          (assoc-in  [:drawer :next-id] (inc id))))}))
+    {:db (let [circles (get-in db [:drawer :circles])
+               inside? (some (fn [{cx :x cy :y radius :radius}]
+                               (<= (js/Math.hypot (- x cx) (- y cy)) radius))
+                             circles)]
+           (if inside?
+             db
+             (let [id (get-in db [:drawer :next-id])]
+               (-> db
+                   (update-in [:drawer :circles] conj {:id id :x x :y y :radius 30})
+                   (assoc-in  [:drawer :next-id] (inc id))))))}))
 
 (rf/reg-event :drawer/open-dialog
   {:doc "You right-clicked a circle, so the resize dialog opens on it. Just

@@ -87,7 +87,7 @@
   {:doc "User clicked Book. Emits a confirmation effect."}
   (fn handler-flight-book [{:keys [db]} _]
     (let [{:keys [trip-type start-text return-text]} (:flight db)]
-      {:fx [[:notify {:message
+      {:fx [[:flight/notify {:message
                       (case trip-type
                         :one-way (str "You have booked a one-way flight on " start-text ".")
                         :return  (str "You have booked a return flight, departing " start-text
@@ -97,8 +97,12 @@
 ;; FX
 ;; ============================================================================
 
-(rf/reg-fx :notify
-  {:doc       "Show a confirmation alert."
+(rf/reg-fx :flight/notify
+  {:doc       "Show a confirmation alert. Note the `:flight/` stem: effect ids
+                share one registry per frame, so an example that registered a
+                bare `:notify` would sit on a name any other feature might
+                reasonably want. Prefix every id you register with your own
+                stem — see examples/TESTING.md."
    :platforms #{:client}}
   (fn fx-notify [_m {:keys [message]}]
     (js/alert message)))

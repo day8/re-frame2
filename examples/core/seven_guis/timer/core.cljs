@@ -56,15 +56,19 @@
 ;; SCHEMA
 ;; ============================================================================
 
-;; Five app-db values determine the timer: elapsed time, target duration, an
-;; active flag, a generation token, and the clock reading the last sample was
-;; taken at. Scheduled callbacks remain runtime-owned; app-db stores no timer
-;; handle. The runtime checks this slice on every commit.
+;; Four app-db values determine the timer: elapsed time, target duration, a
+;; generation token, and the clock reading the last sample was taken at.
+;; Scheduled callbacks remain runtime-owned; app-db stores no timer handle. The
+;; runtime checks this slice on every commit.
+;;
+;; Note what is NOT here: a boolean "is a tick running?" flag. Whether the chain
+;; has stopped is already answerable from the two numbers — `elapsed-ms` has
+;; caught `duration-ms` — and a second, separately-maintained answer to the same
+;; question is one that can disagree with the first.
 (def TimerState
   [:map
    [:elapsed-ms :int]                  ;; milliseconds measured since the last reset
    [:duration-ms :int]                 ;; where the slider is parked
-   [:tick-active? :boolean]            ;; is a tick chain currently running?
    [:tick-gen :int]                    ;; generation token — the trick for retiring stale ticks (see below)
    [:sampled-at-ms :int]])             ;; recorded clock reading of the last accepted sample — the anchor we measure from
 
@@ -118,7 +122,6 @@
   (fn handler-timer-initialise [{:keys [db rf/time-ms]} _]
     {:db (assoc db :timer {:elapsed-ms    0
                            :duration-ms   10000
-                           :tick-active?  true
                            :tick-gen      0
                            ;; Time starts here — the anchor the first tick measures from.
                            :sampled-at-ms time-ms})
@@ -131,7 +134,7 @@
          ignored."
    :rf.cofx/requires [:rf/time-ms]}
   (fn handler-timer-tick [{:keys [db rf/time-ms]} [_ gen]]
-    (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen sampled-at-ms]} (:timer db)]
+    (let [{:keys [elapsed-ms duration-ms tick-gen sampled-at-ms]} (:timer db)]
       (if (not= gen tick-gen)
         ;; This tick belongs to a retired generation; ignore it.
         {}
@@ -155,8 +158,8 @@
                            ;; Re-anchor, so the next sample measures from here
                            ;; and no interval is double-counted or dropped.
                            (assoc-in [:timer :sampled-at-ms] time-ms))}
-            ;; Keep the chain alive only while there's room left and we haven't been stopped.
-            (and tick-active? (not done?))
+            ;; Keep the chain alive only while there's road left.
+            (not done?)
             (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick gen]}]])))))))
 
 (rf/reg-event :timer/set-duration
@@ -171,12 +174,12 @@
    :rf.cofx/requires [:rf/time-ms]
    :schema [:cat [:= :timer/set-duration] :int]}
   (fn handler-timer-set-duration [{:keys [db rf/time-ms]} [_ ms]]
-    (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)
+    (let [{:keys [elapsed-ms duration-ms tick-gen]} (:timer db)
           ;; The chain stops scheduling itself the moment elapsed catches duration.
           was-stopped? (>= elapsed-ms duration-ms)
-          ;; Revive only if it had stopped, is still active, and the new target
-          ;; sits ahead of where we are — i.e. there's actually somewhere to go.
-          rearm?       (and was-stopped? tick-active? (> ms elapsed-ms))
+          ;; Revive only if it had stopped and the new target sits ahead of where
+          ;; we are — i.e. there's actually somewhere to go.
+          rearm?       (and was-stopped? (> ms elapsed-ms))
           next-gen     (if rearm? (inc tick-gen) tick-gen)
           db'          (cond-> (assoc-in db [:timer :duration-ms] ms)
                          rearm? (-> (assoc-in [:timer :tick-gen] next-gen)
@@ -201,7 +204,6 @@
     (let [next-gen (inc (get-in db [:timer :tick-gen]))]
       {:db (-> db
                (assoc-in [:timer :elapsed-ms]    0)
-               (assoc-in [:timer :tick-active?]  true)
                (assoc-in [:timer :tick-gen]      next-gen)
                ;; Zeroing elapsed without moving the anchor would hand the very
                ;; next tick the whole interval since the last sample — the

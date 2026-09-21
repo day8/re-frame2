@@ -416,6 +416,19 @@
   {:doc "Id of the cell whose inline editor is open, or nil."}
   (fn sub-cells-editing-id [db _] (get-in db [:cells :editing-id])))
 
+(rf/reg-sub :cells/editing?
+  {:doc "Is cell `id` the one with its editor open? Parameterised by id, and
+         that is the whole point. A cell that read `:cells/editing-id` directly
+         would deref a value that changes on every click-to-edit and again on
+         every commit — so all 2,600 mounted cells would re-render on both, and
+         the `=`-dedup this example exists to show off would never get to save a
+         render. Asking the narrower question per cell means each one's answer
+         only moves when that cell gains or loses the editor: two cells re-render
+         on a transition, not the grid."
+   :inputs [[:cells/editing-id]]}
+  (fn sub-cells-editing? [[editing-id] [_ id]]
+    (= editing-id id)))
+
 ;; ============================================================================
 ;; VIEW
 ;; ============================================================================
@@ -447,8 +460,7 @@
 ;; the raw text; otherwise it shows the computed value. Which face we wear comes
 ;; straight from subscriptions, so any edit anywhere just flows back in.
 (rf/reg-view cell-view [id]
-  (let [editing-id @(subscribe [:cells/editing-id])
-        editing?   (= editing-id id)
+  (let [editing?   @(subscribe [:cells/editing? id])
         raw        @(subscribe [:cells/raw   id])
         value      @(subscribe [:cells/value id])
         ;; A parse error arrives as `[:error/parse msg]`; pull the message out so
