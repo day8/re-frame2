@@ -71,7 +71,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > *- **L11 — Resolve UI references to source first.** Style-guidance rule in SKILL.md.*
 > *- **L12 — Surface restore limits.** Style-guidance rule in SKILL.md.*
 >
-> *Voice: tight, declarative, op-shaped. Use tables for op catalogues and routing. Use code blocks for canonical forms. Cite Tool-Pair surfaces (`(rf/register-listener! :trace ...)`, `(rf/epoch-history :rf/default)`) verbatim — these are the contract.*
+> *Voice: tight, declarative, op-shaped. Use tables for op catalogues and routing. Use code blocks for canonical forms. Cite Tool-Pair surfaces (`(rf/register-listener! :trace ...)`, `(rf/epoch-history :rf/default)`) verbatim — these are the contract, as contract CITATIONS. Inside an `eval-cljs {form: …}` the same surface must be spelled `re-frame.core/…` (`(re-frame.core/epoch-history :rf/default)`): the server evaluates the form verbatim in shadow's default namespace, which carries no `rf` alias, so an `rf/` spelling in a published `form:` returns `:rf.error/eval-cljs-compile-error`.*
 >
 > *Don't:*
 >
