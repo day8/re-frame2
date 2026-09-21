@@ -4,7 +4,7 @@ Direct JS / DOM / browser-API interop inside the body of a `reg-event` handler. 
 
 Two directions of impurity hide under this one heading, and they route to **two different fixes**:
 
-- **Effectful writes** — the handler *mutates the world*: `(.setItem js/localStorage …)`, `(set! (.-title js/document) …)`, `(.scrollTo js/window 0 0)`, `(js/console.log …)`, an inline `(rf/dispatch …)`, `(js/setTimeout …)`. → wrap as a **data-only fx** (`reg-fx`), or a managed effect for HTTP/timers.
+- **Effectful writes** — the handler *mutates the world*: `(.setItem js/localStorage …)`, `(set! (.-title js/document) …)`, `(.scrollTo js/window 0 0)`, an inline `(rf/dispatch …)`, `(js/setTimeout …)`. → wrap as a **data-only fx** (`reg-fx`), or a managed effect for HTTP/timers.
 - **Impure / nondeterministic reads** — the handler *reads a value the world supplies*: `(js/Date.now)`, `(.getTime (js/Date.))`, `(js/Math.random)`, `(.getItem js/localStorage …)`, `crypto.randomUUID`, `js/navigator.language`, `@(rf/subscribe …)`. → bring the value in as **input data**, not a mid-body read. The channel forks on whether the read decides a **durable write** — see [Reads — the durable/diagnostic fork](#reads--the-durablediagnostic-fork-ep-0010).
 
 Getting the direction right matters: a read routed to `reg-fx` produces a broken rewrite (an fx can't hand a value *back* into the same handler turn), and a write routed to `reg-cofx` is equally wrong. Classify direction first; then, for reads, classify durable vs diagnostic.
@@ -16,7 +16,7 @@ Greppable signals inside `reg-event` handler bodies, **grouped by direction**:
 **Write signals → `reg-fx` (effect):**
 
 - `set!` on a `.-prop` of a browser global — `(set! (.-href js/location) …)`, `(set! (.-title js/document) …)`, `(set! (.-className js/document.body) …)`.
-- Mutating `.method` calls on browser globals — `(.setItem js/localStorage …)`, `(.scrollTo js/window …)`, `(.focus el)`, `(.alert js/window …)`, `(js/console.log …)`.
+- Mutating `.method` calls on browser globals — `(.setItem js/localStorage …)`, `(.scrollTo js/window …)`, `(.focus el)`, `(.alert js/window …)`.
 - `(rf/dispatch …)` invoked **from inside** a handler body (rather than returned as `:fx [[:dispatch …]]`) — it queues without going through the fx data channel.
 - Native timer / network calls — `js/setTimeout`, `js/setInterval`, `js/requestAnimationFrame`, `js/fetch` (HTTP belongs in Managed HTTP — see [`manual-retry-loops.md`](manual-retry-loops.md)).
 
@@ -107,4 +107,5 @@ The handler is now a pure function of `[{:db :rf/time-ms} event]`: a test passes
 - **Inside a `reg-fx` / `reg-cofx` body** — that's the whole job. One caveat: if a cofx feeds a *durable* write, the fact must be **recordable** (for durable *time*, skip the cofx and declare `:rf/time-ms`).
 - **Pure local computation using `js/Math` or similar** — `(js/parseInt s 10)`, `(js/Math.max a b)`, `(.toUpperCase s)` are deterministic and side-effect-free. Not findings. (Note `js/Math.random` *is* a nondeterministic read — route it by destination.)
 - **A diagnostic / host-transient read that decides no durable write** — a millis read used only for a `console.log`, an `AbortController` in a side-table. Ambient `reg-cofx` is correct; do not demand a recordable coeffect.
+- **A dev-only diagnostic WRITE** — `(js/console.log …)`, `(js/console.warn …)` — is not a finding, and the pairing with the bullet above is the point: the same `console.log` is fine on both sides of the fork. Nothing normative rules against it. The durable-write rule is *"no hidden host facts in durable writes"*, not "no host" ([`spec/002-Frames.md`](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md) §Recordable coeffects), and it names diagnostics as permitted outright. Proposing a `reg-fx :log/console` wrapper for a dev log is a nagging diagnostic, not a correction. **Flag only writes with a durable or user-visible consequence** — storage, the DOM, navigation, a dispatch, a timer. (Whether a log should carry a particular *value* off-box is a data-classification question, not this leaf's.)
 - **Boot-time DOM reads outside any handler** — `(def !root (js/document.getElementById "app"))` is outside the event loop. Not in scope.

@@ -127,12 +127,15 @@ skills/re-frame2-improver/
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── evals/
 │   ├── evals.json (trigger + behavioural critique fixtures — evals.json is the sole inventory; see evals/README.md §Coverage)
-│   └── README.md (coverage table + grading guidance + release threshold)
+│   └── README.md (harness shape + grading guidance + release thresholds; its §Coverage points at evals.json rather than restating the inventory — rf2-hpq96d)
 ├── references/
 │   ├── README.md (maintainer catalogue index)
 │   └── <six anti-pattern leaves>.md
 ├── tests/                          # repo-maintenance artifact; excluded from the npm `files` array
-│   └── storage_materializer_test.clj (structural pin: the canonical storage materializer in schemaless-events.md stays total; looped by CI's skills-structural job)
+│   ├── <name>_test.clj             # structural pins over the leaves' fenced code — CI's skills-structural
+│   │                               # job loops EVERY tests/*_test.clj under bb, so a new pin needs no wiring PR
+│   ├── storage_materializer_test.clj (the canonical storage materializer in schemaless-events.md stays total)
+│   └── article_lifecycle_test.clj (the canonical HTTP fix in schemaless-events.md settles [:article :status] on both reply branches)
 └── spec/
     ├── design.md (this file)
     ├── inputs.md (canonical inputs)
