@@ -1427,7 +1427,7 @@ The [7GUIs example series](../examples/core/seven_guis/README.md) and the [login
 |---|---|
 | CP-1 (event handler) | All examples; especially the bookkeeping events in [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) and the undo events in [Circle Drawer](../examples/core/seven_guis/circle_drawer/core.cljs) |
 | CP-2 (subscription) | [Temperature Converter](../examples/core/seven_guis/temperature/core.cljs) shows declared inputs; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows multi-input chains for derived enabled-state |
-| CP-3 (registered fx) | [Login](../examples/core/login/core.cljs) shows `:platforms` metadata + a stub fx for tests; [Timer](../examples/core/seven_guis/timer/core.cljs) shows `:dispatch-later`; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows a custom `:notify` fx |
+| CP-3 (registered fx) | [Login](../examples/core/login/core.cljs) shows `:platforms` metadata + a stub fx for tests; [Timer](../examples/core/seven_guis/timer/core.cljs) shows `:dispatch-later`; [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) shows a custom `:flight/notify` fx |
 | CP-4 (registered view) | All examples use Var-reference Form-1 (canonical) |
 | CP-5 (state machine) | [Login](../examples/core/login/core.cljs) — full transition table with guards, actions, terminal states |
 | CP-6 (feature scaffold) | [Login](../examples/core/login/core.cljs) is a full feature: schema + events + subs + views + machine + tests |
