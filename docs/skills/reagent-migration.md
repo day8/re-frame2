@@ -8,7 +8,7 @@ re-frame2 ships **first-class, actively-supported adapters**. `day8/re-frame2-re
 
 So rewriting views into Fresco is a **separate, optional second step, and it is a rewrite** rather than a respelling: parameters become one props map, handlers become data, view-held state leaves the component. Two facts frame the choice, and the skill states both before it does anything:
 
-- **Fresco is PRE-PUBLICATION.** There is no released Maven coordinate; a project can adopt it only from source. If yours has no path to that, there is nothing to migrate onto yet.
+- **Fresco ships in the same release set as the Reagent adapter**, at the same version, so a project resolves it however it already resolves re-frame2 — from source until a release. There is no separate publication gap to wait on.
 - **Staying on Reagent is a complete, supported configuration** — never a half-migrated one. The skill never implies the author *should* move, because a migration guide that overstates the need costs its reader work they did not have to do.
 
 ## What it does
@@ -20,10 +20,10 @@ The skill teaches the **view shift**: an `h/defview` mints a real React function
 It then applies a transformation catalog organised by what you do with each rule (the `MIG-NN` ids are the skill's own vocabulary, naming the *Reagent construct* found, cited so an author can audit any change):
 
 - **M-tier ("do this")** — unambiguous mechanical rewrites, before→after each: `h/defview` and the one-props-map law, deref-drop, dispatch-lifting with the two markers `::h/value` / `::h/checked`, `::h/prevent`, key-meta→`:key` prop, the prop dialect (mostly: leave it alone — kebab and camel are both accepted), root mounting, ns requires, keystroke handlers → an IME-gated key map.
-- **D-tier ("how to DECIDE")** — the judgment cases the skill reasons through: Form-2/`with-let` state (app-db via `h/reg-state`, `re-frame.fresco.forms/buffered-field`, or a native component), Form-3 lifecycle (a callback ref, an ordinary event, or `h/error-boundary`), the `:on-*` handler split, foreign React and its callback contracts (`h/defhost` / `[:>]` / `h/as-element` / `h/as-component`), derived state, the ratom-as-store restructure, computed props through the reserved `:&` merge, and SSR-then-hydrate (the pipeline ships — `server/render`, `ssr/hydrate!`, `h/render!` with `{:hydrate? true}` — so the decision is whether to run a Node renderer).
+- **D-tier ("how to DECIDE")** — the judgment cases the skill reasons through: Form-2/`with-let` state (app-db via `h/reg-state`, `re-frame.fresco.forms/buffered-field`, or a native component), Form-3 lifecycle (a callback ref, an ordinary event, or `h/error-boundary`), the `:on-*` handler split, foreign React and its callback contracts (`h/defhost` / `[:>]` / `h/as-element` / `h/as-component`), derived state, the ratom-as-store restructure, computed props via a plain `merge` with the owned keys last, and SSR-then-hydrate (the pipeline ships — `server/render`, `ssr/hydrate!`, `h/render!` with `{:hydrate? true}` — so the decision is whether to run a Node renderer).
 - **R-tier ("don't migrate — stay on Reagent")** — the honesty backbone, deliberately short: the prev-props update protocol, a frame-pinned reactive read, Reagent introspection and schedulers.
 
-It rewrites the **view tier** only; where a view forces a dataflow change (a new `reg-sub`, a hoisted event), it *names* it for the author rather than editing the dataflow layer. And it emits only what has shipped, **read from Fresco's own door** — the draft guide teaches several forms that do not exist, so a design page is not authority for a spelling.
+It rewrites the **view tier** only; where a view forces a dataflow change (a new `reg-sub`, a hoisted event), it *names* it for the author rather than editing the dataflow layer. And it emits only what has shipped, **read from Fresco's own door** — guide pages teach several forms that do not exist, so a design page is not authority for a spelling.
 
 ## When to reach for it
 

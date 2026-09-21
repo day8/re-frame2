@@ -57,8 +57,8 @@ rather than an ergonomics gap. Two honest routes before you hold:
   facade for what the project's version exports rather than assuming a spelling.
 - The subtree genuinely belongs to another frame → **nest a boundary on it**.
   Make that frame, then wrap the subtree in an `[h/frame-provider {:frame …}]`
-  naming it, in place, inside the tree you already have — every bare `h/sub` and
-  `h/dispatch` beneath it resolves against that frame instead. A second root in
+  naming it, in place, inside the tree you already have — every `h/sub` read and
+  every intent lowered beneath it resolves against that frame instead. A second root in
   its own container is still available and is the right answer when the subtree
   is genuinely a separate mount (a portal into foreign DOM, a detached preview),
   but it is no longer required merely to read another frame.

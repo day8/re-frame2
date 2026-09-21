@@ -112,9 +112,10 @@ attributes, not the key.
 
 ## The exactly-one-props-map law
 
-An `h/defview` takes **one** parameter and it is the props map. Call sites match:
-`[status-pill {}]`, never `[status-pill]`. Reagent's habit of zero-arg
-components is the most common mechanical miss in a first pass.
+An `h/defview` takes **one** parameter and it is the props map, so the header is
+`[_]` or a destructure — never a positional argument. A call site passes the map
+only when there are props: `[status-pill]` is legal and mounts with `{}`
+supplied for it, which is how the door's own examples mount.
 
 ## The bare-symbol trap
 

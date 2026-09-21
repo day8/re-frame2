@@ -82,6 +82,8 @@ skills/reagent-migration/
 
 `evals/` and `spec/` are authoring-time scaffolding — the skill's own design docs and eval fixtures. They are not part of the distributable skill package (`package.json` `files` omits them); a packaged consumer runs the skill, they do not re-run its gates.
 
+This skill also has a published **mirror page** outside this tree, at [`docs/skills/reagent-migration.md`](https://github.com/day8/re-frame2/blob/main/docs/skills/reagent-migration.md). Nothing reconciles the two, so a rewrite here has to carry the mirror by hand or it silently goes stale.
+
 ## Install
 
 `reagent-migration` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. Link the skill from a full monorepo clone into `~/.claude/skills/` (the repo-root `scripts/install-skills.sh` / `scripts/install-skills.ps1` link every skill at once). Link, never copy — a `cp -r` snapshot drifts from the maintained source. The `package.json` + `.claude-plugin/plugin.json` packaging metadata names no live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest (`plugin.json` carries `"status": "pre-alpha"`).
