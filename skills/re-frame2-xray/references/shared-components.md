@@ -107,6 +107,7 @@ cascade carrying an issue washes its whole L2 row pink
 (`:bg-issue-row`) — the per-row "this epoch is broken" signal, and the
 only row decoration that ships.
 
-Cross-panel arrows: `⤴` jump-to-panel from popover (`:accent-violet`,
-12px) · `↳` cause-attribution chip (`:text-tertiary`, 11px) · `→`
-inline state transition (`:text-primary`, mono).
+Arrows in the chrome: `↳` cause-attribution chip (`:text-tertiary`,
+11px) · `→` inline state transition (`:text-primary`, mono). (The `⤴`
+jump-to-panel arrow went with the blame popover it sat on — §021 §10.5;
+it reads 0 in `tools/xray/src` today.)
