@@ -59,10 +59,13 @@
    :touched       #{}
    :submit-error  nil
    :loaded-at     nil
-   ;; Whose session the in-flight submission was issued under — recorded by
-   ;; :begin-submit, read back by the two reply handlers. See the SESSION
-   ;; OWNERSHIP note above :settings/submit-success.
-   :session-owner nil})
+   ;; The save the form is currently waiting on — `{:owner … :username …}`, or
+   ;; nil when nothing is in flight. `:owner` is whose session issued it;
+   ;; `:username` is the account the save NAMES (the submitted draft's
+   ;; username, which is the new one on a rename). Recorded by :begin-submit,
+   ;; read back by the two reply handlers. See the SESSION OWNERSHIP note
+   ;; above :settings/submit-success.
+   :pending       nil})
 
 (defn- machine-data
   "The `:settings/form` snapshot's `:data`, read out of runtime-db. The snapshot
@@ -128,18 +131,30 @@
     ;; :load carries the current authenticated user under :user.
     ;;
     ;; It rebuilds :data from initial-data, so a re-entry starts clean — but it
-    ;; CARRIES :session-owner across, because that field records a REQUEST that
-    ;; may still be in flight rather than anything about the form on screen.
-    ;; Drop it and the two reply handlers below would read nil, refuse the very
-    ;; submission they were issued for, and discard a save the server had
-    ;; already performed. Carrying it cannot cut the other way: `owns-session?`
-    ;; compares it against the LIVE session, so a stale owner can only ever
-    ;; produce a refusal, never authorise a write.
+    ;; CARRIES :pending across, because that field records a REQUEST that may
+    ;; still be in flight rather than anything about the form on screen. Drop
+    ;; it and the two reply handlers below would refuse the very submission
+    ;; they were issued for, and discard a save the server had already
+    ;; performed.
+    ;;
+    ;; THIS COMMENT USED TO CLAIM THAT CARRYING IT "CANNOT CUT THE OTHER WAY" —
+    ;; that because `owns-session?` compares against the LIVE session, a stale
+    ;; record could only ever produce a refusal and never authorise a write.
+    ;; THAT WAS FALSE, and it is worth spelling out so nobody re-derives it.
+    ;; The promise held only for as long as the record still described the
+    ;; stale request. It does not survive `:begin-submit`, which OVERWRITES the
+    ;; record with whoever submits NEXT: park alice's PUT, sign bob in, let bob
+    ;; save, and a lone `owns-session?` was comparing BOB to BOB — so alice's
+    ;; reply passed the test and restored alice's User and token over bob's
+    ;; session. A record that a later submit can overwrite cannot by itself
+    ;; answer "was this reply issued for the save we are waiting on?", which is
+    ;; why the two handlers below ask that question FIRST, and ask it of facts
+    ;; the reply itself carries. See SESSION OWNERSHIP below.
     (fn action-seed-from-user [{data :data [_ {:keys [user now]}] :event}]
       {:data (-> initial-data
                  (assoc :draft (draft-from-user user))
                  (assoc :loaded-at now)
-                 (assoc :session-owner (:session-owner data)))})
+                 (assoc :pending (:pending data)))})
 
     :edit-field
     ;; :edit carries {field value} for a NON-SECRET field. It writes the
@@ -187,15 +202,19 @@
     ;; nothing lingers from a previous failed attempt while this one's in
     ;; flight.
     ;;
-    ;; It also carries :session-owner — the identity the PUT is being sent as.
-    ;; THIS is the recording point rather than :load: an owner recorded when the
-    ;; form was LOADED names whoever opened the page, which is not necessarily
-    ;; who the request eventually goes out as. A submit can only be made from
-    ;; :neutral or :incorrect, and it is the moment the request goes out.
-    (fn action-begin-submit [{data :data [_ {:keys [submitted session-owner]}] :event}]
+    ;; It also carries :pending — who the PUT is being sent as, and which
+    ;; account it names. THIS is the recording point rather than :load: a record
+    ;; written when the form was LOADED names whoever opened the page, which is
+    ;; not necessarily who the request eventually goes out as. A submit can only
+    ;; be made from :neutral or :incorrect, and it is the moment the request
+    ;; goes out. Note what this write IS, and what the handlers below therefore
+    ;; must not ask of it: it is the CURRENTLY-AWAITED save, and it replaces any
+    ;; earlier one — so it answers "what are we waiting for?" and never "who
+    ;; sent the reply I am holding?".
+    (fn action-begin-submit [{data :data [_ {:keys [submitted pending]}] :event}]
       {:data (-> data
                  (assoc :submitted submitted)
-                 (assoc :session-owner session-owner)
+                 (assoc :pending pending)
                  (assoc-in [:draft :password] "")
                  (assoc :errors {})
                  (assoc :submit-error nil))})
@@ -359,10 +378,18 @@
   ;; The machine snapshot lives in runtime-db; the session identity lives in
   ;; app-db, so this handler reads both partitions.
   (fn handler-settings-submit [{:keys [db] rt :rf.db/runtime} _]
-    (let [draft (:draft (machine-data rt))]
+    (let [draft   (:draft (machine-data rt))
+          ;; The issuance: who is sending it, and which account it names. Both
+          ;; are computed HERE, at the moment the request goes out, and both
+          ;; ride onward — into the machine as the awaited save, and (for the
+          ;; failure branch) into the reply target itself. See SESSION
+          ;; OWNERSHIP below for why the success branch cannot take the second
+          ;; of those routes.
+          pending {:owner    (auth/session-owner db)
+                   :username (:username draft)}]
       {:fx [[:dispatch [:settings/form
-                        [:submit-valid {:submitted     draft
-                                        :session-owner (auth/session-owner db)}]]]
+                        [:submit-valid {:submitted draft
+                                        :pending   pending}]]]
             [:rf.http/managed
              (rh/request {:method     :put
                           :path       "/user"
@@ -372,65 +399,147 @@
                           :sensitive? true
                           :decode     schema/UserResponse
                           :on-success [:settings/submit-success]
-                          :on-failure [:settings/submit-error]})]]})))
+                          :on-failure [:settings/submit-error
+                                       (:owner pending) (:username pending)]})]]})))
 
 ;; ----------------------------------------------------------------------------
-;; SESSION OWNERSHIP — the two reply handlers below ask one question first
+;; SESSION OWNERSHIP — the two reply handlers below ask TWO questions, in order
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Both Logout buttons — the one on this page and the one in the navbar — stay
 ;; live while a save is in flight, and they should: waiting is not what a user
 ;; who wants out is asking for. But the PUT is already on the wire, and logging
-;; out does not unsend it. So either reply can land on a signed-out app.
+;; out does not unsend it. So either reply can land on a signed-out app — or,
+;; worse, on an app somebody ELSE has since signed into and saved from.
 ;;
-;; `:begin-submit` recorded who the request was sent as; these two handlers
-;; compare that against the live session (auth.cljs's `owns-session?`, which
-;; carries the full why) and refuse to act for any other. Refusal is not a
-;; no-op: the machine is sitting in :submitting and a reply is what normally
-;; settles it, so a refused one broadcasts :reset instead — which settles the
-;; form AND scrubs the departed user's draft out of the snapshot on the way
-;; past.
+;; That second case is why there are two questions rather than one. Asking only
+;; "is the recorded owner still signed in?" was not enough, because the record
+;; is overwritten by whoever submits next (`:begin-submit`). Park alice's PUT,
+;; log out, sign bob in, let bob save, and the recorded owner is BOB — so
+;; alice's late reply was compared bob-against-bob, passed, and wrote alice's
+;; User and token into bob's session, then navigated to alice's profile.
+;;
+;;   1. IS THIS REPLY THE SAVE WE ARE WAITING ON? Answered from what the reply
+;;      itself carries, never from the record alone — a record a later submit
+;;      can overwrite cannot identify an earlier reply. A reply that is NOT the
+;;      awaited save is left strictly alone: no auth write, no form change, no
+;;      navigation, and above all no :reset, because the form and the request it
+;;      would settle now belong to somebody else. Refusing must not trade a
+;;      wrong write for a wrong wipe.
+;;
+;;   2. IS THE SESSION THAT ISSUED IT STILL SIGNED IN? auth.cljs's
+;;      `owns-session?`, which carries the full why. Only once question 1 has
+;;      established that the reply IS the awaited save does refusing here mean
+;;      "the issuer has gone and nobody newer is waiting" — and THAT refusal
+;;      does broadcast :reset, which settles the form out of :submitting and
+;;      scrubs the departed user's draft out of the snapshot on the way past.
+;;
+;; THE TWO BRANCHES ANSWER QUESTION 1 DIFFERENTLY, AND THE ASYMMETRY IS FORCED
+;; rather than an oversight — it is the shape of the two replies, plus one hard
+;; constraint:
+;;
+;;   - The FAILURE reply carries no account of its own, so it must be TOLD its
+;;     issuance. `:on-failure` therefore carries `owner` and `username` as
+;;     positional args, the same reply-argument convention the editor's saves
+;;     use for their nav-token (article_editor.cljs §WRITE OWNERSHIP). A failure
+;;     reply carries no credential, so the positional form costs nothing.
+;;
+;;   - The SUCCESS reply MAY NOT take that route, and this is the constraint:
+;;     it carries a fresh JWT, and only `(second event)` is path-redactable
+;;     (Spec 015 §Registration-owned transient classification — the positional
+;;     fail-open). Managed HTTP APPENDS its reply as the last arg, so the first
+;;     positional arg we add pushes the reply to an unaddressable slot and
+;;     `:sensitive [[:value :user :token]]` below silently stops reaching the
+;;     token — shipping it raw into every trace and error sink. auth.cljs's
+;;     session-establishing events exist for exactly this reason; see the note
+;;     above them. Correct ownership is not worth a leaked credential.
+;;
+;;     So the success reply identifies itself from what it already contains: the
+;;     account the server saved. A save names an account — the submitted draft's
+;;     username, which is the NEW one on a rename — and the reply echoes that
+;;     account back. If the reply names a different account from the save the
+;;     form is waiting on, it is not that save's reply. Two accounts cannot
+;;     share a username (it is the profile key, and `session-owner` IS the
+;;     username), so a reply from a departed account can never answer for the
+;;     current one.
+;;
+;;     KNOWN LIMIT, stated because the reader should not assume more than this
+;;     buys: it discriminates by ACCOUNT, so it cannot separate two saves by the
+;;     SAME account (sign out and back in as yourself with a PUT still parked,
+;;     and the older reply is still accepted). That is a lost update, not a
+;;     cross-account write, and closing it would need a per-submission identity
+;;     on the reply — which is the positional slot the JWT has already claimed.
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
          machine's :data via :store-user (region lands in :correct), store the
          session (durable [:auth :token] + [:auth :user]) so the rest of the
          app sees the update, and navigate off to the user's profile page —
-         unless the session that issued the save is gone, in which case the
-         form resets and none of it happens (storing the reply would restore
-         the logged-out user's credentials). The reply rides a map payload
+         unless this is not the save the form is waiting on (left strictly
+         alone — a newer account's save is in flight), or the session that
+         issued it is gone (the form resets and none of it happens, since
+         storing the reply would restore the logged-out user's credentials).
+         See SESSION OWNERSHIP above for both questions and for why THIS
+         target must stay one-element. The reply rides a map payload
          classified :sensitive — RealWorld's PUT /user reply carries a fresh
          User (and therefore a fresh token, just like login/register)."
    :sensitive [[:value :user :token]]}
   (fn handler-settings-submit-success [{:keys [db] rt :rf.db/runtime} [_ {:keys [value]}]]
-    (if-not (auth/owns-session? db (:session-owner (machine-data rt)))
-      {:fx [[:dispatch [:settings/form [:reset]]]]}
-      (let [user (:user value)]
-        ;; `store-session-db` is called DIRECTLY (not via a nested
-        ;; `[:dispatch [:auth/store-session user]]`) for the same reason
-        ;; auth.cljs's own reply events do — see that fn's doc. The
-        ;; machine-routed :submit-succeeded sub-event never needs the token at
-        ;; all (:store-user's `draft-from-user` never reads it), so it is
-        ;; `dissoc`'d before crossing into the machine — the token is never
-        ;; even offered to that nested dispatch, not merely classified after
-        ;; the fact.
-        {:db (auth/store-session-db db user)
-         :fx [[:dispatch [:settings/form
-                          [:submit-succeeded {:user (dissoc user :token)}]]]
-              [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]}))))
+    (let [awaited (:pending (machine-data rt))]
+      (cond
+        ;; Q1 — not the save we are waiting on. Somebody else's save owns this
+        ;; form and this in-flight request now; touch neither.
+        (not (and (some? awaited)
+                  (= (:username (:user value)) (:username awaited))))
+        nil
+
+        ;; Q2 — it IS our save, but the session that issued it has gone.
+        (not (auth/owns-session? db (:owner awaited)))
+        {:fx [[:dispatch [:settings/form [:reset]]]]}
+
+        :else
+        (let [user (:user value)]
+          ;; `store-session-db` is called DIRECTLY (not via a nested
+          ;; `[:dispatch [:auth/store-session user]]`) for the same reason
+          ;; auth.cljs's own reply events do — see that fn's doc. The
+          ;; machine-routed :submit-succeeded sub-event never needs the token at
+          ;; all (:store-user's `draft-from-user` never reads it), so it is
+          ;; `dissoc`'d before crossing into the machine — the token is never
+          ;; even offered to that nested dispatch, not merely classified after
+          ;; the fact.
+          {:db (auth/store-session-db db user)
+           :fx [[:dispatch [:settings/form
+                            [:submit-succeeded {:user (dissoc user :token)}]]]
+                [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})))))
 
 (rf/reg-event :settings/submit-error
   {:doc "Server said no. Folds a readable error message into the machine's
          :data via :set-submit-error; the region lands in :incorrect — the very
          same surface the client-side validation path uses, since both show up
          through :submit-error / :errors. One place to render \"something's
-         wrong\", however it went wrong. Unless the session that issued the save
-         is gone: there is nobody left to show it to, and the message would sit
-         in the snapshot waiting for the next user, so the form resets instead."}
-  (fn handler-settings-submit-error [{:keys [db] rt :rf.db/runtime} [_ {:keys [error]}]]
-    (if-not (auth/owns-session? db (:session-owner (machine-data rt)))
-      {:fx [[:dispatch [:settings/form [:reset]]]]}
-      {:fx [[:dispatch [:settings/form
-                        [:submit-failed {:submit-error (rh/failure->message error)}]]]]})))
+         wrong\", however it went wrong. Unless this is not the save the form is
+         waiting on, in which case it is left strictly alone — bannering it
+         would put one account's error on another's form and settle a request
+         that is still in flight. Or unless the session that issued the save is
+         gone: there is nobody left to show it to, and the message would sit in
+         the snapshot waiting for the next user, so the form resets instead.
+         It carries its own issuance (`owner` / `username`) positionally, which
+         a failure reply can do because it bears no credential — see SESSION
+         OWNERSHIP above."}
+  (fn handler-settings-submit-error [{:keys [db] rt :rf.db/runtime} [_ owner username {:keys [error]}]]
+    (let [awaited (:pending (machine-data rt))]
+      (cond
+        ;; Q1 — not the save we are waiting on; somebody else's save owns this
+        ;; form and this in-flight request now.
+        (not= {:owner owner :username username} awaited)
+        nil
+
+        ;; Q2 — it IS our save, but the session that issued it has gone.
+        (not (auth/owns-session? db owner))
+        {:fx [[:dispatch [:settings/form [:reset]]]]}
+
+        :else
+        {:fx [[:dispatch [:settings/form
+                          [:submit-failed {:submit-error (rh/failure->message error)}]]]]}))))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
