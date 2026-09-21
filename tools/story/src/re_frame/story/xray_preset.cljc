@@ -325,6 +325,44 @@
        (safe-call! "keybinding/detach!" xray-keybinding/detach!)
        true)))
 
+;; ---- the drive boundary (rf2-n440v) -------------------------------------
+;;
+;; Story may only DRIVE Xray where Xray can actually be there. Under
+;; `static-mode?` the bundle is a shadow-cljs `release`, and Xray is
+;; non-functional there BY CONSTRUCTION, for two independent reasons:
+;; `:devtools/preloads` is a `watch`/`compile` slot that `release`
+;; ignores, so nothing registers Xray's `:rf.xray/*` instruction set;
+;; and rf2-y8doi.60 gates Xray's four top-level `rf/reg-view` forms on
+;; `debug-enabled?`, which leaves those symbols UNDEFINED because
+;; `reg-view` carries its `def` INSIDE the gate. rf2-cljo6 ruled that
+;; loss ACCEPTED — a published Story export ships no inspector, by
+;; intent — so this is a settled disposition, not a gap awaiting repair.
+;;
+;; The shell's selection-watcher already refuses to drive Xray under
+;; `static-mode?` (`re-frame.story.ui.shell`, rf2-n7lql). This predicate
+;; closes the same boundary at the namespace entry points, so the
+;; MOUNT-TIME path — a deep link whose variant is already selected when
+;; `component-did-mount` runs — cannot route around it, and neither can
+;; any future caller. Driving anyway threw twice over: core's deliberate
+;; `:rf.error/image-zero-match` guard on the frame seat, then a render
+;; TypeError on the undefined view. Both guards are correct and neither
+;; is weakened here — the defect was the ASKING.
+;;
+;; Dev is UNAFFECTED: `static-mode?` is false in every `watch`/`compile`
+;; build and in both test lanes. See
+;; `tools/story/spec/013-Static-Build.md` §Static-mode runtime semantics.
+
+#?(:cljs
+   (defn drive-xray?
+     "Whether Story may drive Xray at all.
+
+     False when Story is disabled, and false in a published static export
+     (`re-frame.story.config/static-mode?`), where Xray cannot render —
+     see the comment block above."
+     []
+     (and rf.story.config/enabled?
+          (not rf.story.config/static-mode?))))
+
 #?(:cljs
    (defn wire-cross-host!
      "Bridge Story's configuration into Xray's config
@@ -335,9 +373,12 @@
      `mount/open!` — under the per-panel embed the RHS panel-host
      component owns the mount lifecycle on its own.
 
+     No-op in a published static export (rf2-n440v — `drive-xray?`):
+     there is no Xray to bridge configuration into.
+
      Idempotent — each bridge is a plain reset! / no-op on repeat."
      []
-     (when rf.story.config/enabled?
+     (when (drive-xray?)
        (propagate-project-root!)
        (disable-keybinding!)
        (detach-keybinding!))))
@@ -477,9 +518,16 @@
        4. `:focus`   set → dispatch `:rf.xray/focus-event` with coords.
 
      Returns the resolved preset (or nil) so the shell can log /
-     debug-introspect what fired."
+     debug-introspect what fired.
+
+     No-op in a published static export (rf2-n440v — `drive-xray?`).
+     Every one of the four steps targets an Xray that a `release` build
+     does not have: `:open?` reaches `mount/open!`, and the other three
+     dispatch `:rf.xray/*` at a `:rf/xray` frame that was never seated.
+     A story carrying a valid `:xray {:open? true :panel :epoch}` preset
+     is therefore inert in a published export and unchanged in dev."
      [variant-id]
-     (when rf.story.config/enabled?
+     (when (drive-xray?)
        (when-let [preset (resolve-preset variant-id)]
          (when (:open? preset)
            (apply-open!))

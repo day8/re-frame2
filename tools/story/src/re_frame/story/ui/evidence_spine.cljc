@@ -483,6 +483,44 @@
      [variant-id idx]
      (swap! selection-atom assoc variant-id idx)))
 
+;; ---- the focus-affordance boundary (rf2-n440v) ---------------------------
+;;
+;; Story's evidence narrative is a PUBLISHABLE artefact; the Xray focus
+;; links attached to it are not. Under `static-mode?` the bundle is a
+;; shadow-cljs `release`, where Xray cannot render at all — nothing
+;; registers its `:rf.xray/*` instruction set (`:devtools/preloads` is a
+;; `watch`/`compile` slot, ignored by `release`) and rf2-y8doi.60 gates
+;; Xray's four top-level `rf/reg-view` forms on `debug-enabled?`, which
+;; leaves those symbols UNDEFINED because `reg-view` carries its `def`
+;; INSIDE the gate. rf2-cljo6 ruled that loss ACCEPTED: a published Story
+;; export ships no inspector, by intent.
+;;
+;; So a focus affordance in a static export is a button pointing at a
+;; surface that is not there, and `focus!` would drive `:rf.xray/*`
+;; dispatches at a frame that was never seated. Both halves are closed
+;; here rather than at each call site: `focus-available?` is the single
+;; predicate the two RENDER sites (this spine's `focus-links`, and
+;; `re-frame.story.ui.docs/excerpt-beat-row`, which reuses this seam) and
+;; the CALLBACK `focus-beat!` all consult. Guarding the callback as well
+;; as the affordance is deliberate — `docs.cljc` reaches `focus-beat!`
+;; directly, so an affordance-only guard would leave that path live.
+;;
+;; The narrative itself is UNAFFECTED: beats, strength tags and summary
+;; chips render exactly as they do in dev. See
+;; `tools/story/spec/013-Static-Build.md` §Static-mode runtime semantics.
+
+#?(:cljs
+   (defn focus-available?
+     "Whether an Xray focus affordance may be offered, and whether a focus
+     command may be dispatched.
+
+     False when Story is disabled, and false in a published static export
+     (`re-frame.story.config/static-mode?`) where Xray cannot render —
+     see the comment block above. Dev builds are unaffected."
+     []
+     (and rf.story.config/enabled?
+          (not rf.story.config/static-mode?))))
+
 #?(:cljs
    (defn focus-beat!
      "Fire a focus command into the embedded Xray surface for `beat` under
@@ -494,10 +532,12 @@
      from Xray's perspective — each Story variant is make-frame'd under its
      id, see `re-frame.story.frames`).
 
-     No-op when Story is disabled. Returns the focus result map (or nil)
-     so a caller can introspect what fired."
+     No-op when Story is disabled, and no-op in a published static export
+     (rf2-n440v — `focus-available?`), where there is no mounted Xray to
+     receive the command. Returns the focus result map (or nil) so a
+     caller can introspect what fired."
      [variant-id beat panel]
-     (when rf.story.config/enabled?
+     (when (focus-available?)
        (let [coords  (beat-focus-coords beat)
              source  (focus-source :story/evidence-beat variant-id
                                     {:beat-idx (:beat-idx beat)
@@ -692,28 +732,34 @@
      spec/021 §2). Each link fires `focus-beat!` for one panel lens. When
      the beat lacks coordinates the links STILL render (they open the panel
      without an epoch pin) and a note says WHY the precise focus is
-     unavailable (spec/020 §3 — graceful no-coords path)."
+     unavailable (spec/020 §3 — graceful no-coords path).
+
+     Renders NOTHING when `focus-available?` is false (rf2-n440v): in a
+     published static export there is no Xray to open, so the whole row —
+     links and no-coords note alike — is omitted rather than offered and
+     then swallowed. The beat's narrative is untouched."
      [variant-id beat]
-     (let [{:keys [precise? reason]} (:focus beat)]
-       [:div {:style       (:focus-row styles)
-              :data-test   "story-evidence-focus-row"
-              :data-precise (str (boolean precise?))}
-        (for [[panel label] focus-link-panels]
-          ^{:key (name panel)}
-          [:button {:style     (:focus-link styles)
-                    :data-test "story-evidence-focus-link"
-                    :data-panel (name panel)
-                    :title     (if precise?
-                                 (str "Focus the Xray " label " panel on this beat's epoch")
-                                 (str "Open the Xray " label " panel (no epoch pin — " reason ")"))
-                    :on-click  (fn [e]
-                                 (.stopPropagation e)
-                                 (focus-beat! variant-id beat panel))}
-           (str "Xray: " label)])
-        (when-not precise?
-          [:span {:style     (:focus-note styles)
-                  :data-test "story-evidence-focus-unavailable"}
-           reason])])))
+     (when (focus-available?)
+       (let [{:keys [precise? reason]} (:focus beat)]
+         [:div {:style        (:focus-row styles)
+                :data-test    "story-evidence-focus-row"
+                :data-precise (str (boolean precise?))}
+          (for [[panel label] focus-link-panels]
+            ^{:key (name panel)}
+            [:button {:style     (:focus-link styles)
+                      :data-test "story-evidence-focus-link"
+                      :data-panel (name panel)
+                      :title     (if precise?
+                                   (str "Focus the Xray " label " panel on this beat's epoch")
+                                   (str "Open the Xray " label " panel (no epoch pin — " reason ")"))
+                      :on-click  (fn [e]
+                                   (.stopPropagation e)
+                                   (focus-beat! variant-id beat panel))}
+             (str "Xray: " label)])
+          (when-not precise?
+            [:span {:style     (:focus-note styles)
+                    :data-test "story-evidence-focus-unavailable"}
+             reason])]))))
 
 #?(:cljs
    (defn- beat-row

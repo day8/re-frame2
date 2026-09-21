@@ -48,11 +48,13 @@
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.filters.typed-predicates :as xray-typed]
             [day8.re-frame2-xray.keybinding :as xray-keybinding]
+            [day8.re-frame2-xray.mount :as xray-mount]
             [day8.re-frame2-xray.registry :as xray-registry]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.story :as rf.story]
+            [re-frame.story.config :as rf.story.config]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.xray-preset :as rf.story.xray-preset]))
 
@@ -468,3 +470,106 @@
     (rf.story/configure! {:rf.story/project-root nil})
     (is (nil? (rf.story.xray-preset/propagate-project-root!))
         "no propagation when Story's project-root is nil")))
+
+;; ===========================================================================
+;; STATIC EXPORT — the preset drive boundary (rf2-n440v)
+;; ===========================================================================
+;;
+;; The shell's SELECTION-WATCHER has refused to drive Xray under
+;; `static-mode?` since rf2-n7lql, but it only fires on a CHANGE of
+;; selection. `hydrate-url-state!` runs earlier in the same
+;; `component-did-mount`, so an ordinary DEEP LINK arrives with its
+;; variant already selected and reached `wire-cross-host!` +
+;; `on-variant-selected!` without ever passing the watcher. A story
+;; carrying a valid `:xray {:open? true :panel :epoch}` preset therefore
+;; still attempted Xray open/panel/filter/focus operations in a published
+;; static export, where rf2-cljo6 ruled there is deliberately no Xray at
+;; all. These tests pin the boundary at the namespace entry points, so no
+;; caller — the mount-time path included — can route around it.
+;;
+;; Each test runs its DEV control FIRST, because the failure this class of
+;; guard actually produces is an over-broad one that kills the feature in
+;; dev as well, which a static-only assertion cannot see.
+
+(deftest drive-xray?-is-false-only-in-a-static-export
+  (testing "rf2-n440v — the single predicate both namespace entry points consult"
+    (is (true? (rf.story.xray-preset/drive-xray?))
+        "dev control: the node-test build may drive Xray")
+    (with-redefs [rf.story.config/static-mode? true]
+      (is (false? (rf.story.xray-preset/drive-xray?))
+          "static export: Xray cannot render, so Story must not drive it"))
+    (is (true? (rf.story.xray-preset/drive-xray?))
+        "the redef is scoped — dev is restored afterwards")))
+
+(deftest static-export-wire-cross-host-touches-no-xray-config
+  (testing "rf2-n440v — wire-cross-host! is inert under static-mode?.
+            Asserted against Xray's REAL config slot with no shims, so this
+            is an effect-level reading rather than a call-count one."
+    ;; Baseline: the default-true posture, so a flip is a real transition.
+    (xray-config/set-keybinding-enabled! true)
+    (try
+      (with-redefs [rf.story.config/static-mode? true]
+        (rf.story.xray-preset/wire-cross-host!)
+        (is (true? (xray-config/keybinding-attach-enabled?))
+            "static: the slot is UNTOUCHED — no bridge fired"))
+      ;; DEV CONTROL, same slot, same call, same test.
+      (rf.story.xray-preset/wire-cross-host!)
+      (is (false? (xray-config/keybinding-attach-enabled?))
+          "dev control: the bridge still flips the slot to false")
+      (finally
+        (xray-config/set-keybinding-enabled! true)))))
+
+(deftest static-export-mount-time-preset-drives-nothing
+  (testing "rf2-n440v — the MOUNT-TIME entry point a preset-bearing deep link
+            reaches. `on-variant-selected!` applies the preset for an
+            already-selected variant; under static-mode? not one of the four
+            preset operations (open / panel / filters / focus) is attempted."
+    (reg-filtered-variant! :story.filt/deep-link
+                           {:open?   true
+                            :panel   :epoch
+                            :filters {:out [:app/noise]}
+                            :focus   {:event-pos 5}})
+    (let [opened     (atom 0)
+          dispatched (atom [])
+          configured (atom [])
+          ;; Boundary spies at Story's OWN edge — the Xray surfaces the
+          ;; preset drives. Redefining these keeps the dev control from
+          ;; needing a mounted Xray while still proving the calls happen.
+          with-spies (fn [f]
+                       (with-redefs [xray-mount/open!       (fn [& _] (swap! opened inc) nil)
+                                     rf/dispatch            (fn [ev & _] (swap! dispatched conj ev) nil)
+                                     xray-config/configure! (fn [opts] (swap! configured conj opts) nil)]
+                         (f)))]
+      (try
+        ;; DEV CONTROL FIRST — the deep-link path DOES drive Xray in dev.
+        (with-spies #(rf.story.xray-preset/on-variant-selected! :story.filt/deep-link))
+        (is (= 1 @opened)
+            "dev control: :open? true reached Xray's mount/open!")
+        (is (some #(= :rf.xray/select-panel (first %)) @dispatched)
+            "dev control: :panel reached the :rf.xray/select-panel dispatch")
+        (is (some #(= :rf.xray/focus-event (first %)) @dispatched)
+            "dev control: :focus reached the :rf.xray/focus-event dispatch")
+        (is (some #(contains? % :rf.xray/filters) @configured)
+            "dev control: :filters reached Xray's configure! seed")
+        ;; NOW THE STATIC ARM — counters must not move.
+        (let [open-before       @opened
+              dispatched-before (count @dispatched)
+              configured-before (count @configured)]
+          (with-redefs [rf.story.config/static-mode? true]
+            (is (nil? (rf.story.xray-preset/on-variant-selected! :story.filt/deep-link))
+                "static: the mount-time preset entry point returns nil")
+            (is (nil? (rf.story.xray-preset/apply-preset! :story.filt/deep-link))
+                "static: apply-preset! itself is inert, so no caller can route around it"))
+          (is (= open-before @opened)
+              "static: mount/open! was NOT reached")
+          (is (= dispatched-before (count @dispatched))
+              "static: no :rf.xray/* event was dispatched")
+          (is (= configured-before (count @configured))
+              "static: Xray's configure! was not seeded"))
+        (finally
+          ;; `:filters` parks in `pending-filters` when no :rf/xray frame
+          ;; exists, and `flush-pending-filters!` is a no-op until one
+          ;; does — so seat the frame first. `install-xray-frame!` is the
+          ;; file's own drain helper; the per-test fixture clears the
+          ;; frame + registrar again afterwards.
+          (install-xray-frame!))))))

@@ -747,7 +747,14 @@
         [:div {:style (:rhs-section-h styles)}
          [:span "Evidence"]
          [:span {:style (:rhs-section-sub styles)}
-          "narrative + Xray focus"]]
+          ;; rf2-n440v — the section STAYS in a static export (the
+          ;; narrative is the publishable half), but its focus links do
+          ;; not, so the subtitle must not promise them. The spine's
+          ;; `focus-available?` is the same predicate that decides
+          ;; whether the links render, so the two can never disagree.
+          (if (rf.story.ui.evidence-spine/focus-available?)
+            "narrative + Xray focus"
+            "narrative")]]
         [rf.story.ui.evidence-spine/evidence-spine-panel]])
      (when (:controls vis)
        [:section {:style (:rhs-section styles)
@@ -1064,17 +1071,35 @@
            (rf.story.ui.keybindings/install!)
            (when-let [vid (:selected-variant @rf.story.ui.state/shell-state-atom)]
              (ensure-listeners-for-variant! vid)
-             ;; rf2-v1ach: per-panel embed manages its own mount on
-             ;; commit. The cross-host bridges (project-root +
-             ;; keybinding detach) still need to fire so the popout
-             ;; escape hatch + Xray's source-coord chips resolve
-             ;; against Story's `:rf.story/project-root`.
-             (rf.story.xray-preset/wire-cross-host!)
-             ;; rf2-q9kv5: apply per-story preset on the mount-time
-             ;; selection too (the selection-watcher only fires on
-             ;; change, so a pre-selected variant would otherwise miss
-             ;; the preset).
-             (rf.story.xray-preset/on-variant-selected! vid)
+             ;; rf2-n440v — the MOUNT-TIME half of the rf2-n7lql
+             ;; boundary. The selection-watcher above is gated on
+             ;; `(not static-mode?)`, but it only fires on a CHANGE of
+             ;; selection; `hydrate-url-state!` runs earlier in this
+             ;; same `component-did-mount`, so an ordinary deep link
+             ;; arrives with the variant ALREADY selected and reaches
+             ;; the two calls below without passing the watcher. In a
+             ;; published static export that drove Xray from a surface
+             ;; the export deliberately omits — see
+             ;; `tools/story/spec/013-Static-Build.md` §Static-mode
+             ;; runtime semantics, and rf2-cljo6, which ruled the
+             ;; missing inspector ACCEPTED rather than a gap to close.
+             ;;
+             ;; Only the two Xray drives are gated. `ensure-listeners-
+             ;; for-variant!` above and the autorun below are Story's
+             ;; own behaviour and run in a static export exactly as
+             ;; they do in dev.
+             (when-not rf.story.config/static-mode?
+               ;; rf2-v1ach: per-panel embed manages its own mount on
+               ;; commit. The cross-host bridges (project-root +
+               ;; keybinding detach) still need to fire so the popout
+               ;; escape hatch + Xray's source-coord chips resolve
+               ;; against Story's `:rf.story/project-root`.
+               (rf.story.xray-preset/wire-cross-host!)
+               ;; rf2-q9kv5: apply per-story preset on the mount-time
+               ;; selection too (the selection-watcher only fires on
+               ;; change, so a pre-selected variant would otherwise miss
+               ;; the preset).
+               (rf.story.xray-preset/on-variant-selected! vid))
              ;; rf2-8i2a9 / rf2-chi9j3 / rf2-j538f7.34: mount-time RESUME for
              ;; an already-selected variant (deep-link / persisted selection).
              ;; The `mount-time-autorun-vid` guard (rf2-chi9j3) is retained so
