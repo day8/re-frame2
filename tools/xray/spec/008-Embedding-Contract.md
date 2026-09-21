@@ -489,10 +489,23 @@ and the host got `:rf.error/frame-destroyed` instead of the target it asked
 for — and because the rejection happens at dispatch, calling `open!`
 immediately afterwards cannot rescue the choice.
 The seat is idempotent and is itself a no-op until a substrate adapter is
-installed, so it costs a live host nothing. It is the SEAT only — the
-first-mount seed/hydrate fan-out stays at first open, where it can still
-harvest the pre-open trace and epoch rings. A host MUST NOT reach for
-`:rf/xray` itself: dispatching `[:rf.xray/set-target-frame …]` under
+installed — but adapter presence is NOT the only precondition (rf2-1t0d5),
+so it costs an INSTALLED host nothing rather than any live one. A FRESH
+seat assembles Xray's own image, which fails loud with
+`:rf.error/image-zero-match` when Xray's `:rf.xray/*` instruction set is
+not registered. **So the equivalence these two entry points share is one
+of SEAM, not of preconditions**, and the three seat paths differ in who
+guarantees the install: `init!` INSTALLS the instruction set and only then
+reaches the seat; `set-target-frame!` ASSUMES an Xray that the preload —
+or an earlier `init!` — already installed, and called before either it
+fails loud; the preload's background readiness tick is the one path that
+DECLINES to seat instead of throwing, because a throw from a timer crashes
+the runtime before it can report a verdict (rf2-atecy). Failing loud on an
+EXPLICIT seat is deliberate and MUST NOT be repaired by guarding the seat.
+It is the SEAT only — the first-mount seed/hydrate fan-out stays at first
+open, where it can still harvest the pre-open trace and epoch rings. A
+host MUST NOT reach for `:rf/xray` itself: dispatching
+`[:rf.xray/set-target-frame …]` under
 `(rf/with-frame :rf/xray …)` reimplements this fn without its seat, and
 knowing that `:rf/xray` is Xray's frame — or that its lifecycle is tied to
 adapter readiness — is not the host's business.
