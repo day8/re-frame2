@@ -518,7 +518,7 @@
    "Exit Sim"])
 
 (defn- available-transition-row
-  [dispatch machine-id pending-event {:keys [event target guard?]}]
+  [dispatch machine-id pending-event {:keys [event guard?] :as row}]
    [:li
    {:data-testid (str "rf-xray-static-machines-sim-available-" (name event))
     :on-click    (fn [_]
@@ -544,12 +544,12 @@
                   :font-size "11px"}}
    [:span {:style {:color (:text-primary tokens)}}
     (str event)]
+   ;; rf2-kmr2i / rf2-4cm3k — `format-destination`, not an inline target
+   ;; cond. A targetless / action-only candidate now lists, and it has no
+   ;; target to print; the two row kinds share one formatter so they cannot
+   ;; answer that question differently.
    [:span {:style {:color (:text-tertiary tokens)}}
-    (str "→ "
-         (cond
-           (keyword? target) (str target)
-           (vector? target)  (pr-str target)
-           :else             (str target))
+    (str (sim-h/format-destination row)
          (when guard? " [guard]"))]])
 
 ;; ---- `:after` timer rows (rf2-pzuqw) ------------------------------------
@@ -587,7 +587,7 @@
     (str idx)))
 
 (defn- available-after-row
-  [dispatch machine-id sim idx {:keys [delay-key target guard?] :as row}]
+  [dispatch machine-id sim idx {:keys [delay-key guard?] :as row}]
   [:li
    {:data-testid (str "rf-xray-static-machines-sim-available-after-"
                       (after-row-testid-suffix delay-key idx))
@@ -613,11 +613,7 @@
    [:span {:style {:color (:text-primary tokens)}}
     (str "⌚ " (format-delay-key delay-key))]
    [:span {:style {:color (:text-tertiary tokens)}}
-    (str "→ "
-         (cond
-           (keyword? target) (str target)
-           (vector? target)  (pr-str target)
-           :else             (str target))
+    (str (sim-h/format-destination row)
          (when guard? " [guard]")
          " (timer)")]])
 
@@ -668,8 +664,15 @@
              ;; same event (one broadcast handled in two places), which is the
              ;; idiomatic parallel shape rather than an exotic one, and keyed
              ;; on the event alone those two rows collide.
-             (for [t transitions]
-               [:<> {:key (str (pr-str (:decl-path t)) "-" (:event t))}
+             ;;
+             ;; rf2-kmr2i — the ROW INDEX joins them, as the `after-` keys
+             ;; below have always carried one. One event-id at one node may
+             ;; declare a VECTOR of candidates, and since targetless ones
+             ;; now list too (`on-rows-at`), `{:go [{:target :a :guard :g}
+             ;; {:action :bump}]}` is a pair of rows the decl-path and the
+             ;; event id cannot tell apart.
+             (for [[idx t] (map-indexed vector transitions)]
+               [:<> {:key (str (pr-str (:decl-path t)) "-" (:event t) "-" idx)}
                 (available-transition-row dispatch machine-id pending-event t)])
              ;; The timer rows come AFTER the `:on` rows. Their keys carry
              ;; the `after-` prefix and the row index, so a machine
