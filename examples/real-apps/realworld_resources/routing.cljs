@@ -195,11 +195,19 @@
    [{:resource  :realworld/article
      :params    (fn [route] {:slug (get-in route [:params :slug])})
      :blocking? true}
+    ;; No `:when` and no `:keep-previous?` here, and the absence is deliberate.
+    ;; This route's own `:params [:map [:slug :string]]` schema already REQUIRES
+    ;; the slug, so a `:when` testing `(some? slug)` could never be false — a
+    ;; flag that cannot discriminate teaches a copier that the knob is free
+    ;; decoration. And keep-previous would be invisible: the comments render is a
+    ;; cond on `:loading?` that never reads `:previous-data`, and showing article
+    ;; A's comments under article B would be wrong anyway. Keep-previous is for
+    ;; successive PAGES of one list — see the article lists, which do honour
+    ;; `:previous?`. The real `:when` demonstration is the home route's feed
+    ;; entry above, where the query arm genuinely decides whether to plan a read.
     {:resource  :realworld/comments
      :params    (fn [route] {:slug (get-in route [:params :slug])})
-     :when      (fn [route _ctx] (some? (get-in route [:params :slug])))
-     :blocking? false
-     :keep-previous? true}]} "/article/:slug")
+     :blocking? false}]} "/article/:slug")
 
 ;; The profile SHELL. `:realworld.profile/show` (the authored-articles tab, the
 ;; canonical `/profile/:username` page) owns the shared profile-banner read

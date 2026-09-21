@@ -378,18 +378,72 @@
 ;; HOME PAGE
 ;; ============================================================================
 
+;; The failed-plan render. It is deliberately NOT the `.empty-feed-message`
+;; marker `article-list` uses: that marker is the official RealWorld contract's
+;; signal for an empty LIST, and a page whose plan never formed has no list at
+;; all. Conflating the two is the whole defect this view exists to prevent — a
+;; partial failure that renders as success is worse than an error.
+(reg-view ^{:doc "The honest render for a route whose resource plan could not be
+                  formed. Says plainly that nothing was requested, quotes the
+                  framework's own `:reason`, and signposts the recovery — both
+                  recoveries being ordinary navigations, which is the point."}
+          home-plan-error [{:keys [error your-feed? authed?]}]
+  [:div.row
+   [:div.col-md-12
+    [:div.article-preview.error {:data-testid "home-plan-error"}
+     [:p "Nothing on this page was ever requested, so there is nothing to show. "
+      "This is not an empty feed."]
+     (when (and your-feed? (not authed?))
+       [:p {:data-testid "home-plan-error-recovery"}
+        "Your Feed is private to a signed-in reader. "
+        [:a {:href "#" :data-testid "plan-error-global-feed"
+             :on-click #(do (.preventDefault %) (dispatch [:home/show-global-feed]))}
+         "Switch to Global Feed"]
+        " or "
+        [rf/route-link {:to :realworld.auth/login} "sign in"]
+        "."])
+     [:p.plan-error-reason {:data-testid "home-plan-error-reason"} (:reason error)]]]])
+
 (reg-view ^{:doc "The home page — a pure function of subs that never dispatches out
                   of band. The personalised feed reads through the named
                   `{:from-db :realworld/session}` scope resolver: the subscription
                   resolves its own scope (nothing to thread) and re-keys reactively
                   across login / logout. A favourite shows up in Your Feed via the
                   mutation's own session-scoped invalidation descriptor — no
-                  off-render reaction, no app-level feed patching."}
+                  off-render reaction, no app-level feed patching.
+
+                  It also renders the one route state no resource sub can
+                  describe — a route whose resource PLAN never formed. See
+                  `plan-error` below: idle is not empty."}
           home-page []
   (let [authed?      @(subscribe [:auth/authenticated?])
         your-feed?   @(subscribe [:home/your-feed?])
         selected-tag @(subscribe [:home/selected-tag])
         page         @(subscribe [:home/page])
+        ;; IDLE IS NOT EMPTY, and this is the page where that distinction shows.
+        ;; A route whose resource plan FAILS commits a failed activation — empty
+        ;; ownership, NO ensures — so every read here keeps the never-ensured
+        ;; projection (`:idle`, `:loading? false`, `:error nil`, `:has-data?
+        ;; false`). A resource sub cannot tell that apart from "we asked, and
+        ;; there is nothing", so rendering the reads alone puts "No articles are
+        ;; here… yet." and a forever "Loading tags…" over a page that never asked
+        ;; for anything. The route slice is where the truth lives, and
+        ;; `:rf.route/error` is the framework's read of it.
+        ;;
+        ;; The live case is `/?feed=following` with nobody signed in — a reload, a
+        ;; bookmark, or a saved JWT the server has since rejected. The feed
+        ;; entry's `:when` admits it on that arm, its INHERITED `{:from-db
+        ;; :realworld/session}` scope resolves nil, and a derived scope that
+        ;; cannot resolve is the fail-closed unresolved condition — which fails
+        ;; the WHOLE plan, taking the articles and tags reads down with it.
+        ;;
+        ;; Gated on the error's `:rf.error/id`, because the route slice carries
+        ;; two different errors. A BLOCKING read that failed its first load also
+        ;; puts the route in `:error` (`:rf.error/resource-route-blocking`), but
+        ;; there the plan DID form and `article-list` reports that failure better
+        ;; than this panel could — so only a planning error takes over the page.
+        plan-error   (let [e @(subscribe [:rf.route/error])]
+                       (when (= :rf.error/resource-route-plan (:rf.error/id e)) e))
         tags-state   @(subscribe [:rf/resource {:resource :realworld/tags :params {}}])
         ;; The global list is keyed by the active `:tag` and `:page` — the same
         ;; params the route ensured under, so the sub lands on the right cache key.
@@ -406,42 +460,49 @@
     [:div.home-page
      [:div.banner [:div.container [:h1.logo-font "conduit"] [:p "A place to share your knowledge."]]]
      [:div.container.page
-      [:div.row
-       [:div.col-md-9
-        [:div.feed-toggle
-         [:ul.nav.nav-pills.outline-active
-          (when authed?
+      (if plan-error
+        ;; Nothing on this page was ensured, so there is no list and no tag
+        ;; sidebar to render — only the truth, and the way back. Both recoveries
+        ;; are ordinary navigations: "Global Feed" replans with `:query {}` (the
+        ;; feed's `:when` then gates it out), and signing in resolves the session
+        ;; scope the plan could not.
+        [home-plan-error {:error plan-error :your-feed? your-feed? :authed? authed?}]
+        [:div.row
+         [:div.col-md-9
+          [:div.feed-toggle
+           [:ul.nav.nav-pills.outline-active
+            (when authed?
+              [:li.nav-item
+               [:a.nav-link {:href "#" :data-testid "your-feed-tab"
+                             :class (when your-feed? "active")
+                             :on-click #(do (.preventDefault %) (dispatch [:home/show-your-feed]))}
+                "Your Feed"]])
             [:li.nav-item
-             [:a.nav-link {:href "#" :data-testid "your-feed-tab"
-                           :class (when your-feed? "active")
-                           :on-click #(do (.preventDefault %) (dispatch [:home/show-your-feed]))}
-              "Your Feed"]])
-          [:li.nav-item
-           [:a.nav-link {:href "#" :data-testid "global-feed-tab"
-                         :class (when (not your-feed?) "active")
-                         :on-click #(do (.preventDefault %) (dispatch [:home/show-global-feed]))}
-            "Global Feed"]]
-          (when selected-tag
-            [:li.nav-item
-             [:a.nav-link.active {:href "#" :data-testid "active-tag"
-                                  :on-click #(do (.preventDefault %) (dispatch [:home/clear-tag]))}
-              [:i.ion-pound] " " selected-tag]])]]
-        (if (and authed? your-feed?)
-          [article-list {:state feed-state :empty-msg "Your feed is empty — follow some authors."
-                         :current-page page :on-page #(dispatch [:home/go-to-page %])}]
-          [article-list {:state list-state
-                         :current-page page :on-page #(dispatch [:home/go-to-page %])}])]
-       [:div.col-md-3
-        [:div.sidebar
-         [:p "Popular Tags"]
-         (if (:has-data? tags-state)
-           (into [:div.tag-list {:data-testid "tag-list"}]
-                 (for [tag (:tags (:data tags-state))]
-                   ^{:key tag}
-                   [:a.tag-pill.tag-default {:href "#" :data-testid (str "tag-" tag)
-                                             :on-click #(do (.preventDefault %) (dispatch [:home/apply-tag tag]))}
-                    tag]))
-           [:div.tag-list {:data-testid "tags-loading"} "Loading tags…"])]]]]]))
+             [:a.nav-link {:href "#" :data-testid "global-feed-tab"
+                           :class (when (not your-feed?) "active")
+                           :on-click #(do (.preventDefault %) (dispatch [:home/show-global-feed]))}
+              "Global Feed"]]
+            (when selected-tag
+              [:li.nav-item
+               [:a.nav-link.active {:href "#" :data-testid "active-tag"
+                                    :on-click #(do (.preventDefault %) (dispatch [:home/clear-tag]))}
+                [:i.ion-pound] " " selected-tag]])]]
+          (if (and authed? your-feed?)
+            [article-list {:state feed-state :empty-msg "Your feed is empty — follow some authors."
+                           :current-page page :on-page #(dispatch [:home/go-to-page %])}]
+            [article-list {:state list-state
+                           :current-page page :on-page #(dispatch [:home/go-to-page %])}])]
+         [:div.col-md-3
+          [:div.sidebar
+           [:p "Popular Tags"]
+           (if (:has-data? tags-state)
+             (into [:div.tag-list {:data-testid "tag-list"}]
+                   (for [tag (:tags (:data tags-state))]
+                     ^{:key tag}
+                     [:a.tag-pill.tag-default {:href "#" :data-testid (str "tag-" tag)
+                                               :on-click #(do (.preventDefault %) (dispatch [:home/apply-tag tag]))}
+                      tag]))
+             [:div.tag-list {:data-testid "tags-loading"} "Loading tags…"])]]])]]))
 
 ;; ============================================================================
 ;; ARTICLE DETAIL + COMMENTS

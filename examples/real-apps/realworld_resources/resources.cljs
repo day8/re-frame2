@@ -144,9 +144,17 @@
    :scope          {:from-db :realworld/viewer}
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
-   ;; Tag both the per-article identity and the list identity, so a save or
-   ;; favorite invalidates the detail page and the lists in one go.
-   :tags           (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})}
+   ;; The detail's OWN identity, and only that. Every write that concerns this
+   ;; article — favourite, edit, delete — already names `[:article slug]` in its
+   ;; `:invalidates`, so the detail is reached without carrying a LIST tag it is
+   ;; not a list of. Adding `[:article-list]` here would only mean "favouriting
+   ;; any article anywhere stales the cached detail of every OTHER article",
+   ;; turning the cache-hit back-navigation this example sells into a refetch
+   ;; after any write. The reach in the other direction is what you want, and the
+   ;; lists already provide it: each list tags every article it contains (see
+   ;; `:realworld/articles` above), so favouriting one article invalidates any
+   ;; list showing it.
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get :url (rh/full-url (str "/articles/" slug))}
      :decode  schema/ArticleResponse
