@@ -27,7 +27,7 @@ The skill cites spec files by the published docs URL (`https://day8.github.io/re
 
 Path: `implementation/` in the re-frame2 repo.
 
-**The reference is a worked example, not normative.** There is no dedicated tour leaf since the 2026-08 reduction: a port author who wants to see how *someone* solved a problem opens the matching artefact directory at the pin (`implementation/core/` for the runtime heart, `implementation/adapters/*` for the React bindings, per-feature artefacts `machines`/`routing`/`flows`/`http`/`schemas`/`ssr`/`epoch`), reads the source, and tests everything against `spec/` before adopting it.
+**The reference is a worked example, not normative.** There is no dedicated tour leaf since the 2026-08 reduction: a port author who wants to see how *someone* solved a problem opens the matching artefact directory at the pin (`implementation/core/` for the runtime heart, `implementation/adapters/*` plus `implementation/fresco/` for the view layer, per-feature artefacts `machines`/`routing`/`flows`/`http`/`schemas`/`ssr`/`ssr-ring`/`resources`/`epoch`), reads the source, and tests everything against `spec/` before adopting it. The same roster rides the EP index's **Worked example** column in `references/phase-2-impl-order.md`, which is where a session actually meets it; keep the two in step.
 
 ## 3. Tertiary inputs
 
