@@ -87,7 +87,30 @@ The shell honours a second compile-time flag —
   a dev tool to work in a build that deliberately elides it. So under
   `static-mode?` the shell omits the RHS Xray band entirely and does not
   drive Xray on variant selection — no `core/set-target-frame!`, no
-  `xray-preset` cross-host wiring or per-variant preset. This matches
+  `xray-preset` cross-host wiring or per-variant preset.
+
+  **"On variant selection" means BOTH edges, and rf2-n440v is the second
+  one.** rf2-n7lql gated the shell's selection-WATCHER, which fires only
+  on a CHANGE of selection. `hydrate-url-state!` runs earlier in the same
+  `component-did-mount`, so an ordinary deep link arrives with its variant
+  ALREADY selected and reached `wire-cross-host!` + `on-variant-selected!`
+  without passing the watcher — a story carrying a valid
+  `:xray {:open? true :panel :epoch}` preset therefore still attempted
+  Xray open/panel/filter/focus operations in a published export. The gate
+  now sits on `xray-preset/drive-xray?` at the namespace entry points as
+  well as at the shell call site, so no caller can route around it.
+
+  **Evidence focus affordances go too (rf2-n440v).** The evidence spine
+  rendered three live Xray focus buttons per beat, and Docs' evidence
+  excerpt a fourth, all reaching `evidence-spine/focus-beat!` — which
+  gated on `enabled?` alone and so entered Xray's dispatch path with no
+  mounted destination. Under `static-mode?` the affordances are omitted
+  and the callback refuses, both through one predicate,
+  `evidence-spine/focus-available?`. **The evidence NARRATIVE is
+  RETAINED** — spans, beats, evidence-strength tags and summary chips
+  render exactly as in dev. Only the active actions into an absent
+  surface go, and the RHS section subtitle drops its "+ Xray focus"
+  promise to match. This matches
   the "published export is dev-tool-free" note already carried by
   `:story-static/counter-with-stories` in
   `implementation/shadow-cljs.edn`.
@@ -321,6 +344,8 @@ their `staticwebapp.config.json` under Azure, etc.).
 |---|---|
 | `:devtools/preloads` (Xray preload) | `release` builds ignore the preload slot |
 | The RHS Xray band + the per-variant Xray drive | gated on `(not static-mode?)`; Xray cannot render in a `release` build (rf2-n7lql) |
+| Mount-time `:xray` preset application + the cross-host bridges | gated on `(not static-mode?)` via `xray-preset/drive-xray?`; the watcher gate missed the deep-link path, where the variant is already selected at mount (rf2-n440v) |
+| Per-beat Xray focus links (evidence spine + Docs evidence excerpt) and the `focus-beat!` callback | gated on `(not static-mode?)` via `evidence-spine/focus-available?`; the evidence narrative itself is RETAINED (rf2-n440v) |
 | `shadow-cljs` websocket bridge | `release` builds don't include the dev-server connection |
 | Registrar-fingerprint poll (the 500ms `setInterval`) | gated on `(not static-mode?)`; DCEs under `:advanced` |
 | First-visit help overlay auto-open | gated on `(not static-mode?)` |
