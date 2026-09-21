@@ -66,9 +66,12 @@ Flows are NOT in the reactive cascade — they are handling-side (the
 Epoch FLOW step). The cascade nodes are exactly: db-paths (seed) → subs
 (intermediate) → views (leaf).
 
-Per-cascade clicks propagate cross-panel — a sub row jumps to app-db at
-that input path. Hovering a view node toggles a pink DOM highlight on
-the live element.
+Clicking a sub or view node opens its **registration source** in the
+editor (click-to-source) — there is **no** jump to app-db. Cross-panel
+propagation was retired unbuilt under rf2-y8doi.29 (§021 §10.5). To
+inspect a sub's input path, open the app-db tab and double-click /
+`Enter` the container to zoom (`Esc` or the breadcrumb zooms back out).
+Hovering a view node toggles a pink DOM highlight on the live element.
 
 **Open when:** "why didn't my view update?", "why did this re-render —
 sub or props?", "which views re-rendered this epoch?", "which subs

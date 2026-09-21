@@ -30,7 +30,7 @@ Four hotkey families have keydown listeners installed:
 | `Ctrl+Shift+C` | global | Toggle the Xray shell. |
 | `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static. |
 | `Cmd/Ctrl+K` | global | Open the command palette. |
-| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts (only inside the shell, off editable fields). `Esc` is modal-local, not a wired spine key. |
+| `Space` `l` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts (only inside the shell, off editable fields). `Esc` is modal-local, not a wired spine key. |
 
 ## When to reach for it
 

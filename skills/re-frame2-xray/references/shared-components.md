@@ -20,10 +20,13 @@ side-effect args / inline exception ex-data, Views sub values, Trace raw
 trace-event maps — goes through this renderer (§021 §10.6 — binding).
 
 Locked capabilities (§021 §10.1): lazy collapsible tree · inline diff
-(no side-by-side) · minimal keyword-only type coloring · clickable
-paths for **cross-panel propagation only** (no blame popover, no
-copy-path, no copy-value, no "show epoch that last changed this" —
-explicitly stripped per §021 §10.5).
+(no side-by-side) · minimal keyword-only type coloring. The renderer's
+**only** path gesture is **double-click / `Enter` to zoom** into a
+container; `Esc` zooms up one level and the breadcrumb row above the
+body re-roots to any ancestor in one tap. There is **no
+cross-panel propagation** — it was retired unbuilt under rf2-y8doi.29,
+along with the blame popover, copy-path, copy-value and "show epoch
+that last changed this" (§021 §10.5).
 
 Lazy-expansion heuristic (§021 §10.4): depth ≤ 2 expanded · depth 3
 expanded if ≤ 10 children · depth ≥ 4 collapsed · changed children
@@ -95,11 +98,14 @@ through `reg-l4-tab!`). There is **no Issues tab** and **no Event tab** —
 the Epoch tab is the "what happened" surface (issues detail:
 [`panels.md` §Issues](panels.md)).
 
-L2 row badges (live impl `l2_timeline.cljc`): `⚠` issue · `◆` machine
-transition · `🌐` HTTP activity · `⚡` fx-emit child dispatch · `⏲` timer
-dispatch. **L2 issue pink-wash**: a cascade carrying an issue
-washes its whole L2 row pink (`:bg-issue-row`) — the per-row "this epoch
-is broken" signal.
+**The L2 row is glyph-free** (rf2-pjjwh): no gutter glyph, no origin
+prefix and no activity badges render. Its left-most column is a plain
+text `source` tag — `ui` for app code (and for the un-stamped defaults),
+otherwise the bare source name (`router`, `http`, `ssr-hydration`,
+`fx-dispatch`, `after-timer`, `tool`, …). **L2 issue pink-wash**: a
+cascade carrying an issue washes its whole L2 row pink
+(`:bg-issue-row`) — the per-row "this epoch is broken" signal, and the
+only row decoration that ships.
 
 Cross-panel arrows: `⤴` jump-to-panel from popover (`:accent-violet`,
 12px) · `↳` cause-attribution chip (`:text-tertiary`, 11px) · `→`

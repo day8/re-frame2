@@ -102,17 +102,27 @@ Spec: [`023-Trace-Panel.md` §3](https://github.com/day8/re-frame2/blob/main/too
 
 The L2 event spine above the panels carries the cross-epoch signal:
 
-- **Dispatch-origin prefix glyph** per row — `:router` (R) · `:http`
- (🌐) · `:ssr` (💧) · `:fx-emit` (⚡) · `:timer` (⏲) · `:test` (T) ·
- `:tool` (🔧) · `:machine-spawn` (i); app-code origins render no prefix
- (the common case).
-- **Activity badge cluster** per row — `⚠` issue · `◆` machine
- transition · `🌐` HTTP activity · `⚡` fx-emit child dispatch · `⏲`
- timer-triggered. High-contrast remap is automatic (colour is never the
- only signal).
+**The row is glyph-free** — gutter glyphs, dispatch-origin prefix
+glyphs and the activity-badge cluster were all RETIRED under rf2-pjjwh
+(the helpers survive in `l2_timeline.cljc` with no caller). Don't send a
+user hunting for row decorations. What the row actually carries:
+
+- **A text `source` column** — the bare source name for substrate
+ origins (`router`, `http`, `ssr-hydration`, `fx-dispatch`,
+ `after-timer`, `tool`, …) and `ui` for app code (plus the un-stamped
+ `:unknown` / `:other` / `:repl` / `:frame-init` defaults). Every row is
+ tagged; the cell is never blank.
+- **The `>` selection caret** + a background tint on the active row.
 - **Issue pink-wash** per row — a cascade carrying an issue washes its
  whole L2 row pink. Together with the Epoch cascade's per-step ✓/✗ this
- is the primary "which epochs are broken?" signal.
+ is the primary "which epochs are broken?" signal, and it is the only
+ row decoration that ships.
+
+The retired signals did not vanish — error / HTTP / machine context
+lives in the cascade record and surfaces inline in the Epoch and Trace
+panels, and the redaction count sits on the chrome ribbon. See
+[`018-Event-Spine.md` §Gutter glyphs / row badges / redaction marker —
+RETIRED](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/018-Event-Spine.md).
 
 ## Issues — inline, not a tab
 

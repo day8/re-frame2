@@ -123,10 +123,14 @@ Trace panel, which has no filtering.)*
 A fuzzy-ranked surface over six source kinds — **panel jumps · recent
 events · frame switch · registered handlers · settings · command verbs**.
 Mode-aware (Dynamic vs Static), recency-boosted; `Ctrl+Enter` pops out a
-poppable item. Command verbs include Clear trace buffer, Clear epoch
-history, Reset redacted-events counter, Snapshot app-db, Toggle theme,
-Cycle reduced-motion, Jump to Settings, Toggle mode, Open pop-out (Cycle
-display density rides the separate `settings` source). Source
+poppable item. Command verbs include Clear trace buffer, Reset
+redacted-events counter, Snapshot app-db, Toggle theme, Cycle
+reduced-motion, Jump to Settings, Toggle mode, Open pop-out, Close
+command palette (Cycle display density rides the separate `settings`
+source). There is **no epoch-history verb** — `:clear-epoch-history` was
+removed under rf2-y8doi.27 (Xray's `:epoch-history` slot is a mirror of
+the framework's ring, so the verb re-seeded itself on the next event);
+the Buffer tab's **Clear buffer now** is the real scrub. Source
 [`palette/sources.cljc`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/palette/sources.cljc).
 
 ## Settings popup (`,` / `s`)
@@ -157,13 +161,32 @@ edge (double-click to reset), persisted via `:general :panel-width-px`.
 there is no Filters tab — filter UI lives on the L1.5 events
 ribbon.)
 
-For the layered config story: `init!` / `configure!` set the **boot-time
-defaults** for `:theme` / `:density` / `:buffer-depths` (each supplied opt
-is written to the persisted Settings shape and applied immediately at boot,
-no reload); for the slots the popup *does* expose (theme via the ribbon
-icon, epoch-history, buffer knobs) the popup is the **runtime
-user-mutable override** layer. Merge order is `defaults < configure! <
-Settings`. Source
+The layered config story is **four** layers, lowest precedence first:
+`defaults < configure! {:rf.xray/settings …} < persisted Settings <
+init! opts`. `init!` and `configure!` are NOT one layer —
+
+- **`configure!` sits BELOW the persisted Settings.** A value passed as
+  `(configure! {:rf.xray/settings {:general {:epoch-history 50 :density
+  :compact}} :theme :dark})` becomes the new default for any user who
+  has not yet mutated that key, and the popup overrides it at runtime.
+  This is the layer a host wants for a **user-overridable** boot
+  default. Mind the nesting: bare top-level `:density` and
+  `:buffer-depths` are *not* `configure!` keys — density and epoch depth
+  go at their `:general` paths inside `:rf.xray/settings`.
+- **`init! opts` sits ABOVE them.** `init!` loads the persisted Settings
+  first, then writes each supplied opt through `update-setting!`, which
+  persists — so for the keys they name the opts win, and they are
+  re-applied and re-persisted on **every** boot. That is a per-mount
+  **pin** (test harnesses, Story testbeds, embedding hosts), not a
+  default: a host shipping `(init! {:buffer-depths {:epoch 50}})`
+  overwrites the user's slider choice on the next reload.
+
+For the slots the popup *does* expose (theme via the ribbon icon,
+epoch-history, buffer knobs) it remains the **runtime user-mutable
+override** over `configure!` and the compiled-in defaults. Authority:
+[`spec/015-Configuration.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/015-Configuration.md)
+§`configure!` vs `init!` vs persisted Settings (merge order + step 4).
+Source
 [`settings/view.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
 
 ## Snapshot app-db (the on-box share helper)

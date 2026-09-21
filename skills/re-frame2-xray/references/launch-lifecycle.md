@@ -113,7 +113,8 @@ Two distinct levers — pick the one that matches your intent:
 - **Build-wide debug elision** — set `goog.DEBUG false`. This is the
   canonical CLJS production flag; it eliminates every branch that is
   *written* behind a `debug-enabled?` check — which inside Xray means the
-  preload's boot block and nothing else (§Production posture).
+  preload's boot block plus the four top-level `reg-view` sites
+  (§Production posture).
   `re-frame.interop/debug-enabled?` is an alias of
   `goog.DEBUG` (`(def ^boolean debug-enabled? "@define {boolean}"
   ^boolean goog/DEBUG)`), so you closure-define `goog.DEBUG`, **not**
@@ -127,11 +128,16 @@ Two distinct levers — pick the one that matches your intent:
 
 ## Production posture
 
-**The preload's foundation block is the only `goog.DEBUG`-gated path in
-Xray.** It is wrapped in `(when rf.interop/debug-enabled? …)`, so a build
-compiled with `goog.DEBUG false` strips its side-effects — the trace
-collector registration, the epoch-cb registration, the browser-API
-exports, the keybinding listener, the auto-open call.
+**The preload's foundation block is the `goog.DEBUG`-gated INSTALL
+path in Xray.** It is wrapped in `(when rf.interop/debug-enabled? …)`, so
+a build compiled with `goog.DEBUG false` strips its side-effects — the
+trace collector registration, the epoch-cb registration, the browser-API
+exports, the keybinding listener, the auto-open call. (It is not the
+only `debug-enabled?` gate in the tree: since rf2-y8doi.60 the four
+top-level `reg-view` forms — `shell.cljs`, `panels/machine_canvas.cljs`,
+`views/edn_inspector.cljs`, `views/resizable_table.cljs` — are wrapped
+too. Those keep view registrations off the host's registrar; they change
+nothing about the install story below.)
 
 **The programmatic `init!` path is not behind that gate**, and neither are
 the mount verbs. `init!` installs the foundation unconditionally, and
