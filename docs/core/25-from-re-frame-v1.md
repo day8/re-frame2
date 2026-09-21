@@ -18,7 +18,7 @@ Same stance: one source of truth, data over APIs over syntax, immutable values a
 
 ## The migration skill
 
-Do not hand-migrate anything larger than a toy. The Claude Code skill in [`skills/re-frame-migration/`](../../skills/re-frame-migration) drives the sweep. Six phases: orient, bump, sweep, verify, optional modernisations, report. It applies mechanical rewrites (**Type A**) unprompted and *stops* at every judgment call (**Type B**) to ask first. Those two labels appear throughout this page.
+Do not hand-migrate anything larger than a toy. The Claude Code skill in [`skills/re-frame-migration/`](../../skills/re-frame-migration) drives the sweep. Two pre-flight phases — inventory-and-plan, then the React-19 / Reagent-2 floor gate, a go/no-go blocker — run before any dependency edit; then six: orient, bump, sweep, verify, optional modernisations, report. It applies mechanical rewrites (**Type A**) unprompted and *stops* at every judgment call (**Type B**) to ask first. Those two labels appear throughout this page.
 
 Workflow:
 
