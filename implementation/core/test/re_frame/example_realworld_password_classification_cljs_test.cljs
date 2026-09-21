@@ -83,6 +83,18 @@
         (`:auth.session/persist`) now declares `:sensitive [[:token]]` too
         (it lacked one before; the JWT rode along for the same redesign).
 
+     8. THE STANDALONE `:auth/store-session` EVENT (rf2-oxyle) — the
+        directly-dispatchable form of that same write, for test fixtures and
+        external callers — classifies its JWT at the ARG-MAP-relative
+        `[:token]`. It shipped as the vector-relative `[1 :token]`, which
+        reaches NOTHING: an event's classification paths index into `(second
+        event)`, so the root is the User MAP and a numeric key `1` is a mark
+        at a missing slot — a silent no-op, leaving the JWT raw in the
+        dispatched-event trace while the declaration read as protection. The
+        handler's `[_ user]` vector destructuring is a different coordinate
+        system and never moved the root. Pinned below with POSITIVE
+        assertions at the `:rf.event/v` slot, so the old spelling cannot pass.
+
    The tests below drive the FULL edit→submit(→success) cascade through the
    real public events (never poking `:auth/flow` / the settings machine
    directly with a credential) and scan EVERY emitted trace event for both a
@@ -474,6 +486,61 @@
     (is (= {:sensitive [[:token]]}
            (rf.classification/registration-classification :fx :auth.session/persist))
         ":auth.session/persist owns [:token]")))
+
+(deftest store-session-event-token-redacts-at-its-arg-map-path
+  (testing "rf2-oxyle: the DIRECTLY-DISPATCHABLE :auth/store-session event
+            classifies its JWT at the ARG-MAP-relative path [:token], not the
+            vector-relative [1 :token] it shipped with. An event's
+            classification paths index into the event vector's SECOND element
+            (`redact-event-vec` redacts `(second event)`; Spec 015
+            §Registration-owned transient classification — index 0 is not
+            addressable and outer positions 2+ pass through raw), and here that
+            second element IS the User map. So [1 :token] asked for a numeric
+            map key `1` no map has; a mark at a missing slot is a SILENT no-op,
+            and the JWT rode RAW into the dispatched-event trace while the
+            declaration read as protection — the reassuring-direction failure.
+            The handler's own `[_ user]` destructuring is a different
+            coordinate system and does not move the classification root.
+            Assertions are POSITIVE (the sentinel at the slot) rather than a
+            bare absence check, so the old spelling cannot pass them, and the
+            non-secret username rides visible beside it: selective
+            classification, not whole-arg blanking."
+    (is (= {:sensitive [[:token]]}
+           (rf.classification/registration-classification :event :auth/store-session))
+        ":auth/store-session owns the arg-map-relative [:token]")
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      ;; Same local mirror of core.cljs's :auth/classify-token the cascade
+      ;; tests use — without it the DURABLE [:auth :token] would be
+      ;; unclassified on this bare test frame, which is a harness gap, not the
+      ;; app's. The event-registration mark under test is a separate, TRANSIENT
+      ;; boundary: it is what protects the dispatched-event trace, and the
+      ;; durable classification does not reach it.
+      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
+      (let [traces (record-traces! ::store-session)
+            user   {:username "alice"
+                    :email    "alice@example.com"
+                    :bio      "bio"
+                    :image    nil
+                    :token    token-sentinel}]
+        (rf/dispatch-sync [:auth/store-session user] {:frame f})
+        (rf/unregister-listener! :trace ::store-session)
+        (let [slots (->> @traces
+                         (keep #(get-in % [:tags :rf.event/v]))
+                         (filter #(= :auth/store-session (first %))))]
+          (is (seq slots)
+              "teeth — the drive actually emitted the dispatched-event slot under test")
+          (doseq [v slots]
+            (is (= rf.privacy/redacted-sentinel (get-in v [1 :token]))
+                "the JWT reads :rf/redacted at the event's own arg-map :token")
+            (is (= "alice" (get-in v [1 :username]))
+                "the non-secret username rides visible — selective, not whole-arg")))
+        (let [jwt-leaking (filter #(leaks? token-sentinel %) @traces)]
+          (is (empty? jwt-leaking)
+              (str "JWT LEAK ops: " (pr-str (mapv :operation jwt-leaking))))))
+      (is (= token-sentinel (get-in (rf/app-db-value f) [:auth :token]))
+          "the real token reached the durable classified path — redaction is egress-only")
+      (is (nil? (get-in (rf/app-db-value f) [:auth :user :token]))
+          "and was never duplicated at the unclassified [:auth :user :token]"))))
 
 (deftest settings-machine-routed-password-subevents-echo-slots-redact
   (testing "rf2-agb5jk item 1 + item 2 framework completion (rf2-ghgbqi): the

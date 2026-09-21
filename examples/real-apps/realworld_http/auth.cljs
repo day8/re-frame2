@@ -184,15 +184,27 @@
          declares its own sensitivity, so two copies means two declarations,
          and we'd have forgotten one. Views and subs read `:auth/user` for
          who-you-are (username, bio, image); the bearer-auth interceptor reads
-         the token from `[:auth :token]`. The incoming `user` arg is itself the
-         positional second element of THIS event's own dispatched-event trace,
-         and it still carries the token the durable write is about to strip —
-         so `:sensitive [[1 :token]]` redacts that positional slot too. Note
-         this event is for DIRECT/top-level dispatch only — a classified
-         caller inlines `store-session-db` instead of routing through here via
-         a nested `:dispatch` (see that fn's doc). See the keep-secrets
-         how-to: ../../../docs/core/how-to/keep-secrets-out-of-traces.md"
-   :sensitive [[1 :token]]}
+         the token from `[:auth :token]`. The incoming `user` arg still carries
+         the token the durable write is about to strip, so it needs its own
+         mark for THIS event's own dispatched-event trace — and the mark is
+         `:sensitive [[:token]]`, ROOTED AT THE ARG-MAP. An event's
+         classification paths index into the event vector's SECOND element,
+         never into the outer vector: `redact-event-vec` in
+         `re-frame.classification` redacts `(second event)` and spreads the
+         rest through unchanged, per Spec 015 §Registration-owned transient
+         classification (\"index 0 is not addressable, and outer positions 2+
+         pass through raw\"). Here that second element IS the `user` map, so
+         `[:token]` reaches its `:token` and a vector-relative `[1 :token]`
+         would ask for a numeric map key `1` that no map has — a mark at a
+         missing slot is a silent no-op, so the JWT would ship RAW while the
+         declaration read as protection. The handler's own `[_ user]`
+         destructuring is a different coordinate system and does not move the
+         classification root. Note this event is for DIRECT/top-level dispatch
+         only — a classified caller inlines `store-session-db` instead of
+         routing through here via a nested `:dispatch` (see that fn's doc).
+         See the keep-secrets how-to:
+         ../../../docs/core/how-to/keep-secrets-out-of-traces.md"
+   :sensitive [[:token]]}
   (fn [{:keys [db]} [_ user]]
     {:db (store-session-db db user)}))
 
