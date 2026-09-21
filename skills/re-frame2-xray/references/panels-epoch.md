@@ -100,7 +100,7 @@ Spec: [`023-Trace-Panel.md` §3](https://github.com/day8/re-frame2/blob/main/too
 
 ## The L2 timeline grammar
 
-The L2 event spine above the panels carries the cross-epoch signal:
+The L2 event spine above the panels carries the cross-epoch signal.
 
 **The row is glyph-free** — gutter glyphs, dispatch-origin prefix
 glyphs and the activity-badge cluster were all RETIRED under rf2-pjjwh
