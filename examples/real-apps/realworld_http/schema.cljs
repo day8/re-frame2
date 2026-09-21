@@ -169,6 +169,24 @@
                            [:owner    [:maybe :string]]
                            [:username [:maybe :string]]]]]])
 
+(def SettingsSavesInFlight
+  "`[:settings.saves-in-flight]` — one entry per settings PUT currently on the
+   wire, and each entry is THE ACCOUNT NAME THAT SAVE WILL REPORT BACK (the
+   submitted draft's username, which is the new one on a rename).
+
+   It is a vector rather than a set because DUPLICATES ARE THE WHOLE POINT: two
+   outstanding saves naming the same account is exactly the case in which a
+   success reply cannot say which of them produced it, and a set would collapse
+   that to one and report the reply as identified. The count is how many saves
+   are in flight; the entries are the names they have claimed.
+
+   Top-level, beside the slices rather than inside one, for the same reason the
+   resources twin's `:settings-save-owner` is: `:settings/load` rebuilds the
+   form on every route entry and logout resets the machine, and a record either
+   of those can move cannot answer a question about a request that outlived
+   them. See settings.cljs §SESSION OWNERSHIP."
+  [:vector [:maybe :string]])
+
 (def FormSlice
   [:map
    [:draft :any]
@@ -304,7 +322,12 @@
    [:comment-form]                  [:maybe FormSlice]
    [:auth :login-form]              [:maybe FormSlice]
    [:auth :register-form]           [:maybe FormSlice]
-   [:editor]                        [:maybe EditorSlice]})
+   [:editor]                        [:maybe EditorSlice]
+   ;; Like `:profile.follow-pending`, not a slice — the settings saves still on
+   ;; the wire. Its `:maybe` is the boot window: nothing writes it until the
+   ;; first submit, and a save that is still outstanding is deliberately NOT
+   ;; seeded away by `:settings/initialise`.
+   [:settings.saves-in-flight]      [:maybe SettingsSavesInFlight]})
 
 (with-frame :rf/default
   (rf/reg-app-schemas app-db-schemas))

@@ -963,6 +963,135 @@
           (is (some? (get-in snap [:data :submit-error]))
               "with a readable message"))))))
 
+;; ---- rf2-ktkhn — the OCCUPIED-NAME RENAME, which the two rows above miss ----
+;;
+;; The rows above have bob save under his OWN name, so a previous account's
+;; reply names a DIFFERENT account and is refused on that difference alone. The
+;; defect needs one more beat, and it is ordinary user behaviour rather than an
+;; exotic race: bob renames himself to a username somebody else already has.
+;;
+;; His PUT is then on its way to an occupied-username rejection, and his form
+;; records `{:owner "bob" :username "alice"}` — where `:username` is a string
+;; bob TYPED, not an account he owns. The previous fix asked "does the reply
+;; name the account our save names?", which alice's own successful reply
+;; answers YES, so it was accepted: alice's User and token over bob's session,
+;; and a navigation to alice's profile, before bob's rejection even arrived.
+;;
+;; The reply cannot be pinned by its contents — RealWorld's User payload has no
+;; stable account key, and both candidates are editable by this very form — so
+;; the discriminator is how many unanswered saves CLAIM that account. Two here,
+;; which is no identification at all. The control is the row after this one:
+;; rename to a name nothing else claims and bob's own reply still lands.
+
+(defn- park-a-settings-rename!
+  "Sign `owner` in, open Settings, type `claimed` into the USERNAME field and
+   submit — returning the lowered PUT's args, still unanswered. The twin of
+   `park-a-settings-save!` for the rename case, where the account the save NAMES
+   is not the account that issued it."
+  [f owner claimed]
+  (rf/dispatch-sync [:auth/store-session {:email "owner@example.com"
+                                          :token "jwt-1"
+                                          :username owner
+                                          :bio nil
+                                          :image nil}]
+                    {:frame f})
+  (rf/dispatch-sync [:settings/load] {:frame f})
+  (rf/dispatch-sync [:settings/edit-field :username claimed] {:frame f})
+  (reset! parked-managed-args nil)
+  (rf/dispatch-sync [:settings/submit] {:frame f})
+  @parked-managed-args)
+
+(defn- settings-occupied-name-rename-stale-success-test []
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/park-managed
+                                                :auth.session/persist :rf/no-op}})]
+    (let [alice-args (park-a-settings-save! f "alice")]
+      (is (some? alice-args) "alice's settings PUT lowered a request and parked")
+      (logout-scrubbing-the-settings-snapshot! f)
+
+      (let [bob-args (park-a-settings-rename! f "bob" "alice")]
+        (is (some? bob-args) "bob's rename PUT lowered a request and parked")
+        (is (not= alice-args bob-args) "the two saves are distinct parked requests")
+        (is (= [:settings/submit-error "bob" "alice"] (:on-failure bob-args))
+            "bob's failure target carries the name he REQUESTED, which is not his")
+        (let [snap (settings-snapshot (rf/frame-state-value f))]
+          (is (= :submitting (:state snap)) "bob's rename is in flight")
+          (is (= {:owner "bob" :username "alice"} (get-in snap [:data :pending]))
+              "and the form is waiting on a save that NAMES another account"))
+        (is (nil? (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+            "nothing has navigated yet")
+
+        ;; ALICE'S SUCCESS LANDS FIRST. It names `alice` — exactly the account
+        ;; bob's form is waiting to hear about — so it passed the merged Q1.
+        (reply-parked-success! alice-args
+                               {:user {:email "alice@example.com" :token "alice-jwt-2"
+                                       :username "alice" :bio "Alice bio" :image nil}}
+                               f)
+        (let [db   (rf/frame-state-value f)
+              snap (settings-snapshot db)]
+          (is (= "bob" (get-in db [:rf.db/app :auth :user :username]))
+              "the other account's reply does NOT replace the signed-in user")
+          (is (not= "alice-jwt-2" (get-in db [:rf.db/app :auth :token]))
+              "and does NOT install the other account's token")
+          (is (nil? (get-in db [:rf.db/app :auth :user :bio]))
+              "nor fold the other account's saved fields into the live session")
+          ;; The wrong-wipe half: bob's form and his in-flight request are left
+          ;; exactly as they were.
+          (is (= :submitting (:state snap))
+              "the refused reply does NOT settle bob's still-pending rename")
+          (is (= "alice" (get-in snap [:data :draft :username]))
+              "and does NOT scrub the name bob is still trying to claim")
+          (is (= {:owner "bob" :username "alice"} (get-in snap [:data :pending]))
+              "bob's rename is still the save the form is waiting on")
+          (is (nil? (rf/compute-sub [:rf.route/id] db))
+              "and it does NOT navigate to the other account's profile"))
+
+        ;; BOB'S OWN REJECTION — the occupied username — still settles HIS form.
+        (reply-parked-failure! bob-args
+                               {:kind :rf.http/http-4xx :status 422
+                                :body "username has already been taken"}
+                               f)
+        (let [db   (rf/frame-state-value f)
+              snap (settings-snapshot db)]
+          (is (= :incorrect (:state snap))
+              "bob's own failure DOES settle his form")
+          (is (some? (get-in snap [:data :submit-error]))
+              "with a readable message")
+          (is (= "bob" (get-in db [:rf.db/app :auth :user :username]))
+              "and bob is still the signed-in user throughout"))))))
+
+(defn- settings-valid-rename-still-completes-test []
+  ;; The discriminating control, and the one that stops the row above from being
+  ;; satisfiable by refusing renames outright: a rename to a name NOTHING else
+  ;; claims is still identified and still lands — with a previous account's save
+  ;; parked on the wire the whole time, so the refusal above is shown to be
+  ;; about the CLASH rather than about renaming.
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/park-managed
+                                                :auth.session/persist :rf/no-op}})]
+    (let [alice-args (park-a-settings-save! f "alice")]
+      (is (some? alice-args) "alice's save is parked and stays unanswered")
+      (logout-scrubbing-the-settings-snapshot! f)
+
+      (let [bob-args (park-a-settings-rename! f "bob" "robert")]
+        (is (= [:settings/submit-error "bob" "robert"] (:on-failure bob-args)))
+        (reply-parked-success! bob-args
+                               {:user {:email "bob@example.com" :token "bob-jwt-2"
+                                       :username "robert" :bio "Bob bio" :image nil}}
+                               f)
+        (let [db (rf/frame-state-value f)]
+          (is (= "robert" (get-in db [:rf.db/app :auth :user :username]))
+              "bob's own rename IS folded in")
+          (is (= "bob-jwt-2" (get-in db [:rf.db/app :auth :token]))
+              "with his own fresh token")
+          (is (= "Bob bio" (get-in db [:rf.db/app :auth :user :bio]))
+              "and his own saved fields")
+          (is (= :correct (:state (settings-snapshot db)))
+              "and his form settles on his own reply")
+          (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] db))
+              "and it navigates to his profile — which is also the positive
+               control for the no-navigation assertion in the row above"))))))
+
 ;; ============================================================================
 ;; tags — route query helpers + the :realworld/tags machine
 ;; ============================================================================
@@ -1752,7 +1881,14 @@
     (settings-overlapping-save-stale-success-test))
   (testing "a previous account's FAILURE cannot settle or banner a session whose own
             save is in flight (rf2-0aub0)"
-    (settings-overlapping-save-stale-failure-test)))
+    (settings-overlapping-save-stale-failure-test))
+  (testing "a previous account's SUCCESS cannot answer for a rename that CLAIMS that
+            same account — an occupied-username submit is ordinary behaviour, and the
+            name a form requested is not an identity it owns (rf2-ktkhn)"
+    (settings-occupied-name-rename-stale-success-test))
+  (testing "a rename to an unclaimed name still completes, with another account's save
+            parked the whole time (rf2-ktkhn)"
+    (settings-valid-rename-still-completes-test)))
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"

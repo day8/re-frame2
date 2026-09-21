@@ -74,6 +74,56 @@
   [runtime-db]
   (get-in runtime-db [:rf.runtime/machines :snapshots :settings/form :data]))
 
+;; ----------------------------------------------------------------------------
+;; SAVES ON THE WIRE — the app-db ledger that makes a success reply identifiable
+;; ----------------------------------------------------------------------------
+;;
+;; One entry per settings PUT currently unanswered, each entry being the account
+;; name that save will REPORT BACK (schema.cljs `SettingsSavesInFlight`). The
+;; success handler reads it to ask whether the reply it is holding could have
+;; come from more than one of them; see §SESSION OWNERSHIP below for why that is
+;; the only question the reply's own contents can be made to answer.
+;;
+;; It lives at the TOP LEVEL of app-db, written by `:settings/submit` and drained
+;; by the two reply handlers, and by nothing else. Not in the machine's `:data`,
+;; which is where `:pending` correctly lives: logout resets that machine
+;; (auth.cljs `:clear-session`) and `:settings/load` re-seeds it on every route
+;; entry, so a record kept there is gone at exactly the moment an abandoned save
+;; needs remembering. Same reasoning, and the same slot shape, as the resources
+;; twin's `:settings-save-owner`.
+;;
+;; It therefore OUTLIVES the session, which the `:clear-session` scrub rule
+;; otherwise forbids — deliberately, and the exception is narrow: an entry is a
+;; bare username, a value RealWorld already treats as public (it is the profile
+;; key, and it appears in every URL), carrying no draft, no profile content and
+;; no credential. What must outlive the session is precisely the knowledge that
+;; somebody else's save is still out there.
+
+(def ^:private saves-in-flight-key
+  "The app-db key holding the on-the-wire ledger. Named once."
+  :settings.saves-in-flight)
+
+(defn- record-save
+  "Add a save to the ledger as it goes out, under the name it will report back."
+  [db claimed-username]
+  (update db saves-in-flight-key (fnil conj []) claimed-username))
+
+(defn- retire-save
+  "Drop ONE entry claiming `claimed-username` — the save this reply settled.
+   One, not every: two outstanding saves may claim the same name, and that is
+   the case the ledger exists to count. Absent, it is a no-op, so a duplicate or
+   resurrected reply retires nothing."
+  [db claimed-username]
+  (let [[before after] (split-with #(not= claimed-username %)
+                                   (get db saves-in-flight-key))]
+    (assoc db saves-in-flight-key (into (vec before) (rest after)))))
+
+(defn- claims-outstanding
+  "How many unanswered saves would report back `claimed-username`. A success
+   reply naming it identifies its issuing save only when this is exactly 1."
+  [db claimed-username]
+  (count (filter #(= claimed-username %) (get db saves-in-flight-key))))
+
 ;; ============================================================================
 ;; THE MACHINE — :settings/form  (one region; the form lifecycle)
 ;; ============================================================================
@@ -148,8 +198,11 @@
     ;; reply passed the test and restored alice's User and token over bob's
     ;; session. A record that a later submit can overwrite cannot by itself
     ;; answer "was this reply issued for the save we are waiting on?", which is
-    ;; why the two handlers below ask that question FIRST, and ask it of facts
-    ;; the reply itself carries. See SESSION OWNERSHIP below.
+    ;; why the two handlers below ask that question FIRST — the failure branch
+    ;; of the issuance it was handed, the success branch of the app-db ledger
+    ;; of saves still on the wire, because a success reply carries no identity
+    ;; of its own and the username it reports is one the user typed. See
+    ;; SESSION OWNERSHIP below.
     (fn action-seed-from-user [{data :data [_ {:keys [user now]}] :event}]
       {:data (-> initial-data
                  (assoc :draft (draft-from-user user))
@@ -387,7 +440,13 @@
           ;; of those routes.
           pending {:owner    (auth/session-owner db)
                    :username (:username draft)}]
-      {:fx [[:dispatch [:settings/form
+      ;; The same moment also adds this save to the on-the-wire ledger, under
+      ;; the name it will report back. The machine's `:pending` records the save
+      ;; the FORM awaits and a later submit overwrites it; the ledger records
+      ;; every save still unanswered and nothing overwrites it. The success
+      ;; handler needs both.
+      {:db (record-save db (:username pending))
+       :fx [[:dispatch [:settings/form
                         [:submit-valid {:submitted draft
                                         :pending   pending}]]]
             [:rf.http/managed
@@ -419,13 +478,16 @@
 ;; alice's late reply was compared bob-against-bob, passed, and wrote alice's
 ;; User and token into bob's session, then navigated to alice's profile.
 ;;
-;;   1. IS THIS REPLY THE SAVE WE ARE WAITING ON? Answered from what the reply
-;;      itself carries, never from the record alone — a record a later submit
-;;      can overwrite cannot identify an earlier reply. A reply that is NOT the
-;;      awaited save is left strictly alone: no auth write, no form change, no
-;;      navigation, and above all no :reset, because the form and the request it
-;;      would settle now belong to somebody else. Refusing must not trade a
-;;      wrong write for a wrong wipe.
+;;   1. IS THIS REPLY THE SAVE WE ARE WAITING ON? Two things have to hold, and
+;;      the first is the one the merged fix was missing: the reply must
+;;      IDENTIFY a save at all — exactly one unanswered save claiming the
+;;      account it reports — and that save must be the one the form awaits. A
+;;      record a later submit can overwrite cannot identify an earlier reply,
+;;      and neither can a username the user typed; the ledger is what supplies
+;;      the missing half. A reply that is NOT the awaited save is left strictly
+;;      alone: no auth write, no form change, no navigation, and above all no
+;;      :reset, because the form and the request it would settle now belong to
+;;      somebody else. Refusing must not trade a wrong write for a wrong wipe.
 ;;
 ;;   2. IS THE SESSION THAT ISSUED IT STILL SIGNED IN? auth.cljs's
 ;;      `owns-session?`, which carries the full why. Only once question 1 has
@@ -454,29 +516,64 @@
 ;;     session-establishing events exist for exactly this reason; see the note
 ;;     above them. Correct ownership is not worth a leaked credential.
 ;;
-;;     So the success reply identifies itself from what it already contains: the
-;;     account the server saved. A save names an account — the submitted draft's
-;;     username, which is the NEW one on a rename — and the reply echoes that
-;;     account back. If the reply names a different account from the save the
-;;     form is waiting on, it is not that save's reply. Two accounts cannot
-;;     share a username (it is the profile key, and `session-owner` IS the
-;;     username), so a reply from a departed account can never answer for the
-;;     current one.
+;;     So the success reply has to identify itself from what it already
+;;     contains, and what it contains is the account the server saved.
 ;;
-;;     KNOWN LIMIT, stated because the reader should not assume more than this
-;;     buys: it discriminates by ACCOUNT, so it cannot separate two saves by the
-;;     SAME account (sign out and back in as yourself with a PUT still parked,
-;;     and the older reply is still accepted). That is a lost update, not a
-;;     cross-account write, and closing it would need a per-submission identity
-;;     on the reply — which is the positional slot the JWT has already claimed.
+;; WHAT THE REPLY'S OWN CONTENTS CAN AND CANNOT ESTABLISH — this is where an
+;; earlier version of this file got it wrong, and the correction is the reason
+;; the ledger above exists.
+;;
+;; That earlier version compared the saved account's username against
+;; `(:username awaited)` and argued that a departed account could never answer
+;; for the current save, because a username is the profile key and two accounts
+;; cannot share one. Both halves of that are true and the conclusion does not
+;; follow. `(:username awaited)` is the username the form REQUESTED — a string
+;; the user typed into a text box. It is unsaved, unauthenticated, and not an
+;; identity anybody owns. Submitting a name that belongs to somebody else is
+;; ordinary behaviour: it is what you do by accident, and the server answers it
+;; with an occupied-username rejection. Park alice's PUT, sign bob in, let bob
+;; try to rename himself to `alice`, and alice's earlier SUCCESS reply names
+;; `alice`, matches what bob's form requested, and was accepted — restoring
+;; alice's User and token over bob's session and navigating to alice's profile,
+;; before bob's rejection had even arrived.
+;;
+;; The general fact underneath: RealWorld's User payload is
+;; `{:email :token :username :bio :image}`, and BOTH of its candidate keys are
+;; editable by this very form. There is no stable account identifier in the
+;; reply, so no amount of reading it can tell you WHICH outstanding request
+;; produced it. Reply-content correlation is not merely unimplemented here; on
+;; this wire contract it is not available at all.
+;;
+;; What the reply's contents CAN do is narrow the field. A reply naming account
+;; A was produced by a save that claimed A, so the candidates are exactly the
+;; unanswered saves claiming A — which is what the ledger counts. When the count
+;; is one, that save IS the issuer and the reply is identified; when it is two
+;; or more, the reply is genuinely ambiguous and NOTHING may be concluded from
+;; it. That is the second of the bead's two sanctioned shapes — suppressing a
+;; superseded request rather than correlating a reply — done with app state,
+;; which is the only place it CAN be done here: the framework's own
+;; request-id supersession lives in the live `:rf.http/managed` handler, and
+;; this app's default run mode replaces that handler with the canned demo stub
+;; (http.cljs), so a transport-level contract would be inert in the shipped
+;; demo. An app-level ledger behaves identically in every run mode.
+;;
+;; KNOWN LIMIT, stated because the reader should not assume more than this buys.
+;; Ambiguity is resolved by REFUSING, so two outstanding saves claiming one name
+;; means neither is folded in, even the legitimate one — and an ambiguous
+;; success retires nothing, because retiring would mean guessing which save it
+;; answered. Both are lost updates, never cross-account writes, and the same is
+;; true of two saves by the SAME account (sign out and back in as yourself with
+;; a PUT still parked). Closing THOSE would need a per-submission identity on
+;; the reply, which is the positional slot the JWT has already claimed.
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
          machine's :data via :store-user (region lands in :correct), store the
          session (durable [:auth :token] + [:auth :user]) so the rest of the
          app sees the update, and navigate off to the user's profile page —
-         unless this is not the save the form is waiting on (left strictly
-         alone — a newer account's save is in flight), or the session that
-         issued it is gone (the form resets and none of it happens, since
+         unless the reply cannot be pinned to a single unanswered save, or
+         pins to one that is not the save this form is waiting on (both left
+         strictly alone — a newer account's save is in flight), or the session
+         that issued it is gone (the form resets and none of it happens, since
          storing the reply would restore the logged-out user's credentials).
          See SESSION OWNERSHIP above for both questions and for why THIS
          target must stay one-element. The reply rides a map payload
@@ -484,17 +581,31 @@
          User (and therefore a fresh token, just like login/register)."
    :sensitive [[:value :user :token]]}
   (fn handler-settings-submit-success [{:keys [db] rt :rf.db/runtime} [_ {:keys [value]}]]
-    (let [awaited (:pending (machine-data rt))]
+    (let [awaited (:pending (machine-data rt))
+          ;; The account the server says it saved. It is the ONLY handle the
+          ;; reply offers, and it narrows rather than identifies — see §SESSION
+          ;; OWNERSHIP.
+          saved   (:username (:user value))]
       (cond
-        ;; Q1 — not the save we are waiting on. Somebody else's save owns this
-        ;; form and this in-flight request now; touch neither.
-        (not (and (some? awaited)
-                  (= (:username (:user value)) (:username awaited))))
+        ;; Q1a — the reply identifies no single save. Either nothing on the
+        ;; wire claims that account (a duplicate or resurrected reply), or more
+        ;; than one does and there is no telling which answered. Conclude
+        ;; nothing and retire nothing: retiring here would be a guess, and the
+        ;; entry that survives is what keeps the NEXT reply honest.
+        (not= 1 (claims-outstanding db saved))
         nil
+
+        ;; Q1b — one save is identified, and it is not the one this form is
+        ;; waiting on. It IS definitively that save's reply though, so retire
+        ;; its ledger entry and stop there. The form and the request it would
+        ;; settle belong to somebody else; touch neither.
+        (not (and (some? awaited) (= saved (:username awaited))))
+        {:db (retire-save db saved)}
 
         ;; Q2 — it IS our save, but the session that issued it has gone.
         (not (auth/owns-session? db (:owner awaited)))
-        {:fx [[:dispatch [:settings/form [:reset]]]]}
+        {:db (retire-save db saved)
+         :fx [[:dispatch [:settings/form [:reset]]]]}
 
         :else
         (let [user (:user value)]
@@ -506,7 +617,9 @@
           ;; `dissoc`'d before crossing into the machine — the token is never
           ;; even offered to that nested dispatch, not merely classified after
           ;; the fact.
-          {:db (auth/store-session-db db user)
+          {:db (-> db
+                   (auth/store-session-db user)
+                   (retire-save saved))
            :fx [[:dispatch [:settings/form
                             [:submit-succeeded {:user (dissoc user :token)}]]]
                 [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})))))
@@ -526,19 +639,28 @@
          a failure reply can do because it bears no credential — see SESSION
          OWNERSHIP above."}
   (fn handler-settings-submit-error [{:keys [db] rt :rf.db/runtime} [_ owner username {:keys [error]}]]
-    (let [awaited (:pending (machine-data rt))]
+    (let [awaited (:pending (machine-data rt))
+          ;; A failure reply is TOLD its own issuance, so unlike the success
+          ;; branch it always knows which save it settles — and can therefore
+          ;; retire that exact ledger entry whatever it then decides to do with
+          ;; the form. This is what drains a superseded save's entry and keeps
+          ;; the ledger from holding a name for ever: the occupied-name rename
+          ;; that opens the ambiguity is itself the reply that closes half of it.
+          db'     (retire-save db username)]
       (cond
         ;; Q1 — not the save we are waiting on; somebody else's save owns this
         ;; form and this in-flight request now.
         (not= {:owner owner :username username} awaited)
-        nil
+        {:db db'}
 
         ;; Q2 — it IS our save, but the session that issued it has gone.
         (not (auth/owns-session? db owner))
-        {:fx [[:dispatch [:settings/form [:reset]]]]}
+        {:db db'
+         :fx [[:dispatch [:settings/form [:reset]]]]}
 
         :else
-        {:fx [[:dispatch [:settings/form
+        {:db db'
+         :fx [[:dispatch [:settings/form
                           [:submit-failed {:submit-error (rh/failure->message error)}]]]]}))))
 
 ;; ============================================================================
