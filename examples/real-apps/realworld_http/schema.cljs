@@ -152,18 +152,22 @@
    the whole FORM lifecycle lives in the machine. The state-keyword is the
    lifecycle (`:neutral` / `:incorrect` / `:correct` + `:submitting`), and
    `:data` holds the draft, the per-field validation state, the projected
-   submit-error string, and `:session-owner` — the username the in-flight
-   submission was issued under, which the two reply handlers compare against
-   the live session before acting on a reply (settings.cljs §SESSION
-   OWNERSHIP)."
+   submit-error string, and `:pending` — the save the form is currently
+   waiting on, or nil when none is. `:owner` is the username the submission was
+   issued under; `:username` is the account it NAMES (the submitted draft's
+   username, which is the new one on a rename). The two reply handlers ask
+   whether a reply is that save's before they ask whether its issuer is still
+   signed in (settings.cljs §SESSION OWNERSHIP)."
   [:map
-   [:draft         :map]
-   [:submitted     [:maybe :map]]
-   [:errors        [:map-of :keyword [:vector :string]]]
-   [:touched       [:set :keyword]]
-   [:submit-error  [:maybe :string]]
-   [:loaded-at     [:maybe :int]]
-   [:session-owner [:maybe :string]]])
+   [:draft        :map]
+   [:submitted    [:maybe :map]]
+   [:errors       [:map-of :keyword [:vector :string]]]
+   [:touched      [:set :keyword]]
+   [:submit-error [:maybe :string]]
+   [:loaded-at    [:maybe :int]]
+   [:pending      [:maybe [:map
+                           [:owner    [:maybe :string]]
+                           [:username [:maybe :string]]]]]])
 
 (def FormSlice
   [:map

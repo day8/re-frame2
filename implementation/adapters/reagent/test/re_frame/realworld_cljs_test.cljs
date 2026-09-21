@@ -150,6 +150,14 @@
   [args value frame]
   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value value}) {:frame frame}))
 
+(defn- reply-parked-failure!
+  "The `:on-failure` twin of `reply-parked-success!`. Appends the canonical
+   failure envelope as the LAST arg, so a target carrying its own leading args
+   (settings' `[:settings/submit-error owner username]`) is replayed at exactly
+   the arity `encoding/build-reply-event` would produce."
+  [args error frame]
+  (rf/dispatch-sync (conj (:on-failure args) {:status :error :error error}) {:frame frame}))
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each helper spins its OWN top-level frame via
@@ -840,6 +848,120 @@
             "bob is still the signed-in user")
         (is (= "bob-jwt" (get-in db [:rf.db/app :auth :token]))
             "bob's token is untouched by the old account's reply")))))
+
+;; ---- rf2-0aub0 — the OVERLAPPING save, which the two rows above do not reach -
+;;
+;; settings-account-switch-test has bob merely SIGN IN while alice's PUT is
+;; parked. The defect needs one more beat: bob starts HIS OWN save. That second
+;; `:begin-submit` overwrites the machine's record of which save is awaited, so
+;; a lone "is the recorded owner still signed in?" was comparing BOB to BOB —
+;; and alice's late reply passed, wrote alice's User and token into bob's
+;; session, and navigated to alice's profile.
+;;
+;; Both rows therefore assert TWO things, and the second is as load-bearing as
+;; the first: the stale reply must not be acted on, AND it must not settle or
+;; scrub the form that now belongs to bob — refusing must not trade a wrong
+;; write for a wrong wipe. Each row then lands bob's OWN reply, so the refusal
+;; is shown to be discriminating rather than blanket.
+
+(defn- logout-scrubbing-the-settings-snapshot!
+  "What the auth machine's `:clear-session` action does to this app when Logout
+   is pressed: clear the session AND scrub the settings snapshot (auth.cljs).
+   The two rows above dispatch only the former, which leaves the departed
+   save's record standing; the overlapping case needs the real thing, because
+   the record bob's submit overwrites must be the SCRUBBED one."
+  [f]
+  (rf/dispatch-sync [:auth/clear-session] {:frame f})
+  (rf/dispatch-sync [:settings/form [:reset]] {:frame f}))
+
+(defn- settings-overlapping-save-stale-success-test []
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/park-managed
+                                                :auth.session/persist :rf/no-op}})]
+    (let [alice-args (park-a-settings-save! f "alice")]
+      (is (some? alice-args) "alice's settings PUT lowered a request and parked")
+      (logout-scrubbing-the-settings-snapshot! f)
+
+      (let [bob-args (park-a-settings-save! f "bob")]
+        (is (some? bob-args) "bob's settings PUT lowered a request and parked")
+        (is (not= alice-args bob-args) "the two saves are distinct parked requests")
+        (is (= :submitting (:state (settings-snapshot (rf/frame-state-value f))))
+            "bob's save is in flight")
+
+        ;; ALICE'S REPLY LANDS FIRST — the server accepted her save and answers
+        ;; with a fresh User and token, while bob's PUT is still on the wire.
+        (reply-parked-success! alice-args
+                               {:user {:email "alice@example.com" :token "alice-jwt-2"
+                                       :username "alice" :bio "Alice bio" :image nil}}
+                               f)
+        (let [db   (rf/frame-state-value f)
+              snap (settings-snapshot db)]
+          (is (= "bob" (get-in db [:rf.db/app :auth :user :username]))
+              "the previous account's reply does NOT replace the signed-in user")
+          (is (not= "alice-jwt-2" (get-in db [:rf.db/app :auth :token]))
+              "and does NOT install the previous account's token")
+          (is (nil? (get-in db [:rf.db/app :auth :user :bio]))
+              "nor fold the previous account's saved fields into the live session")
+          ;; The wrong-wipe half: bob's form and his in-flight request are left
+          ;; exactly as they were.
+          (is (= :submitting (:state snap))
+              "the refused reply does NOT settle bob's still-pending save")
+          (is (= "New bio" (get-in snap [:data :draft :bio]))
+              "and does NOT scrub bob's draft")
+          (is (= {:owner "bob" :username "bob"} (get-in snap [:data :pending]))
+              "bob's save is still the one the form is waiting on"))
+
+        ;; BOB'S OWN REPLY still completes — the refusal above discriminates.
+        (reply-parked-success! bob-args
+                               {:user {:email "bob@example.com" :token "bob-jwt-2"
+                                       :username "bob" :bio "Bob bio" :image nil}}
+                               f)
+        (let [db (rf/frame-state-value f)]
+          (is (= "bob" (get-in db [:rf.db/app :auth :user :username]))
+              "bob is still the signed-in user")
+          (is (= "Bob bio" (get-in db [:rf.db/app :auth :user :bio]))
+              "bob's own save IS folded in")
+          (is (= "bob-jwt-2" (get-in db [:rf.db/app :auth :token]))
+              "bob's own fresh token IS stored")
+          (is (= :correct (:state (settings-snapshot db)))
+              "and bob's form settles on his own reply"))))))
+
+(defn- settings-overlapping-save-stale-failure-test []
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/park-managed
+                                                :auth.session/persist :rf/no-op}})]
+    (let [alice-args (park-a-settings-save! f "alice")]
+      (is (= [:settings/submit-error "alice" "alice"] (:on-failure alice-args))
+          "the failure target carries its own issuance, not a lookup into a slot")
+      (logout-scrubbing-the-settings-snapshot! f)
+
+      (let [bob-args (park-a-settings-save! f "bob")]
+        (is (= [:settings/submit-error "bob" "bob"] (:on-failure bob-args)))
+
+        ;; ALICE'S SAVE FAILS, and the failure lands while bob is waiting.
+        (reply-parked-failure! alice-args
+                               {:kind :rf.http/http-5xx :status 500 :body "server error"}
+                               f)
+        (let [db   (rf/frame-state-value f)
+              snap (settings-snapshot db)]
+          (is (= :submitting (:state snap))
+              "the previous account's failure does NOT settle bob's pending save")
+          (is (nil? (get-in snap [:data :submit-error]))
+              "and does NOT banner one account's error on another's form")
+          (is (= "New bio" (get-in snap [:data :draft :bio]))
+              "and does NOT scrub bob's draft")
+          (is (= "bob" (get-in db [:rf.db/app :auth :user :username]))
+              "bob is still the signed-in user"))
+
+        ;; BOB'S OWN FAILURE still surfaces.
+        (reply-parked-failure! bob-args
+                               {:kind :rf.http/http-5xx :status 500 :body "server error"}
+                               f)
+        (let [snap (settings-snapshot (rf/frame-state-value f))]
+          (is (= :incorrect (:state snap))
+              "bob's own failure DOES settle his form")
+          (is (some? (get-in snap [:data :submit-error]))
+              "with a readable message"))))))
 
 ;; ============================================================================
 ;; tags — route query helpers + the :realworld/tags machine
@@ -1624,7 +1746,13 @@
   (testing "a save that replies after logout does not restore the session (rf2-2ape)"
     (settings-logout-race-test))
   (testing "a save that replies after an account switch does not overwrite it (rf2-2ape)"
-    (settings-account-switch-test)))
+    (settings-account-switch-test))
+  (testing "a previous account's SUCCESS cannot replace a session whose own save is
+            in flight, and does not wipe that newer save either (rf2-0aub0)"
+    (settings-overlapping-save-stale-success-test))
+  (testing "a previous account's FAILURE cannot settle or banner a session whose own
+            save is in flight (rf2-0aub0)"
+    (settings-overlapping-save-stale-failure-test)))
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"
