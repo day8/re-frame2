@@ -3,7 +3,7 @@
 // login logs the walker out). Evidence: DOM reads + screenshots + console.
 const path = require('path');
 const fs = require('fs');
-const { chromium } = require('C:/Users/miket/code/re-frame2/implementation/node_modules/playwright');
+const { chromium } = require('<HOME>/code/re-frame2/implementation/node_modules/playwright');
 const BASE = process.env.CONDUIT_URL || 'http://127.0.0.1:8050/';
 const OUT = process.argv[2] || path.join(__dirname, 'walk-out-2');
 fs.mkdirSync(OUT, { recursive: true });

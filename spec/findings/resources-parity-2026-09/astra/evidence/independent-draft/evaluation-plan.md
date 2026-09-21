@@ -42,7 +42,7 @@ The TanStack counterpart uses the same article/favorites domain and visibility r
 Paths below assume this checkout. Use a fresh attempt number for each log/exit artifact. PowerShell must capture each command's own `$LASTEXITCODE` immediately; do not pipe test output through a filter. Existing installs/caches affect setup time.
 
 ```powershell
-$repoRoot = 'C:/Users/miket/code/re-frame2'
+$repoRoot = '<HOME>/code/re-frame2'
 $evidenceRoot = Join-Path $repoRoot 'ai/findings/Resources/astra/evidence'
 
 # Resources module (run from this absolute module directory).

@@ -5,7 +5,7 @@
          '[re-frame.schemas]
          '[re-frame.test-support :as ts]
          '[re-frame.substrate.plain-atom :as plain])
-(println "gate root: C:/Users/miket/code/re-frame2")
+(println "gate root: <HOME>/code/re-frame2")
 (let [clock (atom 0) schedules (atom []) requests (atom [])
       fixture (ts/make-reset-runtime-fixture {:adapter plain/adapter})]
   (fixture

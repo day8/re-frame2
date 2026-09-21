@@ -7,7 +7,7 @@ const BASE = process.env.CONDUIT_URL || 'http://127.0.0.1:8051';
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   page.setDefaultTimeout(15000);
-  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
+  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.getByTestId('nav-signin').click();
   await page.getByTestId('login-email').fill('demo@conduit.dev');
   await page.getByTestId('login-password').fill('demo');

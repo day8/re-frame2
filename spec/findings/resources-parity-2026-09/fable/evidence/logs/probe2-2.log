@@ -2,4 +2,4 @@ Execution error (ExceptionInfo) at re-frame.error/thrown-ex-info (error.cljc:138
 `reg-event-db` is REMOVED in EP-0018 (no alias). Use `reg-event` instead — destructure `:db` from the coeffects map and wrap the return in `{:db …}`: `(reg-event id (fn [{:keys [db]} ev] {:db BODY}))`. [:rf.error/reg-event-db-removed]
 
 Full report at:
-C:\Users\miket\AppData\Local\Temp\clojure-6752896957390885640.edn
+<HOME>\AppData\Local\Temp\clojure-6752896957390885640.edn

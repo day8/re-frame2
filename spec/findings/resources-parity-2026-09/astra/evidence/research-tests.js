@@ -3,7 +3,7 @@
 var shadow$provide = {};
 
 var SHADOW_IMPORT_PATH = __dirname + '/shadow-cache/builds/research-tests/dev/out/cljs-runtime';
-if (__dirname == '.') { SHADOW_IMPORT_PATH = "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\astra\\evidence\\shadow-cache\\builds\\research-tests\\dev\\out\\cljs-runtime"; }
+if (__dirname == '.') { SHADOW_IMPORT_PATH = "<HOME>\\code\\re-frame2\\ai\\findings\\Resources\\astra\\evidence\\shadow-cache\\builds\\research-tests\\dev\\out\\cljs-runtime"; }
 global.$CLJS = global;
 global.shadow$provide = {};
 try {require('source-map-support').install();} catch (e) {console.warn('no "source-map-support" (run "npm install source-map-support --save-dev" to get it)');}

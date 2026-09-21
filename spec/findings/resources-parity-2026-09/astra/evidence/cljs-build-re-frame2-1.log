@@ -4,7 +4,7 @@
    See https://shadow-cljs.github.io/docs/UsersGuide.html#project-install
 
 ------------------------------------------------------------------------------
-shadow-cljs - config: C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\shadow-cljs.edn
+shadow-cljs - config: <HOME>\code\re-frame2\ai\findings\Resources\astra\evidence\shadow-cljs.edn
 shadow-cljs - updating dependencies
 shadow-cljs - dependencies updated
 [:conduit] Compiling ...
@@ -13,7 +13,7 @@ shadow-cljs - dependencies updated
 [:research-tests] Build completed. (313 files, 312 compiled, 4 warnings, 12.96s)
 
 [1m------ WARNING #1 - :infer-warning ---------------------------------------------[0m
- File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1382:70
+ File: <HOME>\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1382:70
 --------------------------------------------------------------------------------
 [2m1379 |                            (.render r (wrap render-tree))[0m
 [2m1380 |                            r))[0m
@@ -29,7 +29,7 @@ shadow-cljs - dependencies updated
 --------------------------------------------------------------------------------
 
 [1m------ WARNING #2 - :infer-warning ---------------------------------------------[0m
- File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1915:20
+ File: <HOME>\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1915:20
 --------------------------------------------------------------------------------
 [2m1912 |           (when warn-cache (reset! warn-cache #{}))[0m
 [2m1913 |           (when after-render-driver-root-cell[0m
@@ -45,7 +45,7 @@ shadow-cljs - dependencies updated
 --------------------------------------------------------------------------------
 
 [1m------ WARNING #3 - :infer-warning ---------------------------------------------[0m
- File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1908:51
+ File: <HOME>\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:1908:51
 --------------------------------------------------------------------------------
 [2m1905 |     (let [failures (make-teardown-failures)][0m
 [2m1906 |       (try[0m
@@ -61,7 +61,7 @@ shadow-cljs - dependencies updated
 --------------------------------------------------------------------------------
 
 [1m------ WARNING #4 - :infer-warning ---------------------------------------------[0m
- File: C:\Users\miket\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:2204:29
+ File: <HOME>\code\re-frame2\implementation\core\src\re_frame\substrate\spine.cljs:2204:29
 --------------------------------------------------------------------------------
 [2m2201 |   [warn-fn id coord-attr view-attr out][0m
 [2m2202 |   (cond[0m

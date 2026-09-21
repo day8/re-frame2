@@ -35,7 +35,7 @@ async function shot(page, name) {
   page.setDefaultTimeout(15000);
 
   // ---- 1. Home: first cached read ----
-  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
+  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.getByTestId('article-list').waitFor({ state: 'visible' });
   const homeTitles = await page.locator('[data-testid^="article-preview-"] h1').allTextContents();
   log('home-loaded', { n: homeTitles.length, first: homeTitles[0], titles: homeTitles.slice(0, 3) });

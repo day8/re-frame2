@@ -2,27 +2,27 @@
   "utc": "2026-09-14T22:04:10.6641178Z",
   "files": [
     {
-      "source": "C:/Users/miket/code/re-frame2/implementation/http/src/re_frame/http/test_support.cljc",
+      "source": "<HOME>/code/re-frame2/implementation/http/src/re_frame/http/test_support.cljc",
       "sha256": "96094d8772eee7feac4a48fc8c0a0b410926f33be44e5be7eb09327895829799",
       "path": "verification/implementation/http/src/re_frame/http/test_support.cljc"
     },
     {
-      "source": "C:/Users/miket/code/re-frame2/implementation/core/src/re_frame/core.cljc",
+      "source": "<HOME>/code/re-frame2/implementation/core/src/re_frame/core.cljc",
       "sha256": "e929f3e2c556109f0552bcb733b377e61a0411a7e47ac5792f948c9d087274da",
       "path": "verification/implementation/core/src/re_frame/core.cljc"
     },
     {
-      "source": "C:/Users/miket/code/re-frame2/ai/findings/Resources/fable/probes/probe2c.clj",
+      "source": "<HOME>/code/re-frame2/ai/findings/Resources/fable/probes/probe2c.clj",
       "sha256": "75121aa7629c49803dbfde0babe7360353c10520390153f97334a4ae699f91d4",
       "path": "verification/fable/probe2c.clj"
     },
     {
-      "source": "C:/Users/miket/code/re-frame2/ai/findings/Resources/fable/evidence/logs/probe2c-1.log",
+      "source": "<HOME>/code/re-frame2/ai/findings/Resources/fable/evidence/logs/probe2c-1.log",
       "sha256": "5d30999e6082cf40da5616674b61a8ee698246babeda03dd9f0be5613415de9a",
       "path": "verification/fable/probe2c-1.log"
     },
     {
-      "source": "C:/Users/miket/code/re-frame2/ai/findings/Resources/fable/evidence/logs/probe2c-1.exit",
+      "source": "<HOME>/code/re-frame2/ai/findings/Resources/fable/evidence/logs/probe2c-1.exit",
       "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
       "path": "verification/fable/probe2c-1.exit"
     }
