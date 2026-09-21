@@ -194,7 +194,7 @@ Load-bearing rules:
 
 ## Worked example
 
-**`examples/real-apps/realworld_resources/`** — the RealWorld (Conduit) app on resources + mutations, end to end. Exercises the completion surface this leaf teaches — call-site **`:reply-to`** continuations, per-target **scoped invalidation descriptors** (one favourite/save stales global article tags *and* the session-scoped `[:feed]`), **populate-as-authoritative-load**, and a **named `reg-resource-scope` resolver** (`:realworld/session`) referenced everywhere as `{:from-db :realworld/session}`. Sibling of the managed-HTTP `examples/real-apps/realworld_http/` (the Spec 014 counterpart) — read both to see what resources buy you.
+**`examples/real-apps/realworld_resources/`** — the RealWorld (Conduit) app on resources + mutations, end to end. Exercises the completion surface this leaf teaches — call-site **`:reply-to`** continuations, per-target **scoped invalidation descriptors** (one favourite/save stales the viewer-scoped article tags *and* the session-scoped `[:feed]` in one mutation), **populate-as-authoritative-load**, and **two named `reg-resource-scope` resolvers** (`:realworld/viewer` for the optional-auth reads, `:realworld/session` for the private feed) referenced everywhere as `{:from-db …}`. Sibling of the managed-HTTP `examples/real-apps/realworld_http/` (the Spec 014 counterpart) — read both to see what resources buy you.
 
 ## Pointers
 
