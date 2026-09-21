@@ -79,7 +79,7 @@ day8/re-frame2         {:local/root "<RE_FRAME2>/implementation/core"}
 day8/re-frame2-reagent {:local/root "<RE_FRAME2>/implementation/adapters/reagent"}
 ```
 
-Lockstep is automatic — both resolve from one checkout, one commit — and edits to the checkout are picked up on the next build. A relative path (`../re-frame2/implementation/core` for a sibling checkout) works the same way. The pay-as-you-go artefacts take the same shape pointed at their own directory:
+Lockstep is automatic — both resolve from one checkout, one commit — and edits to the checkout are picked up on the next build. A relative path (`../re-frame2/implementation/core` for a sibling checkout) works the same way. The scaffold's own Story dep and every pay-as-you-go artefact take the same shape, pointed at their own directory:
 
 | Artefact | `:local/root` path under `<RE_FRAME2>` |
 |---|---|
@@ -91,6 +91,7 @@ Lockstep is automatic — both resolve from one checkout, one commit — and edi
 | `day8/re-frame2-http` | `implementation/http` |
 | `day8/re-frame2-ssr` | `implementation/ssr` |
 | `day8/re-frame2-epoch` | `implementation/epoch` |
+| `day8/re-frame2-story` (tool; on the scaffold's `:dev` alias) | `tools/story` |
 | `day8/re-frame2-xray` (tool) | `tools/xray` |
 
 Keep every `day8/re-frame2*` coordinate on the *same* checkout — never mix one artefact from one clone with another from a second.
@@ -120,7 +121,17 @@ Verify it resolves on Clojars first. The tools (`-xray`, `-story`) flip to `:mvn
 
 ## `package.json` and latest-from-npm
 
-re-frame2 ships no npm code; the substrate needs React and shadow-cljs is the build tool, so the scaffold's `package.json` declares exactly three packages — `shadow-cljs` (build-only, `devDependencies`) and `react` + `react-dom` (runtime, `dependencies`) — at the versions the pinned `implementation/package.json` ships, known-good against the chosen re-frame2 VERSION. Then run `npm install` yourself; on the default baseline there is nothing to pause for.
+re-frame2 ships no npm code, so every npm package in the scaffold is there for the substrate, the build tool or Story. The scaffold's `package.json` declares **five**, all at the versions the pinned `implementation/package.json` ships, known-good against the chosen re-frame2 VERSION:
+
+| Package | Where | Why it is day-one |
+|---|---|---|
+| `shadow-cljs` | `devDependencies` | the build tool itself |
+| `react` | `dependencies` | the substrate's renderer |
+| `react-dom` | `dependencies` | the substrate's DOM renderer |
+| `@xyflow/react` | `devDependencies` | Story's embedded machine canvas |
+| `elkjs` | `devDependencies` | the layout engine that canvas runs |
+
+**The last two are not optional.** Story rides the `:dev` alias, Story pulls Xray, Xray pulls `machines-viz`, and `machines-viz`'s chart requires `@xyflow/react` and `elkjs/lib/elk.bundled.js` directly — so a `package.json` carrying only the first three compiles until the dev build loads Story and then fails with shadow's `The required JS dependency "@xyflow/react" is not available`. Restore all five when recovering a broken install. Then run `npm install` yourself; on the default baseline there is nothing to pause for.
 
 **Latest-from-npm is opt-in only.** If the author explicitly asks for the newest, run `npm view <pkg> version` for each and **show the result for confirmation before writing it** — don't auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop. Recovering a broken install goes back to the pinned versions, never to bare `npm install react react-dom` (which writes `latest`).
 

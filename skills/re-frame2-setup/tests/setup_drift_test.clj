@@ -273,6 +273,72 @@
                "suggested direction).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 1b — the hand-written prose agrees with the derived blocks it explains.
+;;
+;; Lock 0 pins the generated regions to the template, but the leaves that
+;; EXPLAIN those regions are hand-written, and that is exactly where this
+;; skill's drift has landed (rf2-ikbgk.9). Two live instances, both shipped:
+;;
+;;   * deps-versions.md said the scaffold declares "exactly three packages"
+;;     while the derived package.json declares FIVE — Story's embedded machine
+;;     canvas needs `@xyflow/react` + `elkjs` (story -> xray -> machines-viz,
+;;     whose chart.cljs requires both). SKILL.md's npm troubleshooting row
+;;     routes a recovering author to that section, so the short roster is the
+;;     one they would have restored.
+;;
+;;   * shadow-cljs.md explained `:deps {:aliases [:shadow]}` while the derived
+;;     shadow-cljs.edn selects `[:shadow :dev]`. `:dev` is what puts Story on
+;;     the classpath for the `stories/init` entry the dev build boots, so the
+;;     documented vector fails the terminating `compile app` outright.
+;;
+;; Both expectations are READ OUT of the generated blocks rather than
+;; hardcoded, so a template bump moves them with the scaffold and this lock
+;; never needs hand-maintaining.
+;; ---------------------------------------------------------------------------
+
+(defn- npm-package-names
+  "The dependency keys declared in a package.json body — the `dependencies`
+   and `devDependencies` objects only, never `scripts` (which sits at the same
+   indent and would otherwise read as a package)."
+  [pkg-body]
+  (->> (re-seq #"(?s)\"(?:dev)?[Dd]ependencies\"\s*:\s*\{(.*?)\}" pkg-body)
+       (mapcat (fn [[_ inner]] (map second (re-seq #"\"([^\"]+)\"\s*:" inner))))
+       distinct
+       sort))
+
+(deftest prose-leaves-agree-with-the-derived-npm-and-build-shape
+  (testing "deps-versions.md names every npm package the derived package.json declares"
+    (let [packages (npm-package-names (get @first-counter-files "package.json" ""))
+          leaf     @deps-versions-md]
+      (is (seq packages)
+          (str "no npm package names could be read out of first-counter.md's "
+               "package.json block — the assertions below would be vacuous. "
+               regenerate-hint))
+      (doseq [p packages]
+        (is (str/includes? leaf p)
+            (str "references/deps-versions.md never names `" p "`, which the "
+                 "derived package.json declares. SKILL.md's JS-module "
+                 "troubleshooting row sends a recovering author to this leaf to "
+                 "restore the roster, so a package missing here is a package "
+                 "they drop — and the next `compile app` fails on it "
+                 "(rf2-ikbgk.9).")))))
+  (testing "shadow-cljs.md explains the alias vector the derived shadow-cljs.edn selects"
+    (let [block   (get @first-counter-files "shadow-cljs.edn" "")
+          aliases (second (re-find #":deps\s*\{:aliases\s+(\[[^\]]*\])" block))]
+      (is (some? aliases)
+          (str "no `:deps {:aliases …}` vector could be read out of "
+               "first-counter.md's shadow-cljs.edn block — the assertion below "
+               "would be vacuous. " regenerate-hint))
+      (is (and aliases (str/includes? @shadow-cljs-md aliases))
+          (str "references/shadow-cljs.md does not carry the alias vector "
+               aliases " that the derived shadow-cljs.edn selects. That leaf "
+               "explains this file key by key, so an alias list which disagrees "
+               "documents a build the scaffold does not write; dropping `:dev` "
+               "in particular takes `day8/re-frame2-story` off the classpath and "
+               "fails the terminating `compile app` with `The required namespace "
+               "\"re-frame.story\" is not available` (rf2-ikbgk.9).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Lock 2 — UIx manual pins match the generator template (source of truth)
 ;; ---------------------------------------------------------------------------
 
@@ -307,15 +373,18 @@
                regenerate-hint)))))
 
 (deftest uix-version-target-divergence-is-flagged
-  (testing "the spec-006 UIx-2.x vs template-1.4.4 divergence carries a heads-up"
+  (testing "the spec-006 UIx-2.x vs template-1.4.4 relationship carries a heads-up"
     (let [skill @entry-namespace-md]
       (is (contains-any? skill ["UIx 2.x" "version target"])
-          (str "entry-namespace.md no longer flags the UIx version-target "
-               "divergence. spec/006 names UIx 2.x as the design target "
-               "while the template pins 1.4.4 — an author following the "
-               "manual path must be told the template pin is the tested "
-               "set, so they don't chase 2.x and ship an unverified "
-               "scaffold (rf2-0qkyn)."))
+          (str "entry-namespace.md no longer explains the UIx version target. "
+               "spec/006 names UIx 2.x as the design target, and that is the "
+               "hooks-based API FAMILY rather than a Maven version — the family "
+               "ships as com.pitch/uix.core 1.x, so the template's 1.4.4 IS it "
+               "and there is no 2.x coordinate to chase "
+               "(implementation/adapters/uix/deps.edn). An author following the "
+               "manual path must be told the template pin is the tested set, so "
+               "they don't go to Clojars for a 2.x that 404s (rf2-0qkyn; "
+               "corrected under rf2-ikbgk.9)."))
       (is (contains-any? skill ["known-good" "tested"])
           (str "The 'template pin is the known-good/tested set' framing is "
                "missing from the UIx version-target heads-up.")))))
@@ -379,17 +448,28 @@
                "rendered for acme/my-app. " regenerate-hint)))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 4 — the reagent/dom CLJS-namespace troubleshooting row diagnoses the
-;; Maven/classpath side, NOT npm React.
+;; Lock 4 — the reagent.dom.client CLJS-namespace troubleshooting row diagnoses
+;; the Maven/classpath side, NOT npm React.
+;;
+;; The row is headed by the error shadow-cljs 3.4.10 ACTUALLY prints for a
+;; missing CLJS namespace — `The required namespace "%s" is not available`
+;; (shadow/build/resolve.clj) — not the classic CLJS-compiler `Could not locate
+;; reagent/dom/client.cljs`, which that jar never emits (0 occurrences across
+;; its .clj/.cljc sources against 4 live `is not available` format sites). An
+;; agent matching the error it actually sees has to be able to land on this row
+;; (rf2-ikbgk.9). `Could not locate … on classpath` remains a real *Clojure CLI*
+;; message for a JVM-side `-m` failure — a different error, out of this row's
+;; scope.
 ;; ---------------------------------------------------------------------------
 
 (deftest reagent-dom-row-diagnoses-maven-not-npm
-  (testing "SKILL.md's reagent/dom/client.cljs row points at the Maven/classpath cause"
+  (testing "SKILL.md's reagent.dom.client row points at the Maven/classpath cause"
     (let [body @skill-md
-          row   (some-> (re-find #"(?m)^- \*\*`Could not locate reagent/dom/client\.cljs`.*$"
+          row   (some-> (re-find #"(?m)^- \*\*`The required namespace \"reagent\.dom\.client\" is not available`.*$"
                                  body))]
       (is (some? row)
-          "Could not find the `Could not locate reagent/dom/client.cljs` troubleshooting row in SKILL.md.")
+          (str "Could not find the `The required namespace \"reagent.dom.client\" is "
+               "not available` troubleshooting row in SKILL.md."))
       (is (and row (str/includes? row "reagent/reagent"))
           (str "The reagent/dom/client.cljs row does not name the "
                "`reagent/reagent` Maven coordinate as the cause. That "
@@ -445,8 +525,9 @@
 ;; actually owns it (rf2-fzbj.41 F1).
 ;;
 ;; The leaf's day-one key-by-key walk used to present `:source-paths
-;; ["src" "test"]` as WHY both trees are on the compile classpath. Item 1 of
-;; that same list selects `:deps {:aliases [:shadow]}`, and in that mode the
+;; ["src" "test"]` as WHY both trees are on the compile classpath — a key the
+;; template does not emit at all. Item 1 of that same list selects
+;; `:deps {:aliases [:shadow :dev]}`, and in that mode the
 ;; 3.4.10 launcher ignores `:source-paths` outright — `get-clojure-args`
 ;; assembles only `-Sdeps` / `-A<aliases>` / `-J<jvm-opts>`, and `run-clojure`
 ;; logs "The configured :source-paths in shadow-cljs.edn were ignored! / When
@@ -467,7 +548,7 @@
       (is (contains-any? body ["is inert here" "were ignored" "ignores this key"])
           (str "references/shadow-cljs.md no longer states that shadow-cljs.edn's "
                ":source-paths is IGNORED in :deps mode. Under `:deps {:aliases "
-               "[:shadow]}` the 3.4.10 launcher takes the whole classpath from "
+               "[:shadow :dev]}` the 3.4.10 launcher takes the whole classpath from "
                "`clojure -Spath` and warns that :source-paths was ignored; "
                "presenting that key as the reason the :test build sees test/ sends "
                "an author relocating a source dir to edit the wrong file "
