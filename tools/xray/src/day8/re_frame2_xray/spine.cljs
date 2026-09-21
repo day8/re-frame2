@@ -573,12 +573,41 @@
         ;; the history slot is keyed to — multi-frame apps where
         ;; the picker's frame and the head event-bundle's frame disagree;
         ;; epoch evicted from the ring) we return nil rather than
-        ;; the stored slot. Panels uniformly treat nil as 'no pin,
-        ;; use the head fallback' (App-DB Diff's `(peek history)`,
-        ;; Views' `(dec (count history))`, Machine Inspector's
-        ;; `(peek history)`) — keeping a stale stored id here would
+        ;; the stored slot — keeping a stale stored id here would
         ;; resurrect the very freeze the auto-track was meant to
-        ;; eliminate.
+        ;; eliminate. That reasoning is unchanged.
+        ;;
+        ;; WHAT THE PANELS DO WITH THAT NIL HAS CHANGED, AND THIS
+        ;; COMMENT USED TO SAY THE OPPOSITE (rf2-30gm6). It read
+        ;; "Panels uniformly treat nil as 'no pin, use the head
+        ;; fallback' (App-DB Diff's `(peek history)`, Views' `(dec
+        ;; (count history))`, Machine Inspector's `(peek history)`)".
+        ;; None of that is true at tip, and it had not been for some
+        ;; time:
+        ;;
+        ;;   - App-DB Diff never had a head fallback. Its own
+        ;;     `find-epoch-in-history` is guarded `(when (some?
+        ;;     epoch-id) ...)` and `app_db_diff_subs.cljs` says in
+        ;;     terms that "`(peek history)` is NOT a fallback here".
+        ;;   - Views (`reactive_panel_subs/focused-epoch-record`) and
+        ;;     the Issues ribbon left at rf2-hiri8; Trace and the
+        ;;     Machine Inspector left at rf2-c4abp; the Epoch panel
+        ;;     led at rf2-y8doi.19.
+        ;;
+        ;; So EVERY production consumer now passes the pinned
+        ;; `:dispatch-id` to `focus-resolver/find-epoch-record`'s
+        ;; 3-arity, which answers NO RECORD — never the head — for the
+        ;; `{:epoch-id nil, :dispatch-id non-nil}` pair this branch
+        ;; produces. That is deliberate: handing back the head means
+        ;; rendering one event's cascade under another event's row,
+        ;; which is the lie rf2-y8doi.19 was filed for. The panels are
+        ;; right and this comment was stale; do not "restore" a head
+        ;; fallback on the strength of it.
+        ;;
+        ;; The remaining head-fallback path is the UNSET focus —
+        ;; `:epoch-id` nil AND no `:dispatch-id` pinned — which this
+        ;; branch does not produce, and which `find-epoch-record`
+        ;; still serves with `(peek epoch-history)`.
         eff-epoch-id (cond
                        (and (= :live mode) (not paused?)
                             (some? eff-id)
