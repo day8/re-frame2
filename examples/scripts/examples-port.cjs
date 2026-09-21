@@ -14,9 +14,9 @@
  *
  * This resolver fixes both halves:
  *   1. DEFAULT_PORT is 8050. It sits in the examples-orchestrator's OWNED
- *      range (805x), clear of the top-level :dev-http set, whose bands
- *      belong to the Xray testbeds, the Story showcases and the top-level
- *      testbeds. See the OWNED-RANGE PORT MAP in
+ *      range (805x), clear of the top-level :dev-http set — that map claims
+ *      8765 / 8030-8034 (Xray testbeds) and 8040-8043 (the four Story
+ *      showcases). See the OWNED-RANGE PORT MAP in
  *      implementation/scripts/dev-testbed.cjs (the single source of truth
  *      for who-owns-what) for the convention; rf2-ot0lv moved this default
  *      off the 804x band to keep the bands non-overlapping. The pre-flight
@@ -49,8 +49,8 @@ const {
 } = require('./port-resolver.cjs');
 
 // Default port. The examples orchestrator OWNS the 805x band — clear of
-// the top-level :dev-http set, whose bands belong to the Xray testbeds, the
-// Story showcases and the top-level testbeds. See the OWNED-RANGE PORT MAP in
+// the top-level :dev-http set (8765 / 8030-8034 = Xray testbeds; 8040-8043
+// = Story showcases). See the OWNED-RANGE PORT MAP in
 // implementation/scripts/dev-testbed.cjs for the convention (rf2-ot0lv).
 // The pre-flight + forward scan (below) still cover an unexpected clash by
 // landing on the next free port; with the bands now non-overlapping a
@@ -90,7 +90,7 @@ async function resolveExamplesPort({ env = process.env } = {}) {
       throw portError(
         `EXAMPLES_PORT=${explicit} is already in use. Is a 'shadow-cljs watch' ` +
           `running? The top-level :dev-http map (implementation/shadow-cljs.edn) ` +
-          `claims several port bands whenever a watch is up (the ` +
+          `claims 8765 / 8030-8034 / 8040-8043 whenever a watch is up (the ` +
           `examples orchestrator owns 805x — see the OWNED-RANGE PORT MAP in ` +
           `implementation/scripts/dev-testbed.cjs). Stop the watch, or set ` +
           `EXAMPLES_PORT to a free port.`,
