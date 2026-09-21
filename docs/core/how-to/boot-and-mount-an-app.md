@@ -281,7 +281,8 @@ not a silent dead button. The fix is the require list in the `ns` form above.
 - [`examples/core/counter/core.cljs`](../../../examples/core/counter/core.cljs)
   shows the smallest app shape.
 - [`examples/core/todomvc/core.cljs`](../../../examples/core/todomvc/core.cljs)
-  adds URL routing, a `hashchange` listener, and `:url-bound? true`.
+  adds URL routing via `:url-bound? true` and a hash `:url-strategy` — the
+  frame installs the `hashchange` listener, so the example hand-rolls none.
 
 The UIx examples use the same lifecycle. Only the adapter and the render call
 change — the UIx adapter publishes the same `client-root` / `render!` /
