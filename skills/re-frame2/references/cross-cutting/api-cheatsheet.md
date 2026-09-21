@@ -111,13 +111,13 @@ Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs +
 
 ## View tests — `re-frame.test-helpers` (see `cross-cutting/testing-views.md`)
 
-The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-testid`. The single-frame e2e shape composes `ts/make-reset-runtime-fixture` (`:adapter` + `:init-fn`) with these walkers and `ts/poll-until` — no bespoke fixture macro.
+The view-tree assertion axis (aliased `:as th`, per `spec/008-Testing.md` — **not** `h`, which is Fresco). Walk hiccup by `:data-testid`. The single-frame e2e shape composes `ts/make-reset-runtime-fixture` (`:adapter` + `:init-fn`) with these walkers and `ts/poll-until` — no bespoke fixture macro.
 
 | Surface | Shape |
 |---|---|
-| `h/find-by-testid` / `h/find-all-by-testid` / `h/find-by-testid-prefix` | `(tree testid)` → hiccup node(s) |
-| `h/text-content` / `h/invoke-handler` | `(node)` → text · `(node event-key & args)` → calls the handler under `event-key` (e.g. `:on-click`) |
-| `h/testid` | `(testid)` / `(testid attrs)` — attrs-fragment authoring helper for view call sites |
+| `th/find-by-testid` / `th/find-all-by-testid` / `th/find-by-testid-prefix` | `(tree testid)` → hiccup node(s) |
+| `th/text-content` / `th/invoke-handler` | `(node)` → text · `(node event-key & args)` → calls the handler under `event-key` (e.g. `:on-click`) |
+| `th/testid` | `(testid)` / `(testid attrs)` — attrs-fragment authoring helper for view call sites |
 
 ## SSR — `day8/re-frame2-ssr`
 
