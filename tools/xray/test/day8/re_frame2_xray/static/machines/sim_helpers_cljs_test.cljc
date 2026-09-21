@@ -351,6 +351,150 @@
           "region prefix + the whole in-region path")
       (is (= #{:submit :go} (set (map :event rows)))))))
 
+;; ---- (3a-ii) targetless / action-only `:on` candidates (rf2-4cm3k) -------
+;;
+;; `on-rows-at` used to carry `:when (some? t)`, inherited verbatim from the
+;; original `available-transitions` body, so a legal targetless candidate
+;; never became a row: the rail listed nothing and the user could not fire
+;; it, while the engine handled the very same event correctly when it was
+;; typed into the input by hand.
+;;
+;; Spec 005 §Self-transitions makes targetless the ONLY geometry the runtime
+;; flags `internal?` — the `:action` runs, `:exit` / `:entry` do not, active
+;; descendants are preserved — and the forbidden-transition idiom is spelled
+;; exactly this way, so these are first-class declared transitions rather
+;; than a degenerate corner.
+;;
+;; Every fixture here runs through the REAL engine, and each positive
+;; reading is paired with the SAME fixture carrying a `:target`, so an empty
+;; reading would mean absence rather than a broken walk.
+
+(def ^:private bump-action
+  "One action, shared by every fixture below, so a data change is always
+  attributable to the transition under test."
+  {:bump (fn [{:keys [data]}] {:data (update data :n inc)})})
+
+(def ^:private parallel-on-action-only-definition
+  "rf2-4cm3k's own fixture — a parallel region leaf whose only handler is
+  action-only, beside an untouched second region."
+  {:type    :parallel
+   :data    {:n 0}
+   :actions bump-action
+   :regions {:work  {:initial :idle
+                     :states  {:idle {:on {:ping {:action :bump}}}
+                               :done {}}}
+             :other {:initial :sleeping
+                     :states  {:sleeping {}}}}})
+
+(def ^:private parallel-on-targeted-definition
+  "The positive control — the fixture above and a `:target`, nothing else."
+  {:type    :parallel
+   :data    {:n 0}
+   :actions bump-action
+   :regions {:work  {:initial :idle
+                     :states  {:idle {:on {:ping {:action :bump :target :done}}}
+                               :done {}}}
+             :other {:initial :sleeping
+                     :states  {:sleeping {}}}}})
+
+(deftest available-transitions-lists-a-targetless-action-only-on
+  (testing "A1 — an action-only `:on` on a parallel region leaf LISTS, with a
+            nil :target and its action named, and firing it runs the action
+            while the configuration stands still"
+    (let [s0   (sim-h/make-sim-state :t parallel-on-action-only-definition
+                                     engine-seed)
+          rows (sim-h/available-transitions (:definition s0) (:snapshot s0))
+          row  (first rows)]
+      (is (= 1 (count rows)))
+      (is (= :ping (:event row)))
+      (is (nil? (:target row)) "targetless — and NOT handed an invented target")
+      (is (= :bump (:action row))
+          "the action rides on the row, so the rail can name what it does")
+      (is (= [:work :idle] (:decl-path row)) "the engine's own region prefix")
+      (is (false? (:guard? row)))
+      (testing "and it is FIREABLE — by its event id, which never needed a target"
+        (let [s1 (step! s0 [:ping] parallel-on-action-only-definition)]
+          (is (= 1 (count (:audit-trail s1))) "the step really was recorded")
+          (is (nil? (:last-error s1)) "not the no-change diagnostic")
+          (is (= 1 (:n (get-in s1 [:snapshot :data]))) "the action ran")
+          (is (= {:work :idle :other :sleeping} (sim-h/current-sim-state s1))
+              "and the configuration is unchanged, which is the whole point")
+          (is (= 1 (count (sim-h/available-transitions (:definition s1)
+                                                        (:snapshot s1))))
+              "still listed afterwards"))))))
+
+(deftest available-transitions-targeted-control-for-the-action-only-on
+  (testing "A1 CONTROL — the same fixture WITH a `:target` listed before this
+            change and still does, so A1's reading is about the absent target
+            and nothing else about the fixture"
+    (let [s0   (sim-h/make-sim-state :t parallel-on-targeted-definition
+                                     engine-seed)
+          rows (sim-h/available-transitions (:definition s0) (:snapshot s0))
+          s1   (step! s0 [:ping] parallel-on-targeted-definition)]
+      (is (= 1 (count rows)))
+      (is (= :done (:target (first rows))))
+      (is (= [:work :idle] (:decl-path (first rows))))
+      (is (= {:work :done :other :sleeping} (sim-h/current-sim-state s1)))
+      (is (= 1 (:n (get-in s1 [:snapshot :data])))))))
+
+(deftest available-transitions-lists-a-flat-targetless-on
+  (testing "A2 — the same omission on a FLAT machine, so this was never a
+            parallel-only defect"
+    (let [d    {:initial :idle
+                :data    {:n 0}
+                :actions bump-action
+                :states  {:idle {:on {:ping {:action :bump}}}}}
+          s0   (sim-h/make-sim-state :t d engine-seed)
+          rows (sim-h/available-transitions (:definition s0) (:snapshot s0))
+          s1   (step! s0 [:ping] d)]
+      (is (= 1 (count rows)))
+      (is (nil? (:target (first rows))))
+      (is (= :bump (:action (first rows))))
+      (is (= [:idle] (:decl-path (first rows))))
+      (is (= 1 (:n (get-in s1 [:snapshot :data]))))
+      (is (= :idle (sim-h/current-sim-state s1))))))
+
+(deftest available-transitions-lists-the-forbidden-transition-idiom
+  (testing "A3 — `{:help {}}` is targetless AND actionless: Spec 005's
+            forbidden-transition idiom, a deliberate event CONSUMER. It
+            LISTS, because it is a declared handler the user may want to
+            fire, and firing it comes back as the EXISTING amber no-change —
+            the same answer a guard-declined timer already gets (T5), and
+            the honest one, since consuming an event no ancestor was going
+            to handle really does change nothing"
+    (let [d    {:initial :idle :data {:n 0} :states {:idle {:on {:help {}}}}}
+          s0   (sim-h/make-sim-state :t d engine-seed)
+          rows (sim-h/available-transitions (:definition s0) (:snapshot s0))
+          s1   (step! s0 [:help] d)]
+      (is (= 1 (count rows)))
+      (is (= :help (:event (first rows))))
+      (is (nil? (:target (first rows))))
+      (is (nil? (:action (first rows))))
+      (is (= [] (:audit-trail s1)) "nothing moved, so no audit row is invented")
+      (is (= :rf.xray.static.machines.sim/no-change
+             (-> s1 :last-error :info :kind))))))
+
+(deftest available-transitions-lists-every-candidate-of-a-mixed-vector
+  (testing "A4 — one event id declaring a VECTOR of candidates yields a row
+            EACH, targeted and targetless alike. Neither the decl-path nor
+            the event id tells those two rows apart, which is why the rail's
+            React key carries the row index as well"
+    (let [d    {:initial :idle
+                :data    {:n 0}
+                :actions bump-action
+                :guards  {:never (fn [_] false)}
+                :states  {:idle {:on {:go [{:target :done :guard :never}
+                                           {:action :bump}]}}
+                          :done {}}}
+          rows (sim-h/available-transitions d {:state :idle :data {:n 0}})]
+      (is (= 2 (count rows)))
+      (is (= [:done nil] (mapv :target rows)))
+      (is (= [nil :bump] (mapv :action rows)))
+      (is (= [:go :go] (mapv :event rows))
+          "THE POINT — the event id does not discriminate them")
+      (is (= 1 (count (distinct (map :decl-path rows))))
+          "and neither does the decl-path"))))
+
 ;; ---- (3b) `:after` timer rows (rf2-pzuqw) -------------------------------
 ;;
 ;; The rail lists each `:after` timer declared on the ACTIVE PATH as a
@@ -586,6 +730,104 @@
             reading means absence rather than a broken walk"
     (is (= 1 (count (sim-h/available-after-transitions
                       timer-definition {:state :loading :data {}}))))))
+
+;; ---- (3c) targetless / action-only `:after` timers (rf2-kmr2i) -----------
+;;
+;; The identical one-clause omission on the timer half: `after-rows-at`
+;; filtered `:when (some? t)`, so `{5000 {:action :bump}}` — a legal
+;; action-only timer — never became a row. A machine declaring only such
+;; timers presented an EMPTY timer list and could not fire them from the
+;; rail, even though the engine fires them correctly when the event is sent.
+;; The `:on` sibling is at (3a-ii) above; the two were relaxed together.
+
+(def ^:private action-only-timer-definition
+  "The rf2-kmr2i audit's own fixture."
+  {:initial :loading
+   :data    {:n 0}
+   :actions bump-action
+   :states  {:loading {:after {5000 {:action :bump}}}
+             :done    {}}})
+
+(def ^:private targeted-timer-control-definition
+  "The positive control — the fixture above and a `:target`, nothing else."
+  {:initial :loading
+   :data    {:n 0}
+   :actions bump-action
+   :states  {:loading {:after {5000 {:action :bump :target :done}}}
+             :done    {}}})
+
+(def ^:private parallel-root-action-only-timer-definition
+  "A targetless `:after` on the parallel ROOT, whose decl-path is `[]` — the
+  shape the acceptance criteria name specifically, and the one Spec 005
+  §Parallel root `:after` lists first among its three target grammars."
+  {:type    :parallel
+   :data    {:n 0}
+   :actions bump-action
+   :after   {5000 {:action :bump}}
+   :regions {:work  {:initial :idle :states {:idle {} :done {}}}
+             :other {:initial :sleeping :states {:sleeping {}}}}})
+
+(deftest available-after-transitions-lists-a-targetless-action-only-timer
+  (testing "T6 — an action-only timer LISTS with a nil :target, and firing
+            the row's own event runs the action while the state is retained"
+    (let [s0   (sim-h/make-sim-state :t action-only-timer-definition engine-seed)
+          rows (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
+          row  (first rows)]
+      (is (= 1 (count rows)))
+      (is (= 5000 (:delay-key row)))
+      (is (nil? (:target row)) "targetless — and NOT handed an invented target")
+      (is (= :bump (:action row)))
+      (is (= [:loading] (:decl-path row)))
+      (is (false? (:guard? row)))
+      (testing "and it is FIREABLE — from :delay-key + :decl-path, neither of
+                which ever needed the target"
+        (let [ev (sim-h/after-elapsed-event s0 row)
+              s1 (step! s0 ev action-only-timer-definition)]
+          (is (= [:rf.machine.timer/after-elapsed 5000 0 [:loading]] ev)
+              "epoch 0 is the seed answer, exactly as T2 establishes")
+          (is (= 1 (count (:audit-trail s1))) "the step really was recorded")
+          (is (nil? (:last-error s1)) "not the no-change diagnostic")
+          (is (= 1 (:n (get-in s1 [:snapshot :data]))) "the action ran")
+          (is (= :loading (sim-h/current-sim-state s1))
+              "and the state is RETAINED, which the acceptance criteria require")
+          (is (= 1 (count (sim-h/available-after-transitions
+                            (:definition s1) (:snapshot s1))))
+              "still listed afterwards"))))))
+
+(deftest available-after-transitions-targeted-control-for-the-action-only-timer
+  (testing "T6 CONTROL — the same fixture WITH a `:target` listed before this
+            change and still does, so T6's reading is about the absent target
+            and nothing else about the fixture"
+    (let [s0   (sim-h/make-sim-state :t targeted-timer-control-definition
+                                     engine-seed)
+          rows (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
+          s1   (step! s0 (sim-h/after-elapsed-event s0 (first rows))
+                      targeted-timer-control-definition)]
+      (is (= 1 (count rows)))
+      (is (= :done (:target (first rows))))
+      (is (= :done (sim-h/current-sim-state s1)))
+      (is (= 1 (:n (get-in s1 [:snapshot :data])))))))
+
+(deftest available-after-transitions-lists-a-targetless-parallel-root-timer
+  (testing "T7 — a targetless `:after` on the parallel ROOT lists at
+            `:decl-path []` and fires there, moving no region"
+    (let [s0   (sim-h/make-sim-state :t parallel-root-action-only-timer-definition
+                                     engine-seed)
+          rows (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
+          row  (first rows)]
+      (is (= 1 (count rows)))
+      (is (nil? (:target row)))
+      (is (= :bump (:action row)))
+      (is (= [] (:decl-path row))
+          "`[]` is the parallel root — a flat or region-root `:after` is
+           rejected at registration, so it can mean nothing else")
+      (let [ev (sim-h/after-elapsed-event s0 row)
+            s1 (step! s0 ev parallel-root-action-only-timer-definition)]
+        (is (= [:rf.machine.timer/after-elapsed 5000 0 []] ev))
+        (is (= 1 (count (:audit-trail s1))))
+        (is (= 1 (:n (get-in s1 [:snapshot :data]))) "the action ran")
+        (is (= {:work :idle :other :sleeping} (sim-h/current-sim-state s1))
+            "and no region moved")))))
 
 ;; ---- (4) parse-event-vector ---------------------------------------------
 
@@ -922,6 +1164,41 @@
   (is (= "(none)" (sim-h/format-state-display nil)))
   (is (= ":idle"  (sim-h/format-state-display :idle)))
   (is (= "[:auth :form]" (sim-h/format-state-display [:auth :form]))))
+
+(deftest format-destination-renders-a-target
+  (testing "unchanged for every row that has one — the arrow and the target"
+    (is (= "→ :done" (sim-h/format-destination {:target :done})))
+    (is (= "→ [:auth :form]"
+           (sim-h/format-destination {:target [:auth :form]})))
+    (is (= "→ :same-state" (sim-h/format-destination {:target :same-state})))))
+
+(deftest format-destination-renders-an-action-only-row
+  (testing "rf2-kmr2i / rf2-4cm3k — a targetless row has no target to show
+            and is not handed a fabricated one. It reads as Spec 005's own
+            word for the geometry, with the action NAMED where the
+            definition names it, because the action is the whole of what
+            such a transition does"
+    (is (= "↻ internal :bump"
+           (sim-h/format-destination {:target nil :action :bump})))
+    (is (= "↻ internal :bump"
+           (sim-h/format-destination {:action :bump}))
+        "an absent :target reads the same as an explicit nil")
+    (is (= "↻ internal (fn)"
+           (sim-h/format-destination {:action (fn [_] nil)}))
+        "an inline fn action has no readable spelling, as `format-delay-key`
+         already says of a fn delay key")
+    (is (= "↻ internal" (sim-h/format-destination {}))
+        "neither target nor action — the forbidden-transition idiom, a
+         deliberate event consumer")
+    (testing "THE CONTROL — no row ever renders a bare arrow with nothing
+              after it, which is what the pre-fix renderer would have
+              produced had such a row reached it"
+      (doseq [row [{:target nil :action :bump} {} {:action (fn [_] nil)}]]
+        (let [s (sim-h/format-destination row)]
+          (is (not= "→ " s))
+          (is (= "↻" (subs s 0 1))
+              (str "a targetless row leads with the internal glyph; got "
+                   (pr-str s))))))))
 
 (deftest format-event-display-pr-strs
   (is (= "" (sim-h/format-event-display nil)))

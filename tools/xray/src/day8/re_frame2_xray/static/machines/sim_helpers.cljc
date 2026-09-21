@@ -172,14 +172,31 @@
   "The `:on` rows one state-node declares, stamped with the absolute
   `decl-path` that node sits at. Normalised through `candidates`, so the
   `{:go :busy}`, `{:go {:target :busy :guard :g}}` and vector-of-candidates
-  forms all list. Mirror of `after-rows-at` for the `:on` half."
+  forms all list. Mirror of `after-rows-at` for the `:on` half.
+
+  EVERY candidate lists, a TARGETLESS one included (rf2-kmr2i, and
+  rf2-4cm3k for this half). `:target` is nil on such a row and the rail
+  renders it through `format-destination` rather than inventing one.
+  This body used to carry a `:when (some? t)` — inherited verbatim from
+  the original `available-transitions` body — which dropped them
+  silently: a machine whose only handler is action-only listed nothing
+  and could not be fired from the rail, while the engine handled the
+  same event correctly when it was typed in.
+
+  Spec 005 §Self-transitions makes a targetless transition the ONLY
+  geometry the runtime flags `internal?` — its `:action` runs, `:exit`
+  and `:entry` do not, and active descendants are preserved — and the
+  forbidden-transition idiom (a bare `{:help {}}` consuming an event so
+  an ancestor's handler is never reached) is spelled exactly this way.
+  So these are first-class declared transitions, not a degenerate case.
+  An `:on` row is fired by its EVENT ID alone, so firing one never
+  needed the target."
   [node decl-path]
   (for [[event-id spec] (:on node)
-        candidate       (candidates spec)
-        :let  [t (:target candidate)]
-        :when (some? t)]
+        candidate       (candidates spec)]
     {:event     event-id
-     :target    t
+     :target    (:target candidate)
+     :action    (:action candidate)
      :guard?    (some? (:guard candidate))
      :guard     (:guard candidate)
      :decl-path decl-path}))
@@ -208,11 +225,15 @@
         [[p n]]))))
 
 (defn available-transitions
-  "Return a vector of `{:event :target :guard? :guard :decl-path}` maps — one
-  per outgoing `:on` transition declared on the state(s) the snapshot is
-  resting on. The picker surfaces these as the user's step options; clicking
-  a row fills the event input, and the engine decides at step time what the
-  event actually does.
+  "Return a vector of `{:event :target :action :guard? :guard :decl-path}`
+  maps — one per outgoing `:on` transition declared on the state(s) the
+  snapshot is resting on. The picker surfaces these as the user's step
+  options; clicking a row fills the event input, and the engine decides at
+  step time what the event actually does.
+
+  `:target` is **nil** for a legal targetless / action-only candidate, which
+  lists like any other (rf2-4cm3k) — the row is fired by its event id, and
+  `format-destination` is what renders a row that has no target to show.
 
   Three snapshot shapes, because all three are supported machine shapes and
   the first alone answers for none of them:
@@ -279,14 +300,24 @@
   "The `:after` rows one state-node declares, stamped with the absolute
   `decl-path` that node sits at. Normalised through `candidates`, so the
   `{5000 :t}`, `{5000 {:target :t :guard :g}}` and vector-of-candidates
-  forms all list."
+  forms all list.
+
+  EVERY candidate lists, a TARGETLESS one included (rf2-kmr2i) — see
+  `on-rows-at`, which carries the same relaxation for the same reason
+  and by the same one-clause deletion. `{5000 {:action :bump}}` is a
+  legal action-only timer; before this it never became a row, so a
+  machine declaring only such timers presented an EMPTY timer list and
+  could not fire them from the rail, even though the engine fires them
+  correctly when the event is sent. Spec 005 §Parallel root `:after`
+  names targetless / action-only outright as one of the three target
+  grammars. A timer row is fired from its `:delay-key` and `:decl-path`
+  (see `after-elapsed-event`), so firing one never needed the target."
   [node decl-path]
   (for [[delay-key spec] (:after node)
-        candidate        (candidates spec)
-        :let  [t (:target candidate)]
-        :when (some? t)]
+        candidate        (candidates spec)]
     {:delay-key delay-key
-     :target    t
+     :target    (:target candidate)
+     :action    (:action candidate)
      :guard?    (some? (:guard candidate))
      :guard     (:guard candidate)
      :decl-path decl-path}))
@@ -317,9 +348,14 @@
         acc))))
 
 (defn available-after-transitions
-  "Return a vector of `{:delay-key :target :guard? :guard :decl-path}` maps
-  — one per `:after` candidate declared anywhere on the snapshot's ACTIVE
-  PATH. The rail renders these as `⌚` timer rows beside the `:on` rows.
+  "Return a vector of `{:delay-key :target :action :guard? :guard
+  :decl-path}` maps — one per `:after` candidate declared anywhere on the
+  snapshot's ACTIVE PATH. The rail renders these as `⌚` timer rows beside
+  the `:on` rows.
+
+  `:target` is **nil** for a legal targetless / action-only timer, which
+  lists like any other (rf2-kmr2i) — the row is fired from its `:delay-key`
+  and `:decl-path`, and `format-destination` renders the missing target.
 
   Three shapes, because all three are supported machine shapes and the leaf
   alone answers for none of them:
@@ -661,6 +697,38 @@
     (keyword? state) (str state)
     (vector? state)  (str "[" (str/join " " (map str state)) "]")
     :else            (str state)))
+
+(defn format-destination
+  "The right-hand \"where this goes\" label for one picker row. The `:on`
+  rows and the `⌚` `:after` rows share it, so the two row kinds cannot
+  drift apart on the one question they answer identically.
+
+  A TARGETED row reads `→ :done` / `→ [:auth :form]`, exactly as it always
+  has. A TARGETLESS one has no target to show and must not be handed a
+  fabricated one, so it reads `↻ internal` — Spec 005's own word for the
+  geometry (§Self-transitions: the `:action` runs, `:exit` / `:entry` do
+  not, and the configuration including active descendants is unchanged) —
+  with the action NAMED where the definition names it, because the action
+  is the whole of what such a transition does and a row saying only
+  `internal` would not be understandable.
+
+  A candidate with neither target nor action is the forbidden-transition
+  idiom (Spec 005 §Parent fallthrough): a deliberate event CONSUMER, which
+  reads as the bare `↻ internal`. Firing one comes back as the existing
+  amber \"No change\" — the same answer a guard-declined timer already
+  gets, and the honest one, since consuming an event that no ancestor was
+  going to handle really does change nothing.
+
+  Pure data → string; JVM-runnable, so what the rail says about a row is
+  pinned here rather than only in a browser."
+  [{:keys [target action]}]
+  (if (some? target)
+    (str "→ " (if (vector? target) (pr-str target) (str target)))
+    (str "↻ internal"
+         (cond
+           (keyword? action) (str " " action)
+           (some? action)    " (fn)"
+           :else             ""))))
 
 (defn format-event-display
   "Compact event-vector formatter for the audit trail."
