@@ -3,13 +3,21 @@
  *
  * `examples/` is test-free, so there are no example specs anymore; the
  * consumers are the per-adapter testbed smokes
- * (`implementation/adapters/{reagent,uix}/testbed/spec.cjs`) plus the
- * Story browser scenarios (`tools/story/test/`), the Xray feature-matrix
- * scenarios (`tools/xray/testbeds/feature_matrix/scenarios.cjs`), and — for
- * the navigation helpers only — the sibling play-scripts runner
+ * (`implementation/adapters/{reagent,uix}/testbed/spec.cjs`, and
+ * reagent-slim's `testbed/smoke.cjs`) plus the Story browser scenarios
+ * (`tools/story/test/`), the Xray feature-matrix scenarios
+ * (`tools/xray/testbeds/feature_matrix/scenarios.cjs`), the tenant-switcher
+ * testbed spec (`testbeds/tenant_switcher/spec.cjs`), the navigation-ceiling
+ * self-test (`implementation/scripts/_navigation-ceiling-policy.test.cjs`),
+ * and — for the navigation helpers only — the sibling play-scripts runner
  * (`serve-and-run-story-play-scripts.cjs`). They keep requiring this module
  * across-tree because the helpers are substrate- and surface-agnostic; the
  * file stays here as their single shared home.
+ *
+ * Re-derive that list from `require`s rather than from name mentions: a bare
+ * `git grep -l spec-helpers.cjs` also matches comments (two files in the tree
+ * name this module without requiring it), and reagent-slim's require spans
+ * two lines, so a line-oriented grep for `require(` misses it.
  *
  * Those specs drive raw `playwright` (not `@playwright/test`), so we don't
  * get the `expect()` matcher API for free. These helpers fill the gap with
