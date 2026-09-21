@@ -466,24 +466,49 @@
                      ;; what the panels need and FIFO preserves it: the
                      ;; re-orientation is enqueued before the preset applies
                      ;; and lands before them.
-                     (xray-core/set-target-frame! now)
-                     ;; rf2-v1ach: Xray now mounts per-panel into the
-                     ;; RHS via `rf.story.ui.xray-embed/xray-embed-panel`. The
-                     ;; embed owns its own React lifecycle — selecting
-                     ;; a variant rebuilds the panel-host component
-                     ;; (keyed on `variant-id::panel-id`) which drives
-                     ;; the Xray mount-fn on commit. We retain the
-                     ;; per-variant project-root + keybinding bridges
-                     ;; so the popout escape hatch + Xray's source-
-                     ;; coord chips honour Story's configured
-                     ;; `:rf.story/project-root`. Per-variant Xray bridges
-                     ;; live on a separate seam from the embed mount.
-                     (rf.story.xray-preset/wire-cross-host!)
-                     ;; rf2-q9kv5: apply any per-story Xray preset
-                     ;; (focus tab, configure filters, focus a cascade
-                     ;; position) + seed the RHS chip-row's user-
-                     ;; override slot from the story's `:xray-panel`.
-                     (rf.story.xray-preset/on-variant-selected! now)
+                     ;; rf2-n7lql — Story does not drive Xray in a
+                     ;; published static export. Under `static-mode?`
+                     ;; the bundle is a `release`, and Xray is
+                     ;; non-functional there BY CONSTRUCTION, for two
+                     ;; independent reasons: the `:devtools/preloads`
+                     ;; slot is ignored by `release`, so nothing
+                     ;; registers Xray's `:rf.xray/*` instruction set;
+                     ;; and rf2-y8doi.60 gates Xray's four top-level
+                     ;; `rf/reg-view` forms on `debug-enabled?`, which
+                     ;; leaves those symbols UNDEFINED in a release
+                     ;; build because `reg-view` carries its `def`
+                     ;; inside the gate.
+                     ;;
+                     ;; Driving it anyway threw twice over: core's
+                     ;; deliberate `:rf.error/image-zero-match` guard on
+                     ;; the seat (Xray's image globs
+                     ;; `day8.re-frame2-xray.**` over a pool with no
+                     ;; Xray registration in it), and then a render
+                     ;; TypeError on the undefined view. BOTH guards are
+                     ;; correct and neither is weakened here — the
+                     ;; defect was the ASKING: a host requesting a dev
+                     ;; tool from a build that deliberately elides it.
+                     ;; See `tools/story/spec/013-Static-Build.md`
+                     ;; §Static-mode runtime semantics.
+                     (when-not rf.story.config/static-mode?
+                       (xray-core/set-target-frame! now)
+                       ;; rf2-v1ach: Xray now mounts per-panel into the
+                       ;; RHS via `rf.story.ui.xray-embed/xray-embed-panel`. The
+                       ;; embed owns its own React lifecycle — selecting
+                       ;; a variant rebuilds the panel-host component
+                       ;; (keyed on `variant-id::panel-id`) which drives
+                       ;; the Xray mount-fn on commit. We retain the
+                       ;; per-variant project-root + keybinding bridges
+                       ;; so the popout escape hatch + Xray's source-
+                       ;; coord chips honour Story's configured
+                       ;; `:rf.story/project-root`. Per-variant Xray bridges
+                       ;; live on a separate seam from the embed mount.
+                       (rf.story.xray-preset/wire-cross-host!)
+                       ;; rf2-q9kv5: apply any per-story Xray preset
+                       ;; (focus tab, configure filters, focus a cascade
+                       ;; position) + seed the RHS chip-row's user-
+                       ;; override slot from the story's `:xray-panel`.
+                       (rf.story.xray-preset/on-variant-selected! now))
                      ;; rf2-8i2a9 / rf2-j538f7.34: RESUME the one run owner —
                      ;; run the auto-plays exactly once per prepared
                      ;; generation. Yields one tick via setTimeout so React
@@ -651,19 +676,32 @@
      ;;
      ;; Feature-detect-safe: `xray-embed-panel` renders a graceful
      ;; empty state when Xray is not on the classpath.
-     [:section {:style (:rhs-section styles)
-                :data-rf-rhs-section "xray"}
-      ;; The Story↔Xray seam (spec/018 §12.9): this is the ONE RHS band
-      ;; whose header goes COOL. The violet accent + violet underline
-      ;; echo Xray's own identity so the diagnostic boundary reads from
-      ;; temperature alone — Story still owns the title row + chip row,
-      ;; only the accent points at the embedded surface.
-      [:div {:style (merge (:rhs-section-h styles)
-                           (:rhs-section-h-xray styles))}
-       [:span "Xray"]
-       [:span {:style (:rhs-section-sub-xray styles)}
-        "diagnostic"]]
-      [rf.story.ui.xray-embed/xray-embed-panel]]
+     ;;
+     ;; rf2-n7lql — and the whole band is OMITTED from a published
+     ;; static export. `static-mode?` is a `release` build, where Xray
+     ;; cannot render at all: nothing registers its instruction set
+     ;; (the `:devtools/preloads` slot is a dev-build slot) and
+     ;; rf2-y8doi.60's `debug-enabled?` gates leave its four
+     ;; `rf/reg-view` symbols undefined, so mounting a panel throws a
+     ;; render TypeError. Omitting the band is what makes the export
+     ;; "dev-tool-free" as `implementation/shadow-cljs.edn`'s
+     ;; `:story-static/counter-with-stories` comment already claims.
+     ;; See `tools/story/spec/013-Static-Build.md` §Static-mode runtime
+     ;; semantics; the selection-watcher gate above is the other half.
+     (when-not rf.story.config/static-mode?
+       [:section {:style (:rhs-section styles)
+                  :data-rf-rhs-section "xray"}
+        ;; The Story↔Xray seam (spec/018 §12.9): this is the ONE RHS band
+        ;; whose header goes COOL. The violet accent + violet underline
+        ;; echo Xray's own identity so the diagnostic boundary reads from
+        ;; temperature alone — Story still owns the title row + chip row,
+        ;; only the accent points at the embedded surface.
+        [:div {:style (merge (:rhs-section-h styles)
+                             (:rhs-section-h-xray styles))}
+         [:span "Xray"]
+         [:span {:style (:rhs-section-sub-xray styles)}
+          "diagnostic"]]
+        [rf.story.ui.xray-embed/xray-embed-panel]])
      ;; rf2-ba86n.9 — Explain panel. The Story-owned provenance +
      ;; lowering surface over `story/explain` data (spec/020 §4). Sits
      ;; directly under the Xray embed: same RHS inspector rail, but a
