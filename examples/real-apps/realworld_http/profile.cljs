@@ -269,22 +269,41 @@
     (let [username (username-from-db rt)
           refresh? (reply-for-current-profile? db :profile username)
           ;; A refresh keeps the slice; a new identity starts a fresh one.
-          slice    (if refresh? (:profile db) (request-slice))]
+          slice    (if refresh? (:profile db) (request-slice))
+          ;; And a new identity resets the MACHINE too, not just the slice.
+          ;; Without this the :data region is still :loaded, so :fetch-started
+          ;; only reaches :refreshing — which is tagged :data/loaded, so
+          ;; render-priority keeps choosing :loaded and `profile-loaded` draws
+          ;; itself over the nil profile the slice was just reset to: an empty
+          ;; h4, a "Follow " button with nobody's name on it, and (until its
+          ;; own guard landed) an "Edit Profile Settings" link offered to a
+          ;; logged-out reader. :reset takes the region to :nothing first, so
+          ;; :fetch-started lands on :loading and the reader gets the spinner
+          ;; the first load would have given them. The editor already makes
+          ;; exactly this move (:editor/load-article, article_editor.cljs).
+          ;;
+          ;; It is the whole machine that resets, :tab region included — which
+          ;; is why it must ride HERE rather than in the list loads: both
+          ;; profile routes put [:profile/load] FIRST in their :on-match, so
+          ;; the tab's own :show-articles / :show-favorites broadcast lands
+          ;; after this one and has the last word.
+          reset-fx (when-not refresh? [[:dispatch [:ui/profile [:reset]]]])]
       {:db (assoc db :profile
                   (-> slice
                       (assoc :username username
                              :status   (if (and refresh? (:data slice)) :fetching :loading)
                              :error    nil)
                       (update :attempt (fnil inc 0))))
-       :fx [[:dispatch [:ui/profile [:fetch-started]]]
-            [:rf.http/managed
-             (rh/request {:method     :get
-                          :path       (str "/profiles/" username)
-                          :decode     schema/ProfileResponse
-                          :retry      rh/data-fetch-retry
-                          :request-id [:profile/load username]
-                          :on-success [:profile/loaded username]
-                          :on-failure [:profile/load-failed username]})]]})))
+       :fx (into (vec reset-fx)
+                 [[:dispatch [:ui/profile [:fetch-started]]]
+                  [:rf.http/managed
+                   (rh/request {:method     :get
+                                :path       (str "/profiles/" username)
+                                :decode     schema/ProfileResponse
+                                :retry      rh/data-fetch-retry
+                                :request-id [:profile/load username]
+                                :on-success [:profile/loaded username]
+                                :on-failure [:profile/load-failed username]})]])})))
 
 (rf/reg-event :profile/loaded
   {:doc "The banner GET's `:on-success`, carrying the username it was requested
@@ -644,10 +663,24 @@
 (rf/reg-sub :profile.favorites/data
   (fn [db _] (:data (list-for-current-profile db :profile.favorites))))
 
+;; The list errors, read through the same gate as the lists themselves: a
+;; failure belonging to another profile must not banner itself under this one's
+;; URL any more than that profile's articles may.
+(rf/reg-sub :profile.articles/error
+  (fn [db _] (:error (list-for-current-profile db :profile.articles))))
+
+(rf/reg-sub :profile.favorites/error
+  (fn [db _] (:error (list-for-current-profile db :profile.favorites))))
+
 (rf/reg-sub :profile/own-profile?
+  {:doc "Is the reader looking at their OWN profile? Guarded on `me` exactly
+         the way `:article/own?` is (comments.cljs), and for the same reason:
+         without the guard a logged-out reader (no `me`) looking at a banner
+         that has not landed yet (no profile) compares nil with nil, comes back
+         TRUE, and is offered an \"Edit Profile Settings\" link."}
   (fn [db _]
-    (= (get-in db [:auth :user :username])
-       (get-in db [:profile :data :username]))))
+    (let [me (get-in db [:auth :user :username])]
+      (and me (= me (get-in db [:profile :data :username]))))))
 
 ;; ---- render-priority + :profile/render selector ----
 ;;
@@ -687,6 +720,18 @@
     (case (get-in snap [:state :tab])
       :favorites (or favorited [])
       (or authored []))))
+
+(rf/reg-sub :profile/current-error
+  {:doc "Whichever list error the active tab calls for — the same tab-driven
+         pick `:profile/current-articles` makes, over the gated error subs.
+         nil when the active list is healthy, which is every case but one."
+   :inputs [[:rf/machine :ui/profile]
+            [:profile.articles/error]
+            [:profile.favorites/error]]}
+  (fn sub-current-error [[snap authored-error favorited-error] _]
+    (case (get-in snap [:state :tab])
+      :favorites favorited-error
+      authored-error)))
 
 ;; ---- pagination (official RealWorld limit/offset) ----
 
@@ -743,7 +788,7 @@
           profile-error []
   (let [err @(subscribe [:profile/error])]
     [:div.article-preview.error
-     (str "Couldn't load profile: " (pr-str err))]))
+     (str "Couldn't load profile: " err)]))
 
 (reg-view ^{:doc "The :nothing view — the brief placeholder before any fetch."}
           profile-nothing []
@@ -757,6 +802,7 @@
         follow-busy? @(subscribe [:profile/follow-pending?])
         on-favs?     @(subscribe [:rf.machine/has-tag? :ui/profile :tab/favorites])
         articles*    @(subscribe [:profile/current-articles])
+        list-error   @(subscribe [:profile/current-error])
         current-page @(subscribe [:profile/current-page])
         page-count   @(subscribe [:profile/page-count])]
     [:<>
@@ -798,10 +844,21 @@
                                 :params {:username (:username profile)}
                                 :class  (str "nav-link" (when on-favs? " active"))}
             "Favorited Articles"]]]]
-        (if (seq articles*)
+        ;; A list whose fetch FAILED is not an empty list. Rendering the
+        ;; official "No articles here yet." marker for a request that fell over
+        ;; tells the reader this user has written nothing — a wrong answer where
+        ;; the honest one is "we could not find out".
+        (cond
+          list-error
+          [:div.article-preview.error
+           (str "Couldn't load articles: " list-error)]
+
+          (seq articles*)
           (for [article articles*]
             ^{:key (:slug article)}
             [articles/article-preview {:article article}])
+
+          :else
           [:div.article-preview.empty-feed-message "No articles here yet."])
         [articles/pagination {:current-page current-page
                               :page-count   page-count

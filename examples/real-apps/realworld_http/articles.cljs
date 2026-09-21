@@ -253,14 +253,29 @@
           tag       (get-in current [:params :tag])
           page      (or (get-in current [:query :page]) 1)
           path      (rh/paginate-path "/articles" (when tag {:tag tag}) page)
-          has-data? (seq (get-in db [:articles :data]))
+          ;; A DIFFERENT tag is a different list, not a refresh of this one.
+          ;; Without this, `/tag/demo` → `/tag/clojure` keeps demo's rows on
+          ;; screen under clojure's URL for the whole of the fetch, because the
+          ;; region goes :some → :refreshing and :refreshing is tagged
+          ;; :data/some. That is the renderable-under-the-wrong-URL state THE
+          ;; CORRELATION GATE rules out for the slug- and username-keyed slices
+          ;; (comments.cljs, profile.cljs); same law, different route param, so
+          ;; the slice records the tag it is loading and a change starts a fresh
+          ;; one. nil is the global list's tag, so `/tag/demo` → `/` is a change
+          ;; like any other. (Paging within one tag is not: `?page=` moves, the
+          ;; tag does not, and the rows stay up while the window slides.)
+          tag-changed? (not= tag (get-in db [:articles :tag]))
+          slice     (if tag-changed? (request-slice []) (:articles db))
+          has-data? (seq (:data slice))
           ;; Which navigation this load serves; both reply targets carry it
           ;; (REPLY OWNERSHIP, http.cljs).
           nav-token (rh/current-nav-token rt)]
-      {:db (-> db
-               (assoc-in [:articles :status] (if has-data? :fetching :loading))
-               (assoc-in [:articles :error] nil)
-               (update-in [:articles :attempt] (fnil inc 0)))
+      {:db (assoc db :articles
+                  (-> slice
+                      (assoc :tag    tag
+                             :status (if has-data? :fetching :loading)
+                             :error  nil)
+                      (update :attempt (fnil inc 0))))
        :fx [[:dispatch [:realworld/articles-home [:fetch-started]]]
             [:rf.http/managed
              (rh/request {:method     :get
@@ -497,7 +512,7 @@
   (let [err @(subscribe [:articles/error])
         feed-err @(subscribe [:feed/error])]
     [:div.article-preview.error
-     (str "Couldn't load articles: " (pr-str (or err feed-err)))]))
+     (str "Couldn't load articles: " (or err feed-err))]))
 
 (reg-view ^{:doc "The :empty / :nothing view — no articles to show. Renders the
                   official `.article-preview.empty-feed-message` marker that
