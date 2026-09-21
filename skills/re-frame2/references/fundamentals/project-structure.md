@@ -62,7 +62,7 @@ conditionals (`#?(:clj ...)` / `#?(:cljs ...)`) to split platform-
 specific code. The runtime SSR walkthrough shows the canonical layout —
 schema and event handlers are shared, the server's `handle-request` is
 `#?(:clj ...)`, the client's `run` is `#?(:cljs ...)`
-(`examples/capabilities/ssr/ssr/core.cljc:188-269`).
+(the `handle-request` and `run` defns in `examples/capabilities/ssr/ssr/core.cljc`).
 
 When SSR is one boundary of a larger app, the SSR-specific code goes in
 its own `ssr.cljc` next to the other feature files
@@ -92,7 +92,7 @@ The entry ns is named `core`. It:
 
 If the app server-renders, `core.cljc` (not `.cljs`) and the `run`
 body sits inside `#?(:cljs ...)`; the JVM-side `handle-request` lives
-in the same ns (`examples/capabilities/ssr/ssr/core.cljc:188-269`).
+in the same ns (both defns in `examples/capabilities/ssr/ssr/core.cljc`).
 
 ## Routing — one `routing.cljs`
 

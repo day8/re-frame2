@@ -65,10 +65,13 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 ## 5. What the skill does NOT consume
 
-- **`docs/core/**`** — the narrative human guide. The skill is for AI agents authoring code; the guide is for humans learning the framework. Cross-references run through `SKILL-REDIRECT.md`, not into the guide directly.
-- **`docs/EPs/**`** — EP rationale documents. The leaves cite EPs by name but don't quote them.
+- **`docs/EP/**`** — EP rationale documents. The leaves cite EPs by name but don't quote them.
 - **`implementation/**/test`** — re-frame2's own per-artefact test suites. The test-authoring leaf points at `re-frame.test-support` (the public surface), not at how that surface is tested internally.
-- **`tools/**`** — re-frame2's dev/inspection tooling. Out of scope for application-authoring guidance.
+
+Two trees are **not** wholly excluded, and §1–§4 above are the wrong place to look for them — each is consumed through a named set of leaves, pinned to the page it cites:
+
+- **`tools/**`** — consumed by the five `references/tooling/` leaves (stories, routing, story-recorder, story-mcp-loop, xray), which cite `tools/story/`, `tools/xray/` and `tools/story-mcp/` directly. Not consumed by the fundamentals or pattern leaves, which stay on the application-authoring surface.
+- **`docs/**`** — reached through `SKILL-REDIRECT.md` for deep-dive rationale, but four cross-cutting leaves (privacy-and-elision, production-observability, ssr-authoring, testing-views) also link `docs/core/`, `docs/ssr/` and `docs/machines/` pages directly, where the guide carries a walkthrough the leaf deliberately does not duplicate.
 
 ## 6. Update procedure
 

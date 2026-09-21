@@ -7,7 +7,7 @@ re-frame2's examples are the canonical authoring substrate — per SKILL.md card
 
 A one-paragraph-per-example index: what each demonstrates and when to point at it, naming the *patterns and primitives* it exercises so a routing decision lands on the right directory in one hop. It does **not** explain internals — read the source.
 
-The full catalogue (with maturity, build ids, and end-to-end Playwright coverage) lives at [`examples/README.md`](https://github.com/day8/re-frame2/blob/main/examples/README.md). The substrate policy (Reagent is canonical; UIx ships a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md).
+The full catalogue (each example's build id, what it demonstrates, and the specs it exercises) lives at [`examples/README.md`](https://github.com/day8/re-frame2/blob/main/examples/README.md). The substrate policy (Reagent is canonical; UIx ships a smoke-pair) lives at [`spec/Conventions.md` §Adapter shipping convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md).
 
 ## counter — `examples/core/counter/`
 
@@ -118,7 +118,7 @@ The Fresco substrate ships one: `examples/substrates/fresco/login/` — the `cor
 ## Cross-references
 
 - [`SKILL.md`](SKILL.md) — router skill; cardinal rules; loading map.
-- [`examples/README.md`](https://github.com/day8/re-frame2/blob/main/examples/README.md) — the full example catalogue with maturity, build ids, and end-to-end coverage.
+- [`examples/README.md`](https://github.com/day8/re-frame2/blob/main/examples/README.md) — the full example catalogue: build ids, what each example demonstrates, and the specs it exercises.
 - [`spec/Conventions.md` §Adapter shipping convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md) — Reagent-canonical / UIx-smoke-pair policy.
 - [`patterns/`](patterns) — pattern leaves; each names the worked example for its pattern.
 

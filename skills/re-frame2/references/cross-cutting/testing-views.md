@@ -6,21 +6,23 @@ Load when the question is "does the screen show the right thing?" or "does the b
 
 ```clojure
 (:require [re-frame.core         :as rf]
-          [re-frame.test-helpers :as h])
+          [re-frame.test-helpers :as th])
 ```
+
+The alias is `th`, not `h` — `h` is the conventional alias for **Fresco** (`re-frame.fresco`, see [`../fundamentals/views.md`](../fundamentals/views.md) §Fresco), and `spec/008-Testing.md` pairs `th` with `ts` for exactly this reason.
 
 ## The single-frame e2e shape — compose the recipe
 
 This is the dominant shape for an app-developer e2e view test: one frame, one install hook, one root view, and an assertion that the rendered text matches after dispatching. There is **no bespoke fixture macro** — compose it from primitives that already exist and are adopted at scale:
 
 1. **`ts/make-reset-runtime-fixture`** (`re-frame.test-support`) — an `:adapter` plus an `:init-fn` (your app's setup fn that registers the events / subs / views) seats the ambient `:rf/default` frame and rolls the registrar back between tests. Install it once with `(use-fixtures :each …)`.
-2. **The `re-frame.test-helpers` hiccup walkers** (`h/find-by-testid` + `h/text-content`) — call the root view fn directly and walk the returned tree; `h/invoke-handler` drives a click.
+2. **The `re-frame.test-helpers` hiccup walkers** (`th/find-by-testid` + `th/text-content`) — call the root view fn directly and walk the returned tree; `th/invoke-handler` drives a click.
 3. **`ts/poll-until`** (`re-frame.test-support`) — for the async case (a queued `dispatch`, an HTTP reply, a machine `:after`) whose settled outcome is observable in the re-rendered view.
 
 ```clojure
 (:require [re-frame.core         :as rf]
           [re-frame.test-support :as ts]
-          [re-frame.test-helpers :as h]
+          [re-frame.test-helpers :as th]
           [my-app.counter        :as counter])   ;; your app: counter/setup! registers, counter/main is the root view
 
 (use-fixtures :each
@@ -32,10 +34,10 @@ This is the dominant shape for an app-developer e2e view test: one frame, one in
 ;; re-rendered view directly.
 (deftest counter-e2e
   (rf/dispatch-sync [:counter/inc])
-  (is (= "1" (h/text-content (h/find-by-testid (counter/main) "n")))))
+  (is (= "1" (th/text-content (th/find-by-testid (counter/main) "n")))))
 ```
 
-`make-reset-runtime-fixture` installs the `:adapter`, seats `:rf/default` as the ambient frame for each test (so `dispatch-sync` / `subscribe` resolve to it without a `{:frame …}` opt), and runs `:init-fn` inside that scope. Its registrations land in the global registrar and roll back around each test. `h/testid` is the **authoring** helper — standardise the `:data-testid` fragment at the view call site (`[:span (h/testid "n") @(rf/subscribe [:counter/n])]`); `find-by-testid` locates it, `text-content` reads its text, `invoke-handler` fires an attached handler.
+`make-reset-runtime-fixture` installs the `:adapter`, seats `:rf/default` as the ambient frame for each test (so `dispatch-sync` / `subscribe` resolve to it without a `{:frame …}` opt), and runs `:init-fn` inside that scope. Its registrations land in the global registrar and roll back around each test. `th/testid` is the **authoring** helper — standardise the `:data-testid` fragment at the view call site (`[:span (th/testid "n") @(rf/subscribe [:counter/n])]`); `find-by-testid` locates it, `text-content` reads its text, `invoke-handler` fires an attached handler.
 
 **Why `:async? true` sits on that one fixture.** The CLJS row further down is an `(async done …)` test, and `cljs.test` hard-errors on a fn-form fixture for an async row (*"Async tests require fixtures to be specified as maps"*); the opt selects the `{:before :after}` map-form, whose `:before` establishes the ambient frame with a persistent `set!` that survives the async boundary. On the JVM it is **inert** — `clojure.test` has no async rows and no map-fixture support — so one plain `:async? true` serves a `.cljc` suite on both hosts, with no reader conditional at the call site. Full contract: [`testing.md` §Async (`cljs.test`) suites](testing.md#async-cljstest-suites--async-true).
 
@@ -48,7 +50,7 @@ For an async settle, poll the re-rendered view with `ts/poll-until` until it mat
 (deftest status-eventually-ready
   (rf/dispatch [:cart/fetch])                              ;; plain dispatch — queues
   (is (ts/poll-until
-        #(= "ready" (h/text-content (h/find-by-testid (cart-view) "status")))
+        #(= "ready" (th/text-content (th/find-by-testid (cart-view) "status")))
         {:timeout-ms 5000 :label "status ready"})))
 ```
 
@@ -64,11 +66,11 @@ rejects. Await it instead:
   (async done
     (rf/dispatch [:cart/fetch])                    ;; the same queued dispatch as the JVM row
     (-> (ts/poll-until
-          #(= "ready" (h/text-content (h/find-by-testid (cart-view) "status")))
+          #(= "ready" (th/text-content (th/find-by-testid (cart-view) "status")))
           {:timeout-ms 5000 :label "status ready"})
         (.then  (fn [_]
-                  (is (= "ready" (h/text-content
-                                   (h/find-by-testid (cart-view) "status"))))))
+                  (is (= "ready" (th/text-content
+                                   (th/find-by-testid (cart-view) "status"))))))
         (.catch (fn [e]                            ;; report and RELEASE — no done here
                   (is false (str "poll-until timed out: " (.-message e)))
                   nil))
@@ -87,8 +89,8 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 (deftest counter-view-shows-and-fires
   (rf/with-new-frame [f (rf/make-frame {:initial-events [[:counter/init]]})]
     (let [tree (counter-view {:n 0})
-          btn  (h/find-by-testid tree "counter-inc")]
-      (h/invoke-handler btn :on-click nil)              ;; fire the handler as the DOM would
+          btn  (th/find-by-testid tree "counter-inc")]
+      (th/invoke-handler btn :on-click nil)              ;; fire the handler as the DOM would
       (is (= 1 (:n (rf/app-db-value f)))))))
 ```
 
@@ -99,7 +101,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 
 ```clojure
 (rf/reg-view counter-inc-button []
-  [:button (h/testid "counter-inc" {:on-click #(dispatch [:counter/inc])}) "+"])
+  [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])}) "+"])
 ```
 
 `dispatch` is the local `rf/reg-view` injects — that lexical binding is what the deferred `:on-click` closes over. A bare `rf/dispatch` there runs after the render scope has unwound and raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` floor).

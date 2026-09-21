@@ -122,7 +122,7 @@ Tooling (Xray, re-frame2-pair) renders click-to-jump links straight to the offen
 
 ## Deeper material
 
-Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame2-pair, microtask scheduling, the interceptor model in full: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Instrumentation (009)**, **Runtime architecture**, **Tool-Pair contract**.
+Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame2-pair, microtask scheduling, the interceptor model in full: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Instrumentation (009)**, **Runtime architecture**, **Tool-Pair contract (live inspection)**.
 
 ---
 

@@ -108,7 +108,7 @@ Writing Fresco views is not this skill's surface. Porting existing Reagent views
 - **`reg-view` injects `dispatch` / `subscribe` — drop the `rf/` prefix inside the body.** The injected locals are frame-aware; a `rf/subscribe` (the ambient global) inside a `reg-view` body bypasses the injection and falls back to the frame-resolution chain. Inside `reg-view*` there is no injection — capture a `capture-frame`.
 - **Views are pure; no `app-db` writes, no instance handles.** State writes live in `reg-event` handlers reached via `dispatch`. A view that wraps a stateful JS library keeps the instance in a per-mount closure cell, never in `app-db` — see [`../../patterns/stateful-components.md`](../../patterns/stateful-components.md).
 - **Reusable widgets take an id, not a data map.** A `[customer-card 42]` view subscribes in terms of the id; passing the whole entity map defeats the sub-cache. See [`../../patterns/reusable-components.md`](../../patterns/reusable-components.md).
-- **Add a `:data-testid` so the view is walk-testable.** Use the `h/testid` authoring helper at call sites that need a test handle — see [`../cross-cutting/testing-views.md`](../cross-cutting/testing-views.md).
+- **Add a `:data-testid` so the view is walk-testable.** Use the `re-frame.test-helpers/testid` authoring helper at call sites that need a test handle — see [`../cross-cutting/testing-views.md`](../cross-cutting/testing-views.md), which aliases that namespace `th`. Note the seam: `h` on this page is **Fresco** (above), so write `th/testid`, never `h/testid`.
 
 ## Deeper material
 
