@@ -6822,7 +6822,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // its own hand-run shadow project here, off every per-PR lane BY RULING:
   // its suites exercise LOCAL COPIES of the runtime, so running its 574
   // deftests per PR could not catch a regression in the shipped one, and its
-  // 82 MB of committed run records are evidence rather than inputs. The
+  // committed run records are evidence rather than inputs. The
   // classifier carries an explicit `bench/*` arm that sets nothing, so the
   // silence is stated in the script as well as declared here. The tree's own
   // gate is `npm run check` from bench/fresco/ (every namespace compiled
