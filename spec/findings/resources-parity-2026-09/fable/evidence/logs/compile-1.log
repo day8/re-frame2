@@ -1,4 +1,4 @@
-shadow-cljs - config: C:\Users\miket\code\re-frame2\implementation\shadow-cljs.edn
+shadow-cljs - config: <HOME>\code\re-frame2\implementation\shadow-cljs.edn
 shadow-cljs - socket connect failed, server process dead?
 [:examples/realworld-resources] Compiling ...
 [:examples/realworld-resources] Build completed. (324 files, 323 compiled, 0 warnings, 31.13s)

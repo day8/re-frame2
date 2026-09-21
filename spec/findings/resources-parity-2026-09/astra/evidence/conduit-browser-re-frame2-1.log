@@ -2,6 +2,6 @@ locator.waitFor: Timeout 30000ms exceeded.
 Call log:
   - waiting for getByTestId('article-page') to be visible
 
-    at C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\browser-probe.cjs:35:46 {
+    at <HOME>\code\re-frame2\ai\findings\Resources\astra\evidence\browser-probe.cjs:35:46 {
   name: 'TimeoutError'
 }

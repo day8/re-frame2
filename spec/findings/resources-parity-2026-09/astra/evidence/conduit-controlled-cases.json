@@ -721,7 +721,7 @@
       }
     }
   },
-  "metadata": "{:ns realworld-resources.mutations, :file \"C:/Users/miket/code/re-frame2/examples/real-apps/realworld_resources/mutations.cljs\", :line 163, :column 1, :doc \"Favorite an article (optimistic). POST /articles/:slug/favorite.\", :rf/mutation {:doc \"Favorite an article (optimistic). POST /articles/:slug/favorite.\", :params-schema [:map [:slug :string] [:username {:optional true} :string]], :optimistic-tags #object[Function], :populates #object[Function], :invalidates #object[Function], :on-conflict :invalidate, :request #object[Function]}, :handler-fn #object[Function]}",
+  "metadata": "{:ns realworld-resources.mutations, :file \"<HOME>/code/re-frame2/examples/real-apps/realworld_resources/mutations.cljs\", :line 163, :column 1, :doc \"Favorite an article (optimistic). POST /articles/:slug/favorite.\", :rf/mutation {:doc \"Favorite an article (optimistic). POST /articles/:slug/favorite.\", :params-schema [:map [:slug :string] [:username {:optional true} :string]], :optimistic-tags #object[Function], :populates #object[Function], :invalidates #object[Function], :on-conflict :invalidate, :request #object[Function]}, :handler-fn #object[Function]}",
   "optimisticOverlap": {
     "older": 20,
     "newer": 21,

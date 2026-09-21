@@ -10,7 +10,7 @@
   (set! (.-exitCode js/process) (if (t/successful? m) 0 1)))
 
 (defn main []
-  (println "gate root: C:/Users/miket/code/re-frame2")
+  (println "gate root: <HOME>/code/re-frame2")
   (t/run-tests 're-frame.realworld-resources-cljs-test
                're-frame.realworld-resources-observability-cljs-test
                're-frame.example-realworld-resources-boot-seed-cljs-test

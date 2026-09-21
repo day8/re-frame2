@@ -141,5 +141,14 @@ refuses are marked; the rest live only in these reports.
   preserved drafts rather than the current report.
 - `mkdocs.yml` lists `spec/findings/` under `exclude_docs`, so the corpus never enters the
   built site even though `mkdocs_hooks.py` stages all of `spec/` into `docs_dir`.
+- Personal home paths in the evidence (receipts, process logs, `deps.edn` files with
+  absolute `:local/root` entries, the scratchpad root the probes ran from) are scrubbed to
+  `<HOME>` / `<user>` so the repo's portability gate (`scripts/check-no-hardcoded-paths.sh`)
+  holds, as the Story corpus's were; the `ai/` originals kept the literal paths. Four
+  Playwright probes (`astra/evidence/browser-probe.cjs`, `astra/evidence/scope-browser-probe.cjs`,
+  `grok/intermediate/conduit-walk.cjs`, `grok/intermediate/conduit-walk-favorite.cjs`) had an
+  explicit `timeout: 30000` added to their one `page.goto` call each, because the repo's
+  navigation-ceiling policy test sweeps every tracked `.cjs`; the fable probes already
+  carried one. Nothing else in the files was altered.
 - The repo ignores gate logs (`*.log`, `*.exit`); the 117 small ones the reports link were
   added with `git add -f`, as the Story corpus's were.

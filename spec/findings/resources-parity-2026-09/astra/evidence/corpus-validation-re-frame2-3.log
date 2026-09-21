@@ -1,7 +1,7 @@
-gate root: C:\Users\miket\code\re-frame2
+gate root: <HOME>\code\re-frame2
 {
   "utc": "2026-09-14T21:54:34.050779+00:00",
-  "repo": "C:\\Users\\miket\\code\\re-frame2",
+  "repo": "<HOME>\\code\\re-frame2",
   "head": "f2f9ffd654b70da97e907758cc73daa3bd205d57",
   "documents": [
     {

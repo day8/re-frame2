@@ -3,19 +3,19 @@
   "sources": [
     {
       "author": "astra",
-      "source": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\astra\\prompt.md",
+      "source": "<HOME>\\code\\re-frame2\\ai\\findings\\Resources\\astra\\prompt.md",
       "sha256": "96A900DB1963044CBA84C7EA61136B769CA11EED13F73880DBA6B0DAF176D1FD",
       "last_write_utc": "2026-09-14T12:29:41.2451178Z"
     },
     {
       "author": "grok",
-      "source": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\grok\\prompt.md",
+      "source": "<HOME>\\code\\re-frame2\\ai\\findings\\Resources\\grok\\prompt.md",
       "sha256": "36CB86640EEAC0B4DD4FFC60AA3C2070040BEA9B573C1400339297AC6B1B7BC9",
       "last_write_utc": "2026-09-14T12:37:22.3426268Z"
     },
     {
       "author": "fable",
-      "source": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Resources\\fable\\prompt.md",
+      "source": "<HOME>\\code\\re-frame2\\ai\\findings\\Resources\\fable\\prompt.md",
       "sha256": "7F627B7A47C2B31BED5846316BE5883CA17B5B3FDA87A7FA30190F2FA1D494F7",
       "last_write_utc": "2026-09-14T12:30:47.2193549Z"
     }

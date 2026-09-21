@@ -1,3 +1,3 @@
 Conduit controlled cases: missing-invalidation fail/pass/fail, refresh failure, fresh reuse, in-flight dedupe, retained owner
 Error: cljs$core$ExceptionInfo
-    at C:\Users\miket\code\re-frame2\ai\findings\Resources\astra\evidence\browser-probe.cjs:55:30
+    at <HOME>\code\re-frame2\ai\findings\Resources\astra\evidence\browser-probe.cjs:55:30

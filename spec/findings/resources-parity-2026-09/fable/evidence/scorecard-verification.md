@@ -3,7 +3,7 @@
 Date: 2026-09-14. Trunk: `main` at `bc371a9609`. Read-only; no `bd`, no builds.
 Scorecard under test: `docs/resources/coming-from-tanstack-query.md:175-198` (22 rows) and the closing claim at `:200` ("Every 'Landed' claim is pinned by tests in the reference implementation").
 
-Path abbreviations (all relative to `C:/Users/miket/code/re-frame2/`):
+Path abbreviations (all relative to `<HOME>/code/re-frame2/`):
 
 - `T/` = `implementation/resources/test/re_frame/` (60 files; `deftest` census read in full, 894 rows, no `head` cap)
 - `F/` = `spec/conformance/fixtures/` (six `resources-*.edn`, all read)

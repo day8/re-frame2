@@ -1,5 +1,5 @@
 (require '[clojure.edn :as edn] '[clojure.java.io :as io])
-(let [root (io/file "C:/Users/miket/code/re-frame2")
+(let [root (io/file "<HOME>/code/re-frame2")
       implementation (io/file root "implementation")
       out (io/file root "ai/findings/Resources/astra/evidence")
       cfg (edn/read-string (slurp (io/file implementation "shadow-cljs.edn")))

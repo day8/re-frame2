@@ -1,4 +1,4 @@
-const { chromium } = require('C:/Users/miket/code/re-frame2/implementation/node_modules/playwright');
+const { chromium } = require('<HOME>/code/re-frame2/implementation/node_modules/playwright');
 const http = require('node:http'), fs = require('node:fs'), path = require('node:path');
 const root = __dirname;
 const mode = process.argv[2] || 'resources';
@@ -22,7 +22,7 @@ const server = http.createServer((req, res) => {
       data:typeof cljs!=='undefined'?cljs.core.pr_str(event.error?.data):null}));
   });
   try {
-    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.goto(`http://127.0.0.1:${server.address().port}/`, { timeout: 30000 });
     await page.waitForFunction(() => document.body.innerText.includes('Conduit') || document.body.innerText.includes('conduit'));
     if (mode === 'resources') {
       await page.getByTestId('article-list').waitFor();
