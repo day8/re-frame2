@@ -154,8 +154,8 @@ to sweep it.
 
 ## Adapter smokes are not an example surface
 
-The three adapter browser smokes (Reagent / UIx) live with the adapters
-they test — see
+The three adapter browser smokes (Reagent and UIx at `testbed/spec.cjs`,
+reagent-slim at `testbed/smoke.cjs`) live with the adapters they test — see
 [`../implementation/adapters/TESTING.md`](../implementation/adapters/TESTING.md).
 They reuse the shared Playwright assertion matchers in
 [`scripts/spec-helpers.cjs`](scripts/spec-helpers.cjs), which stay in this tree as

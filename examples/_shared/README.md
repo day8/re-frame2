@@ -50,7 +50,8 @@ requests and remain usable offline.
 
 ## Inline Xray shell
 
-The `counter` and `flows` examples mount Xray beside the app with the same DOM
+The pages whose `index.html` carries `.rf2-testbed-shell` — `counter`, `flows`
+and `realworld_resources` today — mount Xray beside the app with the same DOM
 contract:
 
 ```html
