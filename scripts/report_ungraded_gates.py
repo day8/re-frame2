@@ -796,7 +796,7 @@ def main() -> int:
         print("AGGREGATION-FRAGILE (%d) -- `commit!` above. The candidate's arming edit does"
               % len(cancelled))
         print("NOT survive being aggregated with its neighbours, so had it arrived in a push")
-        print("that also contained them, CI classified that push as NOT arming the surface:")
+        print("that also contained them, CI would have classified that push as NOT arming it:")
         for surf in sorted(cancelled):
             sha = found[surf][0]
             k = cancelled[surf]
@@ -813,8 +813,15 @@ def main() -> int:
     print("HOW THIS CAN BE WRONG, IN BOTH DIRECTIONS -- read before acting on any row:")
     print("  FALSE ALL-CLEAR (a row that should not be here). Changes that cancel within")
     print("    one push leave the push diff but stay in each commit's parent diff, so a")
-    print("    surface CI never scheduled can be credited. `commit!` flags the cases this")
-    print("    run could refute at depth <= %d; deeper pushes are not probed." % args.probe_depth)
+    print("    surface CI never scheduled can be credited.")
+    if args.probe_depth >= 2:
+        print("    `commit!` flags the cases this run could refute at depth <= %d; a deeper"
+              % args.probe_depth)
+        print("    push is not probed, so an unflagged row is not a cleared one.")
+    else:
+        print("    THE FRAGILITY PROBE IS OFF (--probe-depth %d), so NO row was checked for"
+              % args.probe_depth)
+        print("    this at all and no row can read `commit!`. Re-run without it.")
     print("  FALSE ALARM (a row reported unarmed that was armed). The paths-ignore match")
     print("    is deliberately generous, so a commit CI would have run can be skipped; and")
     print("    the window (--since/--limit) truncates, so arming before it is invisible.")
