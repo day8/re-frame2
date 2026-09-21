@@ -38,6 +38,11 @@
             ;; re-frame.flows once wires up the flow API; leave it out and the
             ;; reg-flow calls below raise :rf.error/flows-artefact-missing.
             [re-frame.flows]
+            ;; Turns on Malli validation, so the `:schema` keys the two
+            ;; quantity events declare below actually run. Leave it out and the
+            ;; router has no `:schemas/validate-event!` hook to call, so those
+            ;; declarations are inert — the events validate nothing.
+            [re-frame.schemas]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================

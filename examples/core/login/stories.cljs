@@ -22,9 +22,11 @@
                                         login-form slice; still `:idle`.
      :story.login/submitting          — request in flight, `:submitting`
                                         (`:auth/busy`), inputs disabled.
-     :story.login/invalid-credentials — a malformed `:submit` rejected
-                                        at the schema boundary; lights
-                                        Xray's Issues ribbon.
+     :story.login/invalid-credentials — a bad draft turned away by
+                                        `submit-form`'s pre-submit
+                                        `Credentials` check; field errors
+                                        surface and nothing is dispatched,
+                                        so the machine stays `:idle`.
      :story.login/auth-error          — `:error-shown` after a 401.
      :story.login/locked-out          — `:locked-out` after the retry
                                         limit is exceeded.
@@ -42,8 +44,9 @@
          → [:rf.http/managed {… :sensitive? true}]     (a real fx)
          → [:auth.login/flow [:auth.login/submit]]      (→ :submitting)
              → canned-success reply                    (Side Effects panel)
-                 → [:auth.login/flow [:auth.login/success …]]
-                     → :authed
+                 → [:auth.login/succeeded {…}]          (owns the token)
+                     → [:auth.login/flow [:auth.login/success]]
+                         → :authed
 
    Every hop lands on the Epoch tape and the Trace stream, and the
    `:rf.http/managed` fx surfaces in the Side Effects panel. Pick the
@@ -81,8 +84,10 @@
 ;;
 ;; Recall how a login submits: `:auth.login/submit-form` validates the draft,
 ;; fires the real `:rf.http/managed` request (with `:sensitive? true`), and
-;; nudges the machine with a credential-free `:submit` signal. The reply pipes
-;; back through `:auth.login/success` / `:auth.login/failure`. And recall the
+;; nudges the machine with a credential-free `:submit` signal. The success reply
+;; pipes back through `:auth.login/succeeded`, which owns the token and then
+;; signals the machine; the failure reply rides the machine event
+;; `[:auth.login/flow [:auth.login/failure]]` directly. And recall the
 ;; `:preset :story` frame redirects `:rf.http/managed` to the framework's
 ;; canned-success stub (which just echoes the request's `:value` slot back as
 ;; the payload).
@@ -328,7 +333,8 @@
 
   ;; Success — the hero shot, and the most satisfying one to inspect. The
   ;; whole real pipeline run flows through `:login.story/submit`: submit-form →
-  ;; real `:rf.http/managed` fx → canned reply → `:auth.login/success` →
+  ;; real `:rf.http/managed` fx → canned reply → `:auth.login/succeeded` →
+  ;; `[:auth.login/flow [:auth.login/success]]` →
   ;; `:authed`. Open this one, hit Ctrl+Shift+C, and watch the full chain march
   ;; across Xray's Epoch / Trace / Side Effects panels.
   (rf.story/reg-variant :story.login/success

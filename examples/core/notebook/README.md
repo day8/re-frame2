@@ -126,9 +126,10 @@ the brand. Use the pair to see how each substrate's idiom lands at real
 scale. This one shows Reagent's `reg-view` + `@(subscribe …)` idiom
 doing the whole job.
 
-One note on the substrate choice: this is stock Reagent
-(`reagent.dom.client` + `re-frame.adapter.reagent`), not reagent-slim.
-That keeps the trio on the reference substrate for each adapter.
+One note on the substrate choice: this is stock Reagent (reached through
+`re-frame.adapter.reagent`, the entry ns's only substrate require — the
+adapter owns `reagent.dom.client` so you never require it yourself), not
+reagent-slim. That keeps the trio on the reference substrate for each adapter.
 
 The mount is the ordinary re-frame2 boot, in 2 steps.
 [`init!`](../../../docs/core/glossary.md#init) installs the Reagent

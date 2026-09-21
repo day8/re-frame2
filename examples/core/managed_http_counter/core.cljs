@@ -309,10 +309,17 @@
 
       ;; The opening move: seed a request that's genuinely in flight, ready
       ;; for Cancel to abort for real. We stay in :loading until that abort
-      ;; resolves the slot.
-      :else
+      ;; resolves the slot. As in the three handlers above, initiation is
+      ;; guarded on the ABSENCE of a reply rather than sitting in `:else`, so a
+      ;; status this `cond` does not enumerate can never re-seed the request.
+      (nil? reply)
       {:db (assoc db :http-counter/status :loading :http-counter/error nil)
-       :fx [[:http-counter/seed-long-request {:request-id long-request-id}]]})))
+       :fx [[:http-counter/seed-long-request {:request-id long-request-id}]]}
+
+      ;; A reply arrived carrying some other status. Settle the UI; never
+      ;; re-issue.
+      :else
+      {:db (assoc db :http-counter/status :idle)})))
 
 (rf/reg-event :http-counter/cancel
   (fn [{:keys [db]} _]
