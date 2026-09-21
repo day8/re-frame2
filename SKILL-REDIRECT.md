@@ -38,10 +38,12 @@ Find your skill, scan the audience section for lines tagged with it.
 | `re-frame2-pair-retro` | Pair-session retrospective (no URL deps) | — |
 | `re-frame2-implementor` | Building a new impl in another host language | `[impl]` |
 
-> Two of the eight skills are intentionally absent from this table:
-> `re-frame2-xray` cites its own spec tree (`tools/xray/spec/*`), and
+> Three of the nine skills are intentionally absent from this table:
+> `re-frame2-xray` cites its own spec tree (`tools/xray/spec/*`),
 > `re-frame2-improver` routes deep-dives to `skills/re-frame2/patterns/`
-> + `spec/`. Neither consumes the URLs below, so neither gets a row here.
+> + `spec/`, and `reagent-migration` pins the pre-publication Fresco
+> surface by checkout (`implementation/fresco/src/`, `docs/core/fresco/`).
+> None consumes the URLs below, so none gets a row here.
 
 ## Section 1 — Building with the reference implementation
 
@@ -49,7 +51,7 @@ Audience: `[app]` / `[setup]` / `[mig]` / `[pair]`. API + Guide + MIGRATION + Ex
 
 - **Definitive API reference** → https://day8.github.io/re-frame2/spec/API/ `[app]` `[setup]` `[impl]`
 - **Migration from re-frame v1** → https://day8.github.io/re-frame2/migration/from-re-frame-v1/ `[app]` `[setup]` `[mig]`
-- **Narrative guide (overview)** → https://day8.github.io/re-frame2/guide/README/ `[setup]`
+- **Narrative guide (overview)** → https://day8.github.io/re-frame2/core/introduction/ `[setup]`
 - **Story tutorial** → https://day8.github.io/re-frame2/story/ `[app]`
 - **Examples directory (worked apps)** → https://github.com/day8/re-frame2/tree/main/examples `[app]` `[setup]` `[impl]`
 - **VERSION (next release string)** → https://github.com/day8/re-frame2/blob/main/VERSION `[setup]` `[mig]`
