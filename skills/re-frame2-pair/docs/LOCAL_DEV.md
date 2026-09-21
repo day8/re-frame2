@@ -15,7 +15,7 @@ Same as the README's *Requirements*:
 - The **MCP server** — the only skill-facing transport. It is **not yet published to npm**, so build and run it straight from this clone — see [§MCP server from a clone](#mcp-server-from-a-clone) below. Once published, `npm install -g @day8/re-frame2-pair-mcp` plus an `mcpServers` entry (see [`tools/re-frame2-pair-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md)) becomes the shorter path.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
-- The **`re-frame2-pair.runtime` preload** on the app's `:source-paths`. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point `:source-paths` at the absolute `skills/re-frame2-pair/preload/` path. For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
+- The **`re-frame2-pair.runtime` preload** on the app's build classpath. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point the app's classpath at the absolute `skills/re-frame2-pair/preload/` path, which means `deps.edn` for a `:deps` app and `shadow-cljs.edn` `:source-paths` for a standalone one (shadow ignores its own `:source-paths` under `:deps` / `:lein` — see `SKILL.md` §Setup). For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
 
 ## MCP server from a clone
 
@@ -135,7 +135,7 @@ The power of the symlink approach is that editing `SKILL.md` / `references/*.md`
 |---|---|
 | `SKILL.md` frontmatter or body | New vocabulary / recipes on next invocation (may need to restart the Claude Code session for the description change to be re-indexed). |
 | `references/*.md` | Picked up on the next leaf load — no restart needed. |
-| `preload/re_frame2_pair/runtime.cljs` | shadow-cljs hot-reloads the namespace into the running app as soon as you save (it's on the consumer's `:source-paths`). No re-inject command. If the changes touch `defonce`'d state (listeners, atoms), reload the page once. |
+| `preload/re_frame2_pair/runtime.cljs` | shadow-cljs hot-reloads the namespace into the running app as soon as you save (it's on the consumer's build classpath). No re-inject command. If the changes touch `defonce`'d state (listeners, atoms), reload the page once. |
 | The MCP server (`tools/re-frame2-pair-mcp/`) | Rebuild it (`npm run build` in that dir) and restart Claude Code so it reconnects to the new server. |
 
 ## Troubleshooting
@@ -190,9 +190,9 @@ If neither, `dom/source-at` returns `:reason :source-coord-annotation-disabled` 
 
 ### Changes to `runtime.cljs` aren't taking effect
 
-shadow-cljs hot-reloads namespaces under `:source-paths` on save. If your edits aren't landing:
+shadow-cljs hot-reloads namespaces on the build classpath on save. If your edits aren't landing:
 
-1. Confirm `preload/` is on `:source-paths` in `shadow-cljs.edn` (see `SKILL.md` §Setup).
+1. Confirm `preload/` is on the build classpath — `deps.edn` for a `:deps` app, `shadow-cljs.edn` `:source-paths` for a standalone one (see `SKILL.md` §Setup).
 2. Check the shadow-cljs console for a compile error on the namespace.
 3. Edits to `defonce`'d state (the trace/epoch listeners, the global marker) don't re-run — reload the page once.
 
