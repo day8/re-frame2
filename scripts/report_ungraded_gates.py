@@ -3,6 +3,7 @@ r"""Which path-gated CI surfaces have not been armed on trunk, and for how long?
 
 rf2-5dihy.  A REPORT, not a gate.  It exits 0 on every answer it can compute and
 is deliberately unwireable into CI: there is no failing exit status to key on.
+(`--self-test` is the one mode that can fail -- see Exit codes at the foot.)
 
 THE DEFECT IT ANSWERS
 ---------------------
@@ -228,8 +229,11 @@ USAGE
     python scripts/report_ungraded_gates.py --probe-depth 0    # disable it
     python scripts/report_ungraded_gates.py --self-test
 
-Exit codes:  0 = reported (whatever it found);  2 = invocation / setup error.
-There is deliberately no 1.
+Exit codes.  THE REPORT: 0 = reported, whatever it found; 2 = invocation / setup
+error; deliberately no 1, so nothing can key a gate on what it found.
+`--self-test` is the one exception and exits 1 when a pin has drifted or a
+regression check has failed -- a self-check that cannot fail is the defect this
+script exists to report, one level down.
 """
 
 from __future__ import annotations
@@ -682,7 +686,11 @@ def run_self_test(root: Path, shell: str) -> int:
     print("A green self-test is NECESSARY AND NOWHERE NEAR SUFFICIENT. Cases 1-3 are")
     print("single-commit pins and case 4 is one synthetic push shape; none of them")
     print("establishes that a reported candidate matches the push CI actually ran.")
-    return 0
+    # `--self-test` is the ONE mode with a failing status. The REPORT still exits 0
+    # on every answer it can compute, so nothing can key a gate on what it found --
+    # but a self-check that cannot fail is the very defect this script exists to
+    # report, one level down.
+    return 1 if (bad or regressions) else 0
 
 
 def main() -> int:
