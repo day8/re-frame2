@@ -156,6 +156,13 @@ Two things, both offline and both cheap:
     not proof the credit is right -- the real push may be deeper than
     `--probe-depth`.
 
+    A flag should be RARE, so treat one as worth reading rather than as noise.
+    Swept over the 250 trunk commits to 2026-09-21: 105 of them arm at least one
+    surface, 414 (commit, surface) credits in all, and 0 lost a surface at k=2.
+    That is a statement about this trunk's shape, not about the defect -- the
+    counterexample is synthetic, and the bead filing it alleges no live
+    occurrence either.
+
 WHY THERE IS NO `push` BASIS: PUSH BOUNDARIES ARE NOT IN A CHECKOUT
 --------------------------------------------------------------------
 The tempting source is `git reflog show origin/main`, and it does not work.
