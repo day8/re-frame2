@@ -1740,8 +1740,21 @@ async function runDeepMachine(page, state) {
   // injecting a synthetic epoch with a transition row tagged
   // `:machine-id :helper/tick` drives the panel through the same
   // chart-render path a future `:trace-events`-machine-transition fix
-  // would unlock — proving the shims survive `:advanced` compilation
-  // and the layout / svg primitives resolve through the re-export.
+  // would unlock.
+  //
+  // WHAT THIS ACTUALLY PROVES (rf2-30gm6). The chart/{svg,layout,
+  // elk_layout} re-export chain RESOLVES and the layout / svg
+  // primitives reach the panel: a broken re-export, a missing
+  // machines-viz node component, or an elk/xyflow that never mounts
+  // all turn this scenario red. It does NOT prove the shims survive
+  // `:advanced` — the gate's runner
+  // (`implementation/scripts/serve-and-run-xray-feature-gate.cjs`)
+  // invokes `shadow-cljs compile`, never `release`, so every testbed
+  // surface here is a DEVELOPMENT build and no `:advanced` renaming
+  // is exercised anywhere in this file. The comment claimed otherwise
+  // for as long as it existed. Do not "fix" that by converting the
+  // gate to a release build — that is a separate, costed decision,
+  // not a comment repair.
   const chartInjection = await page.evaluate(() => {
     const cljs = window.cljs && window.cljs.core;
     const rf = window.re_frame && window.re_frame.core;
@@ -1769,16 +1782,16 @@ async function runDeepMachine(page, state) {
                                           kw('data'),  cljs.hash_map()),
         kw('event'),       cljs.PersistentVector.fromArray(
                              [kw('rf.machine', 'spawned')], true),
-        kw('rf.trace', 'dispatch-id'), 'rf2-bz72m-synthetic-1',
+        kw('rf.trace', 'dispatch-id'), 'xray-feature-gate-synthetic-1',
       ),
     );
     const epochRecord = cljs.hash_map(
       kw('epoch-id'),     9999,
       kw('frame'),        kw('rf', 'default'),
-      kw('event-id'),     kw('rf2-bz72m', 'synthetic'),
+      kw('event-id'),     kw('xray-feature-gate', 'synthetic'),
       kw('trigger-event'), cljs.hash_map(
-        kw('event-id'),    kw('rf2-bz72m', 'synthetic'),
-        kw('dispatch-id'), 'rf2-bz72m-synthetic-1',
+        kw('event-id'),    kw('xray-feature-gate', 'synthetic'),
+        kw('dispatch-id'), 'xray-feature-gate-synthetic-1',
       ),
       kw('trace-events'), cljs.PersistentVector.fromArray([trans], true),
     );
@@ -1791,6 +1804,39 @@ async function runDeepMachine(page, state) {
         dispatch(vec, opts);
       }
     }
+    // ---- FREEZE THE SPINE FIRST (rf2-30gm6) -------------------------
+    //
+    // `:rf.xray/set-focus-epoch-id-for-test` writes the `:focus` SLOT,
+    // but every panel reads the COMPOSED focus from
+    // `spine/compose-focus`, and in LIVE + unpaused mode that
+    // RE-DERIVES `:epoch-id` from the HEAD event bundle
+    // (`epoch-id-for-event-bundle`), discarding the stored slot. By
+    // this point the testbed has real traffic, so the head's
+    // dispatch-id is a real one that does not occur in the synthetic
+    // one-record history installed below — the composed `:epoch-id`
+    // comes back nil while `:dispatch-id` stays non-nil, which is the
+    // `:no-epoch` shape `focus-resolver/find-epoch-record` resolves to
+    // NO record (rf2-y8doi.19; extended to this panel by rf2-c4abp).
+    //
+    // Before rf2-c4abp the 2-arity hit the head fallback and returned
+    // `(peek history)`, which — the synthetic history holding exactly
+    // one record — HAPPENED to be epoch 9999. The chart rendered and
+    // this scenario passed for that reason alone: it never focused
+    // 9999 at all. rf2-c4abp removed the accident, not the coverage.
+    //
+    // `:rf.xray/toggle-live-pause` is the production "freeze
+    // inspection" gesture `compose-focus`'s own docstring names (Space,
+    // per `keybinding.cljs`). Paused LIVE composes FROM the stored
+    // slot, so the seeded `:epoch-id` survives into the composed focus
+    // and the panel resolves record 9999 by an actual `:epoch-id`
+    // MATCH — no fallback, no accident.
+    //
+    // ORDER IS LOAD-BEARING: `toggle-live-pause-reducer` stamps the
+    // PRE-TOGGLE composed `:epoch-id` into the slot (rf2-fzbj.2), so
+    // pausing AFTER the seed would overwrite 9999 with the nil it
+    // derived from the head. Pause first, seed second.
+    dispatchXray(cljs.PersistentVector.fromArray(
+      [kw('rf.xray', 'toggle-live-pause')], true));
     // Inject the synthetic history AND pin the focus epoch-id to
     // 9999 — both events are registered as `:rf.xray/set-epoch-
     // history-for-test` and `:rf.xray/set-focus-epoch-id-for-test`
@@ -1809,6 +1855,57 @@ async function runDeepMachine(page, state) {
   }
   state.deepMachine = state.deepMachine || {};
   state.deepMachine.chartInjection = chartInjection;
+
+  // ---- Confirm the seed LANDED before asserting on the chart --------
+  //
+  // rf2-30gm6: a seed that silently fails to reach the composed focus
+  // presents as a 15-second chart timeout whose message blames the
+  // re-export shims — a diagnostic pointing at the wrong subsystem,
+  // which is most of what that bug cost. Read the spine's `:focus`
+  // slot back and require BOTH halves the composition depends on:
+  // `:paused?` true (so `compose-focus` honours the slot rather than
+  // re-deriving from head) and `:epoch-id` 9999 against a
+  // one-record history. `toggle-live-pause` is a TOGGLE, so this also
+  // catches the case where the spine was already paused and the
+  // dispatch above un-paused it.
+  //
+  // `app-db-value` is the public reader (spec/API.md §Public registrar
+  // query API); the `get-frame-db` this file used to reach for was
+  // DELETED by the frame-affordance API shrink, which is why the
+  // failure diagnostics below had been reading a null db.
+  const focusSeed = await waitForValue(
+    () => page.evaluate(() => {
+      const cljs = window.cljs && window.cljs.core;
+      const rf = window.re_frame && window.re_frame.core;
+      if (!cljs || !rf || typeof rf.app_db_value !== 'function') {
+        return { readable: false, reason: 're-frame.core/app-db-value unavailable' };
+      }
+      const kw = (ns, n) => n
+        ? (cljs.keyword.call ? cljs.keyword.call(null, ns, n) : cljs.keyword(ns, n))
+        : (cljs.keyword.call ? cljs.keyword.call(null, ns) : cljs.keyword(ns));
+      const db = rf.app_db_value(kw('rf', 'xray'));
+      if (!db) return { readable: false, reason: 'xray frame db unavailable' };
+      const focus = cljs.get(db, kw('focus'));
+      const history = cljs.get(db, kw('epoch-history'));
+      return {
+        readable: true,
+        paused: focus ? cljs.get(focus, kw('paused?')) === true : false,
+        epochId: focus ? cljs.get(focus, kw('epoch-id')) : null,
+        epochCount: history ? cljs.count(history) : 0,
+      };
+    }),
+    (seed) => seed.readable === true &&
+      seed.paused === true &&
+      seed.epochId === 9999 &&
+      seed.epochCount === 1,
+    {
+      timeoutMs: 5000,
+      description:
+        'spine :focus slot pinned to synthetic epoch 9999 with LIVE paused ' +
+        '(so compose-focus honours the seed instead of re-deriving from head)',
+    },
+  );
+  state.deepMachine.focusSeed = focusSeed;
 
   // Assert the machines-viz xyflow chart actually renders. The chart is
   // built on `@xyflow/react`; the canvas is an xyflow `<div
@@ -1866,8 +1963,20 @@ async function runDeepMachine(page, state) {
       const kw = (ns, n) => n
         ? (cljs.keyword.call ? cljs.keyword.call(null, ns, n) : cljs.keyword(ns, n))
         : (cljs.keyword.call ? cljs.keyword.call(null, ns) : cljs.keyword(ns));
-      const db = rf.get_frame_db
-        ? rf.get_frame_db(kw('rf', 'xray'))
+      // rf2-30gm6 — was `rf.get_frame_db`, DELETED by the frame-
+      // affordance API shrink (its absence is pinned by
+      // `implementation/core/test/re_frame/capture_frame_test.clj`
+      // §removed-public-names-are-absent). The guard made that read
+      // silently yield null, so `dbPresent`, `focus`, `epochCount`,
+      // `focusedRecordKeys`, `traceEventCount` and `transitionEvents`
+      // were all FORCED to their empty values on every failure — one
+      // dead signal reported six ways, and the reason this scenario's
+      // diagnostics pointed at the wrong subsystem. `app-db-value` is
+      // the public replacement (spec/API.md §Public registrar query
+      // API). Keep the guard: a null here must still read as
+      // `dbPresent: false` rather than throw inside the catch handler.
+      const db = typeof rf.app_db_value === 'function'
+        ? rf.app_db_value(kw('rf', 'xray'))
         : null;
       function dbGet(k) {
         return db ? cljs.get(db, k) : null;
@@ -1923,8 +2032,11 @@ async function runDeepMachine(page, state) {
     });
     failWithDetails(
       'Machines panel mounted but the machines-viz chart SVG never rendered ' +
-        '— suspect a broken chart/{svg,layout,elk_layout} re-export shim ' +
-        'OR a focus-cascade misroute (rf2-bz72m)',
+        '— suspect a broken chart/{svg,layout,elk_layout} re-export shim. ' +
+        'The focus half is already excluded: the seed read-back above ' +
+        'asserts the composed focus resolves synthetic epoch 9999, so if ' +
+        'that passed and this did not, the focus is NOT the suspect ' +
+        '(rf2-30gm6 diagnoses the focus-composition failure mode)',
       { waitError: waitErr.message, diag },
     );
   }
