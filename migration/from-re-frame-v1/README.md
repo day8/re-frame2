@@ -312,9 +312,9 @@ The agent applies the explicit `:platforms #{:client}` rewrite for fx whose hand
 
 ### M-8. Effect map keys consolidated — only `:db` and `:fx` at the top level
 
-**Type A — fully mechanical. Non-deferrable: this is a complete sweep, not optional. One missed site is an invisible runtime break.**
+**Type A — fully mechanical. Non-deferrable: this is a complete sweep, not optional. One missed site takes down every event that reaches it.**
 
-re-frame2's effect map is `{:db ... :fx [[fx-id args] ...]}`. **Every** top-level key other than `:db` and `:fx` is **not part of the contract** and must move into `:fx`. This is the whole class, not just the built-in dispatch trio:
+re-frame2's effect map is a **closed** shape, and the accepted top level is a seven-key set: `:db`, `:rf.db/runtime`, `:fx`, and the four EP-0025 data-classification effects `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`. Any other top-level key is a shape error. **For a migration the working pair is `:db` and `:fx`**, and that is why this rule is stated in those terms: the other five are v2-native commit-plane features a v1 codebase cannot already be returning. So **every** top-level key your v1 handlers do carry, other than `:db`, must move into `:fx`. This is the whole class, not just the built-in dispatch trio:
 
 - the built-in dispatch effects — `:dispatch`, `:dispatch-later`, `:dispatch-n`;
 - the framework-shipped fx that v1 apps called top-level — `:http`, navigation effects, and the like;
@@ -371,10 +371,10 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
 
 **The transformation is structural and mechanical:**
 
-1. **Discover the user's fx ids first — this is what makes the sweep complete.** Sweep the codebase for **every** `(reg-fx :id ...)` registration and collect the full set of fx ids the project defines — the custom ones (`:datadog/log`, toast effects, analytics, …) as much as anything. Add the built-ins (`:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects). Without this set the sweep cannot recognise a custom fx returned as a top-level key, and any such key it fails to recognise is exactly the invisible break described above. Treat the discovered set as authoritative.
+1. **Discover the user's fx ids first — this is what makes the sweep complete.** Sweep the codebase for **every** `(reg-fx :id ...)` registration and collect the full set of fx ids the project defines — the custom ones (`:datadog/log`, toast effects, analytics, …) as much as anything. Add the built-ins (`:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects). Without this set the sweep cannot recognise a custom fx returned as a top-level key, and any such key it fails to recognise is exactly the refused event described above. Treat the discovered set as authoritative.
 2. For each `reg-event-fx` body, find the returned map literal. For each top-level key other than `:db` and `:fx`:
     - If the key is in the discovered fx-id set (built-in **or** custom): rewrite per the rules below.
-    - If the key is unknown: leave it alone and **flag for human review** (it might be a destructure key, not an effect). Do not silently drop it — the *runtime* already drops un-migrated keys silently, so a missed flag here reproduces the exact failure this rule exists to prevent.
+    - If the key is unknown: leave it alone and **flag for human review** (it might be a destructure key, not an effect). Do not drop it: a key the codemod deletes is gone with nothing left to notice it, where a key left in place is refused loudly by the runtime the first time that handler runs — which is what puts it in front of a person.
 3. Rewriting:
     - Single value (`:dispatch [:foo]`, `:http {:url ...}`, or a custom `:datadog/log {...}`): wrap as `[[:key value]]` inside `:fx`.
     - Vector of values (`:dispatch-n [[:a] [:b]]`, `:dispatch-later [{...} {...}]`): expand to `:fx [[:key v1] [:key v2] ...]`.
@@ -384,7 +384,7 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
 
 The agent runs the discovery sweep first, then the per-handler rewrite. No human review needed unless step 2 hits an unknown key (rare in real code).
 
-**This rule is not optional and must be applied exhaustively.** Because the runtime gives no error, no warning, and no crash for a left-behind key (see the silent-drop note above), there is no backstop that will surface a site you skip. A partial migration ships an app that *appears* to compile and run but has individual effects — possibly load-bearing ones, like a boot dispatch or a logging fx — silently doing nothing. Migrate every site in one pass; do not defer "the custom-fx ones" to a later cleanup.
+**This rule is not optional and must be applied exhaustively.** **A missed site is loud, not silent** — the runtime refuses the whole event (see the backstop callout above), so a partial migration ships an app that compiles and boots and then fails hard the first time a missed handler runs, taking that event's `:db` write down with it. The backstop surfaces a skipped site by breaking it, on whatever code path your users reach first; it is not a substitute for the sweep. Migrate every site in one pass; do not defer "the custom-fx ones" to a later cleanup.
 
 This rule supersedes the older O-7 (`:dispatch-n` → `:fx`); O-7 was a stylistic upgrade in re-frame v1.x and is now mandatory under M-8.
 
