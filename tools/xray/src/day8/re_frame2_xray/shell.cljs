@@ -27,13 +27,13 @@
   Four clusters, fixed order left → right per spec/018 §3 (Round-3
   rf2-g9pee — the explicit `● LIVE` / `◐ RETRO` mode pill was dropped;
   the spine's mode is already derivable from sticky-row selection +
-  the `[◀ ▶ ⏭]` cluster + the `:rf.xray/focus` sub. Space / L / G
+  the `[◀ ▶ ⏭]` cluster + the `:rf.xray/focus` sub. Space / l / G
   keybindings preserve the toggle access the pill used to surface):
 
   - **Nav** (`◀ ▶ ⏭`) — back / forward / fast-forward through the
     spine. Dispatches `:rf.xray/focus-event-prev` / `-next` /
     `:rf.xray/follow-head`. Pressing `⏭` (or `Space` in paused-LIVE,
-    or `L` in RETRO) snaps focus back to head — the operations the
+    or `l` in RETRO) snaps focus back to head — the operations the
     mode pill used to host.
   - **Frame picker** — single-select dropdown over the event-bundle list's
     distinct frames. Excludes `:rf/xray` by default per §8 I1.

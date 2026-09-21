@@ -43,7 +43,7 @@ carry no `goog.DEBUG` gate (§Force-disable):
    shell), `Ctrl/Cmd+K` (command palette), `Ctrl/Cmd+Shift+M`
    (Dynamic ↔ Static mode toggle), and `Esc` (dismiss the
    open-in-editor hint). Inside the shell the LIVE-feed spine binds
-   bare `Space` / `L` / `j` / `k` / `G`.
+   bare `Space` / `l` / `j` / `k` / `G`.
 7. Applies the persisted Settings effects via
    `settings/effects/apply-all!` — the theme class and the
    `--rf-xray-*` CSS custom properties. Auto-open is asynchronous, so

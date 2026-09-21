@@ -394,7 +394,7 @@ Three consequences are normative:
 
 - **Spine keys work in the pop-out with no inline shell open.**
   `mount/visible?` reports on the opener's in-app shell, so reusing it
-  in the pop-out would leave `Space` / `L` / `j` / `k` / `Shift+G` /
+  in the pop-out would leave `Space` / `l` / `j` / `k` / `Shift+G` /
   `,` / `s` dead for exactly the user who moved Xray to a second
   monitor.
 - **`Cmd/Ctrl+K` opens the palette in the pop-out without mounting,

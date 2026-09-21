@@ -73,7 +73,7 @@
   (#'keybinding/palette-toggle-key? event))
 
 (defn- spine-key-id
-  "rf2-adve5 — the spine-binding predicate (Space / L / j / k / Shift+G /
+  "rf2-adve5 — the spine-binding predicate (Space / l / j / k / Shift+G /
   `,` / s). `keybinding/spine-key-id`'s `cond` arms are the roster; read
   them rather than any count restated here (rf2-v0rw).
   Returns the spine event id or nil."
@@ -519,7 +519,7 @@
 ;; still works inside Xray). Today the arms are:
 ;;
 ;;     Space    →  :rf.xray/toggle-live-pause
-;;     L        →  :rf.xray/follow-head      (snap-LIVE)
+;;     l        →  :rf.xray/follow-head      (snap-LIVE)
 ;;     G        →  :rf.xray/follow-head      (Shift+G; vim 'Go to head')
 ;;     j        →  :rf.xray/focus-event-prev
 ;;     k        →  :rf.xray/focus-event-next
@@ -973,7 +973,7 @@
 ;; key. The most natural gesture in the tool leaves DOM focus on an
 ;; activatable control — an L2 row is `role="button"` + `tab-index "0"`
 ;; and the nav chevrons are `<button>`s, and browsers focus both on
-;; mousedown — after which j / k / L / Shift+G / `,` / s were all dead
+;; mousedown — after which j / k / l / Shift+G / `,` / s were all dead
 ;; until the user clicked somewhere inert. The row's own `:on-key-down`
 ;; handles Enter / Space / ContextMenu / Shift+F10 and nothing else, so
 ;; the step keys reached no handler at all. Space (and Enter, which is
