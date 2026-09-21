@@ -34,15 +34,24 @@
 ;; in the signature. `:value` comes from a draft its caller subscribed to, and
 ;; every keystroke calls `on-change` so the caller can write that draft into
 ;; app-db. The input itself never holds the text; app-db does. Enter commits
-;; (`on-commit`), Escape cancels (`on-cancel`), and losing focus commits too.
-;; There's a subtle bit here: cancelling unmounts the input, so the blur that
-;; follows finds nothing left to save. Tidy by accident, and on purpose.
+;; (`on-commit`) and Escape cancels (`on-cancel`).
+;;
+;; Losing focus commits too, but only where that is what the TodoMVC spec asks
+;; for — hence `:commit-on-blur?`, which defaults to true for the edit-in-place
+;; box ("when the edit input is blurred, the changes are saved") and is passed
+;; false by the header box, where the spec makes Enter the only thing that
+;; creates a todo. Without that switch, tabbing away from a half-typed header
+;; silently adds it. There's a subtle bit in the blur-committing case:
+;; cancelling unmounts the input, so the blur that follows finds nothing left to
+;; save. Tidy by accident, and on purpose.
 ;;
 ;; `:autofocus?` drops the cursor into the input the moment it mounts — exactly
 ;; what the edit box wants, since the row just flipped into edit mode. A `:ref`
 ;; callback calls `.focus()` on the real DOM node. It touches focus and nothing
 ;; else; `:value` stays bound to the draft.
-(defn todo-input [{:keys [draft on-change on-commit on-cancel autofocus?] :as props}]
+(defn todo-input [{:keys [draft on-change on-commit on-cancel autofocus? commit-on-blur?]
+                   :or   {commit-on-blur? true}
+                   :as   props}]
   (let [handle-keydown
         (fn [event]
           (case (.-key event)
@@ -51,12 +60,12 @@
             nil))]
     [:input
      (merge
-       (dissoc props :draft :on-change :on-commit :on-cancel :autofocus?)
+       (dissoc props :draft :on-change :on-commit :on-cancel :autofocus? :commit-on-blur?)
        {:type        "text"
         :value       (or draft "")
         :on-change   (fn [e] (on-change (.. e -target -value)))
         :on-key-down handle-keydown
-        :on-blur     (fn [_] (on-commit))}
+        :on-blur     (fn [_] (when commit-on-blur? (on-commit)))}
        (when autofocus?
          ;; Focus-only ref: nudge the cursor into the just-mounted input.
          {:ref (fn [node] (when node (.focus node)))}))]))
@@ -105,6 +114,11 @@
      :class       "new-todo"
      :placeholder "What needs to be done?"
      :draft       @(subscribe [:todo.ui/draft :new])
+     ;; The spec wants this box focused on load, and wants Enter — not blur — to
+     ;; be what creates a todo. Clicking a filter link with half a title typed
+     ;; should lose the draft, not quietly add it.
+     :autofocus?      true
+     :commit-on-blur? false
      :on-change   #(dispatch [:todo.ui/edit-field :new %])
      :on-commit   #(dispatch [:todo.ui/commit-new])
      ;; The header input isn't editing anything, so there's nothing to cancel —

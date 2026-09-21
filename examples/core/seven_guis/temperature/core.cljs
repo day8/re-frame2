@@ -40,10 +40,15 @@
 ;; derived number. Without this, typing "1." would round-trip through Celsius
 ;; and reformat itself to "1.00" while your finger is still on the dot — the
 ;; kind of jitter that makes an input feel possessed.
+;;
+;; One more rule the task is explicit about: text that doesn't parse leaves the
+;; canonical value alone. You see your own junk echoed back in the box you're
+;; typing in, and the other box keeps its last good reading rather than blanking
+;; out from under you.
 
 (def TempState
   [:map
-   [:celsius      [:maybe :double]]      ;; canonical value; nil when the box is empty
+   [:celsius      [:maybe :double]]      ;; canonical value; survives unparseable input
    [:input-source [:enum :celsius :fahrenheit]]
    [:typing       :string]])              ;; the raw characters the user is typing
 
@@ -87,19 +92,26 @@
 
 (rf/reg-event :temp/edit-celsius
   {:doc "User typed in the Celsius box. It's already our canonical unit, so we
-         store the parsed number straight, and remember the raw keystrokes."}
+         store the parsed number straight, and remember the raw keystrokes.
+         If the text doesn't parse we keep the previous canonical value, so the
+         *other* box goes on showing its last conversion — the task's rule."}
   (fn handler-temp-edit-celsius [{:keys [db]} [_ raw]]
-    {:db (assoc db :temp {:celsius      (parse-num raw)
+    {:db (assoc db :temp {:celsius      (if-some [n (parse-num raw)]
+                                          n
+                                          (get-in db [:temp :celsius]))
                      :input-source :celsius
                      :typing       raw})}))
 
 (rf/reg-event :temp/edit-fahrenheit
   {:doc "User typed in the Fahrenheit box. We convert to Celsius right here, on
          the way in, so everything downstream reads from the one canonical
-         value and never has to know Fahrenheit existed."}
+         value and never has to know Fahrenheit existed. Unparseable text leaves
+         the canonical value alone, so the Celsius box holds its last reading."}
   (fn handler-temp-edit-fahrenheit [{:keys [db]} [_ raw]]
     {:db (let [f (parse-num raw)
-          c (when f (* (- f 32) (/ 5.0 9.0)))]
+          c (if-some [n f]
+              (* (- n 32) (/ 5.0 9.0))
+              (get-in db [:temp :celsius]))]
       (assoc db :temp {:celsius      c
                        :input-source :fahrenheit
                        :typing       raw}))}))
