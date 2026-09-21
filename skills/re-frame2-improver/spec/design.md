@@ -132,8 +132,9 @@ skills/re-frame2-improver/
 │   ├── README.md (maintainer catalogue index)
 │   └── <six anti-pattern leaves>.md
 ├── tests/                          # repo-maintenance artifact; excluded from the npm `files` array
-│   ├── <name>_test.clj             # structural pins over the leaves' fenced code — CI's skills-structural
-│   │                               # job loops EVERY tests/*_test.clj under bb, so a new pin needs no wiring PR
+│                                   # every tests/*_test.clj is a structural pin that EVALUATES a leaf's fenced
+│                                   # code; CI's skills-structural job loops them all under bb, so adding one
+│                                   # needs no wiring PR — list new pins here, do not re-scope this directory
 │   ├── storage_materializer_test.clj (the canonical storage materializer in schemaless-events.md stays total)
 │   └── article_lifecycle_test.clj (the canonical HTTP fix in schemaless-events.md settles [:article :status] on both reply branches)
 └── spec/
