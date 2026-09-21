@@ -54,7 +54,7 @@
   as it carried a number). Today the arms are:
 
       Space    →  :rf.xray/toggle-live-pause    (pause/resume LIVE feed)
-      L        →  :rf.xray/follow-head          (snap-LIVE)
+      l        →  :rf.xray/follow-head          (snap-LIVE)
       j        →  :rf.xray/focus-event-prev     (step back through events)
       k        →  :rf.xray/focus-event-next     (step forward through events)
       Shift+G  →  :rf.xray/follow-head          (fast-forward to head)
@@ -138,7 +138,7 @@
   Per the parent epic's architectural-lock decision (2026-05-19):
   Cmd-Shift-M is the chord — a paired letter that doesn't collide
   with the existing Ctrl+Shift+C (toggle shell), Cmd/Ctrl+K (palette),
-  or the bare-letter spine bindings (Space / L / j / k / Shift+G /
+  or the bare-letter spine bindings (Space / l / j / k / Shift+G /
   `,` / s — see `spine-key-id`).
 
   Accepts EITHER Cmd OR Ctrl as the primary modifier so mac users
@@ -489,7 +489,7 @@
 
     ;; Spine bindings — only fire inside the Xray shell, never on
     ;; editable elements. Per spec/018 §3 + §6; `spine-key-id` is the
-    ;; roster (Space / L / j / k / Shift+G / `,` / s).
+    ;; roster (Space / l / j / k / Shift+G / `,` / s).
     ;;
     ;; rf2-ttnst — also gate on "not inside a modal". The Settings
     ;; popup and command palette each carry bare letters of their own
@@ -511,7 +511,7 @@
                ;; gesture in the tool — clicking an L2 row (`role=
                ;; "button"`, `tab-index "0"`) or a `‹` / `›` chevron
                ;; (`<button>`) — left DOM focus on an activatable
-               ;; control and j / k / L / Shift+G / `,` / s all went
+               ;; control and j / k / l / Shift+G / `,` / s all went
                ;; dead until the user clicked somewhere inert. Space
                ;; (and Enter, which is not a spine key) is the whole of
                ;; what a native control claims; the row's own

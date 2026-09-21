@@ -162,7 +162,7 @@ The global keydown listener in `tools/xray/src/day8/re_frame2_xray/keybinding.cl
 | Action | Keys | Dispatches |
 |---|---|---|
 | Pause / resume the LIVE feed | `Space` | `:rf.xray/toggle-live-pause` |
-| Snap to LIVE (follow head) | `L` | `:rf.xray/follow-head` |
+| Snap to LIVE (follow head) | `l` | `:rf.xray/follow-head` |
 | Fast-forward to head ("Go to head") | `Shift+G` | `:rf.xray/follow-head` |
 | Step backward through events | `j` | `:rf.xray/focus-event-prev` |
 | Step forward through events | `k` | `:rf.xray/focus-event-next` |
