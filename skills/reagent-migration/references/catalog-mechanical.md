@@ -35,8 +35,8 @@ Three parts are load-bearing:
 
 - **The argument vector is the ordinary one-props-map vector**, so destructuring
   reads as it does in any Clojure fn. A view that reads no props declares `[_]`,
-  and its call sites pass a map only when there are props — a bare `[price]`
-  mounts with `{}` supplied for it.
+  and its call sites pass a map only when there are props — a prop-less mount
+  like `[spinner]` is legal, with `{}` supplied for it.
 - **A fn-call used as a component** (`(filter-link :all "All")` in child
   position) becomes a mounted site: `[filter-link {:showing :all :txt "All"}]` —
   brackets, because it is a boundary. Leave it in parens only if it genuinely is
