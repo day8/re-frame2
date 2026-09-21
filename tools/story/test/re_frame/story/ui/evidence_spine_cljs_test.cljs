@@ -27,9 +27,11 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story            :as rf.story]
             [re-frame.test-helpers     :as rf.test-helpers]
+            [day8.re-frame2-xray.core :as xray-core]
             [day8.re-frame2-xray.preload :as xray-preload]
             [day8.re-frame2-xray.registry :as xray-registry]
             [day8.re-frame2-xray.trace-collector :as xray-trace-collector]
+            [re-frame.story.config     :as rf.story.config]
             [re-frame.story.ui.evidence-spine :as rf.story.ui.evidence-spine]
             [re-frame.story.ui.state   :as rf.story.ui.state]
             [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]))
@@ -295,3 +297,113 @@
       (is (= :story/evidence-beat (:kind (:source result))))
       (is (= :story.evidence/basic (:variant/id (:source result))))
       (is (= 3 (:beat-idx (:source result)))))))
+
+;; ===========================================================================
+;; STATIC EXPORT — the evidence focus boundary (rf2-n440v)
+;; ===========================================================================
+;;
+;; A published Story static export ships NO Xray. rf2-cljo6 ruled that loss
+;; ACCEPTED rather than a gap to close: `:devtools/preloads` is a
+;; `watch`/`compile` slot that `release` ignores, so nothing registers
+;; Xray's instruction set, and rf2-y8doi.60 leaves its `reg-view` symbols
+;; undefined under `:advanced`.
+;;
+;; The evidence NARRATIVE is the publishable half and must survive intact.
+;; The focus affordances and the focus CALLBACK must not, because both
+;; target a surface that is not in the bundle. Before rf2-n440v the spine
+;; rendered three live Xray buttons per beat in a static export and
+;; `focus-beat!` gated on `enabled?` alone, so the callback entered Xray's
+;; dispatch path with no mounted destination.
+;;
+;; EVERY test below carries its DEV control in the same block, and the
+;; control runs FIRST. The characteristic failure of a boundary like this
+;; is not a missing guard but an over-broad one that silently disables the
+;; feature in dev too — a static-only assertion cannot see that, and would
+;; pass just as happily against a `focus-available?` hard-wired to false.
+
+(deftest focus-available?-is-false-only-in-a-static-export
+  (testing "rf2-n440v — the single predicate the two render sites and the
+            callback all consult"
+    (is (true? (rf.story.ui.evidence-spine/focus-available?))
+        "dev control: the node-test build offers focus affordances")
+    (with-redefs [rf.story.config/static-mode? true]
+      (is (false? (rf.story.ui.evidence-spine/focus-available?))
+          "static export: no Xray to focus, so nothing is offered"))
+    (is (true? (rf.story.ui.evidence-spine/focus-available?))
+        "the redef is scoped — dev is restored afterwards")))
+
+(deftest static-export-evidence-keeps-its-narrative
+  (testing "rf2-n440v — a RETAINED Test result still renders its spans,
+            beats, strength tags and summary chips under static-mode?. The
+            ask was to remove active affordances that target an unavailable
+            surface, NOT to delete the evidence section."
+    (reg-counter!)
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
+    (seed-result! :story.evidence/basic)
+    (with-redefs [rf.story.config/static-mode? true]
+      (let [tree (render-panel)]
+        (is (some? (rf.test-helpers/find-by-attr tree :data-test "story-evidence-spans"))
+            "the spine still renders")
+        (is (= 2 (count (rf.test-helpers/find-all-by-attr tree :data-test "story-evidence-span")))
+            "one span per script step, exactly as in dev")
+        (is (= 1 (count (rf.test-helpers/find-all-by-attr tree :data-test "story-evidence-beat")))
+            "the committed beat survives")
+        (is (seq (rf.test-helpers/find-all-by-attr tree :data-test "story-evidence-strength"))
+            "evidence-strength tags survive")
+        (is (seq (rf.test-helpers/find-all-by-attr tree :data-test "story-evidence-summary-chip"))
+            "summary chips survive")))))
+
+(deftest static-export-evidence-offers-no-active-xray-action
+  (testing "rf2-n440v — the per-beat focus row is OMITTED under static-mode?
+            and present in dev"
+    (reg-counter!)
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
+    (seed-result! :story.evidence/basic)
+    ;; DEV CONTROL FIRST — a guard that broke dev would pass a
+    ;; static-only assertion without a murmur.
+    (let [dev-tree (render-panel)]
+      (is (some? (rf.test-helpers/find-by-attr dev-tree :data-test "story-evidence-focus-row"))
+          "dev control: the focus row renders")
+      (is (= 3 (count (rf.test-helpers/find-all-by-attr dev-tree :data-test "story-evidence-focus-link")))
+          "dev control: three focus links (Epoch / App-db / Trace) on the beat"))
+    (with-redefs [rf.story.config/static-mode? true]
+      (let [tree (render-panel)]
+        (is (nil? (rf.test-helpers/find-by-attr tree :data-test "story-evidence-focus-row"))
+            "static: the whole focus row is omitted")
+        (is (empty? (rf.test-helpers/find-all-by-attr tree :data-test "story-evidence-focus-link"))
+            "static: NO active action targeting the absent Xray")
+        (is (nil? (rf.test-helpers/find-by-attr tree :data-test "story-evidence-focus-unavailable"))
+            "static: and no orphan 'why focus is unavailable' note left behind")))))
+
+(deftest static-export-focus-callback-cannot-dispatch-into-xray
+  (testing "rf2-n440v — even with a REAL :rf/xray frame and Xray's handlers
+            standing, focus-beat! refuses to dispatch under static-mode?.
+            The callback is guarded as well as the affordance because
+            `re-frame.story.ui.docs/excerpt-beat-row` reaches focus-beat!
+            directly — an affordance-only guard would leave that path live."
+    ;; Stand the real Xray target up, so a static-mode refusal cannot be
+    ;; confused with 'there was nothing to dispatch to anyway'.
+    (xray-preload/reset-for-test!)
+    (xray-registry/reset-for-test!)
+    (xray-trace-collector/reset-for-test!)
+    (xray-registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (let [beat {:epoch-id 100 :dispatch-id 100 :beat-idx 3 :span-idx 1}]
+      ;; DEV CONTROL FIRST, through the real focus API.
+      (let [dev (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)]
+        (is (map? dev) "dev control: focus-beat! still drives the real focus API")
+        (is (true? (:ok? dev)) "dev control: the focus command applied"))
+      ;; A BOUNDARY SPY, both ways — `nil` alone would not distinguish a
+      ;; guard that fired from a focus! that returned nothing.
+      (let [called? (atom false)]
+        (with-redefs [xray-core/focus! (fn [& _] (reset! called? true) {:ok? true})]
+          (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)
+          (is (true? @called?)
+              "dev control: the spy is live — focus! IS reached in dev")))
+      (let [called? (atom false)]
+        (with-redefs [rf.story.config/static-mode? true
+                      xray-core/focus! (fn [& _] (reset! called? true) {:ok? true})]
+          (is (nil? (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db))
+              "static: focus-beat! returns nil")
+          (is (false? @called?)
+              "static: day8.re-frame2-xray.core/focus! was never reached"))))))
