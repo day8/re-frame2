@@ -58,10 +58,10 @@ rather than an ergonomics gap. Two honest routes before you hold:
 - The subtree genuinely belongs to another frame → **nest a boundary on it**.
   Make that frame, then wrap the subtree in an `[h/frame-provider {:frame …}]`
   naming it, in place, inside the tree you already have — every `h/sub` read and
-  every intent lowered beneath it resolves against that frame instead. A second root in
-  its own container is still available and is the right answer when the subtree
-  is genuinely a separate mount (a portal into foreign DOM, a detached preview),
-  but it is no longer required merely to read another frame.
+  every intent lowered beneath it resolves against that frame instead. A second
+  root in its own container is still available and is the right answer when the
+  subtree is genuinely a separate mount (a portal into foreign DOM, a detached
+  preview), but it is no longer required merely to read another frame.
 
 If neither fits — a cell inside one tree that must reactively read a sibling
 frame — hold the view.
