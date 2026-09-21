@@ -11,7 +11,7 @@ Greppable signals:
 - A view body that derefs 3+ such subs and routes via `cond`.
 - Sub handlers shaped like `(= :loading (:status db))` / `(some? (:error db))` / `(empty? (:items db))` reading the same parent map.
 
-Structural signal: the boolean subs are mutually exclusive (exactly one is `true` at any time) — that is the definition of an FSM, and it should be modelled as one.
+**Required condition — the mutual-exclusion test.** The greppable signals above narrow the search; this one decides it. The boolean subs must be **mutually exclusive** (exactly one is `true` at any time) — that is the definition of an FSM, and it is what makes a cluster a hand-rolled FSM rather than a convenience layer. If two of them can be `true` at once — `:loading?` and `:fetching?`, where one subsumes the other — the set is **not** this anti-pattern, whatever the ids look like, and there is no finding to report. Check it before reporting, not after.
 
 ## Why it's an anti-pattern
 
@@ -116,6 +116,7 @@ Adding a `:stale` state is one row in the table plus one `case` clause — no au
 
 ## Edge cases — when boolean subs are fine
 
+- **Convenience predicates DERIVED from one `:status` sub** — `(rf/reg-sub :articles/loading? {:inputs [[:articles/status]]} …)` beside `:articles/fetching?` / `:articles/error?` — are [`Pattern-RemoteData`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md)'s canonical layer, not the cluster. Two tells, and they agree: each predicate derives from **one shared `:status` sub** rather than recomputing the state from the raw db path, and they are not mutually exclusive (`:loading?` implies `:fetching?`). The sibling leaf [`manual-loading-flags.md`](manual-loading-flags.md) teaches an agent to *add* exactly this layer, so proposing its deletion would contradict the catalogue. Keep them. (The `Before` above is the contrast: four `?`-subs each re-reading `[:article :status]` with no shared derivation.)
 - **Genuinely independent predicates** that aren't mutually exclusive — `:cart/has-items?` and `:cart/over-shipping-threshold?` can both be `true` and aren't states of one FSM. Keep them as subs.
 - **Layer-1 readers of one boolean app-db key** that aren't an FSM — `:flag/feature-x-enabled?` reading `(:feature-x? db)` is fine.
 - **A two-state toggle** (`:open?` / `:closed?`) is small enough that a single sub + `if` costs less than a machine. The smell scales: 3+ mutually-exclusive booleans on the same path is the trigger.
