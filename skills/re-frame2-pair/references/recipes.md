@@ -141,7 +141,7 @@ Given a component name or render key, find the latest epoch whose `:renders` inc
 1. Pull recent error traces: `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})`. Each entry is an `:rf.error/*` op with `:rf.error/data`. (Frame-id first; `:op-type` is a `:flat-only` filter so pass `:flat true`. `rf/trace-buffer` names the same fn on both platforms; an `eval-cljs` form spells whichever home fully qualified.)
 2. Read `:rf.trace/trigger-handler` on the error event — `{:kind :event :id :user/save :source-coord {:ns ... :file ... :line ... :column ...}}`. This is the **handler that was executing when the error fired**, not the throw site inside the framework. Report it as `<kind> :<id> at <file>:<line>` so the user can jump straight to the source. (The field rides the trace surface — always present in the dev build this skill drives; it production-elides with the rest of the trace surface, so a production deployment would instead read the coord off the always-on error-emit record's `:source-coord`, not from a pair session.)
 3. If the error sits inside a known epoch, cross-check `:trigger-event` and walk the cascade via `:parent-dispatch-id` — the upstream event that queued the offending handler is often the real culprit.
-4. If `:rf.trace/trigger-handler` is **absent**, the error fired at dispatch-time before any handler ran (e.g. `:rf.error/no-such-event` because the registered id is misspelt). The `:rf.error/data` payload — the failing id, the lookup map — is then the only handle; offer to `list-handlers {kind: "event"}` (or the matching kind) to find a near match.
+4. If `:rf.trace/trigger-handler` is **absent**, the error fired at dispatch-time before any handler ran (e.g. `:rf.error/no-such-handler` because the dispatched id is misspelt — that is the op-type the framework emits, and it reaches the buffer only for dispatches the *app* issues: your own `dispatch` validates the id first and refuses with `:unknown-id` without dispatching). The `:rf.error/data` payload — the failing id, the lookup map — is then the only handle; offer to `list-handlers {kind: "event"}` (or the matching kind) to find a near match.
 
 ## "Where in the code does this come from?"
 
@@ -205,7 +205,7 @@ When the user mentions a state machine (Spec 005), chain:
 **Probing a *throwaway* handler — register, then dry-run.** `dispatch-dry-run` targets a **registered** event, so to test a hypothesis handler you wrote on the spot: register it with `eval-cljs`, then dry-run it — never drive it with a live `dispatch`:
 
 ```
-mcp__re-frame2-pair__eval-cljs {form: "(rf/reg-event :exp/probe (fn [{:keys [db]} _] {:db (assoc db :exp/x 1)}))"}
+mcp__re-frame2-pair__eval-cljs {form: "(re-frame.core/reg-event :exp/probe (fn [{:keys [db]} _] {:db (assoc db :exp/x 1)}))"}
 mcp__re-frame2-pair__dispatch-dry-run {event: "[:exp/probe]"}
 ```
 
@@ -241,11 +241,11 @@ Canonical procedure (commit-and-compare). It keeps **three** separate things, an
    ```
    mcp__re-frame2-pair__restore-epoch {epoch-id: "<pre-dispatch-epoch-id>"}
    ```
-   Returns `{:ok? true :restored? true :cascade-summary {…} :unreplayable-effects [...]}` on success — **proceed only on `:restored? true`.** On any documented failure mode it returns `{:ok? false :reason :restore-rejected}` (one of the seven modes — Tool-Pair §Time-travel; check `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})` for the specific tag — frame-id first, `:op-type` is `:flat-only`). Against a server launched **without** `--allow-writes` (the published default) the tool refuses with `:reason :rf.error/writes-disabled` — the operator flips the gate at launch to enable pair-driven writes. **Backstop only** (gate-OFF server + operator says proceed via eval): `eval-cljs {form: "(rf/restore-epoch! :rf/default <pre-dispatch-epoch-id>)"}` returns bare `true`/`false` and rides outside the structured envelope + the audit gate — say so when you fall back to it.
-   **A refused restore means you do not have a controlled comparison. Report the reason and stop before the edited dispatch** — dispatching onto whatever state the frame happens to hold and calling the difference an experiment is the failure this procedure exists to prevent. The anchor can also be evicted *while* you iterate: the epoch ring is bounded (default depth 50), and `(rf/configure! {:epoch-history {:depth N}})` prunes live rings the moment it returns — so never *shrink* the depth mid-experiment. An evicted anchor comes back as `:rf.epoch/restore-unknown-epoch`.
+   Returns `{:ok? true :restored? true :cascade-summary {…} :unreplayable-effects [...]}` on success — **proceed only on `:restored? true`.** On any documented failure mode it returns `{:ok? false :reason :restore-rejected}` (one of the seven modes — Tool-Pair §Time-travel; check `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})` for the specific tag — frame-id first, `:op-type` is `:flat-only`). Against a server launched **without** `--allow-writes` (the published default) the tool refuses with `:reason :rf.error/writes-disabled` — the operator flips the gate at launch to enable pair-driven writes. **Backstop only** (gate-OFF server + operator says proceed via eval): `eval-cljs {form: "(re-frame.core/restore-epoch! :rf/default <pre-dispatch-epoch-id>)"}` returns bare `true`/`false` and rides outside the structured envelope + the audit gate — say so when you fall back to it.
+   **A refused restore means you do not have a controlled comparison. Report the reason and stop before the edited dispatch** — dispatching onto whatever state the frame happens to hold and calling the difference an experiment is the failure this procedure exists to prevent. The anchor can also be evicted *while* you iterate: the epoch ring is bounded (default depth 50), and `(re-frame.core/configure! {:epoch-history {:depth N}})` prunes live rings the moment it returns — so never *shrink* the depth mid-experiment. An evicted anchor comes back as `:rf.epoch/restore-unknown-epoch`.
 5. **Modify the part of the system you're iterating on.**
-   - *Handlers / subs / fx:* `eval-cljs {form: "(rf/reg-event :foo …)"}` / `(rf/reg-sub :bar …)` / `(rf/reg-fx :baz …)`. The registrar replaces; `:rf.registry/handler-replaced` fires.
-   - *Machines:* `eval-cljs {form: "(rf/reg-machine :auth …)"}` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.
+   - *Handlers / subs / fx:* `eval-cljs {form: "(re-frame.core/reg-event :foo …)"}` / `(re-frame.core/reg-sub :bar …)` / `(re-frame.core/reg-fx :baz …)`. The registrar replaces; `:rf.registry/handler-replaced` fires.
+   - *Machines:* `eval-cljs {form: "(re-frame.core/reg-machine :auth …)"}` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.
    - *Views / helpers (plain `defn`s):* redefine the var via `eval-cljs`. Subsequent renders pick up the new fn.
    - *Permanent change:* `Edit` the source file, then `mcp__re-frame2-pair__tail-build {probe: "…", baseline: "<pre-edit value>"}` to wait for the reload to land. The `baseline` is a probe value captured **before** the edit — `eval-cljs {form: "(pr-str (…probe…))"}` alongside step 1 — which keeps a reload that lands before the first sample recognizable as success ([ops.md §Hot-reload coordination](ops.md#hot-reload-coordination)).
 6. **Verify the patch took before re-dispatching.** `handler-meta {kind: "event", id: ":foo"}` should now differ from the `pre-edit-handler-meta` you captured at **step 1** — a different `:line` / `:column`, or a different `:handler-fn-hash`. If the patch didn't land, re-dispatching will silently test the old code. **`:handler-fn-hash` is the only discriminator when an edit leaves `:line` / `:column` unchanged** — an in-place body edit moves neither coordinate.
@@ -390,8 +390,8 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 2. Compute the diff. If both are small, return them inline and let the model narrate. If they're large, drive `clojure.data/diff` directly:
    ```
    mcp__re-frame2-pair__eval-cljs {
-     form: "(let [a (rf/app-db-value :story.counter/empty)
-                  b (rf/app-db-value :story.counter/loaded)]
+     form: "(let [a (re-frame.core/app-db-value :story.counter/empty)
+                  b (re-frame.core/app-db-value :story.counter/loaded)]
               (clojure.data/diff a b))"
    }
    ```

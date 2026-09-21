@@ -827,6 +827,76 @@
                "for (rf2-66xy8).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Published eval-cljs forms must be fully qualified (rf2-ikbgk.2)
+;; ---------------------------------------------------------------------------
+;;
+;; `eval-cljs` hands the form to `shadow.cljs.devtools.api/cljs-eval` with EMPTY
+;; opts (nrepl.cljs) — no `:ns`, no alias rewrite — so it is analysed in
+;; shadow's default namespace, which carries no `rf` alias, and the server then
+;; refuses any non-blank analyzer `:err` as `:rf.error/eval-cljs-compile-error`.
+;; So a published `form:` spelled `(rf/…)` is not a style nit: EVERY copy-paste
+;; of it fails before it runs. The skill states the rule it would break twice
+;; over — SKILL.md ("the eval namespace carries no `rf` alias") and errors.md
+;; ("there are no ambient aliases") — and nine such forms shipped anyway,
+;; because the suite pinned only that a recipe NAMES `reg-event` /
+;; `restore-epoch`, never that a published form is fully qualified.
+;;
+;; PROSE citations of `rf/…` are deliberate and MUST keep passing: they cite the
+;; facade contract rather than invoking it (SKILL.md, STATUS.md,
+;; docs/capabilities.md). So this guard reads ONLY the inside of a published
+;; `form:` string — a blanket `rf/` sweep is exactly what it must not be.
+;;
+;; The character class spans newlines on purpose: one of the nine original sites
+;; was a `(let …)` broken across two lines, which a line-oriented search cannot
+;; see at all.
+
+(defn- skill-rel
+  "Path of `f` relative to the skill root, forward-slash form — so a failure
+  message names the leaf and never this machine's absolute path."
+  [f]
+  (-> (.getPath f)
+      (subs (inc (count (.getPath skill-root))))
+      (str/replace (System/getProperty "file.separator") "/")))
+
+(def ^:private published-eval-forms
+  ;; [rel-path form-body] for every `form: "…"` the skill publishes, over EVERY
+  ;; markdown leaf — so a NEW leaf is covered without anyone editing a roster.
+  (delay
+    (vec
+      (for [f    (sort-by #(.getPath %)
+                          (filter #(and (.isFile %)
+                                        (str/ends-with? (.getName %) ".md"))
+                                  (file-seq skill-root)))
+            :let [rel  (skill-rel f)
+                  text (slurp f)]
+            m    (re-seq #"(?s)form:\s*\"([^\"]*)\"" text)]
+        [rel (second m)]))))
+
+(deftest published-eval-forms-are-fully-qualified
+  (let [forms @published-eval-forms]
+    (testing "the extraction found the skill's published forms"
+      ;; Control for the zero: an extraction that matched nothing would report a
+      ;; clean sweep over a skill full of broken forms.
+      (is (seq forms)
+          (str "no `form:` strings found in any skill leaf — the extraction is "
+               "broken, not the skill clean (rf2-ikbgk.2)."))
+      (is (some (fn [[_ body]] (str/includes? body "(re-frame2-pair.runtime/")) forms)
+          (str "no published `form:` names `(re-frame2-pair.runtime/`. That is "
+               "the skill's commonest eval spelling, so its absence means this "
+               "guard is reading nothing (rf2-ikbgk.2).")))
+
+    (testing "no published form uses the `rf/` alias the eval namespace lacks"
+      (let [offenders (filterv (fn [[_ body]] (str/includes? body "(rf/")) forms)]
+        (is (empty? offenders)
+            (str "these leaves publish an `eval-cljs {form: …}` spelled "
+                 "`(rf/…)`, which the eval namespace cannot resolve — every "
+                 "copy-paste returns :rf.error/eval-cljs-compile-error. Spell "
+                 "the facade `re-frame.core/…` INSIDE a form; prose citations "
+                 "of `rf/…` are fine and deliberate (rf2-ikbgk.2). Offending "
+                 "leaves: "
+                 (pr-str (vec (distinct (map first offenders))))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Single-host boundary (rf2-p1keh)
 ;; ---------------------------------------------------------------------------
 ;;
