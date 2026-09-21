@@ -8,7 +8,7 @@ The `re-frame2-pair` skill is the AI pair-programming companion for a running re
 
 Three primitives carry the skill's agency, all part of re-frame2's [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md):
 
-1. **The REPL** — ClojureScript forms evaluated against the real app, usually through helpers in the injected `re-frame2-pair.runtime` namespace.
+1. **The REPL** — ClojureScript forms evaluated against the real app, usually through helpers in the preloaded `re-frame2-pair.runtime` namespace.
 2. **The trace stream** — `(rf/register-listener! id listener)` for live trace events; `(rf/trace-buffer frame-id)` for the retain-N ring of recent events (frame-id is the first positional arg, `(rf/trace-buffer frame-id opts)` filters, and the fn exists on both platforms).
 3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying `:db-before`, `:db-after`, `:trace-events`, and the assembled `:sub-runs` / `:renders` / `:effects` projections.
 
@@ -28,27 +28,40 @@ Do **not** use this skill for:
 
 ## Kickoff
 
-Every session starts with `discover-app`, called via the
-`re-frame2-pair-mcp` server (the only skill-facing transport — see
-[Transport](#transport) below). The `scripts/` shims are not part of the
-skill surface — they exist only for the project's own e2e harness and
-ad-hoc manual use, so they are not part of a skill session:
+Three steps, the first two one-time setup on the app you are pairing with:
+
+1. **Build the MCP server from a clone.** It is not published to npm yet:
+   `cd tools/re-frame2-pair-mcp && npm install && npm run build`, then point your
+   agent host's `mcpServers` entry at the compiled `out/server.js`. (Once
+   published: `npm install -g @day8/re-frame2-pair-mcp`.)
+2. **Add the preload to the app.** The `re-frame2-pair.runtime` namespace ships in
+   the skill's own `preload/` directory — the MCP server does *not* carry it — so
+   add that directory to the app's shadow-cljs `:source-paths` and
+   `re-frame2-pair.runtime` to its `:devtools :preloads`. Two lines, no package
+   install, dev builds only. **The preload is required; there is no per-session
+   inject fallback.** See [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
+   for the snippet.
+3. **Run `discover-app`**, via the `re-frame2-pair-mcp` server — the only
+   skill-facing transport (see [Transport](#transport) below). The `scripts/`
+   shims are not part of the skill surface: they exist only for the project's own
+   e2e harness and ad-hoc manual use.
 
 ```
 discover-app
 ```
 
-This locates the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and injects the runtime namespace. Failures return a structured edn shape like `{:ok? false :missing :re-frame2}` which the skill reports verbatim and routes to the matching recovery in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
+This locates the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace landed. Failures return a structured edn shape — `{:ok? false :reason :runtime-loaded-but-preload-missing}` is the normal missing-preload verdict, alongside the other ladder rungs `:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable` — which the skill reports verbatim and routes to the matching recovery in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 
 ## Transport
 
 The skill is **MCP-only**: a single skill-facing transport.
 
-- **MCP server** — `@day8/re-frame2-pair-mcp`, an npm-installable stdio
-  JSON-RPC server holding one persistent nREPL connection per session.
-  Per-op latency ~5–50ms. Install via
-  `npm install -g @day8/re-frame2-pair-mcp` and add to your agent
-  host's MCP config. Source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
+- **MCP server** — `@day8/re-frame2-pair-mcp`, a stdio JSON-RPC server holding
+  one persistent nREPL connection per session. Per-op latency ~5–50ms. It is
+  **not yet published to npm**: build it from a re-frame2 clone
+  (`cd tools/re-frame2-pair-mcp && npm install && npm run build`) and point your
+  agent host's MCP config at the compiled `out/server.js`. (Once published:
+  `npm install -g @day8/re-frame2-pair-mcp`.) Source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
 
 The MCP server is the one implementation of every operation. The
 bash/babashka transport that originally fronted these ops

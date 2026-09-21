@@ -26,7 +26,7 @@
 #   scripts/install-skills.sh --force         # replace stale COPY dirs with links too
 #   scripts/install-skills.sh --check         # exit 0 if all linked & current, 1 otherwise
 #   scripts/install-skills.sh --target DIR    # link into DIR instead of ~/.claude/skills
-#                                             # (used by the test harness; never needs admin)
+#                                             # (for a scratch target; never needs admin)
 #
 # Cross-platform: POSIX sh. Runs under Git Bash on Windows, macOS, Linux.
 # No bashisms ([[ ]], arrays, <<<). Windows operators who prefer pure
@@ -123,9 +123,12 @@ points_at() {
     [ "$(resolve_dir "$path")" = "$(resolve_dir "$want_src")" ]
     return
   fi
-  # A Windows junction is NOT seen as a symlink by `test -L` under Git Bash,
-  # but it IS a directory that resolves (via `pwd -P`) to its target. If the
-  # resolved real path equals the source's real path, it is our link.
+  # Belt-and-braces for a Windows junction. Git Bash's `test -L` DOES see one
+  # (measured on MSYS; the same reason scripts/remove-worker-worktree.sh detects
+  # a junction with `[ -L ]`), so the branch above normally catches it already.
+  # This arm keeps the check working where it does not, because a junction is
+  # also a directory that resolves (via `pwd -P`) to its target. If the resolved
+  # real path equals the source's real path, it is our link.
   if is_windows && [ -d "$path" ]; then
     [ "$(resolve_dir "$path")" = "$(resolve_dir "$want_src")" ]
     return

@@ -138,9 +138,18 @@ foreach ($entry in $entries) {
     }
     elseif (Test-Path -LiteralPath $dst) {
         # A reparse point pointing elsewhere (or broken) - safe to re-point.
-        # Remove the junction itself (Remove-Item on a junction does not touch
-        # the target's contents).
-        Remove-Item -LiteralPath $dst -Recurse -Force
+        # Unlink the reparse point ITSELF, never walk into what it points at:
+        # Directory.Delete with recursive=$false removes the junction entry and
+        # THROWS if it is ever handed a real directory, so this branch cannot
+        # empty another checkout's skills/<name>/. That is the junction-removal
+        # idiom CLAUDE.md prescribes; Remove-Item -Recurse stays in the real-COPY
+        # branch above, where recursing is exactly what is wanted.
+        #
+        # .FullName is the LINK's own path (.Target is where it points), and
+        # PowerShell resolves it for us - a .NET static call would otherwise
+        # resolve a relative -Target against the process CWD, not $PWD.
+        $linkItem = Get-Item -LiteralPath $dst -Force
+        [System.IO.Directory]::Delete($linkItem.FullName, $false)
     }
 
     New-Item -ItemType Junction -Path $dst -Target $src | Out-Null

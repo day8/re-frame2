@@ -12,7 +12,7 @@ Worked examples in `examples/` are treated as canonical. Pattern leaves (`patter
 
 Load this skill when the prompt is about **writing or editing re-frame2 application source** — `.cljs` / `.cljc` files. The user does not have to name re-frame2; any of these are sufficient triggers:
 
-- References to `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
+- References to `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
 - Mentions of `dispatch`, `subscribe`, `app-db`, frames, regions, tags, the nine UI states.
 - Pattern names: RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction.
 - "Write a test for a re-frame2 handler / sub / machine."
@@ -20,7 +20,7 @@ Load this skill when the prompt is about **writing or editing re-frame2 applicat
 Do **not** use this skill for:
 
 - Greenfield project setup → use [re-frame2-setup](re-frame2-setup.md).
-- Migrating a v1 codebase → use [re-frame-migration](re-frame-migration.md).
+- Migrating a v1 codebase → use [re-frame-migration](re-frame-migration.md). A **v1 name in the prompt is that skill's trigger, not this one's** — `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub-raw`, `reg-global-interceptor`, `re-frame.db`, `^:flush-dom` and the rest are surfaces re-frame2 removed (a stale call raises a hard error), so route them to `re-frame-migration` rather than loading this skill.
 - Inspecting a *running* app → use [re-frame2-pair](re-frame2-pair.md).
 - Reading the full API or EP rationale → follow [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md).
 
