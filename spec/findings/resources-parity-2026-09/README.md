@@ -125,7 +125,8 @@ refuses are marked; the rest live only in these reports.
   `astra/evidence/tanstack/node_modules/` (57 MB), which are build caches;
   `astra/evidence/browser/js/` (44 MB of compiled cljs-runtime and bundle) and
   `astra/evidence/tanstack/app.js` (a 1.6 MB esbuild bundle, over the 200 KB cap the Story
-  corpus used); `astra/evidence/local-source/` (160 files) and the `verification/` and
+  corpus used) and `astra/evidence/research-tests.js` (a 62 KB shadow-cljs node bundle,
+  referenced by the three evaluation plans); `astra/evidence/local-source/` (160 files) and the `verification/` and
   `current-source/` copies under `astra/evidence/sibling-review/round-*/`, which were
   snapshots of tracked files as they stood; `astra/evidence/primary/` (33 fetched vendor
   documents); `astra/evidence/resources-beads-all.json` (a 707 KB tracker export); and three
@@ -149,6 +150,12 @@ refuses are marked; the rest live only in these reports.
   `grok/intermediate/conduit-walk.cjs`, `grok/intermediate/conduit-walk-favorite.cjs`) had an
   explicit `timeout: 30000` added to their one `page.goto` call each, because the repo's
   navigation-ceiling policy test sweeps every tracked `.cjs`; the fable probes already
-  carried one. Nothing else in the files was altered.
+  carried one. Four astra probes (`browser-probe.cjs`, `scope-browser-probe.cjs`,
+  `conduit-cases.cjs`, `scope-counterexample.cjs`) gained a first-line `/* global … */`
+  comment naming the page-context globals they read inside `page.evaluate`, because the
+  repo's ESLint gate lints every tracked `.cjs` and reads them as undefined; the Story
+  probes carry the same comment. The probes' `.clj` files add a `spec` surface to
+  `scripts/require-alias-baseline.edn` at its observed five non-canonical edges, as the
+  Story probes count under `tools`. Nothing else in the files was altered.
 - The repo ignores gate logs (`*.log`, `*.exit`); the 117 small ones the reports link were
   added with `git add -f`, as the Story corpus's were.

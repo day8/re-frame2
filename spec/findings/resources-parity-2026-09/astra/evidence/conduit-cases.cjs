@@ -1,3 +1,4 @@
+/* global cljs, re_frame, realworld_resources, realworld_shared */
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
 module.exports = async function cases(page) {
   await page.evaluate(() => {
