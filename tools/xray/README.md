@@ -248,7 +248,7 @@ lives in [`spec/007-UX-IA.md`](spec/007-UX-IA.md) §Global shortcuts):
 `Ctrl+Shift+C` (toggle shell), `Ctrl/Cmd+K` (command palette),
 `Ctrl/Cmd+Shift+M` (Dynamic ↔ Static mode), and `Esc` (dismiss the
 open-in-editor hint). Inside the shell, the LIVE-feed spine binds bare
-`Space` / `L` / `j` / `k` / `G`. Pop-out is launched from the chrome's
+`Space` / `l` / `j` / `k` / `G`. Pop-out is launched from the chrome's
 `⛶` button or programmatically via `(xray/popout!)` — it is not bound
 to a global chord. Once open, the pop-out window has its own listener
 and the same chords work there, with one exception: `Ctrl+Shift+C`

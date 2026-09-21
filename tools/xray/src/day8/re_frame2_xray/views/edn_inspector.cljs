@@ -4476,7 +4476,7 @@
      zooms to the INNERMOST container, not an ancestor).
    - `:on-key-down` — Enter (no modifiers) on the focused node re-roots,
      same as the double-click; other keys pass through untouched so the
-     surrounding spine bindings (j/k/L/G) and Esc-zoom-out keep working.
+     surrounding spine bindings (j/k/l/G) and Esc-zoom-out keep working.
    - `:tab-index 0` + `:aria-label` — the node is keyboard-focusable and
      announces itself as a zoom target, preserving the a11y the removed
      `⊙` button provided. We deliberately do NOT set `role \"button\"`:
