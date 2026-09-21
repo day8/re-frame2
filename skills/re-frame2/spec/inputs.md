@@ -70,7 +70,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 Two trees are **not** wholly excluded, and §1–§4 above are the wrong place to look for them — each is consumed through a named set of leaves, pinned to the page it cites:
 
-- **`tools/**`** — consumed by the five `references/tooling/` leaves (stories, routing, story-recorder, story-mcp-loop, xray), which cite `tools/story/`, `tools/xray/` and `tools/story-mcp/` directly. Not consumed by the fundamentals or pattern leaves, which stay on the application-authoring surface.
+- **`tools/**`** — consumed by four of the five `references/tooling/` leaves (stories, story-recorder, story-mcp-loop, xray), which cite `tools/story/`, `tools/xray/` and `tools/story-mcp/` directly; `routing.md` is the exception, deriving from `implementation/routing/` instead. Two application-authoring documents also consume Story sources — `references/fundamentals/project-structure.md` takes the stories ns convention and the adjacent-integration-test rule from `tools/story/spec/001-Authoring.md` and the `counter_with_stories` testbed, and `examples-map.md` maps that testbed as a worked example — both for where an app's own story files go, not for how the tool is built. No other fundamentals leaf and no pattern leaf consumes `tools/**`.
 - **`docs/**`** — reached through `SKILL-REDIRECT.md` for deep-dive rationale, but four cross-cutting leaves (privacy-and-elision, production-observability, ssr-authoring, testing-views) also link `docs/core/`, `docs/ssr/` and `docs/machines/` pages directly, where the guide carries a walkthrough the leaf deliberately does not duplicate.
 
 ## 6. Update procedure
