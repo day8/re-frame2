@@ -49,11 +49,11 @@ The skill conforms to:
 
 ## 5. What the skill does NOT consume
 
-These are deliberately out of the loop:
+Read "consume" as **teach from**, not "never open". MIGRATION.md is the teaching source and the rule-id authority; the surfaces below are consulted to *verify* a claim, and the leaves cite them freely when the evidence for a row lives there.
 
-- **`spec/000-Vision.md`** through **`spec/014-HTTPRequests.md`** (the EP corpus) — the skill doesn't teach re-frame2; the `re-frame2` skill does. The migration skill assumes the author knows v2 conceptually (or will read the EPs separately).
-- **`implementation/**`** — implementation is the ground truth for the `re-frame2` skill (what surfaces exist, what their signatures are). For the migration skill, MIGRATION.md is the ground truth, and MIGRATION.md is itself verified against implementation. The migration skill is downstream of that verification.
-- **`examples/**`** — worked examples are for authoring new code, not for migrating. The migration skill does not point at examples.
+- **`spec/000-Vision.md`** through **`spec/014-HTTPRequests.md`** (the EP corpus) — **not a teaching source**: the skill doesn't teach re-frame2, the `re-frame2` skill does, and the migration skill assumes the author knows v2 conceptually (or will read the EPs separately). It **is** a verification source, and the leaves cite it as one — `spec/009-Instrumentation.md` for the error catalogue, `spec/006-ReactiveSubstrate.md` for the adapter inventory, `spec/002-Frames.md`, `spec/005-StateMachines.md`, `spec/013-Flows.md`, `spec/014-HTTPRequests.md` — plus `spec/API.md`, `spec/Conventions.md` and the later numbered specs. Dropping those cites on a reauthor would strip the evidence, not tighten the scope.
+- **`implementation/**`** — **not a teaching source**, for the same reason: MIGRATION.md is the ground truth for what a migration does, and MIGRATION.md is itself verified against implementation. But implementation is the **tie-breaker on runtime behaviour** when a corpus row has gone stale (see [`../README.md` §Source of truth](../README.md#source-of-truth)), so reading it to settle such a question is correct and in scope.
+- **`examples/**`** — genuinely out of the loop. Worked examples are for authoring new code, not for migrating; the skill does not point at examples, and no leaf cites one.
 - **The narrative guide** (other than `docs/core/25-from-re-frame-v1.md`) — too discursive for the migration agent's needs.
 
 ## 6. Update procedure
