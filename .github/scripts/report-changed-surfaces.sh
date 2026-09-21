@@ -2680,7 +2680,7 @@ else
         # rf2-6c12m.1 — the Fresco bench lane, a hand-run shadow-cljs project
         # OFF every per-PR lane by ruling: its suites exercise LOCAL COPIES of
         # the runtime, so running them per PR could not catch a regression in
-        # the shipped one, and its 82 MB of committed run records are
+        # the shipped one, and its committed run records are
         # evidence, not inputs. A bench-only diff is therefore CLASSIFIED to
         # no gate rather than left unclassified — this arm sets nothing so the
         # silence is stated. TESTING.md §Changed-surface classifier calls an
