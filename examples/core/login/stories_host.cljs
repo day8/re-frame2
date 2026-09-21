@@ -49,6 +49,9 @@
             ;; fx / subs / views) and its Story artefacts. We get `login.core`
             ;; for free — `login.stories` already requires it.
             [login.core :as core]
+            ;; The substrate-free model owner, for `model/frame-config` — the
+            ;; one copy of the frame config all three login mounts share.
+            [login.model :as model]
             [login.stories]
             ;; The shared Story-host helper, which owns the fiddly bits: the
             ;; live-app↔Story-shell hash router and the React-root handle.
@@ -75,10 +78,14 @@
 ;; frame up itself here rather than calling `login.core/run` (which would
 ;; insist on running its own mount lifecycle).
 
+;; Both keys come from `login.model/frame-config` — the one owner the three
+;; login mounts share — merged in exactly as `login.core/mount!` merges it into
+;; its `frame-root` props. `make-frame` takes them as ordinary record-config, so
+;; the only thing this surface adds is its own `:id` / `:doc`.
 (defn- install-live-frame! []
-  (rf/make-frame {:id :rf/default :doc            "Login showcase live-app frame."
-                  :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
-                  :initial-events [[:auth.login/initialise-form]]}))
+  (rf/make-frame (merge {:id  :rf/default
+                         :doc "Login showcase live-app frame."}
+                        model/frame-config)))
 
 (rf/reg-view login-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}

@@ -51,8 +51,8 @@
 ;;
 ;; You'll notice `dispatch` and `subscribe` are used here with no require
 ;; and no `rf/` prefix. `reg-view` hands them to you as locals, already
-;; wired to the frame in scope at render time — the `frame-provider` in
-;; `run` below is what puts this tree in a frame. `reg-view` also def's a
+;; wired to the frame in scope at render time — the `frame-root` in
+;; `mount!` below is what puts this tree in a frame. `reg-view` also def's a
 ;; Var named for the symbol, which is how `counter-app` can name
 ;; `counter-buttons` just below. See `docs/core/views.md`.
 
