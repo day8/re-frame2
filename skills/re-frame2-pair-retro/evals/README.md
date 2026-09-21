@@ -19,9 +19,13 @@ There is no automated scorer and none should be added: the previous
 regex-based session-evidence scorer accepted keyword soup before it was
 repaired, and the repair cost more than the coverage was worth.
 
-One deliberately narrow exception sits outside this directory:
-`tests/duplicate_search_test.clj` (run `bb tests/duplicate_search_test.clj`
-from the skill root) pins the §Issue drafts duplicate-search **command
+Two deliberately narrow exceptions sit outside this directory, both run
+from the skill root with `bb tests/<file>` and both looped by CI's
+skills-structural job. `tests/eval_corpus_shape_test.clj` pins the
+**data shape** of this directory: that `evals.json` is in neither upstream
+format, that the conversion below is documented honestly, and that applying
+it yields one `query`/`should_trigger` item per fixture (rf2-fzbj.42 F1).
+`tests/duplicate_search_test.clj` pins the §Issue drafts duplicate-search **command
 contract** — the prescribed `gh issue list` query stays narrow to
 `day8/re-frame2` and explicitly `--state all` (gh defaults to open-only,
 which hides a closed owner), a discovered closed owner links instead of
