@@ -333,6 +333,11 @@ Execute and watch (instance id is app-chosen — reuse it for the sub):
 Wrong scope ⇒ silent miss (dev warning). Recipe, populate/patch arms, and optimistic
 writes: [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
 
+The optimistic half of this section has a focused worked example:
+[`linearlite`](../../examples/capabilities/resources/linearlite) — create,
+retitle and change-status as three `:optimistic` mutations against one board
+entry, with a "fail the next write" toggle that puts the rollback on screen.
+
 ??? info "Coming from TanStack Query?"
 
     Invalidation is **causal** — a declared consequence of the mutation, visible on
