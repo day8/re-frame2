@@ -8,8 +8,8 @@ description: >
   establish whether the user needs Fresco**: re-frame2's Reagent adapter
   is first-class and supported, so a v1 app keeps its view code and needs NO
   rewrite to land on re-frame2 — that is `re-frame-migration`, and it finishes
-  the job. This is an OPTIONAL second step, and Fresco is pre-publication
-  with no released Maven coordinate. **Do not use** for: the v1→v2
+  the job. This is an OPTIONAL second step, and Fresco resolves like every
+  other re-frame2 artefact. **Do not use** for: the v1→v2
   events/subs/db migration (`re-frame-migration`), writing new re-frame2 code
   (`re-frame2`), greenfield setup (`re-frame2-setup`), or live-runtime
   inspection (`re-frame2-pair`). Trigger on "migrate my Reagent views to
@@ -75,6 +75,11 @@ clojure -Srepro \
                    :deps/root "migration/reagent-to-fresco/codemod"}}}' \
   -M -m re-frame.migration.fresco.codemod path/to/consumer/src/
 ```
+
+Expect one stderr line, `Use of :paths external to the project has been
+deprecated` — the tool puts one shared `.cljc` slot file on its own classpath
+deliberately, and the codemod's `deps.edn` records that a `:local/root` is not
+the fix. It is not a failure; read the report.
 
 Run it from the consumer's own project — no re-frame2 checkout is needed, and
 none is created. The published Fresco artefact does not carry the reporter, so

@@ -35,7 +35,8 @@ Three parts are load-bearing:
 
 - **The argument vector is the ordinary one-props-map vector**, so destructuring
   reads as it does in any Clojure fn. A view that reads no props declares `[_]`,
-  and its call sites pass `{}`.
+  and its call sites pass a map only when there are props — a bare `[price]`
+  mounts with `{}` supplied for it.
 - **A fn-call used as a component** (`(filter-link :all "All")` in child
   position) becomes a mounted site: `[filter-link {:showing :all :txt "All"}]` —
   brackets, because it is a boundary. Leave it in parens only if it genuinely is
@@ -334,8 +335,8 @@ Four things matter, and the first two are the ones a migration gets wrong:
   later one re-renders the root React already has, so the reloaded view code
   meets its own DOM. That is why the boot and the `^:dev/after-load` hook above
   are one function. The frame lives in the tree now, so a reload that drops the
-  head renders a root with no frame under it and every bare `h/sub` /
-  `h/dispatch` beneath loses what it resolved against; re-rendering the head is
+  head renders a root with no frame under it and every `h/sub` read and every
+  intent lowered beneath loses what it resolved against; re-rendering the head is
   free, because it ENSUREs and finds the frame live. Nor may the reload merely
   *trim* the head's options: a committed `frame-root` scopes one frame for its
   lifetime and refuses reconfiguration, so dropping `:initial-events` because

@@ -43,6 +43,11 @@ clojure -Srepro \
 This is the inventory the whole plan is built on, and it is cheap: a bare JVM,
 no re-frame2 loaded, no files touched.
 
+Expect one stderr line, `Use of :paths external to the project has been
+deprecated` — the tool puts one shared `.cljc` slot file on its own classpath
+deliberately, and the codemod's `deps.edn` records that a `:local/root` is not
+the fix. It is not a failure; read the report.
+
 Run it from the consumer's project. It needs no re-frame2 checkout and creates
 none — the published Fresco artefact does not carry the reporter, so this
 coordinate is the tool's delivery rather than a pre-publication detour. Pin a
