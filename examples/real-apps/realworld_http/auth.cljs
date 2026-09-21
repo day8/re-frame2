@@ -401,10 +401,22 @@
     ;; Interactive LOGOUT (from :authed): clear the session and the persisted
     ;; token, then navigate home — signing out deliberately lands you on the
     ;; public home page. A FAILED RESTORE uses `:abandon-restore` above instead.
+    ;;
+    ;; It also scrubs the two pieces of PER-USER state that live OUTSIDE the
+    ;; auth slice, because nothing else would: the settings form's draft (in the
+    ;; machine's runtime-db snapshot — username, email, bio, image, sitting
+    ;; ready for the next account to PUT onto its own settings) and the
+    ;; authenticated feed's articles. The rule is that no per-user state
+    ;; outlives the session; the auth slice is merely the part of it auth owns.
+    ;; Both are plain event vectors, so this namespace needs no require on the
+    ;; two that register them — settings.cljs already requires THIS one, and a
+    ;; require back would close the cycle.
     (fn [_]
       {:data {:error nil}
        :fx [[:dispatch [:auth/clear-session]]
             [:auth.session/persist {:token nil}]
+            [:dispatch [:settings/form [:reset]]]
+            [:dispatch [:feed/initialise]]
             [:dispatch [:rf.route/navigate {:to :realworld/home}]]]})}
    :states
    {:idle

@@ -126,10 +126,20 @@
    :actions
    {:seed-from-user
     ;; :load carries the current authenticated user under :user.
-    (fn action-seed-from-user [{[_ {:keys [user now]}] :event}]
+    ;;
+    ;; It rebuilds :data from initial-data, so a re-entry starts clean — but it
+    ;; CARRIES :session-owner across, because that field records a REQUEST that
+    ;; may still be in flight rather than anything about the form on screen.
+    ;; Drop it and the two reply handlers below would read nil, refuse the very
+    ;; submission they were issued for, and discard a save the server had
+    ;; already performed. Carrying it cannot cut the other way: `owns-session?`
+    ;; compares it against the LIVE session, so a stale owner can only ever
+    ;; produce a refusal, never authorise a write.
+    (fn action-seed-from-user [{data :data [_ {:keys [user now]}] :event}]
       {:data (-> initial-data
                  (assoc :draft (draft-from-user user))
-                 (assoc :loaded-at now))})
+                 (assoc :loaded-at now)
+                 (assoc :session-owner (:session-owner data)))})
 
     :edit-field
     ;; :edit carries {field value} for a NON-SECRET field. It writes the
@@ -178,11 +188,10 @@
     ;; flight.
     ;;
     ;; It also carries :session-owner — the identity the PUT is being sent as.
-    ;; THIS is the recording point rather than :load, because :load is only
-    ;; accepted from :neutral: a form sitting in :correct or :incorrect from an
-    ;; earlier attempt ignores a re-entry's :load, and an owner recorded there
-    ;; would still name whoever loaded the form last. A submit can only be made
-    ;; from :neutral or :incorrect, and it is the moment the request goes out.
+    ;; THIS is the recording point rather than :load: an owner recorded when the
+    ;; form was LOADED names whoever opened the page, which is not necessarily
+    ;; who the request eventually goes out as. A submit can only be made from
+    ;; :neutral or :incorrect, and it is the moment the request goes out.
     (fn action-begin-submit [{data :data [_ {:keys [submitted session-owner]}] :event}]
       {:data (-> data
                  (assoc :submitted submitted)
@@ -212,6 +221,15 @@
     (fn action-reset-data [_]
       {:data initial-data})}
 
+   ;; :load is accepted in EVERY state below, not only :neutral. It is the
+   ;; route's "I am here now" signal (the :realworld.user/settings :on-match
+   ;; fires it — routing.cljs), and a visit that ended in a save (:correct) or
+   ;; in a rejection (:incorrect) leaves the region parked there. A machine that
+   ;; ignored :load in those states would hand the NEXT account to sign in the
+   ;; departed one's username / email / bio / image, pre-filled and one click
+   ;; from being PUT onto its own account. Re-seeding is idempotent, so
+   ;; accepting it everywhere costs nothing and closes that leak; logout scrubs
+   ;; the snapshot from the other end too (:clear-session, auth.cljs).
    :states
    {:neutral
     ;; The resting state — form open, nothing to report. Either the user hasn't
@@ -231,7 +249,8 @@
     ;; :edit clears the errors and drops back to :neutral — start fixing and the
     ;; complaints go away.
     {:tags #{:settings/incorrect :form/invalid}
-     :on   {:edit           {:target :neutral    :action :edit-field}
+     :on   {:load           {:target :neutral    :action :seed-from-user}
+            :edit           {:target :neutral    :action :edit-field}
             :edit-password  {:target :neutral    :action :edit-password}
             :submit-invalid {:target :incorrect  :action :set-errors}
             :submit-valid   {:target :submitting :action :begin-submit}
@@ -244,7 +263,8 @@
     ;; (in-flight, success, error) can watch that one tag instead of OR-ing
     ;; three state-keywords.
     {:tags #{:settings/submitting :settings/in-flight :form/transient}
-     :on   {:submit-succeeded {:target :correct   :action :store-user}
+     :on   {:load             {:target :neutral   :action :seed-from-user}
+            :submit-succeeded {:target :correct   :action :store-user}
             :submit-failed    {:target :incorrect :action :set-submit-error}
             :reset            {:target :neutral   :action :reset-data}}}
 
@@ -254,7 +274,8 @@
     ;; usually navigates away on success; this one does too, see
     ;; :settings/submit-success below.
     {:tags #{:settings/correct :form/success :form/transient}
-     :on   {:edit          {:target :neutral :action :edit-field}
+     :on   {:load          {:target :neutral :action :seed-from-user}
+            :edit          {:target :neutral :action :edit-field}
             :edit-password {:target :neutral :action :edit-password}
             :reset         {:target :neutral :action :reset-data}}}}})
 
@@ -365,9 +386,10 @@
 ;; `:begin-submit` recorded who the request was sent as; these two handlers
 ;; compare that against the live session (auth.cljs's `owns-session?`, which
 ;; carries the full why) and refuse to act for any other. Refusal is not a
-;; no-op: the machine is sitting in :submitting, whose only way out is a reply,
-;; so a refused one broadcasts :reset instead — which settles the form AND
-;; scrubs the departed user's draft out of the snapshot on the way past.
+;; no-op: the machine is sitting in :submitting and a reply is what normally
+;; settles it, so a refused one broadcasts :reset instead — which settles the
+;; form AND scrubs the departed user's draft out of the snapshot on the way
+;; past.
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
          machine's :data via :store-user (region lands in :correct), store the

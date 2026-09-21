@@ -789,7 +789,7 @@
        ;; same reason.)
        (and article-error (nil? article))
        [:div.article-preview.error
-        (str "Couldn't load article: " (pr-str article-error))]
+        (str "Couldn't load article: " article-error)]
 
        article
        [:<>
@@ -818,6 +818,15 @@
            " "
            [article-meta]]]]
         [:div.container.page
+         ;; A failed action on a LOADED article — a rejected Delete above all —
+         ;; writes [:article :error] while :data is still sitting there, so the
+         ;; error branch above never runs: it deliberately fires only when there
+         ;; is no article to fall back on. Without this the rejected click is a
+         ;; click that does nothing at all. (A failed REFRESH of the same slug
+         ;; lands here too, and that is fine — the page keeps the article it has
+         ;; AND says the reload did not make it.)
+         (when article-error
+           [:ul.error-messages [:li article-error]])
          [:div.row.article-content
           [:div.col-md-12
            [:div {:data-testid "article-body"} (md/render (:body article))]
@@ -863,7 +872,7 @@
               " to add comments."])
            (when comments-error
              [:div.article-preview.error
-              (str "Couldn't load comments: " (pr-str comments-error))])
+              (str "Couldn't load comments: " comments-error)])
            (for [comment comments]
              ^{:key (:id comment)}
              [comment-card {:comment comment :current-user current-user}])]]]]

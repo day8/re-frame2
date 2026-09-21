@@ -48,6 +48,12 @@
    does not.) Optional because only the `/article/:slug`-driven slices
    (`:article`, `:comments`) carry it.
 
+   `:tag` is that same fact once more, for the `/tag/:tag`-driven `:articles`
+   slice — the tag whose list it is currently holding, so `:articles/load` can
+   tell a page step within one tag (keep the rows up) from a move to another
+   tag (start empty, rather than render the old tag's rows under the new tag's
+   URL). Optional, and `nil` is a real value here: it is the global list's tag.
+
    `:username` is the same fact for the `/profile/:username`-driven slices
    (`:profile`, `:profile.articles`, `:profile.favorites`) — the correlation
    identity `reply-for-current-profile?` (profile.cljs) gates every banner,
@@ -70,6 +76,7 @@
    [:attempt        {:default 0}   :int]
    [:articles-count {:optional true} :int]
    [:slug           {:optional true} [:maybe :string]]
+   [:tag            {:optional true} [:maybe :string]]
    [:username       {:optional true} [:maybe :string]]
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
