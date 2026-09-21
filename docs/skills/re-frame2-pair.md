@@ -36,11 +36,17 @@ Three steps, the first two one-time setup on the app you are pairing with:
    published: `npm install -g @day8/re-frame2-pair-mcp`.)
 2. **Add the preload to the app.** The `re-frame2-pair.runtime` namespace ships in
    the skill's own `preload/` directory — the MCP server does *not* carry it — so
-   add that directory to the app's shadow-cljs `:source-paths` and
-   `re-frame2-pair.runtime` to its `:devtools :preloads`. Two lines, no package
-   install, dev builds only. **The preload is required; there is no per-session
-   inject fallback.** See [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
-   for the snippet.
+   put that directory on the app's build **classpath** and add
+   `re-frame2-pair.runtime` to its `:devtools :preloads`. The `:preloads` half is
+   always a `shadow-cljs.edn` line; the classpath half goes wherever the app's
+   classpath is actually owned — an activated alias's `:extra-paths` in `deps.edn`
+   for a `:deps` app, `:source-paths` in `project.clj` for a `:lein` app, and
+   `:source-paths` in `shadow-cljs.edn` only for a standalone shadow app. (Under
+   `:deps` and `:lein`, shadow *ignores* a `shadow-cljs.edn` `:source-paths` key
+   and warns that it did, so putting it there yields a preload that never loads.)
+   No package install, dev builds only. **The preload is required; there is no
+   per-session inject fallback.** See [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
+   for the branch and the snippets.
 3. **Run `discover-app`**, via the `re-frame2-pair-mcp` server — the only
    skill-facing transport (see [Transport](#transport) below). The `scripts/`
    shims are not part of the skill surface: they exist only for the project's own
