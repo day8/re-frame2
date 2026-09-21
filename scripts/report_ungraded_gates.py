@@ -241,9 +241,12 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import fnmatch
+import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 CLASSIFIER = Path(".github/scripts/report-changed-surfaces.sh")
@@ -490,8 +493,6 @@ GATE_Z = "// EDITED by commit D, the positive control\nmodule.exports = { v: 3 }
 
 def _rmtree(path: str) -> None:
     """Best effort; a cleanup failure must never fail the self-test."""
-    import os
-    import stat
     for base, dirs, files in os.walk(path):
         for name in dirs + files:
             try:
@@ -509,7 +510,6 @@ def _fx_git(repo: str, *args: str) -> "subprocess.CompletedProcess[str]":
 
 
 def _fx_write(repo: str, rel: str, content: str) -> None:
-    import os
     dest = os.path.join(repo, *rel.split("/"))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "wb") as fh:
@@ -528,8 +528,6 @@ def build_cancellation_fixture(root: Path) -> "tuple[str, str, str, str, str]":
         B         restores it exactly, changes only an unrelated bench path
         D         positive control: a direct single-commit gate-path change
     """
-    import os
-    import tempfile
     repo = tempfile.mkdtemp(prefix="rug-selftest-")
     _fx_git(repo, "init", "-q", "-b", "main")
     for rel in (str(CLASSIFIER).replace(os.sep, "/"), str(TEST_WORKFLOW).replace(os.sep, "/")):
