@@ -66,7 +66,8 @@ Mantra: **`:reply-to` is for workflow; populate / patch / invalidate are for cac
     (case status
       :ok    {:db (assoc db :auth/user (:user value))    ;; app-db workflow lives here
               :fx [[:dispatch [:toast/show "Settings saved"]]]}
-      :error {:db (assoc db :settings/error error)})))
+      :error     {:db (assoc db :settings/error error)}
+      :cancelled nil)))                              ;; accepted cancellation: no success workflow
 ```
 
 The reply map carries (the mutation-specific facts): `:status` (the EP-0011 reply enum — `:ok` / `:error` / accepted terminal `:cancelled`; **never** `:stale`), `:mutation`, `:params`, `:instance`, `:scope`, `:value` (for `:ok`), `:error` (for `:error`), `:affected-keys`, `:rf.reply/work-id`, `:rf.frame/id`, `:completed-at`, and `:cause [:mutation <id> <instance>]`. Read `:completed-at` off the reply for any durable timestamp — do **not** re-read the host clock (EP-0010 causal-time rule).

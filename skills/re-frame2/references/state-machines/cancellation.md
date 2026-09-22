@@ -58,7 +58,7 @@ A request issued **directly from an ordinary `reg-event` handler** — not via a
 
 Three independent triggers all cause the same cleanup:
 
-- User clicks "Cancel" → dispatches `[:auth :user/cancelled]` → exits `:authenticating` → exit cascade emits `:rf.machine/destroy` for the `:rf.http/managed` child → its in-flight HTTP aborts.
+- User clicks "Cancel" → dispatches `[:auth [:user/cancelled]]` → exits `:authenticating` → exit cascade emits `:rf.machine/destroy` for the `:rf.http/managed` child → its in-flight HTTP aborts.
 - 30 s passes → `:after` fires → exits `:authenticating` → same exit cascade → HTTP aborts.
 - Frame torn down (e.g., the story is unmounted) → frame-destroy walk destroys every surviving machine → HTTP aborts.
 
