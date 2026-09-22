@@ -39,7 +39,7 @@ Repeating `{:request {:method :get :url …}}` at every call site is an **app** 
 
 - **Kind**: fx
 - **Args**: request-id
-- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply is the canonical `{:status :cancelled :cancel/reason :user :error {:kind :rf.http/aborted ...}}` envelope, appended to the request's reply target (`:reply-to` or `:on-failure`) per [Reply addressing](#reply-addressing).
+- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply is the canonical `{:status :cancelled :cancelled? true :rf.reply/cancel-reason :user :error {:kind :rf.http/aborted ...}}` envelope, appended to the request's reply target (`:reply-to` or `:on-failure`) per [Reply addressing](#reply-addressing).
 - **Example**:
   ```clojure
   (rf/reg-event :request/abort
@@ -81,7 +81,7 @@ Every reply is the one canonical reply envelope — a plain map keyed on a close
  :error  {:kind :rf.http/<category> ...}}
 
 ;; Abort / cancel
-{:status :cancelled :cancel/reason :user
+{:status :cancelled :cancelled? true :rf.reply/cancel-reason :user
  :error  {:kind :rf.http/aborted …}}
 ```
 
