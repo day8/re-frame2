@@ -2404,3 +2404,48 @@
                       (is false (str "production-seam receipt did not settle: " (.-message e)))
                       nil))
             (.then (fn [_] (done))))))))
+
+(deftest settings-save-persists-the-refreshed-session-token
+  (let [persisted (atom [])
+        user {:email "alice@example.com" :username "alice" :token "jwt-new"
+              :bio "Updated" :image nil}]
+    (rf/reg-fx :realworld-resources.test/capture-settings-token
+      (fn [_ {:keys [token]}] (swap! persisted conj token)))
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
+                        {:fx-overrides {:realworld-resources.session/persist
+                                        :realworld-resources.test/capture-settings-token}})]
+      (rf/dispatch-sync [:auth/store-session (assoc user :token "jwt-old")] {:frame f})
+      (rf/dispatch-sync [:settings/load] {:frame f})
+      (rf/dispatch-sync [:settings/submit] {:frame f})
+      (reply-success! @last-managed-args {:user user} f)
+      (is (= "jwt-new" (get-in (rf/app-db-value f) [:auth :token])))
+      (is (= ["jwt-new"] @persisted)
+          "the next cold boot must read the same credential as the live session"))))
+
+(deftest article-writes-invalidate-the-global-tag-list
+  (doseq [[operation params result]
+          [[:realworld/save-article
+            {:title "New" :description "New article" :body "Body" :tagList ["new-tag"]}
+            {:article {:slug "new" :author {:username "alice"}}}]
+           [:realworld/save-article
+            {:slug "new" :title "New" :description "Updated" :body "Body" :tagList ["edited-tag"]}
+            {:article {:slug "new" :author {:username "alice"}}}]
+           [:realworld/delete-article {:slug "new"} {}]]]
+    (testing (str operation " " params)
+      (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+        (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c"
+                                                :token "jwt" :bio nil :image nil}] {:frame f})
+        (rf/dispatch-sync [:rf.resource/ensure {:resource :realworld/tags :params {}
+                                               :cause :test}] {:frame f})
+        (reply-success! @last-managed-args {:tags ["old-tag"]} f)
+        (is (= :loaded (:status (entry f (tags-key)))))
+        (rf/dispatch-sync [:rf.mutation/execute {:mutation operation :params params
+                                                :instance :test/article-write :cause :test}] {:frame f})
+        (reply-success! @last-managed-args result f)
+        (is (some? (:invalidated-at (entry f (tags-key))))
+            "article tags changed, so returning home must not reuse the fresh old list")
+        (reset! last-managed-args nil)
+        (rf/dispatch-sync [:rf.resource/ensure {:resource :realworld/tags :params {}
+                                               :cause :return-home}] {:frame f})
+        (is (= (app-http/full-url "/tags") (get-in @last-managed-args [:request :url]))
+            "the next ensure refetches even inside the one-minute freshness window")))))

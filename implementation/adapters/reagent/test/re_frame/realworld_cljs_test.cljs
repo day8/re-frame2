@@ -4325,3 +4325,21 @@
                       (is false (str "production-seam receipt did not settle: " (.-message e)))
                       nil))
             (.then (fn [_] (done))))))))
+
+(deftest settings-save-persists-the-refreshed-session-token
+  (let [persisted (atom [])
+        user {:email "alice@example.com" :username "alice" :token "jwt-new"
+              :bio "Updated" :image nil}]
+    (rf/reg-fx :realworld.test/capture-settings-token
+      (fn [_ {:keys [token]}] (swap! persisted conj token)))
+    (reg-canned-success! :realworld.test/settings-token-response {:user user})
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
+                        {:initial-events [[:app/initialise]]
+                         :fx-overrides {:rf.http/managed :realworld.test/settings-token-response
+                                        :auth.session/persist :realworld.test/capture-settings-token}})]
+      (rf/dispatch-sync [:auth/store-session (assoc user :token "jwt-old")] {:frame f})
+      (rf/dispatch-sync [:settings/load] {:frame f})
+      (rf/dispatch-sync [:settings/submit] {:frame f})
+      (is (= "jwt-new" (get-in (rf/app-db-value f) [:auth :token])))
+      (is (= ["jwt-new"] @persisted)
+          "the next cold boot must read the same credential as the live session"))))

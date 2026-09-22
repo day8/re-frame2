@@ -699,7 +699,8 @@
           {:db (-> db
                    (auth/store-session-db user)
                    (retire-save saved))
-           :fx [[:dispatch [:settings/form
+           :fx [[:auth.session/persist {:token (:token user)}]
+                [:dispatch [:settings/form
                             [:submit-succeeded {:user (dissoc user :token)}]]]
                 [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})))))
 
