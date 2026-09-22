@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
-"""Check that every `SKILL-REDIRECT.md -> *Label*` reference in the skills/ tree
-resolves to a real bullet label in the root SKILL-REDIRECT.md.
+"""Check that every label in the list after each `SKILL-REDIRECT.md ->` arrow in
+the skills/ tree resolves to a real bullet label in the root SKILL-REDIRECT.md.
 
 Anchor coupling (rf2-o2qrj). SKILL-REDIRECT.md is the single coupling point for
 deep-dive routing from the AI skills. Leaf files cite its bullet labels (e.g.
-`SKILL-REDIRECT.md -> *EP - Frames (002)*`). If SKILL-REDIRECT.md is renamed,
-restructured, or a bullet label drifts, every leaf citation goes stale silently.
+`SKILL-REDIRECT.md -> *EP - Frames (002)*`), often as a comma-separated list of
+several labels after one arrow. If SKILL-REDIRECT.md is renamed, restructured,
+or a bullet label drifts, every leaf citation goes stale silently.
+
+The census is the regression guard (rf2-8y1bo): at 2026-09-22 this read 83 label
+tokens over 171 skills/**/*.md, 0 broken, where reading only the FIRST label
+after each arrow saw 60. A green on a materially lower count means the list
+parse is stopping early -- a parser regression, not a pass. If a leaf ever uses
+a separator this cannot read, widen the alternation in NEXT_LABEL_RE by that one
+token; never loosen the label pattern into a general emphasis scan, or ordinary
+italic prose starts reading as a label.
 
 Run from the repo root:
     python3 scripts/check_skill_redirect_anchors.py
@@ -34,15 +43,31 @@ BULLET_LABEL_RE = re.compile(
     re.MULTILINE,
 )
 
-# Reference syntax in leaf files (any *.md under skills/):
-#   ... SKILL-REDIRECT.md -> *Label* ...           (single emphasis)
-#   ... SKILL-REDIRECT.md -> **Label** ...         (bold)
-#   ... `SKILL-REDIRECT.md` -> *Label* ...         (back-ticked redirect)
-# The label is the next *-delimited or **-delimited run after the arrow.
-# Arrow may be the Unicode -> (U+2192) or ASCII ->.
-REF_RE = re.compile(
-    r"SKILL-REDIRECT\.md`?\s*(?:→|->)\s*(?:\*\*|\*|__|_)([^*_\n`]+?)(?:\*\*|\*|__|_)",
+# Reference syntax in leaf files (any *.md under skills/): the file name, an
+# arrow, then ONE OR MORE emphasised labels. Authors write lists, e.g.
+#   `SKILL-REDIRECT.md` -> **A**, **B** §Section, *C* (gloss), and *D*.
+# Read after the arrow, repeatedly: [separator] <emphasised label> [§Section] [(gloss)]
+# with separator one of `,` `;` `and` `or` (absent before the first label).
+# The list ends at the first thing that is not an emphasised label, so italic
+# prose later in the sentence is never read as a label. Arrow may be the
+# Unicode -> (U+2192) or ASCII ->; the redirect name may be back-ticked.
+ARROW_RE = re.compile(r"SKILL-REDIRECT\.md`?\s*(?:→|->)")
+NEXT_LABEL_RE = re.compile(
+    r"\s*(?:,\s*(?:and\s+|or\s+)?|and\s+|or\s+|;\s*)?"   # separator (absent for the first label)
+    r"(?:\*\*|\*|__|_)([^*_\n`]+?)(?:\*\*|\*|__|_)"       # the emphasised label
+    r"(?:\s*§[^,;\n]*?(?=[,;]|\s*\(|$))?"                 # optional §Section qualifier
+    r"(?:\s*\([^)\n]*\))?"                                # optional (gloss)
 )
+
+
+def labels_on(line: str):
+    """Yield every raw label cited on one line, in order: every arrow, every list."""
+    for m in ARROW_RE.finditer(line):
+        pos = m.end()
+        while (n := NEXT_LABEL_RE.match(line, pos)):
+            yield n.group(1).strip()
+            pos = n.end()
+
 
 # Some leaf refs trail a "section" qualifier on the same label, e.g.
 #   *EP - State machines (005)* §Cancellation cascade
@@ -76,8 +101,7 @@ def main() -> int:
         except OSError:
             continue
         for lineno, line in enumerate(text.splitlines(), 1):
-            for m in REF_RE.finditer(line):
-                raw = m.group(1).strip()
+            for raw in labels_on(line):
                 refs.append((path, lineno, raw, normalise(raw)))
 
     broken = [(p, ln, raw, norm) for (p, ln, raw, norm) in refs if norm not in canonical]

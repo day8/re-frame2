@@ -159,7 +159,7 @@ Do not re-derive v1 mappings from training memory. Migration workflow + breaking
 
 ## Background reading (optional)
 
-For "why does it work this way?" or a feature whose shape isn't obvious. All route via `SKILL-REDIRECT.md` at the repo root: *Principles*, *Conventions*, *Construction prompts (AI-shaped templates)*, and the `EP — …` rows under §Spec corpus for design rationale.
+For "why does it work this way?" or a feature whose shape isn't obvious. All route via the repo-root table: `SKILL-REDIRECT.md` → *Principles*, *Conventions*, *Construction prompts (AI-shaped templates)*, and the `EP — …` rows under §Spec corpus for design rationale.
 
 ---
 
