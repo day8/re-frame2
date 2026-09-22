@@ -165,7 +165,20 @@ closed at commit `a4e1d6f5e6`. What each gate now has:
   wiring, not a runnable server, because that example's model is
   ClojureScript-only today. That is open on `rf2-8arzr.5`, reopened by the
   merged-PR audit of #8997; it does not affect the seam or the adapter, both of
-  which are exercised by the fixture-module job above.
+  which are exercised by the fixture-module job above. *(That gap closed later
+  the same day, at 2026-09-02T19:20:32Z: `rf2-8arzr.5` was discharged rather
+  than abandoned, by commit `5209470588` on PR #9054 — the blocker was narrower
+  than "ClojureScript-only", one client-only effect's `js/globalThis`, which a
+  JVM classpath had to READ even though `:platforms #{:client}` already refused
+  to RUN it, so a reader conditional makes the shared model JVM-loadable as
+  `examples/core/login/model.cljc`, `host.clj` requires it and publishes
+  `make-handler`, and
+  `implementation/ssr-ring/test/re_frame/ssr/ring/login_host_crossing_test.clj`
+  loads that host and drives it against a spawned sidecar over a real socket.
+  The complementary-halves reading above does not move: that witness still
+  drives a fixture render module, and the Fresco render is witnessed separately.
+  Left standing rather than rewritten because on this page the chronology is the
+  finding.)*
 
 **The "single largest unmeasured thing on this page" line retires.** §3's
 closing sentence said the compliant shape — JVM host, JVM payload, JVM shell,
