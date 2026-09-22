@@ -41,17 +41,13 @@ Do **not** use it for:
 
 ## How the migration runs (incremental)
 
-Report first, then a **closed subtree** at a time, leaf → root. That is the recommended default, not a hard wall: `h/as-component` mounts a converted view under a parent staying on Reagent, so a stranded leaf is never un-renderable. A Reagent `[:>]` crossing converts Clojure prop values first; use an `h/as-element` child or raw `r/create-element` props when those values must survive. For each candidate view the skill **gates the whole view first**: a hold keeps the *entire* view on Reagent, and a judgment call is decided with the author, then the whole view converts or the whole view stays — never a half-migrated body. It applies the M-tier rewrites to the clean views, cleans up the requires and the root last, then **runs the compile + test gates itself** and hands the programmer the **render** check before moving on.
-
-"Compiles" is emphatically not the done-bar. The three failures that cost most all compile clean, and the first is the migration's signature trap: **a leftover `#(dispatch …)` closure is passed to React by identity**, renders fine, and fails only at *click* time with `:rf.error/no-frame-context`. A surviving `^{:key …}` is the second — Fresco reads no metadata at all, so the key is simply absent and React reconciles by position. A Reagent introspection call is the third.
-
-The shipped test kit is the cheap half of proving a screen. `re-frame.fresco.test.mounted/shadow!` mounts the Reagent original and the Fresco candidate against isolated copies of the same seeded frame, drives one interaction script through both, and compares canonical DOM and the intent stream at each checkpoint — with a sabotage control first, because a comparator nobody has seen fail proves nothing.
+Report first, then a **closed subtree** at a time, gating each candidate view whole — a hold keeps the *entire* view on Reagent, and a judgment call is decided with the author before anything converts, so there is never a half-migrated body. The skill runs the compile and test gates itself and hands the programmer the **render** check, because "compiles" is emphatically not the done-bar: the failures that cost most all compile clean. The procedure, the traps and the shipped shadow-comparison test kit are in [`skills/reagent-migration/references/procedure.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/procedure.md).
 
 ## Where the skill lives
 
 - Source: [`skills/reagent-migration/`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration)
 - `SKILL.md`: [`skills/reagent-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md)
-- Tier catalogues: [`references/catalog-mechanical.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/catalog-mechanical.md) (M — do this), [`catalog-judgment.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/catalog-judgment.md) (D — how to decide), [`catalog-reject.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/catalog-reject.md) (R — stay on Reagent).
+- Reference leaves: [`skills/reagent-migration/references/`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration/references) — the skill [`README.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/README.md) §Layout lists every leaf, the three tier catalogues among them.
 - The migration reporter: [`migration/reagent-to-fresco/codemod/`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-fresco/codemod).
 - Fresco reference: its public door, [`implementation/fresco/src/re_frame/fresco.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/fresco/src/re_frame/fresco.cljc).
 - The required first step: [re-frame-migration (v1→v2)](re-frame-migration.md).

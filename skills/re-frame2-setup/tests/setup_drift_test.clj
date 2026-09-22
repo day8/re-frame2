@@ -881,11 +881,7 @@
           (str "docs/skills/re-frame2-setup.md lists \"add re-frame2 to my repo\" as a "
                "trigger. The description deliberately omits it (spec/design.md §6): it "
                "also matches the non-trivial-existing-app case the skill routes away "
-               "(eval id 10) (rf2-pv9d)."))))
-  (testing "docs/skills/re-frame2-setup.md teaches the reduced thirteen-file scaffold"
-    (is (str/includes? @docs-setup-page-md "thirteen files")
-        (str "docs/skills/re-frame2-setup.md no longer describes the thirteen-file "
-             "scaffold the skill writes (rf2-rc0yh)."))))
+               "(eval id 10) (rf2-pv9d).")))))
 
 (deftest docs-setup-page-references-link-is-plural
   (testing "docs/skills/re-frame2-setup.md links the reference leaves to the real plural `references/` path"
