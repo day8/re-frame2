@@ -9,12 +9,13 @@ Reach for this leaf when a compound state should **resume at the substate it was
 A history state is a **pseudo-state**: a node declared under a compound's `:states` map, alongside the compound's real substates, whose only role is to be a **transition target** that resolves to a recorded configuration. The machine never *occupies* it — a transition *to* it resolves to a real leaf, and that resolved leaf is what the snapshot's `:state` records.
 
 ```clojure
-;; A :player compound that resumes its last substate on :play, instead of
-;; restarting at :playing's :initial.
-{:player
- {:initial :stopped
-  :states {:stopped {:on {:play [:player :hist]}}        ;; :play targets the pseudo-state → restore
-           :hist    {:type :history
+;; This is the machine's :states map (use :initial :stopped at the root).
+;; :stop exits the compound and records it; :play restores that recording.
+{:stopped {:on {:play [:player :hist]}}
+ :player
+ {:initial :playing
+  :on {:stop :stopped}
+  :states {:hist    {:type :history
                      :deep? true                          ;; omit ⇒ SHALLOW
                      :default-target :playing}            ;; omit ⇒ falls back to :player's :initial
            :playing {:initial :at-start
