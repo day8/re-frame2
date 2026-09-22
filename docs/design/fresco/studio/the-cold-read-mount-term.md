@@ -351,8 +351,12 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > because the sampling here is continuous rather than spaced, not because the
 > box was busier.
 >
-> Raw driver output for all three runs is committed beside the instrument at
-> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-07rnj/`
+> Raw driver output for all three runs is in the bench run corpus, which lives
+> in git history rather than on `main` (`rf2-6c12m.6`). The corpus is the tree
+> at commit `7b492b98cb`; one command restores it —
+> `node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore` —
+> into a git-ignored `data/`, so a restored record never lands in a commit.
+> This window's records are `data/readprofile-07rnj/`
 > (`run1.txt`, `run2.txt`, `run3.txt` — `.txt` because the repo ignores
 > `*.log`). Verbatim **except for one line per file**: the `shadow-cljs -
 > config:` banner, whose absolute path is replaced by `<worktree>` and marked
@@ -464,8 +468,12 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > that compile saturates this box; the bracket readings sit outside those
 > compiles.
 >
-> Raw driver output for all three runs is committed beside the instrument at
-> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-3l6hf/`
+> Raw driver output for all three runs is in the bench run corpus, which lives
+> in git history rather than on `main` (`rf2-6c12m.6`). The corpus is the tree
+> at commit `7b492b98cb`; one command restores it —
+> `node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore` —
+> into a git-ignored `data/`, so a restored record never lands in a commit.
+> This window's records are `data/readprofile-3l6hf/`
 > (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
 > `shadow-cljs - config:` banner line per file, whose absolute path is
 > replaced by `<worktree>` and marked inline as redacted — the portability
@@ -729,8 +737,12 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > stronger. One open PR on an unrelated surface and no other heavyweight worker in
 > flight, derived at start-up and re-derived before the edit.
 >
-> Raw driver output for all three runs is committed beside the instrument at
-> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-07rnj-retake/`
+> Raw driver output for all three runs is in the bench run corpus, which lives
+> in git history rather than on `main` (`rf2-6c12m.6`). The corpus is the tree
+> at commit `7b492b98cb`; one command restores it —
+> `node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore` —
+> into a git-ignored `data/`, so a restored record never lands in a commit.
+> This window's records are `data/readprofile-07rnj-retake/`
 > (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
 > `shadow-cljs - config:` banner line per file, whose absolute path is replaced by
 > `<worktree>` and marked inline as redacted — the portability gate refuses a
