@@ -197,7 +197,7 @@ mcp__re-frame2-pair__eval-cljs {
 ;; => {:only-in-a … :only-in-b … :common …}
 ```
 
-`frame-diff` matches `epoch-diff`'s semantics but across two frames instead of one epoch's before/after. Cross-check the cascades with `(rf/epoch-history <id>)` on each: variants that ran the same events but ended in different states usually diverge in their loaders. Full recipe: [`recipes.md` §Diff two variants of the same component](recipes.md#diff-two-variants-of-the-same-component).
+`frame-diff` matches `epoch-diff`'s semantics but across two frames instead of one epoch's before/after. Cross-check the cascades with `(re-frame.core/epoch-history <id>)` on each: variants that ran the same events but ended in different states usually diverge in their loaders. Full recipe: [`recipes.md` §Diff two variants of the same component](recipes.md#diff-two-variants-of-the-same-component).
 
 ## Common gotchas
 
