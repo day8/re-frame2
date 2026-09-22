@@ -1728,7 +1728,10 @@ def _in_repo_github_url_problems(
 # at `X/`, and `X/README.md` at `X/` unless an `index.md` sits beside it (in
 # which case the README is dropped). So `spec/README/` and `story/index/` are
 # 404s although both files are right there on disk — an arm that asked whether
-# some candidate file existed would pass all of them.
+# some candidate file existed would pass all of them. And the `name` in
+# `X/name.md` may itself carry dots — every page in `docs/api/` is named for
+# the namespace it documents — so a dot marks a static asset only once no page
+# has claimed the route (rf2-co91r).
 
 
 # A deliberate TWIN of `_STAGE` in mkdocs_hooks.py, which mirrors these two
@@ -1842,17 +1845,14 @@ def _site_url_problems(repo_root: Path, site_path: str) -> list[str]:
     shown = "" if staged else f"{docs_dir}/"
 
     last = site_path.rsplit("/", 1)[-1]
-    if "." in last:
-        if last.endswith(".md"):
-            return [
-                f"MkDocs publishes `{site_path}` at `{site_path[:-3]}/` — a "
-                "source filename is not a site URL"
-            ]
-        # Any other extension is a static file copied into the site verbatim,
-        # so existence is the whole question.
-        if (base / site_path).is_file():
-            return []
-        return [f"no file is published at `{site_path}` (looked for {shown}{site_path})"]
+    # A literal `.md` URL is a SOURCE FILENAME, and no route publishes at one.
+    # This stays ahead of every candidate below: `api/re-frame.http.md` would
+    # otherwise find `api/re-frame.http.md` on disk and pass as a page.
+    if last.endswith(".md"):
+        return [
+            f"MkDocs publishes `{site_path}` at `{site_path[:-3]}/` — a "
+            "source filename is not a site URL"
+        ]
 
     candidates: list[str] = []
     # `X/index.md` and `X/README.md` publish at `X/`, never at `X/index/` or
@@ -1870,6 +1870,22 @@ def _site_url_problems(repo_root: Path, site_path: str) -> list[str]:
     for candidate in candidates:
         if (base / candidate).is_file():
             return []
+
+    # rf2-co91r — ONLY NOW may a dot be read as a static file's extension.
+    # A DOT IN A PAGE'S BASENAME IS NOT AN EXTENSION: every page in `docs/api/`
+    # is named for the namespace it documents, so `re-frame.http.md` publishes
+    # at `re-frame.http/` exactly as `introduction.md` publishes at
+    # `introduction/`. Inferring "static asset" from the dot ALONE — before
+    # asking whether a Markdown page claims the route — reported all 23 of them
+    # as unpublished, which is the false rejection this ordering repairs.
+    # Existence is still the whole question for a real static file, because
+    # MkDocs copies it into the site verbatim.
+    if "." in last:
+        if (base / site_path).is_file():
+            return []
+        looked = ", ".join(shown + name for name in [*candidates, site_path])
+        return [f"no page or file is published at `{site_path}` (looked for {looked})"]
+
     looked = ", ".join(shown + candidate for candidate in candidates)
     return [f"no page builds at `{site_path}` (looked for {looked})"]
 
@@ -2814,6 +2830,16 @@ def _run_self_tests(verbose: bool = False) -> int:
         # the routes those same files really publish at, so the count falls to
         # 0 if route semantics are lost and rises to 6 if they are overdone.
         ("site_url_not_a_route",             3),
+        # rf2-co91r — the correction to the correction above. Route semantics
+        # were resolved AFTER a dot in the final segment was read as a static
+        # file's extension, so every dotted page basename — which is what all
+        # 23 of this repo's `docs/api/re-frame.*.md` pages are — resolved to a
+        # file that does not exist and was reported unpublished. The four
+        # sound URLs here read 0 only when candidates are tried FIRST; the
+        # three below are the teeth that a fix disarming the inference
+        # entirely would pull. Reads 5 if dotted pages stop resolving, and 0
+        # if the static-file and source-filename rejections are lost with it.
+        ("site_url_dotted_route",            3),
     ]
 
     failures = 0
@@ -4056,8 +4082,16 @@ def _run_self_tests(verbose: bool = False) -> int:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
+        # The trailing constant counts the PASS lines the four lists above do
+        # NOT cover: three duplicate-anchor diagnostics, plus the manifest
+        # derivation, placement-key, source-scan roster, untracked-scratch and
+        # placement-mutation checks. It read 4 while eight such lines were
+        # emitted, so this total ran four short of the PASS lines on screen
+        # (rf2-co91r) — which matters because the total is the number a worker
+        # quotes when showing that a change ADDED self-tests. Keep it equal to
+        # the PASS-line count: `--self-test --verbose | grep -c 'self-test PASS'`.
         sys.stderr.write(
-            f"all {len(cases) + len(teeth_cases) + len(extraction_cases) + len(fence_cases) + 4} "
+            f"all {len(cases) + len(teeth_cases) + len(extraction_cases) + len(fence_cases) + 8} "
             "self-tests passed.\n"
         )
     return 0
