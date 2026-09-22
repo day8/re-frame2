@@ -367,10 +367,11 @@ zero remaining uses** (a held D/R view keeps them alive):
           )
 ```
 
-**The `h` alias is load-bearing, not cosmetic.** `::h/value`, `::h/checked` and
-`::h/prevent` are auto-resolved keywords that read `:re-frame.fresco/…` through
-that alias. Alias it anything else and the markers you write are different
-keywords that nothing substitutes.
+**Resolve markers through the Fresco namespace.** The conventional `h` alias
+makes `::h/value`, `::h/checked` and `::h/prevent` read `:re-frame.fresco/…`.
+An existing alias works too if used consistently: `[re-frame.fresco :as fresco]`
+and `::fresco/value` name the same keyword. An unqualified `::value` instead
+resolves in the consumer's namespace and is not a Fresco marker.
 
 The optional modules are separate requires and are **absent when unused** —
 that is the point of them, so do not add one speculatively:
@@ -417,22 +418,31 @@ Three things to carry: a branch value that is neither a vector nor a function is
 the queued `case` became a synchronous drain, so MIG-04 / 05's one check applies
 to this rewrite too.
 
-## MIG-34 — `dangerouslySetInnerHTML` converts, and that is the problem
+## MIG-34 — `dangerouslySetInnerHTML`: unwrap working sites, review inert ones
 
-**Fresco has no trusted-markup verb, and it does not need one: the prop passes
-straight through to React.** So the view converts with no edit at all — and that
-is precisely why it needs flagging rather than skipping.
+**Fresco uses React's `{:__html html}` prop value; it has no trusted-markup
+verb.** Stock Reagent 2.0.1 accepts an `r/unsafe-html` wrapper and unwraps it
+before calling React. Fresco does not recognise that Reagent object, so a
+working site needs this value rewrite:
 
-Reagent **deleted** this prop unless it was wrapped; Fresco **passes it
-through**. A site that was inert under Reagent becomes live under Fresco —
-markup that has not been rendered for however long this code has existed starts
-being injected. The codemod reports every such site as `:dangerous-html`, a
-runtime blocker, for exactly this reason.
+```clojure
+;; before — the string has already passed the app's existing trust policy
+[:div {:dangerouslySetInnerHTML (r/unsafe-html trusted-html)}]
+;; after — preserve that same string and its trust policy
+[:div {:dangerouslySetInnerHTML {:__html trusted-html}}]
+```
 
-So: do not rewrite it, **do** surface it to the author, with the question that
-matters — *is this string still trusted?* Whatever cleared the markup before has
-to be shown to still be clearing it, because for these sites it may never have
-been exercised.
+Leaving `r/unsafe-html` in place sends an object without React's `__html` field
+and React refuses it. Keep the app's sanitisation or trusted-source decision;
+neither wrapper sanitises HTML.
+
+**A plain `{:__html html}` already in the Reagent source is a different case.**
+Stock Reagent 2.0.1 deleted that unwrapped prop; Fresco passes it through, so
+previously inert markup starts being injected. Surface that behaviour change
+to the author and establish that the string is still trusted before retaining
+it. Reagent-slim already accepts the plain map, so check the actual donor
+rather than claiming every site becomes live. The codemod flags crossings as
+`:dangerous-html` for review; it does not perform this value rewrite.
 
 One further trap: only the camel spelling reaches React.
 `:dangerously-set-inner-html` emits `dangerouslySetInnerHtml` (lowercase `tml`)

@@ -148,9 +148,9 @@ Two things to do *before* you call a view converted:
 
 - **Requires (MIG-24):** add `[re-frame.fresco :as h]`; drop `reagent.*`
   requires **only** when the namespace has zero remaining uses (a held view
-  keeps them). The `h` alias is load-bearing — `::h/value`, `::h/checked` and
-  `::h/prevent` auto-resolve through it, so a different alias silently writes
-  different keywords. Add an optional module (`.forms`, `.motion`, `.overlay`,
+  keeps them). Resolve `::h/value`, `::h/checked` and `::h/prevent` through
+  the Fresco alias; another alias used consistently resolves the same keywords
+  (MIG-24). Add an optional module (`.forms`, `.motion`, `.overlay`,
   `.native`) only where one is actually used; they are absent when unused and
   that is the point of them.
 - **Root (MIG-15):** once per root, and in this order — `rf/init!` (nothing

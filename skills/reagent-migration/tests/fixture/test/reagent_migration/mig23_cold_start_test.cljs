@@ -36,6 +36,8 @@
   Run from skills/reagent-migration/tests/fixture/:
       npm install && npm run test:cold-start"
   (:require [cljs.test :refer [deftest testing is]]
+            ["react-dom/server" :as react-server]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.ssr :as rf.ssr]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -106,3 +108,20 @@
       (rf/init! rf.adapter.reagent/adapter)
       (is (identical? spec (rf/current-adapter))
           "a reload-path rf/init! re-run is a no-op — the hydration/HMR path never reinstalls"))))
+
+(deftest mig34-preserve-working-unsafe-html
+  (let [html "<b>already trusted</b>"
+        wrapped (r/unsafe-html html)
+        render #(react-server/renderToStaticMarkup %)
+        original (render (r/as-element [:div {:dangerouslySetInnerHTML wrapped}]))]
+    (is (= "<div><b>already trusted</b></div>" original)
+        "the stock Reagent donor really renders its wrapped HTML")
+    (is (thrown-with-msg? js/Error #"__html"
+          (render (rf.fresco/as-element [:div {:dangerouslySetInnerHTML wrapped}]))))
+    (is (= original
+           (render (rf.fresco/as-element [:div {:dangerouslySetInnerHTML {:__html html}}])))
+        "MIG-34 replaces the donor wrapper and preserves the rendered bytes")
+    (is (= "<div></div>"
+           (render (r/as-element [:div {:dangerouslySetInnerHTML {:__html html}}]))))
+    (is (= :re-frame.fresco/value ::rf.fresco/value)
+        "the existing Fresco alias resolves the same marker namespace")))
