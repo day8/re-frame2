@@ -1,11 +1,11 @@
 (ns re-frame2-pair.runtime-recording-test
   (:require [cljs.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame2-pair.runtime :as rt]))
 
 (defn- with-recording [opts f]
-  (rf/init! plain-atom/adapter)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (let [frame-id :review/recording
         pending (atom nil)
         raf (.-requestAnimationFrame js/globalThis)
