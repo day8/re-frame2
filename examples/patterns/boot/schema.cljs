@@ -78,8 +78,10 @@
 ;;
 ;; The boot machine's snapshot lives in runtime-db. Its `:state` walks
 ;; `:configuring → :loading-deps → :hydrating → :ready` (terminal), branching
-;; to `:failed` (terminal) if any child errors. `:data` carries the current
-;; phase and the loaded payloads.
+;; to `:failed` (terminal) if any child errors. `:data` carries the loaded
+;; payloads and the recorded error — and nothing else. Which phase the boot is
+;; in is the `:state` slot's job; duplicating it into `:data` would give the
+;; page two answers to one question and a way for them to disagree.
 ;;
 ;; `BootData` describes the `:data` slot only — not the whole
 ;; `{:state … :data …}` snapshot — and attaches through the machine's
@@ -88,7 +90,6 @@
 
 (def BootData
   [:map
-   [:phase  [:maybe :keyword]]
    [:config [:maybe Config]]
    [:flags  [:maybe Flags]]
    [:user   [:maybe User]]
@@ -99,23 +100,24 @@
 ;; CHILD LOADER :data SHAPE — :boot/loader (one instance per asset)
 ;; ============================================================================
 ;;
-;; The `:data` of a `:boot/loader` child. Each loader knows the parent-id,
-;; child-id, staging-key, and URL it was spawned with, fetches once, and on
-;; reaching `:done` (or `:failed`) reports `:boot/asset-loaded` (or
-;; `:boot/asset-failed`) back to its parent. It attaches through the child's
+;; The `:data` of a `:boot/loader` child. Each loader knows the one URL it was
+;; spawned with, fetches it once, and finishes by reaching a `:final?` leaf —
+;; `:done` on success, `:failed` (which is `:error? true`) on failure. It
+;; dispatches nothing and names no parent vocabulary: `:output-key` on the leaf
+;; names the `:data` slot the runtime lifts as the child's result, and the
+;; parent's `:on-done` folds it. It attaches through the child's
 ;; `[:schemas :data]` slot on `(reg-machine :boot/loader ...)` in `boot.cljs`,
 ;; describing `:data` only and checking each spawned instance at spawn time.
-;; At spawn the parent plants identity and nothing else, so the result fields
+;; At spawn the parent plants the URL and nothing else, so the result fields
 ;; below are optional — they show up later, as the loader works through
 ;; `:loading` into `:done` / `:failed`.
 
 (def LoaderData
   [:map
-   ;; The identity the parent's `:data` fn plants — there from spawn (see
-   ;; :app/boot in boot.cljs).
-   [:parent-id   :keyword]
-   [:child-id    :keyword]
-   [:staging-key :keyword]
+   ;; The one thing the parent's `:data` fn plants — there from spawn (see
+   ;; :app/boot in boot.cljs). Which asset this loader IS, it never needs to
+   ;; know: the spawn `:id` tells the parent apart, and `:rf/self-id` below is
+   ;; how the reply finds its way home.
    [:url         :string]
    ;; Written only once the fetch replies — the `:asset/replied` action sets
    ;; one of :payload / :error. Nothing at spawn, hence optional.

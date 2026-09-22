@@ -50,6 +50,15 @@
 ;; `run` slots this stub in as the frame's `:rf.http/managed` via
 ;; `:fx-overrides`, and each reply rides `:rf.http/managed-canned-success` so
 ;; it looks exactly like the real thing.
+;;
+;; The failure seam. A boot's `:failed` branch is the half readers most want to
+;; SEE, and a stub that can only succeed is a stub that hides it — so
+;; `:fail-next-boot?` is read from app-db at request time and, when armed, the
+;; next `/user.json` load answers a 503 instead. That URL is the interesting
+;; one: it fails inside the `:spawn-all`, so you also watch `:on-any-failed`
+;; cancel its two siblings on the way to `:failed`. The flag is a ONE-SHOT —
+;; the stub disarms it as it fires — so the Retry button on the failure screen
+;; boots cleanly and the whole arc is two clicks.
 
 (def ^:private demo-config
   {:api-base "/api"
@@ -87,6 +96,12 @@
 ;; you'd blink straight to the `:ready` screen.
 (def ^:private reply-delay-ms 60)
 
+;; The one URL the "Fail the next boot" toggle rigs. Picked because it is
+;; loaded inside the `:spawn-all` fan-out rather than by the lone
+;; `:configuring` child, so failing it exercises the join's `:on-any-failed`
+;; as well as the boot's own `:failed` screen.
+(def ^:private fail-url-fragment "/user.json")
+
 (rf/reg-fx :boot.demo/http-stub
   {:doc       "Our stand-in for `:rf.http/managed`: match the URL by
                substring to pick a canned payload, then DELEGATE to the
@@ -94,6 +109,11 @@
                it the payload as `:value` and `reply-delay-ms` as
                `:after-ms`. With no server behind the example, that's all it
                takes to fake the backend.
+
+               Reads the `:fail-next-boot?` app-db flag at request time:
+               when armed, the `/user.json` load answers a 503 through
+               `:rf.http/managed-canned-failure` instead, and the stub
+               disarms the flag on its way past so the next boot is clean.
 
                The framework canned-success handler owns everything about
                the delayed reply: `:after-ms` defers it via the
@@ -106,17 +126,57 @@
                transport plumbing is entirely the framework's."
    :platforms #{:server :client}}
   (fn fx-managed-boot-demo [frame-ctx args-map]
-    (let [url            (-> args-map :request :url)
-          payload        (demo-payload-for-url url)
-          canned-success (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-      ;; Delegate to the framework canned-success handler. Passing `frame-ctx`
-      ;; straight through preserves the `:frame` stamp and the originating
-      ;; `:event`, so the deferred reply is addressed to the loader that
-      ;; issued the GET — the handler's own `:after-ms` plumbing carries that
-      ;; origin across the `:dispatch-later` boundary.
-      (canned-success frame-ctx
-                      (assoc args-map :value    payload
-                                      :after-ms reply-delay-ms)))))
+    (let [url   (-> args-map :request :url)
+          ;; The fx context carries the envelope frame as `:frame`. The
+          ;; `:fail-next-boot?` toggle is an ordinary app-db slice (written by
+          ;; `:boot.demo/set-fail-next`), so read it off the frame's APP-db
+          ;; partition (`:rf.db/app`) — app state lives there, not in the
+          ;; `:rf.db/runtime` partition, which is framework runtime only.
+          db    (:rf.db/app (rf/frame-state-value (:frame frame-ctx)))
+          fail? (and (str/includes? (str url) fail-url-fragment)
+                     (boolean (:fail-next-boot? db)))]
+      (if fail?
+        ;; Armed: answer this one load with a 503 so the boot takes its
+        ;; `:failed` branch. Disarm first (it's a one-shot), then hand off to
+        ;; the canned-failure fx — its reply rides `:after-ms` →
+        ;; `:dispatch-later` exactly as the success path does. The
+        ;; canned-failure args contract (Spec 014 §Testing) is top-level
+        ;; `:kind` + `:tags`: the tags merge into the classified failure map
+        ;; the reply carries under `:error`, which is what the loader's
+        ;; `:failed` leaf lifts as its `:output-key` and what the boot's
+        ;; `:record-failure` finally puts on the error screen.
+        (let [canned-failure (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
+          (rf/dispatch [:boot.demo/set-fail-next false])
+          (canned-failure frame-ctx
+                          (assoc args-map
+                                 :after-ms reply-delay-ms
+                                 :kind     :rf.http/http-5xx
+                                 :tags     {:status  503
+                                            :message "Simulated /user.json outage (the demo's failure seam)."})))
+        ;; Otherwise the ordinary happy path. Delegate to the framework
+        ;; canned-success handler. Passing `frame-ctx` straight through
+        ;; preserves the `:frame` stamp and the originating `:event`, so the
+        ;; deferred reply is addressed to the loader that issued the GET — the
+        ;; handler's own `:after-ms` plumbing carries that origin across the
+        ;; `:dispatch-later` boundary.
+        (let [canned-success (rf.registrar/handler :fx :rf.http/managed-canned-success)]
+          (canned-success frame-ctx
+                          (assoc args-map :value    (demo-payload-for-url url)
+                                          :after-ms reply-delay-ms)))))))
+
+;; The toggle itself: an ordinary app-db slice in the ordinary loop — an event
+;; writes it, a sub reads it, the view reads the sub. It is demo chrome rather
+;; than boot state, which is why it lives out here beside the fake backend it
+;; rigs and not in the boot machine's `:data`.
+
+(rf/reg-event :boot.demo/set-fail-next
+  {:doc "Arm or disarm the one-shot '/user.json answers 503' seam. The stub
+         disarms it as it fires, so a Retry after the failure screen boots
+         cleanly without the reader having to untick anything."}
+  (fn handler-set-fail-next [{:keys [db]} [_ on?]]
+    {:db (assoc db :fail-next-boot? (boolean on?))}))
+
+(rf/reg-sub :boot.demo/fail-next? (fn [db _] (boolean (:fail-next-boot? db))))
 
 ;; ============================================================================
 ;; MOUNT

@@ -334,8 +334,7 @@
              :cancel          {:target :cancelled :action :stamp-outcome}}}
 
     :complete
-    {:meta {:terminal? false}
-     :tags #{:flow/complete :flow/terminal}
+    {:tags #{:flow/complete :flow/terminal}
      :on   {:reset {:target :idle :action :reset-progress}}}
 
     :cancelled
