@@ -8,10 +8,10 @@
             [malli.core :as m]
             [malli.error :as me]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.test-fixture :as fixture]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-(use-fixtures :each fixture/reset-runtime)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (def ^:private skill-page
   (-> (io/resource "re_frame/ssr_skill_form_action_test.clj") io/file
@@ -70,7 +70,7 @@
   (doseq [debug? [true false]
           quantity [0 "abc"]]
     (testing (str "debug=" debug? ", quantity=" (pr-str quantity))
-      (with-redefs [interop/debug-enabled? debug?]
+      (with-redefs [rf.interop/debug-enabled? debug?]
         (let [{:keys [db fx]} (dispatch-action
                                {:item-id "sku-1" :quantity quantity
                                 :csrf-token "tok-abc"})]
