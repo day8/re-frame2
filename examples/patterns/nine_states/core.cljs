@@ -130,6 +130,14 @@
    arbitration lives in the managed-HTTP boundary instead of in a
    hand-rolled ownership check.
 
+   Note the exact reach of that, because it is easy to over-read. This id
+   arbitrates REQUESTS. It cannot arbitrate a writer that is not a request
+   — which is why a valid submit dispatches `:items-appended` rather than
+   impersonating a reply with a `:fetch-started` / `:fetch-succeeded` pair.
+   A synthetic `:fetch-succeeded` would take `:loading`'s reply transition
+   away from the load that is genuinely in flight, and no `:request-id`
+   can see that, because there is no second request to supersede.
+
    So read it as ownership, not as tracing metadata. It is deliberately
    the same id for the succeeding and the failing load, because they
    compete for the same slot — an old failure must not be able to park
@@ -338,6 +346,16 @@
                  (assoc :items (vec items))
                  (assoc :error nil))})
 
+    :conj-item
+    ;; The LOCAL half of "items changed": one row appended by the user,
+    ;; carried on `[:items-appended {:item {…}}]`. Deliberately separate from
+    ;; `:set-items`, which REPLACES the list with a server's answer. Both end
+    ;; up at `:resolving` so the cardinality cascade stays the one place a
+    ;; bucket is chosen — that is the property worth keeping — but only one
+    ;; of them is a fetch reply, and the machine now says which is which.
+    (fn action-conj-item [{data :data [_ {:keys [item]}] :event}]
+      {:data (update data :items (fnil conj []) item)})
+
     :set-error
     (fn action-set-error [{data :data [_ {:keys [failure]}] :event}]
       {:data (assoc data :error failure)})
@@ -375,8 +393,9 @@
      {:nothing
       ;; State 1 — never fetched. The welcome screen.
       {:tags #{:data/nothing}
-       :on   {:fetch-started :loading
-              :reset         {:target :nothing :action :reset-domain}}}
+       :on   {:fetch-started  :loading
+              :items-appended {:target :resolving :action :conj-item}
+              :reset          {:target :nothing :action :reset-domain}}}
 
       :loading
       ;; State 2 — a fetch is in flight. The :data/loading tag is what
@@ -399,13 +418,26 @@
                                 :action :set-items}
               :fetch-failed    {:target :error
                                 :action :set-error}
+              ;; A local append while a load is in flight. TARGETLESS on
+              ;; purpose: the action runs, the region STAYS in :loading, and
+              ;; the in-flight reply is still handled here rather than landing
+              ;; in a bucket that has no :fetch-succeeded of its own. Leaving
+              ;; :loading for :resolving here is the tempting spelling and it
+              ;; is the bug: it silently abandons the load the user asked for.
+              ;; The server list, when it arrives, is authoritative and
+              ;; replaces this append — a full-list load is a replacement, not
+              ;; a merge, and the one place cardinality is decided is still
+              ;; :resolving.
+              :items-appended  {:action :conj-item}
               :reset           {:target :nothing :action :reset-domain}}}
 
       :resolving
-      ;; A blink-and-you-miss-it microstep. :set-items has just written the
-      ;; new :items; now the cardinality guards race to claim it and the
-      ;; first match wins. The machine doesn't rest here — :always means it
-      ;; immediately moves on to whichever bucket fits.
+      ;; A blink-and-you-miss-it microstep. Whichever action just wrote
+      ;; :items — :set-items from a reply, or :conj-item from a submit — the
+      ;; cardinality guards now race to claim it and the first match wins.
+      ;; The machine doesn't rest here — :always means it immediately moves
+      ;; on to whichever bucket fits. Every route that changes :items ends up
+      ;; here, which is what keeps the count → bucket decision in ONE place.
       {:always [{:guard :empty?    :target :empty}
                 {:guard :one?      :target :one}
                 {:guard :too-many? :target :too-many}
@@ -413,28 +445,33 @@
 
       :empty
       {:tags #{:data/empty}
-       :on   {:fetch-started :loading
-              :reset         {:target :nothing :action :reset-domain}}}
+       :on   {:fetch-started  :loading
+              :items-appended {:target :resolving :action :conj-item}
+              :reset          {:target :nothing :action :reset-domain}}}
 
       :one
       {:tags #{:data/one}
-       :on   {:fetch-started :loading
-              :reset         {:target :nothing :action :reset-domain}}}
+       :on   {:fetch-started  :loading
+              :items-appended {:target :resolving :action :conj-item}
+              :reset          {:target :nothing :action :reset-domain}}}
 
       :some
       {:tags #{:data/some}
-       :on   {:fetch-started :loading
-              :reset         {:target :nothing :action :reset-domain}}}
+       :on   {:fetch-started  :loading
+              :items-appended {:target :resolving :action :conj-item}
+              :reset          {:target :nothing :action :reset-domain}}}
 
       :too-many
       {:tags #{:data/too-many}
-       :on   {:fetch-started :loading
-              :reset         {:target :nothing :action :reset-domain}}}
+       :on   {:fetch-started  :loading
+              :items-appended {:target :resolving :action :conj-item}
+              :reset          {:target :nothing :action :reset-domain}}}
 
       :error
       {:tags #{:data/error}
-       :on   {:fetch-started :loading
-              :reset         {:target :nothing :action :reset-domain}}}}}
+       :on   {:fetch-started  :loading
+              :items-appended {:target :resolving :action :conj-item}
+              :reset          {:target :nothing :action :reset-domain}}}}}
 
     ;; ---- :form region — form lifecycle ----
     :form
@@ -594,19 +631,21 @@
   {:doc "The submit button. Validate the draft and fork:
          invalid → :submit-invalid and the :form region lands in
          :incorrect. Valid → append the new todo to the machine's items
-         (via :fetch-succeeded), clear the draft, and broadcast
+         (via :items-appended), clear the draft, and broadcast
          :submit-valid so the :form region lands in :correct."
    ;; The new todo's id comes from a recordable coeffect, not a
    ;; `(random-uuid)` read here at the write site (see the
    ;; `:new-todo/todo-id` reg-cofx above). That's what keeps replay
    ;; handing back the same id every time.
    :rf.cofx/requires [:new-todo/todo-id]}
-  ;; A machine snapshot is durable runtime-db state, so we read it from the
-  ;; `:rf.db/runtime` coeffect rather than from app-db.
-  (fn handler-new-todo-submit [{:keys [db] rt :rf.db/runtime new-id :new-todo/todo-id} _]
+  ;; Note this handler no longer reads the machine snapshot at all. It used
+  ;; to, to build `(conj current-items new)` for the synthetic reply below —
+  ;; handing the machine a whole new list, computed outside it, from a value
+  ;; that could be one macrostep stale. Appending is the machine's own job
+  ;; now, so the handler carries only the row.
+  (fn handler-new-todo-submit [{:keys [db] new-id :new-todo/todo-id} _]
     (let [draft  (get-in db [:new-todo :draft])
-          errors (validate-new-todo draft)
-          items  (get-in rt [:rf.runtime/machines :snapshots :ui/nine-states :data :items])]
+          errors (validate-new-todo draft)]
       (if (seq errors)
         ;; Invalid. Stash the errors and mark every offending field as
         ;; touched, which is what lets those errors actually show.
@@ -615,21 +654,30 @@
                  (assoc-in [:new-todo :touched] (set (keys errors))))
          :fx [[:dispatch [:ui/nine-states [:submit-invalid]]]]}
         ;; Valid. Append the todo and clear the form. Note we don't quietly
-        ;; poke :items — we go the long way round, through the data region's
-        ;; real lifecycle (:loading → :resolving), so the :always-cascade
-        ;; re-counts and re-picks the cardinality bucket. One canonical path
-        ;; for changing items means one place the cardinality is decided.
-        (let [new-items (conj (vec items)
-                              {:id     new-id
-                               :title  (:title draft)
-                               :done?  false})]
-          {:db (-> db
-                   (assoc-in [:new-todo :draft]   {:title ""})
-                   (assoc-in [:new-todo :errors]  {})
-                   (assoc-in [:new-todo :touched] #{}))
-           :fx [[:dispatch [:ui/nine-states [:fetch-started]]]
-                [:dispatch [:ui/nine-states [:fetch-succeeded {:items new-items}]]]
-                [:dispatch [:ui/nine-states [:submit-valid]]]]})))))
+        ;; poke :items — we hand the row to the machine as `:items-appended`
+        ;; and let the data region's own `:resolving` cascade re-count and
+        ;; re-pick the cardinality bucket. One place decides cardinality,
+        ;; which is the property worth having.
+        ;;
+        ;; And note what this is NOT. It used to dispatch the fetch PAIR —
+        ;; `:fetch-started` then `:fetch-succeeded {:items (conj current new)}`
+        ;; — to reach `:resolving` the "long way round". That impersonates a
+        ;; reply: on a real transport, with a load actually in flight,
+        ;; `:loading` consumes the synthetic `:fetch-succeeded` and leaves for
+        ;; a bucket, and when the genuine reply lands no bucket handles
+        ;; `:fetch-succeeded`, so the user's load is silently discarded while
+        ;; the page says "✓ Todo added." over the old list. `data-load-request-id`
+        ;; cannot close that window, because the competing writer is not a
+        ;; second request. A local append is its own event.
+        {:db (-> db
+                 (assoc-in [:new-todo :draft]   {:title ""})
+                 (assoc-in [:new-todo :errors]  {})
+                 (assoc-in [:new-todo :touched] #{}))
+         :fx [[:dispatch [:ui/nine-states
+                          [:items-appended {:item {:id    new-id
+                                                   :title (:title draft)
+                                                   :done? false}}]]]
+              [:dispatch [:ui/nine-states [:submit-valid]]]]}))))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS — slice readers + the render-model selector

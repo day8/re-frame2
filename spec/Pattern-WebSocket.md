@@ -50,8 +50,12 @@ The canonical states form a hierarchical machine. `:connecting`, `:authenticatin
 :active / *             --:ws/disconnect-->      :disconnected
 :reconnecting           --:after backoff-->      :active / :connecting
 :reconnecting           --:always max-retries--> :failed
+:reconnecting           --:ws/disconnect-->      :disconnected
 :failed                 --:ws/connect-->         :active / :connecting
+:failed                 --:ws/disconnect-->      :disconnected
 ```
+
+`:reconnecting` and `:failed` are siblings of `:active`, not leaves inside it, so neither inherits `:active`'s doors — each carries its own `:ws/disconnect`, and its own `:ws/send` / `:ws/request` enqueue transitions, or the offline queue would have a hole in exactly the two states a user is most likely to be sitting in.
 
 Per [005 §Transition resolution — deepest-wins with parent fallthrough](005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough), the doors *out* of `:active` — the `:ws/closed` drop, the `:ws/fatal` escape hatch, and the clean `:ws/disconnect` — are declared on `:active` once and inherited by every leaf, so every `:connecting`, `:authenticating`, and `:connected` exit path routes through the same parent-level transition. Each of those doors destroys the socket actor, so **each of them also settles the `:in-flight` request set on the way out** — see §Message correlation for request-reply, item 5.
 
@@ -297,6 +301,16 @@ The connection machine composes the locked substrate:
     ;; the wire as the payload — uncorrelated, never answered.)
     (fn [{:keys [data] event :event}]
       {:data (update data :queue conj event)})
+
+    :reset-retries
+    ;; A clean :ws/disconnect out of :reconnecting or :failed is the user
+    ;; saying "stop trying", not a connection failure — so the retry counter
+    ;; goes back to zero and the next manual :ws/connect gets a full budget
+    ;; rather than inheriting the abandoned run's. There is no :in-flight to
+    ;; settle here: both states already left :active, and the door that did
+    ;; so ran fail-in-flight on the way.
+    (fn [{:keys [data]}]
+      {:data (assoc data :retries 0)})
 
     :register-request
     ;; Caller: [:ws/request {:request-id ..., :body ..., :reply ...}].
@@ -549,12 +563,30 @@ The connection machine composes the locked substrate:
                            :action :record-and-reset}
               :ws/send    {:action :enqueue-message}
               :ws/request {:action :enqueue-message}
-              :ws/rotate-cred {:action :rotate-cred}}}
+              :ws/rotate-cred {:action :rotate-cred}
+              ;; The user giving up while we back off. Without this the
+              ;; Disconnect affordance is dead during :reconnecting, which
+              ;; is precisely when a user reaches for it.
+              :ws/disconnect  {:target :disconnected
+                               :action :reset-retries}}}
 
     :failed
+    ;; The offline queue contract is uniform: a send or request issued after
+    ;; we have given up still buffers, exactly as it does in :disconnected
+    ;; and :reconnecting. :failed is a top-level state, so it does NOT
+    ;; inherit :active's parent :ws/send / :ws/request enqueue transitions —
+    ;; it has to carry its own. :record-and-reset leaves :queue untouched, so
+    ;; a later manual :ws/connect reaches :connected and the :always
+    ;; :flush-queue drains whatever was buffered here. Without these, a send
+    ;; in :failed is unhandled and silently dropped: user-visible message
+    ;; loss, through the one door a user is most likely to be standing in.
     {:on {:ws/connect     {:target [:active]
                            :action :record-and-reset}
-          :ws/rotate-cred {:action :rotate-cred}}}}})
+          :ws/send        {:action :enqueue-message}
+          :ws/request     {:action :enqueue-message}
+          :ws/rotate-cred {:action :rotate-cred}
+          :ws/disconnect  {:target :disconnected
+                           :action :reset-retries}}}}})
 ```
 
 The `:websocket/socket` invoked actor is itself a small machine (or fx-backed event handler) that owns the JS `WebSocket` instance and translates `:open`, `:message`, `:error`, `:close` events into dispatches back to the parent connection machine. It is also where the opaque `:cred-ref` becomes a real credential: the actor resolves the reference inside its own host closure **at the auth write**, attaches the bearer to that wire frame, and lets it go out of scope in the same expression — the bearer never enters machine `:data` or a dispatch (see §Parameters). Resolve it in the enclosing scope instead and the socket handle, which is retained for the socket's whole life, closes over the bearer for just as long: a live credential parked host-side that no snapshot sweep can see. Every outgoing dispatch carries `:source-socket-id` (the actor's `:rf/self-id`, per [005 §Runtime stamps on the spawned actor's `:data`](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data)) so the parent's `:current-socket?` guard can suppress messages from a prior socket if one happens to dispatch in flight as the cascade tears it down. The actor's lifetime is bound to `:active` — leaving `:active` (whether to `:reconnecting` on error or `:failed` fatally) destroys it; re-entering `:active` creates a fresh socket.

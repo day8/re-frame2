@@ -110,6 +110,17 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
     (fn [{:keys [data] [_ err] :event}]
       {:data (assoc data :error err)})
 
+    :reset-boot
+    ;; The way back to :configuring from an error state (see the three :on
+    ;; slots below, and §Re-boot semantics). It clears the folded payloads
+    ;; as well as the error, and it has to: a downstream state that guards
+    ;; on ":config is loaded" would see the previous run's config and skip
+    ;; straight past the fetch it is meant to wait for. A bare :target
+    ;; leaves :data exactly as it was — which is why re-boot is a named
+    ;; action rather than a transition on its own.
+    (fn [{:keys [data]}]
+      {:data (assoc data :error nil :config nil :user nil)})
+
     :resolve-initial-route
     ;; Reads :route from URL and seeds the :route slice (per Spec 012).
     (fn [_ctx]
@@ -195,9 +206,19 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
      :on    {:boot/route-resolved {:target :ready}}}
 
     :ready          {:meta {:terminal? true}}
-    :auth-failed    {:meta {:terminal? true}}
-    :profile-failed {:meta {:terminal? true}}
-    :fatal-error    {:meta {:terminal? true}}}})
+    ;; Terminal, but not dead ends. Each error state accepts an ordinary
+    ;; re-entry event that runs the boot again from the top — see the Retry
+    ;; button in the progress-UI sketch below, and §Re-boot semantics for the
+    ;; general shape. It must be a real event: `:rf.machine/start` is a
+    ;; creation marker that goes inert once the machine exists (per
+    ;; [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)),
+    ;; so it cannot serve as a retry trigger.
+    :auth-failed    {:meta {:terminal? true}
+                     :on   {:boot/restart {:target :configuring :action :reset-boot}}}
+    :profile-failed {:meta {:terminal? true}
+                     :on   {:boot/restart {:target :configuring :action :reset-boot}}}
+    :fatal-error    {:meta {:terminal? true}
+                     :on   {:boot/restart {:target :configuring :action :reset-boot}}}}})
 ```
 
 The frame's `:initial-events` dispatch `[:app/boot [:rf.machine/start]]` (or the equivalent per the host); the machine self-initialises (per [005 §Restore semantics]) and runs. `:rf.machine/start` is the **only** reserved creation marker the runtime recognises (xstate parity with `createActor(m).start()`, per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)) — there is no `:rf/start`.
@@ -393,7 +414,11 @@ A view reads the machine snapshot through the framework-shipped `:rf/machine` su
       (#{:auth-failed :profile-failed :fatal-error} state)
       [:div.boot-error
        [:p (str "Couldn't start: " err)]
-       [:button {:on-click #(dispatch [:app/boot [:rf.machine/start]])} "Retry"]]
+       ;; An ordinary re-entry event, NOT the `:rf.machine/start` creation
+       ;; marker — the machine is alive by the time this screen renders, and
+       ;; a redundant marker on a live machine runs no cascade and emits
+       ;; nothing. The error states' `:on` maps above are what catch this.
+       [:button {:on-click #(dispatch [:app/boot [:boot/restart]])} "Retry"]]
 
       :else
       [:div.boot-progress
@@ -435,7 +460,7 @@ The two boots compose cleanly because the boot state machine's snapshot is a run
 
 In dev, hot-reload re-evaluates `reg-event` forms; surgical `make-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
 
-This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `destroy-frame!` + re-`make-frame` with the same config (which re-dispatches the recorded `:initial-events` — no dedicated reset verb, rf2-lxwpob) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
+This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `destroy-frame!` + re-`make-frame` with the same config (which re-dispatches the recorded `:initial-events` — no dedicated reset verb, rf2-lxwpob) or an **ordinary re-entry event the machine handles**, as [§Re-boot semantics](#re-boot-semantics) sets out. It is **not** `[:app/boot [:rf.machine/start]]`: that marker is spent once the machine exists, and a redundant one on an already-alive machine runs no cascade and emits nothing (per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)).
 
 ### Re-boot semantics
 
@@ -444,9 +469,18 @@ Some flows want explicit re-boot — session expired, the user logged out and ba
 ```clojure
 ;; Inside the machine spec, an :on slot at every state (or a wildcard root :on):
 :auth.session/expired {:target :authenticating}
+
+;; The same shape, from a terminal back to the top — what the error states in
+;; the worked example above carry. The named action is the load-bearing half:
+;; a transition changes :state and leaves :data untouched, so without it the
+;; previous run's folded payloads survive and a downstream guard reading them
+;; short-circuits the very fetch the re-boot exists to redo.
+:boot/restart {:target :configuring :action :reset-boot}
 ```
 
 Re-boot is rare; it is not the default. Most apps boot once per page load and re-load the page on session expiry.
+
+**The trigger is an ordinary app event, never `:rf.machine/start`.** That marker creates a machine; on one that already exists it runs no cascade and emits nothing, so a Retry button wired to it is a silent no-op. [examples/patterns/boot](../examples/patterns/boot/boot.cljs) is the worked shape: `:ready` and `:failed` both accept `:boot/restart` through one shared `:reset-boot` action, and its README spells out why the marker cannot serve here.
 
 ### Boot vs initial-route resolution
 
@@ -478,4 +512,5 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
 - [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — the retry-ownership rule the auth-machine worked example illustrates.
 - Boot-as-state-machine study — the Dash8 / rf8 study that surfaced the hybrid retry-ownership boundary.
+- [examples/patterns/boot](../examples/patterns/boot/boot.cljs) — the runnable worked example of this pattern: `:spawn` then `:spawn-all`, completion-by-finality, and the `:boot/restart` re-entry both terminals accept.
 - [examples/core/login/core.cljs](../examples/core/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.

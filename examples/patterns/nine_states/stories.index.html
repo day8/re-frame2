@@ -13,9 +13,17 @@
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="_shared/img/favicon.svg">
   <link rel="stylesheet" href="_shared/css/style.css">
+  <!-- Kept byte-identical to index.html below the <head> on purpose: nothing
+       serves this page today (both builds resolve index.html at `/`), and
+       whether it should be deleted or taught to the runner is an open call —
+       so it must not quietly acquire a different body in the meantime. The
+       aside is Xray's inline layout host; see index.html for the contract. -->
 </head>
 <body>
-  <div id="app"></div>
+  <div class="rf2-testbed-shell">
+    <main id="app"></main>
+    <aside data-rf-xray-host></aside>
+  </div>
   <script src="main.js"></script>
 </body>
 </html>
