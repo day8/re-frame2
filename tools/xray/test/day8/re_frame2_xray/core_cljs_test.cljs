@@ -141,8 +141,9 @@
 
 ;; ---- init! contract ----------------------------------------------------
 
-(deftest init!-no-opts-is-idempotent
-  (testing "init! wires the foundation side-effects; second call is no-op"
+(deftest init!-no-opts-is-safe-to-call-repeatedly
+  (testing "init! wires the foundation side-effects; a second call is SAFE
+            but is NOT a no-op"
     ;; First call wires registry + trace-cb + epoch-cb + browser-API
     ;; exports + keybinding. There is no view-evidence acquire step and
     ;; none is missing (rf2-l86mm): the Views panel's reads over the
@@ -158,8 +159,12 @@
     (core/init!)
     (is (some? (rf.registrar/handler :sub :rf.xray/target-frame))
         "registry/register-xray-handlers! ran")
-    ;; Second call: each sub-side-effect is defonce-guarded so the
-    ;; combined effect is a no-op. We just assert no throw.
+    ;; Second call (rf2-gpg26): INSTALLATION is deduplicated — each
+    ;; install sits behind a `defonce` sentinel atom flipped by
+    ;; `compare-and-set!` — but OPTION APPLICATION re-runs, so a repeat
+    ;; call is SAFE rather than a no-op. No opts are supplied here, so
+    ;; there is nothing to re-apply; we assert only that it does not
+    ;; throw.
     (core/init!)
     (is true "second init! did not throw")))
 
