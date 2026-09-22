@@ -101,7 +101,14 @@
        "preload entry to your shadow-cljs.edn:\n"
        "  :builds {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}\n"
        "and make sure the directory containing re_frame2_pair/runtime.cljs "
-       "is on :source-paths. See skills/re-frame2-pair/SKILL.md (§Setup)."))
+       "is on the build's CLASSPATH — which file owns that depends on the "
+       "top of your shadow-cljs.edn: under :deps it is an activated alias's "
+       ":extra-paths (or top-level :paths) in deps.edn; under :lein it is "
+       ":source-paths in project.clj; only for a standalone shadow app "
+       "(neither key) is it :source-paths in shadow-cljs.edn. Under :deps "
+       "or :lein shadow IGNORES a shadow-cljs.edn :source-paths key and "
+       "warns that it did — the namespace then never compiles and you land "
+       "back on this hint. See skills/re-frame2-pair/SKILL.md (§Setup)."))
 
 ;; ---------------------------------------------------------------------------
 ;; Diagnostic-ladder vocabulary.
