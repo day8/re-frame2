@@ -79,7 +79,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: I dispatched `[:profile/save ...]` but the name in the header isn't changing.
 >
-> **Claude**: The header reads `[:user/display-name]`. The last epoch's `:sub-runs` has `[:user/profile]` in it — that one re-ran — but `[:user/display-name]` is absent, so it cache-hit (value-equal recompute suppression). Your handler wrote to `[:user :pending-profile]`, not `[:user :profile]`. The upstream sub returned `=`, the equality gate held, the header didn't re-render. Want me to hot-swap the handler to write the intended path?
+> **Claude**: The header reads `[:user/display-name]`. The last epoch's `:sub-runs` has `[:user/profile]` in it — that one re-ran — and its recompute row has `:value-changed? false`. I also checked the mounted header's subscription inputs; absence of a downstream row alone would not prove a cache hit. Your handler wrote to `[:user :pending-profile]`, not `[:user :profile]`. The upstream sub returned `=`, the equality gate held, the header didn't re-render. Want me to hot-swap the handler to write the intended path?
 
 ### Jump from a click to the line of code
 
@@ -91,7 +91,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: What happens when I dispatch `[:cart/apply-coupon "SPRING25"]`?
 >
-> **Claude**: Interceptors: `path :shopping-cart`, handler; declared coeffects: `:rf/time-ms`. Effects map: `{:db ...}` only — no HTTP, no further dispatches. app-db diff: `:coupon` `nil` → `"SPRING25"`, `:total` `47.50` → `35.62`. Subs that re-ran (from `:sub-runs`): `[:cart/total]`, `[:cart/coupon-status]`. `[:cart/items]` is absent — cache-hit. One render in `:renders`: the total badge at `cart_view.cljs:23`. Pure handler, nothing outside the cart subtree touched.
+> **Claude**: Interceptors: `path :shopping-cart`, handler; declared coeffects: `:rf/time-ms`. Effects map: `{:db ...}` only — no HTTP, no further dispatches. app-db diff: `:coupon` `nil` → `"SPRING25"`, `:total` `47.50` → `35.62`. Subs that re-ran (from `:sub-runs`): `[:cart/total]`, `[:cart/coupon-status]`. `[:cart/items]` has no run row; I would need its skip trace or input evidence to call that a cache hit. One render in `:renders`: the total badge at `cart_view.cljs:23`. Pure handler, nothing outside the cart subtree touched.
 
 ### Watch events as they fire
 
@@ -149,6 +149,8 @@ Here's the kinds of conversations you can have with Claude.
 ## Install
 
 Both pieces install from a repo checkout — neither is published to npm yet (`@day8/re-frame2-pair-mcp` and the `@day8/re-frame2-pair` skill package are both marked `private`). See [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) for the full clone/link walk-through.
+
+The app also needs `day8/re-frame2-schemas` on its dev classpath: the preload directly requires `re-frame.schemas`, which core does not include. Match the app's core revision, or use this clone's `implementation/schemas` as a `:local/root`. For epoch reads, dry-run rollback and time travel, include `day8/re-frame2-epoch` and require `re-frame.epoch` at boot. These are app dependencies; installing the MCP server alone supplies neither.
 
 1. MCP server. Build and run it from a re-frame2 clone: `cd tools/re-frame2-pair-mcp && npm install && npm run build`, then point your Claude Code `mcpServers` entry at the compiled `out/server.js` — see [`docs/LOCAL_DEV.md` §MCP server from a clone](docs/LOCAL_DEV.md#mcp-server-from-a-clone) and [`tools/re-frame2-pair-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md) for the entry point and launch flags. (Once published: `npm install -g @day8/re-frame2-pair-mcp`.)
 2. Preload. The `re-frame2-pair.runtime` CLJS namespace ships in this skill's own `preload/` directory; the MCP server does not carry it. From a linked clone, put the absolute path to `skills/re-frame2-pair/preload/` on your app's build classpath (no package install) — **which file that is depends on the app**: a `:deps` app adds it to an activated alias's `:extra-paths` in `deps.edn`, a `:lein` app to `:source-paths` in `project.clj`, and a standalone shadow app to `:source-paths` in `shadow-cljs.edn`. shadow *ignores* its own `:source-paths` in the first two modes and warns that it did, so putting it there is the common way to get a preload that never loads — see `SKILL.md` §Setup for the branch and the snippets. The preload is required — without it `discover-app` refuses every session with `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis). (Once published: `npm install -D @day8/re-frame2-pair` and point at `node_modules/@day8/re-frame2-pair/preload`.)

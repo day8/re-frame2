@@ -44,7 +44,7 @@ The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `r
 - **Joining or cross-referencing** projection data — diffing two frames, correlating a sub-value against an app-db path, walking a cascade tree — where the answer is a *computation* over several reads, not a single read.
 - **Recovery — re-run the same query as `eval-cljs` when a structured read returns blank or errors.** A blank `read-dom` / `read-sub` / `read-ui` result usually means the OP (or its underlying eval form) is broken, NOT that the connection is stale. Re-issue the equivalent `eval-cljs` form to confirm the runtime is actually answering; if the eval returns the value, report the structured op as suspect (see [errors.md §A structured read came back blank](errors.md#a-structured-read-came-back-blank)).
 
-Every `eval-cljs` form takes the same `frame: ":foo"` arg the dedicated tools do — pass it in a multi-frame app so `(rf/subscribe …)` / `(rf/dispatch …)` inside the form resolve against the right frame.
+`eval-cljs` accepts `frame: ":foo"` to bind the form's synchronous execution to that frame. Pass it whenever the form uses implicit-frame core operations such as `re-frame.core/subscribe` or `re-frame.core/dispatch`, even in a single-frame app: eval does not inherit the session's operating-frame pin. A runtime helper that explicitly resolves its own frame, or a core call that names a frame itself, needs no extra binding. Across async callbacks capture a frame API with `re-frame.core/capture-frame`; `await: true` does not extend the binding's lifetime.
 
 ## "What is this app?" / First contact
 
@@ -84,8 +84,8 @@ Never read a whole frame to orient — `orient` already handed you the map. `sna
    mcp__re-frame2-pair__dispatch {event: "[:profile/save …]", settle: true}
    ```
    The result carries the full epoch including `:render-events`, plus a `:cascade-summary` with the `:renders` count.
-3. Walk the epoch's `:sub-runs` projection. **A sub that re-ran appears in the vector; a sub that cache-hit does not** (Spec-Schemas §`:rf/epoch-record` — value-equal recompute suppression is enforced by the runtime, so cache-hit subs do not emit `:rf.sub/run`).
-4. If the sub the view depends on isn't in `:sub-runs` for the cascade, the equality gate held; report the upstream sub whose return value was `=` to its previous value.
+3. Walk the epoch's `:sub-runs` projection. Each row records a `:rf.sub/run`; a `:rf.sub/skip` memo hit appears only in `:trace-events`. Absence from `:sub-runs` alone does not establish a cache hit: an unmounted or unread subscription can be absent too.
+4. Check `:value-changed?` on available recompute rows and the matching `:rf.sub/skip` traces before attributing the missing update to the equality gate. Cross-check the view's mounted state and subscription inputs; name an unchanged upstream value only when the evidence shows it.
 5. If the sub did re-run but the view didn't re-render, check `:renders` — the projection lists every render in the cascade with its `:render-key` and `:triggered-by`.
 6. To confirm whether the DOM *actually* changed (vs. the projection saying it should have), read what rendered: `read-ui {view-id: ":my.app/header"}` (returns content **and** the producing entity + its `subs-read`) or `read-dom {selector: "<the view's node>"}` (content-only by explicit selector). The data plane (`:sub-runs` / `:renders`) says what *should* have rendered; `read-ui` / `read-dom` say what's actually on screen. If the read comes back blank, re-run it as `eval-cljs` to confirm the op (not the runtime) is the suspect — see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse).
 
@@ -97,7 +97,7 @@ Fire the event and capture its full epoch in one call — `dispatch {event: "[:c
 - Coeffects injected (visible as `:event/run` tags in `:trace-events`)
 - Effects map — the `:effects` projection carries one entry per dispatched fx (successes included) with `:fx-id` / `:args` / `:outcome`; off-box each row's `:args` is `:rf/redacted` by default, and `:trace-events` carries the finer per-fx detail
 - `app-db` diff between `:db-before` and `:db-after`
-- Subs that re-ran (the `:sub-runs` projection); the absence of a sub from this list means it cache-hit
+- Subs that re-ran (the `:sub-runs` projection); use `:rf.sub/skip` traces for memo-hit evidence, not absence alone
 - Components that re-rendered (the `:renders` projection). Each row's `:render-key` is a **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` (Spec-Schemas `:rf/epoch-record` `:renders`), so resolve source coords from the **first** slot, not the whole tuple: `(first render-key)` is the registered view id you pass to `handler-meta {kind: "view", id: <view-id>}` to get `:ns` / `:line` / `:file`. When the first slot is `:rf.view/anonymous` (a plain Reagent fn, not `reg-view`-registered) `handler-meta` will return `:not-registered` — fall back to `read-ui`'s `:entity` `:view-id` / `:source-coord`, which resolves the producing entity directly. Passing the whole tuple as the `id` always yields `:not-registered`.
 
 Keep it short. One compact paragraph per domino.
@@ -200,7 +200,7 @@ When the user mentions a state machine (Spec 005), chain:
 
 ## Experiment loop
 
-**Reach for `dispatch-dry-run` first — the safe primitive for hypothesis-testing.** When the user says *"test this handler"* / *"try a dispatch"* / *"what would this event do?"*, you don't need the full baseline → restore → modify → re-dispatch dance, and you should **not** reach for a live `dispatch` or throwaway `eval-cljs` handler by default. `dispatch-dry-run {event: "[:foo …]"}` runs the whole cascade (reducer, interceptors, schema validation, machine transitions, sub-runs, renders) **without committing**: no fx execute, the framework auto-rolls-back app-db via `restore-epoch`. Returns the same `:cascade-summary` shape as `dispatch` plus `:would-fire-effects` (every fx that *would* have fired, with args). See [§"What would this event do?"](#what-would-this-event-do-dry-run). Use the manual loop below only when you need to **commit a change and compare two REAL epochs** — iterating on a handler's code, not just reading one consequence.
+**Reach for `dispatch-dry-run` first for hypothesis-testing of a registered event.** It suppresses declared effects and restores the actual pre-call frame-state on success. Check `:ok? true` and `:rolled-back? true`; the [dry-run recipe](#what-would-this-event-do-dry-run) explains its rollback prerequisites and observation limits. Use the manual loop below when you need a committed baseline or real effect execution.
 
 **Probing a *throwaway* handler — register, then dry-run.** `dispatch-dry-run` targets a **registered** event, so to test a hypothesis handler you wrote on the spot: register it with `eval-cljs`, then dry-run it — never drive it with a live `dispatch`:
 
@@ -209,9 +209,9 @@ mcp__re-frame2-pair__eval-cljs {form: "(re-frame.core/reg-event :exp/probe (fn [
 mcp__re-frame2-pair__dispatch-dry-run {event: "[:exp/probe]"}
 ```
 
-The dry-run rolls back, so even a misbehaving probe leaves the live app-db untouched. Tear the registration down (or just leave it — it's ephemeral and gone on full page reload).
+On `:ok? true` and `:rolled-back? true`, the dry-run restored the pre-call frame-state. Handle a refusal or rollback failure as described below. Tear the registration down (or just leave it — it's ephemeral and gone on full page reload).
 
-> **WARNING — a `reg-event` handler returning `{:db …}` REPLACES app-db wholesale; it does NOT merge.** `{:db <map>}` is the canonical "the new app-db is exactly this map" effect. A throwaway probe returning a bare literal — `(fn [_ _] {:db {:exp/x 1}})` — driven by a **live** `dispatch` (or an `eval-cljs` running the real cascade) nukes the *entire* frame's **app-db** (every boot-seeded slice), leaving only `{:exp/x 1}`, unrecoverable without `restore-epoch`. (Runtime-db — machine snapshots, routing, elision — is a *separate* partition a `:db` return can't touch, so it survives; a `:db` carrying a `:rf/runtime` key is a hard error, `:rf.error/legacy-runtime-root`.) An agent WILL hit this. Two safe paths: **(1) dry-run the probe** (above) — the rollback means even a `{:db …}` handler can't damage the live db; **(2) if you must commit, preserve the existing db** — destructure the `db` cofx (it IS the live app-db) and return `{:db (assoc db :exp/x 1)}`, never a bare literal map. Never test a `{:db …}` handler with a live `dispatch` against a frame whose state you can't afford to lose.
+> **WARNING — a `reg-event` handler returning `{:db …}` REPLACES app-db wholesale; it does NOT merge.** `{:db <map>}` is the canonical "the new app-db is exactly this map" effect. A throwaway probe returning a bare literal — `(fn [_ _] {:db {:exp/x 1}})` — driven by a **live** `dispatch` (or an `eval-cljs` running the real cascade) nukes the *entire* frame's **app-db** (every boot-seeded slice), leaving only `{:exp/x 1}`, unrecoverable without `restore-epoch`. (Runtime-db — machine snapshots, routing, elision — is a *separate* partition a `:db` return can't touch, so it survives; a `:db` carrying a `:rf/runtime` key is a hard error, `:rf.error/legacy-runtime-root`.) An agent WILL hit this. Two paths: **(1) dry-run the probe** (above) and verify `:rolled-back? true`; **(2) if you must commit, preserve the existing db** — destructure the `db` cofx (it IS the live app-db) and return `{:db (assoc db :exp/x 1)}`, never a bare literal map. Never test a `{:db …}` handler with a live `dispatch` against a frame whose state you can't afford to lose.
 
 **Why the manual loop works:** every version of the handler runs from the *same* starting `app-db`, on the same event — so any difference in the resulting epoch is attributable to *your edit*, nothing else. A controlled experiment, not fix-and-pray. re-frame2's first-class `restore-epoch` makes the loop fully closed — no adapter caveats.
 
@@ -234,7 +234,7 @@ Canonical procedure (commit-and-compare). It keeps **three** separate things, an
    mcp__re-frame2-pair__watch-epochs {limit: 1}
    ```
    Keep the response's `:head-id` as `pre-dispatch-epoch-id`. In the same breath run `handler-meta {kind: "event", id: ":foo"}` and keep its `:line` / `:column` / `:handler-fn-hash` as `pre-edit-handler-meta`. The tool **strips** the live handler function and returns `:handler-fn-hash` in its place — that hash is the wire key you capture and compare.
-   **If `:head-id` comes back `null` or absent, STOP — there is no anchor.** A frame that has never drained an event has an empty ring, and an empty ring holds nothing to rewind to. Say so, then either `dispatch-dry-run` (if reading one consequence answers the question) or ask the user to exercise the app once so a real pre-dispatch epoch exists. **Never substitute the baseline's result epoch** — that is exactly the confounded comparison this step exists to prevent.
+   **If `:head-id` comes back `null` or absent, STOP — there is no anchor.** A frame that has never drained an event has an empty ring, and an empty ring holds nothing to rewind to. Use `dispatch-dry-run` if a simulation answers the question; it restores a captured frame-state without requiring an existing epoch. For a committed comparison, establish an ordinary app epoch first, then capture it as the anchor. **Never substitute the baseline's result epoch** — that is exactly the confounded comparison this step exists to prevent.
 2. `dispatch {event: "[:foo …]", trace: true}` → observe baseline. Keep the resulting record's `:epoch-id` as `baseline-epoch-id` — **evidence for step 8, not a rewind target.** (The eval equivalent is `(re-frame2-pair.runtime/dispatch-and-collect [:foo …])`.)
 3. **Tell the user** which side effects in the cascade can't be rewound. Walk `:trace-events` for `:event/do-fx` involving non-pure fx (`:http`, navigation, localStorage, `:dispatch-later` that already landed) and warn before restoring.
 4. Rewind to **`pre-dispatch-epoch-id`** — the step-1 anchor, *not* `baseline-epoch-id` — with the **dedicated `restore-epoch` tool**, the canonical, audited undo. It reinstalls the whole **frame-state** (both partitions: app-db *and* runtime-db, so machine snapshots / routes / elision rewind too; side effects and transient host state do not):
@@ -256,7 +256,9 @@ Canonical procedure (commit-and-compare). It keeps **three** separate things, an
 
 ## "What would this event do?" (dry-run)
 
-**When the user wants an event's consequence WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the frame back via `restore-epoch` (reinstalls the whole frame-state — both partitions — so any machine/route mutation the simulated cascade made is rewound too, not just app-db). No fx execute; every fx that *would* have fired is enumerated with its args.
+**When the user wants to inspect an event while suppressing its declared effects.** `dispatch-dry-run` runs the reducer, interceptors, schema validation and machine transitions, captures declared effects, then reinstalls the actual pre-call frame-state through `replace-frame-state!`. The effect sink skips all fx bodies, including child dispatch effects, so their downstream events are not simulated. It does not synchronously flush renders or undo arbitrary side effects inside handlers or listeners.
+
+The call requires enabled epoch recording: the epoch artefact loaded, a debug build and positive history depth. Otherwise it refuses before dispatch (`:no-epoch-recorded`). It works on an empty ring and at depth 1 because rollback uses the captured state, not an epoch id. Proceed only on `:ok? true` with `:rolled-back? true`; `:rollback-failed` means the simulation ran and its state can still be live. Trace and epoch listeners can observe the temporary simulation even when rollback succeeds. The simulation and a synthetic `:rf.epoch/db-replaced` rollback record remain in history, subject to retention; rollback does not erase diagnostic history.
 
 ```
 mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
@@ -264,12 +266,12 @@ mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
 
 Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabulary for both) plus:
 
-- `:rolled-back? true` — the frame is unchanged after the simulation (the `restore-epoch` rewind reinstated the whole frame-state, both partitions).
+- `:rolled-back? true` — the frame is unchanged after the simulation (the replacement reinstated the captured frame-state, both partitions).
 - `:would-fire-effects [{:fx-id :http :args {...}} {:fx-id :navigate :args [...]}]` — the real-world impact, enumerated. Narrate this: *"checkout would POST to `/orders` and navigate to `:order-confirmation` — nothing has actually happened yet."*
 - `:db-state-after-simulation {...}` — the would-be app-db (what state the cascade *would* have committed).
 - `:cascade-summary {:db-diff {...} :outcome :ok\|:error ...}` — a schema violation surfaces as `:outcome :error`; the rollback still fires.
 
-**Privacy.** Dry-run commits nothing, but it IS an AI-facing read surface — `:db-state-after-simulation` and each `:would-fire-effects[*].args` slot are elided server-side under the same `--allow-sensitive-reads` posture as `snapshot` / `get-path` (gate OFF by default — see [`vocabulary.md` §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out)). That makes dry-run the **safer** path than a raw `eval-cljs` "what would happen?" loop for sensitive events.
+**Privacy.** Dry-run IS an AI-facing read surface — `:db-state-after-simulation` and each `:would-fire-effects[*].args` slot are elided server-side under the same `--allow-sensitive-reads` posture as `snapshot` / `get-path` (gate OFF by default — see [`vocabulary.md` §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out)). That makes dry-run the **safer** path than a raw `eval-cljs` "what would happen?" loop for sensitive events.
 
 Dry-run does **not** accept `:fx-overrides` (it rejects them with `:reason :fx-overrides-unsupported`): the effect sink records + skips every fx *before* override resolution, so an override could only "compose realistic conditions" by executing a body — the exact thing dry-run must not do. To simulate a canned http response you must `dispatch` (not dry-run) with `:fx-overrides` and roll back yourself. Use dry-run in place of the *baseline → restore → modify → re-dispatch* experiment loop when you only need to **read** the consequence once, not iterate on a handler.
 

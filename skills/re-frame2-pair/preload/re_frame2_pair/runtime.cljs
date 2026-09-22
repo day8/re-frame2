@@ -2002,256 +2002,96 @@
 ;; Dispatch dry-run
 ;; ---------------------------------------------------------------------------
 ;;
-;; "If I dispatch X, will it do what I expect?" answered without
-;; committing. The framework's dry-run EFFECT SINK
-;; (`re-frame.fx/*effect-sink*`, rf2-j538f7.39) + the existing
-;; `restore-epoch` primitive (Tool-Pair §Time-travel) compose into a
-;; dry-run that is STRUCTURALLY unable to execute an effect:
-;;
-;;   1. snapshot the head epoch-id (the rollback target)
-;;   2. bind `re-frame.fx/*effect-sink*` to a fresh atom. The sink
-;;      intercepts at the SINGLE universal effect executor (`do-fx`),
-;;      BEFORE any per-fx override resolution / reserved-fx dispatch /
-;;      user-handler invoke, so every fx the cascade WOULD fire is
-;;      RECORDED (source-ordered) and NONE executes — including
-;;      :dispatch / :dispatch-later, http, navigation, persisted writes,
-;;      machine spawn/destroy, flow registration, and any frame-image /
-;;      inline / hot-registered fx. No registrar enumeration: the
-;;      guarantee is executor-sited, so an image-only fx absent from
-;;      `(rf/registrations {:source :store :kind :fx})` cannot slip past it.
-;;   3. dispatch-sync — the reducer + interceptor chain run normally
-;;      (this is where schema validation lives, where the would-be db
-;;      shape comes from, where sub-runs / renders / machine
-;;      transitions trace); the cascade ASSEMBLES a real epoch
-;;   4. read the new head epoch (this IS the cascade-summary source)
-;;   5. restore-epoch back to the pre-call head — the framework's
-;;      canonical undo gesture rewinds db and trims the epoch ring. No
-;;      handler ran before this, so there is nothing external to unwind.
-;;
-;; The recorded fx calls AND the would-be epoch's cascade-summary
-;; project together into the response shape:
-;;
-;;   {:ok? true :dry-run? true :rolled-back? true
-;;    :cascade-summary {...}
-;;    :would-fire-effects [{:fx-id ... :args ...} ...]
-;;    :db-state-after-simulation <would-be-db>}
-;;
-;; Edge cases:
-;;
-;; - **`:dispatch` / `:dispatch-later`** — recorded by the sink as
-;;   would-fire entries; the recursive dispatch never happens. This is
-;;   the bead's `:max-effect-chain-depth 1` default: simulate this
-;;   event's reducer + its direct fx + LIST what those fx would
-;;   dispatch (don't simulate that next level).
-;; - **Schema violation** — the reducer's schema check fires the same
-;;   way; the epoch settles with the violation in `:trace-events`,
-;;   cascade-summary surfaces it via `:outcome`.
-;; - **Machine transitions** — the machine-step machinery runs (it's
-;;   pure data per Spec 005); transitions appear in the cascade
-;;   summary's `:machine-transitions` slot. Machine-fired fx (timer
-;;   schedules, spawn/destroy) are RECORDED + SKIPPED by the sink — the
-;;   reject-tier spawn/destroy bodies never install or clear runtime
-;;   state, because the sink pre-empts them before the reserved dispatch.
-;; - **Caller `:fx-overrides`** — REJECTED loudly
-;;   (`:reason :fx-overrides-unsupported`). The sink records+skips every
-;;   fx before override resolution, so an override could not influence a
-;;   hypothetical resolution without executing a handler; every would-be
-;;   effect is already in `:would-fire-effects`.
-;; - **Frame mismatch** — when `:frame` is unregistered, the
-;;   pair-dispatch-sync! error path kicks in; no rollback needed.
-;; - **Listener fan-out** — `register-listener!` / `register-epoch-
-;;   listener!` consumers DO see the epoch land between step 3 and
-;;   step 5. This is a documented limitation: the framework has no
-;;   "private dispatch" primitive. Production builds elide the entire
-;;   listener path anyway; dev-tier listeners observing a phantom
-;;   epoch is acceptable in exchange for the simpler composition.
+;; The framework effect sink suppresses declared fx bodies, including
+;; image-only and reserved lifecycle fx. The real reducer runs, then the
+;; public replacement door restores the actual pre-call frame-state.
+;; History is diagnostic: both the simulation and the replacement can be
+;; observed, and restore-epoch! does not truncate it.
 
 (defn dispatch-dry-run
-  "Run a dispatch through the cascade pipeline without committing it.
-   Full reducer + interceptor chain runs, schema validation fires,
-   machine transitions simulate, sub-runs and renders are recorded —
-   but NO fx execute and the framework rolls back to the pre-call epoch
-   head via `restore-epoch`.
+  "Simulate one event with declared fx bodies suppressed, then restore the
+   ACTUAL pre-call frame-state via `replace-frame-state!`. The epoch head
+   is diagnostic history, not necessarily the live state: `restore-epoch!`
+   leaves history intact, including previous simulations.
 
-   ## The no-effect guarantee is STRUCTURAL (rf2-j538f7.39)
+   The reducer, interceptors and machine transitions run. The framework's
+   effect sink records and skips every declared fx BEFORE override lookup
+   or execution, including child dispatches and reserved lifecycle fx.
+   No synchronous render flush is requested. Arbitrary side effects inside
+   handler/listener code are outside the effect-sink guarantee.
 
-   `dispatch-dry-run` binds the framework's dry-run EFFECT SINK
-   (`re-frame.fx/*effect-sink*`) around the `dispatch-sync`. The sink
-   intercepts at the SINGLE universal effect executor (`do-fx`), BEFORE
-   any per-fx override resolution / reserved-fx dispatch / user-handler
-   invoke, so it RECORDS every source-ordered `[fx-id args]` and runs NO
-   fx body. This closes the two escape paths the old override-enumeration
-   composition left open:
+   Both the simulation and the synthetic rollback epoch remain observable
+   in the bounded history. A successful rollback restores BOTH state
+   partitions, including on the first event and with a one-slot ring.
 
-     1. A frame-image / inline fx absent from the process-global
-        `(rf/registrations {:source :store :kind :fx})` used to receive no recording override
-        and its REAL body ran; the sink covers it because interception is
-        executor-sited, not registrar-enumerated.
-     2. The reject-tier reserved fx (`:rf.machine/spawn`,
-        `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`,
-        `:rf.route/with-nav-token`) that core strips `:fx-overrides` for
-        and runs anyway; the sink skips them BEFORE that reject logic ever
-        runs, so no lifecycle state installs / clears and no nav-token is
-        threaded.
-
-   The tentative `:db` still commits and is rolled back by
-   `restore-epoch!` — but NO handler runs before that rollback, so there
-   is nothing external to unwind.
-
-   Returns:
-
-     {:ok? true
-      :dry-run? true
-      :rolled-back? true
-      :event <event-v>
-      :frame <frame-id>
-      :cascade-summary {...}             ;; what WOULD have happened
-      :would-fire-effects [{:fx-id ...
-                            :args ...} ...]  ;; source-ordered recording
-      :db-state-after-simulation <db>}   ;; the would-be db verbatim
-
-   Failure paths:
-
-     - `:reason :fx-overrides-unsupported` — the caller passed
-                                          `:fx-overrides`. A dry-run now
-                                          records+skips EVERY fx at the
-                                          effect sink, so an override can
-                                          neither redirect nor stub
-                                          anything without executing a
-                                          body; honouring it would be a
-                                          false promise, so it is REJECTED
-                                          loudly (AC5). No dispatch runs.
-     - `:reason :no-epoch-recorded`     — epoch-history empty / frame
-                                          unregistered / debug-enabled?
-                                          false. No rollback needed.
-     - `:reason :no-new-epoch`          — dispatch-sync returned but the
-                                          head did not advance (the
-                                          reducer was a no-op against
-                                          the rejected event).
-     - `:reason :rollback-failed`       — the would-be epoch assembled
-                                          but restore-epoch returned
-                                          false, so the recorded would-be
-                                          db IS the live db and a spurious
-                                          epoch is left at the ring head.
-                                          A SAFETY failure — a dry-run
-                                          that mutated the live app must
-                                          NOT read as success — so it
-                                          rides back `:ok? false`
-                                          (isError at the MCP boundary),
-                                          carrying `:before-epoch-id` so
-                                          the caller can re-restore
-                                          manually. Rare but reachable: a
-                                          nil `before-id` on a frame's
-                                          first epoch-recording event, or
-                                          a tiny epoch-history ring
-                                          evicting the rollback target.
-
-   This primitive is the framework-side surface; the MCP
-   tool `dispatch-dry-run` wraps it. Production builds elide the entire
-   epoch + listener path so dry-run is dev-only by construction."
+   Returns `:ok? true :dry-run? true :rolled-back? true` with the simulated
+   `:cascade-summary`, `:would-fire-effects` and `:db-state-after-simulation`.
+   Refuses caller `:fx-overrides` with `:fx-overrides-unsupported`; refuses
+   disabled/missing epoch recording with `:no-epoch-recorded` BEFORE dispatch.
+   A dispatch that records nothing returns `:no-new-epoch`.
+   If replacement rejects, returns `:ok? false :reason :rollback-failed`:
+   the simulated state can still be live. The caller must inspect the
+   failure before issuing more writes."
   ([event-v] (dispatch-dry-run event-v {}))
   ([event-v opts]
-   (let [frame-id  (or (:frame opts) (current-frame))
-         _         (when-not frame-id
-                     ;; Enriched ambiguous-frame context (see
-                     ;; pair-dispatch-sync!); dry-run knows the event vector.
-                     (throw (ex-info "ambiguous frame"
-                                     (ambiguous-frame-error :dispatch-dry-run {:event event-v}))))]
-     (if (contains? opts :fx-overrides)
-       ;; AC5 (rf2-j538f7.39): reject caller `:fx-overrides` LOUDLY. The
-       ;; effect sink records+skips every fx BEFORE override resolution, so a
-       ;; caller override cannot influence a hypothetical resolution without
-       ;; executing a handler — retaining it would be the false guarantee this
-       ;; bead removes. Every would-be effect is already listed in
-       ;; `:would-fire-effects`; there is nothing an override adds.
-       {:ok?    false
+   (let [frame-id (or (:frame opts) (current-frame))
+         _ (when-not frame-id
+             (throw (ex-info "ambiguous frame"
+                             (ambiguous-frame-error :dispatch-dry-run {:event event-v}))))]
+     (cond
+       (contains? opts :fx-overrides)
+       {:ok? false
         :reason :fx-overrides-unsupported
-        :event  event-v
-        :frame  frame-id
-        :hint   (str "dispatch-dry-run no longer accepts :fx-overrides. A "
-                     "dry-run RECORDS + SKIPS every effect at the framework "
-                     "effect sink (no fx handler runs), so an override can "
-                     "neither redirect nor stub anything without executing a "
-                     "body. Drop the :fx-overrides key — every would-be effect "
-                     "is listed in :would-fire-effects.")}
-       (let [before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)
-             ;; The framework effect sink for THIS dry-run. Read + discarded
-             ;; inside the same synchronous extent — no concurrent contention
-             ;; possible in single-threaded CLJS.
-             sink          (atom [])
+        :event event-v
+        :frame frame-id
+        :hint (str "Dry-run records and skips every declared effect before override "
+                   "resolution. Drop :fx-overrides; inspect :would-fire-effects instead.")}
+
+       (not (and rf.interop/debug-enabled?
+                 (pos? (get-in (rf/current-config) [:epoch-history :depth] 0))))
+       {:ok? false
+        :reason :no-epoch-recorded
+        :event event-v
+        :frame frame-id
+        :hint (str "Dry-run requires the epoch artefact, a debug build and positive "
+                   "epoch-history depth for its rollback record; no dispatch ran.")}
+
+       :else
+       (let [before-state (rf/frame-state-value frame-id)
+             before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)
+             sink (atom [])
              dispatch-opts (merge opts {:origin :pair :frame frame-id})]
-         ;; Bind the sink for the whole synchronous dispatch-sync extent: the
-         ;; drain, its fx walk, any machine exit-cascade / resource-release
-         ;; walk all funnel through `do-fx`, which records-and-skips.
          (binding [rf.fx/*effect-sink* sink]
            (rf/dispatch-sync event-v dispatch-opts))
          (let [after-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
-           (cond
-             (and (nil? before-id) (nil? after-id))
-             {:ok?     false
-              :reason  :no-epoch-recorded
-              :event   event-v
-              :frame   frame-id
-              :hint    (str "epoch-history empty after dry-run dispatch. "
-                            "Either depth is 0 (disabled), the frame is "
-                            "destroyed, or rf.interop/debug-enabled? is false "
-                            "(production build).")}
-
-             (= before-id after-id)
-             {:ok?     false
-              :reason  :no-new-epoch
-              :event   event-v
-              :frame   frame-id
-              :hint    (str "dispatch-sync returned but no new epoch landed. "
-                            "The reducer rejected the event (schema, "
-                            "interceptor early-return) or the cascade halted "
-                            "before recording. No rollback needed.")}
-
-             :else
+           (if (= before-id after-id)
+             {:ok? false
+              :reason :no-new-epoch
+              :event event-v
+              :frame frame-id
+              :hint "Dispatch returned without a new epoch; inspect the event's rejection trace."}
              (let [target-epoch (epoch-by-id after-id frame-id)
-                   ;; Project the sink's source-ordered `[fx-id args]` tuples
-                   ;; into the `{:fx-id … :args …}` wire rows the envelope
-                   ;; (and the MCP tool's fail-close walk) expect.
-                   recorded     (mapv (fn [[fx-id args]] {:fx-id fx-id :args args})
-                                      @sink)
-                   ;; Roll back to the pre-call head. The framework's
-                   ;; restore-epoch rewinds app-db AND trims the ring back
-                   ;; to the target (the assembled would-be epoch is
-                   ;; removed from history).
-                   rolled-back? (boolean (rf/restore-epoch! frame-id before-id))
-                   ;; The informational payload is shared across both arms —
-                   ;; a caller wanting to re-restore after a FAILED rollback
-                   ;; still needs :before-epoch-id + the would-be state.
-                   shared {:dry-run?                  true
-                           :rolled-back?              rolled-back?
-                           :event                     event-v
-                           :frame                     frame-id
-                           :before-epoch-id           before-id
-                           ;; Project the would-be epoch into the same
-                           ;; cascade-summary shape dispatch /
-                           ;; replace-app-db / restore-epoch use.
-                           ;; Operators read one vocabulary across all four.
-                           :cascade-summary           (cascade-summary target-epoch)
-                           :would-fire-effects        recorded
+                   recorded (mapv (fn [[fx-id args]] {:fx-id fx-id :args args}) @sink)
+                   ;; Keep the snapshot in-process. The public replacement
+                   ;; validates both partitions and records the rollback so
+                   ;; the next read's head agrees with the restored live state.
+                   rolled-back? (boolean (rf/replace-frame-state! frame-id before-state))
+                   shared {:dry-run? true
+                           :rolled-back? rolled-back?
+                           :event event-v
+                           :frame frame-id
+                           :before-epoch-id before-id
+                           :cascade-summary (cascade-summary target-epoch)
+                           :would-fire-effects recorded
                            :db-state-after-simulation (:db-after target-epoch)}]
                (if rolled-back?
                  (assoc shared :ok? true)
-                 ;; SAFETY (rf2-glg4uo): the rollback FAILED, so the would-be
-                 ;; epoch's db IS now the live app-db and a spurious epoch is
-                 ;; left at the ring head. A dry-run that mutated the live app
-                 ;; MUST NOT read as success — return the documented
-                 ;; `:ok? false :reason :rollback-failed` shape (see the
-                 ;; "Failure paths" docstring) so the MCP tool's
-                 ;; `(false? (:ok? result))` routing surfaces isError:true
-                 ;; instead of a green envelope over a mutated db.
                  (assoc shared
-                        :ok?    false
+                        :ok? false
                         :reason :rollback-failed
-                        :hint   (str "restore-epoch returned false; the would-be db "
-                                     "IS the live db and a spurious epoch remains at "
-                                     "the ring head. Re-restore manually via "
-                                     "(rf/restore-epoch! <frame> <before-epoch-id>) "
-                                     "using :before-epoch-id from this envelope.")))))))))))
+                        :hint (str "replace-frame-state! rejected the rollback; simulated "
+                                   "state can still be live. Inspect the frame state and "
+                                   "replacement failure trace before further writes.")))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Time-travel — first-class via re-frame2

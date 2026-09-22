@@ -27,13 +27,16 @@ When `discover-app` can't find the runtime marker, it runs a **diagnostic ladder
 - `:rf.error/eval-cljs-compile-error` → the form didn't compile (syntax, arity, or an unresolved symbol — most often an alias that doesn't exist in the runtime). Fix the form and fully-qualify the namespace; there are no ambient aliases.
 - `:rf.error/eval-cljs-threw` → the form compiled and ran, then raised. The envelope carries `:ex` (the printed throwable), `:message` and `:ex-data` — read those and report the app-level cause, don't re-run blind.
 - `:rf.error/eval-cljs-timeout` → the form didn't settle inside `:timeout-ms`. Raise `timeout-ms`, project the result smaller, or — if the value is a Promise — pass `await: true` so the runtime resolves it instead of returning the pending object.
-- `:rf.error/eval-cljs-rejected` → the nREPL session refused the form. Re-run `discover-app` to confirm the build and runtime are still the ones you think you're talking to.
+- `:rf.error/eval-cljs-rejected` → the Promise returned by an `await: true` form rejected. Read the envelope's `:rejection` value and diagnose the async operation; this is not evidence that the nREPL connection failed.
 - `:rf.error/eval-cljs-disabled` → the operator launched the server with `--no-eval`. **Only they can lift it** (relaunch without the flag); until then, use the typed tools and say which gesture you can't reach.
 - `:rf.error/eval-cljs-mailbox-missing` / `:rf.error/eval-cljs-await-wrap-failed` → the `await: true` path broke — the mailbox vanished (usually a page reload between the wrap and the poll) or the wrapper returned an unrecognised sentinel. Retry once without a reload in flight; a repeat is a wire-shape regression worth reporting.
 
 ## Tool-envelope refusals
 
 Ops refuse with a `:reason` rather than guessing. Beyond `:ambiguous-frame` and `:debug-disabled` above:
+
+- `:no-epoch-recorded` from `dispatch-dry-run` → epoch recording is unavailable, so no dispatch ran. Check that the epoch artefact is loaded, the build is in debug mode and history depth is positive. An empty but enabled ring is supported.
+- `:rollback-failed` from `dispatch-dry-run` → the simulation ran but `replace-frame-state!` rejected restoring the captured state, for example after a handler/listener changed the frame or its schema. The simulated state can still be live. Stop the experiment and inspect the state and replacement failure trace before continuing.
 
 - `:restore-rejected` → `restore-epoch` couldn't rewind: the epoch-id has aged out of the ring, or a drain is in flight. The frame-state is unchanged. Re-read the ring (`trace-window` / `snapshot`'s `:epochs` slice) and pick a live id.
 - `:reset-rejected` → `replace-app-db` refused: no such frame, a drain in flight, or the supplied db failed the app-schema. The app-db is unchanged; fix the shape against the schema and retry.
