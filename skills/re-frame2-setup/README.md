@@ -109,13 +109,18 @@ required because deps-new refuses an existing target directory
 **The skill resolves `<RE_FRAME2>` itself** — it is installed by link from a reviewed
 checkout ([Install the skill in Claude Code](#install-the-skill-in-claude-code)), so
 `SKILL.md`'s own resolved location is `<RE_FRAME2>/skills/re-frame2-setup/SKILL.md` and
-the template is that path's grandparent plus `tools/template`. If the skill was reached
+the template is `<RE_FRAME2>/tools/template`. If the skill was reached
 some other way and no such checkout is on disk, say so and fall back to the manual 6-step
 path rather than guessing a path.
 
 ## What it covers
 
 The canonical 6-step greenfield path:
+
+Both routes require Java 21+ and the Clojure CLI: check `java -version` and
+`clojure -Sdescribe` before writing or converting a project. An npm-only shadow-cljs
+project may not have the CLI; the scaffold's `:deps` mode requires it. The globally
+installed deps-new tool is needed only for the generator route.
 
 1. Write the thirteen files from `references/first-counter.md` — the generator template's own emission for `acme/my-app`, with the template's reviewed pins already in `deps.edn` / `package.json` (no question asked; an author-supplied pin, name or UIx request overrides). Day-one deps are `day8/re-frame2` + `day8/re-frame2-reagent` + `reagent/reagent`, plus Story on the `:dev` alias; on the npm side `react` / `react-dom` / `shadow-cljs` and Story's `@xyflow/react` / `elkjs` — nothing else.
 2. Point the `day8/re-frame2*` coordinates, Story's included, at something that resolves — pre-publish, `:local/root` into the reviewed checkout the skill was installed from (the same step after the generator route).
