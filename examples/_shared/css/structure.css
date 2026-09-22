@@ -202,7 +202,7 @@ hr {
   box-sizing: border-box;
 }
 
-/* -- Inline-Xray host shell (counter and flows) ------------------------- */
+/* -- Inline-Xray host shell --------------------------------------------- */
 /*
  * Wide viewports place the app beside a host whose flex basis follows Xray's
  * --rf-xray-inline-width setting. At 900px and below the layout stacks, removes
