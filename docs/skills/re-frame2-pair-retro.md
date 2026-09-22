@@ -45,5 +45,5 @@ Asked for a draft, the same response includes one focused, copy-pasteable GitHub
 
 - Source: [`skills/re-frame2-pair-retro/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro)
 - `SKILL.md`: [`skills/re-frame2-pair-retro/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair-retro/SKILL.md) — the whole runtime contract; the skill is self-contained under its own directory.
-- Reference leaf: [`skills/re-frame2-pair-retro/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro/references) — `known-frictions.md` (recurring classes of `re-frame2-pair` pain — consulted on demand to sanity-check whether a friction is one-off or a pattern).
+- Reference leaves: [`skills/re-frame2-pair-retro/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro/references) — consulted on demand; [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair-retro/SKILL.md) says when.
 - Companion skill: [`re-frame2-pair`](re-frame2-pair.md) — the skill this one retrospects.

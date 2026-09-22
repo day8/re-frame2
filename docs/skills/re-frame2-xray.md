@@ -14,23 +14,7 @@ The skill answers three questions:
 
 ## Two modes
 
-Xray runs in one of two modes, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`:
-
-- **Dynamic** — the event-coupled spine (4-layer chrome). 10 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Frames · Fresco**. Dynamic names the *shell*, not a uniform data scope: six tabs are lenses on the one focused event, Resources is mixed, and Graph, Frames and Fresco browse live structure and do **not** rebind when you pick an epoch. There is **no Issues tab** — issues surface inline.
-- **Static** — event-INDEPENDENT registry browse (3-layer chrome, no spine). 5 tabs: **Machines · Routes · Schemas · Flows · Interceptors** — catalogues of what's *registered*.
-
-When the user wants to inspect a single dispatch, that's Dynamic; when they want to browse the whole registry, that's Static. The canonical tab inventory and scope matrix live in the skill package, at [`skills/re-frame2-xray/references/panels.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/panels.md) — this page summarizes the role and defers the anatomy to that authority.
-
-## Wired hotkeys
-
-Four hotkey families have keydown listeners installed:
-
-| Key | Scope | Action |
-|---|---|---|
-| `Ctrl+Shift+C` | global | Toggle the Xray shell. |
-| `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static. |
-| `Cmd/Ctrl+K` | global | Open the command palette. |
-| `Space` `l` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts (only inside the shell, off editable fields). `Esc` is modal-local, not a wired spine key. |
+Xray runs in one of two modes, flipped by the L1 mode pill or a hotkey. **Dynamic** is the event-coupled spine — the mode for inspecting a single dispatch, though "Dynamic" names the *shell* rather than a uniform data scope, so some of its tabs browse live structure and do not rebind when you pick an epoch. **Static** is the event-independent registry browse, for reading what is *registered* rather than what just happened. The canonical tab inventory and scope matrix live in the skill package, at [`skills/re-frame2-xray/references/panels.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/panels.md), and the wired-hotkey contract at [`skills/re-frame2-xray/references/launch-lifecycle.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/launch-lifecycle.md) — this page summarizes the role and defers the anatomy to those authorities.
 
 ## When to reach for it
 
@@ -46,7 +30,7 @@ Do **not** use this skill for:
 
 - Source: [`skills/re-frame2-xray/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-xray)
 - `SKILL.md`: [`skills/re-frame2-xray/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/SKILL.md)
-- Reference leaves: [`skills/re-frame2-xray/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-xray/references) — `launch-modes.md` (launch decision tree + hotkeys), `panels.md` (the canonical tab inventory + scope matrix), the per-family depth leaves (`panels-epoch.md`, `panels-state.md`, `panels-domains.md`, `panels-resources.md`, `panels-structure.md`), and `chrome.md` (the first-screen chrome).
+- Reference leaves: [`skills/re-frame2-xray/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-xray/references) — `SKILL.md` §Which reference leaf to load names the leaf for each question.
 - Xray source + spec: [`tools/xray/`](https://github.com/day8/re-frame2/tree/main/tools/xray).
 - Human-facing Xray guide: [Xray](../xray/index.md).
 - Live-runtime companion skill: [`re-frame2-pair`](re-frame2-pair.md).

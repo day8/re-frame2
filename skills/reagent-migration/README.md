@@ -84,7 +84,7 @@ skills/reagent-migration/
 
 `evals/`, `spec/` and `tests/` are all outside the distributable skill package (`package.json` `files` omits them); a packaged consumer runs the skill, they do not re-run its gates. `evals/` and `spec/` are authoring-time scaffolding — the skill's own design docs and eval fixtures. `tests/fixture/` is executable evidence: a standalone shadow-cljs project that runs [`ssr-hydrate.md`](references/ssr-hydrate.md)'s MIG-23 SSR-then-hydrate recipe against the shipped core, ssr, fresco and Reagent-adapter artefacts in one fresh Node process, as the required `reagent-migration-fixture-cold-start` CI job. It is maintained with the recipe, not regenerated with the skill; reach its own `README.md` from a monorepo clone.
 
-This skill also has a published **mirror page** outside this tree, at [`docs/skills/reagent-migration.md`](https://github.com/day8/re-frame2/blob/main/docs/skills/reagent-migration.md). Nothing reconciles the two, so a rewrite here has to carry the mirror by hand or it silently goes stale.
+This skill also has a published **mirror page** outside this tree, at [`docs/skills/reagent-migration.md`](https://github.com/day8/re-frame2/blob/main/docs/skills/reagent-migration.md). It is an entry ramp and carries no leaf roster and no copied procedure (rf2-y126v), so a leaf change never reaches it. Nothing reconciles the two, so a rewrite of this skill's *purpose, triggers or kickoff* still has to carry the mirror by hand or it silently goes stale.
 
 ## Install
 
