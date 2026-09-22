@@ -439,12 +439,30 @@
   almost always a test bug (wrong testid, wrong key, view changed),
   not a passing case.
 
-  Use to drive a click and assert state changed downstream:
+  Use to drive a click, then WAIT for the dispatch it queued:
 
       (let [tree (counter-view {:n 0})
             btn  (find-by-testid tree \"counter-inc\")]
         (invoke-handler btn :on-click)
-        (is (= 1 (:n (app-db-value :rf/default)))))"
+        (is (ts/poll-until #(= 1 (:n (app-db-value :rf/default)))
+                           {:label \"counter click drained\"})))
+
+  The wait is not optional. `invoke-handler` only APPLIES the
+  callback; an ordinary view `dispatch` queues, and the router
+  schedules the drain through `rf.interop/next-tick` — so app-db is
+  NOT settled when `invoke-handler` returns, and an assertion placed
+  straight after it reads the pre-click value.
+  `re-frame.test-support/poll-until` (`ts` above) is the documented
+  wait: on the JVM synchronous, returning the truthy value and
+  throwing `:rf.error/poll-until-timeout` at the deadline; on CLJS
+  returning a `js/Promise` to compose under `cljs.test/async`, with
+  `:async? true` on the fixture. A handler that `dispatch-sync`es
+  drains in place — there the straight walk is enough.
+
+  Poll in the SAME fixture-owned frame the click dispatched into.
+  Do not wrap the click and its settle in
+  `re-frame.core/with-new-frame`: that body returns — and destroys
+  the frame — before the queued event can drain."
   [node event-key & args]
   (when-not (vector? node)
     (rf.error/throw-error! :rf.error/invoke-handler-bad-node

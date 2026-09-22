@@ -49,9 +49,9 @@
 
 (defn- start-long-frame!
   "Boot a fresh anon frame and drive the example's opening
-  `:http-counter/start-long` move — the REAL handler's `:else` branch, which
-  fires `:http-counter/seed-long-request` to record a request-id-keyed handle
-  in the in-flight registry. Returns the frame."
+  `:http-counter/start-long` move — the REAL handler's `(nil? reply)` branch,
+  which fires `:http-counter/seed-long-request` to record a request-id-keyed
+  handle in the in-flight registry. Returns the frame."
   []
   (let [f (rf.frame/make-anon-frame-record! {:doc "managed-http-counter test frame"})]
     (rf/dispatch-sync [:http-counter/start-long] {:frame f})
