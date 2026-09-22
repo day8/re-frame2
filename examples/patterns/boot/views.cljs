@@ -18,7 +18,10 @@
       Retry dispatches `[:app/boot [:boot/restart]]` to run the boot
       again from `:configuring`. (A real event, note — not the
       `:rf.machine/start` creation marker, which goes inert the moment
-      the machine exists.)
+      the machine exists.) The main app dispatches the SAME event from
+      its 'Re-run boot' button — both terminals accept it — which is what
+      makes the failure screen reachable from a running app rather than
+      only describable in prose.
 
    Forking here, in one place, is the whole trick. It keeps every scrap
    of loading logic inside the boot machine. The alternative — mount the
@@ -50,6 +53,22 @@
       ". The main app view does not mount until the boot reaches "
       [:code ":ready"] "."]]))
 
+(rf/reg-view ^{:doc "The demo's failure switch. Ticking it rigs the NEXT
+                  /user.json load to answer a 503, which is what makes the
+                  `:failed` screen and its retry reachable by clicking rather
+                  than only by reading the source. The flag is a one-shot: the
+                  stub disarms it as it fires, so Retry boots cleanly. Shown on
+                  both the running app and the failure screen — `:boot.demo/*`
+                  is registered by `boot.core` beside the stub it rigs."}
+          fail-next-toggle []
+  (let [armed? @(subscribe [:boot.demo/fail-next?])]
+    [:label.boot-fail-toggle {:data-testid "boot-fail-toggle"}
+     [:input {:type      "checkbox"
+              :checked   armed?
+              :on-change #(dispatch [:boot.demo/set-fail-next
+                                     (.. % -target -checked)])}]
+     [:span "Fail the next boot (simulate a /user.json outage)"]]))
+
 (rf/reg-view ^{:doc "The :failed screen — shows what went wrong and offers
                   a retry that re-runs the boot from the top."}
           boot-failed []
@@ -64,7 +83,10 @@
         "An unexpected error occurred during application boot.")]
      [:button {:data-testid "boot-retry"
                :on-click    #(dispatch [:app/boot [:boot/restart]])}
-      "Retry boot"]]))
+      "Retry boot"]
+     ;; Tick it again here to watch the failure twice, or leave it clear —
+     ;; the stub already disarmed itself on the way past.
+     [fail-next-toggle]]))
 
 (rf/reg-view ^{:doc "The main app — the screen the boot was clearing the
                   way for. By the time it renders, all four loaded slices
@@ -94,7 +116,17 @@
       [:h2 "Routes"]
       [:ul {:data-testid "routes-list"}
        (for [{:keys [id path]} routes]
-         ^{:key id} [:li (str id " → " path)])]]]))
+         ^{:key id} [:li (str id " → " path)])]]
+     ;; The demo's way back into the boot. Both terminals accept
+     ;; `:boot/restart`, so a healthy app can re-boot exactly as a failed one
+     ;; can retry — which is what lets you tick the box below and actually
+     ;; watch the `:failed` branch the README describes.
+     [:section.boot-demo-controls
+      [:h2 "Demo controls"]
+      [fail-next-toggle]
+      [:button {:data-testid "boot-rerun"
+                :on-click    #(dispatch [:app/boot [:boot/restart]])}
+       "Re-run boot"]]]))
 
 (rf/reg-view ^{:doc "The fork in the road. Reads the boot machine's state
                   and picks one of three screens — and it's the only

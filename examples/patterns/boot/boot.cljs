@@ -28,11 +28,10 @@
    records the reason in `:data :error`.
 
    The child loader is its own machine, `:boot/loader` — one spec, four
-   instances, told apart only by the `:data` each was spawned with
-   (parent-id, child-id, staging-key, URL). The parent plants that
-   identity through a per-child `:data` fn, and since a `:data` fn gets
-   handed the parent's snapshot, a child's URL can depend on something
-   the parent already loaded.
+   instances, told apart only by the `:data` each was spawned with: one
+   URL apiece, and nothing else. The parent plants it through a per-child
+   `:data` fn, and since a `:data` fn gets handed the parent's snapshot,
+   a child's URL can depend on something the parent already loaded.
 
    That's how config flows downstream without a global. The `:configuring`
    load returns an `:api-base`; that `:spawn`'s `:on-done` fold records it
@@ -64,7 +63,10 @@
 
    Kick the boot once at startup with `[:app/boot [:rf.machine/start]]`.
    That creation marker runs the initial-entry cascade and seeds the
-   snapshot in runtime-db (docs/core/glossary.md#runtime-db)."
+   snapshot in runtime-db (docs/core/glossary.md#runtime-db). Running it
+   AGAIN is a different event — `[:app/boot [:boot/restart]]`, which both
+   terminals accept; the marker is spent after the first kick and does
+   nothing on a machine that already exists."
   (:require [re-frame.core :as rf]
             ;; State machines and managed HTTP each ship as their own
             ;; artefact. These two requires register what the boot needs:
@@ -80,10 +82,13 @@
 ;;
 ;; The reusable child: GET a URL, branch on the reply, finish. One spec,
 ;; four instances — config, routes, flags, user — distinguished only by the
-;; `:data` the parent plants at spawn. `:url` is the load-bearing one; the
-;; rest is descriptive identity that labels the instance for tools and
-;; schemas. Note there is no parent address among them: this child never
-;; dispatches anything home, so it needs none. Each instance is born in
+;; `:data` the parent plants at spawn, and that is exactly one key: `:url`.
+;; Note what is NOT there. No parent address, because this child never
+;; dispatches anything home. No label naming which asset it is, because
+;; nothing here reads one: the spawn `:id` is what the parent tells its
+;; children apart by, and `:rf/self-id` is how the reply finds its way
+;; back. A field a copier can see but never watch anything read is a field
+;; they will faithfully carry into their own app. Each instance is born in
 ;; `:idle`; the runtime drops a
 ;; `:rf.machine.spawn/spawned` event into it, which moves it to `:loading` and
 ;; fires the `:begin-fetch` entry action. Write the fetch logic once, run it
@@ -96,14 +101,11 @@
    ;; `:boot/loader#0` — so its snapshot lands at a per-instance path no fixed
    ;; app-schema could ever name. The machine's own `[:schemas :data]` slot is
    ;; the right surface: it checks `:data` directly. (The per-child `:data` fn
-   ;; in :app/boot below swaps this base map for the planted identity.)
+   ;; in :app/boot below swaps this base map for the planted `:url`.)
    :schemas {:data schema/LoaderData}
-   :data    {:parent-id   nil
-             :child-id    nil
-             :staging-key nil
-             :url         nil
-             :payload     nil
-             :error       nil}
+   :data    {:url     nil
+             :payload nil
+             :error   nil}
 
    :actions
    {:begin-fetch
@@ -170,8 +172,11 @@
    ;; `[:schemas :data]` slot is the validation surface — an app-schema
    ;; can't reach it. `BootData` describes `:data` only.
    :schemas {:data schema/BootData}
-   :data    {:phase  :configuring
-             :config nil
+   ;; What the boot OWNS: the four payloads it loads, and the error if one
+   ;; of them fell over. Which phase it is in is NOT here — that is the
+   ;; `:state` slot's job, and a second copy in `:data` is just a way for
+   ;; the two to disagree.
+   :data    {:config nil
              :flags  nil
              :user   nil
              :routes nil
@@ -196,6 +201,22 @@
     (fn [{data :data [_ _child failure] :event}]
       {:data (assoc data :error failure)})
 
+    :reset-boot
+    ;; The way back to `:configuring` from either terminal. It clears the
+    ;; loaded payloads as well as the error, and it HAS to: `:configuring`
+    ;; advances on an `:always` whose guard reads `:config` out of `:data`,
+    ;; so a config left over from the previous run would satisfy the guard
+    ;; on entry and skip straight past the fetch it is meant to wait for.
+    ;; That is the whole reason re-boot is a named action rather than a bare
+    ;; `:target` — the state change alone leaves `:data` exactly as it was.
+    (fn [{data :data}]
+      {:data (assoc data
+                    :error  nil
+                    :config nil
+                    :flags  nil
+                    :user   nil
+                    :routes nil)})
+
     :enter-hydrating
     ;; By now every payload is already sitting in this machine's own :data
     ;; — the `:spawn` and per-child `:on-done` folds put it there, each one
@@ -205,9 +226,8 @@
     ;; handler's job: we hand it the values on the event and let it get on
     ;; with it. Then self-transition to `:ready` once the write lands.
     (fn [{data :data}]
-      {:data (assoc data :phase :hydrating)
-       :fx   [[:dispatch [:boot/apply-hydration
-                          (select-keys data [:config :flags :user :routes])]]]})}
+      {:fx [[:dispatch [:boot/apply-hydration
+                        (select-keys data [:config :flags :user :routes])]]]})}
 
    :states
    {;; ---- :configuring — the :initial state; a single :spawn fetches /config
@@ -220,17 +240,13 @@
     {:spawn {:machine-id :boot/loader
               ;; `:data` accepts a function — `(fn [{:keys [snapshot event]}]
               ;; data)` — so a child's starting :data can lean on the
-              ;; parent's snapshot at entry. Here we just plant the child's
-              ;; descriptive identity and the URL it fetches — the URL being
-              ;; the only one the loader acts on. This first URL is the
+              ;; parent's snapshot at entry. All we plant is the URL, which
+              ;; is the only thing the loader acts on. This first URL is the
               ;; fixed config endpoint that the rest of the boot threads
               ;; from, so it's a literal — there's nothing to derive it from
               ;; yet.
               :data       (fn boot-config-data [_]
-                            {:parent-id   :app/boot
-                             :child-id    :config
-                             :staging-key :config
-                             :url         "/api/config.json"})
+                            {:url "/api/config.json"})
               ;; The `:data` fold. It runs at THIS parent's handler
               ;; boundary when the child's completion arrives, so by the
               ;; next macrostep the config is in :data — which is what
@@ -262,10 +278,7 @@
                       ;; snapshot is the parent's value (not app-db), and
                       ;; since :configuring's `:on-done` fold already ran,
                       ;; the loaded `:api-base` is right there for the taking.
-                      {:parent-id   :app/boot
-                       :child-id    :routes
-                       :staging-key :routes
-                       :url         (str (-> snap :data :config :api-base) "/routes.json")})
+                      {:url (str (-> snap :data :config :api-base) "/routes.json")})
         ;; Each child folds its own payload straight into the parent's
         ;; :data as it reaches finality, BEFORE the join fold. Same
         ;; `:on-done` contract the single `:spawn` above uses — which is
@@ -277,19 +290,13 @@
        {:id         :flags
         :machine-id :boot/loader
         :data       (fn boot-flags-data [{snap :snapshot}]
-                      {:parent-id   :app/boot
-                       :child-id    :flags
-                       :staging-key :flags
-                       :url         (str (-> snap :data :config :api-base) "/flags.json")})
+                      {:url (str (-> snap :data :config :api-base) "/flags.json")})
         :on-done    (fn boot-flags-done [{:keys [data result]}]
                       (assoc data :flags result))}
        {:id         :user
         :machine-id :boot/loader
         :data       (fn boot-user-data [{snap :snapshot}]
-                      {:parent-id   :app/boot
-                       :child-id    :user
-                       :staging-key :user
-                       :url         (str (-> snap :data :config :api-base) "/user.json")})
+                      {:url (str (-> snap :data :config :api-base) "/user.json")})
         :on-done    (fn boot-user-done [{:keys [data result]}]
                       (assoc data :user result))}]
       :join             :all
@@ -309,30 +316,20 @@
      :on    {:boot/hydrated {:target :ready}}}
 
     ;; ---- :ready / :failed — terminal -------------------------------------
-    :ready  {:meta {:terminal? true}}
-    :failed {;; Terminal, but not a dead end. The failure screen's retry
-             ;; button dispatches `[:app/boot [:boot/restart]]`, which runs
-             ;; the boot again from :configuring. Note it's a real event,
-             ;; *not* the `:rf.machine/start` creation marker — that marker
-             ;; only ever kicks a machine to life once, so on an existing
-             ;; machine it's inert; re-boot has to be an ordinary transition.
-             ;; We keep `terminal? true` so visualisers and conformance
-             ;; harnesses still read :failed as terminal; the retry is the
-             ;; explicit way out, not the flow's natural end.
-             ;; The retry clears the loaded payloads as well as the error.
-             ;; It has to: :configuring now advances on an `:always` whose
-             ;; guard reads `:config` out of :data, so a config left over
-             ;; from the failed run would satisfy the guard on entry and
-             ;; skip straight past the fetch it is meant to wait for.
-             :meta {:terminal? true}
-             :on   {:boot/restart {:target :configuring
-                                   :action (fn [{data :data}]
-                                             {:data (assoc data
-                                                           :error  nil
-                                                           :config nil
-                                                           :flags  nil
-                                                           :user   nil
-                                                           :routes nil)})}}}}})
+    ;; Both terminals take the same way out, and it is the same `:boot/restart`
+    ;; either way. Note it's a real event, *not* the `:rf.machine/start`
+    ;; creation marker — that marker only ever kicks a machine to life once,
+    ;; so on an existing machine it is inert; re-boot has to be an ordinary
+    ;; transition. `terminal? true` stays on both, so visualisers and
+    ;; conformance harnesses still read them as terminal: re-boot is the
+    ;; explicit way out, not the flow's natural end.
+    :ready  {:meta {:terminal? true}
+             ;; Re-boot from a healthy app — what a "switch account" or a
+             ;; "reload config" button dispatches, and what the demo's
+             ;; "Re-run boot" button uses to reach the failure branch.
+             :on   {:boot/restart {:target :configuring :action :reset-boot}}}
+    :failed {:meta {:terminal? true}
+             :on   {:boot/restart {:target :configuring :action :reset-boot}}}}})
 
 ;; ============================================================================
 ;; HYDRATION PROMOTION
