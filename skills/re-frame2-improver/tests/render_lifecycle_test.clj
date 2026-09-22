@@ -29,6 +29,29 @@
 (defn step [db id & args]
   (:db ((get rewrite id) {:db db} (into [id] args))))
 
+(def render-slice
+  (let [md (slurp (io/file skill-root "references/boolean-discriminator-subs.md"))
+        blocks (map second (re-seq #"(?s)```clojure\r?\n(.*?)```" md))
+        matches (filter #(str/includes? % ":inputs [[:article]]") blocks)]
+    (assert (= 1 (count matches)) "one slice selector rewrite must exist")
+    (:article/render (registrations (first matches) 'rf/reg-sub))))
+
+(deftest consolidated-rewrite-keeps-data-visible-during-refresh
+  ;; SKILL.md recommends composing the flag and discriminator corrections.
+  ;; Feed the actual lifecycle slice to the actual selector, as its one input.
+  (let [initial (step {} :items/load-start)
+        render #(render-slice [(:items %)] [:article/render])]
+    (is (= :idle (render {})))
+    (is (= :loading (render initial)))
+    (doseq [[data expected] [[[] :empty] [[{:id 1}] :loaded]]]
+      (let [loaded (step initial :items/load-success data)
+            refreshing (step loaded :items/load-start)
+            failed (step refreshing :items/load-failure :offline)]
+        (is (= expected (render loaded)))
+        (is (= expected (render refreshing))
+            "refresh must retain the previous loaded or empty view")
+        (is (= :error (render failed)))))))
+
 (deftest initial-load-and-revalidation
   (let [initial (step {} :items/load-start)]
     (is (= {:status :loading :data nil :error nil} (:items initial)))
@@ -77,6 +100,19 @@
         result (set (for [id [:articles/loading? :articles/fetching? :articles/error? :articles/loaded?]
                           :when ((get preds id) [:loading] [id])] id))]
     (is (= #{:articles/loading? :articles/fetching?} result))))
+
+(deftest clean-convenience-view-keeps-the-list-during-refresh
+  (let [source (:prompt (first (filter #(= 34 (:id %)) evals)))
+        view (first (filter #(= 'rf/reg-view (first %))
+                            (forms (subs source (str/index-of source "(rf/")))))
+        render (eval (list 'fn '[subscribe] (last view)))]
+    (doseq [status [:loaded :fetching]]
+      (let [values {:articles/loading? false :articles/error? false
+                    :articles/loaded? (= :loaded status) :articles/status status
+                    :articles/data [{:id 1 :title "Article"}]}
+            hiccup (render (fn [[id]] (atom (get values id))))]
+        (is (= :ul (first hiccup))
+            "the clean example must retain its list while revalidating")))))
 
 (let [{:keys [fail error]} (run-tests)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
