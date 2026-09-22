@@ -1345,6 +1345,55 @@
           (str "a settled resource exits the poll immediately rather than "
                "burning preload-deadline-ms; polls: " (count @polls))))))
 
+(deftest resources-ssr-example-only-serves-a-settled-resource
+  (require 'resources-ssr.core :reload)
+  (init-ssr!)
+  (rf/reg-fx :resources-ssr.http/delayed-success
+    {:platforms #{:server :client}}
+    (fn [frame-ctx args-map]
+      ((rf.registrar/handler :fx :rf.http/managed-canned-success)
+       frame-ctx (assoc args-map :after-ms 50
+                       :value [{:slug "settled" :title "Settled article"}]))))
+  (rf/reg-fx :resources-ssr.http/failure
+    {:platforms #{:server :client}}
+    (fn [frame-ctx args-map]
+      ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
+       frame-ctx (assoc args-map :kind :rf.http/transport))))
+  (rf/reg-fx :resources-ssr.http/never-replies
+    {:platforms #{:server :client}}
+    (fn [_frame-ctx _args-map] nil))
+  (let [handle-request (resolve 'resources-ssr.core/handle-request)]
+    (doseq [[transport deadline status outcome]
+            [[:resources-ssr.http/delayed-success 5000 200 nil]
+             [:resources-ssr.http/failure 5000 503 "failed"]
+             [:resources-ssr.http/never-replies 50 503 "timed-out"]]]
+      (testing (str "preload through " transport)
+        (let [frames-before (set (keys @rf.frame/frames))
+              started (System/currentTimeMillis)
+              response (with-redefs-fn
+                         {(resolve 'resources-ssr.core/preload-deadline-ms) deadline}
+                         #(rf/with-fx-overrides {:rf.http/managed transport}
+                            (handle-request {:uri "/articles"})))
+              elapsed (- (System/currentTimeMillis) started)]
+          (is (= status (:status response)))
+          (if (= 200 status)
+            (do
+              (is (clojure.string/includes? (:body response) "Settled article"))
+              (let [payload (extract-payload-edn (:body response))
+                    entries (vals (get-in payload [:rf/runtime-db :rf.runtime/resources :entries]))]
+                (is (= [:loaded] (mapv :status entries)))
+                (is (= [[{:slug "settled" :title "Settled article"}]]
+                       (mapv :data entries)))))
+            (do
+              (is (= "no-store" (get-in response [:headers "Cache-Control"])))
+              (is (clojure.string/includes? (:body response) outcome))
+              (is (not (clojure.string/includes? (:body response) "__rf_payload"))
+                  "an unfinished resource is never sent as a hydration payload")))
+          (is (< elapsed 2000)
+              (str "terminal replies settle promptly and the deadline is bounded; took " elapsed "ms"))
+          (is (empty? (clojure.set/difference (set (keys @rf.frame/frames)) frames-before))
+              "every response tears down its request frame"))))))
+
 ;; ============================================================================
 ;; state-machine-walkthrough — chapter §Headless testing. Two flavours:
 ;; pure machine-transition (no rf.frame/app-db) and drain-level (frame +
