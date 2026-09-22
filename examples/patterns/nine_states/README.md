@@ -5,8 +5,8 @@ buttons above it. Click a button and the screen rearranges itself to
 match what just happened — a "Get started" welcome, a "Loading…"
 message, an empty "No todos yet", a single focused todo, a plain short
 list, or a "too many" view with a search box. Type into the add-a-todo
-form and submit: too short and you get a validation error, 3
-characters or more and it confirms "✓ Todo added." Press **Archive**
+form and submit: too short and you get a validation error, 3–80
+characters and it confirms "✓ Todo added." Press **Archive**
 and the whole list freezes — it goes read-only and the controls grey
 out. There's no backend to set up; a tiny fake server runs right in the
 page, so you just start it and click.
@@ -60,11 +60,11 @@ keyword. Nine states, 3 regions, one branch site.
 | # | Name | What it shows | Trigger |
 |---|---|---|---|
 | 1 | **Nothing**   | Blank initial slate; never fetched. "Get started" CTA. | `[:nine-states.app/initialise]` |
-| 2 | **Loading**   | First fetch in flight; no data yet. Spinner / skeleton. | `[:nine-states.demo/load {:n N}]` (transient) |
+| 2 | **Loading**   | Fetch in flight. Loading message. | **2. Loading** parks here via `[:ui/nine-states [:fetch-started]]` |
 | 3 | **Empty**     | Fetched, but the result is the empty list. "No results" CTA. | `[:nine-states.demo/load {:n 0}]` |
 | 4 | **One**       | Exactly one item; focused single-item layout. | `[:nine-states.demo/load {:n 1}]` |
 | 5 | **Some**      | A small, manageable list; standard list rendering. | `[:nine-states.demo/load {:n 4}]` |
-| 6 | **Too Many**  | Overwhelming amount; needs search / pagination / virtualisation. | `[:nine-states.demo/load {:n 25}]` |
+| 6 | **Too Many**  | Search across all todos, showing the first seven matches. | `[:nine-states.demo/load {:n 25}]` |
 | 7 | **Incorrect** | Form submission failed validation. Per-field errors visible. | type a 1-char title, submit |
 | 8 | **Correct**   | Form submission succeeded; "Todo added." confirmation. | type a 3+ char title, submit |
 | 9 | **Done**      | Mode region reached `:done`; terminal, read-only. | `[:ui/nine-states [:archive {}]]` |
@@ -72,6 +72,13 @@ keyword. Nine states, 3 regions, one branch site.
 A control panel at the top of the demo drives the data and mode
 transitions, and the add-a-todo form drives the two form states — so you
 can walk the whole taxonomy in a minute.
+
+The fake server replies synchronously, so normal loads pass through Loading
+before the browser paints. **2. Loading** holds that state for inspection;
+choose Empty, One, Some, Too Many, or Trigger error to complete a load.
+In Too Many, try searching for `todo #25` to find an item beyond the first
+seven. Search ignores case and surrounding spaces; clearing it restores the
+unfiltered list. The machine still owns the full list and its cardinality.
 
 ## How the model is structured
 
