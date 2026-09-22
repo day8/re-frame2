@@ -60,10 +60,10 @@ nothing else:
 `(h/sub [::expanded? id])` reads, `[::expanded? id value]` writes, and
 `[::h/clear ::expanded? id]` removes the entry so that instance reads its
 default again. The concern must be a namespace-qualified keyword — it is a sub
-id, an event id and an app-db key at once — and registering it again with a
-different `:default` refuses. A hundred panels reuse the one pair, and the
-address gives you replay, frame isolation, Xray visibility, and direct test
-setup.
+id, an event id and an app-db key at once — and registering it again replaces
+the registration: a namespace reload re-runs the same call, and the last
+`:default` written wins. A hundred panels reuse the one pair, and the address
+gives you replay, frame isolation, Xray visibility, and direct test setup.
 
 When a change means more than "this slot now holds that value" — something
 else must happen, or the change itself must be recorded — write a named event
