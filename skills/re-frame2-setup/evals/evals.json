@@ -71,6 +71,21 @@
        "The scaffold's ../re-frame2/tools/story :local/root is replaced in the :dev alias; resolving the two top-level framework coordinates alone is not treated as complete.",
        "Classpath verification includes :shadow and :dev, for example clojure -Stree -A:shadow:dev, before the terminating compile. The agent reports an actual command failure as unfinished."
      ]},
+    {"id": 21, "name": "java-and-cli-prerequisites", "should_trigger": true,
+     "prompt": "Set up a re-frame2 counter in my empty npm-only shadow-cljs project. npm works and java -version exits successfully, reporting Java 17. I have never installed the Clojure CLI.",
+     "expected_output": "The agent checks the actual Java version and Clojure CLI availability before changing the project. It reports Java 21+ and the Clojure CLI as prerequisites for the scaffold, rather than treating a successful java -version or npm install as sufficient.",
+     "expectations": [
+       "A successful java -version with version 17 does not pass the prerequisite check for the pinned shadow-cljs baseline.",
+       "The agent checks clojure -Sdescribe; it distinguishes the Clojure CLI needed by both routes from the optional generator-only deps-new tool.",
+       "The existing project's files are not rewritten into a :deps configuration before the missing prerequisites are resolved, and no compile or mount success is claimed."
+     ]},
+    {"id": 22, "name": "multiline-lockstep-check", "should_trigger": true,
+     "prompt": "My freshly scaffolded project's dependency resolution fails. Check its pins: core, the adapter and Story are Git dependencies, written as multiline EDN maps. Story in :dev uses a different commit from core and the adapter.",
+     "expected_output": "The agent inspects complete dependency maps, including Story under the active :dev alias, identifies the different SHA and aligns the build dependencies with the author's intended reviewed commit. An empty or partial line-oriented search is not treated as a successful lockstep check.",
+     "expectations": [
+       "The review includes core, the selected adapter and Story, even when their :git/sha keys are on separate lines from the coordinate names.",
+       "The effective :shadow:dev classpath is checked after the coordinate repair; dependency resolution alone is not claimed to prove lockstep."
+     ]},
     {"id": 20, "name": "story-release-resolution", "should_trigger": true,
      "prompt": "My freshly scaffolded counter resolves the framework Maven coordinates, but npm run release fails with Local lib day8/re-frame2-story not found. I thought Story was dev-only. Fix the setup using my reviewed checkout.",
      "expected_output": "The agent repairs Story's :dev coordinate to the reviewed checkout's tools/story. It explains that the global shadow :deps aliases are used during release dependency resolution while the dev-only entry keeps Story out of the release bundle. A framework Maven release is not evidence that a matching Story version has been published.",

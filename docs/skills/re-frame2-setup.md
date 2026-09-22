@@ -25,6 +25,11 @@ Do **not** use this skill for:
 
 ## Kickoff
 
+Both setup routes require Java 21+ and the Clojure CLI. The skill checks
+`java -version` and `clojure -Sdescribe` before writing or converting a project:
+the scaffold uses shadow-cljs's `:deps` mode, which delegates to the CLI even
+when launched through npm. The deps-new tool is needed only for the generator route.
+
 The skill auto-triggers on greenfield-setup phrasings. To force-load:
 
 ```

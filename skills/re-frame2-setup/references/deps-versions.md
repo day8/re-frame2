@@ -19,12 +19,7 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 
 **Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` only checks you handed it an adapter spec map (nil / non-map rejected); the spec carries a `:kind` discriminator, **not** a VERSION, so the runtime never compares per-artefact versions at boot. The enforcement that *does* exist is **build-time**: `tools/template/test/day8/re_frame2_template/version_lockstep_test.clj` fails if the template's pinned `:rf2-version` / `:shadow-version` / `:react-version` literals drift from their sources of truth, and the derived scaffold in `first-counter.md` is drift-locked against the template. Keep every coordinate at one VERSION because a mixed set is undefined, not because a guard will catch it.
 
-**Validate lockstep yourself.** Grep your `deps.edn` for `day8/re-frame2-` coordinates and confirm every pin is identical — pre-publish every `:git/sha` (or every `:local/root` checkout) must match; post-publish every `:mvn/version` must match:
-
-```bash
-# every printed version / SHA must be the same string:
-grep -oE 'day8/re-frame2[a-z-]* *\{[^}]*(:mvn/version|:git/sha) "[^"]+"' deps.edn
-```
+**Validate lockstep yourself.** Read the complete EDN coordinate maps in `:deps` and the active aliases' `:extra-deps` / `:override-deps`, including core and Story in `:dev`. Compare every `day8/re-frame2*` pin: Git coordinates use the same reviewed SHA, local roots point into the same reviewed checkout (their artefact subdirectories differ), and published coordinates use the same VERSION. Check multiline maps too: a line-oriented grep can omit mismatched pins. Run `clojure -Stree -A:shadow:dev` to verify the build dependencies resolve, and compare the selected framework coordinates with the intended pins.
 
 **Same VERSION, different release trigger.** Framework artefacts ship on `v*` tags; Xray and Story ship separately on `xray-v*` and `story-v*` ([release process](https://github.com/day8/re-frame2/blob/main/docs/release-process.md)). A framework release does not publish either tool. Story is already in the scaffold's `:dev` alias: keep it on the reviewed checkout or commit until its matching Maven version resolves. Xray is attached separately when requested.
 
@@ -39,7 +34,7 @@ grep -oE 'day8/re-frame2[a-z-]* *\{[^}]*(:mvn/version|:git/sha) "[^"]+"' deps.ed
 | `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
-| `day8/re-frame2-http` | per-feature | When you dispatch `:rf.http/managed`. |
+| `day8/re-frame2-http` | per-feature | When an event returns `[:rf.http/managed request]` in `:fx`; this is an effect, not an event to dispatch. |
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
 | `day8/re-frame2-epoch` | per-feature | When you call `epoch-history` or `restore-epoch!` — or when you want `re-frame2-pair`'s live time-travel, which reads `epoch-history` and so needs this artefact on your app's own classpath. |
 
