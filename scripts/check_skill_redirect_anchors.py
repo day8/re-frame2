@@ -9,12 +9,12 @@ several labels after one arrow. If SKILL-REDIRECT.md is renamed, restructured,
 or a bullet label drifts, every leaf citation goes stale silently.
 
 The census is the regression guard (rf2-8y1bo): at 2026-09-22 this read 83 label
-tokens over 171 skills/**/*.md, 0 broken, where reading only the FIRST label
-after each arrow saw 60. A green on a materially lower count means the list
-parse is stopping early -- a parser regression, not a pass. If a leaf ever uses
-a separator this cannot read, widen the alternation in NEXT_LABEL_RE by that one
-token; never loosen the label pattern into a general emphasis scan, or ordinary
-italic prose starts reading as a label.
+tokens over 171 skills/**/*.md, 0 broken, against the 60 the first-label-only
+read it replaced saw on the tree before that change. A green on a materially
+lower count means the list parse is stopping early -- a parser regression, not
+a pass. If a leaf ever uses a separator this cannot read, widen the alternation
+in NEXT_LABEL_RE by that one token; never loosen the label pattern into a
+general emphasis scan, or ordinary italic prose starts reading as a label.
 
 Run from the repo root:
     python3 scripts/check_skill_redirect_anchors.py
