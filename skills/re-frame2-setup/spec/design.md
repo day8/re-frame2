@@ -139,7 +139,7 @@ The `description` is "pushy" and lists the greenfield-trigger phrases the shippe
 - **Mixing versions across the `day8/re-frame2*` artefacts** — L2 cardinal rule.
 - **Adding per-feature artefacts, devtools, schemas or policy defensively** — L3 + `references/deps-versions.md`'s "pay-as-you-go" framing.
 - **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx is a four-file swap, not a branching interview.
-- **Interviewing the author when a reviewed default exists** — L11. A missing pin / name / substrate / tooling answer is a default, not a question; the only stops are the explicit-latest confirmation and a genuinely non-greenfield project.
+- **Interviewing the author when a reviewed default exists** — L11. A missing pin / name / substrate / tooling answer is a default, not a question. An explicit latest request authorizes compatible dependency updates; a concrete compatibility conflict or missing prerequisite still needs resolving before setup can finish.
 - **Handing the author a command the skill can run** — L12/L6. Install, the terminating compile, the watch, and (on request) the generator are the skill's to execute.
 - **A second, hand-maintained copy of the template** — L13. Files change in `tools/template/`, and the leaves are regenerated.
 - **Writing tests for the author** — L5 cardinal rule.

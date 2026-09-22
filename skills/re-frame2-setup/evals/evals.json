@@ -93,6 +93,23 @@
        "The Story coordinate is repaired in :aliases :dev :extra-deps without removing the Story development entry or inventing a Maven version.",
        "The explanation distinguishes dependency resolution from inclusion in the compiled bundle; it does not claim :dev is automatically omitted from release classpaths.",
        "The author-supplied reviewed checkout is used for Story, and any requested Maven alternative is checked for Story's own publication separately."
+     ]},
+    {"id": 23, "name": "explicit-revision-differs-from-skill-checkout", "should_trigger": true,
+     "prompt": "Scaffold a Reagent counter using the full re-frame2 commit SHA I supplied. It is a different revision from the checkout where this skill is installed, and it has not been published to Clojars.",
+     "expected_output": "The app uses the requested commit for core, the Reagent adapter and Story. The skill remains installed from its existing checkout, and setup continues through installation and compilation.",
+     "expectations": [
+       "All three framework coordinates, including Story in :dev, use the supplied full :git/sha with the correct :deps/root, rather than :local/root paths into the different skill checkout.",
+       "The skill checkout is left at its existing revision; an application dependency request does not change every project or installed skill using that checkout.",
+       "The agent resolves the complete :shadow:dev classpath and reports the actual compile result, identifying any incompatibility instead of silently substituting the default revision."
+     ]},
+    {"id": 24, "name": "explicit-latest-npm-request", "should_trigger": true,
+     "prompt": "Scaffold a re-frame2 counter. Use the latest compatible npm dependencies instead of the template's npm pins; keep the framework on the reviewed checkout.",
+     "expected_output": "The agent looks up current npm versions, writes exact compatible pins, installs and compiles, and reports the selected versions without another approval round.",
+     "expectations": [
+       "The agent resolves npm versions rather than guessing or silently retaining every template npm pin.",
+       "The explicit upgrade request is sufficient authorization: no confirmation is requested merely to write compatible versions already requested by the author.",
+       "Selected versions are written as exact pins, with React and ReactDOM kept compatible with the view library; a concrete compatibility conflict is reported rather than ignored.",
+       "The framework coordinates remain on the requested reviewed checkout, and the handoff includes the actual install and terminating compile results."
      ]}
   ]
 }

@@ -89,7 +89,7 @@ Lockstep is automatic — both resolve from one checkout, one commit — and edi
 | `day8/re-frame2-story` (tool; on the scaffold's `:dev` alias) | `tools/story` |
 | `day8/re-frame2-xray` (tool) | `tools/xray` |
 
-Keep every `day8/re-frame2*` coordinate on the *same* checkout — never mix one artefact from one clone with another from a second.
+Use one checkout for all local roots. If it differs from the requested version/tag/commit, use that revision's full `:git/sha` for core, the adapter and Story, leaving the skill checkout unchanged.
 
 ### The `:git/sha` route (pre-publish, no checkout on disk)
 
@@ -132,7 +132,7 @@ re-frame2 ships no npm code, so every npm package in the scaffold is there for t
 
 **The last two are not optional.** Story rides the `:dev` alias, Story pulls Xray, Xray pulls `machines-viz`, and `machines-viz`'s chart requires `@xyflow/react` and `elkjs/lib/elk.bundled.js` directly — so a `package.json` carrying only the first three compiles until the dev build loads Story and then fails with shadow's `The required JS dependency "@xyflow/react" is not available`. Restore all five when recovering a broken install. Then run `npm install` yourself; on the default baseline there is nothing to pause for.
 
-**Latest-from-npm is opt-in only.** If the author explicitly asks for the newest, run `npm view <pkg> version` for each and **show the result for confirmation before writing it** — don't auto-substitute. Reagent 2.x requires React 19; flag any pick below 19 as a conflict and stop. Recovering a broken install goes back to the pinned versions, never to bare `npm install react react-dom` (which writes `latest`).
+**Latest-from-npm is opt-in only.** On an explicit request, run `npm view <pkg> version` for each, write exact compatible pins, then install, compile and report them. No second confirmation is needed. Reagent 2.x requires React 19; flag a pick below 19 as a conflict. Without an upgrade request, recover using the template pins and `npm install`, never bare `npm install react react-dom`.
 
 ## When to add the optional per-feature artefacts
 
