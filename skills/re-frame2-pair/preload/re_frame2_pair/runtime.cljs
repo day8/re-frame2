@@ -713,10 +713,11 @@
     (assoc r :query-v query-v)))
 
 (defn- handler-fn-hash
-  "Opaque hash for hot-reload probe comparisons. Function refs aren't
-   reliably `=`, so hash a stringified form."
+  "Opaque function-identity hash for hot-reload probe comparisons.
+   Hash the function itself: different closures can print identical source
+   while capturing different values. Repeated reads of the same fn are stable."
   [meta-map]
-  (some-> meta-map :handler-fn str hash))
+  (some-> meta-map :handler-fn hash))
 
 (def ^:private fn-slot-sentinel
   "Readable EDN placeholder substituted for a Function value anywhere in a
@@ -790,7 +791,8 @@
 (defn registrar-handler-ref
   "Stable opaque identifier for the currently-registered handler. Used
    as a hot-reload probe: capture before edit, compare after. The hash
-   changes on every re-registration (new fn ref, new source coords)."
+   changes when the handler function is replaced, including closures with
+   identical printed source. Re-registering the same fn retains the hash."
   [kind id]
   (handler-fn-hash (rf/handler-meta {:source :store :kind kind :id id})))
 
