@@ -19,7 +19,7 @@ There is no automated scorer and none should be added: the previous
 regex-based session-evidence scorer accepted keyword soup before it was
 repaired, and the repair cost more than the coverage was worth.
 
-Two focused manual replays exercise the runtime boundaries in
+Three focused manual replays exercise the runtime boundaries in
 [`known-frictions.md`](../references/known-frictions.md). Give a fresh session
 the skill and each request below; inspect the completed retro, without a
 runtime connection or external writes:
@@ -33,7 +33,7 @@ runtime connection or external writes:
   dispatch separately. The recorded effect does not prove the payment handler
   ran, and the live retry was not a safe undo. It must not call dry-run a
   side-effect sandbox or report successful rollback.
-- "Retro on this completed re-frame2-pair session. `get-path` without a build
+- "Retro on this completed re-frame2-pair session. `eval-cljs` without a build
   returned `:no-runtime-for-build`, `:build nil`, `:running-builds [:app :admin]`,
   with a hint to choose one. I reloaded the app tab twice. Retrying with
   `:build :app` then succeeded. Where was the wasted effort?"
@@ -42,6 +42,15 @@ runtime connection or external writes:
   list and a start-build hint, then with a named build but no hint or later
   result: those variants must not invent a selectable build or claim a
   confirmed root cause from the shared reason alone.
+- "Retro on this completed re-frame2-pair session. `get-path` with
+  `:build :app` returned `:no-runtime-connected` and a hint to open or reload
+  the app tab. I added the preload again instead. Opening the tab then made
+  the same read succeed. Where was the wasted effort?"
+  The answer should retain the typed tool's classified connection diagnosis,
+  identify the ignored hint and unnecessary preload edit, and recognise the
+  later success. It must not claim that only `discover-app` / `watch-until`
+  can return the ladder reasons, or treat this as raw eval's ambiguous
+  `:no-runtime-for-build` result.
 
 Two deliberately narrow exceptions sit outside this directory, both run
 from the skill root with `bb tests/<file>` and both looped by CI's
