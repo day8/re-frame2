@@ -31,6 +31,12 @@ stock Reagent's `unsafe-html` value renders under Reagent, fails unchanged
 under Fresco, and renders identical bytes after conversion to `{:__html html}`.
 The unwrapped donor control confirms that stock Reagent drops the plain map.
 
+The MIG-22 bridge witness renders a Fresco child under a retained Reagent
+parent. Its `[:>]` control loses keyword/map/vector props; the corrected
+`h/as-element` child and `r/create-element` with raw props preserve the same
+values and render identical markup. This covers prop transport, not browser
+interaction or reactive updates.
+
 ## Run
 
 From this directory:

@@ -58,7 +58,7 @@
      "expectations": [
        "Converts item and lst to h/defview and moves ^{:key (:id t)} into the props map as [item {:key (:id t) :t t}] (MIG-07).",
        "States that Fresco performs NO metadata read anywhere in the codec, so a surviving ^{:key ...} is an ABSENT key rather than a spelling variant — React then reconciles by position, which is silent state corruption in a reorderable or filterable list.",
-       "Notes that a missing key gets React's own warning (Fresco adds no missing-key diagnostic of its own), while a map or other entity value at :key on a boundary-headed member gets :rf.warning/fresco-entity-key.",
+       "Distinguishes React's missing-key warning for lists lowered under native tags from Fresco's dev-only :rf.warning/fresco-missing-key for boundary-headed sequences passed into another boundary; a map or other entity value at :key on a boundary-headed member gets :rf.warning/fresco-entity-key.",
        "Strips the doall (MIG-12).",
        "Does NOT treat the bare symbol child in [:li t] as a props map — `t` is content, never forwarded (the bare-symbol trap).",
        "Notes that :key is read as the exact literal keyword, so \"key\" and :x/key are ordinary attributes rather than the key."
@@ -241,6 +241,18 @@
         "Preserves the existing sanitisation/trust decision and the same HTML string; neither Reagent's wrapper nor Fresco's plain map sanitises HTML.",
         "Distinguishes this working wrapped site from an already-unwrapped map, which stock Reagent 2.0.1 drops and Fresco makes live. Does not claim the input was inert or leave the wrapper unchanged.",
         "Drops the Reagent require only once there are no remaining uses and does not invent a Fresco trusted-markup API."
+      ]
+    },
+    {
+      "id": 35,
+      "kind": "behavioural",
+      "tier": "D",
+      "name": "d-preserve-clojure-props-from-reagent-parent",
+      "prompt": "I'm on re-frame2 and migrating one leaf to Fresco while its Reagent parent stays. The converted leaf destructures :status, :item and :on-select, compares :status with :ready, reads (:title item), and puts the :on-select vector on a button. Is (def card* (h/as-component card)) followed by [:> card* {:status :ready :item {:title \"Task\"} :on-select [:task/select 7]}] enough?",
+      "expectations": [
+        "Identifies that Reagent [:>] converts the keyword to a string, map to a JS object, and vector to a JS array before as-component sees them; decoding prop names does not recover Clojure values.",
+        "Preserves the values with a Fresco element in the Reagent parent's child position, (h/as-element [card props]), or r/create-element with a raw #js props object containing the original Clojure values and React slot names; does not clj->js those values.",
+        "Keeps the existing frame provider above the retained Reagent parent and declares any as-component wrapper once at top level; does not require migrating the parent or creating a second root."
       ]
     }
   ]
