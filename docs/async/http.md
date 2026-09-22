@@ -163,7 +163,7 @@ Point `:reply-to` at the issuing event and both the success and the failure repl
       ;; Initial branch — issue the request, addressing the reply back here.
       :else
       {:db (assoc db :counter/status :loading)
-       :fx [[:rf.http/managed {:request {:url "/api/inc.json"} :reply-to [:counter/+1]}]]})))
+       :fx [[:rf.http/managed {:request {:url "api/inc.json"} :reply-to [:counter/+1]}]]})))
 ```
 
 The first time it runs there is no `reply`, so the handler issues the request. When the reply comes back, the runtime dispatches the *same* event again with the canonical envelope appended as the last argument — the `reply`. To keep request context (an id, a slug) in scope on the reply branch, ride it along inside the `:reply-to` prefix: `:reply-to [:counter/+1 msg]` delivers `[:counter/+1 msg <envelope>]`. Use this shape when request and reply are two faces of one small thing — a counter, a toggle, a fire-and-refresh.
