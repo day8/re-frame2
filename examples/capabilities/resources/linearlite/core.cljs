@@ -143,6 +143,14 @@
    :tags           (fn [_params _data] #{[:board]})}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/board"}
+     ;; `:json` keywordizes object KEYS, not values. The demo stub below hands
+     ;; this board through undecoded, so `:status` arrives as the keyword the
+     ;; domain uses (`:backlog`). A real JSON backend returns "backlog", and the
+     ;; column filter (`(= (:id status) (:status %))`) would then match nothing
+     ;; — three empty columns, no error — and each write's commit would put the
+     ;; server's string back over your keyword. Pointing this at a server: swap
+     ;; `:json` for a Malli schema carrying `[:status :keyword]`, here and on
+     ;; the three writes below, and the runtime coerces it at the boundary.
      :decode  :json}))
 
 ;; ============================================================================
