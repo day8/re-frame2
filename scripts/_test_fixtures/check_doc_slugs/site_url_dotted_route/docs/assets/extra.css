@@ -1,0 +1,4 @@
+/* The static-file control. MkDocs copies this into the site verbatim, so
+   `assets/extra.css` is published at that exact path and existence is the
+   whole question — which is what the dotted-page repair must not cost. */
+:root { --rf2-fixture: 1; }

@@ -827,7 +827,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         # Root markdown is THIS gate's surface (rf2-znup0), and the repo's
         # front page cites the published site, so the docs gate's copy of the
         # arm cannot reach the file where the class actually bit.
-        ("site_url_in_root_markdown",        1),  # one live link, one dead
+        # rf2-co91r added the third row: a DOTTED page basename, which is what
+        # every `docs/api/re-frame.*.md` page has. It resolves, so the count
+        # does not move — and rises to 2 the moment a dot in the final segment
+        # is read as a file extension before route candidates are tried.
+        ("site_url_in_root_markdown",        1),  # two live links, one dead
         # The redirect table writes bare URLs after an arrow, which the shared
         # extractor does not and should not read as links — so the table's
         # rows were seen by no gate at all. Both directions, and the
@@ -1076,7 +1080,14 @@ def _run_self_tests(verbose: bool = False) -> int:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases) + 4} self-tests passed.\n")
+        # The constant counts the five PASS lines emitted after the fixture
+        # loop: the redirect-table extractor, the root roster, the untracked
+        # root scratch, the beside-source roster and the beside-source
+        # scratch. It read 4 — one short — from the block rf2-dnx3r added
+        # without bumping it, so this total undercounted the PASS lines on
+        # screen (rf2-co91r). Keep it equal to the PASS-line count:
+        # `--self-test --verbose | grep -c 'self-test PASS'`.
+        sys.stderr.write(f"all {len(cases) + 5} self-tests passed.\n")
     return 0
 
 
