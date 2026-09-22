@@ -228,7 +228,8 @@
                      {:scope {:from-db :realworld/session}
                       :tags  #{[:feed]}}
                      {:scope {:from-db :realworld/viewer}
-                      :tags  #{[:author-articles (get-in result [:article :author :username])]}}])}
+                      :tags  #{[:author-articles (get-in result [:article :author :username])]}}
+                     {:scope :rf.scope/global :tags #{[:tags]}}])}
   (fn [{:keys [slug] :as params} _ctx]
     {:request {:method (if slug :put :post)
                :url    (rh/full-url (if slug
@@ -247,7 +248,8 @@
                     [{:scope {:from-db :realworld/viewer}
                       :tags  #{[:article slug] [:article-list]}}
                      {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])}
+                      :tags  #{[:feed]}}
+                     {:scope :rf.scope/global :tags #{[:tags]}}])}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :delete
                :url    (rh/full-url (str "/articles/" slug))}

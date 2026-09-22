@@ -220,7 +220,8 @@
         {:db (-> db
                  (auth/store-session-db user)
                  (dissoc :settings-save-owner))
-         :fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]
+         :fx [[:realworld-resources.session/persist {:token (:token user)}]
+              [:dispatch [:rf.mutation/clear {:instance settings-instance}]]
               [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})
 
       ;; `:error` — the form already shows it off the instance state, so there

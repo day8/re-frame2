@@ -57,8 +57,8 @@ Every write is a `reg-mutation` — most in `mutations.cljs`, with the editor's 
 | `:realworld/follow` / `:realworld/unfollow` | POST/DELETE `/profiles/:username/follow` | populates the viewer-scoped profile banner from the reply; invalidates `[:profile username]` under the viewer **and** the session `[:feed]` (the follow set is what decides feed membership) |
 | `:realworld/post-comment` | POST `/articles/:slug/comments` | invalidates `[:comments slug]` under the viewer, so the mounted page's comments refetch |
 | `:realworld/delete-comment` | DELETE `/articles/:slug/comments/:id` | invalidates `[:comments slug]` under the viewer |
-| `:realworld/save-article` | POST `/articles` (create) / PUT `/articles/:slug` (edit) | invalidates the viewer-scoped lists (and the article's own detail, on edit), the session feed, **and** the author's own My Articles cache (`[:author-articles username]`, keyed off the reply, since a create has no prior slug to key against) |
-| `:realworld/delete-article` | DELETE `/articles/:slug` | invalidates the article, the lists, **and** the session feed |
+| `:realworld/save-article` | POST `/articles` (create) / PUT `/articles/:slug` (edit) | invalidates the viewer-scoped lists (and the article's own detail, on edit), the session feed, **and** the author's own My Articles cache (`[:author-articles username]`, keyed off the reply, since a create has no prior slug to key against), and the global tag list |
+| `:realworld/delete-article` | DELETE `/articles/:slug` | invalidates the article, the lists, the session feed, and the global tag list |
 | `:realworld/update-settings` | PUT `/user` | invalidates `[:profile username]` under the viewer so a later profile visit re-reads the new bio |
 
 Two things make mutations feel like infrastructure rather than glue:
