@@ -69,7 +69,9 @@ per-request, and the wire payload stays minimal.
   registers there. Instead `handle-request` calls `await-resource-loaded!`
   (defined alongside it), which polls the resource's own runtime entry
   directly via the public `rf/resource-state` introspection read until it
-  reaches `:loaded` / `:error`, or a render-deadline budget elapses. The
+  reaches `:loaded` / `:error`, or a render-deadline budget elapses. Only
+  `:loaded` proceeds to render; a failed fetch or exhausted deadline returns
+  HTTP 503 with `Cache-Control: no-store` and no hydration payload. The
   [view](../../../../docs/core/glossary.md#view) reads through the passive
   `[:rf/resource …]`
   [subscription](../../../../docs/core/glossary.md#subscription), and by the
@@ -185,10 +187,10 @@ likewise bakes a plain SSR payload into its own `index.html`.
 
 ## Deferred — not built here
 
-- Mutation with invalidation — the next phase. No
-  [mutation](../../../../docs/resources/glossary.md#mutation) example is
-  built; see
-  [`examples/capabilities/resources/resources/`](../../resources/resources/README.md).
+- [Mutations](../../../../docs/resources/glossary.md#mutation) — this page
+  demonstrates read hydration. See
+  [Linearlite](../../resources/linearlite/README.md) for optimistic writes
+  with commit and rollback.
 - GraphQL — a deferred later phase.
   [`:rf.http/managed`](../../../../docs/resources/glossary.md#managed-http)
   is the single built-in transport. No GraphQL example is built.
