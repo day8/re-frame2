@@ -62,7 +62,7 @@ Xray's UI over the EP-0023 **`image → frame`** public model — the
 structural counterpart to Graph (Graph is the per-fact view; Frames is
 the per-frame installation + image-provenance view). Each live frame
 renders as an **execution context** carrying its resolved image (the
-generation's `[kind id]` descriptor set), its capabilities, and how it
+generation's `[kind id]` descriptor set), and how it
 resolves `(kind id)` lookups through that image. This is the model a
 consumer app developer reasons in: image assembly plus frame isolation
 are the whole composition story — **no realm / app / module layer to

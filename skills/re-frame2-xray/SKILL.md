@@ -107,7 +107,8 @@ full-inventory request, not for routine routing.
  Machine · Routes — rebind when you pick an event in the L2 list.
 - **Resources is mixed** — a process-global resource registry plus the
  observed frame's live cache/ledger (follows the L1 frame picker), with
- per-epoch mutation evidence drawn from the trace stream.
+ lifecycle and mutation history from the retained trace buffer across
+ frames. Picking an epoch does not filter that history.
 - **Graph, Frames and Fresco do not follow the event.** Graph reads the
  process-global registrar (Declared) or the observed frame (Realized) —
  its Declared ↔ Realized projection toggle is a Graph-local control, NOT
@@ -183,8 +184,9 @@ the control-by-control inventory.
  modes. It moves the per-frame live projections; the process-global
  catalogues read the same in every frame. Always renders; the pin is
  transient (resets on reload); tool frames (`:rf/xray`,
- `:rf/re-frame2-pair`) are filtered out unconditionally — "I can't find
- frame X in the picker" → it's a tool frame.
+ `:rf/re-frame2-pair`) are filtered out unconditionally. Other choices
+ come from retained event bundles, so a quiet application frame can be
+ absent too; see [the picker reference](references/chrome.md#l1-frame-picker).
 - **LIVE vs RETRO spine** — the L2 spine live-tails at the head until you
  pick a historical event or pause; `Space` pauses/resumes, `l` snaps back.
 - **Time-travel: passive inspect vs explicit rewind** — picking an epoch

@@ -47,7 +47,15 @@ current-route slice; see [`panels.md` §Static mode](panels.md)).
   `frame-switcher/internal-frames` and it applies unconditionally. (The
   "Show tool frames in picker" power-user toggle still described in
   `018-Event-Spine.md` / `007-UX-IA.md` is normative-future and is NOT
-  shipped.) So "I can't find frame X in the picker" → it's a tool frame.
+  shipped.)
+- **The picker is not a census of all live frames.** Its choices come
+  from retained event bundles; the selected frame also remains visible
+  when its events disappear. An unselected application frame with no
+  retained events can therefore be absent without being a tool frame.
+  Use **Dynamic → Frames** to inspect live frames and their images. To observe
+  a known quiet application frame explicitly, use
+  `(xray/focus! {:frame :app/background})` on the installed Xray; an empty
+  event list is then expected until that frame has retained events.
 
 Canonical write is `:rf.xray/select-frame <frame-id>` (which re-seeds the
 spine's `:target-frame` + `:epoch-history`); the picker sub is
