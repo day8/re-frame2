@@ -746,11 +746,13 @@
 ;; FRAME CONFIG  (substrate-free)
 ;; ============================================================================
 ;;
-;; The one piece of frame config the three mounts share. The Reagent and UIx
-;; entries merge it into their `frame-root` props alongside a
-;; substrate-specific `:id` / `:doc`; the Fresco entry merges it into the
-;; `rf/make-frame` call its root then joins, because `h/render!`'s opts carry
-;; no `:fx-overrides` key. Same map either way:
+;; The one piece of frame config the three mounts share. All three entries
+;; ride it on their `frame-root`, alongside a substrate-specific `:id` /
+;; `:doc`. The Fresco entry's SSR branch alone still makes the frame by hand,
+;; for a different reason: `rf.ssr/hydrate!` dispatches the server's payload
+;; INTO a frame rather than making one, so the frame has to exist with its
+;; `:fx-overrides` already installed before the tree scopes it. Same map
+;; either way:
 ;;
 ;;   - `:fx-overrides` swaps in our fake backend: it points `:rf.http/managed` at
 ;;     the in-process demo stub above, so the example stands on its own with

@@ -485,8 +485,12 @@ differ, the serve command, build-id skew and the deployment posture — is
 [Render on Node](../../ssr/concepts.md#render-on-node). The worked example is
 [`substrates/fresco/login`](../../../examples/substrates/fresco/login), whose
 `server.cljs` is a real render module driven by the test suite against the real
-views; its `host.clj` is annotated wiring rather than a server you can start,
-because that example's model is ClojureScript-only today.
+views. Its `host.clj` is a server you can start: the shared `login.model` is
+`.cljc`, so the JVM loads the application's own registrations, and the host
+publishes `init!` / `make-handler` / `make-app`. CI's `jvm-node-crossing` job
+drives it over a real socket against a spawned sidecar
+(`re-frame.ssr.ring.login-host-crossing-test`). The example's own README has
+the commands.
 
 Whichever host you use, the service renders whole pages. Streaming, React
 Server Components, islands, and no-JavaScript progressive enhancement are
