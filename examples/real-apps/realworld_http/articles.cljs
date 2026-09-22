@@ -228,10 +228,11 @@
          (the `/tag/:tag` route param; on the wire that's still
          `/articles?tag=…`). Goes out via `:rf.http/managed` with a
          Malli-decoded response and the house data-fetch retry policy. It
-         carries `:request-id :articles/load`, which buys two things: re-issue
-         it (the user flips to a different tag mid-load) and the new request
-         supersedes the in-flight one, and `:articles/cancel` can abort it
-         outright. See the HTTP guide: ../../../docs/async/http.md
+         carries `:request-id :articles/load`, which buys supersession:
+         re-issue it (the user flips to a different tag, or to another page)
+         and the new request supersedes the in-flight one, so a slow first
+         reply can never land after a fast second one. See the HTTP guide:
+         ../../../docs/async/http.md
 
          It also broadcasts `:fetch-started` into the home machine, nudging the
          `:data` region to `:loading` (or `:refreshing`, if a list is already
@@ -335,19 +336,6 @@
                  (assoc-in [:articles :error] message))
          :fx [[:dispatch [:realworld/articles-home
                           [:fetch-failed {:failure message}]]]]}))))
-
-(rf/reg-event :articles/cancel
-  {:doc "Abort an in-flight :articles/load — say the user wanders off the home
-         page before it lands. No sense letting a reply arrive for a screen
-         nobody's looking at. See the HTTP guide on aborts:
-         ../../../docs/async/http.md#the-search-box-race-cured"}
-  (fn [_ _]
-    {:fx [[:rf.http/managed-abort :articles/load]]}))
-
-(rf/reg-event :articles/reset
-  (fn [{:keys [db]} _]
-    {:db (assoc db :articles (request-slice []))
-     :fx [[:dispatch [:realworld/articles-home [:reset]]]]}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

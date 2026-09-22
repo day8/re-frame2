@@ -57,12 +57,15 @@
 
 (rf/reg-event :feed/load
   {:doc "Fetch the signed-in user's feed. Carries `:request-id :feed/load`, so
-         :feed/cancel can pull the plug if the user wanders off mid-load. Also
-         broadcasts `:fetch-started` into the home machine, nudging the `:data`
-         region to `:loading` (or `:refreshing`, if a list is already up). The
-         home route's 1-indexed `?page=` becomes the wire's limit/offset window
-         via `rh/paginate-path` — the very same pagination the global feed
-         uses."}
+         a page flip mid-load supersedes the in-flight request instead of
+         racing it; and a reply for a navigation the reader has left is refused
+         by the nav-token gate (REPLY OWNERSHIP, http.cljs — the
+         `rh/same-navigation?` checks in `:feed/loaded` and `:feed/load-failed`
+         below). Also broadcasts `:fetch-started` into the home machine,
+         nudging the `:data` region to `:loading` (or `:refreshing`, if a list
+         is already up). The home route's 1-indexed `?page=` becomes the wire's
+         limit/offset window via `rh/paginate-path` — the very same pagination
+         the global feed uses."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [page      (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
           path      (rh/paginate-path "/articles/feed" nil page)
@@ -83,14 +86,6 @@
                           :request-id :feed/load
                           :on-success [:feed/loaded nav-token]
                           :on-failure [:feed/load-failed nav-token]})]]})))
-
-(rf/reg-event :feed/cancel
-  {:doc "Abort an in-flight :feed/load — say the user leaves before it lands.
-         No point delivering a reply to a screen that's gone. See the HTTP
-         guide on aborts:
-         ../../../docs/async/http.md#the-search-box-race-cured"}
-  (fn [_ _]
-    {:fx [[:rf.http/managed-abort :feed/load]]}))
 
 (rf/reg-event :feed/loaded
   {:doc "The user-feed fetch came back happy. Folds the new count into the home
