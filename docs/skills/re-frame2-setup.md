@@ -13,13 +13,14 @@ The skill teaches **only** the re-frame2-specific wiring: which artefacts to add
 Load this skill when **any** of these are true:
 
 - The author has just created a new directory and wants re-frame2 set up in it.
-- The author has an existing CLJS project but no re-frame2 wiring yet.
+- The author has an empty CLJS project with build tooling but no re-frame2 wiring yet.
 - The author says *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"how do I set up re-frame2"*, *"give me a hello-world re-frame2 app"*.
-- A counter / event / sub fails to compile because the build doesn't yet know what `re-frame.core` or `re-frame.adapter.reagent` is.
+- A freshly scaffolded project's counter / event / sub fails to compile because the build doesn't yet know what `re-frame.core` or `re-frame.adapter.reagent` is.
 
 Do **not** use this skill for:
 
 - Writing application code in a project that's already on re-frame2 → use [re-frame2](re-frame2.md).
+- Adding re-frame2 to an existing app with substantial code or other state management → use [re-frame2](re-frame2.md).
 - Migrating a re-frame v1 project → use [re-frame-migration](re-frame-migration.md).
 - Inspecting / debugging a running app → use [re-frame2-pair](re-frame2-pair.md).
 
