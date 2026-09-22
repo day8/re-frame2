@@ -571,9 +571,14 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > claim is a bracketing claim and nothing stronger. No open PRs and no other
 > worker were in flight.
 >
-> Raw driver output for all three runs is committed beside the instrument at
-> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-lo7uy/`
-> (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
+> Raw driver output for all three runs is in the bench run corpus, which lives
+> in git history rather than on `main` (`rf2-6c12m.6`). The corpus is the tree
+> at commit `7b492b98cb`; one command restores it —
+> `node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore` —
+> which writes `bench/fresco/src/re_frame/bench/fresco/data/`, git-ignored so
+> that a restored record never lands in a commit. This window's records are the
+> four files of `data/readprofile-lo7uy/` (`run1.txt`, `run2.txt`, `run3.txt`
+> and the `README.md` below), verbatim except for the one
 > `shadow-cljs - config:` banner line per file, whose absolute path is replaced
 > by `<worktree>` and marked inline as redacted — the portability gate refuses
 > a tracked personal home path. No figure, guard verdict or exit line was
