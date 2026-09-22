@@ -29,7 +29,7 @@ namespace and add nothing but their own views and boot:
 |---|---|---|---|
 | Reagent | [`core/login/core.cljs`](../core/login/core.cljs) | `examples/login` | `reg-view` with `dispatch` / `subscribe` injected into the body |
 | UIx | [`uix/login/core.cljs`](uix/login/core.cljs) | `examples/login-uix` | `defui` reading through the `use-sub` / `use-frame` hooks |
-| Fresco | [`fresco/login/core.cljs`](fresco/login/core.cljs) | `examples/login-fresco` | `h/defview` with `h/sub`, and handlers stated as data — an event vector at `:on-change` |
+| Fresco | [`fresco/login/core.cljs`](fresco/login/core.cljs) | `examples/login-fresco` | `rf.fresco/defview` with `rf.fresco/sub`, and handlers stated as data — an event vector at `:on-change` |
 
 Open any two of those three side by side. The subscription vectors are
 identical, the event ids are identical, the app-db shape is identical, and the

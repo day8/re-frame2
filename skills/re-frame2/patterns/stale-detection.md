@@ -137,7 +137,7 @@ The owner is also responsible for *advancing* — typically in the same handler 
 
 ## Worked example
 
-No standalone example app — every state machine using `:after` is an inline example (the substrate-owned variant), and the routing example in `examples/capabilities/routing/routing/` exercises the nav-token variant. The substrate's behaviour is verified by the conformance suite under `spec/conformance/fixtures/` (look for the `stale-after` and `nav-token` fixtures).
+No standalone example app — every state machine using `:after` is an inline example (the substrate-owned variant), and `examples/real-apps/realworld_http/article_editor.cljs` exercises the nav-token variant: the save reads the current nav-token, carries it on both reply targets, and each reply handler refuses to write unless it is still the same navigation. The substrate's behaviour is verified by the conformance suite under `spec/conformance/fixtures/` (look for the `stale-after` and `nav-token` fixtures).
 
 ## Pointers
 

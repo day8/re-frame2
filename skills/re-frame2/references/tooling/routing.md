@@ -185,7 +185,7 @@ Flow on `:rf.route/url-requested`:
 ## Deeper material
 
 - Full path-pattern grammar, ranking algorithm, query coercion, scroll fx contract → `SKILL-REDIRECT.md` → *EP — Routing (012)*.
-- Worked three-page example (home / list / detail, popstate, headless tests) → `examples/capabilities/routing/routing/`.
+- Worked three-page example (home / list / detail, `route-link` navigation, Back/Forward via `:url-bound? true`; no tests — examples are test-free) → `examples/capabilities/routing/routing/`.
 - Slice schema (`:rf/route-slice`), pattern schema (`:rf/route-pattern`), rank schema (`:rf/route-rank`) → `SKILL-REDIRECT.md` → *Spec schemas*.
 - Interceptor-based guards (`auth-guard`, redirects), tags-driven policies → *EP — Routing (012)* §Redirects and guards.
 - Effective parent-to-leaf resource plans, grouped identity dedupe, the redundant-child advisory, attach-before-release owner handoff → *EP — Resources (016)* §Effective parent-chain resource plans.

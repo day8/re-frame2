@@ -74,14 +74,9 @@ login/
   stories.cljs         — Story showcase: variants covering every reachable
                          :auth.login/flow state (auxiliary; see below).
   stories_host.cljs    — Story-showcase entry point (live-app ↔ shell hash router).
-  stories.index.html   — an alternate `<title>`/meta for the showcase
-                         build. Nothing serves it today: the runner stages,
-                         and the watch server resolves, `index.html` at `/`
-                         for every build. Kept identical to `index.html`
-                         below the `<head>` until that is settled either way.
 ```
 
-The 3 `stories*` files are an intentionally auxiliary Story showcase layered over this example (build `examples/login-with-stories`). It's not a second example, and it isn't tool-owned. The login form's view-states make a natural variant set, so the showcase sources the real login dataflow (the `login.model` machine and schemas) and `login.core`'s real views and turns every reachable login state into a Story variant. The Xray preload is wired in, so the auth-submit cascade is inspectable. They live here, rather than under `tools/story/testbeds/`, because they showcase this worked example end to end; the tool-owned Story testbeds at [`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued with the tool. See [How to run](#how-to-run) for the showcase command.
+The two `stories*` files are an intentionally auxiliary Story showcase layered over this example (build `examples/login-with-stories`). It's not a second example, and it isn't tool-owned. The login form's view-states make a natural variant set, so the showcase sources the real login dataflow (the `login.model` machine and schemas) and `login.core`'s real views and turns every reachable login state into a Story variant. The Xray preload is wired in, so the auth-submit cascade is inspectable. They live here, rather than under `tools/story/testbeds/`, because they showcase this worked example end to end; the tool-owned Story testbeds at [`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued with the tool. See [How to run](#how-to-run) for the showcase command.
 
 ## How to run
 
