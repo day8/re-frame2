@@ -3185,7 +3185,7 @@
   (let [rec (get @recordings rid)]
     (if (or (nil? rec) (not= :recording (:status rec)))
       false
-      (let [{:keys [signals frame-id last-values frame-count started-at
+      (let [{:keys [signals frame-id last-values frame-count change-count started-at
                     stop max-entries elide-opts]} rec
             now      (js/Date.now)
             ;; Each `:app-db` / `:sub` sample is elided for
@@ -3210,7 +3210,9 @@
             ;; predicate and a watch-until predicate read identically.
             sample-map (into {} (map-indexed vector samples))
             elapsed    (- now started-at)
-            n-changes  (+ (count (:entries rec)) (count changes))
+            ;; The stop budget counts all changes, including entries already
+            ;; drained by a reader or evicted by the retention cap.
+            n-changes  (+ (or change-count (count (:entries rec))) (count changes))
             pred-fn    (:pred-fn stop)
             stop-hit?  (cond
                          (and (:ms stop) (>= elapsed (:ms stop)))         :ms
@@ -3232,6 +3234,7 @@
                                     :entries     capped
                                     :last-values new-last
                                     :frame-count (inc frame-count)
+                                    :change-count n-changes
                                     :last-tick-at now)
                        stop-hit? (assoc :status :stopped
                                         :stopped-reason stop-hit?
@@ -3337,6 +3340,7 @@
                   :entries     []
                   :last-values {}
                   :frame-count 0
+                  :change-count 0
                   :started-at  (js/Date.now)
                   :raf-handle  nil}]
         (swap! recordings assoc rid rec)
