@@ -24,6 +24,7 @@
   costs across N tool calls."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [cljs.reader :as edn]
+            [clojure.string :as str]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -343,6 +344,56 @@
         (fn []
           (assert-ladder-rejects-with-reason
             (fresh-conn) :runtime-loaded-but-preload-missing #"preload" done nil))))))
+
+;; ---------------------------------------------------------------------------
+;; The preload hint must BRANCH on who owns the classpath (rf2-2ezk3).
+;;
+;; This is a PROPERTY pin, deliberately not a literal-text pin, and the
+;; distinction is the whole point of it.
+;;
+;; The defect it guards against: the hint used to tell every app to put the
+;; preload directory on `:source-paths`. rf2-dpt9d removed that advice from
+;; five documentation sites because shadow IGNORES a `shadow-cljs.edn`
+;; `:source-paths` key under `:deps` / `:lein` — it warns "The configured
+;; :source-paths in shadow-cljs.edn were ignored!" and the namespace then
+;; never compiles, so the caller lands straight back on THIS rung. The hint
+;; string was the one site the sweep missed, and `SKILL.md` §Setup tells the
+;; agent to report it verbatim — so the wrong advice was read out to the user
+;; at the exact moment they were trying to fix the thing it was wrong about.
+;;
+;; Why not pin the literal text: a text-equality assertion could not have
+;; caught that defect at all. The string never changed, so the pin would have
+;; stayed green for precisely as long as the advice was wrong — and it would
+;; then go stale on the next rewording, which is the same failure one layer
+;; up. What has to hold is that the hint names the CLASSPATH and BRANCHES to
+;; all three owning files rather than naming one; the prose stays free to
+;; move. A revert to single-file advice fails this; a rewording does not.
+;;
+;; Pinned at the RUNG rather than at the var, because `preload-missing-hint`
+;; has three call sites and what matters is the text that reaches a caller.
+;; ---------------------------------------------------------------------------
+
+(deftest preload-missing-hint-branches-on-classpath-owner
+  (testing "the delivered hint names the classpath and all three owning files"
+    (async done
+      (with-tri-stub! (fn [_] false)
+                      (fn [form-str]
+                        (if (re-find #"active-builds" form-str)
+                          {:value "[:app]"}
+                          {:value "1"}))
+        (fn []
+          (assert-ladder-rejects-with-reason
+            (fresh-conn) :runtime-loaded-but-preload-missing #"(?i)classpath" done
+            (fn [data]
+              (let [hint (:hint data)]
+                (is (str/includes? hint "deps.edn")
+                    "a :deps app is sent to deps.edn, not to shadow-cljs.edn")
+                (is (str/includes? hint ":extra-paths")
+                    "the :deps branch names the key that actually works")
+                (is (str/includes? hint "project.clj")
+                    "a :lein app is sent to project.clj")
+                (is (str/includes? hint ":preloads")
+                    "the :preloads half — always a shadow-cljs.edn line — survives")))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Liveness re-validation (rf2-dk6bv5).
