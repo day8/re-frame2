@@ -3,21 +3,25 @@
 
    `day8/re-frame2-uix` ships `com.pitch/uix.core` and deliberately does NOT
    ship `com.pitch/uix.dom` — mounting a React root is the application's call,
-   so the DOM half never arrives transitively. Every runnable UIx example
-   nevertheless requires `uix.dom` for its mount, and inside this monorepo they
-   all compile anyway, because the aggregate `implementation/shadow-cljs.edn`
-   build injects both UIx artefacts globally. That ambient dependency is
-   precisely why the per-example compile gate cannot see the omission a
-   standalone consumer hits: it is masked at exactly the layer the consumer
-   does not have.
+   so the DOM half never arrives transitively. Inside this monorepo every UIx
+   example compiles regardless of what its recipe names, because the aggregate
+   `implementation/shadow-cljs.edn` build injects the UIx artefacts globally.
+   That ambient dependency is precisely why the per-example compile gate cannot
+   see the omission a standalone consumer hits: it is masked at exactly the
+   layer the consumer does not have.
 
    So the guard is static rather than a compile. It reads the three example
    sources, collects every `uix.*` namespace they require, and insists each one
    has a named owner coordinate in every place the project publishes a UIx
    dependency recipe — the spec's consumer block, the how-to's coordinate
    table, and the three example READMEs — all pinned to the one version source,
-   the generator template. Drop `com.pitch/uix.dom` from any of those and this
-   goes red naming the file.
+   the generator template. Drop a coordinate the examples require from any of
+   those and this goes red naming the file.
+
+   The required set is DERIVED from the sources rather than listed here, so it
+   narrows when a mount stops needing something. That is not the guard going
+   quiet: what it protects is the gap between what the copyable source requires
+   and what the published recipes name, and both halves move together.
 
    The generator template is the VERSION SOURCE, not a fourth recipe, and it
    alone does not name `uix.dom` (rf2-j908): the app it emits mounts through
@@ -26,8 +30,16 @@
    absence is asserted here positively rather than merely dropped, because a
    deleted assertion asserts nothing; `retired-coords` in the template suite
    is the sibling half, which refuses the coordinate's return anywhere in the
-   emitted `deps.edn`. The three examples mint their own Root and so still
-   require `uix.dom` — which is why the recipe pages must still name it.
+   emitted `deps.edn`.
+
+   The three examples used to mint their own Root and so required `uix.dom`
+   too, which is why the recipe pages named it. They now mount through the
+   same `client-root` / `render!` door the template emits (rf2-fn0kx.8), so
+   `uix.dom` is no longer in the derived owner set and the recipe assertions
+   no longer demand it. A page may still name it — `docs/core/testing/views.md`
+   has a component-test recipe that really does drive a Root by hand — and
+   nothing here forbids that; the guard only insists that what the examples
+   DO require is nameable and named.
 
    What this does NOT do is resolve a real classpath. A genuine clean-consumer
    compile would need its own fixture project, its own Maven resolution and its
@@ -139,11 +151,26 @@
         (let [required (required-uix-namespaces (slurp-at root rel))]
           ;; Non-vacuity: a scan that found nothing would satisfy the
           ;; ownership check below in the same voice as a clean file.
-          (testing "the scan has signal — the mount's uix.dom require is seen"
-            (is (contains? required "uix.dom")
-                (str rel " does not appear to require uix.dom. Either the "
-                     "example changed its mount, or the require-scanning "
-                     "regex in this test has gone blind.")))
+          ;;
+          ;; The signal namespace is `uix.core`, and it used to be `uix.dom`
+          ;; (rf2-fn0kx.8). That was never weaker as a control, but it was
+          ;; pinned to the wrong thing: these examples minted their own React
+          ;; Root, so `uix.dom` was in their requires, and asserting it made
+          ;; the control an assertion about the MOUNT IDIOM rather than about
+          ;; the scan. When the examples moved onto the adapter's
+          ;; `client-root` / `render!` — the shape the generator template
+          ;; already emitted — the control went red for a change it was never
+          ;; meant to be sensitive to. `uix.core` is where `$` and `defui`
+          ;; come from, so a file cannot stop requiring it and still be a UIx
+          ;; view file. It is the one require the scan can depend on finding.
+          (testing "the scan has signal — the file's uix.core require is seen"
+            (is (contains? required "uix.core")
+                (str rel " does not appear to require uix.core. Either it "
+                     "stopped being a UIx view file, or the require-scanning "
+                     "regex in this test has gone blind — and a blind scan "
+                     "passes the ownership check below in the same voice as "
+                     "a clean file, which is what this assertion is here to "
+                     "prevent.")))
           (testing "and every uix.* namespace it requires has a known owner"
             (is (empty? (remove ns->coordinate required))
                 (str rel " requires " (pr-str (vec (remove ns->coordinate required)))
@@ -154,7 +181,12 @@
 ;; ---------------------------------------------------------------------------
 ;; Every published recipe names those owners, at the template's version.
 
-(deftest published-recipes-name-both-uix-coordinates-in-lockstep
+;; Named for what it checks rather than for a count: the owner set is derived
+;; from the example sources, so it was two coordinates while those examples
+;; minted their own Root and is one now that they mount through the adapter
+;; (rf2-fn0kx.8). A name carrying the count goes stale the moment the mount
+;; does, which is exactly what happened to the non-vacuity pin above.
+(deftest published-recipes-name-every-required-uix-coordinate-in-lockstep
   (let [root       (repo-root)
         template   (deps-map root template-deps-path)
         core-ver   (get-in template ['com.pitch/uix.core :mvn/version])
