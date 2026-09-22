@@ -40,8 +40,8 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-34 evals, covering Xray's trigger surface and answer quality: 25 positives
-(skill should fire) and 9 negatives (skill should stay quiet). 23
+36 evals, covering Xray's trigger surface and answer quality: 27 positives
+(skill should fire) and 9 negatives (skill should stay quiet). 25
 positives carry the Layer-2 answer-quality `expectations[]`; they target the
 prompts whose answer drifts fastest as the Xray UI moves, plus the
 route-quality contract (one first surface in the first paragraph, no
@@ -73,6 +73,8 @@ only the focused family leaf):
 | 32 | `panel-route-resources` | yes | Route quality: server-state staleness / in-flight → the Dynamic **Resources** tab; live instances follow the L1 frame picker, not the epoch; a deep follow-up loads only `references/panels-resources.md`. |
 | 4 | `launch-hotkey` | yes | `Ctrl+Shift+C` toggles the shell (first press mounts) and is `Ctrl+Shift` on macOS too; no hotkey opens the pop-out; snap-to-LIVE, if listed, is unshifted `l`. |
 | 5 | `hotkey-mode-toggle` | yes | `Cmd/Ctrl+Shift+M` flips Dynamic ↔ Static, same as the L1 mode pill; not `Ctrl+Shift+C`, not a bare letter. |
+| 35 | `config-init-repeat` | yes | Repeated `init!` calls apply and persist supplied opts in the same page; only duplicate installation is suppressed. |
+| 36 | `chrome-snapshot-inclusion` | yes | Snapshot app-db always redacts and size-elides; the command has no raw-capture opt-in, and Pair's inclusion options do not affect it. |
 | 10, 25 | `static-mode-name`, `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
 | 13–20, 31 | `neg-*` | no | Negatives — adjacent surfaces (agent runtime → pair, whether mutating (13) or read-only (31); implement→spec, author→re-frame2, setup, migration, implementor, vocab-only). |
 
