@@ -5,7 +5,7 @@
 ;;;;
 ;;;; The defect: `dispatch-dry-run`'s `:else` branch used to return
 ;;;; `:ok? true :rolled-back? false` + a human-readable `:rollback-hint`
-;;;; when `restore-epoch!` returned false — CONTRADICTING its own
+;;;; when `replace-frame-state!` returned false — CONTRADICTING its own
 ;;;; docstring (which lists `:reason :rollback-failed` as an `:ok? false`
 ;;;; failure). Because the MCP tool routes isError purely on
 ;;;; `(false? (:ok? result))`, that read GREEN over a MUTATED live app-db
@@ -18,7 +18,7 @@
 ;;;; `preload/re_frame2_pair/runtime.cljs` is CLJS-only (loaded via
 ;;;; shadow-cljs `:devtools :preloads`) so it does not run under bb, and
 ;;;; `dispatch-dry-run` needs a LIVE re-frame2 frame (`rf/dispatch-sync`,
-;;;; `rf/restore-epoch!`, `rf/epoch-history`). We therefore pin the
+;;;; `rf/replace-frame-state!`, `rf/epoch-history`). We therefore pin the
 ;;;; SOURCE-level contract: the not-rolled-back arm returns the documented
 ;;;; `:ok? false :reason :rollback-failed` shape and the old silent-green
 ;;;; `:rollback-hint` key is GONE. The MCP-boundary routing (isError on
@@ -76,9 +76,9 @@
 (deftest dispatch-dry-run-is-defined
   (is (some? ddr-form) "dispatch-dry-run must be defined in the preload runtime"))
 
-(deftest attempts-rollback-via-restore-epoch
-  (is (rt/form-contains? #(= % 'rf/restore-epoch!) ddr-form)
-      "dispatch-dry-run must attempt the rollback via rf/restore-epoch!")
+(deftest attempts-rollback-via-replace-frame-state
+  (is (rt/form-contains? #(= % 'rf/replace-frame-state!) ddr-form)
+      "dispatch-dry-run must attempt the rollback via rf/replace-frame-state!")
   (is (rt/form-contains? #(= % 'rolled-back?) ddr-form)
       "it must bind the rollback outcome to `rolled-back?` and branch on it"))
 

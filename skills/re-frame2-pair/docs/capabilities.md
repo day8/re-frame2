@@ -55,7 +55,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 |---|---|---|
 | Wrong write path in `app-db` | *done* | `dispatch`'s `:db-diff` shows the exact path(s) mutated; compare to what the sub reads |
 | Event fired but no visible UI change | *done* | "Why didn't my view update?" recipe walks `:sub-runs` and identifies the equality gate |
-| View didn't update because sub result stayed `=` | *done* | Same recipe — the sub's *absence* from `:sub-runs` is the equality-gate evidence (value-equal recompute suppression) |
+| View didn't update because sub result stayed `=` | *done* | Recipe checks recompute `:value-changed?`, `:rf.sub/skip` traces and mounted subscription inputs; absence from `:sub-runs` alone is inconclusive |
 | View re-rendered too broadly | *done* | `:renders` per epoch + `:sub-runs` shows which over-broad sub recomputed |
 | Async effects make the app look "wrong for a moment" | *done* | `:effects` records each dispatched fx with its `:outcome`; walk `:trace-events` for the finer-grained timing/ordering picture |
 | Interceptor order changes behaviour | *done* | `handler-meta` lists ordered interceptor ids; `:event/run` traces carry per-step timing |

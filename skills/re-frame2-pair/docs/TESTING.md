@@ -32,6 +32,11 @@ mirror — so the covered matrices (multi-frame ambiguity, redaction, epoch
 timing/matching, read-sub validation, snapshot/orient, cascade outcome, and the
 hash-cache bedrock invariant) test the shipped preload directly.
 
+The same build also executes `runtime_dry_run_test.cljs` against real frames:
+first-event, repeated and one-slot-history simulations suppress declared effects
+and restore both state partitions. Disabled recording refuses before the reducer
+runs. Successful rollback remains visible as a synthetic epoch in history.
+
 **To run:**
 
 ```bash
