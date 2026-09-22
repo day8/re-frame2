@@ -6401,6 +6401,13 @@ const PROSE_PINS_ARMING_JVM = [
   ['spec/Security.md', 'spec_elision_registry_tense_conformance_test.clj', 'jvm-core'],
   ['spec/Spec-Schemas.md', 'six suites in five artefacts', 'jvm-core/-epoch/-machines/-ui'],
   ['spec/Tool-Pair.md', 'spec_elision_registry_tense_conformance_test.clj', 'jvm-core'],
+  // rf2-8btol / rf2-g9at9 — the roster reaches `skills/` for the first time,
+  // and these two rows are the STRONGEST form of what it describes: the suites
+  // do not merely assert on the page's text, they slurp it, extract the forms
+  // out of its fences and `eval` them. The recipe IS the suite's input. Both
+  // arms are scoped to the single named leaf; their own case comments say why.
+  ['skills/re-frame2/patterns/form-action.md', 'ssr_skill_form_action_test.clj', 'jvm-ssr'],
+  ['skills/re-frame2-improver/references/schemaless-events.md', 'improver_article_schema_test.clj', 'jvm-schemas'],
 ];
 
 // rf2-e30e — the same roster guard, reaching a roster whose rows are TRIPLES.
@@ -6532,6 +6539,136 @@ test('the prose arms reach lanes that are still gated on implementation_jvm (rf2
   // jobs the roster's suites actually run in.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   for (const job of ['jvm-machines', 'jvm-core']) {
+    assert.match(
+      jobBlock(workflow, job),
+      /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+      `${job} must stay gated on implementation_jvm, or arming it schedules nothing`,
+    );
+  }
+});
+
+// ─── rf2-8btol / rf2-g9at9 — SKILL RECIPES A JVM SUITE EXTRACTS AND RUNS ────
+//
+// The rf2-61ar hole, one tree over. Two JVM suites landed within a day of each
+// other that do not merely read a page and assert on its text — each slurps a
+// skill document, pulls the forms out of its fences and `eval`s them:
+//
+//   implementation/ssr/test/re_frame/ssr_skill_form_action_test.clj
+//     -> skills/re-frame2/patterns/form-action.md, driven through the real
+//        SSR request pipeline.            runs in jvm-ssr
+//   implementation/schemas/test/re_frame/improver_article_schema_test.clj
+//     -> skills/re-frame2-improver/references/schemaless-events.md, the
+//        canonical HTTP block through the real router and Malli.
+//                                          runs in jvm-schemas
+//
+// Both jobs gate on `implementation_jvm`. Both PRs scheduled their own suite
+// because the diff ADDED a test file, which arms that output — so the gap was
+// invisible on the PR that opened it and would have surfaced on the first
+// edit confined to a recipe. Measured before the arms, with paths (never
+// revisions — the classifier hands back every surface false at exit 0 when it
+// is given revisions, which is what an unaffected change looks like):
+// form-action.md armed 0 of 29 outputs, schemaless-events.md armed
+// `skills_structural` alone.
+//
+// THE SCOPE LIMIT IS THE POINT. `implementation_jvm` is the 22-job JVM tier
+// and there is nothing narrower to reach these two lanes with, so the
+// narrowing is bought on the PATH axis: one named leaf each. Arming it for
+// `skills/**/*.md`, or even for either leaf's own directory, would queue that
+// tier for most of this repository's prose traffic.
+
+test('the extracted FormAction recipe arms the SSR JVM lane (rf2-8btol)', () => {
+  const recipe = 'skills/re-frame2/patterns/form-action.md';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, recipe)),
+    `${recipe} must exist — a pin on a phantom path cannot fail (rf2-e30e)`,
+  );
+  const armed = classify(recipe);
+  assert.equal(armed.implementation_jvm, 'true', recipe);
+  // Markdown cannot change what React puts on a page, and the extracted view
+  // is rendered by the JVM SSR projector. One output, and this is the row
+  // that says so — it reds if the arm is ever widened to a whole tier.
+  for (const [key, value] of Object.entries(armed)) {
+    if (key === 'implementation_jvm') continue;
+    assert.equal(value, 'false', `${recipe} must arm implementation_jvm alone, but ${key} fired`);
+  }
+
+  // NEGATIVE CONTROL 1 — a sibling recipe in the same directory. Thirteen of
+  // them have no JVM reader, so a widening to `skills/re-frame2/patterns/*`
+  // reds here. Read its vacuity honestly: this path arms NOTHING today, so
+  // there is no `true` to pin beside the `false`, and the row cannot catch a
+  // classifier that stopped classifying it. Control 2 is what closes that.
+  const sibling = 'skills/re-frame2/patterns/forms.md';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, sibling)),
+    `${sibling} must exist — a negative control on a phantom path is vacuous`,
+  );
+  assert.equal(classify(sibling).implementation_jvm, 'false', sibling);
+
+  // NEGATIVE CONTROL 2 — the OTHER `skills/re-frame2/` leaf with a JVM
+  // reader, armed by rf2-jbwraa and sitting directly above the new arm. Its
+  // two `true`s are pinned beside the `false` so the `false` is non-vacuous:
+  // a new arm placed so that it shadows this one, or a widening that swallows
+  // it, moves one of the three. The two leaves route to DIFFERENT lanes and
+  // must keep doing so.
+  const mcpLeaf = 'skills/re-frame2/references/tooling/story-mcp-loop.md';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, mcpLeaf)),
+    `${mcpLeaf} must exist — a negative control on a phantom path is vacuous`,
+  );
+  const neighbour = classify(mcpLeaf);
+  assert.equal(neighbour.tools_jvm, 'true', mcpLeaf);
+  assert.equal(neighbour.mcp_conformance, 'true', mcpLeaf);
+  assert.equal(neighbour.implementation_jvm, 'false', mcpLeaf);
+});
+
+test('the extracted improver reference arms the schemas JVM lane (rf2-g9at9)', () => {
+  const reference = 'skills/re-frame2-improver/references/schemaless-events.md';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, reference)),
+    `${reference} must exist — a pin on a phantom path cannot fail (rf2-e30e)`,
+  );
+  const armed = classify(reference);
+  assert.equal(armed.implementation_jvm, 'true', reference);
+  // THE NESTING, ASSERTED. The arm is a nested `case` inside
+  // `skills/re-frame2-improver/*`, so the enclosing arm still runs and
+  // `skills_structural` survives. A top-level arm for this path placed ahead
+  // of the improver arm would shadow it — a POSIX `case` takes the FIRST
+  // match — and would take `skills_structural` away, turning a coverage fix
+  // into a coverage loss. This pair is the verdict that catches that.
+  assert.equal(armed.skills_structural, 'true',
+    `${reference} must KEEP its structural arm — the new case widens, it does not replace`);
+  for (const [key, value] of Object.entries(armed)) {
+    if (key === 'implementation_jvm' || key === 'skills_structural') continue;
+    assert.equal(value, 'false', `${reference} must arm those two alone, but ${key} fired`);
+  }
+
+  // NEGATIVE CONTROLS — a sibling reference and the tree root. Both are
+  // non-vacuous by construction: each really does arm `skills_structural`, so
+  // a classifier that stopped classifying them reds here too. And both red if
+  // `implementation_jvm` is ever hoisted to the enclosing arm's top level,
+  // which is the plausible wrong implementation this nesting exists to
+  // refuse — it would queue the 22-job JVM tier for every prose file in the
+  // tree, which is the cost the bead names.
+  for (const file of [
+    'skills/re-frame2-improver/references/imperative-effects.md',
+    'skills/re-frame2-improver/SKILL.md',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a negative control on a phantom path is vacuous`,
+    );
+    const result = classify(file);
+    assert.equal(result.skills_structural, 'true', file);
+    assert.equal(result.implementation_jvm, 'false', file);
+  }
+});
+
+test('the two skill-recipe lanes are still gated on implementation_jvm (rf2-8btol, rf2-g9at9)', () => {
+  // The third leg, the same one the rf2-61ar case above asserts for its own
+  // lanes: arming an output binds nothing unless the job it arms still gates
+  // on it. These are the two jobs that run the suites the recipes feed.
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  for (const job of ['jvm-ssr', 'jvm-schemas']) {
     assert.match(
       jobBlock(workflow, job),
       /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
