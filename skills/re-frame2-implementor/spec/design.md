@@ -134,3 +134,14 @@ Typical session loads: profile session = SKILL.md + phase-1-decisions.md; an EP 
 ### OQ5 — Stale-detection against the spec corpus
 
 The leaves cite spec sections by docs-site URL (`https://day8.github.io/re-frame2/spec/<file>/#anchor`), and those citations are **human-browsing links outside every link gate**: `scripts/check_doc_slugs.py` unwraps only this repo's `github.com/day8/re-frame2/blob/main` and `tree/main` URLs, so a heading rename in `spec/` breaks a docs-site citation silently. rf2-nvbz ruled the github.com form for links that escape a skill package and left these citations as they are. On 2026-09-13 the four leaves carried 79 of them (plus one bare `spec/…` placeholder in prose), 29 anchored across 22 distinct anchors. All 22 anchors were hand-checked resolving, and every target and anchor also passed `check_doc_slugs.py` once the 79 were rewritten into the gated form for the measurement. The reduction keeps the count small; a periodic audit bead remains the fallback. Status: deferred.
+
+## 11. Correctness review — 2026-09-22
+
+Reviewed the package at `22d939a1d5ccd2abc493d85ef64624e0573874ad` against the local spec and fixture corpus. No correction to the published skill was necessary.
+
+- Checked the foundation, optional-capability decisions, Q1 capability subsets, Q4 schema mechanisms, and live sub-cache witness against their spec owners. Both derivation fixtures have the cross-tags described in [the conformance guidance](../references/conformance.md#capability-tagging).
+- Parsed all 243 EDN fixtures. The documented key-discovery command finds exactly the same 19 top-level keys as the parsed maps, without omissions or extras; seven fixtures carry the dynamic-host-only flag.
+- Checked all 88 docs-site citations in the package against local spec pages, including 36 anchored citations: every target and anchor resolves. These links remain outside the ordinary link gate's coverage, as OQ5 explains.
+- Checked package/plugin/skill metadata agreement and all 22 eval entries. `npm pack --dry-run --json --ignore-scripts` includes the nine runtime package files and every package-local reference; maintainer specs and evals stay outside the published payload.
+
+This was a source and packaging review. It did not build a new host implementation or execute the eval prompts, so it adds no port-conformance score or answer-quality result.
