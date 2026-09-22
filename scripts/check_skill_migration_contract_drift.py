@@ -1417,9 +1417,8 @@ M1_MIXED_REQUIRES = (
      "[re-frame.http.managed] [re-frame.ssr.ring :as ring])", []),
 )
 
-# Extract the documented rg patterns. The broad-scan line ends `' . \` (space-dot);
-# the invert line is the unique `rg -v '…re-frame…'`. Anchoring the broad-scan on
-# the trailing ` .` skips the prose look-around counter-example further down.
+# Extract the documented rg patterns and the broad scan's output flags. The
+# literal ` .` skips the prose look-around counter-example further down.
 _M1_BROAD_RE = re.compile(r"rg -n '([^']*re-frame[^']*)' \.([^\n]*)")
 _M1_INVERT_RE = re.compile(r"rg -v '([^']*re-frame[^']*)'")
 
@@ -1515,10 +1514,11 @@ def _m1_tokens(text: str, broad: re.Pattern) -> list[str]:
 def _m1_mixed_misses(broad: re.Pattern, invert: re.Pattern) -> list[str]:
     misses = []
     for label, text, expected in M1_MIXED_REQUIRES:
-        actual = [token[1:] for token in _m1_tokens(text, broad)
-                  if not invert.search(token)]
-        if actual != expected:
-            misses.append(f"{label}: got {actual!r}, expected {expected!r}")
+        for ending in ("\n", "\r\n"):
+            actual = [token[1:] for token in _m1_tokens(text, broad)
+                      if not invert.search(f"app.clj:1:{token}{ending}")]
+            if actual != expected:
+                misses.append(f"{label} ({ending!r}): got {actual!r}, expected {expected!r}")
     return misses
 
 
@@ -3333,6 +3333,10 @@ def _self_test() -> int:
     else:
         for miss in _m1_mixed_misses(live_broad, live_invert):
             print(f"SELF-TEST FAIL (M1 mixed): {miss}")
+            failures += 1
+        lf_only = re.compile(live_invert.pattern.replace(r"\r?", ""))
+        if not _m1_mixed_misses(live_broad, lf_only):
+            print("SELF-TEST FAIL (M1 CRLF regression): LF-only filter escaped")
             failures += 1
     if not _m1_mixed_misses(good_broad, good_invert):
         print("SELF-TEST FAIL (M1 prefix regression): old subtree filter escaped")
