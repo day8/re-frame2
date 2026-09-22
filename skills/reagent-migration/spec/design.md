@@ -203,15 +203,30 @@ skills/reagent-migration/
 │   └── gotchas.md                 (three leftovers/three ids, metadata keys, dialect edges, guide-vs-door)
 ├── evals/
 │   └── evals.json                 (trigger fixtures + behavioural fixtures across the M/D/R tiers)
+├── tests/
+│   └── fixture/                   (MIG-23's cold-start proof — a standalone shadow-cljs project, not a leaf; the required `reagent-migration-fixture-cold-start` job)
 └── spec/
     ├── design.md                  (this file — locked decisions)
     ├── inputs.md                  (the canonical inputs the skill leans on)
     └── authoring-prompt.md        (one-shot reauthor prompt)
 ```
 
-`evals/` and `spec/` are authoring-time scaffolding — not part of the
-distributable (`package.json` `files` omits them). Every reference leaf stays one
-level deep from `SKILL.md`.
+`evals/`, `spec/` and `tests/` are all outside the distributable — `package.json`
+`files` is an allow-list naming only `SKILL.md`, `README.md`, `LICENSE`,
+`references/` and `.claude-plugin/`. `evals/` and `spec/` are authoring-time
+scaffolding; `tests/` is executable evidence CI runs. Every reference leaf stays
+one level deep from `SKILL.md`.
+
+**`tests/fixture/` is preserved, not authored (rf2-vpdrf).** It is a standalone
+shadow-cljs project rather than a leaf: it resolves core, ssr, fresco and the
+stock Reagent adapter as `:local/root` deps and proves, in one fresh Node
+process, that [`ssr-hydrate.md`](../references/ssr-hydrate.md)'s MIG-23 recipe
+needs its boot-time `rf/init!` — the negative arm raises
+`:rf.error/no-adapter-installed`. The `reagent-migration-fixture-cold-start` job
+runs it on the `skills_structural` surface and `all-required-passed` requires it,
+so the recipe cannot drift from the shipped substrate unnoticed. Change the
+recipe and you change the fixture with it; re-authoring the skill leaves it
+standing. Detail in its own `README.md`.
 
 **Seven reference leaves, not the original six** (rf2-n87aa, 2026-09-02).
 `ssr-hydrate.md` was severed from `catalog-judgment.md`, which had reached 1.8x
