@@ -53,7 +53,7 @@ Frame ids are **process-local and unique** — two live frames may not both clai
 
 ## Deeper material
 
-The image-generation seal, re-`make-frame` hot-reload semantics, and the EP-0026 spec-map contract: `SKILL-REDIRECT.md` → **EP — Image-loaded frames (023)**, **EP — Image spec (026)**.
+The image-generation seal and re-`make-frame` hot-reload semantics: `SKILL-REDIRECT.md` → **EP — Frames (002): image-loaded make-frame**. The EP-0026 spec-map contract (the three public source keys, the inline tuple grammar, the retired keys): `SKILL-REDIRECT.md` → **Conventions: the public rf/image source keys**.
 
 ---
 

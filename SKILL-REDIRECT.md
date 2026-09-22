@@ -73,8 +73,8 @@ Audience: `[app]` (deep-dive lookups); `[impl]` marks the rows a port author nee
 - **EP — Vision (000)** → https://day8.github.io/re-frame2/spec/000-Vision/ `[impl]`
 - **EP — Registration (001)** → https://day8.github.io/re-frame2/spec/001-Registration/ `[impl]`
 - **EP — Frames (002)** → https://day8.github.io/re-frame2/spec/002-Frames/ `[app]` `[impl]`
-- **EP — Image-loaded frames (023)** → https://day8.github.io/re-frame2/spec/002-Frames/ `[app]` `[impl]`
-- **EP — Image spec (026)** → https://day8.github.io/re-frame2/spec/002-Frames/ `[app]` `[impl]`
+- **EP — Frames (002): image-loaded make-frame** → https://day8.github.io/re-frame2/spec/002-Frames/#per-instance-frames--make-frame-the-ep-0023-object-constructor `[app]` `[impl]`
+- **Conventions: the public rf/image source keys** → https://day8.github.io/re-frame2/spec/Conventions/#the-public-rfimage-source-keys `[app]` `[impl]`
 - **EP — State machines (005)** → https://day8.github.io/re-frame2/spec/005-StateMachines/ `[app]` `[impl]`
 - **EP — Reactive substrate (006)** → https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/ `[app]` `[pair]` `[impl]`
 - **EP — Stories (007)** → https://day8.github.io/re-frame2/spec/007-Stories/ `[app]` `[impl]`
