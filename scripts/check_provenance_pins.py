@@ -35,6 +35,20 @@ is routinely on the continuation.  Prose is untouched — a paragraph remains on
 scope, which is what keeps the census's repaired "authored at X … it landed on
 main as Y" sentences passing.
 
+A BLOCKQUOTE IS NOT ONE BLOCK EITHER (rf2-3c2b4), and this was the same
+fail-open surviving in the container the corpus actually writes its provenance
+notes in.  Inside a callout a paragraph break is a lone `>`, which does not
+strip to empty, so the paragraph boundary never saw it and a multi-paragraph
+callout was ONE scope from its opening line to the blank line that ended the
+whole callout — any single landed hash in it answering for every pin in it.  It
+was measured, not inferred: on a real page carrying three pins in one callout,
+perturbing all three red the gate and perturbing the lone pin of one paragraph
+did not.  That is the expensive half, because a one-pin plant is the natural
+non-vacuity control for this gate, so the defect read as the gate working.  Both
+boundaries now read the line with its quote markers stripped: quoting a
+paragraph changes nothing about how it is judged, and a pin in its own callout
+paragraph is judged on its own.
+
 FAILURE DIRECTION — this gate fails toward REFUSAL, never toward silence, and
 one asymmetry forces it.  The stranded pins are precisely the objects a fresh
 clone does NOT have, so from inside any checkout "git has never heard of this
@@ -669,7 +683,24 @@ def scan_file(
     in_fence = False
     scope = 0
     for i, line in enumerate(lines):
-        if not line.strip():
+        if not _strip_quote(line).strip():
+            # Read RAW, this boundary could not see a paragraph break inside a
+            # CALLOUT: the break is written as a lone `>`, whose `.strip()` is
+            # `">"` and so never empty.  A multi-paragraph blockquote was
+            # therefore ONE scope from its opening line to the blank line that
+            # ended the whole callout, and any single landed hash in it answered
+            # for every pin in it — which is verbatim the rf2-xlsh fail-open the
+            # row boundary below was filed to close, surviving in the one
+            # container `_strip_quote`'s own docstring says this corpus uses
+            # (rf2-3c2b4).  Stripping first is what makes the two boundaries
+            # agree about what a blockquote is.
+            #
+            # It can only ever SPLIT a scope and never merge two — the stripped
+            # test fires everywhere the raw one did, plus on quote-marker-only
+            # lines — so it cannot widen what accompaniment forgives.  The
+            # counterweight is that a quoted paragraph must still be ONE scope:
+            # quoting prose may not change its verdict, or this would have
+            # traded a fail-open for a corpus-wide fail-closed.
             scope += 1
             continue
         if _FENCE.match(line):
@@ -1008,7 +1039,9 @@ def evaluate(citations: Iterable[Citation], git: Git) -> Tuple[List[Finding], Li
     silently forgives is indistinguishable from a rule that never ran, and that
     is the whole of rf2-qfrrp's second mode.
 
-    A scope is a prose paragraph, or a SINGLE TABLE ROW — not the whole table.
+    A scope is a prose paragraph, or a SINGLE TABLE ROW — not the whole table,
+    and not the whole blockquote (rf2-3c2b4): a paragraph inside a callout is a
+    paragraph, and quoting one does not merge it into its neighbours.
     Those are the two shapes this corpus writes provenance in, and they are the
     scope in which a reader actually finds the fallback: the census's repairs
     all put the landed SHA in the same table cell or the same sentence as the
@@ -1578,6 +1611,52 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         ],
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         [],
+    ),
+    # THE BLOCKQUOTE SCOPE (rf2-3c2b4).  The same fail-open as the row scope
+    # above, in the one container `_strip_quote`'s own docstring says this
+    # corpus writes its provenance in.  A paragraph break inside a callout is a
+    # lone `>`, whose `.strip()` is NOT empty, so the paragraph boundary never
+    # fired and a whole multi-paragraph callout was ONE scope — any single
+    # landed hash in it answering for every pin in it.  Measured on a real
+    # page carrying three pins in one callout: perturbing all three gave exit 1,
+    # perturbing ONE gave exit 0, absorbed.  A one-pin plant is the natural
+    # non-vacuity control for this gate, so the defect read as the gate working.
+    (
+        "a landed hash in a SIBLING BLOCKQUOTE PARAGRAPH does not rescue the head",
+        [
+            "> Authored at `aaaaaaaaaa` on `worker/x`, before the rebase.",
+            ">",
+            "> A separate note: the roster closed at commit `bbbbbbbbbb`.",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        ["aaaaaaaaaa"],
+    ),
+    # THE COUNTERWEIGHT, and the reason this is a SPLIT and not a ban: within
+    # one callout paragraph, accompaniment stays exactly as permissive as it is
+    # in bare prose.  Quoting a paragraph must not change its verdict, or the
+    # repair would have traded a fail-open for a corpus-wide fail-closed.
+    (
+        "accompaniment inside one blockquote paragraph still passes",
+        [
+            "> Authored at `aaaaaaaaaa` on `worker/x`, before the rebase; the",
+            "> same patch landed on main as `bbbbbbbbbb`.",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        [],
+    ),
+    # And the ROW scope survives inside a callout — which is where this corpus
+    # actually writes its tables, so it is the rf2-xlsh guarantee in the shape
+    # it is most often read in.  Both rows are asserted, as the bare-table case
+    # above does it: the landed row raises nothing, the row beside it still
+    # raises its own finding rather than being answered for.
+    (
+        "a landed hash in a sibling row does not rescue it inside a callout",
+        [
+            "> | Original freeze | `bbbbbbbbbb`, registering all seven criteria |",
+            "> | Pre-registration commit | `aaaaaaaaaa` — this is the hash to cite |",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        ["aaaaaaaaaa"],
     ),
 ]
 
