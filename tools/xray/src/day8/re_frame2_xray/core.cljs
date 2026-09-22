@@ -167,11 +167,16 @@
     the same exports.)
   - OPTION APPLICATION RE-RUNS, deliberately. Every call reloads the
     persisted Settings (`config/load-settings-from-storage!`) and
-    re-applies them (`settings-effects/apply-all!`), then writes and
-    PERSISTS each supplied `:target-frame` / `:theme` / `:density` /
-    `:buffer-depths` opt through `config/update-setting!`. So calling
-    `init!` again with different opts DOES change the running shell —
-    that is how a host re-pins them, and it is not an accident.
+    re-applies them (`settings-effects/apply-all!`), then threads each
+    supplied opt through — but only some of them PERSIST. A supplied
+    `:target-frame` selects the CURRENT inspected target in the running
+    shell and nothing more: it is dispatched, not a persisted Settings
+    field (spec/015-Configuration.md §`configure!` vs `init!` vs
+    persisted Settings). The supplied `:theme` / `:density` /
+    `:buffer-depths` opts are written AND PERSISTED through
+    `config/update-setting!`. So calling `init!` again with different
+    opts DOES change the running shell — that is how a host re-pins
+    them, and it is not an accident.
 
   Per `spec/API.md` §Public CLJS API, `opts` accepts:
 
