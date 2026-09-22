@@ -40,9 +40,8 @@
   (:require [re-frame.core :as rf]
             ;; The routing runtime. Loading it triggers its hook + reg-sub
             ;; registrations; without it the reg-route calls have nothing to hook
-            ;; into. Aliased so ROUTER WIRING below can build `url-strategy` off
-            ;; `rf.routing/with-base-path` + `rf.routing/history-url-strategy`.
-            [re-frame.routing :as rf.routing]
+            ;; into. No alias — nothing here calls into it by name.
+            [re-frame.routing]
             ;; Loading resources is what makes `:resources` route-metadata
             ;; accepted — it's the late-bound routing extension.
             [re-frame.resources]
@@ -346,22 +345,14 @@
                                                   :replace? true}]]]))))
 
 ;; ============================================================================
-;; ROUTER WIRING  (base-path-aware)
+;; DEPLOYMENT BASE — none; this example owns `/`
 ;; ============================================================================
 ;;
-;; Each entry is served from its OWN deployment sub-path (a host mounting the
-;; demos side by side), but the routes above are written as if the app owned
-;; `/`. `with-base-path` wraps the default history strategy so that prefix is
-;; stripped/re-added automatically at the framework's four egress/ingress
-;; consult points (Spec 012 §URL strategies). The frame's `:url-bound? true`
-;; creation installs the base-path-aware popstate listener AND does the first
-;; URL→route sync itself — which is the trick that fires the route's
-;; `:resources` ensures on entry, with zero hand-rolled listener or explicit
-;; install call.
-;;
-;; DEPLOYMENT BASE IS ENTRY-SPECIFIC. The entry names its own base-path
-;; strategy: `core.cljs` (build `:examples/realworld-resources`) mounts under
-;; `/realworld-resources`. `strip-base-path` fails safe on `/`, so the strategy
-;; also boots correctly when the build is served at the server root.
-(def url-strategy
-  (rf.routing/with-base-path rf.routing/history-url-strategy "/realworld-resources"))
+;; Served at the origin root, so there is no router wiring to do: the URL-owning
+;; frame in core.cljs declares `:url-bound? true` and NO `:url-strategy`, so it
+;; takes the default history strategy and the routes above are written against
+;; `/` with no wrapping. Deploying under a sub-path instead takes two lines that
+;; must agree — `<base href="/my-app/">` in index.html AND
+;; `re-frame.routing/with-base-path` on the frame's `:url-strategy`. See Spec
+;; 012 §`with-base-path`, and the routing example's host page for the `<base>`
+;; half: examples/capabilities/routing/routing/index.html.

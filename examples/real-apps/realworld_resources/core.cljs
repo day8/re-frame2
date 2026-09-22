@@ -51,7 +51,11 @@
             [realworld-resources.http :as rh]
             [realworld-resources.resources]
             [realworld-resources.mutations]
-            [realworld-resources.routing :as routing]
+            ;; Loaded for its ns-load side effects: the route table (with the
+            ;; `:resources` metadata that makes route entry the cause of every
+            ;; read) and the auth guard sub. Nothing here calls into it by name,
+            ;; so no alias.
+            [realworld-resources.routing]
             [realworld-resources.auth :as auth]
             [realworld-resources.settings :as settings]
             [realworld-resources.article-editor :as editor]
@@ -380,19 +384,15 @@
     ;; above). The frame is created synchronously during render, so by the time
     ;; this call returns it's live and seeded.
     ;;
-    ;; `:url-strategy routing/url-strategy` is what makes this work under a host
-    ;; that mounts this demo at a `/realworld-resources/` sub-path (the repo's
-    ;; own runner serves one build at the server ROOT, and `strip-base-path`
-    ;; fails safe there — see routing.cljs §ROUTER WIRING): it wraps the
-    ;; default history strategy with `with-base-path` so that
-    ;; prefix is stripped before the matcher ever sees the URL, and re-added on
-    ;; the way out. `:url-bound? true` frame creation then automatically
-    ;; installs the base-path-aware popstate listener AND does the first
-    ;; URL→route sync itself, AFTER `:initial-events` below has run — which
-    ;; fires the route's `:resources` ensures, the heart of the trick:
-    ;; server-state loads because the route became active, not because a view
-    ;; went looking for it. The session token seeded by `:auth/initialise` is
-    ;; already in app-db by then, so the bearer-auth interceptor decorates
+    ;; `:url-bound? true` is what makes this work. No `:url-strategy` is
+    ;; declared, so the frame takes the default history strategy — this example
+    ;; is served at the origin root and the routes are written against `/`.
+    ;; Frame creation then automatically installs the popstate listener AND
+    ;; does the first URL→route sync itself, AFTER `:initial-events` below has
+    ;; run — which fires the route's `:resources` ensures, the heart of the
+    ;; trick: server-state loads because the route became active, not because a
+    ;; view went looking for it. The session token seeded by `:auth/initialise`
+    ;; is already in app-db by then, so the bearer-auth interceptor decorates
     ;; those reads on the way out.
     ;;
     ;; `:revalidate-on #{:focus :reconnect}` is the same idea one key over:
@@ -404,7 +404,6 @@
       [rf/frame-root {:id              app-frame
                       :doc             "RealWorld-on-resources demo frame."
                       :url-bound?      true
-                      :url-strategy    routing/url-strategy
                       :revalidate-on   #{:focus :reconnect}
                       ;; Where this frame's error records go, and how far they
                       ;; may travel. Declared unconditionally; see PRODUCTION
