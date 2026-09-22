@@ -124,8 +124,8 @@ For ≤3 phases, no error states, no progress UI:
                                                {:request {:url "/config"} :decode :json
                                                 :on-success [:config/loaded]
                                                 :on-failure [:app/init-failed]}]]}))
-(rf/reg-event :config/loaded (fn [{:keys [db]} [_ c]]
-                               {:db (assoc db :config c)
+(rf/reg-event :config/loaded (fn [{:keys [db]} [_ {:keys [value]}]]
+                               {:db (assoc db :config value)
                                 :fx [[:dispatch [:app/ready]]]}))
 (rf/reg-event :app/ready     (fn [{:keys [db]} _] {:db (assoc db :app/booted? true)}))
 ```
