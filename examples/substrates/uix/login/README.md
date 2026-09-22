@@ -146,17 +146,29 @@ No backend ships. The login runs against the canned HTTP stub in
 The mount at the bottom of [`core.cljs`](core.cljs) goes through the adapter's
 own root door — `client-root` allocates the handle, `render!` mints the React
 Root through re-frame2's shared React spine — so nothing here names
-`uix.dom`, and three coordinates are the whole recipe:
+`uix.dom`. The shared `login.model` also uses schemas, machines, and managed
+HTTP, so this login needs their artifacts alongside the renderer:
 
 ```clojure
 ;; deps.edn
-{:deps {day8/re-frame2     {:mvn/version "<latest>"}
-        day8/re-frame2-uix {:mvn/version "<latest>"}
-        com.pitch/uix.core {:mvn/version "1.4.4"}}}
+{:deps {day8/re-frame2          {:mvn/version "<latest>"}
+        day8/re-frame2-uix      {:mvn/version "<latest>"}
+        day8/re-frame2-schemas  {:mvn/version "<latest>"}
+        day8/re-frame2-machines {:mvn/version "<latest>"}
+        day8/re-frame2-http     {:mvn/version "<latest>"}
+        com.pitch/uix.core      {:mvn/version "1.4.4"}}}
 ```
 
+Use the same version for every `day8/re-frame2*` artifact. Copy both this
+[`core.cljs`](core.cljs) and [`login/model.cljc`](../../../core/login/model.cljc)
+onto your source path, preserving their namespace paths (`uix/login/core.cljs`
+and `login/model.cljc`). The schemas artifact supplies Malli; the HTTP artifact
+supplies the demo stub as well as managed HTTP. The repository's aggregate build
+already includes these modules, so compiling here alone does not check an app's
+dependency list.
+
 `day8/re-frame2-uix` brings `com.pitch/uix.core` with it — the adapter's own
-source needs `defui` and `$` — but never `com.pitch/uix.dom`. Add that fourth
+source needs `defui` and `$` — but never `com.pitch/uix.dom`. Add that
 coordinate only if something in your app drives a React root by hand; the
 [component-test recipe](../../../../docs/core/testing/views.md#4-uix-hook-components-mount-it-for-real)
 does, and this example does not. See

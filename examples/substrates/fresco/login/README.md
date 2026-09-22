@@ -82,12 +82,11 @@ what each one holds constant.
   {:identifier-prefix identifier-prefix})         ;;    root options only
 ```
 
-`frame-id` (`:rf/default`) and `identifier-prefix` (`"rf-login-"`) are named
-constants at the top of [`core.cljs`](core.cljs) rather than literals here,
-because `server.cljs` reads the same two and a second copy is a second thing
-to keep in step — the `identifier-prefix` in particular has to be the same
-string on both sides or hydration resolves every `useId` differently from the
-bytes it is adopting.
+`frame-id` (`:rf/default`) names the browser's frame. `identifier-prefix`
+(`"rf-login-"`) is shared with `server.cljs`: it has to be the same string on
+both sides or hydration resolves every `useId` differently from the bytes it
+is adopting. Both are named constants at the top of [`core.cljs`](core.cljs);
+the server renderer creates its own per-request frame.
 
 One verb, not four. The first `h/render!` through `app-root` creates the Root;
 every later one updates it, so the `^:dev/after-load` hook is the same call and
@@ -343,13 +342,35 @@ Read [Installation](../../../../docs/core/fresco/00-installation.md) first —
 it names every file a Fresco project needs, including the React pin (19.2 or
 newer) and the `shadow-cljs` npm package the build will not work without.
 
-One thing that chapter says and this README will not repeat differently:
-**`day8/re-frame2-fresco` is not published to Clojars, and there is no date at
-which it will be.** Today you resolve it — and `day8/re-frame2` with it — from a
-monorepo checkout with `:local/root`. There is no Maven version to quote here,
-and quoting one would be an invention. In *this* repository the file compiles
-against the aggregate build, which already carries the artefact, which is
-exactly why the coordinate question is easy to miss on the way out.
+Fresco is part of the re-frame2 release set. Follow the installation chapter's
+`:local/root` recipe while working from source; when using a release, pin all
+re-frame2 artifacts to that release's version.
+
+This login also needs the schemas, machines, and HTTP artifacts used by
+`login.model`. With the checkout beside your project, use these `:deps` entries
+in the installation recipe's `deps.edn`, keeping its `:paths` and `:shadow`
+alias:
+
+```clojure
+{day8/re-frame2-fresco   {:local/root "../re-frame2/implementation/fresco"}
+ day8/re-frame2-schemas  {:local/root "../re-frame2/implementation/schemas"}
+ day8/re-frame2-machines {:local/root "../re-frame2/implementation/machines"}
+ day8/re-frame2-http     {:local/root "../re-frame2/implementation/http"}}
+```
+
+Fresco supplies core and SSR transitively, schemas supplies Malli, and HTTP
+supplies the demo stub. Copy [`core.cljs`](core.cljs) to
+`src/fresco/login/core.cljs` and the shared
+[`login/model.cljc`](../../../core/login/model.cljc) to `src/login/model.cljc`;
+set the browser build's `:init-fn` to `fresco.login.core/run`. The repository's
+aggregate build already includes all these modules, so compiling here alone
+does not check an app's dependency list.
+
+For the server variant, also copy `server.cljs`, `host.clj`, and `policy.cljc`
+alongside `core.cljs`, and add `day8/re-frame2-ssr-ring` plus a Ring server adapter
+to the JVM host's dependencies. The [server recipe above](#build-it-and-run-it)
+uses Jetty and shows the two builds, sidecar, host initialization, and asset
+mapping they need.
 
 There is also no Fresco variant in the re-frame2 app template
 (`tools/template` scaffolds `:reagent` and `:uix`). Build by hand from the
