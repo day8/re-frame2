@@ -83,11 +83,16 @@ lifecycle that shares the machine's `:data` map with its siblings:
   region's state keyword is the status. There's no separate
   `:status :loading` field in app-db drifting out of sync with reality,
   because being in the `:loading` state is the loading status.
-  `:resolving` is a transient step: it has no UI of its own. The moment a
-  fetch's items land, an eventless
+  `:resolving` is a transient step: it has no UI of its own. The moment
+  `:items` changes, an eventless
   [`:always`](../../../docs/machines/concepts.md) transition reads the
   item count off the shared `:data` and falls through to the right
   cardinality bucket in a single step — first guard that matches wins.
+  Both routes that change `:items` end there: a fetch reply
+  (`:fetch-succeeded`, which REPLACES the list) and a valid form submit
+  (`:items-appended`, which appends one row). Two events, because they are
+  two different things — one place to decide cardinality, because that is
+  the property the region exists to own.
 - `:form` region — the form's validation lifecycle: `:neutral →
   {:correct | :incorrect}`. `:correct` is transient too; the next `:edit`
   event returns the region to `:neutral`, so the "✓ Todo added" message
@@ -154,12 +159,18 @@ examples/patterns/nine_states/
   core.cljs            single-file example: schemas, the :ui/nine-states
                        parallel machine, demo events, the render-priority
                        table + :ui/render sub, per-state views, mount.
-  index.html           minimal host page (the live app).
+  index.html           the host page — for BOTH builds. It carries the
+                       `[data-rf-xray-host]` aside Xray's inline mount
+                       needs, so Ctrl+Shift+C works on the served page.
   stories.cljs         Story showcase: one variant per canonical render
                        keyword, plus the fetch-lifecycle story (auxiliary;
                        see below).
   stories_host.cljs    Story-showcase entry point (live-app ↔ shell hash router).
-  stories.index.html   host page for the Story-showcase build.
+  stories.index.html   an alternate `<title>`/meta for the showcase build.
+                       Nothing serves it today: the runner stages, and the
+                       watch server resolves, `index.html` at `/` for every
+                       build. Kept identical to `index.html` below the
+                       `<head>` until that is settled either way.
   README.md            this file.
 ```
 
@@ -192,7 +203,14 @@ npm run dev:example -- examples/nine-states-with-stories
 ```
 
 Open the printed URL for the live demo, or append `#/stories` to it for the
-Story shell with each canonical render state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on
-either surface to open Xray over the load cascade — pick the `:some` or
+Story shell with each canonical render state as a variant. Both surfaces are
+the same page under a hash router, so the `[data-rf-xray-host]` aside in
+`index.html` serves both: press <kbd>Ctrl+Shift+C</kbd> on either one and Xray
+opens inline beside the app, over the load cascade. Pick the `:some` or
 `:error` variant and watch the fetch light up the Epoch, Trace, and Side
 Effects panels end to end.
+
+On `#/stories` the Story shell additionally offers Xray **one panel at a
+time** in its own right-hand pane, with a chip row to swap panels — the
+narrower, per-variant view (`rf2-v1ach`). That embed is Story's, not the
+chord's; the two are independent and can be open together.

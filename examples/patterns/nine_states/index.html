@@ -13,9 +13,23 @@
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="_shared/img/favicon.svg">
   <link rel="stylesheet" href="_shared/css/style.css">
+  <!-- Xray's default launch (Ctrl+Shift+C) mounts INLINE into an
+       app-provided layout host — it refuses with :missing-layout-host if the
+       page has none, which is what this `[data-rf-xray-host]` aside supplies.
+       `--rf-xray-inline-width` is the documented host-resize knob (see
+       day8.re-frame2-xray.config/default-layout-host-css-var and
+       spec/011-Launch-Modes.md §Resizing the inline host); the drag handle is
+       auto-injected. This is the page BOTH nine-states builds serve at `/`:
+       the plain `:examples/nine-states` build and the Story showcase
+       `:examples/nine-states-with-stories`, whose `#/stories` surface hosts
+       Xray a panel at a time through the Story shell's own RHS embed rather
+       than through this slot. -->
 </head>
 <body>
-  <div id="app"></div>
+  <div class="rf2-testbed-shell">
+    <main id="app"></main>
+    <aside data-rf-xray-host></aside>
+  </div>
   <script src="main.js"></script>
 </body>
 </html>
