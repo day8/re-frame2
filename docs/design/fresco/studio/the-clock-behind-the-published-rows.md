@@ -99,10 +99,16 @@ clock and every published row reaches it:
 | `p0_harness` — the UIx frontier arm's rows, **not on the lane's clock** | [`p0_harness.cljs`'s `now-ms` and `mount-arm!`](../../../../bench/fresco/src/re_frame/bench/p0_harness.cljs) its own `now-ms` → `js/performance.now()`, `t0` then `flushSync` | when `flushSync` returns | in-page |
 | `fresco_narrow` — the ratom-spine narrow write, **not on the lane's clock** | [`fresco_narrow.cljs`'s `now`](../../../../bench/fresco/src/re_frame/bench/fresco_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
 
-**The roster is closed and the answer is uniform.** A sweep of the whole
-`bench/fresco` tree finds no `requestAnimationFrame` in any measuring path — the
-only occurrences are in DOM correctness tests and in `z3vlz_probe`'s settle
-helper — and the only CDP traffic in any driver before this audit is
+**The roster is closed and the answer is uniform.** Every window the table above
+names closes when a synchronous call returns — `flushSync`, or a forced drain —
+and not one of them waits for a frame, so `requestAnimationFrame` cannot fall
+inside a published row's window. Two of the seven files those nine rows come
+from do contain the token, and in both it is docstring prose about Reagent's
+batching scheduler rather than code. **That property is what carries this, not a
+count of files**: the token is common elsewhere under `bench/fresco`, because
+the frame-inclusive instruments built after this audit are made of it, and what
+separates those from the rows above is what their window waits for rather than
+where they sit. The only CDP traffic in any driver before this audit is
 `HeapProfiler.collectGarbage` in `retention_run.cjs`, which is a collector door
 for the heap rows and not a clock. The two producers that do not take their
 clock from the lane reach the same answer by their own code: `p0_harness`'s
@@ -148,6 +154,40 @@ clock, not the one this audit ran on.
 > code *lived* rather than to what the code *does*, and locations move; the
 > property — a clock declared locally, not taken from the lane — is what the
 > table now names, and it survives the next move.
+
+> ### THIS PARAGRAPH ONCE ENUMERATED THE OCCURRENCES, AND A LIST WAS NEVER THE RIGHT FORM
+>
+> **It read "the only occurrences are in DOM correctness tests and in
+> `z3vlz_probe`'s settle helper", and that list has been dropped rather than
+> extended.** At `8f9b1a4eee`, seventeen files under `bench/fresco` contain
+> `requestAnimationFrame`: nine belong to the frame-inclusive instruments built
+> later to see past `flushSync`, where waiting for a frame is the entire point;
+> four are DOM correctness tests; one is `z3vlz_probe`; one is a test asserting
+> the CDP drivers' own labelling; and two are the roster's own producers,
+> `lane.cljs` and `hd8_rows.cljs`, where the token is docstring prose about
+> Reagent's batching scheduler rather than code. Ten of the seventeen first
+> appear after commit `611c5d4319` closed the roster — dated against that
+> commit's own timestamp rather than its calendar day, which matters because it
+> landed at 23:46 and one of the ten landed sixty-seven minutes after it.
+>
+> **The list was also short on the day it was written, and that is the half
+> worth recording.** At `611c5d4319` the three swept trees already held twelve
+> files carrying the token, seven of them in the producer tree — and one of
+> those seven was `clock_app.cljs`, which is neither a DOM correctness test nor
+> `z3vlz_probe`. Its docstring at that very commit describes the callback as
+> main-thread work that "lands inside the counters". So the enumeration was not
+> merely overtaken by growth: it was short on day one, and nothing about its
+> form invited anyone to check.
+>
+> **The claim the list was offered as evidence for survives untouched**, and was
+> re-verified at source: of the seven files the nine published rows come from,
+> five contain the token nowhere at all, and the two that do carry it only in
+> prose. What the paragraph states now is the property — a window that closes on
+> a synchronous return and never waits for a frame — which is decidable from the
+> table directly above it and needs no sweep to confirm. The lesson is the one
+> the note above already draws, reached from the other side: an inventory goes
+> stale exactly as a location does, and a claim is only as durable as the thing
+> it is pinned to.
 
 Three published families are **not** clock rows and are out of scope:
 `reads-per-boundary-heap-ladder`, `heap-fan-out-sweep` and
