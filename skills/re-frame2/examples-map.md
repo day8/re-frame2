@@ -63,7 +63,7 @@ The **write-side flagship** for optimistic mutations (EP-0019) — a Linearlite-
 
 ## routing — `examples/capabilities/routing/routing/`
 
-The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf.route/url-requested`, route-not-found handling, and the `:can-leave?` guard. The CP-7 worked example. Point at this example when authoring routes, navigating between them, gating navigation with `:can-leave?`, or wiring an anchor's `href` to dispatch a navigation event instead of a browser-default page load. Exercises 012 Routing. Compact and single-purpose; the canonical home of the routing primitives.
+The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf.route/url-requested`, and route-not-found handling. The CP-7 worked example. Point at this example when authoring routes, navigating between them, or wiring an anchor's `href` to dispatch a navigation event instead of a browser-default page load. It does **not** demonstrate the route `:can-leave` guard — for that read `examples/real-apps/realworld_http/`, whose editor routes declare `:can-leave [:editor/can-leave?]`. Exercises 012 Routing. Compact and single-purpose; the canonical home of the routing primitives.
 
 ## ssr — `examples/capabilities/ssr/ssr/`
 
