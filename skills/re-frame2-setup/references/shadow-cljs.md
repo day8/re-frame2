@@ -53,6 +53,8 @@ The scaffold's `.gitignore` keeps the first commit free of regenerable output: t
 
 ## Production build (`release`)
 
+The top-level `:deps {:aliases [:shadow :dev]}` applies to `release` too: Story must still resolve while shadow builds its classpath. The build's `:dev` entry override is what a release omits, so Story stays out of the JavaScript bundle. A missing Story checkout therefore needs its coordinate repaired even when only running `release` — see [`deps-versions.md`](deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
+
 `npm run release` (`shadow-cljs release app`) produces an optimised `:advanced` bundle at the same `resources/public/js/main.js`; serve `resources/public/` from any static host. No re-frame2-specific config: re-frame2's `:advanced`-compile elision contract (Spec 009) strips the dev-time machinery — `trace`, `epoch-history`, the registration diagnostics — when `goog.DEBUG` is false, which it is under `:advanced`. What the framework relies on to keep a promise of its own (a `:boundary? true` handler's schema check, a route's declared shape, a recordable coeffect's contract) survives — none of it is in this scaffold yet.
 
 ## nREPL — only if you'll use `re-frame2-pair`

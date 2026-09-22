@@ -26,7 +26,7 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 grep -oE 'day8/re-frame2[a-z-]* *\{[^}]*(:mvn/version|:git/sha) "[^"]+"' deps.edn
 ```
 
-**Same VERSION, different release trigger — and that matters when you write a tools coordinate.** The framework artefacts ship together on a `v*` tag. Xray and Story are **tools**, and the tools tier ships on its own per-tool tags — `xray-v*`, `story-v*` — which a framework `v*` tag does not cut ([`docs/release-process.md` §The tools tier](https://github.com/day8/re-frame2/blob/main/docs/release-process.md)). So a `day8/re-frame2-xray {:mvn/version "<VERSION>"}` coordinate stays a 404 until an `xray-v*` release lands, however current `<VERSION>` is; give a tool a `:git/sha` coordinate until then. Neither tool is in the scaffold — attach one when you want it, by its own recipe.
+**Same VERSION, different release trigger — and that matters when you write a tools coordinate.** The framework artefacts ship together on a `v*` tag. Xray and Story are **tools**, and the tools tier ships on its own per-tool tags — `xray-v*`, `story-v*` — which a framework `v*` tag does not cut ([`docs/release-process.md` §The tools tier](https://github.com/day8/re-frame2/blob/main/docs/release-process.md)). So a tool's `:mvn/version` stays unresolved until its own release lands, however current the framework VERSION is. Story is already in the scaffold's `:dev` alias: keep it on the reviewed checkout or the same reviewed Git commit until its matching Maven version resolves. Xray is attached separately when requested.
 
 ## The artefacts a greenfield project may add
 
@@ -45,7 +45,7 @@ grep -oE 'day8/re-frame2[a-z-]* *\{[^}]*(:mvn/version|:git/sha) "[^"]+"' deps.ed
 
 This table is what a greenfield project may add, not the release roster. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield. `day8/re-frame2-resources`, Spec [016](https://github.com/day8/re-frame2/blob/main/spec/016-Resources.md) / EP-0003, is a post-v1 per-feature artefact; add it when you call `reg-resource`.) `day8/re-frame2-xray` is a tool, on its own tag (above).
 
-**Greenfield day-one shape.** Matching the generator template, the day-one set is **two** re-frame2 coords — `day8/re-frame2` (core) + the substrate adapter (`day8/re-frame2-reagent`, or `day8/re-frame2-uix` on explicit request) — plus the view library the adapter renders through (`reagent/reagent`, or `com.pitch/uix.core` alone — the adapter's `client-root` / `render!` mint the React Root, so neither route pins a DOM-mount library), pinned explicitly so a surprise transitive bump cannot change your rendering substrate. Story is the one tool that rides day one: `day8/re-frame2-story` sits on the `:dev` alias (a `:local/root` into a re-frame2 checkout until it is published), so it is on the watch's classpath and never a release's. Everything else — schemas, Xray, the per-feature artefacts — stays **pay-as-you-go**: add it at the moment the author writes code that calls into it, so apps that don't use it don't pay the classpath cost.
+**Greenfield day-one shape.** Matching the generator template, the day-one set is **two** re-frame2 coords — `day8/re-frame2` (core) + the substrate adapter (`day8/re-frame2-reagent`, or `day8/re-frame2-uix` on explicit request) — plus the view library the adapter renders through (`reagent/reagent`, or `com.pitch/uix.core` alone — the adapter's `client-root` / `render!` mint the React Root, so neither route pins a DOM-mount library), pinned explicitly so a surprise transitive bump cannot change your rendering substrate. Story is the one tool that rides day one: `day8/re-frame2-story` sits on the `:dev` alias (a `:local/root` into a re-frame2 checkout until it is published). The scaffold's global `:deps` aliases put Story on both watch and release classpaths; the app's dev-only entry keeps it out of the **release bundle**, not dependency resolution. Everything else — schemas, Xray, the per-feature artefacts — stays **pay-as-you-go**: add it at the moment the author writes code that calls into it, so apps that don't use it don't pay the classpath cost.
 
 ## The default pins
 
@@ -98,14 +98,18 @@ Keep every `day8/re-frame2*` coordinate on the *same* checkout — never mix one
 
 ### The `:git/sha` route (pre-publish, no checkout on disk)
 
-Each artefact takes the monorepo's `:git/url` plus a `:deps/root` into its directory, with **one reviewed SHA on every line** — that is how lockstep holds with git coords:
+Each artefact takes the monorepo's `:git/url` plus a `:deps/root` into its directory, with **one reviewed SHA on every line** — that is how lockstep holds with git coords. Replace these entries in the scaffold, preserving its other dependencies and aliases:
 
 ```clojure
+;; In :deps:
 day8/re-frame2         {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "implementation/core"}
 day8/re-frame2-reagent {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "implementation/adapters/reagent"}
+
+;; In :aliases :dev :extra-deps (replace the scaffold's sibling :local/root):
+day8/re-frame2-story   {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "tools/story"}
 ```
 
-`<SHA>` is the commit of the reviewed checkout (or the tag `v<VERSION>` from the sources above); the per-feature artefacts use the same `:deps/root` paths as the table.
+`<SHA>` is the full commit SHA of the reviewed checkout (resolve a selected `v<VERSION>` tag to its commit first); the per-feature artefacts use the same `:deps/root` paths as the table. For UIx, replace the Reagent coordinate with `day8/re-frame2-uix` and `:deps/root "implementation/adapters/uix"`. Story still needs the third replacement: leaving `../re-frame2/tools/story` in `:dev` requires a sibling checkout and fails before compilation on this route. Verify the selected build aliases with `clojure -Stree -A:shadow:dev`; plain `clojure -Stree` does not resolve Story or shadow-cljs.
 
 ### Post-publish shape (NOT usable until the coordinates resolve on Clojars)
 
@@ -117,7 +121,7 @@ day8/re-frame2         {:mvn/version "<VERSION>"}
 day8/re-frame2-reagent {:mvn/version "<VERSION>"}
 ```
 
-Verify it resolves on Clojars first. The tools (`-xray`, `-story`) flip to `:mvn/version` on **different** tags, so check Clojars per artefact rather than assuming the framework release brought the tools with it.
+Verify it resolves on Clojars first. The tools (`-xray`, `-story`) flip to `:mvn/version` on **different** tags, so check Clojars per artefact rather than assuming the framework release brought the tools with it. In particular, the scaffold's Story entry is a sibling `:local/root`, not a Maven coordinate: replace it with an absolute reviewed checkout path or the Git coordinate above until the matching Story version is published. Once it resolves, use `day8/re-frame2-story {:mvn/version "<VERSION>"}` in `:aliases :dev :extra-deps`.
 
 ## `package.json` and latest-from-npm
 

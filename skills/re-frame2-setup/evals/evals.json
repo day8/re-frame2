@@ -62,6 +62,22 @@
       "The identity is settled BEFORE the first file is written: an artefact segment npm cannot take (a leading `_` or `.`, a character outside `a-z 0-9 - _ . ~`, over 214 characters) is reported and nothing is scaffolded — matching the generator, which throws before it emits.",
       "The run still reaches the terminating `npx shadow-cljs compile app` with exit 0 and reports the URL the watch printed — a custom name changes the identity, not the six steps.",
       "No clarification round is taken: the supplied name is sufficient input, and the zero-interview default holds for the substrate, the pins and everything the author did not name."
+     ]},
+    {"id": 19, "name": "portable-git-coordinates", "should_trigger": true,
+     "prompt": "Scaffold a re-frame2 counter using the reviewed commit I supplied. I want deps.edn to work on another machine without a sibling re-frame2 checkout; use Git dependencies.",
+     "expected_output": "The agent keeps the canonical scaffold and replaces core, the selected adapter and Story with monorepo Git coordinates at the supplied commit. Story remains in :aliases :dev :extra-deps, with :deps/root tools/story. No sibling checkout path remains in the build dependencies.",
+     "expectations": [
+       "The same full :git/sha is used for day8/re-frame2, the selected substrate adapter and day8/re-frame2-story, each with the correct :deps/root.",
+       "The scaffold's ../re-frame2/tools/story :local/root is replaced in the :dev alias; resolving the two top-level framework coordinates alone is not treated as complete.",
+       "Classpath verification includes :shadow and :dev, for example clojure -Stree -A:shadow:dev, before the terminating compile. The agent reports an actual command failure as unfinished."
+     ]},
+    {"id": 20, "name": "story-release-resolution", "should_trigger": true,
+     "prompt": "My freshly scaffolded counter resolves the framework Maven coordinates, but npm run release fails with Local lib day8/re-frame2-story not found. I thought Story was dev-only. Fix the setup using my reviewed checkout.",
+     "expected_output": "The agent repairs Story's :dev coordinate to the reviewed checkout's tools/story. It explains that the global shadow :deps aliases are used during release dependency resolution while the dev-only entry keeps Story out of the release bundle. A framework Maven release is not evidence that a matching Story version has been published.",
+     "expectations": [
+       "The Story coordinate is repaired in :aliases :dev :extra-deps without removing the Story development entry or inventing a Maven version.",
+       "The explanation distinguishes dependency resolution from inclusion in the compiled bundle; it does not claim :dev is automatically omitted from release classpaths.",
+       "The author-supplied reviewed checkout is used for Story, and any requested Maven alternative is checked for Story's own publication separately."
      ]}
   ]
 }
