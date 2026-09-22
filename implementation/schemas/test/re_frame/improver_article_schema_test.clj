@@ -7,6 +7,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.schemas :as schemas]
             [re-frame.schemas.test-fixture :as fixture]))
 
 (def ^:private repo-root
@@ -24,7 +25,10 @@
     (binding [*ns* (the-ns 're-frame.improver-article-schema-test)]
       (load-string (first matches)))))
 
-(use-fixtures :each fixture/reset-runtime)
+(use-fixtures :each
+  (fn [f]
+    (fixture/reset-runtime
+      #(try (f) (finally (schemas/clear-schemas-by-frame!))))))
 
 (def ^:private article
   {:slug "alpha" :title "Alpha" :body "Body" :authors []})
