@@ -172,7 +172,13 @@ def _layout_top_level_dirs(block: FencedBlock) -> set[str]:
     ``tools/story-mcp/``, or any sole shallowest line that has deeper
     siblings) is the tier-0 root and never an entry.  Glyph-prefixed lines
     are promoted one tier deeper than their raw indent so the glyph-tree and
-    indent-tree forms collapse to the same model.
+    indent-tree forms collapse to the same model.  A leading ``│`` is a
+    continuation column rather than the entry's own glyph, so it counts as
+    indent: a nested row (``│   └── fixture/``) sits one tier deeper per
+    continuation column and is never read as an immediate child.  Dot-named
+    entries are dropped at the return, mirroring the leading-dot filter in
+    ``_disk_dirs`` — the disk scan never yields them, so a map that lists
+    ``.claude-plugin/`` must not read as listing a non-existent dir.
     """
     entries: list[tuple[int, str, bool]] = []  # (raw_indent, name, has_glyph)
     for raw in block.lines:
@@ -181,8 +187,11 @@ def _layout_top_level_dirs(block: FencedBlock) -> set[str]:
         stripped = line.rstrip()
         if not stripped.strip(_TREE_GLYPHS + " \t"):
             continue
-        raw_indent = len(stripped) - len(stripped.lstrip(" \t"))
-        rest = stripped.lstrip(" \t")
+        # "│" is a continuation column, i.e. indent — never the entry's own
+        # glyph.  "├"/"└" ARE the entry's glyph and must stay in ``rest`` for
+        # the tier bump below, so they are deliberately not stripped here.
+        raw_indent = len(stripped) - len(stripped.lstrip(" \t│"))
+        rest = stripped.lstrip(" \t│")
         has_glyph = bool(rest) and rest[0] in _TREE_GLYPHS
         token = rest.lstrip(_TREE_GLYPHS + " ")
         token = token.split()[0] if token.split() else ""
@@ -213,9 +222,13 @@ def _layout_top_level_dirs(block: FencedBlock) -> set[str]:
         or all("/" in name for _i, name, _g in root_names)
     )
     target_tier = deeper[0] if (root_is_label and deeper) else root_tier
+    # Dot-named entries are filtered HERE and not at collection, so they
+    # still participate in the tier computation above (a ``.claude-plugin/``
+    # row is a real sibling and must not shift what counts as tier 1).
     return {
         e[1] for e in entries
         if tier(e) == target_tier and "/" not in e[1]
+        and not e[1].startswith(".")
     }
 
 
@@ -455,6 +468,21 @@ LAYOUT_CHECKS: tuple[LayoutCheck, ...] = (
         base_dir="examples",
         # _shared/ is a private cross-example helper lib, not a bucket.
         ignore=frozenset({"_shared"}),
+    ),
+    LayoutCheck(
+        readme="skills/reagent-migration/README.md",
+        section="Layout",
+        base_dir="skills/reagent-migration",
+        # The layout is declared LOCKED (spec/design.md §4) and tests/fixture/
+        # is run by a required CI job; rf2-ueyfn found it omitted by hand.
+        # No ignore set: every immediate dir is documented, and .claude-plugin/
+        # is a dot-dir that the map parser and _disk_dirs both drop (rf2-6vlds).
+    ),
+    LayoutCheck(
+        readme="skills/reagent-migration/spec/design.md",
+        section="4. File structure (locked)",
+        base_dir="skills/reagent-migration",
+        # The re-author's inventory of record (spec/authoring-prompt.md:17).
     ),
 )
 
@@ -867,6 +895,38 @@ def _run_self_tests(verbose: bool = False) -> int:
     ])
     expect("layout-dirs-glyph", _layout_top_level_dirs(blk3), {"spec", "src"})
 
+    # Nested glyph rows are NOT immediate children (rf2-6vlds).  A leading
+    # "│" is a continuation column — i.e. indent — so "│   └── fixture/"
+    # sits one tier below "├── tests/" rather than beside it.  Without that,
+    # every hand-drawn tree that shows one level of inner detail reports its
+    # grandchildren as children of the base dir.
+    blk4 = FencedBlock(open_line=1, lines=[
+        "skills/x/",
+        "├── README.md",
+        "├── references/",
+        "│   └── a.md",
+        "├── tests/",
+        "│   └── fixture/",
+        "└── spec/",
+        "    └── design.md",
+    ])
+    expect("layout-dirs-glyph-nested", _layout_top_level_dirs(blk4),
+           {"references", "tests", "spec"})
+
+    # Dot-named map entries are dropped at the return, mirroring the
+    # leading-dot filter in ``_disk_dirs`` (rf2-6vlds).  Otherwise
+    # ".claude-plugin/" — which every skill layout tree lists, because the
+    # family convention requires the file — reads as a phantom non-existent
+    # dir, since the disk scan never yields it.
+    blk5 = FencedBlock(open_line=1, lines=[
+        "skills/x/",
+        "├── .claude-plugin/",
+        "│   └── plugin.json",
+        "└── references/",
+    ])
+    expect("layout-dirs-dotdir-dropped", _layout_top_level_dirs(blk5),
+           {"references"})
+
     # table body-row counting (header + delimiter + N rows)
     table = [
         "| MCP tool | What |",
@@ -910,6 +970,32 @@ def _run_self_tests(verbose: bool = False) -> int:
             (base / d).mkdir()
         expect("disk-dirs-skips-build-artefacts",
                _disk_dirs(base), {"core", "adapters"})
+
+    # Layout check end-to-end against a real temp tree, on the nested-glyph
+    # shape the skill layouts use (rf2-6vlds).  This is the row that stops a
+    # future editor reaching for ``ignore={"fixture"}`` when a nested row
+    # reds: ``ignore`` is subtracted from the DISK side too (see
+    # ``_run_layout_check``), so that spelling papers over the parser defect
+    # AND silently accepts an undocumented immediate ``fixture/``.  The fix
+    # belongs in the parser, and this case goes red if it is ever moved back
+    # into the registry.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        skill = root / "skills" / "x"
+        for d in ("references", "tests", "spec", ".claude-plugin"):
+            (skill / d).mkdir(parents=True, exist_ok=True)
+        (skill / "README.md").write_text(
+            "# T\n\n## Layout\n\n```\n" + "\n".join(blk4.lines) + "\n```\n",
+            encoding="utf-8")
+        e2e = LayoutCheck(readme="skills/x/README.md", section="Layout",
+                          base_dir="skills/x")
+        expect("layout-e2e-nested-tree-in-sync", _run_layout_check(root, e2e), [])
+
+        (skill / "fixture").mkdir()
+        vs = _run_layout_check(root, e2e)
+        expect("layout-e2e-undocumented-dir-count", len(vs), 1)
+        expect("layout-e2e-undocumented-dir-named",
+               vs and "omits on-disk dir(s): fixture" in vs[0].message, True)
 
     # NameSetCheck end-to-end (rf2-664t7) — the regression this check exists
     # for is a table that under-lists its registry while the PROSE agrees
