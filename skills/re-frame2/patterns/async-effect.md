@@ -97,28 +97,39 @@ Do NOT hardcode runtime values in the fx registration's options map — registra
 
 **Listener registered at boot.** When the reply channel is a single broadcast surface (a Web Worker's `onmessage`, a Service Worker `MessageChannel`, a native bridge), register the listener once at boot — it dispatches a correlation-keyed event; the fx-handler just posts and includes a correlation id in the payload.
 
-A boot-registered listener has **no frame scope** when the reply fires — it is not inside the originating fx's closure — so a bare reply dispatch would raise `:rf.error/no-frame-context` (EP-0002: the runtime never synthesises a default). The frame must be **carried** through the message round-trip: the fx-handler reads `:frame` off its first-arg map and posts it as `:reply-frame`; the listener threads it back into the reply dispatch (as the explicit `{:frame …}` override).
+A boot-registered listener has **no frame scope** when the reply fires — it is not inside the originating fx's closure — so a bare reply dispatch would raise `:rf.error/no-frame-context` (EP-0002: the runtime never synthesises a default). Carry `:frame` through the message round-trip as `:reply-frame`. Use EDN strings on both sides: Web Workers' structured clone does not preserve ClojureScript collection or keyword types, and `js->clj` cannot recover their prototypes.
 
 ```clojure
+;; Main thread: (:require [cljs.reader :as reader])
 (defn install-worker-listener! [worker]
   (set! (.-onmessage worker)
         (fn [msg-event]
           (let [{:keys [reply-event payload reply-frame]}
-                (js->clj (.-data msg-event) :keywordize-keys true)]
+                (reader/read-string (.-data msg-event))]
             ;; reply-frame came back from the posted message; without it the
             ;; reply would raise :rf.error/no-frame-context (see anti-patterns).
             (rf/dispatch (conj reply-event payload)
-                         {:frame (keyword reply-frame)})))))   ;; explicit override carries the frame
+                         {:frame reply-frame})))))
 
 (rf/reg-fx :worker/post
   (fn fx-worker-post [m {:keys [op args reply-event]}]
-    ;; subs/str preserves the namespace: (subs (str :rf/default) 1) => "rf/default"
     (.postMessage @worker-instance
-                  #js {:op op :args args :reply-event reply-event
-                       :reply-frame (subs (str (:frame m)) 1)})))   ;; carry the originating frame
+                  (pr-str {:op op :args args :reply-event reply-event
+                           :reply-frame (:frame m)}))))
+
+;; Worker entrypoint: also require cljs.reader as reader.
+;; perform-work is the worker's application-specific synchronous computation.
+(set! (.-onmessage js/self)
+      (fn [msg-event]
+        (let [{:keys [op args reply-event reply-frame]}
+              (reader/read-string (.-data msg-event))]
+          (.postMessage js/self
+                        (pr-str {:reply-event reply-event
+                                 :reply-frame reply-frame
+                                 :payload (perform-work op args)})))))
 ```
 
-(`(keyword "rf/default")` reconstructs the namespaced id, so the namespace survives the worker boundary. For a non-keyword or gensym'd frame id, capture an `(rf/capture-frame (:frame m))` at fx time instead and dispatch through `(:dispatch handle)`.)
+The request, result, and reply event must be EDN values. The round-trip preserves namespaced keywords, nested event vectors, and the originating frame id without a separate reconstruction convention. Keep worker handles and other host objects outside these messages.
 
 **Streaming / multi-reply.** LLM-style or SSE-style where each chunk is a separate dispatch. Each emission is a normal dispatched event; the receiving handler appends to a buffer slice. The fx posts once; the reply channel fires N events. RemoteData has no `:streaming` state — its enum is `:idle | :loading | :fetching | :loaded | :error` — so hold `:fetching` for the duration of the stream and flip to `:loaded` on the terminal chunk.
 

@@ -8,7 +8,7 @@ Boot composes two **managed external effect** surfaces — state-machine `:spawn
 
 ## When to load
 
-Reach for it whenever the app needs more than a one-step bootstrap — sequential dependencies between phases, per-phase failure semantics, visible "Loading profile…" progress, per-phase retry, or SSR handoff. A boot graph scattered across N event handlers is invisible; a state machine names the sequence.
+Reach for it whenever a client app needs more than a one-step bootstrap — sequential dependencies between phases, per-phase failure semantics, visible "Loading profile…" progress, or per-phase retry. A boot graph scattered across N event handlers is invisible; a state machine names the sequence. For server-side data loading before render, use [route-owned blocking resources](resources.md#route-driven-loading-route-resources).
 
 For trivial boots (≤3 steps, no error states, no progress UI), use the chained-events form — see *§Simple form*.
 
@@ -21,7 +21,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 | Consolidated `:entry` action | Per Spec 005, `:entry` is one fn or one registered id — never a vector. To update `:data` AND dispatch, write one action returning `{:data ..., :fx ...}`. |
 | `:after` (numeric delay) | Retry-with-backoff between failed phase and re-attempt. |
 | Machine snapshot in runtime-db | The boot machine's snapshot lives in the runtime-db partition at `[:rf.runtime/machines :snapshots :app/boot]`; Boot UI reads `:state` and `:data :phase` via the framework `:rf/machine` sub — one writer, one signal. |
-| `:rf/server-init` + `:rf/hydrate` (SSR) | Server completes server-meaningful phases; client reads initial state from hydrated snapshot and resumes. |
+| `:rf/hydrate` (SSR) | Installs server-loaded resource data and durable snapshots; client-only boot work starts explicitly after hydration. |
 
 ## Canonical declaration (state-machine form)
 
@@ -145,7 +145,7 @@ Each link is a Pattern-AsyncEffect interaction. Past three links, scatter wins; 
 
 No parallel `:loading?` flag — the machine's state IS the UI signal.
 
-**SSR handoff.** `:rf/server-init` runs server-meaningful phases; client-only phases (`:hydrating` from `localStorage`, `:ws/connect`) are skipped via `:platforms #{:client}`. The server's machine snapshot rides the hydration payload's serializable runtime-db projection (`[:rf.runtime/machines :snapshots :app/boot :state] = :hydrating` or `:routing`); the client installs it as part of the frame-state on `:rf/hydrate` and resumes per Spec 005. No double-fetch of `/config`.
+**SSR handoff.** Machines are synchronous-only under SSR: the render barrier waits for blocking resources, not HTTP spawned by a boot machine, and `:after` retries do not schedule on the server. Load server data through [route-owned blocking resources](resources.md#route-driven-loading-route-resources). Hydration installs the durable snapshots but does not replay their entry actions or recreate spawned children; only active `:after` timers are re-armed. Start any client-only boot phases explicitly from client boot code after hydration, consuming the hydrated data instead of fetching it again. Gate that start at the call site; `:platforms` metadata on an ordinary event handler does not suppress its execution.
 
 **Re-boot.** Dispatch a wildcard parent event: `:auth.session/expired {:target :authenticating}`. Most apps reload the page on session expiry.
 
@@ -159,7 +159,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 - **Top-level `(do ...)` at namespace load.** No tracing, no error handling, no progress UI; hot-reload re-runs it.
 - **One giant `:app/init` handler doing five things.** The sequence becomes invisible. Use the machine.
 - **`:entry [:set-phase :resolve-route]`.** `:entry` is singular. Consolidate into one action returning `{:data ..., :fx ...}`.
-- **Always starting in `:configuring` under SSR.** Re-fetches what the server already loaded. Read initial state from the hydrated snapshot.
+- **Using an async boot machine as the SSR loader or expecting hydration to restart its children.** Use blocking route resources on the server and explicitly start the client's remaining work after hydration.
 - **Mixing boot with running-app logic.** Boot states should be terminal-distinct (`:ready` is the handoff). Don't reuse `:loading-profile` for "user clicked refresh on profile page".
 
 ## Worked example

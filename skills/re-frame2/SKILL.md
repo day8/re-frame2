@@ -90,7 +90,7 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 | HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
 | Form input with validation and submit | `patterns/forms.md` |
 | Long-running browser-side work | `patterns/long-running-work.md` |
-| Fire-and-forget side effect, no response | `patterns/async-effect.md` |
+| Custom Promise / callback / Web Worker integration, or a fire-and-forget effect | `patterns/async-effect.md` |
 | App boot (configure, hydrate, navigate) | `patterns/boot.md` |
 | Real-time bidirectional connection | `patterns/websocket.md` |
 | View rendering every legal lifecycle state | `patterns/nine-states.md` |

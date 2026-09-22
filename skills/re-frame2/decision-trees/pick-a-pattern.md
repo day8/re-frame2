@@ -49,11 +49,10 @@ A form's `:submit` step is usually a Forms-driven dispatch *into* a RemoteData o
 
 ### AsyncEffect vs RemoteData
 
-- **AsyncEffect** is the *generic* six-step shape (register fx → return `:fx` → post work → reply → dispatch → commit). RemoteData *specialises* it for HTTP with the 5-key slice.
-- Choose **AsyncEffect** for fire-and-forget side effects that do not commit a result to `app-db` — analytics emits, log shipping, browser-notification triggers, `postMessage` to an external system you don't await. There is no slice.
-- Choose **RemoteData** when there *is* a reply that updates the slice. The lifecycle slice is the giveaway.
+- **AsyncEffect** is the *generic* six-step shape (register fx → return `:fx` → post work → reply → dispatch → commit). Choose it when integrating a Promise, callback, Web Worker, or another custom reply channel, whether its reply updates state or it is fire-and-forget.
+- **RemoteData** adds the standard request-lifecycle slice (`:status`, `:data`, `:error`, `:loaded-at`, `:attempt`). Choose it when that lifecycle is the feature being authored; AsyncEffect can supply its custom transport.
 
-Anything that *would* have a slice but doesn't have one yet is a RemoteData leaf to author. Anything that genuinely has no observable reply is AsyncEffect.
+A reply alone does not require the RemoteData slice: a worker result may simply update an existing domain value. Load both leaves when the custom integration also needs the standard request lifecycle.
 
 ### WebSocket vs AsyncEffect
 
