@@ -537,6 +537,11 @@ file rather than noting it.
   rather than the safe one: naming the right authority is not applying it, and the citation is what
   makes the text read as rigorous. **The discharging question is whether you can state the check you
   made THIS pass** — if what you can quote is your own last report, you carried the conclusion.
+  **But a PASS is not a licence to RE-EMIT.** Re-deriving is what makes you confident enough to
+  restate, so this remedy applied diligently drives the repetition it does not measure — a right fact
+  delivered for the eighth time to a reader who acted on it the first time, or deliberately has not.
+  Verification licenses ACTING on a disposition, never restating it: send the DELTA and one line that
+  the rest re-derived unchanged — the dispatch loop's delta rule, turned on your own output.
 - **An unsatisfiable quantifier** — *"every gate prints X"* when a third do not. Workers facing one do
   not stop; they improvise, and the improvisation varies.
 - **A block that has diverged from the command file that pastes it.**
