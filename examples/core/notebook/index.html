@@ -18,7 +18,7 @@
        from _shared/css/style.css (the canonical --ex-* design system). */
     .nb-shell {
       display: grid;
-      grid-template-columns: 260px 1fr 1fr;
+      grid-template-columns: 260px minmax(0, 1fr) minmax(0, 1fr);
       min-height: 100vh;
       background: var(--ex-bg);
     }
@@ -71,6 +71,7 @@
 
     .nb-editor, .nb-preview {
       display: flex; flex-direction: column;
+      min-width: 0;
       border-right: 1px solid var(--ex-rule);
     }
     .nb-preview { border-right: 0; }
@@ -100,6 +101,7 @@
     .nb-rendered {
       flex: 1; padding: 28px 34px;
       overflow-y: auto;
+      overflow-wrap: anywhere;
       font-family: var(--ex-sans);
       color: var(--ex-ink);
       background: var(--ex-bg-raised);
@@ -119,8 +121,15 @@
       font-family: var(--ex-mono);
     }
 
-    /* This focused example intentionally omits a mobile layout; its visual
-       smoke coverage uses the desktop three-pane composition. */
+    /* Keep all three panes usable when there is no room for columns. */
+    @media (max-width: 760px) {
+      .nb-shell { grid-template-columns: minmax(0, 1fr); }
+      .nb-sidebar, .nb-editor {
+        border-right: 0;
+        border-bottom: 1px solid var(--ex-rule);
+      }
+      .nb-textarea { min-height: 18rem; }
+    }
   </style>
 </head>
 <body>

@@ -218,7 +218,7 @@
 
 (defn- inline-md->hiccup
   "Turn one block of text into a flat seq of hiccup, pulling out the
-   inline runs — links, bold, italic, code — as it goes. The caller
+   inline runs — code, links, bold, italic — as it goes. The caller
    splices the result into a parent element. The passes run one after
    another, and each only ever sees the plain-text leftovers of the ones
    before it (the hiccup they emitted just rides along), so a `**bold**`
@@ -226,6 +226,9 @@
    touch. Simple rules, layered."
   [s]
   (-> [s]
+      ;; Code spans are literal: protect them before the markdown passes.
+      (split-by-regex #"`([^`]+)`"
+                      (fn [m] [:code (nth m 1)]))
       (split-by-regex #"\[([^\]]+)\]\(([^)]+)\)"
                       (fn [m]
                         (let [text (nth m 1)]
@@ -244,9 +247,7 @@
       (split-by-regex #"\*\*([^*]+)\*\*"
                       (fn [m] [:strong (nth m 1)]))
       (split-by-regex #"\*([^*]+)\*"
-                      (fn [m] [:em (nth m 1)]))
-      (split-by-regex #"`([^`]+)`"
-                      (fn [m] [:code (nth m 1)]))))
+                      (fn [m] [:em (nth m 1)]))))
 
 (defn- render-block [block]
   (cond
