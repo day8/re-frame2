@@ -32,6 +32,9 @@ Fixtures:
 | `explicit_id_brace_not_a_target`     | 1        | Negative control: a link to the brace id `#dup` targets nothing → flagged.                           |
 | `root_markdown_ok`                   | 0        | Repo-root markdown that is not a README — correct links stay silent (rf2-znup0).                     |
 | `root_markdown_broken_link`          | 2        | The same roster, both failure modes at once: a broken target and a broken anchor.                    |
+| `site_url_in_root_markdown`          | 1        | This project's own site URLs, resolved offline against the source tree — root markdown is this gate's surface, and the repo's front page is where the class bit (rf2-dnx3r). |
+| `redirect_table_ok`                  | 0        | `SKILL-REDIRECT.md`'s bare-URL bullets, read by the narrow bullet reader the shared extractor cannot supply; both arrow spellings and both bold markers, with the `github.com` row left external (rf2-dnx3r). |
+| `redirect_table_broken`              | 1        | The same table carrying a dead site URL — the `[setup]` row's real failure, which no gate could see for a quarter (rf2-dnx3r). |
 
 Four further fixtures — `command_refs_ok`, `command_refs_broken`,
 `command_script_refs_ok` and `command_script_refs_broken` — served the

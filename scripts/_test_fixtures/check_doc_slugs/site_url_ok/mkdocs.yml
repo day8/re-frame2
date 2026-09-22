@@ -1,0 +1,8 @@
+# Self-test fixture marker.
+#
+# Unlike the other fixtures' bare markers this one carries the three keys the
+# rf2-dnx3r site-URL arm reads, because the arm is switched OFF by a missing
+# `site_url:` — which is exactly what keeps every fixture that predates it
+# inert.
+site_url: https://day8.github.io/re-frame2/
+docs_dir: docs

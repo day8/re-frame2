@@ -171,6 +171,8 @@ try:
         _HEADING_RE,
         _HTML_ANCHOR_RE,
         _extract_links,
+        _site_url_path,
+        _site_url_problems,
         _strip_fences,
     )
 except ImportError as exc:  # pragma: no cover - dev-env path
@@ -184,6 +186,8 @@ except ImportError as exc:  # pragma: no cover - dev-env path
             _HEADING_RE,
             _HTML_ANCHOR_RE,
             _extract_links,
+            _site_url_path,
+            _site_url_problems,
             _strip_fences,
         )
     except ImportError:
@@ -531,6 +535,63 @@ def _head_check(url: str, timeout: float = 5.0) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
 
 
+# rf2-dnx3r — the redirect table's bare-URL bullets.
+#
+# `SKILL-REDIRECT.md` is the canonical pointer table for this repo's AI
+# skills: the skills stay free of hardcoded URLs and cite its bullets by
+# LABEL, so every URL they reach is written once, here. The bullets are bare
+# URLs after an arrow — the format the file documents for itself — and the
+# shared extractor reads INLINE and REFERENCE links only, so it yields
+# literally nothing for this file. Its rows were therefore validated by no
+# gate at all, which is how the `[setup]` row pointed at a 404 for a quarter.
+#
+# The fix is this narrow reader, not a wider `_extract_links`: bare URLs are
+# not links in any renderer, and teaching the shared extractor to treat them
+# as such would change what BOTH gates see in every file they read. Nor is it
+# a reshape of the table into `[URL](URL)`, which would break the format the
+# file documents at its own `Format` section.
+_REDIRECT_TABLE_NAME = "SKILL-REDIRECT.md"
+
+# A twin of `BULLET_LABEL_RE` in `check_skill_redirect_anchors.py`, extended
+# to capture the URL after the arrow. That script owns the LABEL coupling and
+# is deliberately left alone: it is stdlib-only and runs in the invariant CI
+# job, which installs nothing, while importing this gate's resolver would pull
+# `pymdownx` in and red every pull request.
+_REDIRECT_BULLET_URL_RE = re.compile(
+    r"^\s*-\s+(?:\*\*|__).+?(?:\*\*|__)\s*(?:→|->)\s*(\S+)"
+)
+
+
+def _redirect_table_site_urls(repo_root: Path, path: Path) -> Iterable[tuple[int, str]]:
+    """Yield `(line_no, url)` for the table's own-site bullets only.
+
+    Deliberately narrow in two directions. Only THIS project's site URLs are
+    yielded, so the table's `github.com` rows reach nothing new — in
+    particular `--check-external` probes exactly the set it probed before,
+    because a row this reader skips can never arrive at the HEAD-probe branch.
+    And fences are stripped, so a bullet quoted as a sample stays a sample.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for line_no, content in _strip_fences(text.splitlines()):
+        match = _REDIRECT_BULLET_URL_RE.match(content)
+        if match is None:
+            continue
+        url = match.group(1)
+        if _site_url_path(repo_root, url) is not None:
+            yield line_no, url
+
+
+def _scanned_destinations(repo_root: Path, path: Path) -> Iterable[tuple[int, str]]:
+    """Every destination this gate validates in one file.
+
+    The shared extractor's links, plus — for the repo-root redirect table
+    alone — its bare-URL bullets.
+    """
+    yield from _extract_links(path)
+    if path.name == _REDIRECT_TABLE_NAME and path.parent.resolve() == repo_root.resolve():
+        yield from _redirect_table_site_urls(repo_root, path)
+
+
 def check(
     repo_root: Path,
     verbose: bool = False,
@@ -562,12 +623,24 @@ def check(
     broken_target: list[tuple[Path, int, str, str]] = []
     broken_anchor: list[tuple[Path, int, str, str]] = []
     broken_external: list[tuple[Path, int, str, str]] = []
+    site_url_broken: list[tuple[Path, int, str, str]] = []
 
     for path in files:
-        for line_no, dest in _extract_links(path):
+        for line_no, dest in _scanned_destinations(repo_root, path):
             # Mustache-template placeholder anywhere in the destination
             # → render-time substitution, not a real link.  Skip.
             if _MUSTACHE_RE.search(dest):
+                continue
+
+            # This project's own published-site URLs, resolved offline to the
+            # source page MkDocs builds them from (rf2-dnx3r).  Checked BEFORE
+            # the external guard below, which skipped them wholesale — the
+            # repo's front page carried seven dead ones for 86 days.  Inert
+            # unless `mkdocs.yml` names a `site_url`.
+            site_path = _site_url_path(repo_root, dest)
+            if site_path is not None:
+                for problem in _site_url_problems(repo_root, site_path):
+                    site_url_broken.append((path, line_no, dest, problem))
                 continue
 
             # External / non-file references.
@@ -613,7 +686,34 @@ def check(
                         (path, line_no, dest, str(target.relative_to(repo_root.resolve())))
                     )
 
-    total = len(broken_target) + len(broken_anchor) + len(broken_external)
+    total = (
+        len(broken_target)
+        + len(broken_anchor)
+        + len(broken_external)
+        + len(site_url_broken)
+    )
+
+    if site_url_broken:
+        sys.stderr.write(
+            f"\n{len(site_url_broken)} broken project-site URL(s) in README / "
+            "repo-root markdown (rf2-dnx3r):\n\n"
+        )
+        for src, line_no, dest, problem in site_url_broken:
+            rel = src.relative_to(repo_root)
+            sys.stderr.write(
+                f"  BROKEN SITE URL: {rel}:{line_no} -> {dest}\n"
+                f"      ({problem})\n"
+            )
+        sys.stderr.write(
+            "\nFix: this is a URL into THIS project's published documentation "
+            "site, resolved offline against the source page MkDocs would build "
+            "it from — repoint it at the page's current home. Only the PATH is "
+            "checked: the fragment and the trailing slash are not graded, and "
+            "neither is whether the page it reaches is the right one. "
+            "Remember that MkDocs publishes `X/index.md` and `X/README.md` at "
+            "`X/`, so `X/index/`, `X/README/` and `X.md` are not URLs it "
+            "serves.\n"
+        )
 
     if broken_target:
         sys.stderr.write(
@@ -722,6 +822,18 @@ def _run_self_tests(verbose: bool = False) -> int:
         # comes from the root roster and nothing else. Both directions:
         ("root_markdown_ok",                 0),  # correct root links stay silent
         ("root_markdown_broken_link",        2),  # broken target + broken anchor
+        # rf2-dnx3r — this project's own published site URLs, resolved offline
+        # against the source tree by the resolver in `check_doc_slugs.py`.
+        # Root markdown is THIS gate's surface (rf2-znup0), and the repo's
+        # front page cites the published site, so the docs gate's copy of the
+        # arm cannot reach the file where the class actually bit.
+        ("site_url_in_root_markdown",        1),  # one live link, one dead
+        # The redirect table writes bare URLs after an arrow, which the shared
+        # extractor does not and should not read as links — so the table's
+        # rows were seen by no gate at all. Both directions, and the
+        # `github.com` row in each pins that a non-site URL stays external.
+        ("redirect_table_ok",                0),
+        ("redirect_table_broken",            1),
     ]
 
     failures = 0
@@ -749,6 +861,41 @@ def _run_self_tests(verbose: bool = False) -> int:
                 f"self-test FAIL: {fixture} expected broken={expected}, got {got}\n"
             )
             failures += 1
+
+    # rf2-dnx3r — the blind spot the bullet reader exists for, asserted
+    # directly rather than only through the two fixtures' counts.
+    #
+    # The shared extractor yields NOTHING for a redirect table: its rows are
+    # bare URLs after an arrow, and bare URLs are not links. That is why the
+    # table's site URLs were read by no gate at all, and why a reader had to
+    # be written rather than a call added. Pinned here so that the day the
+    # extractor learns bare URLs, this goes red and tells whoever did it that
+    # `_redirect_table_site_urls` has become redundant — rather than leaving
+    # the table quietly graded twice.
+    table = _SELF_TEST_FIXTURE_ROOT / "redirect_table_broken" / "SKILL-REDIRECT.md"
+    extracted = list(_extract_links(table))
+    read_by_reader = list(
+        _redirect_table_site_urls(table.parent, table)
+    )
+    if extracted:
+        sys.stderr.write(
+            "self-test FAIL: the shared extractor now yields "
+            f"{len(extracted)} link(s) for a redirect table; the bare-URL "
+            "reader may be redundant (rf2-dnx3r)\n"
+        )
+        failures += 1
+    elif len(read_by_reader) != 2:
+        sys.stderr.write(
+            "self-test FAIL: the redirect-table reader yielded "
+            f"{len(read_by_reader)} site URL(s), expected 2 (rf2-dnx3r)\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: the shared extractor sees no links in a redirect "
+            "table, and the bullet reader sees its two site URLs while "
+            "leaving the github.com row external\n"
+        )
 
     # rf2-znup0 — the root roster's two structural properties, asserted
     # directly rather than only through a fixture's aggregate count.
