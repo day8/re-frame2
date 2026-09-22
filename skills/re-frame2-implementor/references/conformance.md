@@ -49,7 +49,7 @@ Wire the harness into the port's CI; every commit should report the score. **The
 
 This section is the skill's single owner of three things: how to **derive** the claimable set, the **family → scope-decision map**, and the **corpus/spec divergence rule**. The port profile records only the result.
 
-Four families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the `:rf/path` algebra + CEDN-1 canonical identity — `EP-0012` is the `docs/EP/` proposal behind it, `spec/Conventions.md` the normative text), `:flow/*` (the Spec 013 flow substrate), and `:data-classification/*` (the Spec 015 egress/redaction contract). These four are what **acceptance gate 1** runs. The checklist's **always-run** list names a fifth beside them — `:derivation/*` — never declined either, but not a gate-1 family, for the reason its row below gives. For all five: a port never declines one, and a port scoring itself only against the families it declared is over-reporting. Every **optional** family maps to a numbered checklist scope question and is claimed iff that answer is yes.
+Four families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the `:rf/path` algebra + CEDN-1 canonical identity — `EP-0012` is the `docs/EP/` proposal behind it, `spec/Conventions.md` the normative text), `:flow/*` (the Spec 013 flow substrate), and `:data-classification/*` (the Spec 015 egress/redaction contract). These four are what **acceptance gate 1** runs. The checklist's **always-run** list names a fifth beside them — `:derivation/*` — never declined either, but not a gate-1 family, for the reason its row below gives. For all five: a port never declines one, and a port scoring itself only against the families it declared is over-reporting. Every **optional** family maps to a numbered checklist scope question. A yes selects that surface; its owning Spec determines which individual capabilities the port claims. In particular, [Q1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#q1-state-machines) requires separate FSM-richness and actor-model lists, not every `:fsm/*` and `:actor/*` tag. Enumerate the available tags at the pin, claim the implemented subset, and explicitly known-skip the optional capabilities outside it.
 
 **Q-numbers are the checklist's, and it numbers nine.** [`spec/Implementor-Checklist.md` Part 1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-1--how-complete) carries **Q1–Q9**: managed HTTP is **Q8** and resources is **Q9** (declaring Q9 implies Q8). There are no skill-local scope decisions — every optional capability is a numbered checklist question, so cite its Q-number.
 
@@ -57,7 +57,7 @@ Four families are **v1-required** and always claimed: `:core/*` (pattern-require
 
 | Family | Claimed when |
 |---|---|
-| `:fsm/*`, `:actor/*` | Q1 state machines |
+| `:fsm/*`, `:actor/*` | Q1 state machines — the chosen FSM-richness and actor-model subsets |
 | `:routing/*` | Q2 routing |
 | `:ssr/*` | Q3 SSR |
 | `:schemas/*` | Q4 schemas ≠ no (see §Static hosts below) |
@@ -79,7 +79,9 @@ A **v1-required** family is in neither flavour, and that is the point. `:core/*`
 
 ### Static hosts and dynamic-host-only fixtures
 
-Some fixtures carry `:fixture/dynamic-host-only? true` (derive the live set with the grep above): they assert a **runtime** validation trace a statically-typed host claiming schemas via its type system cannot produce — the malformed value never compiles. A static-host port filters those fixtures out *before* the capability-subset check, claims the shape-description capability it actually provides, and puts the affected `:schemas/*` runtime-validation tags on `known-skipped` with an explicit static-host reason (only those — a v1-required tag can never go there, per the floor above). That is a documented static-host conformance path, not claim-set drift; report it in the port README so the skip reads as a host-mechanism fact.
+Some fixtures carry `:fixture/dynamic-host-only? true` (derive the live set with the grep above): they assert a **runtime** validation trace a statically-typed host relying on its type system alone cannot produce — the malformed value never compiles. The host-applicability exclusion is for **Q4 = yes-via-host-types**, not every statically typed language: that port filters these fixtures out *before* the capability-subset check and puts the affected `:schemas/*` runtime-validation tags on `known-skipped` with a types-only reason (only those — a v1-required tag can never go there, per the floor above). Record its shape-description mechanism in the profile; do not invent a corpus capability tag for it.
+
+A static-host port choosing **Q4 = yes-runtime-schema** — TypeScript with a runtime validator, for example — keeps these fixtures eligible and applies the normal capability-subset rule. [Q4](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#q4-schemas) explicitly permits that choice; static typing alone never justifies dropping runtime-validation coverage. Q4 = no uses ordinary out-of-claim skips. Report the actual mechanism and skip reasons in the port README.
 
 ## Diagnosis — spec gap vs implementation bug
 

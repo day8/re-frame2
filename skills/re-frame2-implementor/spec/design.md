@@ -84,7 +84,7 @@ skills/re-frame2-implementor/
 ├── LICENSE (MIT)
 ├── package.json (npm metadata)
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
-├── evals/evals.json (schema 2: trigger-accuracy fixtures, plus expected_output + expectations[] on the two highest-drift behaviours)
+├── evals/evals.json (schema 2: trigger-accuracy fixtures, plus expected_output + expectations[] on selected conformance and workflow behaviours)
 ├── references/
 │ ├── cardinal-rules.md (the eleven rules + anti-pattern corollaries)
 │ ├── phase-1-decisions.md (the port profile: defaults, spec pin, template)
