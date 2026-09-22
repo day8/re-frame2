@@ -12,12 +12,15 @@ see [`../TESTING.md`](../TESTING.md).
 
 ## How the examples are covered
 
+Run these npm commands from `implementation/`, after the
+[one-time dependency install](README.md#running-any-of-them).
+
 | Command | What it checks | Lives in |
 |---|---|---|
 | `npm run test:examples-compile` | Compiles every declared `:examples/*` shadow-cljs build and fails on any error **or warning**. The build list is derived from `shadow-cljs.edn`, so a newly declared example is swept automatically. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 | `npm run test:cljs` | The shadow-cljs `:node-test` bundle, run on Node. `:ns-regexp` is `cljs-test$`, so it picks up every `*-cljs-test` wrapper — including the **example wrappers**, which require their example's `core` ns and drive its events, subs and fixtures headlessly (no DOM). This is where the example wrappers actually run. | [`implementation/package.json` `test:cljs`](../implementation/package.json) |
 | `npm run test:browser` | The shadow-cljs `:browser-test` bundle in one Chromium page. `:ns-regexp` is narrowed to `-dom-cljs-test$`, so it runs **only** the DOM-dependent wrappers (those that mount real React via `react-dom/client`). The example wrappers do **not** mount the DOM, so they keep the plain `-cljs-test` suffix and run under `test:cljs`, not here. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs) |
-| `npm run test:scripts` | Static scanners over the example tree, among the JS-harness self-tests it discovers: `check-examples-assets.cjs` (shared stylesheet asset presence + WCAG palette-contrast / focus-ring contracts on each `index.html`) and `check-reagent-slim-boundary.cjs` (the stock Reagent tree never requires `reagent2.*` / the slim adapter). | [`examples/scripts/`](scripts/) |
+| `npm run test:scripts` | JS harness tests for staging, build discovery, ports, Story runner verdicts and shared assertion timeouts, plus static scanners: `check-examples-assets.cjs` (shared assets + palette contrast / focus rings) and `check-reagent-slim-boundary.cjs` (the stock Reagent tree never requires `reagent2.*` / the slim adapter). | [`implementation/scripts/`](../implementation/scripts/) tests exercising [`examples/scripts/`](scripts/) |
 
 `test:examples-compile` and the `test:scripts` scanners add nothing under
 `examples/` — they keep the test-free policy intact.
@@ -105,8 +108,8 @@ than the sharing saves.
 
 The **login** triple takes the same idea one step further: rather than three
 copies of the `:auth.login/*` dataflow, the three login examples — Reagent
-(`examples/login`), UIx (`examples/login-uix`) and Fresco
-(`examples/login-fresco`) — all `:require`
+([`core/login`](core/login/)), UIx ([`substrates/uix/login`](substrates/uix/login/))
+and Fresco ([`substrates/fresco/login`](substrates/fresco/login/)) — all `:require`
 **one** substrate-free model namespace,
 [`login.model`](core/login/model.cljc) — the single owner of every shared
 `auth.login` schema, fx, machine, event, and sub (rf2-ppbvav, extended to the

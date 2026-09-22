@@ -12,7 +12,15 @@ They range from the counter (the smallest app the pattern admits) to RealWorld (
 
 ## Running any of them
 
-One command, from `implementation/` — the build-id is in each row below:
+Start with Node.js/npm and a JDK on your PATH (CI uses Node 24 and Java 21).
+From a fresh checkout, install the dependencies once:
+
+```bash
+cd implementation
+npm ci
+```
+
+Then run any example from `implementation/` — the build-id is in each row below:
 
 ```bash
 npm run dev:example -- <build-id>
