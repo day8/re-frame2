@@ -37,7 +37,7 @@
        "Drops the deref: @(subscribe [:total]) becomes (h/sub [:total]) (MIG-02).",
        "Lifts the handler: {:on-click #(dispatch [:buy amt])} becomes {:on-click [:buy amt]} (MIG-04).",
        "Adds the require [re-frame.fresco :as h] (MIG-24) and cites the MIG ids for each change.",
-       "Notes the `h` alias is load-bearing because ::h/value / ::h/checked / ::h/prevent auto-resolve through it.",
+       "Uses the conventional h alias for markers, or an existing Fresco alias consistently; ::fresco/value with [re-frame.fresco :as fresco] is the same :re-frame.fresco/value keyword, while ::value resolves in the consumer namespace.",
        "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell or forward.",
        "Does NOT invent a {:compiled true} option, a v/ alias, or any Freehand spelling."
      ]},
@@ -103,7 +103,7 @@
     {"id": 22, "kind": "behavioural", "tier": "D", "name": "d-mig28-computed-props-are-a-plain-merge-owned-last",
      "prompt": "Migrate this reusable control to Fresco:\n(defn text-field [attrs draft on-change]\n  [:input (merge attrs {:type \"text\" :value (:title draft) :on-change on-change})])",
      "expectations": [
-       "Recognises MIG-28 and keeps a plain merge with the field's owned keys LAST: [:input (merge (dissoc attrs :key) {:type \"text\" :value ... :on-change ...})] — there is no reserved merge key and no spread form in Fresco.",
+       "Recognises MIG-28 and keeps a plain merge with the field's owned keys LAST: [:input (merge (dissoc attrs :key ::h/revision) {:type \"text\" :value ... :on-change ...})] — there is no reserved merge key and no spread form in Fresco.",
        "States that the owned literals win by presence because they are merged last, so a caller cannot replace :value or :on-change by forwarding the same key.",
        "Notes that :key and ::h/revision belong to the wrapper's element and are dissoc'd from the forwarded map rather than passed through, and that the case where a caller override SHOULD win is spelled by not writing the owned literal.",
        "Notes that forwarded maps use the same kebab-keyword spelling as the literals — an alternate spelling of one React slot is a different map key, and which lands is then map order rather than law.",
@@ -228,6 +228,20 @@
        "The scripted example asserts the returned :status (for example (is (= :green (:status (hm/shadow! {...}))))), rather than calling shadow! for its side effect.",
        "The interactive recipe does NOT claim each committed render becomes a checkpoint, and does not claim clicks are mirrored between the two mounts. It retains the returned live handle, drives both mounts, calls ((:checkpoint! s)) at each intended comparison point, reads that verdict, and calls ((:stop! s)) at teardown (a finally for programmatic use).",
        "The sabotage control is kept: change one candidate prop and confirm the run turns red at the expected checkpoint. The reach caveat is kept too: canonical DOM and intents, not focus, caret, IME, layout or paint."
-     ]}
+     ]},
+
+    {
+      "id": 34,
+      "kind": "behavioural",
+      "tier": "M",
+      "name": "m-working-unsafe-html-wrapper-is-rewritten",
+      "prompt": "I'm already on re-frame2 with stock Reagent 2.0.1 and want this working view ported to Fresco. The string was sanitised before reaching this component:\n(ns app.article (:require [reagent.core :as r]))\n(defn article-body [trusted-html] [:div {:dangerouslySetInnerHTML (r/unsafe-html trusted-html)}])",
+      "expectations": [
+        "Converts the whole view to h/defview and replaces (r/unsafe-html trusted-html) with {:__html trusted-html}; leaving the Reagent wrapper in place fails because Fresco does not unwrap its s field into React's __html field.",
+        "Preserves the existing sanitisation/trust decision and the same HTML string; neither Reagent's wrapper nor Fresco's plain map sanitises HTML.",
+        "Distinguishes this working wrapped site from an already-unwrapped map, which stock Reagent 2.0.1 drops and Fresco makes live. Does not claim the input was inert or leave the wrapper unchanged.",
+        "Drops the Reagent require only once there are no remaining uses and does not invent a Fresco trusted-markup API."
+      ]
+    }
   ]
 }

@@ -127,10 +127,11 @@ carry the old refusal across:
   tree at render; there is no finite grammar and no compiled tier to opt into,
   so a head that evaluates to a keyword and markup a helper returns are both
   ordinary content. → M-tier pass-through.
-- **`dangerouslySetInnerHTML`** (MIG-34). It passes through to React untouched.
-  It needs no rewrite — but it does need **flagging**, because Reagent deleted
-  the prop and Fresco does not, so a dead site becomes live. That is a
-  behaviour change to raise with the author, not a hold. → M-tier.
+- **`dangerouslySetInnerHTML`** (MIG-34). Replace stock Reagent's
+  `r/unsafe-html` wrapper with `{:__html html}`, preserving the same trusted
+  string. An already-unwrapped prop was dropped by stock Reagent 2.0.1 and
+  becomes live under Fresco, so that case needs review with the author.
+  → M-tier.
 - **SSR-then-hydrate** (MIG-23). The whole pipeline shipped: `server/render` is
   the optional server module's product door, `re-frame.ssr/hydrate!` installs
   the server's app-db, and `h/render!` with `{:hydrate? true}` adopts the server
