@@ -5,15 +5,15 @@
             [clojure.string :as str]
             [notebook.core :as notebook]
             [reagent.dom.server :as rds]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]
+            [re-frame.test-support :as rf.test-support]
             [seven-guis.cells.core :as cells]
             [seven-guis.circle-drawer.core :as drawer]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :ambient-frame nil}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter :ambient-frame nil}))
 
 (deftest inline-code-keeps-markdown-literal
   (doseq [literal ["**bold**" "*italic*" "[link](https://example.com)"]]
