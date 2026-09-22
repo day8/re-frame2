@@ -50,7 +50,7 @@ The route **slice** rewrite is **NOT blanket Type-A** — scope it to framework 
 
 ### M-54 — schema vocabulary unification (`:spec` → `:schema`)
 
-Closed mechanical rename set. Apply across all source files. The dual-key read `(or (:schema meta) (:spec meta))` was stripped — `:spec` on `reg-*` metadata is no longer accepted, and the `:rf.warning/deprecated-schema-alias` warning is gone with it. Stale `:spec` slots are silently ignored (schemaless registrations), so an incomplete rewrite is a correctness hazard — sweep every slot.
+Closed mechanical rename set. Apply across all source files. The dual-key read `(or (:schema meta) (:spec meta))` was stripped — `:spec` on `reg-*` metadata is no longer accepted, and the `:rf.warning/deprecated-schema-alias` warning is gone with it. A stale `:spec` metadata key raises `:rf.error/retired-registration-key` at registration in both dev and production — sweep every slot before boot.
 
 ```
 ;; Framework-reserved keyword renames — single-token global rewrites:
@@ -89,7 +89,7 @@ Closed mechanical rename set. Apply across all source files. The dual-key read `
 - `(:spec invoke-all-state)` — the machine `:spawn-all` join state carries `:spec` for the live spec map (see [Spec-Schemas §runtime-db](https://github.com/day8/re-frame2/blob/main/spec/Spec-Schemas.md#rfruntime-reserved-app-db-key--the-sole-framework-owned-root) — the join-state lives in runtime-db at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`); that `:spec` is a different domain and is NOT renamed by M-54.
 - The namespace `re-frame.spec` — NOT renamed; the ns alias is preserved for back-compat. Leave the require in place; nothing in an app's source names anything out of it.
 
-**No alias semantics.** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata is silently ignored (the registration becomes schemaless), so an incomplete rewrite is a correctness hazard. Sweep every `:spec` metadata-map slot to `:schema` in one pass; do not rely on a deprecation warning to find stragglers.
+**No alias semantics.** Per pre-alpha posture, the framework no longer accepts `:spec` on `reg-*` metadata — the dual-key read and the `:rf.warning/deprecated-schema-alias` were stripped. A `:spec` slot left in metadata raises `:rf.error/retired-registration-key` rather than disabling validation silently. Sweep every `:spec` metadata-map slot to `:schema` in one pass; a clean compile does not exercise these registration-time checks.
 
 **Cross-references.** [`MIGRATION.md` §M-54](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the full table and rationale; [`breaking-changes.md`](breaking-changes.md) for the surface-level breakage summary.
 
@@ -186,7 +186,21 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 
 The surviving `<other-interceptors>` are **not** carried into the metadata chain as inline values — under EP-0022 the chain holds references. Each survivor that is an inline interceptor value runs through M-70 (register it once with `reg-interceptor`, then reference it by id); a survivor that is already a ref (a bare keyword id or `[:rf.interceptor/path [...]]`) stays as-is.
 
-**`trim-v` reaches M-19 territory** (the handler may have positional destructure). Flag the handler shape — the M-19 sweep handles destructure rewriting separately.
+**Remove `trim-v` and repair its handler in the same edit (M-21).** The handler now receives the full event vector, including its id. Preserve positional payloads by adding a leading ignored binding; this is required even when the author declines the opt-in M-19 map-payload migration:
+
+```clojure
+;; Before: trim-v removes :cart/add before the handler sees the event.
+(rf/reg-event-fx :cart/add [rf/trim-v]
+  (fn [{:keys [db]} [sku quantity]]
+    {:db (assoc-in db [:cart sku] quantity)}))
+
+;; After: preserve the call sites, e.g. [:cart/add "book" 2].
+(rf/reg-event :cart/add
+  (fn [{:keys [db]} [_ sku quantity]]
+    {:db (assoc-in db [:cart sku] quantity)}))
+```
+
+For a named effects handler that consumes the trimmed vector, preserve its contract with a wrapper: `(fn [cofx event] (existing-handler cofx (subvec event 1)))`. Inspect non-destructuring uses too (`first`, `nth`, or `:as` bindings) so they still see the payload rather than the event id. Converting the event and every caller to a map payload remains the separate, opt-in M-19 decision.
 
 `on-changes` / `enrich` / `after` → Type B, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
 
