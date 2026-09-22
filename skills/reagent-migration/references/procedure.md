@@ -100,6 +100,24 @@ it deliberately, not as a way to skip the bottom-up discipline: it is a foreign
 boundary with its own prop crossing. Flag any inbound Reagent call site you are
 not bridging — that view is a boundary, and the subtree above it waits.
 
+**Preserve Clojure values at that crossing.** A Reagent parent using
+`[:> card* {:status :ready :item item}]` converts the keyword to a string and
+the map to a JavaScript object before `h/as-component` sees them. The bridge
+decodes prop *names* but does not reconstruct those values, so the converted
+view's keyword comparisons and map lookups break. In a Reagent parent, embed
+the Fresco element directly when you want its ordinary Clojure props:
+
+```clojure
+(defn reagent-parent [item]
+  [:section (h/as-element [card {:status :ready :item item}])])
+```
+
+Keep the existing frame provider above the parent. If the parent needs the
+React component returned by `h/as-component`, use
+`(r/create-element card* #js {"status" :ready "item" item})` to hand it raw
+React props with Clojure values preserved; write camelCase names in that JS
+object. Do not use `clj->js` on the values you are preserving.
+
 ## Step 2 — Gate every candidate view (whole-view law)
 
 Before touching a view, scan its whole body for **D/R hits**, then route by

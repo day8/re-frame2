@@ -196,7 +196,10 @@ input keeps the wrong row's text.
 It rides MIG-01's atomic call-site pass so the props map is built once. Two
 signals help, and neither is complete cover:
 
-- React's own key warning fires for a missing key; Fresco adds nothing to it.
+- React warns for missing keys in a list lowered under a native tag. For a
+  sequence of boundary-headed children passed into another boundary, Fresco
+  emits the dev-only `:rf.warning/fresco-missing-key`: React receives those
+  children as Clojure props data and cannot check their keys at that crossing.
 - `:rf.warning/fresco-entity-key` fires when the key is neither a
   string/number/keyword nor a uuid/symbol — an entity map used as a key, which
   was never stable.

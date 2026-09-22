@@ -307,7 +307,11 @@ call, worth measuring. The cleaner move is often the **outward** bridge — keep
 the wrapper subtree on Reagent and hand a converted Fresco view up to it with
 `(def card* (h/as-component card))`, declared once at top level beside the view.
 The parent's props arrive as the view's ordinary props map, children at
-`:children`, and the frame comes from React context.
+`:children`, and the frame comes from React context. That decode is shallow:
+a Reagent `[:>]` converts keyword/map/vector values before the bridge sees
+them. Preserve Clojure props with `h/as-element` in the Reagent parent's child
+position, or raw props through `r/create-element`; the concrete spellings are
+in [`procedure.md`](procedure.md#step-1--scope-a-closed-subtree).
 
 ## MIG-26 — ambient `subscribe`/`dispatch` in a plain `defn`
 

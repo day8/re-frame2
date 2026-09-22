@@ -59,6 +59,28 @@
    :client-frame-id   :app/main
    :identifier-prefix "main"})
 
+(def ^:private bridge-props
+  {:status :ready :item {:title "Task"} :on-select [:task/select 7]})
+
+(rf.fresco/defview bridged-card [{:keys [status item on-select]}]
+  [:p (str (keyword? status) "/" (get item :title "missing") "/"
+           (= [:task/select 7] on-select))])
+
+(def ^:private card-component (rf.fresco/as-component bridged-card))
+
+(defn- reagent-parent [{:keys [mode]}]
+  [:section
+   (case mode
+     "converted" [:> card-component bridge-props]
+     "element" (rf.fresco/as-element [bridged-card bridge-props])
+     "raw" (r/create-element card-component
+                             #js {"status" (:status bridge-props)
+                                  "item" (:item bridge-props)
+                                  "onSelect" (:on-select bridge-props)}))])
+
+(rf.fresco/defhost reagent-parent-host (r/reactify-component reagent-parent)
+  {:server :render})
+
 (defn- rf-error-id
   "Run `f`; answer the thrown `:rf.error/id`, or `[:no-throw <result>]`
   when it returned — so a passing call can never satisfy an error
@@ -95,6 +117,18 @@
           "second request: works with NO second install")
       (is (identical? spec-before (rf/current-adapter))
           "two requests after ONE rf/init! left the installed adapter untouched — initialization is process boot, not request work")))
+
+  (testing "MIG-22 — a retained Reagent parent must preserve the converted child's Clojure props"
+    (let [render (fn [mode]
+                   (:html (rf.fresco.server/render
+                            (assoc render-opts :hiccup
+                                   [reagent-parent-host {:mode mode}]))))]
+      (is (= "<section><p>false/missing/false</p></section>" (render "converted"))
+          "Reagent [:>] converts keyword, map and intent-vector props before as-component decodes them")
+      (is (= "<section><p>true/Task/true</p></section>" (render "element"))
+          "a Fresco element in the Reagent parent's child position preserves its Clojure values")
+      (is (= (render "element") (render "raw"))
+          "r/create-element with a raw JS props object preserves those values too")))
 
   (testing "POSITIVE client-shaped control — the migrating app's existing Reagent adapter advances the same frame entry point"
     (rf/destroy-adapter!)

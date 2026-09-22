@@ -102,10 +102,13 @@ paginated one it is silent state corruption — the wrong row keeps the wrong
 row's input text, the wrong item animates, the wrong subtree survives a
 re-sort. MIG-07 is therefore mandatory rather than cosmetic.
 
-Two signals help and neither is complete cover: React's own key warning fires
-for a missing key (Fresco adds nothing to it), and the dev-only
-`:rf.warning/fresco-entity-key` fires for a **boundary-headed** member of a
-sequence whose key is not a string/number/keyword/uuid/symbol.
+The warning's owner depends on the crossing. React warns for missing keys in
+a list lowered under a native tag. Fresco's dev-only
+`:rf.warning/fresco-missing-key` covers a sequence of **boundary-headed**
+children passed into another boundary, where React receives Clojure props
+data and cannot key-check it. The separate `:rf.warning/fresco-entity-key`
+warns about a boundary-headed sequence member whose key is not a
+string/number/keyword/uuid/symbol. None replaces moving the metadata key.
 
 `:key` is the **exact literal keyword**. `"key"` and `:x/key` are ordinary
 attributes, not the key.
