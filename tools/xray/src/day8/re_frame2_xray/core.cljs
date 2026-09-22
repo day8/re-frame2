@@ -154,8 +154,24 @@
 (defn init!
   "Mount Xray manually — the alternative to wiring the
   `day8.re-frame2-xray.preload` namespace into shadow-cljs's
-  `:devtools/preloads`. Idempotent: a second call is a no-op (each
-  underlying side-effect is `defonce`-guarded).
+  `:devtools/preloads`. Safe to call repeatedly, but a second call is
+  NOT a no-op — the two halves differ (rf2-gpg26):
+
+  - INSTALLATION is deduplicated. `registry/register-xray-handlers!`,
+    both `install/register-*-collector!` fns and `keybinding/attach!`
+    each sit behind a `defonce` sentinel atom flipped by
+    `compare-and-set!`, so a second call installs nothing. (The
+    registry's schema-version migration seam is independent of that
+    umbrella and still installs the bounded delta a newer schema adds;
+    `install/install-browser-api-exports!` is unguarded but re-writes
+    the same exports.)
+  - OPTION APPLICATION RE-RUNS, deliberately. Every call reloads the
+    persisted Settings (`config/load-settings-from-storage!`) and
+    re-applies them (`settings-effects/apply-all!`), then writes and
+    PERSISTS each supplied `:target-frame` / `:theme` / `:density` /
+    `:buffer-depths` opt through `config/update-setting!`. So calling
+    `init!` again with different opts DOES change the running shell —
+    that is how a host re-pins them, and it is not an accident.
 
   Per `spec/API.md` §Public CLJS API, `opts` accepts:
 
