@@ -20,8 +20,10 @@ powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
 
 The installer is idempotent. It refuses to clobber a non-link copy without
 `--force` (`-Force`), and supports `--check` (`-Check`) to verify the
-links. Run it once after cloning. Re-run with `--force` once to retire any
-stale copy a previous copy-install left behind.
+links. Use `--target DIR` (`-Target DIR`) for a different install directory;
+the checkout's own `skills/` source cannot be the destination, even with force.
+Run it once after cloning. Re-run with `--force` once to retire any stale copy
+a previous copy-install left behind.
 
 **Which channels exist — the single source.** Two do: this link install, and
 `npx skills add` against the public repo, which installs one skill directory

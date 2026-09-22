@@ -80,6 +80,12 @@ function Test-IsLink {
     return [bool]($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
 }
 
+# The source is never an install destination, even with -Force. Otherwise the
+# copy-replacement branch deletes the maintained skill before linking it.
+if ((Resolve-RealDir $Target) -eq (Resolve-RealDir $skillsSrc)) {
+    Write-Error "install-skills: target is this checkout's skills source; choose a separate destination ($Target)"
+}
+
 $mode    = if ($Check) { 'check' } else { 'install' }
 $linked  = 0
 $skipped = 0

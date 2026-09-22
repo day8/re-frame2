@@ -111,6 +111,12 @@ points_at() {
   [ -L "$1" ] && [ "$(resolve_dir "$1")" = "$2" ]
 }
 
+# Refuse source/destination overlap before --force can remove source skills.
+if [ "$(resolve_dir "$TARGET_DIR")" = "$(resolve_dir "$SKILLS_SRC")" ]; then
+  printf "install-skills: target is this checkout's skills source; choose a separate destination (%s)\n" "$TARGET_DIR" >&2
+  exit 1
+fi
+
 [ "$MODE" != "install" ] || mkdir -p "$TARGET_DIR"
 
 rc=0
