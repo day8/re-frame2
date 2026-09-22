@@ -3,10 +3,13 @@
 
    This is the teaching file: plain, idiomatic re-frame2. The dataflow is
    exactly the counter from `examples/core/counter` — same `:counter/*`
-   events, same sub. What changes is the substrate underneath: the view
-   imports point at `reagent2.*`, and `rf/init!` gets the slim adapter.
-   That's it. Picking a substrate is a one-line decision, and you can read
-   the whole menu in docs/core/how-to/use-uix-or-slim.md.
+   events, same sub. What changes is the substrate underneath, and the whole
+   of the change is the require below: `rf/init!` gets the slim adapter Var
+   instead of the stock one. Neither counter imports a Reagent namespace at
+   all, so there is no `reagent.*` → `reagent2.*` rename to see here — that
+   is the story for an adopting app whose own views import Reagent. Picking a
+   substrate is a one-line decision, and you can read the whole menu in
+   docs/core/how-to/use-uix-or-slim.md.
 
    One wrinkle in the require below, and it's a monorepo wrinkle, not a
    re-frame2 one: we name `re-frame.adapter.reagent-slim` directly because
@@ -66,11 +69,11 @@
 
 ;; -- Mount -------------------------------------------------------------------
 ;;
-;; The React root lives in an atom and is created lazily inside `boot!`, never
-;; at ns-load. The rule is simple: loading this namespace must touch no DOM.
-;; That keeps co-loaded example namespaces from racing each other to call
-;; `create-root` on the shared `#app`. Same mount shape as
-;; `examples/core/counter`.
+;; The React root belongs to the adapter, not to this file: `client-root`
+;; hands back an inert handle and the first `render!` in `mount!` mints the
+;; Root. The rule is simple: loading this namespace must touch no DOM. That
+;; keeps co-loaded example namespaces from racing each other for the shared
+;; `#app`. Same mount shape as `examples/core/counter`.
 
 (defonce app-root (rf.adapter.reagent-slim/client-root))
 
