@@ -26,7 +26,11 @@ The classpath resolves the in-repo `implementation/` artefacts as
 `:local/root` deps (same idiom as `skills/re-frame2-pair/tests/fixture/`), so
 the evidence is about the exact shipped code, not a mirror.
 
-The same suite also checks [MIG-34](../../references/catalog-mechanical.md#mig-34--dangerouslysetinnerhtml-unwrap-working-sites-review-inert-ones):
+The same suite checks [MIG-14](../../references/catalog-mechanical.md#mig-14--plain-hiccup-passes-through-unchanged):
+Reagent omits a `true` child while Fresco refuses it; an explicit `when-not`
+preserves both the hidden and visible branches of the donor conditional.
+
+It also checks [MIG-34](../../references/catalog-mechanical.md#mig-34--dangerouslysetinnerhtml-unwrap-working-sites-review-inert-ones):
 stock Reagent's `unsafe-html` value renders under Reagent, fails unchanged
 under Fresco, and renders identical bytes after conversion to `{:__html html}`.
 The unwrapped donor control confirms that stock Reagent drops the plain map.

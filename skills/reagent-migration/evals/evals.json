@@ -80,7 +80,7 @@
      "prompt": "Migrate this Reagent Form-3 view to Fresco:\n(ns app.editor (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn editor []\n  (r/create-class\n   {:component-did-mount    (fn [this] (.focus (rdom/dom-node this)))\n    :component-will-unmount (fn [_] (rf/dispatch [:resource/release]))\n    :should-component-update (fn [_ _ _] true)\n    :reagent-render         (fn [] [editor-form])}))",
      "expectations": [
        "Recognises MIG-17 Form-3 lifecycle and decomposes each body into host/DOM work vs domain work — a judgment call held WHOLE, not an automatic rewrite.",
-       "Deletes :should-component-update as dead under memoised boundaries, and extracts :reagent-render as the view body.",
+       "Extracts :reagent-render as the view body and may remove this always-true :should-component-update because it gates no output. Does not generalise that deletion to custom predicates that deliberately suppress changed output; Fresco compares the whole props map.",
        "Routes the focus-on-mount DOM work to a CALLBACK REF — a function at :ref, React's own contract, called with the node at commit, whose RETURN VALUE is the detach cleanup.",
        "Insists the ref fn be a stable top-level def, because a fresh inline (fn [n] ...) has a new identity every render and React detaches and reattaches on every commit.",
        "Notes a VECTOR at :ref is not a ref — it crosses to React as data and never fires, so the callback function is the only spelling — and that :ref on a defview HEAD is not a ref at all — the boundary path lifts only :key.",
@@ -253,6 +253,18 @@
         "Identifies that Reagent [:>] converts the keyword to a string, map to a JS object, and vector to a JS array before as-component sees them; decoding prop names does not recover Clojure values.",
         "Preserves the values with a Fresco element in the Reagent parent's child position, (h/as-element [card props]), or r/create-element with a raw #js props object containing the original Clojure values and React slot names; does not clj->js those values.",
         "Keeps the existing frame provider above the retained Reagent parent and declares any as-component wrapper once at top level; does not require migrating the parent or creating a second root."
+      ]
+    },
+    {
+      "id": 36,
+      "kind": "behavioural",
+      "tier": "D",
+      "name": "d-preserve-custom-update-gate",
+      "prompt": "I'm already on re-frame2 and want to move this Reagent widget to Fresco. It must keep displaying its last value while paused, even as the parent passes new values:\n(def frozen-reading\n  (r/create-class\n    {:should-component-update (fn [_ _ new-argv] (not (:paused? (second new-argv))))\n     :reagent-render (fn [{:keys [value]}] [:output value])}))",
+      "expectations": [
+        "Recognises that the custom should-component-update preserves visible behaviour: changed props can be deliberately ignored while paused. Does not delete it as redundant with Fresco memoisation.",
+        "Explains that h/defview compares the whole props map and would show changed values; there is no custom update-predicate option to copy across.",
+        "Keeps the widget on Reagent or preserves the update rule in a React island; if proposing explicit retained-value state, names the required ownership redesign before converting the whole view. Does not silently remove the pause behaviour."
       ]
     }
   ]

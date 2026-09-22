@@ -143,6 +143,22 @@
       (is (identical? spec (rf/current-adapter))
           "a reload-path rf/init! re-run is a no-op — the hydration/HMR path never reinstalls"))))
 
+(deftest mig14-preserve-empty-boolean-children
+  (let [render #(react-server/renderToStaticMarkup %)]
+    (doseq [hidden? [true false]]
+      (let [donor [:div (or hidden? [:span "Details"])]]
+        (is (= (if hidden? "<div></div>" "<div><span>Details</span></div>")
+               (render (r/as-element donor)))
+            "the Reagent donor omits true and renders the visible branch")
+        (when hidden?
+          (is (= :rf.error/fresco-true-child
+                 (rf-error-id #(rf.fresco/as-element donor)))
+              "an unchanged true child is refused by Fresco"))
+        (is (= (render (r/as-element donor))
+               (render (rf.fresco/as-element
+                         [:div (when-not hidden? [:span "Details"])])))
+            "the explicit empty branch preserves both rendered outcomes")))))
+
 (deftest mig34-preserve-working-unsafe-html
   (let [html "<b>already trusted</b>"
         wrapped (r/unsafe-html html)

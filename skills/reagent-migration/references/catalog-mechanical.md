@@ -271,6 +271,18 @@ the point of keeping hiccup:
 [:div.wrap#main [:span "hi"] [:p 42]]
 ```
 
+**A boolean child needs one check.** Reagent passes both booleans to React,
+which renders neither; Fresco accepts `false` and `nil` as empty children but
+refuses `true` with `:rf.error/fresco-true-child`. Preserve the empty branch
+explicitly when a conditional can return `true`:
+
+```clojure
+;; before — hidden? is a boolean
+[:div (or hidden? [:span "Details"])]
+;; after
+[:div (when-not hidden? [:span "Details"])]
+```
+
 The in-map entry rules (MIG-04/05/06/07/11) still rewrite entries *inside* a
 literal props map. A **non-literal props-map expression** (`merge`/`assoc`/a
 bound symbol) in the props position is not pass-through → MIG-28 (D). A bare
