@@ -1662,8 +1662,10 @@
 
   ;; Spec 014 — managed HTTP counter (rf2-cfig).  Demonstrates
   ;; :rf.http/managed end-to-end through Reagent + Fetch. The +1 button
-  ;; hits a real /api/inc.json static asset; the Fail button hits a real
-  ;; 404; the Retry-recover and Cancel buttons exercise the canned-stub
+  ;; hits a real api/inc.json static asset and carries :request-id
+  ;; :http-counter/+1, which the Cancel button aborts through the live
+  ;; :rf.http/managed-abort fx (a no-op once the reply has landed); the
+  ;; Fail button hits a real 404; Retry-recover exercises the canned-stub
   ;; seam (so the example doesn't need a flaky/long stub HTTP server).
   :examples/managed-http-counter
   {:target     :browser
