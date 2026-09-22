@@ -39,7 +39,7 @@ A quick decision flow (human-facing rendering of [`skills/README.md` §Skill rou
 
 - **Starting from nothing?** → `re-frame2-setup`. When the counter mounts, switch to `re-frame2`.
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
-- **Already on re-frame2 and want Fresco, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (a genuinely optional second step — the Reagent adapter is first-class, so staying put is a complete configuration, and Fresco resolves like every other re-frame2 artefact).
+- **Already on re-frame2 and want Fresco, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (a genuinely optional second step — the Reagent adapter is first-class, so staying put is a complete configuration, and Fresco is pre-publication with no released Maven coordinate).
 - **Writing new code in an existing v2 project?** → `re-frame2`.
 - **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages?** → `re-frame2-implementor`.

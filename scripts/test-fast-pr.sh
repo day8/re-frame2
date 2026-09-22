@@ -1230,6 +1230,9 @@ run "skill package-refs self-test" "python scripts/check_skill_package_refs.py -
 run "skill package refs" "python scripts/check_skill_package_refs.py --verbose --ci" \
   python "$spine_root/scripts/check_skill_package_refs.py" --verbose --ci
 
+run "skill installer behavior" "python scripts/check_skill_installers.py" \
+  python "$spine_root/scripts/check_skill_installers.py"
+
 run "pair-authoring drift self-test" "python scripts/check_skill_pair_authoring_drift.py --self-test" \
   python "$spine_root/scripts/check_skill_pair_authoring_drift.py" --self-test
 

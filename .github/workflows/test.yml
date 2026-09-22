@@ -367,6 +367,11 @@ jobs:
         continue-on-error: true
         run: python scripts/check_skill_package_refs.py --verbose --ci
 
+      - name: Verify skill installer behavior in isolated destinations
+        id: check_skill_installers
+        continue-on-error: true
+        run: python scripts/check_skill_installers.py
+
       # Re-authoring/spec drift guard for skills/re-frame2-pair (rf2-pok18).
       # The skill's spec/*.md + docs/initial-spec.md are the re-author
       # source material (not loaded during normal operation, so the

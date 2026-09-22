@@ -85,9 +85,20 @@ is_windows() {
   esac
 }
 
-# Resolve a path to its real location for comparison. `cd && pwd -P` is the
-# most portable way (no readlink -f on macOS by default). Echoes the resolved
-# path, or the input unchanged if it does not resolve to a directory.
+# Keep Windows junction semantics in one implementation. Passing paths as
+# arguments to -File also handles apostrophes without interpolating shell data
+# into PowerShell source.
+if is_windows; then
+  win_script=$(cygpath -w "$SCRIPT_DIR/install-skills.ps1")
+  win_target=$(cygpath -w "$TARGET_DIR")
+  set -- -Target "$win_target"
+  [ "$MODE" != "check" ] || set -- "$@" -Check
+  [ "$FORCE" -eq 0 ] || set -- "$@" -Force
+  exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$win_script" "$@"
+fi
+
+# Resolve POSIX symlinks without depending on readlink -f (absent on macOS).
 resolve_dir() {
   if [ -d "$1" ]; then
     (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"
@@ -96,71 +107,11 @@ resolve_dir() {
   fi
 }
 
-# Create the link `dst` -> `src` using the right primitive for the OS.
-make_link() {
-  src="$1"
-  dst="$2"
-  if is_windows; then
-    # Junction: no admin needed. PowerShell is present on every supported
-    # Windows. Pass native (back-slashed) paths via `cygpath -w` so the
-    # Windows API accepts them.
-    win_src=$(cygpath -w "$src" 2>/dev/null || printf '%s' "$src")
-    win_dst=$(cygpath -w "$dst" 2>/dev/null || printf '%s' "$dst")
-    powershell.exe -NoProfile -NonInteractive -Command \
-      "New-Item -ItemType Junction -Path '$win_dst' -Target '$win_src' | Out-Null" \
-      >/dev/null
-  else
-    ln -s "$src" "$dst"
-  fi
-}
-
-# Is `path` a link that already points at `want_src`?
 points_at() {
-  path="$1"
-  want_src="$2"
-  # A POSIX symlink: compare readlink target (resolved) to the wanted source.
-  if [ -L "$path" ]; then
-    [ "$(resolve_dir "$path")" = "$(resolve_dir "$want_src")" ]
-    return
-  fi
-  # Belt-and-braces for a Windows junction. Git Bash's `test -L` DOES see one
-  # (measured on MSYS; the same reason scripts/remove-worker-worktree.sh detects
-  # a junction with `[ -L ]`), so the branch above normally catches it already.
-  # This arm keeps the check working where it does not, because a junction is
-  # also a directory that resolves (via `pwd -P`) to its target. If the resolved
-  # real path equals the source's real path, it is our link.
-  if is_windows && [ -d "$path" ]; then
-    [ "$(resolve_dir "$path")" = "$(resolve_dir "$want_src")" ]
-    return
-  fi
-  return 1
+  [ -L "$1" ] && [ "$(resolve_dir "$1")" = "$2" ]
 }
 
-# Is `path` a real (non-link) directory — i.e. a stale COPY we must not clobber
-# without --force?
-#   POSIX: a dir that is not a symlink.
-#   Windows: a dir that is neither a symlink NOR a reparse point (junction). A
-#     junction pointing ELSEWHERE (not at us — that case is caught by
-#     `points_at` first) is still a link, not a copy, so it is safe to
-#     re-point without --force. We detect a reparse point as a directory whose
-#     real path (resolved through `pwd -P`) differs from its own literal path.
-is_real_copy() {
-  path="$1"
-  [ -d "$path" ] || return 1
-  if [ -L "$path" ]; then
-    return 1   # a symlink, not a real copy
-  fi
-  if is_windows; then
-    literal=$(cd "$(dirname "$path")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$path")")
-    real=$(resolve_dir "$path")
-    if [ "$real" != "$literal" ]; then
-      return 1   # a junction (redirects elsewhere) — a link, not a copy
-    fi
-  fi
-  return 0
-}
-
-mkdir -p "$TARGET_DIR"
+[ "$MODE" != "install" ] || mkdir -p "$TARGET_DIR"
 
 rc=0
 linked=0
@@ -190,9 +141,9 @@ for entry in "$SKILLS_SRC"/*/; do
   fi
 
   # install mode
-  if is_real_copy "$dst"; then
+  if [ -e "$dst" ] && [ ! -L "$dst" ]; then
     if [ "$FORCE" -eq 0 ]; then
-      printf 'install-skills: WARNING %s is a real directory (a COPY), not a link.\n' "$dst" >&2
+      printf 'install-skills: WARNING %s is a non-link file or directory (a COPY).\n' "$dst" >&2
       printf '                Refusing to replace it — your local edits would be lost.\n' >&2
       printf '                Re-run with --force to replace this copy with a link to the repo:\n' >&2
       printf '                  scripts/install-skills.sh --force\n' >&2
@@ -202,10 +153,10 @@ for entry in "$SKILLS_SRC"/*/; do
     rm -rf "$dst"
   elif [ -e "$dst" ] || [ -L "$dst" ]; then
     # A link (broken, or pointing elsewhere) — safe to drop and re-point.
-    rm -rf "$dst"
+    rm -f "$dst"
   fi
 
-  make_link "$src" "$dst"
+  ln -s "$src" "$dst"
   printf 'install-skills: linked %s -> %s\n' "$name" "$src"
   linked=$((linked + 1))
 done
