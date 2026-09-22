@@ -120,13 +120,16 @@ clock, not the one this audit ran on.
 > **This paragraph read "across all three producer trees" until the trees became
 > one, and the count was true when it was written.** On 2026-08-01, when commit
 > `611c5d4319` closed the roster, the nine producers sat in three separately
-> built trees: the lane's seven in the Hicasso artefact, `p0_harness` under
-> `implementation/core/test/`, and `fresco_narrow` — then named `hicasso_narrow`
-> — under `implementation/adapters/reagent/test/`. Commit `8a10915ed8`, a
-> move-only change, gathered all nine into `bench/fresco`, and the product
-> rename later renamed the second file. Both table links above were stranded by
-> that same move, so the citations and the claim they supported went stale
-> together.
+> built trees: the lane's seven under this view layer's own artefact test tree,
+> `p0_harness` under `implementation/core/test/`, and `fresco_narrow` — under
+> its pre-rename basename — beneath `implementation/adapters/reagent/test/`.
+> Commit `8a10915ed8`, a move-only change, gathered all nine into
+> `bench/fresco`, and the pre-publish product rename later changed the second
+> file's basename too. So both table links above were stranded by the same move,
+> and they are the same kind of wrong rather than two kinds: each named a real
+> file at the place it really sat before that commit. Only the second also
+> carries a basename the rename has since replaced, which is the whole reason
+> that exact path string appears in no commit at all.
 >
 > **The corroboration is weaker for it, and saying so is the point of this
 > note.** What the roster actually rests on is unchanged, and was re-verified at
