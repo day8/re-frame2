@@ -60,6 +60,9 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Keep the negative-z ambience above the body's own background. */
+body { isolation: isolate; }
+
 /* Subtle radial ambience, rendered locally without an image asset. */
 body::before {
   content: '';
