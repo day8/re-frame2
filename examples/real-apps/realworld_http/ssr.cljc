@@ -25,12 +25,14 @@
   the framework's own subsystem trees (routing, machines, elision) live in the
   separate runtime-db partition and travel under :rf/runtime-db instead.
 
-  One deliberate absentee, since the hydrate policy is `:replace-frame-state`
-  and an omission here is an absence on the client: `:profile.follow-pending`,
-  the profiles with a follow/unfollow in flight. It is a fact about one browser
-  tab's outstanding writes, not about the server's render — the server issues
-  no mutations, so it would ship empty every time. profile.cljs's two writers
-  are total against its absence for exactly this reason."
+  Two deliberate absentees, since the hydrate policy is
+  `:replace-frame-state` and an omission here is an absence on the client:
+  `:profile.follow-pending`, the profiles with a follow/unfollow in flight,
+  and `:favorite-pending`, the articles with a favourite POST/DELETE in
+  flight. Both are facts about one browser tab's outstanding writes, not about
+  the server's render — the server issues no mutations, so either would ship
+  empty every time. profile.cljs's and favorites.cljs's writers are total
+  against their absence for exactly this reason."
   [:auth
    :articles
    :article

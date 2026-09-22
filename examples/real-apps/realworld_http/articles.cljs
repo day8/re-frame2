@@ -451,8 +451,13 @@
                             :class  "author"}
         (:username author)]
        [:span.date createdAt]]
+      ;; Disabled while this slug's favourite is in flight — the card is
+      ;; reused by home, tag, feed and both profile tabs, so the sub is asked
+      ;; about THIS slug rather than about the screen (favorites.cljs,
+      ;; `:article/favorite-pending?`).
       [:button.btn.btn-outline-primary.btn-sm.pull-xs-right
        {:type "button"
+        :disabled @(subscribe [:article/favorite-pending? slug])
         :on-click #(dispatch [:article/toggle-favorite slug])}
        [:i.ion-heart] " " favoritesCount]]
      [rf/route-link {:to          :realworld.article/show
