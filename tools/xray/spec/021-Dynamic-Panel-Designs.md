@@ -76,10 +76,15 @@ Xray's chrome is two zones, one purpose each:
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Top** carries the only cross-epoch signal — the L2 epoch timeline + its
-per-row activity badges (`⚠ ◆ 🌐 ⚡ ⏲`) and the dispatch-origin prefix, a glyph or short
-tag per source bucket (`💧` SSR hydration, `🌊` websocket, `R` router, `ui` app code, … —
-§17.1.5; neither `💧` nor `🌊` is an activity badge). **Bottom** is
+**Top** carries the only cross-epoch signal — the L2 epoch timeline, whose
+row is the four-column shape of [`018-Event-Spine.md`](018-Event-Spine.md)
+§Row anatomy: a 10px caret gutter, the event id, a short text `source` tag
+(`ui` app code, `router`, `http`, `fx-dispatch`, … — the bare closed-enum
+source name), the timestamp and the handler duration, plus the light-pink
+issue wash. The per-row activity badges (`⚠ ◆ 🌐 ⚡ ⏲`) and the
+dispatch-origin prefix glyph were RETIRED under rf2-pjjwh and the helpers
+that computed them deleted under rf2-65qlf; §17.1.5 keeps the palette as a
+record only. **Bottom** is
 seven L4 panels each answering "what happened in this epoch?" through its
 own lens. **No third axis. No cross-epoch L4 panels.**
 
@@ -5652,7 +5657,10 @@ real beads after approving this doc.
   every L4 panel. MVP chronological; per-panel filter slot for stretch.
 
 - **rf2-?????** — *Xray: L2 epoch timeline — dispatch-origin prefix +
-  activity badges.* Render the §1 badge set on each L2 row (⚠ ◆ 🌐 ⚡ 💧
+  activity badges.* **(Retired — never scheduled. rf2-pjjwh retired both
+  decorations from the L2 row, and rf2-65qlf deleted the helpers that
+  computed them. The row is the four-column shape of `018-Event-Spine.md`
+  §Row anatomy; see §17.1.5.)** Render the §1 badge set on each L2 row (⚠ ◆ 🌐 ⚡ 💧
   🌊 ⏲) + the origin tag prefix. Reads new `:origin` tag + cascade-
   captured aggregate.
 
@@ -5867,6 +5875,11 @@ characters in the ASCII are narrative shorthand for the operator to visualise.
 The mockups in §1-§9 already pick these. §17.1.5 binds them.
 
 **L2 row badges (per §1.1.1 + B.1.1):**
+
+**The L2 row has carried none of these since rf2-pjjwh retired the badge
+cluster and the origin-prefix glyph, and the helpers that computed them
+were deleted under rf2-65qlf — the table below remains as the palette
+record only, not as a description of what the row renders.**
 
 | Glyph | Meaning | Token (text color) |
 |---|---|---|
@@ -6239,7 +6252,9 @@ already drafted in §13.
   `panel-icon-style` helper were deleted under rf2-qm2rt.
 
 - **rf2-?????** — *Xray: L2 row activity badges + dispatch-origin
-  prefix.* Already drafted in §13; the §17 visual pass binds the exact
+  prefix.* **(Retired — never scheduled. rf2-pjjwh retired both
+  decorations from the L2 row, and rf2-65qlf deleted the helpers that
+  computed them; §17.1.5 keeps the palette as a record only.)** Already drafted in §13; the §17 visual pass binds the exact
   glyph palette + per-glyph color token + HCM remap. Worker implements
   against §17.1.5 + §17.1.3 mapping.
 
