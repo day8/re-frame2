@@ -1706,6 +1706,174 @@ def _in_repo_github_url_problems(
     return []
 
 
+# rf2-dnx3r — this project's OWN PUBLISHED SITE URLs.
+#
+# The sibling of the arm above, for the other absolute spelling this repo
+# writes about itself. A skill installed outside the checkout has no relative
+# path to the docs, and the repo's own front page deliberately points readers
+# at the published site, so both cite documentation as
+# `https://day8.github.io/re-frame2/...` — and the external-link guard below
+# skipped every one of them. Seven died on the front page when `docs/guide/`
+# became `docs/core/` and sat there for 86 days, through a link gate that ran
+# green on every pull request in between.
+#
+# This resolves such a URL OFFLINE to the source page MkDocs would build it
+# from. PATH ONLY: the fragment, the query and the trailing slash are stripped
+# and never graded, and whether a URL that resolves names the RIGHT page is a
+# human question this cannot reach. No network, no HEAD probe, no third-party
+# host — it stays inside the line the arm above draws, resolving THIS repo's
+# own site to THIS repo's own files and nothing else.
+#
+# ROUTES, NOT FILENAMES. MkDocs publishes `X/name.md` at `X/name/`, `X/index.md`
+# at `X/`, and `X/README.md` at `X/` unless an `index.md` sits beside it (in
+# which case the README is dropped). So `spec/README/` and `story/index/` are
+# 404s although both files are right there on disk — an arm that asked whether
+# some candidate file existed would pass all of them.
+
+
+# A deliberate TWIN of `_STAGE` in mkdocs_hooks.py, which mirrors these two
+# repo-root trees into docs_dir before MkDocs scans. Same trade as
+# `IN_REPO_GH_URL_RE`'s twin of `GH_BLOB_BASE` above: the hook is a MkDocs
+# plugin whose import drags the build machinery into a standalone link gate.
+# Because the hook stages each tree under its own name, a site path and a
+# docs-relative path are the same string for every tree — only the directory
+# the file is finally looked for in differs.
+_SITE_STAGED_ROOTS = ("spec", "migration")
+
+_site_config_cache: dict[str, tuple[str | None, str, tuple[str, ...]]] = {}
+
+
+def _mkdocs_site_config(repo_root: Path) -> tuple[str | None, str, tuple[str, ...]]:
+    """`(site_url, docs_dir, exclude_prefixes)` read line-wise from mkdocs.yml.
+
+    READ rather than twinned, unlike the staging table above, because a stale
+    copy of the exclusion list fails OPEN: a newly excluded tree's pages would
+    go on passing as published. Reading `site_url` also means the host is
+    never hardcoded here, and — the property the self-tests lean on — an
+    absent `site_url:` switches the whole arm off, which is what keeps every
+    fixture that predates it inert.
+
+    `yaml.safe_load` REFUSES this file (an `!ENV` tag in the theme block) and
+    importing mkdocs would pull the build machinery in, so three keys read
+    line-wise is the whole parser. `exclude_docs` is taken as the non-empty
+    indented lines of its literal block, trailing slash stripped: plain
+    DIRECTORY PREFIXES, which is all this repo writes there. This is not a
+    gitignore matcher — a glob character would not be honoured, and would
+    simply fail to match.
+    """
+    key = str(repo_root.resolve())
+    cached = _site_config_cache.get(key)
+    if cached is not None:
+        return cached
+
+    site_url: str | None = None
+    docs_dir = "docs"
+    excludes: list[str] = []
+    config = repo_root / "mkdocs.yml"
+    if config.is_file():
+        in_exclude = False
+        for raw in config.read_text(encoding="utf-8", errors="replace").splitlines():
+            if raw[:1].isspace():
+                # Indented: a continuation. Only the exclusion block wants it.
+                if in_exclude and raw.strip():
+                    excludes.append(raw.strip().rstrip("/"))
+                continue
+            # Anything at column 0 — a blank line included — ends the block,
+            # so the scan can never run past it into unrelated configuration.
+            in_exclude = False
+            if raw.startswith("site_url:"):
+                site_url = raw.split(":", 1)[1].strip().strip("\"'").rstrip("/") or None
+            elif raw.startswith("docs_dir:"):
+                docs_dir = raw.split(":", 1)[1].strip().strip("\"'").strip("/") or "docs"
+            elif raw.startswith("exclude_docs:"):
+                in_exclude = True
+
+    result = (site_url, docs_dir, tuple(excludes))
+    _site_config_cache[key] = result
+    return result
+
+
+def _site_url_path(repo_root: Path, dest: str) -> str | None:
+    """The site-relative path of one published-site URL, else None.
+
+    Fragment, query and surrounding slashes are stripped — none of them is
+    graded. The empty string is a real answer (the site root), so callers must
+    test `is None` rather than truthiness.
+    """
+    site_url, _, _ = _mkdocs_site_config(repo_root)
+    if site_url is None:
+        return None
+    bare = dest.strip().split("#", 1)[0].split("?", 1)[0]
+    # `site_url` is stored without its trailing slash, so the prefix test has
+    # to require a separator: a sibling project at `.../re-frame2-other/`
+    # shares the whole of this repo's prefix and is NOT this site.
+    if bare != site_url and not bare.startswith(site_url + "/"):
+        return None
+    return bare[len(site_url):].strip("/")
+
+
+def _site_url_problems(repo_root: Path, site_path: str) -> list[str]:
+    """Validate one site path against the source tree. Empty list when sound."""
+    _, docs_dir, excludes = _mkdocs_site_config(repo_root)
+
+    if not site_path:
+        for candidate in ("index.md", "README.md"):
+            if (repo_root / docs_dir / candidate).is_file():
+                return []
+        return [
+            "no page builds the site root (looked for "
+            f"{docs_dir}/index.md, {docs_dir}/README.md)"
+        ]
+
+    # `exclude_docs` is applied BEFORE the file is looked for, because these
+    # pages DO exist on disk and are deliberately unpublished — which is the
+    # one false green a disk check cannot catch by itself.
+    for prefix in excludes:
+        if site_path == prefix or site_path.startswith(prefix + "/"):
+            return [
+                f"`{site_path}` is held out of the build by mkdocs.yml "
+                f"`exclude_docs` (`{prefix}/`) — the source exists but no page "
+                "is published at this URL"
+            ]
+
+    first = site_path.split("/", 1)[0]
+    staged = first in _SITE_STAGED_ROOTS
+    base = repo_root if staged else repo_root / docs_dir
+    shown = "" if staged else f"{docs_dir}/"
+
+    last = site_path.rsplit("/", 1)[-1]
+    if "." in last:
+        if last.endswith(".md"):
+            return [
+                f"MkDocs publishes `{site_path}` at `{site_path[:-3]}/` — a "
+                "source filename is not a site URL"
+            ]
+        # Any other extension is a static file copied into the site verbatim,
+        # so existence is the whole question.
+        if (base / site_path).is_file():
+            return []
+        return [f"no file is published at `{site_path}` (looked for {shown}{site_path})"]
+
+    candidates: list[str] = []
+    # `X/index.md` and `X/README.md` publish at `X/`, never at `X/index/` or
+    # `X/README/` — so those two spellings must not be offered a `.md` sibling.
+    # A single-segment path that IS a staged root is the tree itself, and only
+    # its contents are staged, so `<root>.md` is not a candidate there either.
+    if last not in ("index", "README") and site_path not in _SITE_STAGED_ROOTS:
+        candidates.append(f"{site_path}.md")
+    candidates.append(f"{site_path}/index.md")
+    if not (base / f"{site_path}/index.md").is_file():
+        # MkDocs drops a README.md when an index.md sits beside it, so the
+        # README is only a route in the index's absence.
+        candidates.append(f"{site_path}/README.md")
+
+    for candidate in candidates:
+        if (base / candidate).is_file():
+            return []
+    looked = ", ".join(shown + candidate for candidate in candidates)
+    return [f"no page builds at `{site_path}` (looked for {looked})"]
+
+
 def _is_ai_findings_link(path_part: str) -> bool:
     """Return True if a link path resolves under the gitignored ai/findings/ tree.
 
@@ -2121,6 +2289,7 @@ def check(
     broken_target: list[tuple[Path, int, str, str]] = []
     ai_findings: list[tuple[Path, int, str]] = []
     gh_url_broken: list[tuple[Path, int, str, str]] = []
+    site_url_broken: list[tuple[Path, int, str, str]] = []
     for path in files:
         for line_no, dest in _extract_links(path):
             # This repo's own blob/main | tree/main URLs are unwrapped to a
@@ -2133,6 +2302,16 @@ def check(
             if gh is not None:
                 for problem in _in_repo_github_url_problems(repo_root, *gh):
                     gh_url_broken.append((path, line_no, dest, problem))
+                continue
+
+            # This project's own published-site URLs are resolved offline to
+            # the source page MkDocs builds them from (rf2-dnx3r) — checked
+            # here for the same reason the arm above is, and inert unless
+            # `mkdocs.yml` names a `site_url`.
+            site_path = _site_url_path(repo_root, dest)
+            if site_path is not None:
+                for problem in _site_url_problems(repo_root, site_path):
+                    site_url_broken.append((path, line_no, dest, problem))
                 continue
 
             # External / non-file references — out of scope.
@@ -2212,6 +2391,7 @@ def check(
         len(broken_anchor)
         + len(broken_target)
         + len(gh_url_broken)
+        + len(site_url_broken)
         + len(ai_findings)
         + len(compat_missing)
         + len(compat_missing_pages)
@@ -2269,6 +2449,28 @@ def check(
             "be a heading GitHub actually renders. Repoint it, or (for a "
             "target inside the linking doc's own package) write the relative "
             "link, which is what a packaged reader resolves.\n"
+        )
+
+    if site_url_broken:
+        sys.stderr.write(
+            f"\n{len(site_url_broken)} broken project-site URL(s) found "
+            "(rf2-dnx3r):\n\n"
+        )
+        for src, line_no, dest, problem in site_url_broken:
+            rel = src.relative_to(repo_root)
+            sys.stderr.write(
+                f"  BROKEN SITE URL: {rel}:{line_no} -> {dest}\n"
+                f"      ({problem})\n"
+            )
+        sys.stderr.write(
+            "\nFix: this is a URL into THIS project's published documentation "
+            "site, so it is resolved offline against the source page MkDocs "
+            "would build it from — repoint it at the page's current home. "
+            "Only the PATH is checked: the fragment and the trailing slash are "
+            "not graded, and neither is whether the page it reaches is the "
+            "right one. Remember that MkDocs publishes `X/index.md` and "
+            "`X/README.md` at `X/`, so `X/index/`, `X/README/` and `X.md` are "
+            "not URLs it serves.\n"
         )
 
     if ai_findings:
@@ -2592,6 +2794,26 @@ def _run_self_tests(verbose: bool = False) -> int:
         # deliberately not rename-tracked. Both of its targets are missing, so
         # this reads 2 the moment the unwrap stops binding `main`.
         ("gh_url_pinned_ref_skipped",        0),
+        # rf2-dnx3r — this project's own PUBLISHED SITE URLs, resolved offline
+        # to the source page MkDocs would build them from. The sibling of the
+        # arm above for the other absolute spelling this repo writes about
+        # itself, and the shape a skill installed outside the checkout has no
+        # alternative to. Before this they were skipped wholesale by the
+        # external-link guard, which is how seven of them died on the repo's
+        # own front page for 86 days behind a green gate on every PR.
+        ("site_url_ok",                      0),  # sound URLs stay silent
+        ("site_url_missing",                 1),  # no page builds there
+        # 1, not 2: the page EXISTS on disk and publishes nowhere because
+        # `exclude_docs` holds it back, while its sibling one level up still
+        # resolves. Reads 0 if the exclusion stops being consulted, and 2 if
+        # the prefix stops being scoped and swallows `design/`.
+        ("site_url_excluded",                1),
+        # The correction that makes this a ROUTE resolver rather than a file
+        # check: all three sources exist, so an arm asking "is the file there?"
+        # passes all three of these 404s. The three controls beside them are
+        # the routes those same files really publish at, so the count falls to
+        # 0 if route semantics are lost and rises to 6 if they are overdone.
+        ("site_url_not_a_route",             3),
     ]
 
     failures = 0

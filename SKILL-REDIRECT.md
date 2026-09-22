@@ -24,6 +24,12 @@ It walks `skills/**/*.md`, extracts every `SKILL-REDIRECT.md -> *Label*`
 reference, and verifies the label matches a bullet below. Non-zero exit on
 drift, with each broken reference printed. Run it again after editing.
 
+URL TARGETS are a separate gate (rf2-dnx3r). `python scripts/check_readme_links.py --ci`
+reads the bullets below and resolves each project-site URL, offline, against
+the source page MkDocs would build it from; run it after changing a URL. It
+checks the PATH only — not the fragment, and not whether a URL that resolves
+reaches the page you meant.
+
 When adding a new bullet, keep the format `- **Label** -> URL [tag] [tag]`;
 that's the shape the checker (and human readers) expects.
 -->
