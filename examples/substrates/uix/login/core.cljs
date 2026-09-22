@@ -21,7 +21,6 @@
    `frame-root` / `frame-provider`, and what stays put across React wrappers — see
    docs/core/how-to/use-uix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
-            [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
             ;; The substrate-free model owner (examples/core/login/model.cljc).
             ;; Requiring it registers every shared `auth.login` schema, fx,
@@ -109,20 +108,19 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; We stash the React root in an atom and only build it lazily inside `run`,
-;; never at namespace load. The reason (examples/TESTING.md §Example
-;; mount-isolation convention): loading a namespace must touch no DOM, so two
-;; example namespaces loaded side by side can't both race to call `create-root`
-;; on the shared `#app`.
-(defonce react-root (atom nil))
+;; The React root belongs to the adapter. `client-root` hands back an inert
+;; handle — it does no DOM work and reads no `js/document` — and the first
+;; `render!` through it mints the Root. That is what lets this sit at
+;; namespace load (examples/TESTING.md §Example mount-isolation convention):
+;; loading a namespace must touch no DOM, so two example namespaces loaded
+;; side by side can't both race for the shared `#app`.
+(defonce app-root (rf.adapter.uix/client-root))
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (uix-dom/create-root el)))
     ;; Frame setup, all in one spot. The `frame-root` at the render root
     ;; owns the frame: on the first mount it creates the `:rf/default` frame,
     ;; applies the config (`model/frame-config` points `:rf.http/managed` at our
@@ -138,16 +136,16 @@
     ;; asks for nothing here: its `:initial` and `:data` seed the snapshot in
     ;; runtime-db the first time the flow runs
     ;; (see docs/machines/glossary.md#snapshot).
-    (uix-dom/render-root
+    (rf.adapter.uix/render! app-root
       ($ rf.adapter.uix/frame-root {:id  :rf/default
-                                     :doc "Login (UIx) demo frame."
-                                     ;; `:&` spreads the substrate-free
-                                     ;; `model/frame-config` (demo-stub
-                                     ;; `:fx-overrides` + slice-seed
-                                     ;; `:initial-events`) into these props.
-                                     :&   model/frame-config}
+                                    :doc "Login (UIx) demo frame."
+                                    ;; `:&` spreads the substrate-free
+                                    ;; `model/frame-config` (demo-stub
+                                    ;; `:fx-overrides` + slice-seed
+                                    ;; `:initial-events`) into these props.
+                                    :&   model/frame-config}
          ($ root-view))
-      @react-root)))
+      el)))
 
 (defn run []
   ;; Tell the runtime to render through UIx. (This installs the adapter; it does
