@@ -8,15 +8,16 @@ These hold across every phase of building a new re-frame2 implementation. Each r
 
 [`spec/`](https://github.com/day8/re-frame2/tree/main/spec) is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; draft a GitHub issue against `day8/re-frame2` and ask the engineer to OK it before filing — see rule 9.
 
-**Pin the spec before reading it.** Phase 1 records a specific `day8/re-frame2` commit/tag in the port profile ([`phase-1-decisions.md`](phase-1-decisions.md)). Before reading the spec corpus, verify `git -C <path-to-re-frame2> rev-parse HEAD` matches the pin **and** that the origin is `https://github.com/day8/re-frame2`. An unpinned or unverified checkout is not a contract — it's whatever happens to be on the filesystem.
+**Pin the spec before reading it.** Phase 1 records a specific `day8/re-frame2` commit/tag in the port profile ([`phase-1-decisions.md`](phase-1-decisions.md)). Before reading the spec corpus, resolve the chosen SHA/tag with `git -C <path-to-re-frame2> rev-parse --verify '<SHA-or-tag>^{commit}'`, then verify `git -C <path-to-re-frame2> rev-parse HEAD` matches that commit **and** that the origin identifies `day8/re-frame2` (HTTPS or SSH). Record the resolved full SHA; a tag name or annotated-tag object id is not the commit id. An unpinned or unverified checkout is not a contract — it's whatever happens to be on the filesystem.
 
-**A matching HEAD is not a matching tree.** Those two certify *which commit* the checkout sits on, not what the files under `spec/` hold: an uncommitted edit (staged or not) and any untracked `.edn` in `spec/conformance/fixtures/` are invisible to both, so a port can implement a contract — and score a denominator — that the SHA it reports does not carry. One more read closes it:
+**A matching HEAD is not a matching tree.** Those two certify *which commit* the checkout sits on, not what the files under `spec/` hold: an uncommitted edit (staged or not) and any untracked or ignored `.edn` in `spec/conformance/fixtures/` are invisible to both, so a port can implement a contract — and score a denominator — that the SHA it reports does not carry. One more read closes it:
 
 ```bash
-git -C <path-to-re-frame2> status --porcelain -- spec/   # expect: no output at all
+git -C <path-to-re-frame2> status --porcelain --untracked-files=all --ignored=matching -- spec/
+# expect: exit 0 and no output at all
 ```
 
-Silence means the working `spec/` **is** the pinned tree, normative text and fixture roster alike, so every read and glob below consumes what the pin names. Output means it is not: report the divergent paths and stop, before deriving obligations, claim or score. **Never `reset`, `checkout` or `stash` to clear it** — that is the engineer's work; they park it, or the profile pins a commit that carries it.
+Use both explicit flags: user configuration can otherwise hide untracked files, and ignored fixtures still enter a filesystem glob. A successful, silent check establishes the working `spec/` as the pinned tree, normative text and fixture roster alike, so every read and glob below consumes what the pin names. Output means it is not: report the divergent paths and stop, before deriving obligations, claim or score. **Never `reset`, `checkout` or `stash` to clear it** — that is the engineer's work; they park it, or the profile pins a commit that carries it.
 
 **Resolve every contract read through that verified checkout.** Each `spec/…` owner this skill names — the EP-index rows, the fixed-obligation links, the conformance contract — is read from `<path-to-re-frame2>/spec/<file>` in the clean checkout verified above, at the recorded pin. The `https://day8.github.io/re-frame2/spec/…` links beside them are **citations** for human browsing: they render live main, which can sit ahead of (or behind) your pin, so they are never the reading route. A session that reads the live site can implement a different contract than the one the profile pinned.
 
