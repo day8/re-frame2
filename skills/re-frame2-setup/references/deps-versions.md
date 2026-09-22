@@ -26,7 +26,7 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 grep -oE 'day8/re-frame2[a-z-]* *\{[^}]*(:mvn/version|:git/sha) "[^"]+"' deps.edn
 ```
 
-**Same VERSION, different release trigger — and that matters when you write a tools coordinate.** The framework artefacts ship together on a `v*` tag. Xray and Story are **tools**, and the tools tier ships on its own per-tool tags — `xray-v*`, `story-v*` — which a framework `v*` tag does not cut ([`docs/release-process.md` §The tools tier](https://github.com/day8/re-frame2/blob/main/docs/release-process.md)). So a tool's `:mvn/version` stays unresolved until its own release lands, however current the framework VERSION is. Story is already in the scaffold's `:dev` alias: keep it on the reviewed checkout or the same reviewed Git commit until its matching Maven version resolves. Xray is attached separately when requested.
+**Same VERSION, different release trigger.** Framework artefacts ship on `v*` tags; Xray and Story ship separately on `xray-v*` and `story-v*` ([release process](https://github.com/day8/re-frame2/blob/main/docs/release-process.md)). A framework release does not publish either tool. Story is already in the scaffold's `:dev` alias: keep it on the reviewed checkout or commit until its matching Maven version resolves. Xray is attached separately when requested.
 
 ## The artefacts a greenfield project may add
 
@@ -109,7 +109,7 @@ day8/re-frame2-reagent {:git/url "https://github.com/day8/re-frame2.git" :git/sh
 day8/re-frame2-story   {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "tools/story"}
 ```
 
-`<SHA>` is the full commit SHA of the reviewed checkout (resolve a selected `v<VERSION>` tag to its commit first); the per-feature artefacts use the same `:deps/root` paths as the table. For UIx, replace the Reagent coordinate with `day8/re-frame2-uix` and `:deps/root "implementation/adapters/uix"`. Story still needs the third replacement: leaving `../re-frame2/tools/story` in `:dev` requires a sibling checkout and fails before compilation on this route. Verify the selected build aliases with `clojure -Stree -A:shadow:dev`; plain `clojure -Stree` does not resolve Story or shadow-cljs.
+`<SHA>` is the reviewed full commit SHA; resolve a selected tag to its commit first. For UIx, replace the Reagent coordinate with `day8/re-frame2-uix` and `:deps/root "implementation/adapters/uix"`. Per-feature artefacts use the table's paths. Leaving Story's `../re-frame2/tools/story` in `:dev` still requires a sibling checkout. Verify with `clojure -Stree -A:shadow:dev`; plain `clojure -Stree` does not resolve Story or shadow-cljs.
 
 ### Post-publish shape (NOT usable until the coordinates resolve on Clojars)
 
