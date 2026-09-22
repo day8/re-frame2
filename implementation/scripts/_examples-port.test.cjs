@@ -8,10 +8,17 @@
  * its near-identical policy sibling, so what is genuinely unexercised is the
  * examples-SPECIFIC policy: the DEFAULT_PORT (8050, the examples-owned 805x
  * band), the strict env parser bound to EXAMPLES_PORT, and the actionable
- * port-clash message whose wording hard-codes the shadow-cljs.edn 8765 /
- * 8030-8034 / 8040-8043 reserved bands (which could drift). This mirrors the
- * story-feature-load-port test against those examples-specific surfaces
- * (rf2-ewnznu).
+ * port-clash message. This mirrors the story-feature-load-port test against
+ * those examples-specific surfaces (rf2-ewnznu).
+ *
+ * The port-clash assertions below used to pin the shadow-cljs.edn bands the
+ * message transcribed — 8765 / 8030-8034 / 8040-8043 — noting in this very
+ * comment that they "could drift". They did: the map grew 8035, 8044-8045 and
+ * 8060-8061, and because the pins matched the message rather than the map,
+ * this suite stayed green BECAUSE the message was stale (rf2-5mk4u). They now
+ * pin the properties that make the message useful, and require that it names
+ * no port at all beyond the one under test — a pin that cannot go stale,
+ * because it has nothing to keep in step with.
  *
  * Standalone node-runnable suite (no test framework), matching
  * _story-feature-load-port.test.cjs. Discovered by `npm run test:scripts`.
@@ -79,7 +86,7 @@ test('EXAMPLES_PORT unset resolves DEFAULT_PORT (or the next free port)', async 
   assert.ok(Number.isInteger(port) && port >= DEFAULT_PORT, `got ${port}`);
 });
 
-test('explicit occupied EXAMPLES_PORT throws an actionable, band-citing message', async () => {
+test('explicit occupied EXAMPLES_PORT throws an actionable message that points at the authorities', async () => {
   const port = 19052;
   const server = await occupy(port);
   try {
@@ -88,11 +95,49 @@ test('explicit occupied EXAMPLES_PORT throws an actionable, band-citing message'
       (err) => {
         assert.match(err.message, /already in use/);
         assert.equal(err.actionable, true, 'the port-clash error must be tagged actionable');
-        // The wording hard-codes the shadow-cljs.edn reserved bands — pin them
-        // so a drift in the message (or the port map) is caught (rf2-ewnznu).
-        assert.match(err.message, /8765/);
-        assert.match(err.message, /8030-8034/);
-        assert.match(err.message, /8040-8043/);
+
+        // What makes this message worth raising: the likely CAUSE, both
+        // AUTHORITIES a reader can look the live answer up in, and the two
+        // REMEDIES. These are properties of the diagnostic, not of the port
+        // map, so they stay true however the map grows (rf2-5mk4u).
+        assert.match(err.message, /shadow-cljs watch/, 'must name the likely cause');
+        assert.match(err.message, /:dev-http/, 'must name the claiming map');
+        assert.match(
+          err.message,
+          /implementation\/shadow-cljs\.edn/,
+          'must name the file holding the live port list',
+        );
+        assert.match(
+          err.message,
+          /OWNED-RANGE PORT MAP/,
+          'must name the band-ownership authority',
+        );
+        assert.match(
+          err.message,
+          /implementation\/scripts\/dev-testbed\.cjs/,
+          'must name the file holding the OWNED-RANGE PORT MAP',
+        );
+        assert.match(err.message, /Stop the watch/, 'must give the first remedy');
+        assert.match(
+          err.message,
+          /set EXAMPLES_PORT to a free port/,
+          'must give the second remedy',
+        );
+
+        // And it must transcribe NO port from that map. The predecessor of
+        // this assertion pinned 8765 / 8030-8034 / 8040-8043 against the
+        // message, so when the map grew the suite went on certifying the
+        // stale wording. Pinning the ABSENCE of an enumeration has nothing
+        // to keep in step with, so it cannot fail that way: the only
+        // multi-digit run the message may carry is the port under test.
+        const numbers = [...new Set(err.message.match(/\d{4,}/g) || [])];
+        assert.deepEqual(
+          numbers,
+          [String(port)],
+          `the message must name no port but the one under test — a ` +
+            `transcribed :dev-http list goes stale in silence (rf2-5mk4u). ` +
+            `Point at implementation/shadow-cljs.edn instead. Got: ${numbers}`,
+        );
         return true;
       },
     );

@@ -14,9 +14,8 @@
  *
  * This resolver fixes both halves:
  *   1. DEFAULT_PORT is 8050. It sits in the examples-orchestrator's OWNED
- *      range (805x), clear of the top-level :dev-http set — that map claims
- *      8765 / 8030-8034 (Xray testbeds) and 8040-8043 (the four Story
- *      showcases). See the OWNED-RANGE PORT MAP in
+ *      range (805x), clear of every port the top-level :dev-http set
+ *      claims. See the OWNED-RANGE PORT MAP in
  *      implementation/scripts/dev-testbed.cjs (the single source of truth
  *      for who-owns-what) for the convention; rf2-ot0lv moved this default
  *      off the 804x band to keep the bands non-overlapping. The pre-flight
@@ -49,9 +48,9 @@ const {
 } = require('./port-resolver.cjs');
 
 // Default port. The examples orchestrator OWNS the 805x band — clear of
-// the top-level :dev-http set (8765 / 8030-8034 = Xray testbeds; 8040-8043
-// = Story showcases). See the OWNED-RANGE PORT MAP in
-// implementation/scripts/dev-testbed.cjs for the convention (rf2-ot0lv).
+// every port the top-level :dev-http set claims. See the OWNED-RANGE PORT
+// MAP in implementation/scripts/dev-testbed.cjs for the convention
+// (rf2-ot0lv).
 // The pre-flight + forward scan (below) still cover an unexpected clash by
 // landing on the next free port; with the bands now non-overlapping a
 // running `shadow-cljs watch` no longer pre-claims this default.
@@ -87,13 +86,20 @@ async function resolveExamplesPort({ env = process.env } = {}) {
   const explicit = parseExplicitPort(env.EXAMPLES_PORT);
   if (explicit != null) {
     if (!(await canListen(explicit))) {
+      // Deliberately NO port list here (rf2-5mk4u). A transcribed :dev-http
+      // enumeration goes stale in silence — this message named 8765 /
+      // 8030-8034 / 8040-8043 long after the map had grown 8035, 8044-8045
+      // and 8060-8061, and the test below pinned those fossils, so the gate
+      // certified the drift. Point at the two authorities instead; they are
+      // the ones that move. Same call, and for the same reason, as the
+      // OWNED-RANGE PORT MAP's own refusal to re-list DEV_HTTP (rf2-puwyb).
       throw portError(
         `EXAMPLES_PORT=${explicit} is already in use. Is a 'shadow-cljs watch' ` +
-          `running? The top-level :dev-http map (implementation/shadow-cljs.edn) ` +
-          `claims 8765 / 8030-8034 / 8040-8043 whenever a watch is up (the ` +
-          `examples orchestrator owns 805x — see the OWNED-RANGE PORT MAP in ` +
-          `implementation/scripts/dev-testbed.cjs). Stop the watch, or set ` +
-          `EXAMPLES_PORT to a free port.`,
+          `running? A watch claims every port in the top-level :dev-http map ` +
+          `(implementation/shadow-cljs.edn) — read that map for the live list, ` +
+          `and the OWNED-RANGE PORT MAP in implementation/scripts/dev-testbed.cjs ` +
+          `for which band belongs to whom (the examples orchestrator owns 805x). ` +
+          `Stop the watch, or set EXAMPLES_PORT to a free port.`,
         { actionable: true },
       );
     }
