@@ -71,9 +71,15 @@ becomes an event vector at the `:on-click`, and `@open?` becomes an `h/sub`.
                  :reagent-render           (fn [] [:div …])})
 ```
 
-**The decision: route each lifecycle body by what it actually does.** Mechanical
-parts first — delete `:should-component-update` (memoisation makes it dead) and
-extract `:reagent-render` as the view body. Then, per body:
+**The decision: route each lifecycle body by what it actually does.** Extract
+`:reagent-render` as the view body, and inspect `:should-component-update`
+before removing it. Fresco memoises by `=` over the whole props map; it does
+not preserve an arbitrary Reagent update predicate. Drop a predicate that only
+avoids redundant rendering of the same output. If it deliberately freezes a
+widget or ignores changed props, preserve that behaviour in a React island or
+hold the view on Reagent until the author chooses a redesign — the same
+ownership decision as [MIG-36](catalog-reject.md).
+Then, per lifecycle body:
 
 ### Host / DOM work on mount and unmount → a callback ref
 
