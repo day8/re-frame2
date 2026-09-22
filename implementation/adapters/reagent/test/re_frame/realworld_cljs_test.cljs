@@ -3894,6 +3894,200 @@
     (profile-follow-latch-does-not-leak-to-a-bystander-test)))
 
 ;; ============================================================================
+;; the favourite heart and the article byline's Follow, serialised (rf2-zfr7w)
+;; ============================================================================
+;;
+;; The block above pins the profile follow's one-at-a-time latch. Two toggles
+;; were left outside it, and both are the same hazard for the same reason: a
+;; second click reads the FIRST click's optimistic flip, so it issues the
+;; OPPOSITE method, and the pair is on the wire together with nothing able to
+;; tell the older reply from the newer intent. Let it settle out of order and
+;; the row is left lying against the server; let BOTH halves fail in issue
+;; order and the second rollback restores the intermediate optimistic state,
+;; which lies in the same direction with no success arriving at all.
+;;
+;; So the favourite is serialised per SLUG on its own `:favorite-pending`, and
+;; the article byline's Follow takes the profile page's EXISTING
+;; username-keyed `:profile.follow-pending` rather than a second latch of its
+;; own. The sharing is the whole point of the second test: a latch keyed by
+;; the MUTATION rather than by the screen (profile.cljs, SERIALISING THE
+;; TOGGLE) buys nothing if the same username can be mutated from another page
+;; while it is held — and the byline is exactly that page, one click from the
+;; banner. Both witnesses are COUNTS, because a second intent that never
+;; becomes a second request removes the pair rather than refereeing it.
+;;
+;; Each test reaches its count witness BEFORE it reads either new
+;; subscription, so the behaviour is pinned by the wire rather than by the
+;; sub that disables the button — belt and braces pinned separately.
+
+(defn- favorite-requests
+  "Every captured favourite/unfavourite request for `slug`, in lowering order.
+   These carry no `:request-id` — they are one-shot writes — so they are
+   addressed by what they are, exactly as `follow-requests` addresses its own."
+  [lowered slug]
+  (filterv #(str/ends-with? (get-in % [:request :url])
+                            (str "/articles/" slug "/favorite"))
+           lowered))
+
+(defn- article-data* [f] (:data (article-slice* f)))
+
+(defn- fav-pending?* [f slug]
+  (rf/compute-sub [:article/favorite-pending? slug] (rf/frame-state-value f)))
+
+(defn- byline-follow-pending?* [f]
+  (rf/compute-sub [:article/author-follow-pending?] (rf/frame-state-value f)))
+
+(defn- favorite-toggle-is-serialised-test []
+  (with-held-comment-fx :realworld.test/favorite-serialised
+    (fn [f lowered]
+      ;; Read /article/hello — unfavourited, count 0.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
+      (settle-article-with-author! f lowered "hello" "eve" false)
+      (is (false? (:favorited (article-data* f))) "hello starts unfavourited")
+      (is (zero? (:favoritesCount (article-data* f))) "…at a count of zero")
+
+      ;; ---- FIRST intent ----
+      (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
+      (is (true? (:favorited (article-data* f)))
+          "the optimistic flip lands immediately — that much is unchanged")
+      (is (= 1 (:favoritesCount (article-data* f))) "…with the count nudged along")
+      (is (= 1 (count (favorite-requests @lowered "hello")))
+          "exactly one mutation out")
+
+      ;; ---- SECOND intent while the first is outstanding: REFUSED ----
+      (let [before (article-slice* f)]
+        (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
+        (is (= before (article-slice* f))
+            "the second intent changed NOTHING — not the flag, not the count")
+        (is (= 1 (count (favorite-requests @lowered "hello")))
+            "and issued NO second request: there is no pair left to reorder,
+             which is how the race is removed rather than refereed")
+        (is (nil? (req-by-method+url @lowered :delete "/articles/hello/favorite"))
+            "specifically, no DELETE exists that could settle ahead of the POST
+             and leave the heart lit against an unfavourited server"))
+
+      ;; The sub is the view's half of the same fact: both hearts disable on it.
+      (is (true? (fav-pending?* f "hello"))
+          "the slug is latched, which is what disables the card heart and the
+           detail-page button — belt to the refusal's braces")
+
+      ;; ---- the first mutation settles, releasing the latch ----
+      (settle-ok! f (:on-success (req-by-method+url @lowered :post "/articles/hello/favorite"))
+                  {:article (assoc (full-article "hello" "Title hello")
+                                   :favorited true :favoritesCount 1)})
+      (is (true? (:favorited (article-data* f)))
+          "the POST's own reply is authoritative and re-seeds the row")
+      (is (false? (fav-pending?* f "hello"))
+          "the success released the latch — the heart is live again")
+
+      ;; ---- NON-VACUITY: the toggle works normally once nothing is in flight ----
+      (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
+      (is (false? (:favorited (article-data* f)))
+          "the unfavourite the reader wanted is accepted now, optimistically")
+      (is (some? (req-by-method+url @lowered :delete "/articles/hello/favorite"))
+          "…issuing the very DELETE that was refused a moment ago")
+      (is (= 2 (count (favorite-requests @lowered "hello")))
+          "two mutations in total, strictly one after the other")
+      (is (true? (fav-pending?* f "hello")) "and latching in its turn")
+
+      ;; ---- a 500 must not leave the heart disabled for good ----
+      (settle-fail! f (:on-failure (req-by-method+url @lowered :delete "/articles/hello/favorite")))
+      (is (true? (:favorited (article-data* f))) "the rollback puts the prior flag back")
+      (is (= 1 (:favoritesCount (article-data* f))) "…and the prior count with it")
+      (is (false? (fav-pending?* f "hello"))
+          "and the rollback releases too — unconditionally, so a failed write
+           leaves a live heart rather than one dead for the session"))))
+
+(defn- article-byline-follow-shares-the-profile-latch-test []
+  (with-held-profile-fx :realworld.test/byline-follow-shares-latch
+    (fn [f lowered]
+      ;; Land on alice's profile, not yet followed, and let her banner settle.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                  {:profile (full-profile "alice" false)})
+      (is (false? (pf-sub* f [:profile/follow-pending?]))
+          "alice's banner button starts live")
+
+      ;; ---- Follow alice FROM THE BANNER; the POST is held open ----
+      (rf/dispatch-sync [:profile/follow] {:frame f})
+      (is (= #{"alice"} (pf-slice* f :profile.follow-pending))
+          "the banner's own mutation latches alice")
+      (is (= 1 (count (follow-requests @lowered "alice"))) "one mutation out")
+
+      ;; ---- walk through to one of her articles before it settles ----
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-article-with-author! f lowered "alpha" "alice" false)
+      (is (= "alice" (:username (author* f))) "the byline is the same alice")
+      (is (false? (:following (author* f)))
+          "…and the article's embedded author still calls her unfollowed, so
+           the byline offers Follow — a second intent on a held username")
+
+      ;; ---- the byline click: REFUSED by the BANNER's latch ----
+      (let [before (:following (author* f))]
+        (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
+        (is (= before (:following (author* f)))
+            "the byline's intent on an already-latched username changed nothing")
+        (is (= 1 (count (follow-requests @lowered "alice")))
+            "and issued no second request — the cross-page pair the profile's
+             own latch could not see is never on the wire")
+        (is (nil? (req-by-method+url @lowered :delete "/profiles/alice/follow"))
+            "specifically no DELETE, which is the half that would let the older
+             POST land last and re-seed :following true over it"))
+
+      (is (true? (byline-follow-pending?* f))
+          "the byline button is disabled by the BANNER's mutation — one latch,
+           two homes, which is what keying it by the mutation rather than by
+           the screen is for")
+
+      ;; ---- the banner's mutation settles; the release is the MUTATION's ----
+      (settle-ok! f (:on-success (req-by-method+url @lowered :post "/profiles/alice/follow"))
+                  {:profile (full-profile "alice" true)})
+      (is (= #{} (pf-slice* f :profile.follow-pending))
+          "the settle released alice even though the reader has walked away —
+           an unconditional release is what keeps her from being stranded")
+      (is (false? (byline-follow-pending?* f)) "…so the byline button is live again")
+
+      ;; ---- NON-VACUITY: the byline issues its own mutation now ----
+      (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
+      (is (true? (:following (author* f))) "the byline's own flip is optimistic")
+      (is (= 2 (count (follow-requests @lowered "alice")))
+          "…issuing the very request that was refused a moment ago")
+      (is (= #{"alice"} (pf-slice* f :profile.follow-pending))
+          "and the byline takes the SAME latch the banner takes")
+
+      ;; ---- back to her profile: the banner is disabled by the BYLINE's
+      ;;      mutation, which is the half of the hole that faced the other way
+      (rf/dispatch-sync [:rf.route/handle-url-change "/profile/alice"] {:frame f})
+      (is (true? (pf-sub* f [:profile/follow-pending?]))
+          "the banner button is disabled by a mutation issued from the ARTICLE
+           page — the latch outlives the walk in both directions")
+
+      ;; ---- and the byline's rollback releases wherever the reader has got to
+      (let [byline-req       (last (follow-requests @lowered "alice"))
+            banner-following (:following (pf-sub* f [:profile/data]))]
+        (settle-fail! f (:on-failure byline-req))
+        (is (= #{} (pf-slice* f :profile.follow-pending))
+            "the byline's rollback releases alice unconditionally — gate it on
+             the current screen and she would stay latched for the session,
+             her button dead with nothing in flight left to free it")
+        (is (= banner-following (:following (pf-sub* f [:profile/data])))
+            "…while that rollback leaves the BANNER's own flag alone: the
+             release is the mutation's, the data write is its slice's")))))
+
+(deftest realworld-toggle-latches-favorite-and-byline-follow
+  (testing "the favourite heart is SERIALISED per slug: a second click while
+            the first is in flight issues no second request, so there is no
+            opposite pair to arrive out of order; both settles — success and
+            rollback — release the slug unconditionally (rf2-zfr7w)"
+    (favorite-toggle-is-serialised-test))
+  (testing "the article byline's Follow SHARES the profile page's
+            username-keyed latch rather than keeping one of its own, so a
+            follow issued from the banner refuses the byline and one issued
+            from the byline disables the banner — closing the cross-page hole
+            a per-screen latch cannot see (rf2-zfr7w)"
+    (article-byline-follow-shares-the-profile-latch-test)))
+
+;; ============================================================================
 ;; comment schema, home-feed ownership, editor write ownership (rf2-fzbj.21)
 ;; ============================================================================
 ;;
