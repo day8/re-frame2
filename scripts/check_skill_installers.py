@@ -77,7 +77,8 @@ class InstallerTests(unittest.TestCase):
             ])
 
     def tearDown(self):
-        # Never let recursive fixture cleanup encounter a live junction.
+        # Verify containment before any recursive cleanup; disarm every link first.
+        self.base.resolve().relative_to((ROOT / "ai").resolve())
         disarm_links(self.base)
         self.temp.cleanup()
 
@@ -169,6 +170,16 @@ class InstallerTests(unittest.TestCase):
                     self.assertEqual(sentinel.read_text(), "local edits")
                     self.run_installer(command, destination, "force")
                     self.assert_installed(destination)
+
+    def test_source_directory_cannot_be_replaced(self):
+        for index, command in enumerate(self.commands):
+            alias = self.base / f"source-alias-{index}"
+            self.make_link(alias, self.repo / "skills")
+            for target in (self.repo / "skills", alias):
+                with self.subTest(installer=command[0], target=target.name):
+                    self.run_installer(command, target, "force", expected=1)
+                    self.assertFalse(is_link(self.source))
+                    self.assertEqual((self.source / "SKILL.md").read_text(), "current skill\n")
 
     def test_relative_destination(self):
         for index, command in enumerate(self.commands):
