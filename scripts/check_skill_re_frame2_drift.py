@@ -935,6 +935,18 @@ CSRF_REQUIRED_IN_SCHEMA_MSG = (
 
 # `[:csrf-token` followed by its optional props map. A required entry has no
 # props map at all, or one that does not mark the entry `:optional`.
+#
+# THE REGEX ALONE CANNOT SAY THE OCCURRENCE IS A MALLI `:map` ENTRY, and 7b
+# must establish that before it judges the entry required (rf2-zkpxu). A
+# bracketed `:csrf-token` is also how a CLASSIFICATION PATH is written — the
+# supported `:sensitive [[:csrf-token]]` registration metadata (Spec 015
+# §Registration-owned transient classification), which is how a form action
+# keeps the submitted token out of ordinary event-observation traces. That is
+# the RECOMMENDED shape, and this regex read it as a required field: adding it
+# to the canonical recipe turned the guard red on the very page the message
+# points the reader at, while the recipe's own event schema marked the token
+# `{:optional true}` two lines above. `_csrf_entry_has_child` below is the
+# missing half.
 CSRF_SCHEMA_ENTRY_RE = re.compile(r"\[:csrf-token\b[ \t]*(\{[^}]*\})?")
 
 
@@ -999,6 +1011,31 @@ def _enclosing_form(code: str, idx: int) -> str:
     return code[start:]
 
 
+def _csrf_entry_has_child(code: str, end: int) -> bool:
+    """True when the `[:csrf-token …` match ending at `end` carries a CHILD
+    after the key and its optional props — i.e. it really is a Malli `:map`
+    entry `[key props? child]` rather than a one-segment path vector.
+
+    This is the whole of what rule 7b needs to establish, and it is deliberately
+    STRUCTURAL rather than a carve-out for one spelling. Malli has no childless
+    map entry — `[:map [:csrf-token]]` is not a schema — so a bracket that
+    closes straight after the key cannot be an entry. What it IS, in this
+    corpus, is a PATH: `:sensitive [[:csrf-token]]`, `(get-in m [:csrf-token])`.
+
+    Nothing rule 7b exists to catch escapes through here, because a required
+    entry ALWAYS has a child: `[:csrf-token :string]` and
+    `[:csrf-token [:string {:min 1}]]` both return True and are judged exactly
+    as before. The narrow thing this does not establish is that the child is a
+    SCHEMA rather than a further path segment (`[[:csrf-token :value]]`), which
+    would need a reader rather than a bounded scan; a top-level token key has
+    no interior to address, so that shape does not occur here.
+    """
+    i, n = end, len(code)
+    while i < n and code[i].isspace():
+        i += 1
+    return i < n and code[i] != "]"
+
+
 def csrf_fence_problems(text: str) -> list[tuple[int, str]]:
     """Rule 7 — the two fail-open form-action shapes, inside code fences.
     Returns (opening-fence-lineno, message) tuples."""
@@ -1014,8 +1051,14 @@ def csrf_fence_problems(text: str) -> list[tuple[int, str]]:
             if not CSRF_PRESENCE_LIMB_RE.search(_enclosing_form(code, m.start())):
                 problems.append((block_start, CSRF_FAIL_OPEN_MSG))
                 break
-        # 7b — `:csrf-token` declared as a required map entry.
+        # 7b — `:csrf-token` declared as a required map entry. Establish that
+        # the occurrence IS an entry first: a bracket carrying no child is a
+        # classification PATH, not a schema entry (rf2-zkpxu). The scan
+        # CONTINUES past a skipped path rather than breaking, so a real
+        # required entry later in the same fence is still caught.
         for m in CSRF_SCHEMA_ENTRY_RE.finditer(code):
+            if not _csrf_entry_has_child(code, m.end()):
+                continue
             if ":optional" not in (m.group(1) or ""):
                 problems.append((block_start, CSRF_REQUIRED_IN_SCHEMA_MSG))
                 break
@@ -2350,6 +2393,44 @@ def _self_test() -> int:
                "[:string {:min 1}]]))"),
         dirty=False, label="X4 fenced `{:optional true}` envelope entry",
     )
+    # 7b, rf2-zkpxu — a bracketed `:csrf-token` with NO CHILD is a
+    # classification PATH, not a map entry. `:sensitive [[:csrf-token]]` is the
+    # SUPPORTED registration metadata that keeps the submitted token out of
+    # ordinary event-observation traces (Spec 015), and this rule read it as a
+    # required field — so the canonical recipe could not carry the very advice
+    # the CSRF section gives.
+    expect(
+        csrf_fence_problems,
+        _fence("(rf/reg-event :cart/add-item",
+               "  {:schema    [:cat [:= :cart/add-item]",
+               "               [:map [:csrf-token {:optional true "
+               ":sensitive? true} :any]]]",
+               "   :sensitive [[:csrf-token]]}",
+               "  (fn [cofx [_ form-params]] nil))"),
+        dirty=False, label="X5 registration `:sensitive [[:csrf-token]]` path",
+    )
+    expect(
+        csrf_fence_problems, _fence("{:sensitive [[:csrf-token]]}"),
+        dirty=False, label="X6 bare classification path vector",
+    )
+    # AND THE HALF THAT SEPARATES A FIX FROM A DISARM. A required entry in a
+    # real schema must STILL fail — including the shortest spelling, whose
+    # child is a bare keyword, and including one sharing a fence with the
+    # path above, so the skip cannot shadow a live defect beside it.
+    expect(
+        csrf_fence_problems, _fence("(def S [:map [:csrf-token :string]])"),
+        dirty=True, label="W4 required `:csrf-token` entry, bare child schema",
+    )
+    expect(
+        csrf_fence_problems,
+        _fence("(rf/reg-event :cart/add-item",
+               "  {:sensitive [[:csrf-token]]",
+               "   :schema    [:cat [:= :cart/add-item]",
+               "               [:map [:csrf-token [:string {:min 1}]]]]}",
+               "  (fn [cofx [_ form-params]] nil))"),
+        dirty=True,
+        label="W5 required entry BESIDE a classification path in one fence",
+    )
 
     # --- Rule 7 against the REAL corpus, with mutations. A guard that cannot be
     #     made to fail is worthless — that was the whole finding behind this
@@ -2379,6 +2460,12 @@ def _self_test() -> int:
             ("required token field",
              "[:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]",
              "[:csrf-token [:string {:min 1}]]"),
+            # rf2-zkpxu: the event's STRUCTURAL tripwire entry, one line above
+            # the classification path the skip now lets through — so the skip
+            # is proved not to have shadowed the entry beside it.
+            ("required token in the event tripwire",
+             "[:csrf-token {:optional true :sensitive? true} :any]",
+             "[:csrf-token :any]"),
         )
         for mut_label, old, new in mutations:
             if old not in shipped:
@@ -2390,6 +2477,20 @@ def _self_test() -> int:
                 print(f"SELF-TEST FAIL (Y {mut_label} mutation not caught): "
                       f"{rel}")
                 failures += 1
+
+    # rf2-zkpxu — the canonical recipe must actually CARRY the classification
+    # path in a fence, or the "shipped file green" reading above is vacuous:
+    # it would be green because nothing exercises the skip, which is exactly
+    # the state this bead found the page in.
+    canonical_recipe = REPO_ROOT.joinpath("spec", "Pattern-FormAction.md")
+    if canonical_recipe.is_file():
+        if "[[:csrf-token]]" not in _slurp(canonical_recipe):
+            print("SELF-TEST FAIL (Y classification-path anchor gone): "
+                  "spec/Pattern-FormAction.md no longer carries a fenced "
+                  "`:sensitive [[:csrf-token]]` registration path, so rule "
+                  "7b's map-entry test is unexercised against the real "
+                  "corpus — re-point this anchor in the same change")
+            failures += 1
 
     # --- Rule 8: the JVM with-frame thunk "function form" (rf2-jwmkq).
     #     `withframe_thunk_problems` takes the WHOLE body (the shape spans
