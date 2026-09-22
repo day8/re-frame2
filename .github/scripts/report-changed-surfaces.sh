@@ -2516,6 +2516,37 @@ else
         tools_jvm=true
         mcp_conformance=true
         ;;
+      skills/re-frame2/patterns/form-action.md)
+        # rf2-8btol — the same code↔skill drift routing as the story-mcp-loop
+        # leaf directly above, one lane over, and a STRONGER edge than a prose
+        # pin: `implementation/ssr/test/re_frame/ssr_skill_form_action_test
+        # .clj` slurps this page, pulls the handler and view forms out of its
+        # fences, `eval`s them and drives the result through the real SSR
+        # request pipeline. The recipe IS that suite's input, so a
+        # recipe-only edit changes what the suite executes.
+        #
+        # It armed NOTHING AT ALL before this arm — not `skills_structural`,
+        # not one of the 29 outputs (measured: all false). `skills/re-frame2/`
+        # has no generic arm and the main case has no default, which is the
+        # same zero-output shape rf2-g1m2q found in two other skill trees. So
+        # the PR that ADDED the test scheduled `jvm-ssr` (a test file arms
+        # `implementation_jvm`) and every later edit to the recipe alone would
+        # not have — the gap is invisible on the PR that opens it.
+        #
+        # `implementation_jvm` because there is nothing narrower: it is the
+        # single output all 22 per-artefact JVM jobs gate on, and `jvm-ssr` is
+        # one of them. The "PROSE THAT A test.yml SUITE PINS" block above
+        # argues that at length; this is that reasoning reaching a skill page.
+        # The narrowing is bought on the PATH axis instead — ONE named leaf,
+        # not `skills/re-frame2/patterns/*` and emphatically not `skills/**`.
+        # The thirteen sibling recipes here have no JVM reader, and arming an
+        # expensive tier for all skill prose is the cost this bead exists to
+        # avoid. Add a leaf when a new JVM suite extracts one.
+        #
+        # No CLJS output: markdown cannot change what React puts on a page,
+        # and the extracted view is rendered by the JVM SSR projector.
+        implementation_jvm=true
+        ;;
       skills/re-frame2-pair/tests/fixture/*)
         skills_structural=true
         mcp_conformance=true
@@ -2575,6 +2606,40 @@ else
         # compiles into no example build, so the expensive lanes the
         # `skills/re-frame2-pair/*` neighbour arms have nothing to do here.
         skills_structural=true
+        # rf2-g9at9 — ONE leaf in this tree now has a JVM reader, and
+        # `skills_structural` does not reach it.
+        # `implementation/schemas/test/re_frame/improver_article_schema_test
+        # .clj` slurps `references/schemaless-events.md`, extracts the
+        # canonical HTTP block from its fences and drives it through the real
+        # router and Malli — so the page IS that suite's input. That suite
+        # runs in `jvm-schemas`, gated on `implementation_jvm`, and this tree
+        # armed `skills_structural` alone: the PR that added the test
+        # scheduled the lane because the diff carried the test file; an edit
+        # to the reference alone would not have. (The Babashka
+        # `article_lifecycle_test` the structural job DOES run deliberately
+        # stubs `reg-app-schema`, so it cannot stand in — it never reaches the
+        # cold-start rejection this suite detects.)
+        #
+        # NESTED, and the nesting is the whole scope limit — the shape the
+        # `skills/re-frame2-setup/references/*` arm immediately below uses,
+        # for the reason rf2-xurxw gives for its own nested case. Setting
+        # `implementation_jvm` at this arm's TOP LEVEL would queue the 22-job
+        # JVM tier for every prose file in the improver tree — SKILL.md, the
+        # three spec pages, the five other references, the evals — which is
+        # precisely the "arm every expensive lane for all skill prose" this
+        # bead forbids, and it reds the sibling controls in the mirror.
+        #
+        # And it must be nested rather than hoisted OUT to a top-level case:
+        # a POSIX `case` takes the FIRST match, so a top-level arm for this
+        # path placed ahead of `skills/re-frame2-improver/*` would shadow it
+        # and take `skills_structural` away — a coverage fix that is a
+        # coverage loss. Here the enclosing arm has already fired and this
+        # case only widens.
+        case "$file" in
+          skills/re-frame2-improver/references/schemaless-events.md)
+            implementation_jvm=true
+            ;;
+        esac
         ;;
       skills/re-frame2-setup/*)
         # rf2-agi57x — the re-frame2-setup skill carries a structural drift
