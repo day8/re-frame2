@@ -108,8 +108,10 @@
 
 (defn- required-uix-namespaces
   "The `uix.*` namespaces `src` requires, as strings. Matches the opening of a
-   `:require` vector, which is how every example spells it:
-   `[uix.dom  :as uix-dom]`."
+   `:require` vector, which is how every example spells it —
+   `[uix.core :refer [$ defui]]`, and `[uix.core :as uix :refer [$ defui]]` in
+   the login example, so the trailing character class has to admit a space as
+   well as a closing bracket."
   [src]
   (->> (re-seq #"\[(uix\.[a-zA-Z0-9._-]+)[\s\]]" src)
        (map second)
