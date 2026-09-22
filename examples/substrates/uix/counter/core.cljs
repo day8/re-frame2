@@ -20,7 +20,6 @@
    For the full substrate tour see
    `docs/core/how-to/use-uix-or-slim.md`."
   (:require [uix.core :refer [$ defui]]
-            [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]))
 
@@ -72,13 +71,14 @@
 
 ;; -- Mount -------------------------------------------------------------------
 ;;
-;; The React root lives in an atom and is created lazily inside `run`, never
-;; at ns-load. The rule is that loading a namespace touches no DOM — so when
-;; several example namespaces get co-required, they don't all elbow each
-;; other trying to `create-root` onto the same shared `#app`. See
-;; examples/TESTING.md, "mount-isolation".
+;; The adapter owns the React root, so this file doesn't. `client-root` hands
+;; back an inert handle — no DOM work, no `js/document` read — and the Root
+;; behind it is minted by the first `render!` below. That is what keeps the
+;; rule: loading a namespace touches no DOM, so when several example
+;; namespaces get co-required, they don't all elbow each other onto the same
+;; shared `#app`. See examples/TESTING.md, "mount-isolation".
 
-(defonce react-root (atom nil))
+(defonce app-root (rf.adapter.uix/client-root))
 
 ;; The whole frame lifecycle lives in one spot — the `frame-root {:id
 ;; app-frame …}` down in `run`. The first mount creates the app frame and
@@ -103,13 +103,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (uix-dom/create-root el)))
-    (uix-dom/render-root
+    (rf.adapter.uix/render! app-root
       ($ rf.adapter.uix/frame-root {:id app-frame
-                                     :initial-events [[:counter/initialise]]}
+                                    :initial-events [[:counter/initialise]]}
          ($ counter-app))
-      @react-root)))
+      el)))
 
 (defn run []
   ;; `init!` tells the runtime which reactive substrate to render through —

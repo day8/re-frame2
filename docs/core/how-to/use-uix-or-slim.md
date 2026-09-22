@@ -89,7 +89,7 @@ UIx is the one row that names two view-library coordinates, and it is worth a se
 
 `<latest>` is the released `day8/re-frame2` version (every re-frame2 artefact ships in lockstep at that one version); the two `com.pitch` coordinates are third-party and carry their own version, which must match each other.
 
-`uix.dom` is what you need whenever you drive a React root **yourself** — the worked examples do, and so does the component-test recipe in [Testing views](../testing/views.md). The mount in Step 4 does not: the adapter publishes its own root door, and the React Root behind it is minted by the shared spine through `react-dom/client`.
+`uix.dom` is what you need whenever you drive a React root **yourself** — the component-test recipe in [Testing views](../testing/views.md) does. The mount in Step 4 does not, and neither do the worked UIx examples: the adapter publishes its own root door, and the React Root behind it is minted by the shared spine through `react-dom/client`.
 
 !!! note "Coordinates are not published yet"
 

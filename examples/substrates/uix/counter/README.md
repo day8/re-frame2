@@ -97,22 +97,22 @@ Edits recompile live; the command prints a local URL to open. Add
 
 ## Copying this into your own app
 
-The mount at the bottom of [`core.cljs`](core.cljs) calls
-`uix.dom/create-root`, so a standalone consumer needs **both** UIx
-coordinates. `day8/re-frame2-uix` brings `com.pitch/uix.core` with it, but
-never `com.pitch/uix.dom` — mounting a React root is your app's call, not the
-adapter's. The complete recipe:
+The mount at the bottom of [`core.cljs`](core.cljs) goes through the adapter's
+own root door — `client-root` allocates the handle, `render!` mints the React
+Root through re-frame2's shared React spine — so nothing here names
+`uix.dom`, and three coordinates are the whole recipe:
 
 ```clojure
 ;; deps.edn
 {:deps {day8/re-frame2     {:mvn/version "<latest>"}
         day8/re-frame2-uix {:mvn/version "<latest>"}
-        com.pitch/uix.core {:mvn/version "1.4.4"}
-        com.pitch/uix.dom  {:mvn/version "1.4.4"}}}
+        com.pitch/uix.core {:mvn/version "1.4.4"}}}
 ```
 
-In this repo the file compiles against the aggregate build, which already
-carries both — which is exactly why the second coordinate is easy to miss on
-the way out. See
+`day8/re-frame2-uix` brings `com.pitch/uix.core` with it — the adapter's own
+source needs `defui` and `$` — but never `com.pitch/uix.dom`. Add that fourth
+coordinate only if something in your app drives a React root by hand; the
+[component-test recipe](../../../../docs/core/testing/views.md#4-uix-hook-components-mount-it-for-real)
+does, and this example does not. See
 [Use UIx or reagent-slim](../../../../docs/core/how-to/use-uix-or-slim.md#one-adapter-per-build-the-coordinate-table)
 for the recipe in context.

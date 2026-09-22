@@ -27,7 +27,6 @@
 
    The shared visual identity comes from examples/_shared/css/style.css."
   (:require [uix.core :refer [$ defui]]
-            [uix.dom  :as uix-dom]
             [re-frame.core            :as rf]
             [re-frame.adapter.uix     :as rf.adapter.uix]))
 
@@ -343,12 +342,13 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; We stash the React root in an atom and create it lazily inside `run`,
-;; never at ns-load. The rule: loading this namespace must touch no DOM, so
-;; that other example namespaces loaded alongside it don't race each other
-;; to `create-root` onto the shared `#app` node (examples/TESTING.md,
-;; Example mount-isolation convention).
-(defonce react-root (atom nil))
+;; The React root is the adapter's, not ours: `client-root` returns an inert
+;; handle that does no DOM work at ns-load, and the first `render!` through it
+;; mints the Root. The rule it keeps: loading this namespace must touch no DOM,
+;; so that other example namespaces loaded alongside it don't race each other
+;; for the shared `#app` node (examples/TESTING.md, Example mount-isolation
+;; convention).
+(defonce app-root (rf.adapter.uix/client-root))
 
 ;; The id of the frame this app lives in. The `frame-root` down in `run`
 ;; creates it, seeds its app-db, and scopes it into React context — which is
@@ -361,16 +361,14 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (uix-dom/create-root el)))
     ;; Passing `{:id …}` creates the app frame on the first mount and fires
     ;; `:initial-events` once to seed app-db. Save and hot-reload, and it
     ;; reuses the same frame untouched — no re-seeding, so your state sticks.
-    (uix-dom/render-root
+    (rf.adapter.uix/render! app-root
       ($ rf.adapter.uix/frame-root {:id app-frame
-                                     :initial-events [[:dashboard/initialise]]}
+                                    :initial-events [[:dashboard/initialise]]}
          ($ dashboard))
-      @react-root)))
+      el)))
 
 (defn run []
   ;; `init!` installs the UIx adapter — this is how re-frame2 learns which
