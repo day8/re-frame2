@@ -73,7 +73,8 @@
    It all lives in one file so you can read it top to bottom. A real
    codebase would spread it across schema / events / subs / views /
    machines files."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [re-frame.registrar :as rf.registrar]
             ;; Schemas ship as their own artefact, day8/re-frame2-schemas.
             ;; Requiring this ns wires up the hooks the `rf/reg-app-schema`
@@ -549,8 +550,12 @@
          :reset-domain action. A genuine blank slate, not a blank view laid
          over retained data."}
   (fn handler-app-initialise [{:keys [db]} _]
-    {:db (assoc db :new-todo new-todo-defaults)
+    {:db (assoc db :new-todo new-todo-defaults :nine-states.search/query "")
      :fx [[:dispatch [:ui/nine-states [:reset]]]]}))
+
+(rf/reg-event :nine-states.search/set-query
+  (fn handler-search-set-query [{:keys [db]} [_ query]]
+    {:db (assoc db :nine-states.search/query query)}))
 
 (rf/reg-event :nine-states.demo/load
   {:doc "Kick off a (synthetic) fetch through the demo HTTP stub. The reply
@@ -711,6 +716,15 @@
   (fn sub-todos-error [[snap] _]
     (get-in snap [:data :error])))
 
+(rf/reg-sub :nine-states.search/query
+  (fn sub-search-query [db _] (get db :nine-states.search/query "")))
+
+(rf/reg-sub :nine-states.search/matches
+  {:inputs [[:todos/items] [:nine-states.search/query]]}
+  (fn sub-search-matches [[items query] _]
+    (let [needle (str/lower-case (str/trim query))]
+      (filterv #(str/includes? (str/lower-case (:title %)) needle) items))))
+
 ;; ---- render-priority + :ui/render selector ----
 ;;
 ;; This is the keystone: the spot where three parallel axes collapse into
@@ -800,18 +814,26 @@
      [:h2 (str (count todos) " todos")]
      [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))
 
-(rf/reg-view ^{:doc "State 6 — Too Many: more than anyone wants to scroll, so
-                  show a search box and truncate the rest."}
+(rf/reg-view ^{:doc "State 6 — Too Many: search the whole list, then show a
+                  manageable number of matches."}
           view-too-many []
   (let [todos    @(subscribe [:todos/items])
-        shown    (take too-many-threshold todos)
-        overflow (- (count todos) too-many-threshold)]
+        query    @(subscribe [:nine-states.search/query])
+        matches  @(subscribe [:nine-states.search/matches])
+        shown    (take too-many-threshold matches)
+        overflow (- (count matches) (count shown))]
     [:div.state.state-too-many
-     [:h2 (str (count todos) " todos (showing first " too-many-threshold ")")]
-     [:input {:type "search" :placeholder "Search todos…"}]
-     [:ul (for [t shown] ^{:key (:id t)} [:li (:title t)])]
+     [:h2 (str (count todos) " todos")]
+     [:input {:type "search" :placeholder "Search todos…"
+              :aria-label "Search todos"
+              :value query
+              :on-change #(dispatch [:nine-states.search/set-query
+                                     (.. % -target -value)])}]
+     (if (seq shown)
+       [:ul (for [t shown] ^{:key (:id t)} [:li (:title t)])]
+       [:p "No matching todos."])
      (when (pos? overflow)
-       [:p.overflow (str "…and " overflow " more.")])]))
+       [:p.overflow (str "…and " overflow " more. Refine your search to narrow the list.")])]))
 
 (rf/reg-view ^{:doc "State 7 — Incorrect: per-field validation error + recovery path."}
           view-incorrect []
@@ -873,6 +895,9 @@
      [:button {:on-click #(dispatch [:nine-states.app/initialise])
                :data-testid "ns-button-nothing"
                :disabled read-only?} "1. Nothing"]
+     [:button {:on-click #(dispatch [:ui/nine-states [:fetch-started]])
+               :data-testid "ns-button-loading"
+               :disabled read-only?} "2. Loading"]
      [:button {:on-click #(dispatch [:nine-states.demo/load-with-failure])
                :data-testid "ns-button-trigger-error"
                :disabled read-only?} "Trigger error"]

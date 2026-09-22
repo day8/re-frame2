@@ -104,7 +104,9 @@
     (rf/dispatch-sync [:ui/nine-states [:fetch-started]] {:frame f})
     (is       (machine-has-tag?    f :data/loading))
     (is       (machine-has-tag?    f :data/transient))
-    (is (=    :loading     (render-model f)))))
+    (is (=    :loading     (render-model f)))
+    (rf/dispatch-sync [:nine-states.demo/load {:n 4}] {:frame f})
+    (is (= :some (render-model f)) "a load leaves the parked Loading state")))
 
 (defn- test-state-3-empty []
   (with-new-frame [f (new-frame)]
@@ -180,6 +182,27 @@
     (test-state-8-correct))
   (testing "state 9 — done (terminal, read-only)"
     (test-state-9-done)))
+
+(deftest too-many-searches-the-whole-list-without-changing-cardinality
+  (with-new-frame [f (new-frame)]
+    (rf/dispatch-sync [:nine-states.demo/load {:n 25}] {:frame f})
+    (let [before (snapshot f)
+          matches #(rf/compute-sub [:nine-states.search/matches]
+                                   (rf/frame-state-value f))]
+      (rf/dispatch-sync [:nine-states.search/set-query "  TODO #25  "] {:frame f})
+      (is (= ["Todo #25"] (mapv :title (matches)))
+          "search reaches a todo beyond the first seven, ignoring case and padding")
+      (rf/dispatch-sync [:nine-states.search/set-query "no such todo"] {:frame f})
+      (is (empty? (matches)) "a query with no matches yields an empty result")
+      (is (= before (snapshot f)) "search does not mutate the machine's full list or state")
+      (is (= :too-many (render-model f)) "zero matches does not become the empty-data state")
+      (rf/dispatch-sync [:nine-states.search/set-query ""] {:frame f})
+      (is (= 25 (count (matches))) "clearing the query restores every todo")
+      (rf/dispatch-sync [:nine-states.search/set-query "old query"] {:frame f})
+      (rf/dispatch-sync [:nine-states.app/initialise] {:frame f})
+      (is (= "" (rf/compute-sub [:nine-states.search/query] (rf/frame-state-value f)))
+          "Nothing resets the search along with the form and machine")
+      (is (empty? (matches))))))
 
 ;; ----------------------------------------------------------------------------
 ;; RESET — whole-machine return to square one clears owned domain data
