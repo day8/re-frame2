@@ -163,6 +163,9 @@
         "a string body is surfaced verbatim"))
   (testing "otherwise a category message keyed off the closed :rf.http/* taxonomy"
     (is (= "Network error — please try again." (wh/failure->message {:kind :rf.http/transport})))
+    (is (= "Blocked by the browser's cross-origin policy — check the API's CORS configuration."
+           (wh/failure->message {:kind :rf.http/cors :message "Failed to fetch"}))
+        "the CORS arm wins over the raw browser TypeError text the failure carries")
     (is (= "Request timed out." (wh/failure->message {:kind :rf.http/timeout})))
     (is (= "Request rejected (status 404)." (wh/failure->message {:kind :rf.http/http-4xx :status 404})))
     (is (= "Server error (status 503)." (wh/failure->message {:kind :rf.http/http-5xx :status 503})))
