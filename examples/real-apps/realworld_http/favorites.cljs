@@ -148,6 +148,16 @@
 ;; `:comment-form/submit-success` reuses it for its in-place swap. Shared where
 ;; it helps, separate where the shapes truly differ — deliberate, not an
 ;; oversight.
+;;
+;; The ROLLBACKS differ; the RACE POLICY does not. All three flows are
+;; serialised on one keyed one-at-a-time latch — the favourite by slug
+;; (`:favorite-pending`, here), the follow by username
+;; (`:profile.follow-pending`, shared by the profile banner and the article
+;; byline), and the comment delete by nothing at all, since a deleted
+;; comment's button leaves the page with it and there is no second intent to
+;; refuse. So the reader copying this app gets one concurrency law for the
+;; three optimistic writes, argued once under SERIALISING THE TOGGLE in
+;; profile.cljs and not restated here.
 
 (rf/reg-event :article/toggle-favorite
   {:doc "Flip the favorited flag and nudge the count immediately, then send the
@@ -158,10 +168,27 @@
          would 401 — which means no ugly flip-then-rollback flicker for a
          signed-out user. (Why gate it when the demo stub 200s everything? That
          friendly stub would happily mask the 401; gating here keeps the
-         example honest against the real backend it's documenting.)"}
+         example honest against the real backend it's documenting.)
+
+         SERIALISED PER SLUG: refused outright while a favourite for THIS
+         article is already in flight. The argument is made once, next door —
+         see SERIALISING THE TOGGLE in profile.cljs — and it lands here
+         unchanged, because a second click reads the FIRST click's optimistic
+         flip and so issues the OPPOSITE method. Nothing downstream can tell
+         the older reply from the newer intent, and `:article/favorite-synced`
+         re-seeds the row wholesale from whichever arrives last."}
   (fn [{:keys [db]} [_ slug]]
-    (if (nil? (get-in db [:auth :user]))
+    (cond
+      (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
+
+      ;; One mutation per article at a time. Both hearts are disabled while
+      ;; this holds, so this is the belt to the view's braces — a refused
+      ;; click, not a queued one.
+      (contains? (:favorite-pending db) slug)
+      {}
+
+      :else
       (if-let [article (find-article db slug)]
         (let [prior {:favorited      (:favorited article)
                      :favoritesCount (:favoritesCount article)}
@@ -169,9 +196,10 @@
               next-count (if favorited?
                            (max 0 (dec (:favoritesCount article)))
                            (inc (:favoritesCount article)))]
-          {:db (patch-article-everywhere db slug
-                                         #(assoc % :favorited (not favorited?)
-                                                   :favoritesCount next-count))
+          {:db (-> (patch-article-everywhere db slug
+                                             #(assoc % :favorited (not favorited?)
+                                                       :favoritesCount next-count))
+                   (update :favorite-pending (fnil conj #{}) slug))
            :fx [[:rf.http/managed
                  (rh/request {:method     (if favorited? :delete :post)
                               :path       (str "/articles/" slug "/favorite")
@@ -181,21 +209,38 @@
         {}))))
 
 (rf/reg-event :article/favorite-synced
+  {:doc "The favourite POST/DELETE's `:on-success`. Two owners, two questions
+         (SERIALISING THE TOGGLE, profile.cljs): releasing the slug is the
+         MUTATION's own, so it happens FIRST and UNCONDITIONALLY — including
+         on a reply that carries no `:article` to write — while re-seeding the
+         row is the article's. Gate the release on finding the article and a
+         row that has scrolled out of every list would strand its slug in the
+         set, the heart dead for the rest of the session.
+
+         Under the latch there is never a pair in flight, which is what makes
+         the wholesale re-seed below authoritative rather than a bet on
+         arrival order."}
   (fn [{:keys [db]} [_ slug {:keys [value]}]]
-    {:db (if-let [article (:article value)]
-      (patch-article-everywhere db slug
-                                (fn [_]
-                                  (select-keys article
-                                               [:slug :title :description :body :tagList
-                                                :createdAt :updatedAt :favorited
-                                                :favoritesCount :author])))
-      db)}))
+    (let [db (update db :favorite-pending disj slug)]
+      {:db (if-let [article (:article value)]
+             (patch-article-everywhere db slug
+                                       (fn [_]
+                                         (select-keys article
+                                                      [:slug :title :description :body :tagList
+                                                       :createdAt :updatedAt :favorited
+                                                       :favoritesCount :author])))
+             db)})))
 
 (rf/reg-event :article/favorite-rollback
+  {:doc "The favourite POST/DELETE's `:on-failure`, split between the same two
+         owners. The release half is never refused — it is what lets the
+         reader try again after a 500 rather than facing a heart disabled for
+         good."}
   (fn [{:keys [db]} [_ slug {:keys [favorited favoritesCount]} _failure-payload]]
-    {:db (patch-article-everywhere db slug
-                              #(assoc % :favorited favorited
-                                        :favoritesCount favoritesCount))}))
+    {:db (-> (update db :favorite-pending disj slug)
+             (patch-article-everywhere slug
+                                       #(assoc % :favorited favorited
+                                                 :favoritesCount favoritesCount)))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -207,4 +252,17 @@
 (rf/reg-sub :feed/count {:inputs [[:feed/slice]]} (fn [[slice] _] (:articles-count slice 0)))
 (rf/reg-sub :feed/loading? {:inputs [[:feed/slice]]}
   (fn [[slice] _] (#{:loading :fetching} (:status slice))))
+
+(rf/reg-sub :article/favorite-pending?
+  {:doc "Is a favourite/unfavourite mutation in flight for THIS slug? The
+         toggle is serialised on it (SERIALISING THE TOGGLE, profile.cljs), so
+         the card heart and the detail-page button both read it to disable
+         themselves while a reply is outstanding — ask, don't tell.
+
+         It asks about a NAMED slug rather than about the screen, and that is
+         the whole of its argument: the same article can be on screen in
+         several lists at once (this namespace's docstring), so the row being
+         mutated goes dead while every other heart on the page stays live."}
+  (fn sub-article-favorite-pending? [db [_ slug]]
+    (contains? (:favorite-pending db) slug)))
 

@@ -548,6 +548,16 @@
 ;; profile.cljs's `:profile/follow` (that one drives the profile-page banner).
 ;; Same gesture, two homes.
 ;;
+;; Two homes, ONE latch. The toggle below consults and takes
+;; `:profile.follow-pending` under the AUTHOR's username — the very set the
+;; profile banner takes — so a follow issued from the banner leaves this
+;; button disabled on her articles, and one issued here leaves her banner
+;; button disabled, until that mutation settles. A second latch of this
+;; page's own would have left the hole open in both directions: the latch
+;; belongs to the MUTATION rather than to the screen, and a username can be
+;; mutated from either. See SERIALISING THE TOGGLE in profile.cljs for the
+;; argument; it is made once and not restated here.
+;;
 ;; These are button-driven rather than route-driven, but they write the
 ;; ROUTE-OWNED `[:article ...]` slice, so their settles carry the slug they
 ;; were issued on and gate on it exactly as the loads do — see THE CORRELATION
@@ -562,7 +572,15 @@
 
          Both reply targets CARRY THE SLUG THE FLIP WAS ISSUED ON — the slice's
          own `[:article :slug]`, the same identity the reads correlate against
-         — because they write `[:article :data :author]` and the route owns it."}
+         — because they write `[:article :data :author]` and the route owns it.
+
+         AND THE USERNAME RIDES BESIDE IT, because the two facts have
+         different owners: the username releases the shared latch, the slug
+         gates the author write. Two questions, two arguments.
+
+         Refuses outright while a follow/unfollow for THIS AUTHOR is already
+         in flight — issued here or from her profile banner, which is the same
+         set either way (Two homes, ONE latch, above)."}
   (fn [{:keys [db]} _]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
@@ -570,37 +588,62 @@
             author     (get-in db [:article :data :author])
             username   (:username author)
             following? (:following author)]
-        (if (nil? username)
+        (cond
+          (nil? username)
           {}
-          {:db (assoc-in db [:article :data :author :following] (not following?))
+
+          ;; One mutation per author at a time, wherever it was issued from.
+          ;; The button is disabled while this holds, so this is the belt to
+          ;; the view's braces — a refused click, not a queued one.
+          (contains? (:profile.follow-pending db) username)
+          {}
+
+          :else
+          {:db (-> db
+                   (assoc-in [:article :data :author :following] (not following?))
+                   (update :profile.follow-pending (fnil conj #{}) username))
            :fx [[:rf.http/managed
                  (rh/request {:method     (if following? :delete :post)
                               :path       (str "/profiles/" username "/follow")
                               :decode     schema/ProfileResponse
-                              :on-success [:article/author-follow-synced slug]
-                              :on-failure [:article/author-follow-rollback slug following?]})]]})))))
+                              :on-success [:article/author-follow-synced slug username]
+                              :on-failure [:article/author-follow-rollback slug username following?]})]]})))))
 
 (rf/reg-event :article/author-follow-synced
   {:doc "The follow POST/DELETE's `:on-success`, carrying the slug the flip was
-         issued on. Correlation-gated, and this is the write that most needs
-         it: it re-seeds the WHOLE author map, so a late reply for the article
-         the reader has left would put alpha's author — name, avatar and
-         profile link included — on beta's byline."}
-  (fn [{:keys [db]} [_ slug {:keys [value]}]]
-    (when (reply-for-current-slug? db :article slug)
-      {:db (if-let [profile (:profile value)]
-             (assoc-in db [:article :data :author] profile)
-             db)})))
+         issued on AND the username it was issued for. TWO QUESTIONS, and this
+         pair is the clearest case of it in the file.
+
+         The author-map write is the SLICE's, so it stays correlation-gated —
+         it re-seeds the WHOLE author map, so a late reply for the article the
+         reader has left would put alpha's author, name, avatar and profile
+         link included, on beta's byline.
+
+         Releasing the latch is the MUTATION's own, so it is UNCONDITIONAL and
+         happens wherever the reader has got to. It has to be: gate it on the
+         current slug and a settle arriving after a walk to another article
+         would leave that author latched for the rest of the session, her
+         Follow button dead on every page with nothing in flight left to free
+         it. Keying by username is what makes an unconditional release safe —
+         alice's reply can only ever release alice."}
+  (fn [{:keys [db]} [_ slug username {:keys [value]}]]
+    (let [mine?   (reply-for-current-slug? db :article slug)
+          profile (:profile value)]
+      {:db (cond-> (update db :profile.follow-pending disj username)
+             (and mine? profile) (assoc-in [:article :data :author] profile))})))
 
 (rf/reg-event :article/author-follow-rollback
-  {:doc "The follow POST/DELETE's `:on-failure`, correlated exactly as
-         `:article/author-follow-synced` is. Refusing a stale rollback strands
-         nothing: the optimistic flip it would undo went with the slice when
-         `:article/load` reset it for the new slug, and coming back to the
-         article re-reads the true flag from the server."}
-  (fn [{:keys [db]} [_ slug previous-following _failure-payload]]
-    (when (reply-for-current-slug? db :article slug)
-      {:db (assoc-in db [:article :data :author :following] previous-following)})))
+  {:doc "The follow POST/DELETE's `:on-failure`, split between the same two
+         owners. Refusing the stale half strands nothing: the optimistic flip
+         it would undo went with the slice when `:article/load` reset it for
+         the new slug, and coming back to the article re-reads the true flag
+         from the server. The release half is never refused — it is what lets
+         the reader try again after a 500 rather than facing a button disabled
+         for good, on this page and on the author's profile alike."}
+  (fn [{:keys [db]} [_ slug username previous-following _failure-payload]]
+    (let [mine? (reply-for-current-slug? db :article slug)]
+      {:db (cond-> (update db :profile.follow-pending disj username)
+             mine? (assoc-in [:article :data :author :following] previous-following))})))
 
 (rf/reg-event :article/delete
   {:doc "Delete the current article, straight from the DETAIL page (authors
@@ -663,6 +706,20 @@
   {:doc "The current article's author profile (username, image, following)."
    :inputs [[:article/data]]}
   (fn [[article] _] (:author article)))
+
+(rf/reg-sub :article/author-follow-pending?
+  {:doc "Is a follow/unfollow mutation in flight for THIS article's author,
+         wherever it was issued from? The byline button reads it to disable
+         itself — ask, don't tell.
+
+         It asks about the author's username rather than delegating to
+         `:profile/follow-pending?`, which asks about `[:profile :username]`
+         — the profile PAGE's own screen, and nil while the reader is here.
+         Same latch, different question: one set, keyed by username, asked
+         from each screen about the name that screen is showing."}
+  (fn sub-article-author-follow-pending? [db _]
+    (contains? (:profile.follow-pending db)
+               (get-in db [:article :data :author :username]))))
 
 (rf/reg-sub :article/own?
   {:doc "Is this the reader's own article? True when the signed-in user is the
@@ -733,10 +790,11 @@
                   (once up top in the banner, once down in the footer), exactly
                   as the official template does."}
           article-meta []
-  (let [article @(subscribe [:article/data])
-        author  @(subscribe [:article/author])
-        own?    @(subscribe [:article/own?])
-        authed? @(subscribe [:auth/authenticated?])]
+  (let [article      @(subscribe [:article/data])
+        author       @(subscribe [:article/author])
+        own?         @(subscribe [:article/own?])
+        authed?      @(subscribe [:auth/authenticated?])
+        follow-busy? @(subscribe [:article/author-follow-pending?])]
     [:div.article-meta
      [rf/route-link {:to :realworld.profile/show :params {:username (:username author)}}
       [:img.user-pic {:src (avatar/avatar-src (:image author))}]]
@@ -760,6 +818,7 @@
        authed?
        [:button.btn.btn-sm.btn-outline-secondary
         {:type "button" :data-testid "article-follow-author"
+         :disabled follow-busy?
          :on-click #(dispatch [:article/toggle-follow-author])}
         [:i.ion-plus-round] " "
         (if (:following author) "Unfollow " "Follow ") (:username author)])]))
@@ -810,6 +869,7 @@
               {:type        "button"
                :data-testid "article-favorite"
                :class       (if favorited? "btn-primary" "btn-outline-primary")
+               :disabled    @(subscribe [:article/favorite-pending? (:slug article)])
                :on-click    #(dispatch [:article/toggle-favorite (:slug article)])}
               [:i.ion-heart] " "
               (if favorited? "Unfavorite" "Favorite") " Article "

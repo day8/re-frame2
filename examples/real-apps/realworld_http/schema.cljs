@@ -314,11 +314,19 @@
    [:profile.articles :data]        [:maybe [:vector ws/Article]]
    [:profile.favorites]             [:maybe RequestSlice]
    [:profile.favorites :data]       [:maybe [:vector ws/Article]]
-   ;; Not a RequestSlice — the profiles with a follow/unfollow in flight. Its
+   ;; Not a RequestSlice — the profiles with a follow/unfollow in flight,
+   ;; shared by the profile banner and the article byline (comments.cljs). Its
    ;; `:maybe` is load-bearing beyond the boot window the note above describes:
    ;; hydration replaces app-db with the SSR payload, which deliberately omits
    ;; this one (profile.cljs, SERIALISING THE TOGGLE).
    [:profile.follow-pending]        [:maybe [:set :string]]
+   ;; Its favourite-side twin — not a RequestSlice either, just the article
+   ;; slugs with a favourite POST/DELETE in flight. `:maybe` is load-bearing
+   ;; TWICE here: hydration omits it for the same reason as the set above,
+   ;; and nothing seeds it at boot (the `:settings.saves-in-flight`
+   ;; precedent below — a mutation's latch must not die with a screen or a
+   ;; session reset, and `conj`/`disj` are absent-safe).
+   [:favorite-pending]              [:maybe [:set :string]]
    [:comments]                      [:maybe RequestSlice]
    ;; The DURABLE comment, not the wire one: the list holds the optimistic
    ;; card under its temp id while the POST is out (see `DurableComment`).

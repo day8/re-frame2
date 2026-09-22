@@ -3208,11 +3208,13 @@
       (is (= "Writer" (:bio author))
           ":article/author-follow-synced re-seeds the author from the returned profile"))
     ;; Rollback handler (driven directly): restores the captured prior flag.
-    ;; The leading "hello" is the issuing slug the handler now correlates on
-    ;; (rf2-amhpk); the route is /article/hello, so the gate admits it. Pass a
-    ;; different slug and this assertion fails — which is exactly what
-    ;; follow-cross-slug-late-rollback-is-refused-test pins.
-    (rf/dispatch-sync [:article/author-follow-rollback "hello" false {:kind :rf.http/http-4xx}] {:frame f})
+    ;; The leading "hello" is the issuing slug the handler correlates the
+    ;; author WRITE on (rf2-amhpk); the route is /article/hello, so the gate
+    ;; admits it. Pass a different slug and this assertion fails — which is
+    ;; exactly what follow-cross-slug-late-rollback-is-refused-test pins.
+    ;; "eve" is the issuing USERNAME, which releases the shared follow latch
+    ;; unconditionally — a second identity with a second owner (rf2-zfr7w).
+    (rf/dispatch-sync [:article/author-follow-rollback "hello" "eve" false {:kind :rf.http/http-4xx}] {:frame f})
     (is (false? (:following (rf/compute-sub [:article/author] (rf/frame-state-value f))))
         ":article/author-follow-rollback restores the captured prior following flag")))
 

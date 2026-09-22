@@ -492,6 +492,14 @@
 ;; is the smallest policy honest about both facts above: abort is not proof,
 ;; and arrival order is not intent order.
 ;;
+;; TWO OTHER TOGGLES TAKE THIS LAW, and one of them takes this very set. The
+;; article byline's Follow (comments.cljs) consults and acquires
+;; `:profile.follow-pending` under the author's username, so the banner and
+;; the byline serialise against each other rather than each latching alone —
+;; without that, the walk described below is exactly how the pair gets out.
+;; The favourite heart (favorites.cljs) copies the shape onto its own
+;; slug-keyed `:favorite-pending`. The argument stays here; they cite it.
+;;
 ;; THE LATCH IS NOT IN THE BANNER SLICE, and that is the navigation half of the
 ;; same law. A latch living in `[:profile]` dies when `:profile/load` rebuilds
 ;; the slice for a new username — so alice → bob → alice, with alice's POST
