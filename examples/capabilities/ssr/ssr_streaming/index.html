@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>re-frame2 example: streaming SSR with :rf/suspense-boundary</title>
+  <title>re-frame2 example: streaming SSR with ssr/boundary</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#1A1814">
   <meta name="description" content="re-frame2 worked example — examples for the modern Clojure framework.">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="re-frame2 example: streaming SSR with :rf/suspense-boundary">
+  <meta property="og:title" content="re-frame2 example: streaming SSR with ssr/boundary">
   <meta property="og:description" content="re-frame2 worked example — examples for the modern Clojure framework.">
   <meta property="og:image" content="_shared/img/og.png">
   <meta name="twitter:card" content="summary_large_image">
@@ -74,7 +74,10 @@
     `:dashboard/card-skeleton` fallback stamps its `<div class="card
     skeleton">`. The client's dev render stamps the same attributes, so the
     page adopts cleanly and pair-shaped tooling can map each node to its
-    view; a production build elides them on both hosts.
+    view; a production build elides them on both hosts. Those `<line>`
+    segments are a SNAPSHOT of the call sites: move a `reg-view` in
+    core.cljc and this page must be re-baked, or the adoption stops being
+    clean.
 
     (`:rf/render-hash` in the payload is the placeholder "00000000": this
     offline stand-in leaves out `:render-tree-fn`, so hydration runs no
@@ -82,7 +85,7 @@
     `run`. A real streaming server stamps the genuine body hash and passes
     `:render-tree-fn` to switch verification on.)
   -->
-  <div id="app"><main class="dashboard" data-rf2-source-coord="dashboard:root:158:1" data-rf-view=":dashboard/root"><header><h1>Dashboard</h1><p>Streamed SSR demo — shell renders first, cards stream in.</p></header><section class="cards"><template data-rf2-suspense-id=":card.revenue" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading revenue …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.signups" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading signups …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.latency" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading latency …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.flaky" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading flaky …</h3><p class="value">—</p></div></template></section><footer><p>Each card above is a `:rf/suspense-boundary`.</p></footer></main></div>
+  <div id="app"><main class="dashboard" data-rf2-source-coord="dashboard:root:158:1" data-rf-view=":dashboard/root"><header><h1>Dashboard</h1><p>Streamed SSR demo — shell renders first, cards stream in.</p></header><section class="cards"><template data-rf2-suspense-id=":card.revenue" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading revenue …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.signups" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading signups …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.latency" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading latency …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.flaky" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:83:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading flaky …</h3><p class="value">—</p></div></template></section><footer><p>Each card above is an `ssr/boundary`.</p></footer></main></div>
   <template data-rf2-suspense-id=":card.revenue" data-rf2-suspense-resolved="1"><div class="card" data-rf2-source-coord="dashboard:card:88:1" data-rf-view=":dashboard/card"><h3>Revenue (last 7 days)</h3><p class="value">42375</p></div></template>
   <script data-rf2-suspense-hydrate=":card.revenue" type="application/edn">{}</script>
   <template data-rf2-suspense-id=":card.signups" data-rf2-suspense-resolved="1"><div class="card" data-rf2-source-coord="dashboard:card:88:1" data-rf-view=":dashboard/card"><h3>New signups (last 7 days)</h3><p class="value">318</p></div></template>

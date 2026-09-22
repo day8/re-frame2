@@ -152,7 +152,10 @@
 
     :authed
     ;; Journey's end, happy path. The :auth/authenticated tag rides along once
-    ;; the flow lands here, and :terminal? marks it as a final state.
+    ;; the flow lands here. `:meta {:terminal? true}` is a TOOLING HINT that
+    ;; this leaf has no way out — it is NOT `:final?`, which would destroy the
+    ;; singleton and re-birth it from :idle on the next event
+    ;; (docs/machines/concepts.md §Final states; Spec 005 D1/D7).
     {:tags #{:auth/authenticated}
      :meta {:terminal? true}}
 
