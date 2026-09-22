@@ -98,10 +98,68 @@
 ;; key, and it appears in every URL), carrying no draft, no profile content and
 ;; no credential. What must outlive the session is precisely the knowledge that
 ;; somebody else's save is still out there.
+;;
+;; AND IT MUST NOT OUTLIVE THE REQUESTS IT IS COUNTING, which takes a second
+;; number. An entry is retired by the reply that IDENTIFIES it — but an
+;; ambiguous reply identifies nothing, so it retires nothing, and on its own
+;; that leaves an entry standing for a save that has already had its one and
+;; only reply. Retiring one there instead is not an option: drop an entry and
+;; the NEXT reply sees a count of one, reads as identified, and lands on a form
+;; waiting for somebody else's save — the exact write this file exists to
+;; refuse. (Q1a below is where that is decided; its comment carries the same
+;; reasoning at the point of use.)
+;;
+;; So an ambiguous reply is COUNTED rather than attributed. `:settings.saves-
+;; answered` holds how many replies have been consumed without retiring an
+;; entry, and the arithmetic then closes itself. Every save delivers exactly one
+;; reply, and every reply either retires an entry or is counted here, so:
+;;
+;;     replies delivered  =  (saves issued - entries remaining) + answered
+;;
+;; and the wire is EMPTY — every save issued has replied — exactly when
+;; `answered` equals the number of entries remaining. At that moment no further
+;; reply can name any of them, so the whole ledger is dropped and the count goes
+;; back to zero. That is a PROOF rather than a guess, and it is the one thing
+;; the arithmetic can establish that a reply's contents cannot. It is also what
+;; keeps this bounded: without it an ordinary uncontended save made later in the
+;; same app lifetime would be measured against a ghost, be ambiguous, and be
+;; discarded — for ever, and worse with each attempt (rf2-bq1fy).
 
 (def ^:private saves-in-flight-key
   "The app-db key holding the on-the-wire ledger. Named once."
   :settings.saves-in-flight)
+
+(def ^:private saves-answered-key
+  "The app-db key counting replies consumed without retiring an entry. Named
+   once. See the arithmetic above: when it reaches the ledger's length, the
+   wire is empty."
+  :settings.saves-answered)
+
+(defn- drain-settled-wire
+  "Drop the ledger whole once `answered` accounts for every entry left in it.
+   Every one of those entries then belongs to a save that has already delivered
+   its only reply, so nothing that could ever arrive needs counting. Run after
+   each mutation of either number, and inert until the two balance — nothing is
+   cleared while a save is still unanswered, which is what stops this being the
+   guess Q1a refuses to make."
+  [db]
+  (let [answered (get db saves-answered-key 0)]
+    (if (and (pos? answered)
+             (= answered (count (get db saves-in-flight-key))))
+      (-> db
+          (assoc saves-in-flight-key [])
+          (assoc saves-answered-key 0))
+      db)))
+
+(defn- record-answered
+  "Count a reply that named an account more than one unanswered save claims. It
+   answered one of them; which one is unknowable, so nothing is retired — but
+   the wire is one reply emptier, and that is the fact `drain-settled-wire`
+   eventually acts on."
+  [db]
+  (-> db
+      (update saves-answered-key (fnil inc 0))
+      drain-settled-wire))
 
 (defn- record-save
   "Add a save to the ledger as it goes out, under the name it will report back."
@@ -116,7 +174,9 @@
   [db claimed-username]
   (let [[before after] (split-with #(not= claimed-username %)
                                    (get db saves-in-flight-key))]
-    (assoc db saves-in-flight-key (into (vec before) (rest after)))))
+    (-> db
+        (assoc saves-in-flight-key (into (vec before) (rest after)))
+        drain-settled-wire)))
 
 (defn- claims-outstanding
   "How many unanswered saves would report back `claimed-username`. A success
@@ -565,6 +625,15 @@
 ;; true of two saves by the SAME account (sign out and back in as yourself with
 ;; a PUT still parked). Closing THOSE would need a per-submission identity on
 ;; the reply, which is the positional slot the JWT has already claimed.
+;;
+;; WHAT THAT LIMIT IS NOT is permanent, and the difference is the whole of
+;; rf2-bq1fy. The loss is confined to the saves that genuinely overlapped: the
+;; `answered` count above drops every entry the moment the wire empties, so an
+;; ordinary save made afterwards is identified and lands normally — same app
+;; lifetime, no reload, nothing to clear by hand. An earlier version of this
+;; file left the ambiguous entry standing for ever, which turned a lost update
+;; into an account that could never save again, each further attempt adding one
+;; more ghost to measure the next reply against.
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
          machine's :data via :store-user (region lands in :correct), store the
@@ -587,13 +656,23 @@
           ;; OWNERSHIP.
           saved   (:username (:user value))]
       (cond
-        ;; Q1a — the reply identifies no single save. Either nothing on the
-        ;; wire claims that account (a duplicate or resurrected reply), or more
-        ;; than one does and there is no telling which answered. Conclude
-        ;; nothing and retire nothing: retiring here would be a guess, and the
-        ;; entry that survives is what keeps the NEXT reply honest.
-        (not= 1 (claims-outstanding db saved))
+        ;; Q1a — the reply identifies no single save, and the two ways that can
+        ;; happen part company here. FIRST: nothing on the wire claims that
+        ;; account at all, so this is a duplicate or resurrected reply,
+        ;; answering no save we know of. Conclude nothing — and count nothing
+        ;; either, because there is no entry for it to be evidence about.
+        (zero? (claims-outstanding db saved))
         nil
+
+        ;; Q1a, second way: more than one unanswered save claims it and there is
+        ;; no telling which answered. Conclude nothing and retire nothing —
+        ;; retiring here would be a guess, and the entry that survives is what
+        ;; keeps the NEXT reply honest. But one of those saves demonstrably HAS
+        ;; answered, so count it: once the count accounts for every entry left,
+        ;; the wire is empty and they all go together, which is the part that is
+        ;; arithmetic rather than a guess (§SAVES ON THE WIRE).
+        (< 1 (claims-outstanding db saved))
+        {:db (record-answered db)}
 
         ;; Q1b — one save is identified, and it is not the one this form is
         ;; waiting on. It IS definitively that save's reply though, so retire

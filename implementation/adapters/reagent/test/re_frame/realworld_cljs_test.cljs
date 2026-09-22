@@ -1092,6 +1092,85 @@
               "and it navigates to his profile — which is also the positive
                control for the no-navigation assertion in the row above"))))))
 
+;; ---- rf2-bq1fy — the ledger must not outlive the requests it counts --------
+;;
+;; The two rows above stop where every request has settled, and that is exactly
+;; where this one starts. Alice's success was refused as ambiguous, which
+;; correctly retires nothing; bob's 422 settled his own form and retired one
+;; entry. BOTH requests have now delivered their one and only reply, so nothing
+;; further can ever arrive — yet an entry was left standing, and RealWorld's
+;; one-reply-per-request contract offers no later callback that could drain it.
+;;
+;; Every subsequent save alice made was then measured against that ghost, read
+;; as ambiguous, and discarded — for the rest of the app's lifetime, and one
+;; ghost worse per attempt. Neither route load nor logout clears the ledger, by
+;; design, so nothing recovered it.
+;;
+;; This row is the row above plus one beat: sign back in and save ordinarily.
+;; The refusal is re-asserted on the way through, so the pin cannot be satisfied
+;; by weakening it.
+
+(defn- settings-ledger-drains-once-every-reply-has-landed-test []
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/park-managed
+                                                :auth.session/persist :rf/no-op}})]
+    (let [alice-args (park-a-settings-save! f "alice")]
+      (is (some? alice-args) "alice's settings PUT lowered a request and parked")
+      (logout-scrubbing-the-settings-snapshot! f)
+
+      (let [bob-args (park-a-settings-rename! f "bob" "alice")]
+        (is (= 2 (count (get-in (rf/frame-state-value f) [:rf.db/app :settings.saves-in-flight])))
+            "two unanswered saves claim `alice` — the ambiguity this row inherits,
+             and the positive control for the emptiness assertion below")
+
+        ;; TERMINAL REPLY 1 — alice's success. Ambiguous, so refused.
+        (reply-parked-success! alice-args
+                               {:user {:email "alice@example.com" :token "alice-jwt-2"
+                                       :username "alice" :bio "Alice bio" :image nil}}
+                               f)
+        (let [db (rf/frame-state-value f)]
+          (is (= "bob" (get-in db [:rf.db/app :auth :user :username]))
+              "the cross-account refusal still holds — this row does not buy the
+               recovery by weakening it")
+          (is (= :submitting (:state (settings-snapshot db)))
+              "and bob's still-pending rename is still not settled by it"))
+
+        ;; TERMINAL REPLY 2 — bob's occupied-name rejection, which settles HIS
+        ;; form and is the last reply either request will ever produce.
+        (reply-parked-failure! bob-args
+                               {:kind :rf.http/http-4xx :status 422
+                                :body "username has already been taken"}
+                               f)
+        (let [db (rf/frame-state-value f)]
+          (is (= :incorrect (:state (settings-snapshot db)))
+              "bob's own failure DOES settle his form")
+          (is (empty? (get-in db [:rf.db/app :settings.saves-in-flight]))
+              "and with the wire now empty the ledger drains — no entry survives
+               a request that has already answered")
+          (is (zero? (get-in db [:rf.db/app :settings.saves-answered] 0))
+              "the answered count goes with it, so the pair is bounded rather
+               than a second thing that grows"))
+
+        ;; A LATER, UNCONTENDED SAVE — alice signs back in and saves ordinarily.
+        ;; Nothing is on the wire, nobody else claims her name, and this is the
+        ;; save the stale entry used to suppress.
+        (logout-scrubbing-the-settings-snapshot! f)
+        (let [alice-again (park-a-settings-save! f "alice")]
+          (is (some? alice-again) "her later save lowered a request of its own")
+          (reply-parked-success! alice-again
+                                 {:user {:email "alice@example.com" :token "alice-jwt-3"
+                                         :username "alice" :bio "Alice bio 2" :image nil}}
+                                 f)
+          (let [db (rf/frame-state-value f)]
+            (is (= "Alice bio 2" (get-in db [:rf.db/app :auth :user :bio]))
+                "her fresh save IS folded in")
+            (is (= "alice-jwt-3" (get-in db [:rf.db/app :auth :token]))
+                "with her own fresh token")
+            (is (= :correct (:state (settings-snapshot db)))
+                "her form settles on her own reply")
+            (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] db))
+                "and it navigates to her profile")))))))
+
 ;; ============================================================================
 ;; tags — route query helpers + the :realworld/tags machine
 ;; ============================================================================
@@ -1888,7 +1967,11 @@
     (settings-occupied-name-rename-stale-success-test))
   (testing "a rename to an unclaimed name still completes, with another account's save
             parked the whole time (rf2-ktkhn)"
-    (settings-valid-rename-still-completes-test)))
+    (settings-valid-rename-still-completes-test))
+  (testing "once BOTH of those requests have delivered their only reply the ledger
+            drains, so a later uncontended save by the same account still lands —
+            an ambiguous reply refuses, it does not retire the account (rf2-bq1fy)"
+    (settings-ledger-drains-once-every-reply-has-landed-test)))
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"

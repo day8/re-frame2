@@ -180,6 +180,12 @@
    that to one and report the reply as identified. The count is how many saves
    are in flight; the entries are the names they have claimed.
 
+   An entry is dropped by the reply that IDENTIFIES it, and an ambiguous reply
+   identifies nothing — so an entry can briefly outlive the reply that actually
+   answered it. `[:settings.saves-answered]` counts those, and when the two
+   balance the wire is empty and this vector is cleared whole. Neither number
+   can therefore grow without bound.
+
    Top-level, beside the slices rather than inside one, for the same reason the
    resources twin's `:settings-save-owner` is: `:settings/load` rebuilds the
    form on every route entry and logout resets the machine, and a record either
@@ -327,7 +333,14 @@
    ;; the wire. Its `:maybe` is the boot window: nothing writes it until the
    ;; first submit, and a save that is still outstanding is deliberately NOT
    ;; seeded away by `:settings/initialise`.
-   [:settings.saves-in-flight]      [:maybe SettingsSavesInFlight]})
+   [:settings.saves-in-flight]      [:maybe SettingsSavesInFlight]
+   ;; The other half of that ledger: how many replies have been consumed
+   ;; WITHOUT retiring an entry, because more than one outstanding save claimed
+   ;; the account they named. When it reaches the ledger's length every listed
+   ;; save has answered, the wire is empty, and both are cleared — settings.cljs
+   ;; §SAVES ON THE WIRE has the arithmetic. Its `:maybe` is the boot window,
+   ;; same as its twin's: nothing writes it until a reply arrives ambiguous.
+   [:settings.saves-answered]       [:maybe :int]})
 
 (with-frame :rf/default
   (rf/reg-app-schemas app-db-schemas))
