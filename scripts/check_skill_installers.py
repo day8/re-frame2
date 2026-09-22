@@ -190,6 +190,12 @@ class InstallerTests(unittest.TestCase):
         # already gone (rf2-7bwh1). Both Windows entrypoints share this guard.
         for index, command in enumerate(self.commands):
             with self.subTest(installer=command[0]):
+                # Put the source back first. Should a regression let the
+                # entrypoint before this one delete it, this one must still
+                # face a LIVE source - an emptied skills/ links nothing and
+                # exits 0, which reports the wrong entrypoint as the broken.
+                self.source.mkdir(parents=True, exist_ok=True)
+                (self.source / "SKILL.md").write_bytes(b"current skill\n")
                 alias = self.base / f"parent-alias-{index}"
                 self.make_link(alias, self.repo)
                 self.run_installer(command, alias / "skills", "force", expected=1)
