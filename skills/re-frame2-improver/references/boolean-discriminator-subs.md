@@ -64,7 +64,7 @@ Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/b
     (case status
       :loading :loading
       :error   :error
-      :loaded  (if (empty? data) :empty :loaded)   ;; cardinality folded in here
+      (:loaded :fetching) (if (empty? data) :empty :loaded) ;; retain prior data while refreshing
       :idle)))                                     ;; nil / :idle — nothing fetched yet
 
 (rf/reg-view article-page []
@@ -74,7 +74,7 @@ Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/b
     :loaded [article-body]))
 ```
 
-Four subs become one, the view derefs once, and the mutual exclusion is a single `case` rather than an invariant spread across four handlers. There is no lazy-initialisation boundary to manage: the slice is ordinary `app-db`, so the `:idle` default covers "nothing fetched yet" with no eager-start kick. Adding `:stale` is one `case` clause on each side.
+Four subs become one, the view derefs once, and the mutual exclusion is a single `case` rather than an invariant spread across four handlers. `:fetching` keeps the prior loaded or empty view visible while the slice revalidates, including when this selector is combined with the [manual-loading-flags correction](manual-loading-flags.md). There is no lazy-initialisation boundary to manage: the slice is ordinary `app-db`, so the `:idle` default covers "nothing fetched yet" with no eager-start kick. Adding `:stale` is one `case` clause on each side.
 
 **After — the optional redesign** (only when a [`slice-or-machine.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/decision-trees/slice-or-machine.md) tell fires, or the page is already a Nine States machine) — a machine whose states carry `:tags`, one selector sub over a data render-priority table, one `case` in the view:
 
