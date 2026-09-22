@@ -34,9 +34,22 @@ Notes on what is and isn't checked:
       on every PR. Widening THIS roster to the repo root was considered and
       rejected — it would double-cover the root `README.md` under two
       conflicting duplicate-suffix rules.
-    * Only intra-repo links are validated. External http(s) URLs are skipped.
-    * Only links to .md files are validated. Code, image, and asset links
-      are skipped (their existence is mkdocs' concern, not the slug index's).
+    * Only intra-repo links are validated. External http(s) URLs are skipped —
+      EXCEPT this repo's own https://github.com/day8/re-frame2/(blob|tree)/main/
+      URLs, which are unwrapped to a repo path and graded against the working
+      tree: existence for any target kind, blob-vs-tree kind, and a `.md`
+      anchor (rf2-nvbz; `IN_REPO_GH_URL_RE`, `_in_repo_github_url_problems`).
+      Likewise this project's own https://day8.github.io/re-frame2/ site URLs,
+      resolved offline path-only (rf2-dnx3r; `_site_url_problems`). So a search
+      of this file for the literal `github.com` finds only this docstring — the
+      host is spelled as an escaped regex in the code — and says nothing about
+      coverage.
+    * Among RELATIVE links, only those to .md files are validated. Code, image,
+      and asset links are skipped (their existence is mkdocs' concern, not the
+      slug index's). Neither absolute arm above is so limited: the GitHub arm
+      grades any target kind, and a site URL is resolved as a PAGE first — a dot
+      in a page's basename is not an extension, so a static file's existence is
+      asked only once no Markdown route claims the path (rf2-co91r).
     * Same-file anchors (no path, just #foo) are validated against the
       current file's index. No target-file check is needed.
     * Cross-tree links resolve relative to the linking file (..  segments
