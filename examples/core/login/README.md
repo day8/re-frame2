@@ -68,11 +68,17 @@ login/
                          events + subs + frame config. Shared, id for id, by
                          all three login examples (Reagent / UIx / Fresco).
   core.cljs            — the Reagent HALF: reg-view views + adapter init + mount.
-  index.html           — minimal host page (the live app).
+  index.html           — the host page for BOTH builds. It carries the
+                         `[data-rf-xray-host]` aside Xray's inline mount
+                         needs, so Ctrl+Shift+C works on the served page.
   stories.cljs         — Story showcase: variants covering every reachable
                          :auth.login/flow state (auxiliary; see below).
   stories_host.cljs    — Story-showcase entry point (live-app ↔ shell hash router).
-  stories.index.html   — host page for the Story-showcase build.
+  stories.index.html   — an alternate `<title>`/meta for the showcase
+                         build. Nothing serves it today: the runner stages,
+                         and the watch server resolves, `index.html` at `/`
+                         for every build. Kept identical to `index.html`
+                         below the `<head>` until that is settled either way.
 ```
 
 The 3 `stories*` files are an intentionally auxiliary Story showcase layered over this example (build `examples/login-with-stories`). It's not a second example, and it isn't tool-owned. The login form's view-states make a natural variant set, so the showcase sources the real login dataflow (the `login.model` machine and schemas) and `login.core`'s real views and turns every reachable login state into a Story variant. The Xray preload is wired in, so the auth-submit cascade is inspectable. They live here, rather than under `tools/story/testbeds/`, because they showcase this worked example end to end; the tool-owned Story testbeds at [`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued with the tool. See [How to run](#how-to-run) for the showcase command.
@@ -91,4 +97,4 @@ Then open the URL it prints. To run the Story showcase instead:
 npm run dev:example -- examples/login-with-stories
 ```
 
-Open the printed URL for the live login app, or append `#/stories` to it for the Story shell with every reachable state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on either surface to open Xray over the auth-submit cascade.
+Open the printed URL for the live login app, or append `#/stories` to it for the Story shell with every reachable state as a variant. Both surfaces are the same page under a hash router, so the `[data-rf-xray-host]` aside in `index.html` serves both: press <kbd>Ctrl+Shift+C</kbd> on either one and Xray opens inline beside the app, over the auth-submit cascade.

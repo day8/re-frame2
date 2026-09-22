@@ -19,7 +19,13 @@
        `--rf-xray-inline-width` is the documented host-resize knob (see
        day8.re-frame2-xray.config/default-layout-host-css-var and
        spec/011-Launch-Modes.md §Resizing the inline host); the drag handle is
-       auto-injected. The Story shell on `#/stories` is unaffected: it hosts
+       auto-injected. Nothing serves THIS page today, though: the runner
+       stages, and the watch server resolves, `index.html` at `/` for both
+       login builds, so the aside that actually answers the chord is the
+       one in `index.html`. This page is an alternate `<title>`/meta kept
+       identical to `index.html` below the `<head>` while whether it should
+       exist at all is an open call — so it must not quietly acquire a
+       different body in the meantime. The Story shell on `#/stories` hosts
        Xray a panel at a time through its own RHS embed, not through this
        slot. -->
 </head>
