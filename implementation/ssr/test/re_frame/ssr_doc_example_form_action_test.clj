@@ -400,9 +400,21 @@
   (testing "rf2-eane2: `:rf/server-init` dispatches the whole POST body as the
             event args, and 010 says a schema-validation-failure trace carries
             the failing value VERBATIM. The token therefore needs its
-            `:sensitive?` mark on the event-args schema — the page previously
-            told the reader to mark an app-db slot that this pattern
-            deliberately never writes."
+            `:sensitive?` mark on the schema describing the shape it is IN —
+            the page previously told the reader to mark an app-db slot that
+            this pattern deliberately never writes.
+
+            rf2-iro6x narrowed what this pins without weakening it.
+            `AddToCartSubmission` is now the schema that DECODES the wire
+            body; the event's own `:schema` is a separate structural one,
+            because a strict `:schema` is adjudicated at the router and would
+            pre-empt the custom 400 arm in a dev build. Both carry the mark,
+            and this assertion is about the envelope. The `:sensitive?` prop
+            covers ONE surface — the validation-FAILURE trace. Ordinary
+            observation of a successful dispatch is covered by the
+            registration's `:sensitive [[:csrf-token]]` path instead, which
+            `ssr-doc-example-form-action-dispatch-test` pins with its own
+            control."
     (let [{:keys [submission]} @example
           props (->> (m/children (m/schema submission))
                      (filter #(= :csrf-token (first %)))
