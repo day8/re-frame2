@@ -2482,9 +2482,16 @@ def _self_test() -> int:
     # path in a fence, or the "shipped file green" reading above is vacuous:
     # it would be green because nothing exercises the skip, which is exactly
     # the state this bead found the page in.
+    # Read it through the rule's OWN view of a fence — `_code_only` blanks
+    # comments and strings — because the page names the same metadata in prose
+    # too, and a raw substring test would be satisfied by that prose while the
+    # fence carried nothing for 7b to skip.
     canonical_recipe = REPO_ROOT.joinpath("spec", "Pattern-FormAction.md")
     if canonical_recipe.is_file():
-        if "[[:csrf-token]]" not in _slurp(canonical_recipe):
+        _recipe = _slurp(canonical_recipe)
+        _fenced_paths = sum(_code_only(b).count("[[:csrf-token]]")
+                            for _, b in fenced_blocks(_recipe))
+        if not _fenced_paths:
             print("SELF-TEST FAIL (Y classification-path anchor gone): "
                   "spec/Pattern-FormAction.md no longer carries a fenced "
                   "`:sensitive [[:csrf-token]]` registration path, so rule "
