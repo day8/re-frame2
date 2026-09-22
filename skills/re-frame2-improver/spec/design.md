@@ -88,7 +88,7 @@ Commits and PR title/body read as Mike Thompson's work. No `Co-Authored-By` / ge
 | `manual-loading-flags.md` | `assoc :loading? true` / `dissoc` scattered across terminators | Clear the flag on every terminator (the one-line repair), then a `:status` keyword, `spec/Pattern-RemoteData.md`; Nine States and `spec/Pattern-NineStates.md` once the lifecycle passes one axis |
 | `schemaless-events.md` | Boundary handler ingests untrusted payload with no production boundary validation — no always-on gate (`:boundary? true` in the registration metadata, Managed HTTP `:decode`, or equivalent always-on Malli validator); dev-only `:schema` / `reg-app-schema` are not sufficient | Schemas at boundaries, Spec 010 |
 | `imperative-effects.md` | Direct JS / DOM interop inside a `reg-event` handler — effectful *writes* (storage/DOM/dispatch/timers) AND impure *reads* (`Date.now`, `Math.random`, storage reads, sub reads) | Writes → data-only fx (`reg-fx`, `spec/Conventions.md`); impure reads fork on durability — durable writes fold a recorded fact (declared `:rf/time-ms` / event payload / recordable cofx), diagnostics may use an ambient value-returning `reg-cofx` declared via `:rf.cofx/requires` (`cofx.md`; `inject-cofx` removed) |
-| `view-side-hook-state.md` | `reagent/atom` / `useState` holding non-render-local state | Move to `app-db` + `reg-sub`, `spec/Principles.md` |
+| `view-side-hook-state.md` | `reagent/atom` / `useState` holding non-render-local state | Move to `app-db` + `reg-sub` (`skills/re-frame2/references/fundamentals/subs.md`; views as pure projections, `spec/000-Vision.md` §Pointers to per-area Specs); under Fresco no hook or `r/atom` in a `defview` body — `docs/core/fresco/11-ephemeral-state.md` §Why one owner matters / §Common state and its owner, the `inputs.md` §5 exception |
 
 ### Deferred catalogue candidates
 
@@ -136,7 +136,8 @@ skills/re-frame2-improver/
 │                                   # code; CI's skills-structural job loops them all under bb, so adding one
 │                                   # needs no wiring PR — list new pins here, do not re-scope this directory
 │   ├── storage_materializer_test.clj (the canonical storage materializer in schemaless-events.md stays total)
-│   └── article_lifecycle_test.clj (the canonical HTTP fix in schemaless-events.md settles [:article :status] on both reply branches)
+│   ├── article_lifecycle_test.clj (the canonical HTTP fix in schemaless-events.md settles [:article :status] on both reply branches)
+│   └── render_lifecycle_test.clj (the published :items/status slice rewrite in manual-loading-flags.md keeps prior data across a refresh and records a failure without dropping it; evals 18/27/34's reg-sub predicates really are mutually exclusive and totally covering)
 └── spec/
     ├── design.md (this file)
     ├── inputs.md (canonical inputs)
