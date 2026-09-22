@@ -1973,6 +1973,13 @@ else
         # body — its roster straddled two trees that already had arms and could
         # be shadowed; this roster is two files in one tree, sitting directly
         # above the only other arm that matches them.
+        #
+        # rf2-xurxw — this arm is no longer the whole of story_static_gate's
+        # roster, and the sentence above describes THIS ARM rather than the
+        # surface. Story/Xray runtime source and testbeds now arm the same
+        # output through is_story_xray_runtime_path in the tools/* arm below,
+        # and implementation/shadow-cljs.edn through a nested case in the arm
+        # directly beneath this one. Read those two for the rest of it.
         cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
@@ -1991,6 +1998,10 @@ else
         # nightly cron + post-merge gate (both run the full matrix on
         # main). shadow-cljs.edn + package-lock.json directly determine
         # the :node-test build, so cljs_node_test fires here too.
+        # rf2-xurxw — that nightly sentence still holds for every tier
+        # except one: shadow-cljs.edn now also arms story_static_gate at
+        # PR time, through the nested case below, because the static
+        # export's own build is declared in it.
         cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
@@ -2056,6 +2067,21 @@ else
         case "$file" in
           implementation/shadow-cljs.edn)
             machines_viz_viewer_page=true ;;
+        esac
+        # rf2-xurxw — and the Story STATIC EXPORT's build is DECLARED here in
+        # the same way: `:story-static/counter-with-stories` carries the
+        # `:init-fn` the export boots from and the
+        # `:closure-defines {re-frame.story.config/static-mode? true}` that
+        # makes it a static build at all. A rename or an edit to either can
+        # stop the export building with no Story or Xray source change, and
+        # the nightly would be the first to say so. Scoped to shadow-cljs.edn
+        # ALONE: package.json and package-lock.json were considered and
+        # DECLINED by the ruling, and setting this at the arm's top level
+        # would arm every implementation/scripts/* file and red the negative
+        # control that keeps the expensive job off them.
+        case "$file" in
+          implementation/shadow-cljs.edn)
+            story_static_gate=true ;;
         esac
         # rf2-n8vp — package.json ALONE, and the narrowest scoping in this arm.
         # `test:ssr-node` is defined there and nowhere else, so an edit that
@@ -2315,8 +2341,19 @@ else
         # tools/{story,xray}/test/**, deps.edn, README.md, and *.txt do
         # NOT fire it. The split-out framework-testbeds gate (formerly
         # rf2-9grp6) was retired in rf2-t5slp.
+        #
+        # rf2-xurxw — the same predicate now arms story_static_gate as
+        # well, so the exclusions listed just above are the static
+        # gate's exclusions too. Read the predicate, not this summary.
         if is_story_xray_runtime_path "$file"; then
           story_xray_browser=true
+          # rf2-xurxw — the same closure feeds the static export's RELEASE
+          # build, which is the only `:advanced` compile of Story+Xray at PR
+          # time. ARMING THE JOB IS NOT ARMING THE STEP: 58bd56635b broke the
+          # export from tools/xray/src with this output false, so the browser
+          # job opened, its dev-compile smokes passed, and the static step
+          # showed `skipped`. The two PRs that fixed it were skipped too.
+          story_static_gate=true
         fi
         # rf2-f79t8 — the consolidated :node-test build lists
         # tools/{story,xray}/{src,test} as :source-paths (shadow-cljs.edn),
