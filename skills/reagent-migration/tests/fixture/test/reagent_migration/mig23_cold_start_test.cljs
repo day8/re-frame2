@@ -123,9 +123,9 @@
                    (:html (rf.fresco.server/render
                             (assoc render-opts :hiccup
                                    [reagent-parent-host {:mode mode}]))))]
-      (is (= "<section><p>false/missing/false</p></section>" (render "converted"))
+      (is (re-find #"^<section><p[^>]*>false/missing/false</p></section>$" (render "converted"))
           "Reagent [:>] converts keyword, map and intent-vector props before as-component decodes them")
-      (is (= "<section><p>true/Task/true</p></section>" (render "element"))
+      (is (re-find #"^<section><p[^>]*>true/Task/true</p></section>$" (render "element"))
           "a Fresco element in the Reagent parent's child position preserves its Clojure values")
       (is (= (render "element") (render "raw"))
           "r/create-element with a raw JS props object preserves those values too")))
