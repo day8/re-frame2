@@ -24,13 +24,15 @@
  * just the matchers we need: text, attribute, input-value, visibility, and
  * count checks, plus generic wait helpers. Condition-based helpers poll until
  * success or timeout; expectVisible delegates to Playwright's own wait.
+ * Locator reads receive the remaining assertion budget, because waiting for
+ * an absent element otherwise uses the page default (potentially unbounded).
  */
 
 async function expectTextEquals(locator, expected, timeoutMs = 5000) {
   const start = Date.now();
   let last = null;
   while (Date.now() - start < timeoutMs) {
-    last = (await locator.textContent()) || '';
+    last = (await locator.textContent({ timeout: Math.max(1, timeoutMs - (Date.now() - start)) })) || '';
     if (last.trim() === expected) return;
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -41,7 +43,7 @@ async function expectTextContains(locator, expected, timeoutMs = 5000) {
   const start = Date.now();
   let last = null;
   while (Date.now() - start < timeoutMs) {
-    last = (await locator.textContent()) || '';
+    last = (await locator.textContent({ timeout: Math.max(1, timeoutMs - (Date.now() - start)) })) || '';
     if (last.includes(expected)) return;
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -52,7 +54,7 @@ async function expectInputValue(locator, expected, timeoutMs = 5000) {
   const start = Date.now();
   let last = null;
   while (Date.now() - start < timeoutMs) {
-    last = await locator.inputValue();
+    last = await locator.inputValue({ timeout: Math.max(1, timeoutMs - (Date.now() - start)) });
     if (last === expected) return;
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -67,7 +69,7 @@ async function expectAttribute(locator, attr, expected, timeoutMs = 5000) {
   const start = Date.now();
   let last = null;
   while (Date.now() - start < timeoutMs) {
-    last = await locator.getAttribute(attr);
+    last = await locator.getAttribute(attr, { timeout: Math.max(1, timeoutMs - (Date.now() - start)) });
     if (last === expected) return;
     await new Promise((r) => setTimeout(r, 50));
   }
