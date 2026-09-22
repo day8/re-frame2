@@ -181,6 +181,22 @@ class InstallerTests(unittest.TestCase):
                     self.assertFalse(is_link(self.source))
                     self.assertEqual((self.source / "SKILL.md").read_text(), "current skill\n")
 
+    def test_ancestor_alias_of_source_cannot_be_replaced(self):
+        # The sibling test above aliases skills/ ITSELF, which is a reparse
+        # point the installer can see. Alias an ANCESTOR instead and
+        # <alias>/skills is an ordinary directory carrying its own path, so a
+        # guard that inspects only the final directory passes, --force deletes
+        # the maintained skill, and the link step then fails with the source
+        # already gone (rf2-7bwh1). Both Windows entrypoints share this guard.
+        for index, command in enumerate(self.commands):
+            with self.subTest(installer=command[0]):
+                alias = self.base / f"parent-alias-{index}"
+                self.make_link(alias, self.repo)
+                self.run_installer(command, alias / "skills", "force", expected=1)
+                self.assertFalse(is_link(self.source))
+                self.assertEqual((self.source / "SKILL.md").read_bytes(),
+                                 b"current skill\n")
+
     def test_relative_destination(self):
         for index, command in enumerate(self.commands):
             with self.subTest(installer=command[0]):

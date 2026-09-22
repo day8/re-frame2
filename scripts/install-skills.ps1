@@ -55,21 +55,52 @@ if (-not (Test-Path -LiteralPath $skillsSrc)) {
     Write-Error "install-skills: no skills directory at $skillsSrc"
 }
 
-# Resolve a directory to its real (target) path so a junction compares equal to
-# its source. ReparsePoint dirs expose .Target (the junction destination).
+# Resolve a directory to its real PHYSICAL path, so that any spelling of a
+# directory compares equal to every other spelling of it. ReparsePoint dirs
+# expose .Target (the junction destination).
+#
+# ANCESTORS COUNT, not just the final directory (rf2-7bwh1). A junction to the
+# repository PARENT leaves <alias>/skills looking like an ordinary directory
+# carrying its own FullName, so a resolver that inspects only the leaf hands
+# back two different spellings for ONE directory. The source guard below then
+# passes, -Force deletes skills/<name>, and New-Item fails because the source
+# it was about to link has just been removed.
+#
+# So walk the WHOLE path: rewrite the deepest reparse point on it, then start
+# again, because a junction's target can itself live under another junction.
+# The hop cap stops a cyclic pair of junctions from spinning.
 function Resolve-RealDir {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $Path }
-    $item = Get-Item -LiteralPath $Path -Force
-    if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-        $t = $item.Target
-        if ($t) {
-            # .Target may be an array on some PS versions; take the first.
-            if ($t -is [array]) { $t = $t[0] }
-            return ([System.IO.Path]::GetFullPath($t)).TrimEnd('\')
+    # Get-Item resolves a relative path against $PWD; the .NET static call
+    # would resolve it against the process CWD instead.
+    $current = ((Get-Item -LiteralPath $Path -Force).FullName).TrimEnd('\')
+    for ($hop = 0; $hop -lt 32; $hop++) {
+        $probe   = $current
+        $tail    = ''
+        $rewrote = $false
+        while ($probe) {
+            if (Test-Path -LiteralPath $probe) {
+                $item = Get-Item -LiteralPath $probe -Force
+                if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                    $t = $item.Target
+                    # .Target may be an array on some PS versions; take the first.
+                    if ($t -is [array]) { $t = $t[0] }
+                    if ($t) {
+                        $current = ([System.IO.Path]::GetFullPath($t.TrimEnd('\') + $tail)).TrimEnd('\')
+                        $rewrote = $true
+                        break
+                    }
+                }
+            }
+            $parent = Split-Path -Parent $probe
+            if (-not $parent -or $parent -eq $probe) { break }
+            $tail  = '\' + (Split-Path -Leaf $probe) + $tail
+            $probe = $parent
         }
+        if (-not $rewrote) { break }
     }
-    return ($item.FullName).TrimEnd('\')
+    return $current
 }
 
 # Is $Path a reparse point (junction/symlink)?
@@ -81,7 +112,9 @@ function Test-IsLink {
 }
 
 # The source is never an install destination, even with -Force. Otherwise the
-# copy-replacement branch deletes the maintained skill before linking it.
+# copy-replacement branch deletes the maintained skill before linking it. Both
+# sides resolve to a physical path with ancestor junctions followed, so no
+# alias of this checkout - at the skills dir or above it - can slip past.
 if ((Resolve-RealDir $Target) -eq (Resolve-RealDir $skillsSrc)) {
     Write-Error "install-skills: target is this checkout's skills source; choose a separate destination ($Target)"
 }

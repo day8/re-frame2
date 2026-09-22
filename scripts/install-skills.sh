@@ -99,6 +99,10 @@ if is_windows; then
 fi
 
 # Resolve POSIX symlinks without depending on readlink -f (absent on macOS).
+# `pwd -P` yields the PHYSICAL path, so a symlink in an ANCESTOR resolves too
+# and the overlap guard below cannot be bypassed by aliasing the checkout above
+# skills/ (rf2-7bwh1). Windows never reaches here - it execs install-skills.ps1
+# above, whose Resolve-RealDir walks ancestors to get the same property.
 resolve_dir() {
   if [ -d "$1" ]; then
     (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"
