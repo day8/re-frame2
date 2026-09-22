@@ -136,6 +136,7 @@
 .demo-buttons,
 .send-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 10px 0;
   align-items: center;
@@ -143,8 +144,9 @@
 
 .send-form input[type="text"] {
   padding: 8px 12px;
-  flex: 1;
-  min-width: 240px;
+  flex: 1 1 240px;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .queue-depth {
