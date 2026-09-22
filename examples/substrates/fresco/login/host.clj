@@ -101,7 +101,12 @@
 (def client-dir
   "Where the compiled BROWSER bundle landed — the `:output-dir` of
   `:examples/login-fresco` in `implementation/shadow-cljs.edn`, as seen from
-  the directory the README's build commands are run in.
+  `implementation/`, which is where the README's build commands run. The JVM
+  does not start there: the host's classpath lives in
+  `implementation/ssr-ring/`, so a host booted the way the README describes
+  needs `LOGIN_FRESCO_CLIENT_DIR` to say so (`../out/examples/login-fresco`).
+  Leave it unset from anywhere but `implementation/` and every asset request
+  takes the 404 branch in `make-app` below.
 
   That build's `:asset-path` is `\".\"`, which means its generated
   dependency URLs are resolved against the DOCUMENT's own directory. The

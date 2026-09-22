@@ -138,8 +138,8 @@ example on a free local port, and prints the URL to open. Add `--no-watch` for a
 one-shot compile-and-serve.
 
 No backend ships. The login runs against the canned HTTP stub in
-[`core.cljs`](core.cljs), so the password `correct-horse` succeeds and anything
-else fails the way the machine expects.
+[`login.model`](../../../core/login/model.cljc), so the password
+`correct-horse` succeeds and anything else fails the way the machine expects.
 
 ## Copying this into your own app
 

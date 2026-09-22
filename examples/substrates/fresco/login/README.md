@@ -70,16 +70,24 @@ what each one holds constant.
 ## The boot, and the one place the frame is named
 
 ```clojure
-(defonce app-root (h/client-root))              ;; inert; no DOM at load
+(defonce app-root (h/client-root))                ;; inert; no DOM at load
 
-(rf/init! substrate/adapter)                    ;; 1. seat an adapter
-(h/render! app-root                             ;; 2. one React root
-  [h/frame-root (merge {:id :rf/default}        ;; 3. one frame, whole config
+(rf/init! rf.fresco.substrate/adapter)            ;; 1. seat an adapter
+(h/render! app-root                               ;; 2. one React root
+  [h/frame-root (merge {:id  frame-id             ;; 3. one frame, whole config
+                        :doc "Login (Fresco) demo frame."}
                        model/frame-config)
    [root-view]]
   el
-  {:identifier-prefix "login"})                 ;;    root options only
+  {:identifier-prefix identifier-prefix})         ;;    root options only
 ```
+
+`frame-id` (`:rf/default`) and `identifier-prefix` (`"rf-login-"`) are named
+constants at the top of [`core.cljs`](core.cljs) rather than literals here,
+because `server.cljs` reads the same two and a second copy is a second thing
+to keep in step — the `identifier-prefix` in particular has to be the same
+string on both sides or hydration resolves every `useId` differently from the
+bytes it is adopting.
 
 One verb, not four. The first `h/render!` through `app-root` creates the Root;
 every later one updates it, so the `^:dev/after-load` hook is the same call and
@@ -248,8 +256,28 @@ one, and the adapter refuses an answer that comes back with one:
 npx shadow-cljs release examples/login-fresco-server   --config-merge '{:closure-defines {fresco.login.server/build-id "2026-09-02-a1b2c3"}}'
 ```
 
-Then boot the JVM and serve `host.clj`'s `app`, with `LOGIN_FRESCO_SSR_NODE`
-pointing at the sidecar's URL:
+Then boot the JVM and serve `host.clj`'s `app`. Start it from
+`implementation/ssr-ring/`, not from `implementation/`: the host needs
+`fresco.login.host`, the shared `login.model` and a Ring adapter on one
+classpath, and `ssr-ring`'s `:test`, `:slow-test` and `:crossing-test`
+aliases are the only place all three meet — each puts both `examples/` roots
+beside `ring/ring-jetty-adapter`. `implementation/deps.edn` carries no Jetty
+at all, so the `require` below will not resolve from there.
+
+Two environment variables point the host at the two moving parts.
+`LOGIN_FRESCO_SSR_NODE` is the sidecar's URL, read off the JSON line it
+printed. `LOGIN_FRESCO_CLIENT_DIR` is where the client bundle landed:
+`host.clj`'s default is written relative to `implementation/`, so from
+`ssr-ring/` it needs the `../` that gets you back there. Skip it and every
+asset request takes the 404 branch — the page renders and then comes up
+without its JavaScript.
+
+```bash
+# From implementation/ssr-ring/ — a REPL with the host on the classpath.
+LOGIN_FRESCO_SSR_NODE=http://127.0.0.1:PORT \
+LOGIN_FRESCO_CLIENT_DIR=../out/examples/login-fresco \
+  clojure -A:test
+```
 
 ```clojure
 (require '[fresco.login.host :as host]
