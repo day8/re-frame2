@@ -1,7 +1,11 @@
 # Skill Redirects
 
-Canonical pointer table for AI skills. Skills stay free of hardcoded URLs;
-this file owns them. Update once when a URL changes.
+Canonical pointer table for AI skills. The `re-frame2` skill routes its
+deep-dives through the labels below and stays free of hardcoded URLs —
+update a URL once here. `re-frame2-implementor` is the deliberate
+exception: it reads `spec/` from a verified checkout at a recorded pin
+(its cardinal rule 1) and cites spec pages directly in its own leaves,
+so those citations are maintained there, not here.
 
 <!--
 ANCHOR COUPLING — read before editing
@@ -44,6 +48,8 @@ Find your skill, scan the audience section for lines tagged with it.
 > + `spec/`, and `reagent-migration` pins the pre-publication Fresco
 > surface by checkout (`implementation/fresco/src/`, `docs/core/fresco/`).
 > None consumes the URLs below, so none gets a row here.
+> `re-frame2-implementor` keeps its row for the `[impl]` tags but
+> consumes none of the URLs below either.
 
 ## Section 1 — Building with the reference implementation
 
@@ -60,9 +66,9 @@ Audience: `[app]` / `[setup]` / `[mig]` / `[pair]`. API + Guide + MIGRATION + Ex
 
 ## Section 2 — Implementing the spec
 
-Audience: `[impl]` (primary), `[app]` (deep-dive lookups). Read EPs in numeric order; `API.md` is the contract.
+Audience: `[app]` (deep-dive lookups); `[impl]` marks the rows a port author needs, though the implementor skill cites these pages directly and owns its own reading order (its cardinal rule 3). `API.md` is the contract.
 
-### Spec corpus (read in order)
+### Spec corpus
 
 - **EP — Vision (000)** → https://day8.github.io/re-frame2/spec/000-Vision/ `[impl]`
 - **EP — Registration (001)** → https://day8.github.io/re-frame2/spec/001-Registration/ `[impl]`

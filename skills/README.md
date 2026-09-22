@@ -264,6 +264,13 @@ Single source of truth for the per-leaf size ceiling — per-skill
   ~10 KB) — the byte ceiling catches leaves whose long unwrapped prose
   lines fit under the line count but still bloat the per-session token
   load
+- these figures are targets, tried at a leaf's next authoring pass. A leaf
+  over them by the number alone is not a review finding, is not a debt, and
+  owes no recorded exception. Whoever proposes a split or a de-duplication
+  brings the tokens-per-session arithmetic — bytes saved for which session
+  shape, and what the remainder measures — and that arithmetic, not the
+  number, decides. A skill may bind itself harder in its own tests, as
+  `re-frame2-setup` does
 - `SKILL.md` orchestrators SHOULD be ≤500 lines (target ~300–400)
 - no SKILL → A → B chains; routing is one level deep
 - catalogue-shaped leaves (for example `re-frame2-pair/references/recipes.md`
@@ -287,9 +294,10 @@ Single source of truth for the per-leaf size ceiling — per-skill
   load the byte ceiling exists to catch — a true positive with no split
   available.
 
-Recorded exempt on the token test, so the next author cites this list rather
-than re-deriving it. Line counts and LF-normalised bytes, measured
-2026-09-13:
+Recorded here, so the next author cites the record rather than re-deriving
+it, are the leaves where a split or de-duplication was weighed and refused
+on that test. It is a record of decisions, not a census of every leaf over
+the figures. Line counts and LF-normalised bytes as measured on 2026-09-13:
 
 - catalogue-shaped — `re-frame2-pair/references/ops.md` 220 L / 46,966 B;
   `re-frame2-pair/references/recipes.md` 444 L / 50,343 B;
@@ -321,14 +329,16 @@ than re-deriving it. Line counts and LF-normalised bytes, measured
   shape is common, so they are recorded rather than split; if one shape
   comes to dominate, those are the seams
 
-The ceilings are grounded in a May 2026 corpus audit (max 203 L, p95
-148 L, median 88 L); leaves that have since outgrown them are refactor
-targets unless they pass the test above. The exemption is narrow, and the
-ceiling is not unreachable in general: de-duplication brought
-`re-frame2/references/fundamentals/cofx.md` (16,115 B) and
-`re-frame2/patterns/forms.md` (16,105 B) back inside both ceilings, and
+The figures are grounded in a May 2026 corpus audit (max 203 L, p95
+148 L, median 88 L). Leaves that have since outgrown them are candidates
+for de-duplication or a split at their next authoring pass, and the figures
+are reachable in general: de-duplication brought
+`re-frame2/references/fundamentals/cofx.md` back inside and
+`re-frame2/patterns/forms.md` briefly inside (it has since regrown, which
+under the rule above is not a finding), and
 `re-frame2/references/cross-cutting/testing.md` was genuinely split, carving
-out `testing-views.md`. Try both before recording an exception.
+out `testing-views.md`. Try both at that pass; record above only a split
+that was weighed and refused, with its arithmetic.
 
 ### `SKILL.md` frontmatter `description` — two ceilings, author to the tighter
 
