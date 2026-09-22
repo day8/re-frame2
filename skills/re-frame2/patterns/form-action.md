@@ -19,7 +19,7 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 
 ## Canonical declaration
 
-Two shapes reach the action handler and they are not the same shape. The no-JS POST body carries the editable fields **plus a CSRF token**; the hydrated client dispatches the fields **alone**. Split the schema along that line — one registration still admits both call sites:
+Two shapes reach the action handler: the no-JS POST body carries the editable fields **plus a CSRF token**; the hydrated client dispatches the fields **alone**. Both may contain invalid field values. Use the strict schemas for decoding and the handler's validation arm; the event registration below checks only the enclosing shape so invalid fields reach that arm in development too:
 
 ```clojure
 ;; The editable fields as a VALID submission: what BOTH platforms submit and what
@@ -29,10 +29,9 @@ Two shapes reach the action handler and they are not the same shape. The no-JS P
    [:item-id  [:string {:min 1}]]
    [:quantity [:and :int [:>= 1] [:<= 99]]]])
 
-;; What the EVENT accepts: the fields, plus the token the server POST carries and
-;; the client does not. `:optional` is what lets one registration cover both call
-;; sites; `:sensitive?` keeps the token out of the dev-time validation trace,
-;; which would otherwise carry the event args verbatim.
+;; Wire schema for DECODING: the fields, plus the server POST's optional token.
+;; Decoding coerces quantity when possible and leaves invalid values for the
+;; handler to reject. Do not use this strict shape as the event's :schema.
 (def AddToCartSubmission
   (conj AddToCartFields
         [:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]))
@@ -65,16 +64,20 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
         csrf-token @(subscribe [:app.csrf/token])]         ;; app-owned — re-frame2 ships no :rf.csrf/* surface
     [:form {:method    "POST"
             :action    "/cart/add"
-            :on-submit (fn [e] (.preventDefault e)
-                         (dispatch [:cart/add-item (assoc draft :item-id item-id)]))}
+            :on-submit #?(:cljs (fn [e] (.preventDefault e)
+                                  (dispatch [:cart/add-item (assoc draft :item-id item-id)]))
+                          :clj nil)}
      [:input {:type "hidden" :name "csrf-token" :value csrf-token}]
      [:input {:type "hidden" :name "item-id"    :value item-id}]
      [:input {:type "number" :name "quantity" :value (or (:quantity draft) 1) :min 1 :max 99
-              :on-change #(dispatch [:form.cart-add/edit-field :quantity
-                                     (-> % .-target .-value js/parseInt)])}]
+              :on-change #?(:cljs #(dispatch [:form.cart-add/edit-field :quantity
+                                              (-> % .-target .-value js/parseInt)])
+                            :clj nil)}]
      (when qty-error [:p.error qty-error])
      [:button {:type "submit"} "Add to cart"]]))
 ```
+
+The browser callbacks use `#?(:cljs ... :clj nil)` in a `.cljc` view, leaving the HTML form's native POST intact on the JVM.
 
 `:rf/server-init` routes GET vs POST **and owns normalisation**. A POST body does not arrive as domain data: the browser sends `csrf-token=tok-abc&item-id=sku-1&quantity=2`, and what lands under `:form-params` is `{"quantity" "2"}`, not `{:quantity 2}`. Putting the one decode here is what makes "one handler, both platforms" a fact rather than an aspiration — a handler that normalised its own input would first have to work out which platform sent it, which is exactly the knowledge this pattern spends its effort not needing.
 
@@ -116,10 +119,11 @@ The action handler validates **in its own body** and emits per-platform effects:
 ```clojure
 (rf/reg-event :cart/add-item
   {:doc    "Add an item to the cart. Same handler tree both platforms."
-   ;; DEV TRIPWIRE ONLY — elided in production. `:csrf-token` is `:optional` in
-   ;; AddToCartSubmission precisely so this ONE registration admits both call
-   ;; sites: the server's POST envelope and the client's field-only dispatch.
-   :schema [:cat [:= :cart/add-item] AddToCartSubmission]
+   ;; STRUCTURAL tripwire only: malformed fields must reach the handler's own
+   ;; 400 arm in dev too. The token is optional for the client and unconstrained
+   ;; here so the server's CSRF arm owns its rejection.
+   :schema [:cat [:= :cart/add-item]
+            [:map [:csrf-token {:optional true :sensitive? true} :any]]]
    :rf.cofx/requires [:rf.server/request
                       :app.csrf/active-token]}            ;; app-owned cofx — see §CSRF
   (fn [{:keys [db] :as cofx} [_ form-params]]
@@ -175,7 +179,7 @@ The action handler validates **in its own body** and emits per-platform effects:
 
 `m` / `me` are `malli.core` / `malli.error`; `write-form-errors` and `explain->errors` are app-level helpers (`spec/Pattern-FormAction.md` gives both in full). The point is that the call sits in the **handler body**, where it survives into the release build. `:boundary? true` does not substitute for it: the check it keeps alive *is* ungated and a rejection does answer `400` via the SSR error projector, but it skips the handler, so the user gets a generic public-error body rather than their own form back with the values they typed.
 
-Note that both fates belong to the *same* declaration, and that is the rule rather than a quirk: what may be elided is settled by what a check protects, not by who declared the schema it reads (Spec 000 C-000.35). Read at dispatch, `AddToCartSubmission` is an ordinary registration diagnostic and goes; read under `:boundary? true` it survives, because refusing a malformed payload at an untrusted ingress is a promise the framework made, and a promise kept only in dev is not a promise.
+The event's structural `:schema` is a dev tripwire; `AddToCartSubmission` drives wire decoding; `AddToCartFields` validates inside the handler. Putting the strict field schema at dispatch skips that handler on `quantity=0` or `quantity=abc`, losing the custom errors and repopulated draft in dev. The handler's own check runs in every build.
 
 The two arms check different things, and keeping them apart is what lets one handler serve both platforms. The **fields** arm validates `AddToCartFields` on every submission, server and client alike; the **credential** arm compares the token against the session, on the server alone.
 
@@ -191,7 +195,7 @@ Every form POST MUST carry a CSRF token; the server MUST reject a bad one *befor
 
 **The compare fails closed on both limbs, and getting that wrong is silent.** The handler answers 403 unless the session **has** an active token *and* it equals the submitted one — which is why the arm above reads `(not (and (some? active-token) (= …)))`. Do **not** write `(not= (:csrf-token form-params) active-token)`: on a request with no session `active-token` is `nil`, an attacker's token-less POST supplies `nil`, `nil` equals `nil`, and the arm never fires. The one shape that looks tidiest is the one that opens the endpoint.
 
-Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme. The token never enters `app-db`: the failure arm's `select-keys` writes the editable fields only, so the slot that needs the `:sensitive?` mark is the **event-args schema** (`AddToCartSubmission`), which is the shape the secret actually travels in.
+Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme. The submitted token never enters the draft: the failure arm's `select-keys` writes editable fields only. Add `:sensitive [[:csrf-token]]` to the action's registration metadata to classify its event payload; the structural event schema's `:sensitive?` mark covers validation-failure traces only. If the app seeds a session/form token into app-db, the writing event also classifies that durable path with a `:sensitive` effect.
 
 ## File uploads
 
