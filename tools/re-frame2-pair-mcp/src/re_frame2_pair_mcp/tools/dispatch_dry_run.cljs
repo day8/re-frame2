@@ -1,29 +1,26 @@
 (ns re-frame2-pair-mcp.tools.dispatch-dry-run
-  "Tool: dispatch-dry-run — simulate a cascade without committing it.
+  "Tool: dispatch-dry-run — simulate an event with declared fx suppressed.
 
-  Wraps the preload runtime's `dispatch-dry-run` primitive
-  (`(rf/dispatch-dry-run event-v opts)`), which composes the
-  framework's `:fx-overrides` seam + `restore-epoch` primitive into a
-  true dry-run with no framework hack required (see runtime.cljs
-  §Dispatch dry-run for the mechanism).
+  Wraps `re-frame2-pair.runtime/dispatch-dry-run`. The framework effect
+  sink records and skips declared fx bodies, including reserved lifecycle
+  effects and child dispatches. Reducers, interceptors and listeners still
+  run; arbitrary side effects inside them are outside that guarantee.
+  No synchronous render flush or downstream fx-dispatched event runs.
 
   ## Why this is NOT `--allow-writes`-gated
 
-  Dry-run is the OPPOSITE of a write — its whole contract is 'no
-  observable effect'. The framework's dry-run effect sink
-  (`re-frame.fx/*effect-sink*`, rf2-j538f7.39) RECORDS + SKIPS every fx
-  at the single universal effect executor (`do-fx`), BEFORE any override
-  resolution / reserved-fx dispatch / user-handler invoke — so the
-  no-effect guarantee is STRUCTURAL: no http / navigation / persisted
-  write, machine spawn/destroy, flow register/clear, nav-token, or
-  image-only inline fx escapes, with no registrar enumeration. The
-  framework's `restore-epoch` rewinds the app-db AND trims the assembled
-  would-be epoch from the ring. There is no state change for the
-  `--allow-writes` gate to protect against.
+  On success the preload restores the actual pre-call frame-state through
+  `rf/replace-frame-state!`, including both app-db and runtime-db. It does
+  not assume that the history head equals the live state, so consecutive
+  simulations and an earlier time-travel restore cannot move the baseline.
+  Both the simulation and synthetic rollback are observable in the bounded
+  history. Disabled recording refuses before dispatch; a rollback failure
+  is an error and can leave simulated state live. The action retains its
+  existing dispatch authority rather than requiring the named-write gate.
 
   ## Why this IS `--allow-sensitive-reads`-gated
 
-  Dry-run mutates nothing, but it is an AI-facing READ surface: the
+  Dry-run is an AI-facing READ surface: the
   happy-path envelope returns the would-be app-db verbatim under
   `:db-state-after-simulation` and each recorded fx's args under
   `:would-fire-effects[*].args`. Reducers / fx routinely derive

@@ -5,7 +5,7 @@
 ;;;;
 ;;;; The defect: `dispatch-dry-run`'s `:else` branch used to return
 ;;;; `:ok? true :rolled-back? false` + a human-readable `:rollback-hint`
-;;;; when `replace-frame-state!` returned false — CONTRADICTING its own
+;;;; when `restore-epoch!` returned false — CONTRADICTING its own
 ;;;; docstring (which lists `:reason :rollback-failed` as an `:ok? false`
 ;;;; failure). Because the MCP tool routes isError purely on
 ;;;; `(false? (:ok? result))`, that read GREEN over a MUTATED live app-db
@@ -13,7 +13,10 @@
 ;;;; in the ring). A dry-run whose whole contract is "no observable
 ;;;; effect" must NOT report success when it in fact mutated the app.
 ;;;;
-;;;; Why a structural pin rather than a live runtime test:
+;;;; This refusal-branch wiring pin complements the real-frame coverage in
+;;;; tests/fixture/test/re_frame2_pair/runtime_dry_run_test.cljs. The rollback
+;;;; now uses replace-frame-state! with the captured pre-call state (rf2-ep8a4).
+;;;; Why this pin remains structural:
 ;;;;
 ;;;; `preload/re_frame2_pair/runtime.cljs` is CLJS-only (loaded via
 ;;;; shadow-cljs `:devtools :preloads`) so it does not run under bb, and
