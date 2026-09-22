@@ -127,24 +127,21 @@ longer unchanged: it is **M-75**'s mechanical Type A rewrite to
 > that would throw `:rf.error/sub-input-fn-bad-return`. Classify and reshape per
 > the cases below.
 
-**Why it is silent at compile — and where it actually fails.** The two-function
-shape *parses* fine, so the compiler says nothing. It also **registers** fine:
-the v2 runtime still reads `(reg-sub :id (fn …) (fn …))` (two trailing fns, no
-declaration between them) as a **valid `:parametric` registration** — both trailing args are functions, so
-there is **no `:rf.error/reg-sub-bad-args` at registration / namespace load**.
-The break surfaces later, at the **first `subscribe` / materialization**: the v1
-signal fn returns live reactions (or a bare reaction), which are not query
-vectors, so the runtime throws `:rf.error/sub-input-fn-bad-return` and the sub
-**recovers to a `nil`-yielding reaction** (it is *never* silently treated as
-no-inputs — the error rides the always-on error listener + the dev trace). Under
-M-71 the same shape becomes **valid** once you swap the reactions for query
-vectors. `:rf.error/reg-sub-bad-args` is reserved for a genuinely unparseable
-registration *shape* (e.g. three trailing fns, or an `:inputs` literal that is
-not a vector of query vectors) — **not** for a v1-style signal-fn body. Either way the compiler is no
-help — grep every signal-fn site exhaustively up front (this is a silent-fail
-rule; see
-[`breaking-changes.md` §silent-fail register](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)),
-never march-the-wall.
+**Compile-clean does not mean registration-clean.** Under **M-75**, the
+positional `(reg-sub :id signal-fn computation-fn)` form is retired: it throws
+`:rf.error/reg-sub-bad-args` at registration / namespace load, before the
+signal fn runs. Returning query vectors from that positional fn does not make
+the registration valid; move it into the metadata map's `:inputs` slot too.
+
+There is a second failure stage after that move. A registration shaped as
+`(reg-sub :id {:inputs signal-fn} computation-fn)` is accepted, but a producer
+that still returns live reactions fails at **first subscribe / materialization**
+with `:rf.error/sub-input-fn-bad-return` and recovers to a `nil`-yielding
+reaction. **M-75 fixes the declaration position; M-71 fixes its meaning.** Both
+changes are required for a v1 signal-fn site. Inspect registration errors at
+boot and materialize the rewritten subscription; compiling alone covers
+neither stage. Sweep every signal-fn site up front, including named functions
+and aliases, rather than relying on two literal `fn` forms in a grep.
 
 **Decision-shape — first prefer a literal `:inputs` vector.** If the signal fn's
 inputs do **not** depend on the outer query vector, the inputs are static —
