@@ -25,7 +25,8 @@ To *build* a three-page app step by step, use the [tutorial](tutorial.md).
 <a id="the-whole-model-in-three-moves"></a>
 
 ```clojure
-;; Adapted from examples/capabilities/routing/routing/core.cljs
+;; Modelled on examples/capabilities/routing/routing/core.cljs, which navigates by route-link;
+;; move 2 is the programmatic door that example does not use
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing :as rf.routing]))

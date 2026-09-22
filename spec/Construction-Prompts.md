@@ -847,7 +847,7 @@ The handler reads the route slice — which lives in **runtime-db** at `[:rf.run
 [rf/route-link {:to :route/search :query {:q "clojure" :page 2}} "Search"]
 ```
 
-`route-link` dispatches `:rf.route/url-requested` on click; the runtime's default handler classifies internal vs external and dispatches `:rf.route/navigate` for matched routes.
+`route-link` dispatches `:rf.route/url-requested` on click; the runtime's default handler classifies internal vs external and, for a matched route, pushes the URL and synthesises `:rf.route/handle-url-change` — it does not dispatch `:rf.route/navigate` (012 §URL changes are events).
 
 **Template — wiring (declare URL ownership on the frame; there is no install step):**
 
@@ -1431,7 +1431,7 @@ The [7GUIs example series](../examples/core/seven_guis/README.md) and the [login
 | CP-4 (registered view) | All examples use Var-reference Form-1 (canonical) |
 | CP-5 (state machine) | [Login](../examples/core/login/core.cljs) — full transition table with guards, actions, terminal states |
 | CP-6 (feature scaffold) | [Login](../examples/core/login/core.cljs) is a full feature: schema + events + subs + views + machine + tests |
-| CP-7 (route) | [Routing example](../examples/capabilities/routing/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:rf.route/navigate`, `:rf.route/handle-url-change`, `route-link`, server-and-client-shared handler |
+| CP-7 (route) | [Routing example](../examples/capabilities/routing/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `reg-route`, `route-link` anchors that dispatch `:rf.route/url-requested`, `:rf.route/id` / `:rf.route/params` subs, a `case` root view, `:url-bound? true` URL ownership (the declaration that wires the runtime's `:rf.route/handle-url-change` door); programmatic `:rf.route/navigate` in [RealWorld](../examples/real-apps/realworld_http/article_editor.cljs) |
 | CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../examples/core/login/core.cljs) and [Flight Booker](../examples/core/seven_guis/flight_booker/core.cljs) also attach event schemas |
 | CP-9 (SSR setup) | [SSR example](../examples/capabilities/ssr/ssr/core.cljc) — one shared `.cljc` application (events, subs, views, plus both entry points: server `handle-request` returning HTML+payload, and client `run` doing `:rf/hydrate` seeding), beside a small registration-free [`mount.cljs`](../examples/capabilities/ssr/ssr/mount.cljs) holding the client's adopt-vs-fresh React-root decision so the browser DOM-adoption regression drives the same branch the example ships; JVM-runnable smoke test |
 | CP-10 (story) | The [Story CLJS-unit tutorial](../tools/story/spec/Tutorial-CLJS-Unit.md) walks a `reg-story` + `reg-variant` + `run-variant`-driven deftest end to end; the [Xray panel-gallery testbeds](../tools/xray/testbeds/panel_gallery/) register real `story/reg-story` / `reg-variant` artefacts across the panel surface (Story lives in `tools/story/`, not `examples/`) |

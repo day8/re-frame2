@@ -52,7 +52,7 @@ requests and remain usable offline.
 
 Some host pages mount Xray beside the app. The class is its own roster, so no
 list is kept here: `git grep -l rf2-testbed-shell -- 'examples/**/*.html'` names
-them, `index.html` and `stories.index.html` alike. Every one uses the same DOM
+them. Every one uses the same DOM
 contract:
 
 ```html

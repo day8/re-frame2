@@ -208,19 +208,12 @@ it('isExampleHostPage accepts index.html AND *.index.html, not arbitrary html', 
   assert.ok(!isExampleHostPage('stories.html'));
 });
 
-it('LIVE: the two Story showcase host pages are enumerated by the gate (rf2-x48bp4)', () => {
-  const rel = realIndexes.map((p) => path.relative(EXAMPLES_ROOT, p).split(path.sep).join('/'));
-  for (const page of [
-    'core/login/stories.index.html',
-    'patterns/nine_states/stories.index.html',
-  ]) {
-    assert.ok(
-      rel.includes(page),
-      `expected the gate to enumerate the showcase host page '${page}' so it ` +
-        `is held to the shared-asset contract, got: ${rel.join(', ')}`,
-    );
-  }
-});
+// (The LIVE companion to the unit test above — asserting the two Story
+// showcase host pages were enumerated — went with those pages under rf2-j7w2u.
+// They were never served: the runner stages, and the watch server resolves,
+// each example's own `index.html`. The `<prefix>.index.html` shape is now
+// prospective, so its teeth are the predicate test above plus the synthetic
+// scanPage tests further down; there is no live page left to pin.)
 
 // ---- STANDALONE example projects are pruned from the walk (rf2-vxgfnd.281) --
 //
@@ -1537,14 +1530,16 @@ it('TEETH: an external @import in the _shared tree is rejected by checkSharedTre
   );
 });
 
-// ---- TEETH: stories.index.html showcase page enforcement (rf2-x48bp4) ---
+// ---- TEETH: <prefix>.index.html showcase page enforcement (rf2-x48bp4) ---
 //
-// The two Story showcase host pages (login/stories.index.html +
-// nine_states/stories.index.html) carry the shared assets, but before the gate
-// ENUMERATED them, a future edit could silently drop a required asset and stay
-// green. The negative control: a stories.index.html missing style.css must
-// fail the SAME required-asset contract as an index.html — proving enumeration
-// gives the showcase pages teeth.
+// The `<prefix>.index.html` host-page shape is PROSPECTIVE: the two Story
+// showcase pages that motivated rf2-x48bp4 (login/stories.index.html +
+// nine_states/stories.index.html) were retired under rf2-j7w2u, because nothing
+// ever served them. These tests therefore drive scanPage on SYNTHETIC
+// stories.index.html paths, which is what keeps the shape's teeth while no such
+// page exists in the tree. The negative control: a stories.index.html missing
+// style.css must fail the SAME required-asset contract as an index.html — so a
+// future showcase host page cannot land and silently drop a required asset.
 
 it('TEETH: a stories.index.html missing a required shared asset fails the gate (rf2-x48bp4)', () => {
   const showcase = path.join(
@@ -2758,14 +2753,22 @@ it('rf2-y1kbf: loadsBuildEntrypoint reads the TAGGED inventory, not the raw HTML
 // silently ordinary-hosts-only.
 function hostShape(rel) {
   const segments = rel.split('/');
-  // An auxiliary showcase host is `<name>.index.html` (the Story trios).
+  // An auxiliary showcase host is `<prefix>.index.html`. PROSPECTIVE since
+  // rf2-j7w2u retired the two Story showcase pages: the classifier still names
+  // the shape, but no host in the tree has it today.
   if (segments[segments.length - 1] !== 'index.html') return 'story-auxiliary';
   // A baked SSR/hydration host lives under an `ssr` tree.
   if (segments.includes('ssr')) return 'ssr';
   return 'ordinary';
 }
 
-const HOST_SHAPES = ['ordinary', 'story-auxiliary', 'ssr'];
+// The shapes the LIVE sweeps below must actually find, so neither degrades into
+// a single-shape sweep. `story-auxiliary` is deliberately NOT here: rf2-j7w2u
+// retired the only two pages that carried it, so requiring it would fail on a
+// tree that is correct. The shape keeps its teeth on SYNTHETIC paths (the
+// scanPage TEETH tests above) and on the `isExampleHostPage` unit test; add it
+// back here the moment a real `<prefix>.index.html` host lands.
+const HOST_SHAPES = ['ordinary', 'ssr'];
 
 it('LIVE rf2-y1kbf: EVERY enumerated host loads the compiled main.js entrypoint', () => {
   assert.ok(
@@ -2806,7 +2809,7 @@ function mutatedPageIo(pageAbsPath, mutatedHtml) {
   };
 }
 
-it('TEETH rf2-y1kbf: deleting a REAL host\'s live boot script IN MEMORY turns the PRODUCTION scan RED (ordinary + Story + SSR)', () => {
+it('TEETH rf2-y1kbf: deleting a REAL host\'s live boot script IN MEMORY turns the PRODUCTION scan RED (every live host shape)', () => {
   // THE non-vacuity control. It runs the production scanner over the real tree
   // with exactly one byte-range removed from one real page, so it fails against
   // the pre-fix implementation (which returned errors=[] for all three shapes)

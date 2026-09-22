@@ -226,7 +226,7 @@
 ;;      container, and a container asked for before `init!` fails loud with
 ;;      `:rf.error/no-adapter-installed`.
 ;;
-;;   2. `[h/frame-root {…}]` creates the frame — ONCE, in the tree, with
+;;   2. `[rf.fresco/frame-root {…}]` creates the frame — ONCE, in the tree, with
 ;;      `model/frame-config` merged in. That config is the substrate-free half
 ;;      of the boot, shared verbatim with the Reagent and UIx twins: its
 ;;      `:fx-overrides` points `:rf.http/managed` at the in-process demo stub

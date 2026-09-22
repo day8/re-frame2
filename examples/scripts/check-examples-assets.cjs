@@ -322,15 +322,16 @@ function loadsBuildEntrypoint(assets) {
 // holds assets, not example pages) and node_modules / build-output dirs.
 //
 // A "host page" is the page's own `index.html` OR an auxiliary showcase host
-// page named `<something>.index.html` — e.g. the Story showcase trios
-// `login/stories.index.html` and `nine_states/stories.index.html`, which mount
-// the example inside the Story shell + Xray and are held to the SAME shared-
-// asset contract as their sibling index.html (favicon + OG card + style.css).
-// Enumerating the `*.index.html` shape (rf2-x48bp4) gives the gate teeth over
-// those auxiliary pages, so a future edit cannot silently drop a required
-// shared asset from a showcase host page and stay green. (Before rf2-x48bp4
-// only the bare `index.html` name was enumerated, so the showcase pages carried
-// the assets but were never enforced.)
+// page named `<prefix>.index.html`. That second shape is enumerated
+// PROSPECTIVELY: no example under examples/ carries one today. The two Story
+// showcase pages that motivated rf2-x48bp4 — `login/stories.index.html` and
+// `nine_states/stories.index.html` — were retired under rf2-j7w2u, because the
+// showcase builds serve their example's own `index.html` (`#/stories` is a hash
+// route on that page), so nothing ever fetched them. The shape stays enumerated
+// so that a future `<prefix>.index.html` is held to the SAME shared-asset
+// contract as its sibling index.html (favicon + OG card + style.css) the moment
+// it lands, rather than carrying the assets unenforced the way the retired pages
+// did before rf2-x48bp4.
 //
 // STANDALONE example projects are pruned (rf2-vxgfnd.281). Every gallery example
 // is monorepo-STAGED: it is source-only, built from implementation/'s shadow

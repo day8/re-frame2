@@ -26,25 +26,25 @@ what each one holds constant.
 ## What this demonstrates
 
 - **Handlers as data.** A Fresco view states its intent rather than writing a
-  callback: `{:on-change [:auth.login/edit-field :email ::h/value]}` *is* the
-  handler. `::h/value` substitutes the event target's current value at dispatch
+  callback: `{:on-change [:auth.login/edit-field :email ::rf.fresco/value]}` *is* the
+  handler. `::rf.fresco/value` substitutes the event target's current value at dispatch
   time, so there is no `(fn [e] …)` and no `.. -target -value` in sight. That is
   the largest visible difference from either twin.
 
-- **`h/defview` + `h/sub`, in place of a deref or a hook.** A Reagent view
+- **`rf.fresco/defview` + `rf.fresco/sub`, in place of a deref or a hook.** A Reagent view
   dereferences a subscription (`@(subscribe …)`); a UIx view reads one through
-  the `use-sub` hook. A Fresco view calls `(h/sub [:auth.login/error])`
+  the `use-sub` hook. A Fresco view calls `(rf.fresco/sub [:auth.login/error])`
   anywhere in the synchronous body — inside a `let`, a `when`, or an inlined
   helper — and the edge is recorded where the read happens. Different idiom,
   the same subscription underneath.
 
 - **Where the data spelling stops.** Two handlers in
-  [`core.cljs`](core.cljs) are `h/event` callbacks rather than intent vectors,
+  [`core.cljs`](core.cljs) are `rf.fresco/event` callbacks rather than intent vectors,
   and each says why in place. The password's keystrokes must ride a **map**
   payload — `[:auth.login/edit-password {:value …}]` — because that
   registration declares `:sensitive [[:value]]` and redaction is path-based, so
   flattening the secret into a positional intent would ship it raw to every
-  trace. `::h/value` substitutes at the intent's top level only, by design, so
+  trace. `::rf.fresco/value` substitutes at the intent's top level only, by design, so
   building that map is exactly what the callback form is for. The submit
   handler is the other: an intent vector has nowhere to put "not while a
   request is in flight".
@@ -65,18 +65,19 @@ what each one holds constant.
 
 - **No view-local state.** Each input's `:value` reads the draft from
   `:auth.login/draft`; the draft lives in app-db. There is no
-  `h/reg-state` anywhere in this file, and nothing to keep in step.
+  `rf.fresco/reg-state` anywhere in this file, and nothing to keep in step.
 
 ## The boot, and the one place the frame is named
 
 ```clojure
-(defonce app-root (h/client-root))                ;; inert; no DOM at load
+;; core.cljs binds [re-frame.fresco :as rf.fresco] in its ns form
+(defonce app-root (rf.fresco/client-root))        ;; inert; no DOM at load
 
 (rf/init! rf.fresco.substrate/adapter)            ;; 1. seat an adapter
-(h/render! app-root                               ;; 2. one React root
-  [h/frame-root (merge {:id  frame-id             ;; 3. one frame, whole config
-                        :doc "Login (Fresco) demo frame."}
-                       model/frame-config)
+(rf.fresco/render! app-root                       ;; 2. one React root
+  [rf.fresco/frame-root (merge {:id  frame-id     ;; 3. one frame, whole config
+                                :doc "Login (Fresco) demo frame."}
+                               model/frame-config)
    [root-view]]
   el
   {:identifier-prefix identifier-prefix})         ;;    root options only
@@ -88,7 +89,7 @@ both sides or hydration resolves every `useId` differently from the bytes it
 is adopting. Both are named constants at the top of [`core.cljs`](core.cljs);
 the server renderer creates its own per-request frame.
 
-One verb, not four. The first `h/render!` through `app-root` creates the Root;
+One verb, not four. The first `rf.fresco/render!` through `app-root` creates the Root;
 every later one updates it, so the `^:dev/after-load` hook is the same call and
 the page keeps no root state of its own. `{:hydrate? true}` on that first call
 makes it adopt the server's DOM instead — which is the SSR route below, and the
@@ -105,7 +106,7 @@ a state container.
 `model/frame-config` is the substrate-free half of the boot, shared verbatim
 with the Reagent and UIx twins: `:fx-overrides` points `:rf.http/managed` at the
 in-process demo stub, and `:initial-events` seed the form slice before the first
-paint. **It rides `h/frame-root` whole**, because `frame-root` takes the
+paint. **It rides `rf.fresco/frame-root` whole**, because `frame-root` takes the
 `rf/make-frame` option map rather than a curated subset.
 
 This example used to be the odd one out. The root door's config was closed at
@@ -119,12 +120,12 @@ ignoring it.
 **The SSR branch still makes the frame by hand, and that is not the same
 detour.** `rf.ssr/hydrate!` dispatches the server's payload INTO a frame; it
 does not make one. So an adopting boot makes the frame with its config, installs
-the payload, and then SCOPEs it with `[h/frame-provider {:frame …}]` — state
-first, DOM second. An `h/frame-root` there would be the wrong shape: its ENSURE
+the payload, and then SCOPEs it with `[rf.fresco/frame-provider {:frame …}]` — state
+first, DOM second. An `rf.fresco/frame-root` there would be the wrong shape: its ENSURE
 is commit-owned, so its first render emits no descendant subtree, where an
 adopting root must render the server's element shape on its first pass.
 
-Hot reload is the SAME `h/render!` call through the same handle: a later render
+Hot reload is the SAME `rf.fresco/render!` call through the same handle: a later render
 updates the Root that handle already owns rather than building a second one, so
 every node, subscription and scrap of component state survives. There is no
 second verb that could `createRoot` twice by mistake.
@@ -133,7 +134,7 @@ second verb that could `createRoot` twice by mistake.
 
 ```
 login/
-  core.cljs    — the Fresco HALF: h/defview views + adapter init + frame + boot.
+  core.cljs    — the Fresco HALF: rf.fresco/defview views + adapter init + frame + boot.
   server.cljs  — the SERVER bundle: the entry table the ssr-node sidecar loads.
   host.clj     — the JVM half: one ssr-handler wired to the Node renderer.
   policy.cljc  — the render-state list and the entry id, read by BOTH of those.

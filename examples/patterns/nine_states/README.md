@@ -166,15 +166,10 @@ examples/patterns/nine_states/
                        keyword, plus the fetch-lifecycle story (auxiliary;
                        see below).
   stories_host.cljs    Story-showcase entry point (live-app ↔ shell hash router).
-  stories.index.html   an alternate `<title>`/meta for the showcase build.
-                       Nothing serves it today: the runner stages, and the
-                       watch server resolves, `index.html` at `/` for every
-                       build. Kept identical to `index.html` below the
-                       `<head>` until that is settled either way.
   README.md            this file.
 ```
 
-The 3 `stories*` files are an auxiliary Story showcase layered over
+The two `stories*` files are an auxiliary Story showcase layered over
 this example. They source `nine-states.core`'s real parallel machine and
 `:ui/render` selector and enumerate the nine canonical render keywords
 (plus the async fetch-lifecycle) as Story variants, with the Xray preload

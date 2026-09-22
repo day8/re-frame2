@@ -63,7 +63,7 @@ The **write-side flagship** for optimistic mutations (EP-0019) — a Linearlite-
 
 ## routing — `examples/capabilities/routing/routing/`
 
-The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf.route/url-requested`, and route-not-found handling. The CP-7 worked example. Point at this example when authoring routes, navigating between them, or wiring an anchor's `href` to dispatch a navigation event instead of a browser-default page load. It does **not** demonstrate the route `:can-leave` guard — for that read `examples/real-apps/realworld_http/`, whose editor routes declare `:can-leave [:editor/can-leave?]`. Exercises 012 Routing. Compact and single-purpose; the canonical home of the routing primitives.
+The three-page worked example for Spec 012 — `reg-route`, `route-link` anchors dispatching `:rf.route/url-requested`, `:rf.route/id` / `:rf.route/params` subs, a `case` root view, `:url-bound? true` URL ownership, and route-not-found handling. The CP-7 worked example. Point at this example when authoring routes, or wiring an anchor's `href` to dispatch a navigation event instead of a browser-default page load. It does **not** demonstrate programmatic `:rf.route/navigate` or the route `:can-leave` guard — for both read `examples/real-apps/realworld_http/` (`article_editor.cljs` navigates to the saved article once a submit succeeds; its editor routes declare `:can-leave [:editor/can-leave?]`). Exercises 012 Routing. Compact and single-purpose; the canonical home of the route-table, link and route-sub primitives.
 
 ## ssr — `examples/capabilities/ssr/ssr/`
 
