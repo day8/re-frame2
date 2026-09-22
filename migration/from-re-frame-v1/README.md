@@ -646,12 +646,12 @@ re-frame2's run-to-completion drain (per [M-3](#m-3-dispatch-ordering--events-di
 
 ```clojure
 ;; re-frame2 (ii) — wrap in a one-shot trampoline
-(rf/reg-event :rf/dispatch-later-once
+(rf/reg-event :app/dispatch-later-once
   (fn [_ [_ ev]]
     {:fx [[:dispatch-later {:ms 0 :event ev}]]}))
 
 ;; at the call site
-(rf/dispatch [:rf/dispatch-later-once [:bootstrap]])
+(rf/dispatch [:app/dispatch-later-once [:bootstrap]])
 ```
 
 The trampoline is the canonical hop — register it once per project (or copy from this rule into a `boot.cljc`), then route every "I need a flush-dom tick from the top level" call site through it. The dispatch into the trampoline drains synchronously per M-3; the trampoline's `:fx` schedules the real dispatch through the host clock primitive with one render tick of latency, matching the v1 observable effect.
@@ -1065,9 +1065,9 @@ re-frame2 ships **exactly one** framework-standard interceptor — `path`, refer
 | Interceptor | Why dropped | What replaces it |
 |---|---|---|
 | `debug` | Logged `clojure.data/diff` of `app-db` before/after each event | Trace surface ([009](../../spec/009-Instrumentation.md)) emits structured events; 10x and re-frame-pair render diffs from the trace stream. No user-side code needed. |
-| `trim-v` | Dropped the leading id from the event vector for positional handler destructure | Subsumed by [M-19](#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in). Multi-positional events migrate to `[<id> <map>]`; handler destructure becomes `[_ [_ {:keys [...]}]]` (ordinary destructuring — there is no standard `unwrap` in v2). `trim-v`'s purpose is exactly the multi-positional shape v2 leaves behind. |
+| `trim-v` | Dropped the leading id from the event vector for positional handler destructure | Remove the interceptor and adjust the handler to skip the event id, preserving its positional payload: `[sku quantity]` becomes `[_ sku quantity]`. Converting the event and its callers to `[<id> <map>]` is the separate, opt-in [M-19](#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in). |
 | `on-changes` | "When these in-paths change, compute and write to out-path" | Subsumed by [Spec 013 — Flows](../../spec/013-Flows.md). Flows have the same compute-on-input-change semantics, registered in the runtime (not on individual events) and toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`. Timing now matches v1 closely: flows run **right after the handler**, as the outermost `:after` transforming the pending `:db` effect before it installs — the same interceptor-`:after` phase v1's `on-changes` ran in, so derived state lands in one `app-db` write rather than a separate post-event step. |
-| `enrich` | Ran an arbitrary fn `:after` the handler; could modify db | Three replacement paths: (a) declarative computed state → [Spec 013 Flow](../../spec/013-Flows.md); (b) post-handler validation → registered `:spec` per [Spec 010 Schemas](../../spec/010-Schemas.md); (c) imperative escape hatch → a registered interceptor `(rf/reg-interceptor :my/enrich {:after f})` referenced by id in the event's `:interceptors`. Most documented `enrich` use-cases collapse to (a) or (b). |
+| `enrich` | Ran an arbitrary fn `:after` the handler; could modify db | Three replacement paths: (a) declarative computed state → [Spec 013 Flow](../../spec/013-Flows.md); (b) post-handler validation → registered `:schema` per [Spec 010 Schemas](../../spec/010-Schemas.md); (c) imperative escape hatch → a registered interceptor `(rf/reg-interceptor :my/enrich {:after f})` referenced by id in the event's `:interceptors`. Most documented `enrich` use-cases collapse to (a) or (b). |
 | `after` | Ran an arbitrary fn `:after` for side-effects | Redundant with a registered interceptor. Users wanting an after-phase fn register `(rf/reg-interceptor :my/thing {:after f})` and reference `:my/thing` in `:interceptors`. The interceptor is named, addressable, and queryable. Most documented uses (analytics, logging) belong as registered fx via `:fx [[:my-fx ...]]` rather than as interceptors. |
 
 **What to look for** in the codebase:
@@ -1083,7 +1083,7 @@ Any of the five interceptor refs in any registration's interceptor list.
 **What to do:**
 
 - **`debug`** → just remove it from the interceptor list. Nothing else changes. (Type A.)
-- **`trim-v`** → see M-19. Either keep the multi-positional event vector and adjust the handler destructure, or migrate the event-id to map-payload form. The agent flags `trim-v` users alongside the M-19 rewrite.
+- **`trim-v`** → remove it and adjust the handler in the same edit: skip the leading event id in destructuring, or wrap a named effects handler with `(fn [cofx event] (existing-handler cofx (subvec event 1)))` to preserve its trimmed-vector contract. This M-21 repair is required even when the author declines M-19; changing the event and all callers to map-payload form remains opt-in.
 - **`on-changes`** → migrate to a flow per [013](../../spec/013-Flows.md). The agent rewrites `(rf/on-changes f out-path & in-paths)` to the 3-slot `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path} f)` registration (id first, metadata middle, the pure derive fn last — a `:derive` left inside the metadata map is rejected with `:rf.error/invalid-flow-metadata`). The id has to be picked — agent asks the user, defaulting to a namespaced keyword derived from the call site (for example `:<user-ns>/<event-id>-flow`). Type B because the user may want to toggle the flow conditionally rather than have it run for every event the original interceptor was wired to.
 - **`enrich`** → identify whether the body is computing derived state (→ flow), validating (→ schema), or doing something else (→ a registered interceptor `(rf/reg-interceptor :my/enrich {:after (fn [ctx] ...)})` referenced by id). Type B; the agent suggests the path based on what the body looks like.
 - **`after`** → if the body is purely side-effecting and event-shaped (analytics, logging, telemetry), the canonical replacement is a registered fx returned by the handler: `:fx [[:analytics/track ...]]`. If the body genuinely needs to run for every event of a specific kind regardless of handler, register it: `(rf/reg-interceptor :my/thing {:after (fn [ctx] ...)})` and reference `:my/thing` in the event's `:interceptors`. Type B because the right path depends on the body. (There is no public `->interceptor` to vendor onto; the registered interceptor IS the named, addressable replacement.)
@@ -2206,7 +2206,7 @@ The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` res
 
 **No deprecation alias (pre-alpha posture).**
 
-The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprecated-schema-alias` once-per-`(kind, id)` warning shipped briefly during the initial rename but were stripped in a follow-up pass alongside the M-53 `dispose-adapter!` alias. The framework now reads `:schema` only; `:spec` on `reg-*` metadata is a stale key that registrations silently ignore (and that schema validators treat as "no schema declared" — every read at the boundary will pass with a soft-pass, hiding bugs). Migration agents MUST rewrite every `:spec` slot.
+The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprecated-schema-alias` once-per-`(kind, id)` warning shipped briefly during the initial rename but were stripped in a follow-up pass alongside the M-53 `dispose-adapter!` alias. The framework now reads `:schema` only; a stale `:spec` metadata key raises `:rf.error/retired-registration-key` at registration in both dev and production. Migration agents MUST rewrite every `:spec` slot; compiling alone does not exercise the registration-time rejection.
 
 **Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the `:boundary? true` registration flag), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename — same per-token pattern, different surface).
 

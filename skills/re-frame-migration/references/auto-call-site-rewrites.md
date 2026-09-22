@@ -501,12 +501,12 @@ There is no automatic rewrite. Surface every M-16b hit and let the operator pick
 **(ii) Preserve the latency — route through a one-shot trampoline.** If the call site genuinely wants a paint tick before the dispatched handler runs, register a one-shot event whose body is the M-16a rewrite, then dispatch through it:
 ```clojure
 ;; re-frame2 (ii) — register once (e.g. in a boot.cljc)
-(rf/reg-event :rf/dispatch-later-once
+(rf/reg-event :app/dispatch-later-once
   (fn [_ [_ ev]]
     {:fx [[:dispatch-later {:ms 0 :event ev}]]}))
 
 ;; at the call site
-(rf/dispatch [:rf/dispatch-later-once [:bootstrap]])
+(rf/dispatch [:app/dispatch-later-once [:bootstrap]])
 ```
 
 **Don't silently pick (i):** if the v1 author depended on the paint tick, (i) breaks the call site in a hard-to-debug way. The choice is a one-line judgement the operator owns — flag it.

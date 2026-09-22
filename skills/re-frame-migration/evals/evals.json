@@ -132,6 +132,18 @@
         "The boot machine has not reached its expected :ready state despite completion. The agent investigates its awaited event producer and addressing, without claiming that the snapshot alone proves a globally dispatched event was the cause.",
         "Reads use the :rf/machine subscription or runtime-db partition with the intended :app/main frame selected. Testing inequality with the literal keyword :initial is not accepted as proof of boot completion."
       ]
+    },
+
+    {
+      "id": 31,
+      "kind": "behavioural",
+      "name": "behav-trim-v-removal-preserves-positional-payload",
+      "prompt": "Migrate these v1 handlers to re-frame2, preserving our positional event payloads; do not apply opt-in map-payload modernization. One handler is (rf/reg-event-fx :cart/add [rf/trim-v] (fn [{:keys [db]} [sku quantity]] {:db (assoc-in db [:cart sku] quantity)})). Another registers the shared function save-cart as (rf/reg-event-fx :cart/save [rf/trim-v] save-cart); other code calls save-cart directly with the trimmed payload vector. The app dispatches [:cart/add \"book\" 2]. What changes, and how do you verify it?",
+      "expectations": [
+        "Removes trim-v and changes the first handler to accept [_ sku quantity] in the same required M-21 edit, alongside the M-73 registrar rename. It does not postpone the argument repair to opt-in M-19 or change the dispatch payload shape.",
+        "Preserves save-cart and its direct callers by wrapping the event registration with (fn [cofx event] (save-cart cofx (subvec event 1))), or an equivalent adapter that passes the same trimmed vector.",
+        "Verifies that dispatching [:cart/add \"book\" 2] stores 2 at [:cart \"book\"], and that the named handler receives the payload without the event id. A compile-only pass is not accepted as evidence of payload preservation."
+      ]
     }
   ]
 }
