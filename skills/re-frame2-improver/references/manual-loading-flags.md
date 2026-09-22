@@ -18,13 +18,13 @@ Structural signal: the data path and the flag path are siblings (`{:items [...] 
 A boolean flag is a one-bit lifecycle marker implemented in `assoc` calls. It cannot express the page-level lifecycle the framework's **Nine States** checklist enumerates — see [`nine-states.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/nine-states.md). Two detection-relevant traps follow from the one-bit shape:
 
 - **Implicit lifecycle / missing `dissoc`.** Every code path that can terminate the in-flight operation must remember to flip the flag off. The most common bug is a missing `dissoc` on the failure branch, leaving the UI stuck on a spinner.
-- **Flag-vs-data race.** The flag and the data are sibling keys, so rendering must guard against `{:items [] :items-loading? true}` (is this "initial load" or "loaded zero items"?) — and typically grows the boolean-discriminator-sub cluster downstream to disambiguate.
+- **Ambiguous flag/data combinations.** `{:items [] :items-loading? true}` does not distinguish an initial load from revalidating a previously empty result. The keys can be updated atomically; the problem is the missing lifecycle distinction, not a race caused by having sibling keys.
 
 ## The canonical fix
 
 **Smallest correction first.** When the concrete bug is a missing terminator cleanup — the classic missing `dissoc` on the failure branch — the immediate correctness repair is one line: clear the flag on that branch too (`(-> db (dissoc :items/loading?) (assoc :items/error err))`). Every path that can terminate the in-flight operation must flip the flag off. Report that one-liner as the immediate fix; it is proportionate to the bug and requires no re-architecture.
 
-**One axis — replace the boolean with a status keyword, not with a machine.** The flag's structural cost is real even when the lifecycle stays one-dimensional: every new terminator re-inherits the cleanup obligation, and the flag-vs-data sibling race breeds a discriminator-sub cluster downstream. Both come from the *one-bit shape*, and both go away by widening that bit into an explicit `:status` keyword — [`skills/re-frame2/patterns/remote-data.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/remote-data.md) §Canonical declaration — slice form, "the dominant shape … the vast majority of cases": `[:enum :idle :loading :fetching :loaded :error]` where the boolean was, plus layered convenience subs (`:*/loading?`, `:*/fetching?`) derived from it rather than stored beside it. A status keyword cannot be simultaneously loading and errored, so there is no coherence invariant left to forget, and the view reads one value instead of racing a flag against its data. This is a slice-for-a-slice swap — no new grammar, no lifecycle to initialise.
+**One axis — replace the boolean with a status keyword, not with a machine.** An explicit `:status` names distinctions a boolean cannot: [`skills/re-frame2/patterns/remote-data.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/remote-data.md) §Canonical declaration — slice form uses `[:enum :idle :loading :fetching :loaded :error]`, plus layered convenience subs (`:*/loading?`, `:*/fetching?`) derived from it. Use `:loading` when no prior data exists and `:fetching` when revalidating existing data, including an empty collection. A status cannot be both loading and errored, but every terminator must still settle it — changing the representation does not repair a missing transition. This is a slice-for-a-slice swap; a machine is unnecessary.
 
 **When the canonical redesign pays.** The machine earns its migration when the lifecycle grows past one axis (failure *and* cancellation *and* reload *and* empty-vs-initial disambiguation), or when one of [`slice-or-machine.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/decision-trees/slice-or-machine.md)'s four tells fires — multi-step async phases with phase-distinct transitions, a cancellation cascade, a terminal state, or orthogonal axes. Then [`skills/re-frame2/patterns/nine-states.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/nine-states.md) models the page-level lifecycle as a parallel `reg-machine` with `:data`, `:form`, and `:mode` regions; tag each state with per-axis intent; resolve render via a priority table in plain data. Offer it as the optional broader redesign — never as the mandatory fix for one missing `dissoc`, and never for a one-axis fetch that a `:status` keyword already models.
 
@@ -55,16 +55,19 @@ Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/b
     {:db (-> db (dissoc :items/loading?) (assoc :items/error err))}))  ;; if you forget the dissoc, spinner-forever
 ```
 
-**After — one axis** (the usual case): the boolean widens into a `:status` keyword on the slice, and the terminators set it instead of remembering to clear a flag.
+**After — one axis** (the usual case): the boolean widens into a `:status` keyword on the slice, and the terminators set it instead of clearing a flag. This changes `:items` from a vector to a map: update its initial state, schemas, and consumers together, and migrate any retained/persisted vector into `[:items :data]` before using these handlers. The old vector cannot be passed to `merge` as a slice.
 
 ```clojure
 ;; `:items` becomes the slice map {:status … :data … :error …}, not a bare vector —
-;; the flag and the data stop being siblings, so they cannot disagree.
+;; nil data means "never loaded"; [] is a successfully loaded empty result.
 (rf/reg-event :items/load-start
-  (fn [{:keys [db]} _] {:db (update db :items merge {:status :loading :error nil})}))
+  (fn [{:keys [db]} _]
+    (let [slice (merge {:status :idle :data nil :error nil} (:items db))]
+      {:db (assoc db :items (assoc slice :status (if (some? (:data slice)) :fetching :loading)
+                                        :error nil))})))
 
 (rf/reg-event :items/load-success
-  (fn [{:keys [db]} [_ items]] {:db (update db :items merge {:status :loaded :data items})}))
+  (fn [{:keys [db]} [_ items]] {:db (update db :items merge {:status :loaded :data items :error nil})}))
 
 (rf/reg-event :items/load-failure
   (fn [{:keys [db]} [_ err]] {:db (update db :items merge {:status :error :error err})}))
@@ -76,7 +79,7 @@ Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/b
 (rf/reg-sub :items/fetching? {:inputs [[:items/status]]} (fn [[status] _] (contains? #{:loading :fetching} status)))
 ```
 
-Forgetting a terminator is now *visible* rather than silent: the status simply stays `:loading`, and there is no second key that could disagree with it.
+This compact example shows only status, data, and error; the linked RemoteData pattern adds attempt accounting and recorded completion time. A forgotten terminator still strands the slice in `:loading` or `:fetching`, so verify success, failure, and any cancellation paths after the rewrite.
 
 **After the redesign** — machine with tag-based render selection (only once the lifecycle has earned it — see above):
 
