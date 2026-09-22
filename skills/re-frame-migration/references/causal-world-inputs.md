@@ -73,7 +73,7 @@ The migration path: replace `(interop/now-ms)` / `js/Date.now` / `(.now js/Date)
 
 ## UUID / random / browser / storage → event payloads or recordable facts
 
-These follow the same boundary. If the generated or read value becomes durable, it must be a recorded fact. The `:rf.cofx` map is **flat** (one fact per owner-qualified key — no `:uuid {…}` / `:random […]` grouping sub-maps), and app-owned **recordable generators** are slice B, so in slice A the realistic routes are the **event payload** (preferred — the caller pins the id) or a **provided** recordable fact stamped by a boundary.
+These follow the same boundary. If the generated or read value becomes durable, it must be a recorded fact. The `:rf.cofx` map is **flat** (one fact per owner-qualified key — no `:uuid {…}` / `:random […]` grouping sub-maps). Use the **event payload** when the caller owns the value, a **recordable generator** when the fold needs a fresh fact, or a **provided** recordable fact when a boundary owns it. Both coeffect routes require a `reg-cofx` registration and a consumer's `:rf.cofx/requires` declaration; supplying an unregistered key on the token does not register it.
 
 - **Generated identity (UUID).** A durable entity id minted with `random-uuid` inside a handler is a world fact. The minting ladder's preferred rung is the **event payload** — the caller pins the id and the view can render it optimistically:
 
@@ -82,13 +82,25 @@ These follow the same boundary. If the generated or read value becomes durable, 
   ;; handler: read (:todo/id payload) — never (random-uuid) in the fold.
   ```
 
-  When the id is genuinely fold-internal (no call site owns it), it rides a recordable fact: declare `:rf.cofx/requires [:my/entity-id]` and (slice B) register an app-owned recordable generator, or supply the value in the `:rf.cofx` dispatch opt:
+  When the id is genuinely fold-internal (no call site owns it), register a recordable generator and declare it on the consumer:
+
+  ```clojure
+  (rf/reg-cofx :todo/id {:recordable? true} (fn [] (random-uuid)))
+  (rf/reg-event :todo/create
+    {:rf.cofx/requires [:todo/id]}
+    (fn [{:keys [db todo/id]} [_ {:keys [text]}]]
+      {:db (assoc-in db [:todos id] {:todo/id id :text text})}))
+  ```
+
+  In live mode an absent declared fact is generated at processing-start and recorded in `:rf.cofx`; a supplied or replayed value wins without calling the generator. Strict mode (including the `:test` frame preset) rejects an absent fact with `:rf.error/missing-required-cofx`, so deterministic tests supply it. See [Spec 002 §Mint policies](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#mint-policies).
+
+  Alternatively, when a boundary always supplies the id, use a **provided** registration instead of the generator above: `(rf/reg-cofx :todo/id {:recordable? true :provided? true})`. It has no supplier; omitting its declared value fails in every mode. The same consumer takes either registration's value flat as `todo/id`. Supply the fact through the dispatch opts:
 
   ```clojure
   (rf/dispatch [:todo/create {:text text}]
                {:rf.cofx {:rf/time-ms 1781078400123
                           :todo/id    #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"}})
-  ;; handler: {:rf.cofx/requires [:todo/id]} → read `todo/id` flat — not (random-uuid)
+  ;; Works with either registration above; a supplied value bypasses generation.
   ```
 
 - **Random choices.** Record the **chosen value**, not a seed (host RNG algorithms and collection ordering are not portable). A seed is acceptable only when the algorithm and input order are named and stable. **Crypto-grade randomness — session tokens, keys, nonces — is excluded entirely:** it must NOT flow through recordable coeffects (a recorded choice would *be* the secret, durably embedded in epoch history / replay fixtures). Secrets are generated in effects on the host side; only derived or server-issued facts become durable.
