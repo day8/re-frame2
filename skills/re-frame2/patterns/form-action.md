@@ -124,6 +124,13 @@ The action handler validates **in its own body** and emits per-platform effects:
    ;; here so the server's CSRF arm owns its rejection.
    :schema [:cat [:= :cart/add-item]
             [:map [:csrf-token {:optional true :sensitive? true} :any]]]
+   ;; Registration-owned classification of the event PAYLOAD, and NOT a
+   ;; duplicate of the `:sensitive?` prop above: that prop redacts the
+   ;; schema-VALIDATION-FAILURE trace, and a POST that validates cleanly
+   ;; produces none — yet a SUCCESSFUL dispatch still ships the whole POST
+   ;; envelope verbatim on `:rf.event/v`. This redacts that surface, and it
+   ;; is always-on where the tripwire above elides.
+   :sensitive [[:csrf-token]]
    :rf.cofx/requires [:rf.server/request
                       :app.csrf/active-token]}            ;; app-owned cofx — see §CSRF
   (fn [{:keys [db] :as cofx} [_ form-params]]
@@ -195,7 +202,7 @@ Every form POST MUST carry a CSRF token; the server MUST reject a bad one *befor
 
 **The compare fails closed on both limbs, and getting that wrong is silent.** The handler answers 403 unless the session **has** an active token *and* it equals the submitted one — which is why the arm above reads `(not (and (some? active-token) (= …)))`. Do **not** write `(not= (:csrf-token form-params) active-token)`: on a request with no session `active-token` is `nil`, an attacker's token-less POST supplies `nil`, `nil` equals `nil`, and the arm never fires. The one shape that looks tidiest is the one that opens the endpoint.
 
-Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme. The submitted token never enters the draft: the failure arm's `select-keys` writes editable fields only. Add `:sensitive [[:csrf-token]]` to the action's registration metadata to classify its event payload; the structural event schema's `:sensitive?` mark covers validation-failure traces only. If the app seeds a session/form token into app-db, the writing event also classifies that durable path with a `:sensitive` effect.
+Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme. The submitted token never enters the draft: the failure arm's `select-keys` writes editable fields only. The action's registration carries `:sensitive [[:csrf-token]]` to classify its event payload (§Canonical declaration) — that is the declaration covering an ordinary *successful* dispatch, where the structural event schema's `:sensitive?` mark reaches validation-failure traces only (spec 015 §Registration-owned transient classification). If the app seeds a session/form token into app-db, the writing event also classifies that durable path with a `:sensitive` effect.
 
 ## File uploads
 
