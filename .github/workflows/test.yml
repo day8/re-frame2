@@ -4303,8 +4303,10 @@ jobs:
     # the Story static-export step. Any one alone must open the job, and each
     # step carries its own tier's condition, so a change to the full-gate
     # runners or to the static gate does not pay for two smoke compiles it
-    # cannot affect and an ordinary Story/Xray runtime change keeps exactly the
-    # cheap path it had.
+    # cannot affect. rf2-xurxw — an ordinary Story/Xray runtime change keeps
+    # the two cheap smokes and now also runs the ~90 s static-export step,
+    # which is the only PR-time `:advanced` compile of that closure; it stays
+    # off the full feature-load tier.
     if: >-
       needs.detect_changed_surfaces.outputs.story_xray_browser == 'true' ||
       needs.detect_changed_surfaces.outputs.story_full_gate == 'true' ||
@@ -4474,12 +4476,23 @@ jobs:
       # unexercised — the classifier armed five outputs for the file and not
       # one scheduled a job that runs its command.
       #
-      # Gated on `story_static_gate`, which arms ONLY on the gate script and
-      # the build script it spawns — not on ordinary Story/Xray runtime
-      # changes, and not on the rest of implementation/scripts/. So this adds
-      # nothing to the critical path of a normal PR: it runs on the rare PR
-      # that edits the static gate itself, where it is the only step that
-      # exercises the diff at all.
+      # Gated on `story_static_gate`, which arms on the gate's own two scripts
+      # (above); on Story/Xray runtime source and testbeds, through the SAME
+      # predicate as the PR-smoke steps; and on implementation/shadow-cljs.edn,
+      # which declares this step's build. It stays off the rest of
+      # implementation/scripts/ and off the two npm manifests.
+      #
+      # rf2-xurxw widened it from the two gate scripts, because ARMING THE JOB
+      # IS NOT ARMING THE STEP: 58bd56635b broke the static export from
+      # tools/xray/src, which armed `story_xray_browser` — so this job OPENED,
+      # its dev-compile smokes passed, and this step showed `skipped`. Both
+      # PRs that fixed it were skipped here too. This is the only PR-time
+      # command that compiles Story under `:advanced`, and the release
+      # bundle's closure is exactly those source trees.
+      #
+      # The cost: about 90 s (nightly record 55–91 s) inside a job that was
+      # the critical path 0 of 45 runs, so it stays off a normal PR's
+      # time-to-green.
       #
       # It shares this job's keyed .shadow-cljs cache with the steps above, but
       # note it compiles its OWN build target (:story-static/counter-with-
@@ -4489,7 +4502,7 @@ jobs:
       #
       # The nightly sweep in expensive-tests.yml is unchanged and remains the
       # system of record for the full matrix.
-      - name: Run the Story static-export gate (direct-gate change, rf2-9n2cv)
+      - name: Run the Story static-export gate (rf2-9n2cv, rf2-xurxw)
         if: needs.detect_changed_surfaces.outputs.story_static_gate == 'true'
         run: npm run test:story-static
 

@@ -3759,6 +3759,120 @@ test('ordinary implementation/scripts changes do NOT arm the static gate (rf2-9n
   }
 });
 
+// rf2-xurxw — the SOURCE half of the static gate's roster.
+//
+// The rows above pin the gate's own two scripts, and for a long time that was
+// the WHOLE roster. `npm run test:story-static` is the only PR-time command
+// that compiles Story under `:advanced` with
+// `re-frame.story.config/static-mode? true`, and the release bundle's
+// dependency closure is tools/story/src/** plus tools/xray/src/** plus the
+// export's own testbed entry — so the gate that grades the static export
+// could not be scheduled by any change capable of breaking it.
+//
+// The measured instance: 58bd56635b broke the export from tools/xray/src.
+// Those paths armed story_xray_browser, so the browser job OPENED and its
+// dev-compile smokes passed, while the static step showed `skipped`. ARMING
+// THE JOB IS NOT ARMING THE STEP, and the two fixes that followed both had
+// the step skipped on their own PRs. The classifier now arms both outputs
+// from the one predicate.
+
+test('Story/Xray runtime source arms the static gate (rf2-xurxw)', () => {
+  // Real paths with a per-path existsSync, the shape the two-file arm above
+  // uses: a pin on a phantom path classifies byte-identically to the real
+  // file beside it and therefore cannot fail (rf2-e30e).
+  for (const file of [
+    // The five .cljs of 58bd56635b — the commit that broke the static export.
+    'tools/xray/src/day8/re_frame2_xray/core.cljs',
+    'tools/xray/src/day8/re_frame2_xray/panels/machine_canvas.cljs',
+    'tools/xray/src/day8/re_frame2_xray/shell.cljs',
+    'tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs',
+    'tools/xray/src/day8/re_frame2_xray/views/resizable_table.cljs',
+    // Story's shell requires day8.re-frame2-xray.core directly, so Story
+    // source sits in the same release closure.
+    'tools/story/src/re_frame/story/ui/shell.cljs',
+    // The predicate's one named .clj exception (rf2-uqf5q).
+    'tools/story/src/re_frame/story/macros.clj',
+    // The export's OWN source: entry point, the staged document, the stories.
+    'tools/story/testbeds/counter_with_stories/story_static.cljs',
+    'tools/story/testbeds/counter_with_stories/story_static.index.html',
+    'tools/story/testbeds/counter_with_stories/stories.cljs',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a pin on a phantom path cannot fail`,
+    );
+    const result = classify(file);
+    // The two outputs travel together BY CONSTRUCTION — one predicate arms
+    // both — so pin both. A divergence here means the arm has been split, and
+    // this row should be read before the split is believed.
+    assert.equal(result.story_xray_browser, 'true', file);
+    assert.equal(result.story_static_gate, 'true', file);
+  }
+});
+
+test('non-runtime Story/Xray paths do NOT arm the static gate (rf2-xurxw negative control)', () => {
+  // The predicate's own exclusions, taken from the SAME commit as the row
+  // above — 58bd56635b's other two paths. A widening that reached markdown
+  // specs or JVM unit tests would red here rather than quietly costing ~90 s
+  // a run on changes that cannot reach the release bundle.
+  for (const file of [
+    'tools/xray/spec/011-Launch-Modes.md',
+    'tools/xray/test/day8/re_frame2_xray/registry_cljs_test.cljs',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a negative control on a phantom path is vacuous`,
+    );
+    const result = classify(file);
+    assert.equal(result.story_static_gate, 'false', file);
+    assert.equal(result.story_xray_browser, 'false', file);
+  }
+});
+
+test('the full-tier runner does NOT arm the static gate (rf2-xurxw negative control)', () => {
+  // tools/story/test/** is outside the runtime predicate, so the static gate
+  // stays off the full-tier runner. story_full_gate is pinned beside it to
+  // keep the 'false' non-vacuous: this path really does arm something, so a
+  // classifier that had stopped classifying it at all would red here.
+  const fullTierRunner = 'tools/story/test/story_browser_scenarios.cjs';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, fullTierRunner)),
+    `${fullTierRunner} must exist — a negative control on a phantom path is vacuous`,
+  );
+  const result = classify(fullTierRunner);
+  assert.equal(result.story_full_gate, 'true', fullTierRunner);
+  assert.equal(result.story_static_gate, 'false', fullTierRunner);
+});
+
+test("the static export's build definition arms the static gate (rf2-xurxw)", () => {
+  // implementation/shadow-cljs.edn DEFINES :story-static/counter-with-stories
+  // — its :init-fn and its
+  // `:closure-defines {re-frame.story.config/static-mode? true}`. An edit
+  // there can stop the export building with no source change anywhere, so it
+  // arms through a nested case scoped to that ONE file.
+  const buildDefinition = 'implementation/shadow-cljs.edn';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, buildDefinition)),
+    `${buildDefinition} must exist — a pin on a phantom path cannot fail`,
+  );
+  assert.equal(classify(buildDefinition).story_static_gate, 'true', buildDefinition);
+
+  // The two npm manifests share that arm and were considered and DECLINED
+  // (rf2-xurxw ruling). Pinned OFF so a future widening has to be a
+  // deliberate edit here rather than a side effect of setting the output at
+  // the arm's top level — which would also red the negative control above.
+  for (const declined of [
+    'implementation/package.json',
+    'implementation/package-lock.json',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, declined)),
+      `${declined} must exist — a pin on a phantom path cannot fail`,
+    );
+    assert.equal(classify(declined).story_static_gate, 'false', declined);
+  }
+});
+
 test('PR story-xray-browser job opens for EITHER tier (rf2-65ajl)', () => {
   // A full-gate-only change leaves story_xray_browser false, so a job condition
   // reading only that output would skip the job and the new step with it — the
