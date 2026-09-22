@@ -23,9 +23,12 @@
 > `spine_ablation_app.cljs` `a1ae49372b1b6d7d443408446ded9dd19f44ecfb`,
 > `spine_ablation_run.cjs` `6567a4a47783b8a77fdfea340aff8987743f941f`. The
 > confirmation run was authored as `fa09c5ad7a` on
-> `worker/bench-audit-cluster`; if that does not resolve,
-> `git log --oneline --all -- <path>` finds a commit carrying the blobs and
-> `git rev-parse <candidate>:<path>` confirms it.
+> `worker/bench-audit-cluster` and landed on `main` as `8768b86c53`, which
+> carries all three of the ids above unchanged — so on this branch the rebase
+> preserved the measured instrument and not merely the patch. That is checked,
+> not assumed, and the check is the one to re-run if the pin ever goes stale:
+> `git log --oneline --all -- <path>` finds a commit carrying the instrument and
+> `git rev-parse <candidate>:<path>` confirms each id against it.
 
 > **THE DEFECT THIS PAGE FOUND HAS BEEN FIXED (rf2-2rtt6.13, 2026-07-31).**
 > `re-frame.substrate.spine`'s render-phase `use-memo` now derefs while the

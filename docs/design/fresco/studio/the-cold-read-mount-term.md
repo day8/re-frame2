@@ -598,9 +598,13 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > because an answer looks unsettled), the window shape (32 frames, 8 × (2 + 8) =
 > 64 kept samples per arm, grid 0.0015625 ms/commit — the instrument's own shape,
 > no gate, tolerance or knob touched), and the adjudication rule below. The
-> pre-registration is the first commit of this window's branch — `f34af10`, the
-> data commit's parent, carrying the registration and nothing else — and the
-> dataset `README.md` carries it in full. **What that ancestry establishes is
+> pre-registration is the first commit of this window's branch — the data
+> commit's parent, carrying the registration and nothing else — and the dataset
+> `README.md` carries it in full. It is named here by its POSITION and by no
+> SHA, deliberately: that branch was rebase-merged, so the head it was authored
+> at is in no clone and would pin nothing a reader could check out, while the
+> parent relation the argument below rests on is precisely what a rebase
+> preserves. **What that ancestry establishes is
 > that the rule's CONTENT precedes the data in the commit graph. The ordering
 > against the runs themselves is declared, not checked.** Nothing durable puts
 > the commit object before run 1: its committer field reads 10:52:20, after the
