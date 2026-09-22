@@ -100,7 +100,7 @@ Notice what isn't here: no second, server-flavoured copy of the app.
 Streaming SSR falls straight out of the per-request
 [frame](../../../../docs/core/glossary.md#frame) model. The server runs
 your real views against an isolated frame for the request, and
-`:rf/suspense-boundary` is just the marker that says "this region is
+`ssr/boundary` is the component that says "this region is
 allowed to arrive late."
 
 One subtlety the source is careful about (worth a glance if you read

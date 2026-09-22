@@ -55,8 +55,10 @@
 
     The `#app` subtree is the dev-build output of `ssr/render-to-string` — the
     same string `handle-request` inlines, minus the `data-rf-render-hash`
-    attribute (this offline stand-in bakes `:rf/render-hash nil` below, so
-    neither the wire hash nor its DOM twin appears). In a dev build the reg-view
+    attribute (this offline stand-in OMITS `:rf/render-hash` from the payload
+    below — Spec-Schemas types the slot `{:optional true} :string`, not
+    `[:maybe :string]`, so absence is an ABSENT KEY and never a present nil —
+    so neither the wire hash nor its DOM twin appears). In a dev build the reg-view
     REGISTRATION boundary stamps two annotations on every registered view's root
     DOM element (Spec 006 §Source-coord annotation / §View tagging contract,
     moved cross-host to the reg-view boundary by rf2-8vi4q): the
@@ -65,7 +67,9 @@
     reg-view call site) and `data-rf-view=":pages/articles"`, so pair-shaped
     tooling can map the node back to its view. The client's dev render stamps
     the SAME two attributes, so this page hydrates as a clean ADOPTION rather
-    than an attribute mismatch. `:app/root` renders `[(rf/view :pages/articles)]`
+    than an attribute mismatch. That `<line>` is a SNAPSHOT of the call site:
+    move the `reg-view` in core.cljc and this page must be re-baked, or the
+    adoption stops being clean. `:app/root` renders `[(rf/view :pages/articles)]`
     — a callable head, not a DOM element — so it contributes no wrapper node and
     no annotation of its own. A production build (`goog.DEBUG=false` /
     `re-frame.debug=false`) elides the annotations on both hosts, so prod markup
@@ -91,8 +95,7 @@
      :invalidated-at nil
      :generation     1
      :active-owners  #{[:ssr :ssr/req-1 :ssr/nav-1]}
-     :tags           #{[:article-list]}}}}}
- :rf/render-hash nil}
+     :tags           #{[:article-list]}}}}}}
   </script>
   <script src="main.js"></script>
 </body>

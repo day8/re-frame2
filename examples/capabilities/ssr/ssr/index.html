@@ -36,7 +36,9 @@
     reg-view call site) and `data-rf-view=":pages/articles"`, so pair-shaped
     tooling can map the node back to its view. The client's dev render stamps
     the SAME two attributes, so this page hydrates as a clean ADOPTION rather
-    than an attribute mismatch. `:app/root` renders `[(rf/view :pages/articles)]`
+    than an attribute mismatch. That `<line>` is a SNAPSHOT of the call site:
+    move the `reg-view` in core.cljc and this page must be re-baked, or the
+    adoption stops being clean. `:app/root` renders `[(rf/view :pages/articles)]`
     — a callable head, not a DOM element — so it contributes no wrapper node and
     no annotation of its own. A production build (`goog.DEBUG=false` /
     `re-frame.debug=false`) elides the annotations on both hosts, so prod markup

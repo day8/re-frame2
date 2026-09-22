@@ -173,7 +173,7 @@
     ;; skeleton, matching the fallback the failed chunk left in the DOM.
     (card-slot :card.flaky :flaky [throwing-card])]
    [:footer
-    [:p "Each card above is a `:rf/suspense-boundary`."]]])
+    [:p "Each card above is an `ssr/boundary`."]]])
 
 ;; ============================================================================
 ;; SERVER ENTRY POINT (.clj branch — what a Ring server calls)
@@ -446,9 +446,25 @@
                         ;; first render. With a payload the server painted the
                         ;; page, so the render HYDRATES: React reconciles
                         ;; against that markup — same nodes, listeners
-                        ;; attached, no re-paint. Without one the server never
-                        ;; rendered this page — a plain first load with nothing
-                        ;; to adopt — and the adapter mounts a fresh root.
+                        ;; attached, no re-paint.
+                        ;;
+                        ;; A nil payload HERE is not "a plain first load".
+                        ;; `:on-ready` is reached only through `finalize!`,
+                        ;; which runs only once the final payload node is in
+                        ;; the DOM — so the script WAS present and the
+                        ;; fail-closed EDN read rejected it
+                        ;; (`:rf.error/malformed-hydration-payload`). A page
+                        ;; served with no `__rf_payload` at all never reaches
+                        ;; this callback and renders nothing: the observer
+                        ;; simply keeps waiting. That is deliberate — Spec 011
+                        ;; §Streaming SSR: "a bootstrap MUST NOT fall through
+                        ;; to `create-root` merely because the payload has not
+                        ;; landed yet". A page that must ALSO work un-streamed
+                        ;; checks for the payload BEFORE `streaming-install!`,
+                        ;; or uses the non-streaming recipe (see ssr/core.cljc,
+                        ;; where the same `(when-not payload …)` branch IS
+                        ;; reachable).
+                        ;;
                         ;; Either way the root is created exactly once, here,
                         ;; and the `^:dev/after-load` `render!` above reuses it.
                         (rf.adapter.reagent/render! app-root tree el
