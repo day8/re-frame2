@@ -15,8 +15,8 @@
    - Defines the root-view that switches on :rf.route/id to pick the page.
    - Mounts the React root. One `frame-root {:id …}` at the render root
      creates and seeds the app frame in a single place — its `:url-bound?
-     true` + base-path-aware `:url-strategy` automatically install the URL
-     listener for Back/Forward.
+     true` installs the URL listener for Back/Forward (default history
+     strategy).
 
    The per-feature work lives in:
      auth.cljs             — login / register / session-restore
@@ -29,7 +29,7 @@
                              in a machine) + home-page query helpers
      settings.cljs         — user settings page (form lifecycle held in a
                              machine)
-     routing.cljs          — route registrations + router wiring
+     routing.cljs          — route registrations + the auth guard
      schema.cljs           — Malli schemas for the example slices
      http.cljs             — request-builder + retry policy for :rf.http/managed
      ssr.cljc              — hydration payload helper for the RealWorld app
@@ -59,7 +59,11 @@
             ;; (`:realworld.demo/http-stub`) the frame's `:fx-overrides` reference
             ;; below, alongside the request-builder + retry policy.
             [realworld-http.http]
-            [realworld-http.routing :as routing]
+            ;; Loaded for its ns-load side effects: the route table, the
+            ;; `:realworld.routing/authed?` guard sub and the
+            ;; `:rf.route/entry-denied` handler. Nothing here calls into it by
+            ;; name, so no alias.
+            [realworld-http.routing]
             [realworld-http.auth :as auth]
             [realworld-http.articles :as articles]
             [realworld-http.comments :as comments]
@@ -357,16 +361,13 @@
     ;; Here's where the frame is born. A single `frame-root {:id …}` at
     ;; the render root creates, configures, and seeds the app frame all in one
     ;; place. The first mount conjures `:rf/default` and applies its config:
-    ;;   - `:url-bound? true` — this frame owns the browser URL.
-    ;;   - `:url-strategy routing/url-strategy` — the orchestrator serves this
-    ;;     example under `/realworld/`, but the routes (routing.cljs) are
-    ;;     written as if it owned `/`. `routing/url-strategy` wraps the
-    ;;     default history strategy with `with-base-path` so that prefix is
-    ;;     stripped/re-added automatically — no hand-rolled popstate listener,
-    ;;     no explicit install call. Frame creation installs the
-    ;;     base-path-aware listener AND does the first URL→slice sync itself,
-    ;;     AFTER every `:initial-events` step below has run (see the ordering
-    ;;     note at the bottom).
+    ;;   - `:url-bound? true` — this frame owns the browser URL. No
+    ;;     `:url-strategy` is declared, so it takes the default history
+    ;;     strategy; this example is served at the origin root and the routes
+    ;;     (routing.cljs) are written against `/`. Frame creation installs the
+    ;;     popstate listener AND does the first URL→slice sync itself, AFTER
+    ;;     every `:initial-events` step below has run (see the ordering note at
+    ;;     the bottom) — no hand-rolled listener, no explicit install call.
     ;;   - The auth gate is NOT a frame interceptor — it's the `:can-enter`
     ;;     guard on the `:requires-auth` routes themselves (routing.cljs). Try to
     ;;     navigate to one while logged out and the runtime's ONE pipeline
@@ -414,7 +415,6 @@
       [rf/frame-root {:id              :rf/default
                       :doc             "Realworld demo frame."
                       :url-bound?      true
-                      :url-strategy    routing/url-strategy
                       :initial-events  [[:auth/classify-token]
                                             [:auth/initialise]
                                             [:app/initialise]]

@@ -72,7 +72,6 @@
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
             [re-frame.routing :as rf.routing]
-            [re-frame.routing.link :as rf.routing.link]
             ;; the framework trace-ring buffer (Spec 009) — cleared around each
             ;; test body so this dispatching suite leaves no trace residue for a
             ;; later cross-cutting tooling test (e.g. the Xray/Story panel e2e
@@ -81,10 +80,8 @@
             ;; the example's production source — chains in every feature ns.
             [realworld-resources.core :as core]
             [realworld-resources.scope :as scope]
-            ;; the example's shared route table + the two ENTRY-SPECIFIC url
-            ;; strategies (already loaded via core; aliased for the ui-arm
-            ;; url-strategy pins — rf2-nn5s8 audit rider).
-            [realworld-resources.routing :as app-routing]
+            ;; the example's route table (its reg-route calls).
+            [realworld-resources.routing]
             ;; The app's HTTP surface — its `defonce`d demo-backend world
             ;; (`demo-state`, the documented reset boundary) and `full-url` — plus
             ;; the shared demo backend itself, for the pure "server truth" read the
@@ -2282,36 +2279,6 @@
           (let [fav (entry f (favorited-articles-key "eve" 1))]
             (is (or (nil? fav) (not (route-owner? fav :realworld.profile/favorites)))
                 "the departed favorites tab's list is no longer route-owned")))))))
-
-;; ============================================================================
-;; ROUTE-LINK EGRESS BASE — the Reagent arm's own deployment mount
-;; ============================================================================
-;;
-;; TRIMMED, NOT DELETED (rf2-0yp7w.4). This section was the rf2-nn5s8 audit
-;; rider: the re-frame.ui arm (`ui_core.cljs`, build
-;; `:examples/realworld-resources-ui`) was served under its OWN mount,
-;; `/realworld-resources-ui` — a prefix-sharing SIBLING of the Reagent arm's
-;; `/realworld-resources` — and PR #6648 had shipped the ui entry reusing the
-;; Reagent `url-strategy`, so its shell booted into not-found. The pins proved
-;; the repaired entry-specific `url-strategy-ui` on both legs, ingress
-;; `:decode` and egress `route-link`.
-;;
-;; The ui arm, its build id and `url-strategy-ui` are deleted, so the ingress
-;; leg and the two-arm comparison have no subject left. The EGRESS pin below
-;; survives on its own merit and is kept deliberately: it is the only assertion
-;; in this namespace that `route-link` href synthesis carries the Reagent arm's
-;; served mount base, and that is live production behaviour. The examples tree
-;; itself stays test-free (rf2-8cevm).
-
-(deftest route-link-egress-carries-the-arms-own-mount-base
-  (testing "egress: a route-link rendered on the Reagent arm's frame config
-            targets the arm's OWN served mount base"
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:url-strategy app-routing/url-strategy})]
-      (let [[_ attrs] (rf/with-frame f
-                        (rf.routing.link/route-link-render {:to :realworld.auth/login}))]
-        (is (= "/realworld-resources/login" (:href attrs))
-            "the Reagent arm's generated link carries its own mount base")))))
 
 ;; ============================================================================
 ;; 11. THE PRODUCTION-SEAM RECEIPT — read → write → invalidate → refetch against

@@ -14,18 +14,13 @@
    - `:rf.route/handle-url-change`
    - `:rf.route/continue` / `:rf.route/cancel`
    - `:rf.route/id` / `:rf.route/params` / `:rf.route/query`
-   - `:rf.route/url-requested`
-   - `with-base-path` — this example is served from a sub-path, so its
-     `:url-strategy` wraps the default history strategy (see ROUTER WIRING
-     below)"
+   - `:rf.route/url-requested`"
   (:require [re-frame.core :as rf]
             ;; Routing lives in its own artefact. Requiring it registers the
             ;; hooks and subs that make the `rf/reg-route` calls below resolve.
-            ;; This one IS aliased — ROUTER WIRING below builds
-            ;; `url-strategy` off `rf.routing/with-base-path` +
-            ;; `rf.routing/history-url-strategy`. See the routing guide:
-            ;; ../../../docs/routing/index.md
-            [re-frame.routing :as rf.routing]
+            ;; No alias is needed — nothing here calls into it by name. See the
+            ;; routing guide: ../../../docs/routing/index.md
+            [re-frame.routing]
             ;; For `auth/restoring-session?` — the ONE definition of the
             ;; cold-boot window in which identity is not yet known, shared with
             ;; the `:auth/restoring-session?` sub so the denial handler below
@@ -236,20 +231,15 @@
     (and restoring? (nil? route-id))))
 
 ;; ============================================================================
-;; ROUTER WIRING
+;; DEPLOYMENT BASE — none; this example owns `/`
 ;; ============================================================================
-
-;; This example might be served from a sub-path — a host staging lots of demos
-;; side by side could mount it at /realworld/ — even though on its own it'd
-;; live at /. `with-base-path` is a strategy combinator: it wraps
-;; the default history strategy so the base path is stripped off every
-;; inbound URL and re-added to every outbound one, at the framework's four
-;; egress/ingress consult points (Spec 012 §URL strategies) — so the whole
-;; route table above, and the rest of the cascade, are written as if this app
-;; owned `/`. Declared as this app's `:url-strategy` on the URL-owning frame
-;; in core.cljs; the frame's `:url-bound? true` creation installs the
-;; base-path-aware popstate listener AND does the first-load URL→state sync
-;; automatically, so this namespace needs no separate listener or install call.
-(def url-strategy
-  (rf.routing/with-base-path rf.routing/history-url-strategy "/realworld"))
+;;
+;; Served at the origin root, so there is no router wiring to do: the URL-owning
+;; frame in core.cljs declares `:url-bound? true` and NO `:url-strategy`, so it
+;; takes the default history strategy and the route table above is written
+;; against `/` with no wrapping. Deploying under a sub-path instead takes two
+;; lines that must agree — `<base href="/my-app/">` in index.html AND
+;; `re-frame.routing/with-base-path` on the frame's `:url-strategy`. See Spec
+;; 012 §`with-base-path`, and the routing example's host page for the `<base>`
+;; half: examples/capabilities/routing/routing/index.html.
 
