@@ -103,9 +103,9 @@ Spec: [`023-Trace-Panel.md` §3](https://github.com/day8/re-frame2/blob/main/too
 The L2 event spine above the panels carries the cross-epoch signal.
 
 **The row is glyph-free** — gutter glyphs, dispatch-origin prefix
-glyphs and the activity-badge cluster were all RETIRED under rf2-pjjwh
-(the helpers survive in `l2_timeline.cljc` with no caller). Don't send a
-user hunting for row decorations. What the row actually carries:
+glyphs and the activity-badge cluster were all RETIRED under rf2-pjjwh.
+Don't send a user hunting for row decorations. What the row actually
+carries:
 
 - **A text `source` column** — the bare source name for substrate
  origins (`router`, `http`, `ssr-hydration`, `fx-dispatch`,
