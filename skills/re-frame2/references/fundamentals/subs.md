@@ -65,7 +65,7 @@ From `examples/core/todomvc/subs.cljs`:
 
 Every id is feature-prefixed (`:todo/*`) per cardinal rule 7 — the canonical subs in the example never use bare unprefixed ids. Note that `:todo/todos` and `:todo/visible-todos` destructure their bodies the same way: the one-input case is not a special case.
 
-A layer-1 sub touches `app-db` and recomputes when the value it reads changes by `=`. Layer-2+ subs read other subs' values; they recompute when any input signal changes. The signal graph is built lazily — a sub registers as a callable, and the reactive cache materialises on first `subscribe`.
+A layer-1 sub receives the whole `app-db` and recomputes when that input changes by `=` — reading one path in its body does not track that path separately. Layer-2+ subs recompute when their declared input values change by `=`. Put expensive derivations behind narrow layer-1 selectors so an unrelated app-db change can rerun a selector without rerunning its downstream computation. The signal graph is built lazily — a sub registers as a callable, and the reactive cache materialises on first `subscribe`.
 
 ## Cache behaviour
 
