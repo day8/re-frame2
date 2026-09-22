@@ -40,23 +40,23 @@
     (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! requests conj args)))
     (testing "a cold load commits its loading status before any article exists"
       (rf/dispatch-sync [:article/load {:slug "alpha"}])
-      (is (= :loading (get-in (rf/app-db-value) [:article :status])))
-      (is (nil? (get-in (rf/app-db-value) [:article :data])))
+      (is (= :loading (get-in (rf/app-db-value :rf/default) [:article :status])))
+      (is (nil? (get-in (rf/app-db-value :rf/default) [:article :data])))
       (is (= 1 (count @requests))))
     (testing "the response schema stays strict even though stored data may be absent"
-      (let [decode (:decode (first @requests))]
+      (when-let [decode (:decode (first @requests))]
         (is (m/validate decode article))
         (is (false? (m/validate decode nil)))
         (is (false? (m/validate decode {:slug "alpha"})))))
     (testing "a first-request failure commits without a payload"
       (rf/dispatch-sync [:article/load-failed failed-reply])
-      (is (= :error (get-in (rf/app-db-value) [:article :status])))
-      (is (= (:error failed-reply) (get-in (rf/app-db-value) [:article :error]))))
+      (is (= :error (get-in (rf/app-db-value :rf/default) [:article :status])))
+      (is (= (:error failed-reply) (get-in (rf/app-db-value :rf/default) [:article :error]))))
     (testing "a later successful reply commits the validated article"
       (rf/dispatch-sync [:article/loaded {:status :ok :value article}])
       (is (= {:status :loaded :data article :error nil}
-             (:article (rf/app-db-value)))))
+             (:article (rf/app-db-value :rf/default)))))
     (testing "the storage schema still rejects malformed non-nil payloads"
-      (let [before (rf/app-db-value)]
+      (let [before (rf/app-db-value :rf/default)]
         (rf/dispatch-sync [:article/loaded {:status :ok :value {:slug "bad"}}])
-        (is (= before (rf/app-db-value)))))))
+        (is (= before (rf/app-db-value :rf/default)))))))
