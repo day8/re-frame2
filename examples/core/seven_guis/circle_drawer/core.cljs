@@ -262,11 +262,11 @@
 
 (rf/reg-sub :drawer/can-undo?
   {:inputs [[:drawer/slice]]}
-  (fn [[drawer] _] (seq (:undo drawer))))
+  (fn [[drawer] _] (and (nil? (:dialog drawer)) (seq (:undo drawer)))))
 
 (rf/reg-sub :drawer/can-redo?
   {:inputs [[:drawer/slice]]}
-  (fn [[drawer] _] (seq (:redo drawer))))
+  (fn [[drawer] _] (and (nil? (:dialog drawer)) (seq (:redo drawer)))))
 
 ;; ============================================================================
 ;; VIEW
@@ -278,30 +278,37 @@
         can-undo?  @(subscribe [:drawer/can-undo?])
         can-redo?  @(subscribe [:drawer/can-redo?])]
     [:div.drawer
-     [:div.row
-      [:button {:data-testid "drawer-undo"
-                :on-click #(dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
-      [:button {:data-testid "drawer-redo"
-                :on-click #(dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
-     [:svg {:data-testid "drawer-canvas"
-            :width 600 :height 400 :style {:border "1px solid #999"}
-            :on-click (fn [e]
-                        (let [rect (.. e -currentTarget getBoundingClientRect)
-                              x    (- (.. e -clientX) (.-left rect))
-                              y    (- (.. e -clientY) (.-top rect))]
-                          (dispatch [:drawer/add-circle x y])))}
-      (for [{:keys [id x y radius]} circles]
-        ^{:key id}
-        [:circle {:cx x :cy y :r radius :fill "transparent" :stroke "black"
-                  :on-context-menu (fn [e]
-                                     (.preventDefault e)
-                                     (dispatch [:drawer/open-dialog id]))}])]
+     ;; Resizing is one edit. Keep the canvas and history fixed until Close,
+     ;; including keyboard interaction with the background controls.
+     [:div {:inert (boolean dialog)}
+      [:div.row
+       [:button {:data-testid "drawer-undo"
+                 :on-click #(dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
+       [:button {:data-testid "drawer-redo"
+                 :on-click #(dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
+      [:svg {:data-testid "drawer-canvas"
+             :width 600 :height 400 :style {:border "1px solid #999"}
+             :on-click (fn [e]
+                         (let [rect (.. e -currentTarget getBoundingClientRect)
+                               x    (- (.. e -clientX) (.-left rect))
+                               y    (- (.. e -clientY) (.-top rect))]
+                           (dispatch [:drawer/add-circle x y])))}
+       (for [{:keys [id x y radius]} circles]
+         ^{:key id}
+         [:circle {:cx x :cy y :r radius :fill "transparent" :stroke "black"
+                   :on-context-menu (fn [e]
+                                      (.preventDefault e)
+                                      (dispatch [:drawer/open-dialog id]))}])]]
 
      (when dialog
        [:div.dialog {:data-testid "drawer-dialog"
+                     :role "dialog"
+                     :aria-modal true
+                     :aria-label "Resize circle"
                      :style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
         [:p (str "Adjust diameter of circle " (:circle-id dialog))]
         [:input {:type      "range"
+                 :auto-focus true
                  :data-testid "drawer-slider"
                  :min       5 :max 100 :step 1
                  :value     (:draft-radius dialog)

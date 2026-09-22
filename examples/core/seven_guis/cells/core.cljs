@@ -194,7 +194,7 @@
         (let [num (parse-num t)]
           (cond
             (some? num)                    [num                             more]
-            (cell-ref? t)                  [{:cell t}                       more]
+            (cell-ref? t)                  [{:cell (apply cell-id (parse-cell-id t))} more]
             ;; Shaped like a cell ref but off the grid (A0, A101, Z999). Reject
             ;; it here with a targeted message instead of letting it slip
             ;; through as a `{:cell …}` node that evaluates as an empty cell.
@@ -295,7 +295,8 @@
            "+" (apply + vals)
            "-" (apply - vals)
            "*" (apply * vals)
-           "/" (if (some zero? (rest vals)) :error/div-by-zero (apply / vals))
+           "/" (let [divisors (if (= 1 (count vals)) vals (rest vals))]
+                 (if (some zero? divisors) :error/div-by-zero (apply / vals)))
            :error/unknown-op)
          ;; Something upstream wasn't a number. If a real error reached us — a
          ;; referenced cell's parse-error pair, or a keyword marker like

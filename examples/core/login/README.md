@@ -90,7 +90,13 @@ The 3 `stories*` files are an intentionally auxiliary Story showcase layered ove
 npm run dev:example -- examples/login
 ```
 
-Then open the URL it prints. To run the Story showcase instead:
+Then open the URL it prints. Use an email such as `ada@example.com` and the
+demo password **`correct-horse`** to sign in. Any other password of at least
+8 characters exercises the server-error path; four failed attempts lock the
+form until you reload. A shorter password exercises the form-validation path
+without sending a request.
+
+To run the Story showcase instead:
 
 ```bash
 # From implementation/:

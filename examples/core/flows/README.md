@@ -6,7 +6,7 @@ Those totals aren't worked out in the [view](../../../docs/core/glossary.md#view
 
 > Some computed values are state, not just something a view shows.
 
-A [subscription](../../../docs/core/glossary.md#subscription) derives a value too, but it keeps the result in a view-facing cache — perfect for rendering, invisible to everything else. A flow writes its result to app-db instead. So an [event](../../../docs/core/glossary.md#event) handler can read it as plain data, it comes back under time-travel, and it survives the wire.
+A [subscription](../../../docs/core/glossary.md#subscription) derives a value too, but keeps its result in a cache. Views subscribe reactively; other code, including an event handler, can read it once with [`rf/subscribe-once`](../../../docs/core/subscriptions.md). A flow writes its result to app-db instead, where it is ordinary application state: it comes back under time-travel and survives the wire.
 
 You declare 3 things: the `:inputs` to watch, a pure `:derive`, and the `:output-path` to write. When an input changes, the runtime re-runs `:derive` and writes the result — in step with the event pipeline. The cart's subtotal and total are exactly that kind of value.
 
@@ -22,7 +22,7 @@ Reach for a flow only when the derived value is no longer just a view's render i
 - it should survive SSR hydration, a time-travel revert, or app-db serialisation (sub-cache contents do not survive the wire)
 - the derivation is stable enough to be worth registering
 
-The cart total meets all 3. The clearest sign is one line: `:checkout/place-order` needs the total inside a handler, where no subscription can reach. That single need is what makes it state, not a view input. Most values never cross that line — when in doubt, use a subscription.
+The cart total meets all 3. `:checkout/place-order` reads the total straight from its `db` coeffect, alongside the line items. Materialising it makes that complete cart snapshot available to handlers and serialisation alike. An occasional handler read alone would not require a flow — `rf/subscribe-once` can do that. When in doubt, use a subscription.
 
 ## What this demonstrates
 

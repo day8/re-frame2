@@ -183,10 +183,9 @@
     {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
 
 ;; And here's the payoff — a handler reading a flow's output. This one reads
-;; [:cart :total] as plain app-db data, and that is the whole reason the
-;; total is a flow and not a sub. A sub's value sits in the view-facing
-;; sub-cache, where a handler simply can't reach it. A flow puts the value in
-;; app-db, where everyone can.
+;; [:cart :total] as plain app-db data, alongside the items it summarises.
+;; A handler can also read a subscription with `rf/subscribe-once`; a flow
+;; earns its place here by keeping the total in the durable cart snapshot.
 (rf/reg-event :checkout/place-order
   {:doc "Place the order. Reads the materialised :cart/total straight off
          app-db — the flow's output is just ordinary application state."}
