@@ -1368,12 +1368,15 @@ M1_FLAG_NSES = [
     # subtree-wide `substrate\b` spelling would exempt all four and silence M-38.
     "re-frame.substrate.reagent", "re-frame.substrate.uix",
     "re-frame.substrate.context", "re-frame.substrate.spine",
+    # Exact public names are not subtree exemptions. Helix is retired.
+    "re-frame.schemas.cache", "re-frame.http.retry", "re-frame.ssr.ring.trust",
+    "re-frame.adapter.context", "re-frame.adapter.helix",
 ]
 # The M-1 scan MUST NOT flag these (the public-surface exceptions — the
 # invert-filter removes them).
 M1_EXEMPT_NSES = [
     "re-frame.core",
-    "re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.adapter.helix",
+    "re-frame.adapter.reagent", "re-frame.adapter.reagent-slim", "re-frame.adapter.uix",
     "re-frame.spec", "re-frame.interop",
     "re-frame.schemas", "re-frame.machines", "re-frame.routing", "re-frame.flows",
     "re-frame.http.managed", "re-frame.http.test-support",
@@ -1392,12 +1395,32 @@ M1_EXEMPT_NSES = [
     # contract ns. M-1's rewrite says "remove the :require entirely", so a false
     # flag deletes a live import and the headless boot stops compiling.
     "re-frame.substrate.plain-atom", "re-frame.substrate.adapter",
+    "re-frame.ssr.head", "re-frame.ssr.render-state", "re-frame.ssr.ring",
+    "re-frame.ssr.ring.node", "re-frame.fresco.evidence", "re-frame.fresco.forms",
+    "re-frame.fresco.motion", "re-frame.fresco.native", "re-frame.fresco.overlay",
+    "re-frame.fresco.server", "re-frame.fresco.substrate", "re-frame.fresco.tool",
+    "re-frame.performance", "re-frame.trace.projection",
+    "re-frame.mcp-base.elision", "re-frame.mcp-base.sensitive",
 ]
+
+M1_MIXED_REQUIRES = (
+    ("public beside private", "(:require [re-frame.core :as rf] [re-frame.db :as db])",
+     ["re-frame.db"]),
+    ("private beside public", "(:require [re-frame.db :as db] [re-frame.core :as rf])",
+     ["re-frame.db"]),
+    ("several private imports", "(:require [re-frame.schemas :as s] "
+     "[re-frame.schemas.cache :as cache] [re-frame.http.retry :as retry])",
+     ["re-frame.schemas.cache", "re-frame.http.retry"]),
+    ("wrapped libspec", "(:require [\n re-frame.core :as rf]\n"
+     "[\n re-frame.db :as db])", ["re-frame.db"]),
+    ("public controls", "(:require [re-frame.core :as rf] "
+     "[re-frame.http.managed] [re-frame.ssr.ring :as ring])", []),
+)
 
 # Extract the documented rg patterns. The broad-scan line ends `' . \` (space-dot);
 # the invert line is the unique `rg -v '…re-frame…'`. Anchoring the broad-scan on
 # the trailing ` .` skips the prose look-around counter-example further down.
-_M1_BROAD_RE = re.compile(r"rg -n '([^']*re-frame[^']*)' \.")
+_M1_BROAD_RE = re.compile(r"rg -n '([^']*re-frame[^']*)' \.([^\n]*)")
 _M1_INVERT_RE = re.compile(r"rg -v '([^']*re-frame[^']*)'")
 
 # M-51 sweep (rf2-0tur). M-51 is SILENT-fail — a unary fx handler compiles, binds
@@ -1476,21 +1499,46 @@ def _extract_m1_patterns(text: str):
 
 
 def _classify(line: str, broad: re.Pattern, invert: re.Pattern) -> str:
-    """Mirror the documented two-stage sweep: a re-frame.* require that survives
-    the invert-filter is an M-1 site ('flag'); one the filter removes is 'exempt'."""
-    if not broad.search(line):
+    """Classify the matched libspec tokens, as rg --only-matching does."""
+    matches = _m1_tokens(line, broad)
+    if not matches:
         return "not-a-require"
-    return "exempt" if invert.search(line) else "flag"
+    return "flag" if any(not invert.search(token) for token in matches) else "exempt"
+
+
+def _m1_tokens(text: str, broad: re.Pattern) -> list[str]:
+    # The recipe's --replace '[$1' collapses whitespace before the namespace,
+    # so a bracket on the preceding line still emits one filterable token.
+    return [re.sub(r"^\[\s*", "[", m.group()) for m in broad.finditer(text)]
+
+
+def _m1_mixed_misses(broad: re.Pattern, invert: re.Pattern) -> list[str]:
+    misses = []
+    for label, text, expected in M1_MIXED_REQUIRES:
+        actual = [token[1:] for token in _m1_tokens(text, broad)
+                  if not invert.search(token)]
+        if actual != expected:
+            misses.append(f"{label}: got {actual!r}, expected {expected!r}")
+    return misses
 
 
 def m1_classifier_problems() -> list[str]:
     """Run the skill's own invert-filter over representative requires."""
     if not AUTO_CALL_SITE_MD.is_file():
         return [f"SETUP: M-1 leaf missing: {AUTO_CALL_SITE_MD.relative_to(REPO_ROOT)}"]
-    broad, invert, err = _extract_m1_patterns(_slurp(AUTO_CALL_SITE_MD))
+    text = _slurp(AUTO_CALL_SITE_MD)
+    broad, invert, err = _extract_m1_patterns(text)
     if err:
         return [f"M1-CLASSIFIER-SETUP: {err}"]
     problems: list[str] = []
+    options = _M1_BROAD_RE.search(text).group(2)
+    if not all(option in options for option in
+               ("--only-matching", "--multiline", "--replace '[$1'")):
+        problems.append(
+            "M1-OUTPUT-SHAPE: emit one complete libspec token per match, including "
+            "wrapped libspecs; filtering whole lines hides a private import beside "
+            "a public one. Keep --only-matching --multiline --replace '[$1'."
+        )
     for ns in M1_FLAG_NSES:
         if _classify(_require_line(ns), broad, invert) != "flag":
             problems.append(
@@ -1506,6 +1554,8 @@ def m1_classifier_problems() -> list[str]:
                 f"required destination is off-contract. Add it to the invert-filter "
                 f"alternation AND the exceptions list (rf2-3fc89f.35)."
             )
+    problems.extend(f"M1-MIXED-REQUIRES: {miss}"
+                    for miss in _m1_mixed_misses(broad, invert))
     return problems
 
 
@@ -3178,7 +3228,7 @@ def _self_test() -> int:
     # Exercise the classifier logic against the CORRECTED invert-filter (adapters
     # + spec exempt, privates flagged) and the PRE-FIX buggy filter (missing
     # adapter/spec) — the latter proving the guard detects the regression.
-    good_broad = re.compile(r"\[\s*re-frame\.[a-z-]+")
+    good_broad = re.compile(r"\[\s*re-frame\.[A-Za-z0-9_.-]+")
     good_invert = re.compile(
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|subs\.tooling|"
@@ -3272,6 +3322,21 @@ def _self_test() -> int:
         m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
         m1_expect(ns, substrate_subtree_invert, "exempt",
                   f"M1-subtree-overreach-seen {ns}")
+
+    # rf2-puuvf: a whole-line or prefix-based filter loses real private imports.
+    # The mixed fixtures exercise order, several matches, wrapped libspecs and
+    # a public-only control. The current extracted recipe must pass them all.
+    live_broad, live_invert, live_error = _extract_m1_patterns(_slurp(AUTO_CALL_SITE_MD))
+    if live_error:
+        print(f"SELF-TEST FAIL (M1 mixed setup): {live_error}")
+        failures += 1
+    else:
+        for miss in _m1_mixed_misses(live_broad, live_invert):
+            print(f"SELF-TEST FAIL (M1 mixed): {miss}")
+            failures += 1
+    if not _m1_mixed_misses(good_broad, good_invert):
+        print("SELF-TEST FAIL (M1 prefix regression): old subtree filter escaped")
+        failures += 1
 
     # --- M-51 sweep fixtures (rf2-0tur) -----------------------------------------
     # The corrected sweep sees all four unary shapes and skips the binary control;
