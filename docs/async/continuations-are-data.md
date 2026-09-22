@@ -138,13 +138,13 @@ The envelope has two pieces. A **reply target** says where completion is dispatc
 | `:ok` | Completed successfully; reply is current. `:value` present. |
 | `:partial` | Completed with usable data *and* structured problems (the motivating case is GraphQL, which returns both in one response). Plain HTTP never emits `:partial`. |
 | `:error` | Completed with a failure; reply is current. `:error` carries a family `:kind` — for HTTP, one of the [`:rf.http/*` categories](http.md#failures-are-a-closed-set). |
-| `:cancelled` | Intentionally cancelled while still correlated with the target. `:cancel/reason` present. |
+| `:cancelled` | Intentionally cancelled while still correlated with the target. `:rf.reply/cancel-reason` present. |
 | `:stale` | Completed *after* its correlation became obsolete. The app target is never dispatched; **no app-state mutation happens**. |
 
 Four rules finish the tour:
 
 - **Stale suppression is the correctness boundary.** A newer request supersedes an older one — that's the search-box race. The old completion is classified `:stale`, the app target is skipped, and the trace records the carried-versus-current correlation. Your handler never sees a stale answer, so it can never overwrite fresh data with old. Cancellation is only an optimization here; *suppression* is what actually keeps state correct.
-- **Cancellation is data, not the absence of a reply.** A live user-cancel dispatches `:status :cancelled` with a `:cancel/reason`. A supersession suppresses as `:stale`. Either way there's a value describing what happened — never a silently dropped continuation.
+- **Cancellation is data, not the absence of a reply.** A live user-cancel dispatches `:status :cancelled` with a `:rf.reply/cancel-reason`. A supersession suppresses as `:stale`. Either way there's a value describing what happened — never a silently dropped continuation.
 - **Completion timestamps ride the reply.** The reply carries facts about the work, including when it completed — full reply maps carry it as `:completed-at`, and HTTP exposes it through the built-in `:rf/time-ms` [coeffect](../core/glossary.md#coeffect). Either way, handlers store the carried value rather than reading the clock again — a fresh `(js/Date.now)` in a reply handler samples *today's* clock on replay, not the run you're replaying.
 - **One envelope, one spelling, everywhere.** There is no per-surface reply dialect: HTTP delivers the *same* `:status`-keyed envelope resources and machines do — `:status :ok` with `:value`, `:status :error` with the failure under `:error`, `:status :cancelled`/`:stale` alike. (Timeout is not its own status — it's `:status :error` with `:kind :rf.http/timeout` on the `:error` map. One fact, named once.)
 
