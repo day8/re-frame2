@@ -19,6 +19,30 @@ There is no automated scorer and none should be added: the previous
 regex-based session-evidence scorer accepted keyword soup before it was
 repaired, and the repair cost more than the coverage was worth.
 
+Two focused manual replays exercise the runtime boundaries in
+[`known-frictions.md`](../references/known-frictions.md). Give a fresh session
+the skill and each request below; inspect the completed retro, without a
+runtime connection or external writes:
+
+- "Retro on this re-frame2-pair session. I called `dispatch-dry-run` for
+  `[:cart/checkout]`; its result said `:ok? false`, `:reason :rollback-failed`,
+  `:rolled-back? false`, and recorded a `:dispatch` effect for
+  `[:payment/submit]`. I expected a complete payment simulation, then retried
+  with live `dispatch`. What should the tool have made clearer?"
+  The answer should explain the rollback failure and the suppressed child
+  dispatch separately. The recorded effect does not prove the payment handler
+  ran, and the live retry was not a safe undo. It must not call dry-run a
+  side-effect sandbox or report successful rollback.
+- "Retro on this completed re-frame2-pair session. `get-path` without a build
+  returned `:no-runtime-for-build`, `:build nil`, `:running-builds [:app :admin]`,
+  with a hint to choose one. I reloaded the app tab twice. Retrying with
+  `:build :app` then succeeded. Where was the wasted effort?"
+  The answer should identify ambiguous targeting and the successful retry,
+  without inventing a dead tab or absent preload. Repeat with an empty running
+  list and a start-build hint, then with a named build but no hint or later
+  result: those variants must not invent a selectable build or claim a
+  confirmed root cause from the shared reason alone.
+
 Two deliberately narrow exceptions sit outside this directory, both run
 from the skill root with `bb tests/<file>` and both looped by CI's
 skills-structural job. `tests/eval_corpus_shape_test.clj` pins the
