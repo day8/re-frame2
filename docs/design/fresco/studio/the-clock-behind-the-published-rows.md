@@ -96,23 +96,55 @@ clock and every published row reaches it:
 | `coldmount_app` — the `1.0054×` witness | [`coldmount_app.cljs`'s `mount-round!`](../../../../bench/fresco/src/re_frame/bench/fresco/coldmount_app.cljs) `(lane/mount-batch! arm props 1)` | via the lane | in-page |
 | `hd8_rows` — the HD-008 donor rows | [`hd8_rows.cljs`'s `mount-round!`](../../../../bench/fresco/src/re_frame/bench/fresco/hd8_rows.cljs) `(lane/mount-arm! arm props)`; own windows in [`window-of`](../../../../bench/fresco/src/re_frame/bench/fresco/hd8_rows.cljs) and [`yield-window!`](../../../../bench/fresco/src/re_frame/bench/fresco/hd8_rows.cljs) | when the drain returns | in-page |
 | `p0_reagent_app` — the first author's baseline | [`p0_reagent_app.cljs`'s `measure-mount!`](../../../../bench/fresco/src/re_frame/bench/fresco/p0_reagent_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
-| `p0_harness` — the UIx frontier arm's rows, in a **different tree** | [`p0_harness.cljs`'s `now-ms` and `mount-arm!`](../../../../implementation/core/test/re_frame/bench/p0_harness.cljs) its own `now-ms` → `js/performance.now()`, `t0` then `flushSync` | when `flushSync` returns | in-page |
-| `fresco_narrow` — the ratom-spine narrow write, in a **third tree** | [`fresco_narrow.cljs`'s `now`](../../../../implementation/adapters/reagent/test/re_frame/bench/fresco_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
+| `p0_harness` — the UIx frontier arm's rows, **not on the lane's clock** | [`p0_harness.cljs`'s `now-ms` and `mount-arm!`](../../../../bench/fresco/src/re_frame/bench/p0_harness.cljs) its own `now-ms` → `js/performance.now()`, `t0` then `flushSync` | when `flushSync` returns | in-page |
+| `fresco_narrow` — the ratom-spine narrow write, **not on the lane's clock** | [`fresco_narrow.cljs`'s `now`](../../../../bench/fresco/src/re_frame/bench/fresco_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
 
-**The roster is closed and the answer is uniform — across all three producer
-trees.** A sweep of the whole `bench/fresco` tree finds no
-`requestAnimationFrame` in any measuring path — the only occurrences are in DOM
-correctness tests and in `z3vlz_probe`'s settle helper — and the only CDP traffic
-in any driver before this audit is `HeapProfiler.collectGarbage` in
-`retention_run.cjs`, which is a collector door for the heap rows and not a clock.
-The two producers that live outside `bench/fresco` reach the same answer by
-their own code rather than through the lane: `p0_harness`'s docstring states it
-outright — *"A reading is one `flushSync` window"* — and `fresco_narrow` defines
-its own bare `performance.now()`. There was no instrument anywhere in this
-programme that could see past `flushSync` until `rf2-0qj9w` built one — and the
-one it built read the frame *without* the script until `rf2-yd52q` corrected it,
-so the first instrument in this programme to see a whole operation is the raw
-`TaskDuration` clock, not the one this audit ran on.
+**The roster is closed and the answer is uniform.** A sweep of the whole
+`bench/fresco` tree finds no `requestAnimationFrame` in any measuring path — the
+only occurrences are in DOM correctness tests and in `z3vlz_probe`'s settle
+helper — and the only CDP traffic in any driver before this audit is
+`HeapProfiler.collectGarbage` in `retention_run.cjs`, which is a collector door
+for the heap rows and not a clock. The two producers that do not take their
+clock from the lane reach the same answer by their own code: `p0_harness`'s
+docstring states it outright — *"A reading is one `flushSync` window"* — and
+`fresco_narrow` defines its own bare `performance.now()`, deliberately: its own
+docstring records the clock as what "stays local" while `summarise` and `chain`
+are taken from the lane. There was no instrument anywhere in this programme that
+could see past `flushSync` until `rf2-0qj9w` built one — and the one it built
+read the frame *without* the script until `rf2-yd52q` corrected it, so the first
+instrument in this programme to see a whole operation is the raw `TaskDuration`
+clock, not the one this audit ran on.
+
+> ### THE ROSTER ONCE SPANNED THREE TREES, AND NOW SPANS ONE
+>
+> **This paragraph read "across all three producer trees" until the trees became
+> one, and the count was true when it was written.** On 2026-08-01, when commit
+> `611c5d4319` closed the roster, the nine producers sat in three separately
+> built trees: the lane's seven in the Hicasso artefact, `p0_harness` under
+> `implementation/core/test/`, and `fresco_narrow` — then named `hicasso_narrow`
+> — under `implementation/adapters/reagent/test/`. Commit `8a10915ed8`, a
+> move-only change, gathered all nine into `bench/fresco`, and the product
+> rename later renamed the second file. Both table links above were stranded by
+> that same move, so the citations and the claim they supported went stale
+> together.
+>
+> **The corroboration is weaker for it, and saying so is the point of this
+> note.** What the roster actually rests on is unchanged, and was re-verified at
+> source when these links were repaired: both producers off the lane still
+> declare their own clocks, and `fresco_narrow`'s docstring is explicit that the
+> clock is what "stays local" while `summarise` and `chain` are taken from the
+> lane. What is gone is the second, circumstantial half — that the same answer
+> had been reached independently in three separately owned trees, which ruled
+> out a shared directory convention or a single author in a way that two
+> adjacent namespaces under one bench artefact do not. The move paid a little
+> back in the other direction: the `bench/fresco` sweep above now covers all
+> nine producers, where in August it covered seven and the other two had to be
+> argued a file at a time.
+>
+> The lesson is narrower than the correction. The claim was pinned to where the
+> code *lived* rather than to what the code *does*, and locations move; the
+> property — a clock declared locally, not taken from the lane — is what the
+> table now names, and it survives the next move.
 
 Three published families are **not** clock rows and are out of scope:
 `reads-per-boundary-heap-ladder`, `heap-fan-out-sweep` and
