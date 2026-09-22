@@ -22,7 +22,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > ├── SKILL.md (router; lean — two phases, cardinal one-liners, verification, checkpoints, kickoff, done, leaf list)
 > ├── README.md (human-facing intro)
 > ├── LICENSE / package.json / .claude-plugin/plugin.json (distribution triad — unchanged shape)
-> ├── evals/evals.json (schema-2 fixtures: every entry carries `should_trigger`, and the two highest-drift behaviours also carry `expected_output` + `expectations[]` — keep both layers)
+> ├── evals/evals.json (schema-2 fixtures: every entry carries `should_trigger`, and selected conformance and workflow behaviours also carry `expected_output` + `expectations[]` — keep both layers)
 > └── references/
 > ├── cardinal-rules.md (the eleven rules + anti-pattern corollaries; §8 keeps the full gh-issue shell-safety recipe verbatim)
 > ├── phase-1-decisions.md (the port profile: no-interview defaults, spec pin with the literal `git -C … remote get-url origin` command, the compact profile template, what is NOT in the profile)
