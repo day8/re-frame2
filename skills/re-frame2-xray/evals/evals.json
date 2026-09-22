@@ -45,7 +45,7 @@
  "name": "launch-programmatic",
  "should_trigger": true,
  "prompt": "How do I mount Xray from code? My app doesn't use shadow-cljs :preloads.",
- "expected_output": "The agent says to call (xray/init! opts) after rf/init! to install the foundation, THEN call a mount verb — (xray/open!) / (xray/open-overlay!) / (xray/popout!) — because init! installs but does NOT open a panel. It notes init! is idempotent.",
+ "expected_output": "The agent says to call (xray/init! opts) after rf/init! to install the foundation, THEN call a mount verb — (xray/open!) / (xray/open-overlay!) / (xray/popout!) — because init! installs but does NOT open a panel. It notes repeated installation does not duplicate collectors/listeners, while supplied opts are reapplied on every call.",
  "expectations": [
  "The output uses (xray/init! ...) for the install step and calls it AFTER rf/init!.",
  "The output explicitly states init! installs the foundation but does NOT open/show a panel by itself — a separate mount verb (open! / open-overlay! / popout!) is required to make it visible.",
@@ -293,6 +293,30 @@
  "The output does NOT enumerate the full tab inventory in answer to this single routed question.",
  "On a deep follow-up, the loaded reference is the focused references/panels-resources.md family leaf — not an all-panels catalogue."
  ]
+ },
+ {
+  "id": 35,
+  "name": "config-init-repeat",
+  "should_trigger": true,
+  "prompt": "I already called (xray/init! {:theme :dark}). If I call (xray/init! {:theme :light}) later in the same page, is it ignored or does the theme change?",
+  "expected_output": "The theme changes to light and is persisted. Each init! call reloads saved Settings and applies supplied opts afterwards; installation avoids duplicate collectors/listeners, but the whole call is not a no-op after the first call.",
+  "expectations": [
+   "The output says the second call applies and persists the light theme in the same page.",
+   "The output distinguishes avoiding duplicate collectors/listeners from reapplying configuration on each call.",
+   "The output does not say a reload is required or that subsequent init! calls ignore their opts."
+  ]
+ },
+ {
+  "id": 36,
+  "name": "chrome-snapshot-inclusion",
+  "should_trigger": true,
+  "prompt": "Can I make Xray's Snapshot app-db palette command copy sensitive values by starting Pair with --allow-sensitive-reads and passing :include-sensitive true?",
+  "expected_output": "No. Xray's Snapshot app-db command exposes no inclusion option and always sends the redacted, size-elided projection to console and clipboard. Pair's settings control a separate agent runtime interface and do not change the Xray command.",
+  "expectations": [
+   "The output says the Xray palette command has no raw-capture or sensitive-value opt-in.",
+   "The output says sensitive values remain redacted and large values remain elided in the console/clipboard snapshot.",
+   "The output explains that Pair's launch and per-call options do not affect Xray's Snapshot app-db command."
+  ]
  },
  {"id": 13, "name": "neg-drive-xray", "should_trigger": false, "prompt": "Use Xray to dispatch [:cart/apply-coupon \"SPRING25\"] and tell me what happens.", "rationale": "A mutating agent runtime operation is re-frame2-pair's surface — the tour skill routes it there."},
  {"id": 31, "name": "neg-agent-readonly-inspect", "should_trigger": false, "prompt": "Connect to my running re-frame2 app and tell me what the :cart/items subscription currently returns — read-only, don't change anything.", "rationale": "Agent runtime access routes to re-frame2-pair even when read-only — the boundary is human panel vs agent runtime, not read vs write."},

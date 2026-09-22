@@ -212,14 +212,13 @@ present it as a way to copy a secret-bearing value off-box: a focused frame
 holding `{:auth {:token "secret"}}` (or any owner-classified sensitive
 path — a durable app-db path classified by the `:sensitive` commit-plane
 effect, a projection-relative `:sensitive` on a subsystem definition; per
-EP-0025) is redacted in the snapshot by default. Raw capture is
-only available through an explicit trusted-local opt-in consistent with the
-privacy vocabulary — the same `--allow-sensitive-reads` (default **OFF**)
-plus per-call `:include-sensitive true` posture the AI/MCP read surfaces use
-(the re-frame2-pair-mcp boundary; see `tools/re-frame2-pair-mcp/`), never the
-command's default. Source
-[`palette/sources.cljc`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
-(`:snapshot-app-db` command).
+EP-0025) is redacted in the snapshot. **This command exposes no raw-capture
+opt-in:** it always uses the redacted, size-elided projection. Pair's
+`--allow-sensitive-reads` and per-call inclusion options belong to its
+separate agent runtime interface and do not change Xray's console or
+clipboard snapshot. Source
+[`palette/events.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/palette/events.cljs)
+(`snapshot-app-db!`).
 
 ## Wired hotkeys
 

@@ -12,8 +12,10 @@ already-mounted Xray at something. Neither one mounts a panel.
 ## Programmatic init!
 
 Alternative to the preload's **foundation block** — call `(xray/init! opts)`
-from app code after `rf/init!`. Idempotent; each underlying side-effect is
-`defonce`-guarded so a second call is a no-op.
+from app code after `rf/init!`. Repeated calls do not duplicate collectors
+or keyboard listeners, but **each call reloads persisted Settings and
+reapplies the supplied opts**. A later `(xray/init! {:theme :light})`
+therefore changes and persists the theme even when Xray is already installed.
 
 > **This path carries no production gate.** The preload's `goog.DEBUG` check
 > is the only one Xray has, and `init!` does not traverse it — so wiring the
@@ -74,8 +76,8 @@ the user's persisted Settings FIRST, then writes each supplied opt
 through `update-setting!`, which persists — so the merge order is
 `defaults < configure! {:rf.xray/settings …} < persisted Settings <
 init! opts`, and for the keys the opts name they win. The user's
-Settings-popup choice survives for the rest of the session and is
-overwritten again on the next reload. That is exactly what a harness or
+Settings-popup choice survives until another `init!` call supplies that
+key, including the next reload's boot call. That is exactly what a harness or
 testbed wants; a host that wants a **user-overridable** boot default
 uses `(xray-config/configure! {:rf.xray/settings {:general
 {:epoch-history 50 :density :compact}} :theme :dark})` instead — bare
