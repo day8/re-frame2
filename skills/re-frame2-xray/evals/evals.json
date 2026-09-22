@@ -318,6 +318,30 @@
    "The output explains that Pair's launch and per-call options do not affect Xray's Snapshot app-db command."
   ]
  },
+ {
+  "id": 37,
+  "name": "resources-history-scope",
+  "should_trigger": true,
+  "prompt": "I selected a checkout event in Xray, but Resources still shows older lifecycle events and mutations from another frame. Should choosing that epoch or its frame filter those history sections?",
+  "expected_output": "No. Resources' lifecycle and mutation history reads the retained trace buffer across frames, independent of the selected epoch and frame picker. The live cache and work ledger follow the observed frame. For raw evidence confined to the selected dispatch, open Trace.",
+  "expectations": [
+   "The output says Resources' history sections span the retained trace buffer across frames; neither the epoch selection nor the frame picker filters them.",
+   "The output distinguishes the observed frame's live cache/work ledger from the retained history sections.",
+   "The output routes a request for raw evidence limited to one selected dispatch to Trace, without promising an epoch filter in Resources."
+  ]
+ },
+ {
+  "id": 38,
+  "name": "chrome-quiet-frame-picker",
+  "should_trigger": true,
+  "prompt": "My running app has a :app/background frame with no retained events, and it is missing from Xray's frame picker. Does that mean Xray considers it an internal tool frame? How can I inspect it?",
+  "expected_output": "No. Picker choices derive from retained event bundles, with the selected frame kept visible even when it has no events. Only :rf/xray and :rf/re-frame2-pair are unconditionally excluded. The Frames tab browses live frames/images; focus! with {:frame :app/background} explicitly selects that application frame on an installed Xray, where an empty event list is expected until it has retained events.",
+  "expectations": [
+   "The output rejects the inference that any missing frame is an internal tool frame and explains that a quiet unselected application frame can be absent from the event-derived picker.",
+   "The output names :rf/xray and :rf/re-frame2-pair as the excluded tool frames without inventing a setting to show them.",
+   "The output gives focus! with {:frame :app/background} as an explicit selection on installed Xray and does not promise that selecting it creates event history."
+  ]
+ },
  {"id": 13, "name": "neg-drive-xray", "should_trigger": false, "prompt": "Use Xray to dispatch [:cart/apply-coupon \"SPRING25\"] and tell me what happens.", "rationale": "A mutating agent runtime operation is re-frame2-pair's surface — the tour skill routes it there."},
  {"id": 31, "name": "neg-agent-readonly-inspect", "should_trigger": false, "prompt": "Connect to my running re-frame2 app and tell me what the :cart/items subscription currently returns — read-only, don't change anything.", "rationale": "Agent runtime access routes to re-frame2-pair even when read-only — the boundary is human panel vs agent runtime, not read vs write."},
  {"id": 14, "name": "neg-implement-panel", "should_trigger": false, "prompt": "I want to add a new Xray panel for WebSocket connection lifecycle — walk me through the panel-facade/leaf split.", "rationale": "Implementing Xray is out of scope; route to tools/xray/spec/."},

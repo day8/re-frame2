@@ -4,8 +4,11 @@ The server-state family: the **Resources** tab, Xray's surface for
 re-frame2's declarative server state (Spec 016). **Mixed scope** — a
 process-global resource registry plus the observed frame's live
 cache/ledger (the live sections follow the **L1 frame picker**, not the
-focused epoch), with per-epoch mutation evidence drawn from the trace
-stream. Inventory + scope matrix: [panels.md](panels.md).
+focused epoch), with lifecycle and mutation history drawn from the
+**retained trace buffer across frames**. Picking an epoch or changing the
+frame picker does not filter those history sections. For raw evidence
+limited to one dispatch, select its event in **Trace**. Inventory + scope
+matrix: [panels.md](panels.md).
 
 ## What it shows
 
@@ -28,8 +31,8 @@ nothing until they have something to show):
  boundary.
 - **ROUTE / RESOURCE GRAPH** — blocking activations (the SSR wait
  points) for each route that declares `:resources`.
-- **LIFECYCLE TIMELINE** — this epoch's resource lifecycle events.
-- **INVALIDATION / MUTATION GRAPH** — this epoch's invalidations and
+- **LIFECYCLE TIMELINE** — retained resource lifecycle events.
+- **INVALIDATION / MUTATION GRAPH** — retained invalidations and
  what each one matched.
 - **SCOPE RESOLUTION TIMELINE** — which named scope resolver ran, its
  inputs, the resolved scope — including fail-closed nil evidence (a
@@ -39,7 +42,7 @@ nothing until they have something to show):
  cache" visible: did the accepted reply continue into app workflow, and
  which scopes a write resolved, refetched, or left stale — fail-closed,
  never an implicit global blast.
-- **OPTIMISTIC MUTATIONS** — this epoch's optimistic mutations, plus a
+- **OPTIMISTIC MUTATIONS** — retained optimistic mutations, plus a
  loud warning when a `:force` write clobbered a concurrent one.
 - **CACHE GROWTH** — entry, GC-eligible and live-work totals.
 - **SCOPE AUDIT + LINTS** — every `:rf.scope/global` use + lints.

@@ -45,8 +45,10 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 
 Cross-epoch signal lives on the L2 timeline (the text `source` column +
 the issue pink-wash — the row is glyph-free post-rf2-pjjwh);
-**no Dynamic tab shows a cross-epoch aggregate** (binding,
-§021 §1.2). Internal tab ids are not user labels — route users by the
+the six focused-epoch lenses below inspect one captured cascade.
+Resources' history sections instead read the retained trace buffer across
+frames; neither the epoch nor frame picker filters those sections.
+Internal tab ids are not user labels — route users by the
 visible labels above (the ninth tab is **Frames**; its internal id
 `:module-view` and the retired "Modules" label are not answers).
 
