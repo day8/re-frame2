@@ -12,7 +12,7 @@ the difference is entirely in what ships.
 
 | Read this | Against this | What differs |
 |---|---|---|
-| [`reagent_slim/counter/`](reagent_slim/counter/) — `examples/counter-slim-and-fast` | [`core/counter/`](../core/counter/) — `examples/counter` | The package under the notation. `day8/reagent-slim` is a ground-up `reagent2.*` rewrite: every `reagent.*` import becomes `reagent2.*`, and `rf/init!` takes the slim adapter Var. The interest is in what the bundle does *not* contain. |
+| [`reagent_slim/counter/`](reagent_slim/counter/) — `examples/counter-slim-and-fast` | [`core/counter/`](../core/counter/) — `examples/counter` | The package under the notation. `day8/reagent-slim` is a ground-up `reagent2.*` rewrite: in an adopting app every `reagent.*` import becomes `reagent2.*`, and `rf/init!` takes the slim adapter Var. Neither counter imports Reagent directly, so here the adapter Var is the whole diff. The interest is in what the bundle does *not* contain. |
 
 ## Track 2 — one model, three view languages
 

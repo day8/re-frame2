@@ -12,10 +12,9 @@ re-frame2's core is substrate-agnostic: your events, subscriptions, and app-db n
 
 ## What changes (and how little it is)
 
-You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to/use-uix-or-slim.md): a small value you hand to `init!` once at boot. Switching substrate is a one-line change. So the diff that matters against the canonical counter is just 2 things:
+You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to/use-uix-or-slim.md): a small value you hand to `init!` once at boot. Switching substrate is a one-line change, and against the canonical counter that is literally the whole diff: the `:require` names `re-frame.adapter.reagent-slim` where the canonical counter names `re-frame.adapter.reagent`, so `(rf/init! …)` gets the slim adapter Var instead of the stock one.
 
-- the mount import points at `reagent2.dom.client` instead of stock `reagent.dom.client`, so the React root comes from the slim substrate
-- `(rf/init!)` gets the slim adapter Var instead of the stock one
+Nothing else moves — and in particular no import is renamed. Neither counter `:require`s a Reagent namespace at all: the views are `reg-view` registrations over hiccup and the React root comes from the adapter's own `client-root` / `render!` handle, the same three names on both substrates. The `reagent.*` → `reagent2.*` rename you will read about below is the *adopter's* story — true of an app whose own views import Reagent, and there is nothing in this example to rename.
 
 The dataflow is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, and the two views. The mount keeps the same lazy shape under a `frame-root`, inside `run` — which is the whole of what this build boots. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
 
@@ -48,11 +47,19 @@ counter/
 
 ## How to run
 
-Watch the build directly from `implementation/`:
-
 ```bash
-shadow-cljs watch examples/counter-slim-and-fast
+# From implementation/:
+npm run dev:example -- examples/counter-slim-and-fast
 ```
+
+Edits recompile live; the command prints a local URL to open. Add
+`--no-watch` for a one-shot compile-and-serve.
+
+`shadow-cljs watch examples/counter-slim-and-fast` compiles the bundle and
+nothing else — it stages no host page, copies no `_shared/` assets and starts
+no server, so there is no URL to open and this example's own `index.html`
+cannot find its `main.js`. Reach for the watch when you want the compiler
+alone; use `dev:example` when you want the running counter.
 
 ## The bundle you run is the bundle you compare
 
