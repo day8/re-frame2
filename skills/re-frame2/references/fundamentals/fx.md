@@ -50,7 +50,7 @@ Machine fx-ids (`:rf.machine/spawn`, `:rf.machine/destroy`) ship in `day8/re-fra
 
 ## Canonical mini-example
 
-From `examples/core/todomvc/events.cljs`:
+Based on `examples/core/todomvc/events.cljs`; the caller supplies the new item's id and title in the event payload:
 
 ```clojure
 (rf/reg-fx :todo.storage/save
@@ -67,9 +67,10 @@ From `examples/core/todomvc/events.cljs`:
 
 ;; Called via the fx vector:
 (rf/reg-event :todo/add
-  (fn [{:keys [db]} [_ title]]
-    {:db (assoc-in db [:todos id] {...})
-     :fx [[:todo.storage/save (:todos new-db)]]}))
+  (fn [{:keys [db]} [_ id title]]
+    (let [todos (assoc (:todos db) id {:id id :title title :completed false})]
+      {:db (assoc db :todos todos)
+       :fx [[:todo.storage/save todos]]})))
 ```
 
 ## Ordering and atomicity

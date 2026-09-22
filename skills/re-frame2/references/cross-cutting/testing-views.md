@@ -83,16 +83,20 @@ rejects. Await it instead:
 
 ## Lower-level walk helpers — the hiccup-walk pattern
 
-When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-right-event assertion rather than a text check, walk the hiccup directly. The view-fn returns hiccup; that's just data. Dispatch via `dispatch-sync` into the test frame, call the view-fn, then walk the returned tree by `:data-testid`:
+When you need the `:on-click`-fires-the-right-event assertion, walk the hiccup directly. `invoke-handler` calls the attached function; it does not drain a queued `dispatch`. Initialise synchronously, click, then wait for the resulting state in the same fixture-owned frame. This JVM example uses the synchronous `poll-until`:
 
 ```clojure
 (deftest counter-view-shows-and-fires
-  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:counter/init]]})]
-    (let [tree (counter-view {:n 0})
-          btn  (th/find-by-testid tree "counter-inc")]
-      (th/invoke-handler btn :on-click nil)              ;; fire the handler as the DOM would
-      (is (= 1 (:n (rf/app-db-value f)))))))
+  (rf/dispatch-sync [:counter/init])
+  (let [frame (rf/current-frame-id)
+        tree  (counter-view {:n 0})
+        btn   (th/find-by-testid tree "counter-inc")]
+    (th/invoke-handler btn :on-click nil)
+    (is (ts/poll-until #(= 1 (:n (rf/app-db-value frame)))
+                       {:label "counter click drained"}))))
 ```
+
+On CLJS, put the click and polling Promise inside the `async done` shape above, with `:async? true` on the fixture. Finish with `done` only after polling settles. Do not wrap that async operation in `with-new-frame`: its lexical body returns and destroys the frame before the queued click can drain.
 
 - `find-by-testid` / `find-all-by-testid` — locate node(s) by `:data-testid`.
 - `text-content` — the rendered text under a node.

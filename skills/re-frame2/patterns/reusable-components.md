@@ -89,7 +89,7 @@ The idiom ports across adapters with **zero changes to the view body**. The view
 ## Anti-patterns
 
 - **Hardcoded slice path inside a "reusable" component.** `(subscribe [:current-customer])` is by definition single-instance — the moment two entities must render at once, the singleton sub shows the same data in both.
-- **Threading the full entity map through the render tree** (`[customer-card customer-map]`). Defeats the sub-cache: every parent re-render reconstructs the map literal, the input-equality check fails, the card re-renders even when its data is unchanged. Pass the **id**; let the card resolve the entity.
+- **Making an entity-addressed widget depend on parent-supplied data.** Prefer `[customer-card id]` when the widget owns the entity lookup and its scoped events. Passing `[customer-card customer-map]` is also valid for a presentational component; fresh persistent maps with equal contents still compare equal, so a new map alone does not force a Reagent re-render or invalidate a subscription cache.
 - **Asymmetric dispatches** — reading `[:customer id]` but dispatching `[:customer/edit]` without the id. Broken under multi-instance rendering.
 - **Storing per-instance UI state in the entity slice.** A card's `:expanded?` flag does not belong at `[:customers id :expanded?]` — that conflates the entity with transient view state. Use a separate `[:ui :customer-cards id]` slice (keyed by the same id), or, when the widget wraps a stateful JS thing, the stateful-component idiom (`patterns/stateful-components.md`).
 
