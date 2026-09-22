@@ -7,8 +7,8 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as fixture]))
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]))
 
 (def ^:private repo-root
   (nth (iterate #(.getParentFile %)
@@ -27,8 +27,8 @@
 
 (use-fixtures :each
   (fn [f]
-    (fixture/reset-runtime
-      #(try (f) (finally (schemas/clear-schemas-by-frame!))))))
+    (rf.schemas.test-fixture/reset-runtime
+      #(try (f) (finally (rf.schemas/clear-schemas-by-frame!))))))
 
 (def ^:private article
   {:slug "alpha" :title "Alpha" :body "Body" :authors []})
