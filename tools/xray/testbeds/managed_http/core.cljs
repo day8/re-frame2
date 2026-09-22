@@ -237,11 +237,11 @@
                      (rf.http.registry/clear-in-flight-in-frame! frame request-id)
                      ;; rf2-ibksxg — the canonical abort reply: :status :cancelled
                      ;; with the :rf.http/aborted map under :error.
-                     (rf/dispatch [::reply {:status        :cancelled
-                                            :cancelled?    true
-                                            :cancel/reason reason
-                                            :error         {:kind   :rf.http/aborted
-                                                            :reason reason}}]
+                     (rf/dispatch [::reply {:status                 :cancelled
+                                            :cancelled?             true
+                                            :rf.reply/cancel-reason reason
+                                            :error                  {:kind   :rf.http/aborted
+                                                                     :reason reason}}]
                                   {:frame frame}))}))
     nil))
 

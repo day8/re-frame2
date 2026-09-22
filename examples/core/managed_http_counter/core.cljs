@@ -11,29 +11,32 @@
   function — you never go near js/fetch. The HTTP guide has the full
   contract: docs/async/http.md.
 
-  Five buttons cover the live and controlled paths used by this example:
+  Four buttons cover the live and controlled paths used by this example:
 
     +1             GET api/inc.json — a real, successful round-trip.
     Fail           GET api/does-not-exist — a real 404 (:rf.http/http-4xx).
     Retry-recover  a canonical success reply, driven by a canned stub.
-    Start long     a request handle seeded into the in-flight registry.
-    Cancel         aborts that handle by :request-id.
+    Cancel         aborts the in-flight +1 request by :request-id.
 
   +1 and Fail use Fetch: the request goes out, the body is decoded (only on a
   2xx), and the reply lands back in app-db. Retry-recover uses a
   canned-success stub. It demonstrates the canonical reply envelope, not the
   retry scheduler or a sequence of transport attempts.
 
-  Start long / Cancel exercise the managed-abort registry contract without a
-  network request. A static GET resolves too quickly to cancel reliably, so
-  \"Start long\" seeds a request-id-keyed handle through the same registry API
-  used by the live transport. \"Cancel\" then fires the production
-  `:rf.http/managed-abort` fx: it resolves the handle, invokes its `:abort-fn`,
-  clears the slot, and dispatches a canonical `:rf.http/aborted` reply. This
-  covers the framework path, but not `AbortController` or network cancellation.
+  Cancellation goes through the public surface, and it is two small things.
+  The +1 request carries `:request-id :http-counter/+1`. Cancel fires
+  `:rf.http/managed-abort` at that id, and the framework does the rest:
+  resolving the handle, firing its `AbortController`, clearing the registry
+  slot, and delivering a canonical `:status :cancelled` reply back to the very
+  handler that issued the request. You write the id and the abort; nothing
+  else.
+
+  A static GET usually lands before you can click, and an abort that arrives
+  after the reply is a documented no-op. To watch one actually cancel,
+  throttle the network in DevTools (Slow 3G), then click +1 and Cancel.
 
   The Fetch branches exercise managed HTTP end to end through Reagent; the
-  controlled branches isolate canonical reply handling and registry abort."
+  canned branch isolates canonical reply handling."
   (:require [re-frame.core :as rf]
             ;; Managed HTTP ships in its own artefact (day8/re-frame2-http).
             ;; Requiring this once at boot is what registers `:rf.http/managed`
@@ -43,11 +46,6 @@
             ;; Home of the canned-success reply seam used by Retry-recover.
             ;; It emits a canonical reply but does not execute retry attempts.
             [re-frame.http.test-support]
-            ;; "Start long" seeds a pending handle straight into the registry.
-            ;; The write seam (`record-in-flight!`) isn't on the public facade,
-            ;; so we reach for the registry ns directly. It's the same atom the
-            ;; live transport writes into and the live abort fx resolves.
-            [re-frame.http.registry :as rf.http.registry]
             [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; ============================================================================
@@ -106,6 +104,21 @@
                (assoc :http-counter/status :error
                       :http-counter/error  (:error reply)))}
 
+      ;; The request was cancelled. This is the reply
+      ;; `[:rf.http/managed-abort :http-counter/+1]` delivers, and the
+      ;; framework builds every part of it — never the app: `:status
+      ;; :cancelled` with `:cancelled? true`, the abort reason under the
+      ;; uniform reply contract's `:rf.reply/cancel-reason`, and the
+      ;; classified `{:kind :rf.http/aborted :reason :user}` map under
+      ;; `:error`. A cancellation is not a failure, so we settle to :idle
+      ;; rather than :error — but we keep the classified map, which is what
+      ;; makes the view's existing error line read "Error kind:
+      ;; :rf.http/aborted" instead of going quietly blank.
+      (some-> reply :status (= :cancelled))
+      {:db (assoc db
+                  :http-counter/status :idle
+                  :http-counter/error  (:error reply))}
+
       ;; No reply yet, so this is the opening move: fire the request and
       ;; address its reply back to THIS event with `:reply-to`. The request
       ;; is DATA — a `[:rf.http/managed args-map]` vector, with the method
@@ -114,20 +127,30 @@
       ;; URL, default headers, a default `:decode`); see
       ;; examples/real-apps/realworld_http/http.cljs for that pattern.
       ;;
+      ;; `:request-id` is the public cancellation handle, and it is the whole
+      ;; of what this app does to become cancellable (Spec 014 §E). It sits at
+      ;; the top level of the effect map, beside `:request` and `:reply-to`.
+      ;; Cancel names this same id — the two halves are pinned together by
+      ;; implementation/core/test/re_frame/managed_http_counter_cljs_test.cljs,
+      ;; because changing one alone still compiles and simply cancels nothing.
+      ;; A `:request-id` is frame-LOCAL (Spec 014 §Frame scope), so two mounts
+      ;; of this example on one page cannot cancel each other.
+      ;;
       ;; Note this arm tests for the ABSENCE of a reply rather than sitting in
       ;; the `:else` slot. A reply-to-self handler is two handlers in one, and
       ;; the question that separates them is "is there a reply?", not "is the
       ;; status one I listed". Written the other way, a status the `cond` does
-      ;; not enumerate — `:cancelled` is neither `:ok` nor `:error` — would
-      ;; fall through to the initiation arm and RE-ISSUE the request.
+      ;; not enumerate — `:stale`, say — would fall through to the initiation
+      ;; arm and RE-ISSUE the request.
       (nil? reply)
       {:db (assoc db :http-counter/status :loading :http-counter/error nil)
-       :fx [[:rf.http/managed {:request  {:method :get :url "api/inc.json"}
-                               :decode   :json
-                               :reply-to [:http-counter/+1]}]]}
+       :fx [[:rf.http/managed {:request    {:method :get :url "api/inc.json"}
+                               :decode     :json
+                               :request-id :http-counter/+1
+                               :reply-to   [:http-counter/+1]}]]}
 
-      ;; A reply arrived carrying some other status (a cancellation, say).
-      ;; Settle the UI; never re-issue.
+      ;; A reply arrived carrying some other status. Settle the UI; never
+      ;; re-issue.
       :else
       {:db (assoc db :http-counter/status :idle)})))
 
@@ -205,132 +228,30 @@
       {:db (assoc db :http-counter/status :idle)})))
 
 ;; ============================================================================
-;; Start long / Cancel  —  managed-abort over a seeded registry handle
+;; Cancel  —  abort the live +1 request by :request-id
 ;; ============================================================================
 ;;
-;; The abort contract is simple to state: you cancel an in-flight
-;; `:rf.http/managed` request by its `:request-id`. The
-;; `:rf.http/managed-abort` fx finds the handle in the framework's in-flight
-;; registry, fires its `:abort-fn`, and a `:rf.http/aborted` reply comes home
-;; to the handler that issued the request. The abort section of
-;; docs/async/http.md has the details.
+;; This is the whole of cancellation in an app. `:rf.http/managed-abort` takes
+;; the `:request-id` the +1 request stamped on itself, and the framework does
+;; the rest: resolve the handle, fire its `AbortController`, clear the registry
+;; slot, and deliver the canonical `:status :cancelled` reply back to
+;; `:http-counter/+1`, which has an arm for it. No app-owned registry, no
+;; hand-built envelope, no cleanup of our own. The abort section of
+;; docs/async/http.md has the contract.
 ;;
-;; This app serves only static assets, so a GET resolves too quickly to cancel
-;; reliably. "Start long" instead seeds a request-id-keyed handle through the
-;; same registry API used by the live transport. "Cancel" fires the production
-;; `:rf.http/managed-abort` fx at that handle. The demo therefore covers handle
-;; lookup, registry cleanup, and the `:rf.http/aborted` reply, while explicitly
-;; leaving network transport and `AbortController` out of scope.
-
-(def long-request-id :http-counter/long)
-
-;; A placeholder URL we stamp on the seeded handle purely so it reads
-;; naturally in the abort trace and any registry peek. Nothing fetches it —
-;; the slot is seeded by hand, which is what makes the pending state
-;; deterministic.
-(def long-pending-url "api/long")
-
-(rf/reg-fx :http-counter/seed-long-request
-  {:doc       "Demo-only fx that seeds a request handle in the in-flight
-               registry. It records a request-id-keyed handle whose
-               :abort-fn clears the slot and dispatches the :rf.http/aborted
-               reply back to :http-counter/start-long. That's the whole trick: it
-               lets :rf.http/managed-abort exercise its production lookup,
-               cleanup, and reply path, with no network request behind it."
-   :platforms #{:client}}
-  (fn fx-seed-long-request [frame-ctx {:keys [request-id]}]
-    ;; A small but important wrinkle. The :abort-fn doesn't run now — it runs
-    ;; later, whenever someone aborts this handle, and by then there's no
-    ;; ambient frame around it. A bare `rf/dispatch` in there would raise
-    ;; :rf.error/no-frame-context. In re-frame2 a frame's identity is *carried,
-    ;; not found*, so the fix is to grab the frame from this fx's context right
-    ;; here and hand it to the deferred dispatch ourselves. See
-    ;; docs/core/glossary.md#frame-identity-is-carried-not-found.
-    (let [frame (:frame frame-ctx)]
-      (rf.http.registry/record-in-flight!
-        request-id nil
-        {:url      long-pending-url
-         ;; The same carried frame, stamped onto the handle — which is what the
-         ;; live transport does on every request it registers. It is not
-         ;; decoration: a `:request-id` is frame-LOCAL, so the registry keys
-         ;; cancellation on (frame, request-id) and `:rf.http/managed-abort`
-         ;; resolves only its own frame's handle (Spec 014 §Frame scope — a
-         ;; `:request-id` is frame-local). A handle seeded without `:frame`
-         ;; would sit in a scope no dispatch can reach.
-         :frame    frame
-         ;; The :abort-fn is the request's cancellation hook — the thing that
-         ;; actually runs when someone pulls the plug. The live
-         ;; :rf.http/managed-abort handler looks this handle up by request-id
-         ;; and calls us with the abort `reason` (`:user` here). Our two jobs:
-         ;; clear the registry slot, and dispatch the :rf.http/aborted reply —
-         ;; the exact shape the live transport's abort path emits — home to
-         ;; :http-counter/start-long. The live fx would deliver it via `:reply-to`,
-         ;; so we mirror that: the canonical envelope is the appended last arg.
-         :abort-fn (fn [reason]
-                     ;; The carried frame does the same work on the way OUT as
-                     ;; it does on the way in. `clear-in-flight!`'s one-arg form
-                     ;; is an ANY-FRAME sweep: it would clear this id in EVERY
-                     ;; frame, so mounting this demo twice and cancelling one
-                     ;; copy would silently deregister the other's live request.
-                     ;; Cleanup is frame-scoped for exactly the reason lookup is.
-                     (rf.http.registry/clear-in-flight-in-frame! frame request-id)
-                     ;; The canonical abort reply uses `:status :cancelled`
-                     ;; with `:cancelled? true`, carries the abort reason
-                     ;; under the uniform reply contract's namespaced field
-                     ;; `:rf.reply/cancel-reason`, and rides the
-                     ;; `:rf.http/aborted` map under `:error` — the exact
-                     ;; shape the live transport's abort path emits (see
-                     ;; `re-frame.http.reply/failure-reply`). It passes
-                     ;; `re-frame.reply/validate-reply` unchanged.
-                     (rf/dispatch [:http-counter/start-long
-                                   {:status                 :cancelled
-                                    :cancelled?             true
-                                    :rf.reply/cancel-reason reason
-                                    :error                  {:kind       :rf.http/aborted
-                                                             :request-id request-id
-                                                             :reason     reason}}]
-                                  {:frame frame}))}))
-    nil))
-
-(rf/reg-event :http-counter/start-long
-  (fn [{:keys [db]} [_ reply]]
-    (cond
-      ;; The reply branch. When Cancel fires, the :abort-fn dispatches the
-      ;; canonical :status :cancelled reply as this event's last arg, routing
-      ;; it right back here. We note the aborted classification (under :error)
-      ;; and ease the UI to :idle.
-      (some-> reply :status (= :cancelled))
-      {:db (assoc db
-                  :http-counter/status :idle
-                  :http-counter/error  (:error reply))}
-
-      (some-> reply :status (= :ok))
-      {:db (assoc db :http-counter/status :idle :http-counter/error nil)}
-
-      ;; The opening move: seed a request that's genuinely in flight, ready
-      ;; for Cancel to abort for real. We stay in :loading until that abort
-      ;; resolves the slot. As in the three handlers above, initiation is
-      ;; guarded on the ABSENCE of a reply rather than sitting in `:else`, so a
-      ;; status this `cond` does not enumerate can never re-seed the request.
-      (nil? reply)
-      {:db (assoc db :http-counter/status :loading :http-counter/error nil)
-       :fx [[:http-counter/seed-long-request {:request-id long-request-id}]]}
-
-      ;; A reply arrived carrying some other status. Settle the UI; never
-      ;; re-issue.
-      :else
-      {:db (assoc db :http-counter/status :idle)})))
+;; It aborts whichever +1 request THIS frame has in flight under that id. A
+;; `:request-id` is frame-local (Spec 014 §Frame scope), so mounting this
+;; example twice on one page cannot make one copy cancel the other's request.
+;;
+;; And once the reply has landed the registry lookup simply misses —
+;; cancellation is opportunistic — so a late Cancel is a documented no-op
+;; rather than an error. A static GET usually wins that race; throttle the
+;; network in DevTools (Slow 3G) to watch a real one cancel.
 
 (rf/reg-event :http-counter/cancel
   (fn [{:keys [db]} _]
     {:db db
-     ;; Abort by request-id, through the *live* :rf.http/managed-abort fx —
-     ;; no shortcut. It finds the seeded handle in the in-flight registry and
-     ;; fires its :abort-fn, which clears the slot and sends the
-     ;; :rf.http/aborted reply back to :http-counter/start-long (handled above).
-     ;; If nothing's in flight the registry lookup simply misses, and this is
-     ;; a harmless no-op.
-     :fx [[:rf.http/managed-abort long-request-id]]}))
+     :fx [[:rf.http/managed-abort :http-counter/+1]]}))
 
 ;; ============================================================================
 ;; SUBS
@@ -368,7 +289,6 @@
       [:button {:on-click #(dispatch [:http-counter/+1])}              "+1"]
       [:button {:on-click #(dispatch [:http-counter/fail])}            "Fail"]
       [:button {:on-click #(dispatch [:http-counter/retry-recover])}   "Retry-recover"]
-      [:button {:on-click #(dispatch [:http-counter/start-long])}      "Start long"]
       [:button {:on-click #(dispatch [:http-counter/cancel])}          "Cancel"]]]))
 
 (rf/reg-view counter-app []
