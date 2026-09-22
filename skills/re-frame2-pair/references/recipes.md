@@ -124,7 +124,7 @@ Procedure:
 5. If no single epoch is responsible — the state drifted over many events — use `eval-cljs {form: "(re-frame2-pair.runtime/find-all-where <pred>)"}` to get the trajectory. Narrate the 3–5 most relevant transitions rather than all of them.
 6. Propose a fix. Usually one of: a handler that shouldn't have fired, a handler that did fire but was wrong, or a missing guard.
 
-**Retention caveat.** The epoch ring is bounded (default 50, configurable via `(rf/configure! {:epoch-history {:depth N}})`). Events that happened "a long time ago" may have aged out. If the user describes a state change you can't find in the ring, say so explicitly: *"I can see the last N events but the change you're describing happened before that."* Then propose reproducing the path from a known state — or `(rf/configure! {:epoch-history {:depth 500}})` and re-trigger.
+**Retention caveat.** The epoch ring is bounded (default 50, configurable via `(re-frame.core/configure! {:epoch-history {:depth N}})`). Events that happened "a long time ago" may have aged out. If the user describes a state change you can't find in the ring, say so explicitly: *"I can see the last N events but the change you're describing happened before that."* Then propose reproducing the path from a known state — or `(re-frame.core/configure! {:epoch-history {:depth 500}})` and re-trigger.
 
 ## "What effects fired?"
 
@@ -190,7 +190,7 @@ When the user mentions a state machine (Spec 005), chain:
    ```
    mcp__re-frame2-pair__read-sub {sub: "[:rf/machine :auth]"}
    ```
-   or eval `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots :auth])`. (Note: `get-path` reads app-db, so it will NOT find the snapshot — use the sub or the runtime-db partition of `frame-state-value`.) The snapshot shape is `{:state :data :tags? :meta?}` (`:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape). (The `machine-state` runtime helper is the eval equivalent.)
+   or eval `(get-in (:rf.db/runtime (re-frame.core/frame-state-value frame-id)) [:rf.runtime/machines :snapshots :auth])`. (Note: `get-path` reads app-db, so it will NOT find the snapshot — use the sub or the runtime-db partition of `frame-state-value`.) The snapshot shape is `{:state :data :tags? :meta?}` (`:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape). (The `machine-state` runtime helper is the eval equivalent.)
 4. To watch transitions live: poll `watch-epochs {pred: {"event-id-prefix": ":auth/"}}` (advancing `since-id` each call) and inspect each returned epoch's `:trace-events` for `:rf.machine/transition` entries — `(some #(= :rf.machine/transition (:operation %)) (:trace-events e))`. Arbitrary-predicate filtering at the pred layer isn't supported; combine `:event-id-prefix` (to narrow by trigger) with caller-side filtering of the returned epochs.
 5. The canonical machine sub is `[:rf/machine :auth]` — `read-sub {sub: "[:rf/machine :auth]"}` reads its current value (validated + elided).
 
@@ -398,7 +398,7 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
    }
    ```
    The runtime helper `(re-frame2-pair.runtime/frame-diff :a-id :b-id)` returns `{:only-in-a :only-in-b :common}` — semantics match `epoch-diff` but across frames instead of across one epoch's before/after.
-3. Cross-check the cascade: `(rf/epoch-history :story.counter/empty)` and `(rf/epoch-history :story.counter/loaded)`. If the variants ran the same events but ended in different states, look at the loaders — they often seed divergent fixtures.
+3. Cross-check the cascade: `(re-frame.core/epoch-history :story.counter/empty)` and `(re-frame.core/epoch-history :story.counter/loaded)`. If the variants ran the same events but ended in different states, look at the loaders — they often seed divergent fixtures.
 4. Narrate the divergence in terms the user can act on: *"variant `:loaded` carries `[:items]` with 7 entries from its `:counter/initialise 7` event; variant `:empty` has no `:items` key because its events list is empty."*
 
 **Expected output shape.** A compact `{:only-in-a ... :only-in-b ... :common ...}` map (or the model's prose summary), keyed off paths that actually differ. Common subtree omitted unless the user asks for it.

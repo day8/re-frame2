@@ -103,7 +103,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: Make `:cart/apply-coupon` reject expired coupons instead of silently accepting them.
 >
-> **Claude**: Proposed change:
+> **Claude**: Proposed change to your handler's source file:
 > ```clojure
 > (rf/reg-event :cart/apply-coupon
 >   (fn [{:keys [db]} [_ code]]
