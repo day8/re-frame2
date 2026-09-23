@@ -28,7 +28,7 @@ When `discover-app` can't find the runtime marker, it runs a **diagnostic ladder
 - `:rf.error/eval-cljs-threw` → the form compiled and ran, then raised. The envelope carries `:ex` (the printed throwable), `:message` and `:ex-data` — read those and report the app-level cause, don't re-run blind.
 - `:rf.error/eval-cljs-timeout` → the form didn't settle inside `:timeout-ms`. Raise `timeout-ms`, project the result smaller, or — if the value is a Promise — pass `await: true` so the runtime resolves it instead of returning the pending object.
 - `:rf.error/eval-cljs-rejected` → the Promise returned by an `await: true` form rejected. Read the envelope's `:rejection` value and diagnose the async operation; this is not evidence that the nREPL connection failed.
-- `:rf.error/eval-cljs-disabled` → the operator launched the server with `--no-eval`. **Only they can lift it** (relaunch without the flag); until then, use the typed tools and say which gesture you can't reach.
+- `:rf.error/eval-cljs-disabled` → the operator launched the server with `--no-eval`, which refuses `eval-cljs` and a `tail-build` call carrying a `:probe` (a probe-less `tail-build` soft delay still works). **Only they can lift it** (relaunch without the flag); until then, use the typed tools and say which gesture you can't reach.
 - `:rf.error/eval-cljs-mailbox-missing` / `:rf.error/eval-cljs-await-wrap-failed` → the `await: true` path broke — the mailbox vanished (usually a page reload between the wrap and the poll) or the wrapper returned an unrecognised sentinel. Retry once without a reload in flight; a repeat is a wire-shape regression worth reporting.
 
 ## Tool-envelope refusals

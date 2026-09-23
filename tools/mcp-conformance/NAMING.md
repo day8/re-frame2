@@ -89,7 +89,7 @@ servers:
 
 | Flag | Default | Contract |
 |---|---|---|
-| `--no-eval` | eval enabled | Pair-only opt-out for `eval-cljs`; disabled calls return `:rf.error/eval-cljs-disabled` before nREPL. |
+| `--no-eval` | eval enabled | Pair-only opt-out for arbitrary evaluation: `eval-cljs`, and a `tail-build` call carrying a `:probe`; disabled calls return `:rf.error/eval-cljs-disabled` before nREPL. |
 | `--allow-sensitive-reads` | closed | Allows per-call sensitive/raw opt-ins that are otherwise forced to the safe projection. |
 | `--allow-writes` | closed | Enables the named out-of-band state or registry writes. It is not a blanket read-only mode: Pair's `dispatch` and `replay-epoch` remain available, and `--no-eval` independently disables only arbitrary evaluation: `eval-cljs`, and a `tail-build` call carrying a `:probe`. |
 

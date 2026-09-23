@@ -95,8 +95,9 @@ drops entirely. Net: structured reads are safe to fire by default.
 ### The raw-eval carve-out — eval-cljs is OUTSIDE the structured guarantee
 
 `eval-cljs` is the one surface the gate does **not** cover. It is
-**default-ON** (governed only by the independent `--no-eval` opt-out,
-never `--allow-sensitive-reads`) and returns the form's value **without
+**default-ON** (governed only by the independent `--no-eval` opt-out —
+which also refuses a `tail-build` `:probe` — never
+`--allow-sensitive-reads`) and returns the form's value **without
 the elision walker**. So a raw `(re-frame2-pair.runtime/snapshot)` / `(…/sub-cache)` /
 `(re-frame.trace.tooling/trace-buffer frame-id)` / `(rf/epoch-history …)` eval can return
 verbatim app-db, sub-cache, trace-buffer, or epoch-history — passwords, tokens, PII —
@@ -116,15 +117,18 @@ gate-OFF server (see §Time-travel writes in SKILL.md).
 
 Rare — only when the pair tool is itself the trust boundary (e.g. a
 self-hosted server inside a private network). Launch with
-`--allow-sensitive-reads`; then the per-call args win on the structured
-tools (`:include-sensitive true` and `:elision false` pass through). The
-gate does **not** change the `eval-cljs` posture. State the trade-off
+`--allow-sensitive-reads`; then the per-call `:include-sensitive true`
+passes through on the structured tools. (`:elision false`, the size
+override, needs no launch flag — it is honoured on every launch, and
+declared-sensitive slots still redact under it.) The gate does **not**
+change the `eval-cljs` posture. State the trade-off
 plainly when proposing it — not a knob to flip casually. Same flag name carries on story-mcp.
 
 The three server gates, for reference:
 
-- `--no-eval` — opt-out for `eval-cljs` (ships ENABLED — eval is the REPL
-  primitive of a pair-debug session).
+- `--no-eval` — opt-out for arbitrary evaluation (ships ENABLED — eval is
+  the REPL primitive of a pair-debug session): it refuses `eval-cljs` and
+  a `tail-build` call carrying a `:probe`.
 - `--allow-sensitive-reads` — the sensitive-read gate above (default OFF).
 - `--allow-writes` — opt-in for the two state-mutating tools
   `restore-epoch` + `replace-app-db` (default OFF; without it both return
