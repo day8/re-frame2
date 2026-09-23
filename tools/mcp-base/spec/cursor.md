@@ -7,7 +7,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 ## Scope
 
-Per `spec/Principles.md` §Pagination and `spec/Tool-Pair.md` §Cursor pagination, every read tool whose return size is a function of registry / ring size MUST accept a `:limit` arg and return an opaque `:cursor` for continuation. Cursors are OPAQUE on the wire — the agent passes them back verbatim and has no business decoding the format.
+Per [`tools/re-frame2-pair-mcp/spec/Principles.md` §Per-tool budget discipline](../../re-frame2-pair-mcp/spec/Principles.md#per-tool-budget-discipline) and [`/spec/Tool-Pair.md` §Wire-protocol mechanisms (MCP-tool layer, not framework)](../../../spec/Tool-Pair.md#wire-protocol-mechanisms-mcp-tool-layer-not-framework), every read tool whose return size is a function of registry / ring size MUST accept a `:limit` arg and return an opaque `:cursor` for continuation. Cursors are OPAQUE on the wire — the agent passes them back verbatim and has no business decoding the format.
 
 `cursor` owns:
 
@@ -72,7 +72,7 @@ Build a structured cursor-stale error result via the consumer's `error-result` f
 
 The `:reason` slot is the cross-MCP `vocab/cursor-stale-reason` (`:rf.mcp/cursor-stale`) so an agent that learned the recovery path on one server reuses it on the other — whether staleness means ring-rotation (pair) or registry-change-between-pages (story).
 
-`error-result` is the consumer's error-envelope builder. It is called as `(error-result message data-map)` where `message` is a human-readable string and `data-map` carries the structured slots (`:ok? false`, `:reason`, `:tool`, `:hint`, plus any caller `extra`). Each server's `error-result` shapes the wire envelope its own way (story-mcp's `h/error-result`, pair-mcp's `wire/err-text`); this builder owns only the cross-MCP slot vocabulary.
+`error-result` is the consumer's error-envelope builder. It is called as `(error-result message data-map)` where `message` is a human-readable string and `data-map` carries the structured slots (`:ok? false`, `:reason`, `:tool`, `:hint`, plus any caller `extra`). Each server's `error-result` shapes the wire envelope its own way (story-mcp's `re-frame.story-mcp.tools.result/error-result`, pair-mcp's `wire/err-text`); this builder owns only the cross-MCP slot vocabulary.
 
 `opts`:
 
@@ -127,6 +127,6 @@ The payload differs by domain, but the base64 codec, tagged-literal rejection, s
 ## See also
 
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
-- [`vocab.md` §JSON-RPC error codes + cross-MCP error reasons](vocab.md) — the `cursor-stale-reason` key.
+- [`vocab.md` §Marker catalogue (`:rf.mcp/*`)](vocab.md#marker-catalogue-rfmcp) — the `cursor-stale-reason` key.
 - [`args.md`](args.md) — `parse-positive-int`, used by `parse-limit-arg`.
-- `spec/Tool-Pair.md` §Cursor pagination — the framework-level rule the codec implements.
+- [`/spec/Tool-Pair.md` §Wire-protocol mechanisms (MCP-tool layer, not framework)](../../../spec/Tool-Pair.md#wire-protocol-mechanisms-mcp-tool-layer-not-framework) — where the framework spec places cursor pagination: at the MCP-server layer, which this codec implements.

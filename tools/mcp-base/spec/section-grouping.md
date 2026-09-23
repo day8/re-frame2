@@ -1,7 +1,7 @@
 # `section-grouping` — patch-list → path-headed cluster sections
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Projects a flat diff patch-list into path-headed cluster **sections**, matching Xray's section decomposition but computed from patches rather than an annotated tree. [`diff-encode.md`](diff-encode.md) consumes it for the `:db-after` marker's `:sections` slot.
+> Projects a flat diff patch-list into path-headed cluster **sections** — originally modelled on Xray's annotated-tree section pass (since excised, rf2-7is22) but computed from patches rather than an annotated tree. [`diff-encode.md`](diff-encode.md) consumes it for the `:db-after` marker's `:sections` slot.
 
 This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
@@ -11,18 +11,18 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 - `group-patches-into-sections` — the flat-patch-list → sections projection.
 - `sections->patches` — the lossless inverse (flatten sections back to a replayable patch list).
-- `default-opts` (`{:max-coalesce-depth 3}`) — the tunable cluster-coalescence knob, mirroring Xray's defaults.
+- `default-opts` (`{:max-coalesce-depth 3}`) — the tunable cluster-coalescence knob.
 - `group-patches-into-sections` `opts` also accepts `:db-before`. When supplied, `:section-kind :added` requires an all-`:assoc` direct-child cluster whose container was absent before; without it, the classifier conservatively emits `:modified`.
 
 `section-grouping` does NOT own:
 
 - The patch grammar itself — that's [`diff-encode.md`](diff-encode.md) (`patch-schema`).
 - The `:section-path` / `:section-kind` / `:patches` section grammar's Malli schema — that's `diff-encode`'s `section-schema` (pinned at the encode/decode boundary).
-- The annotated-tree engine + Xray's panel `sections-per-cluster` pass — those live in `tools/xray/.../diff/`; mcp-base cannot pull Xray in (the dep arrow is tool → mcp-base, never the reverse), so it projects from patches instead.
+- Any annotated-tree engine. Xray's `diff/` tree (`tools/xray/src/day8/re_frame2_xray/diff/`) is Editscript-backed today, and the `section_grouping.cljc` pass this ns was modelled on was excised under rf2-7is22; mcp-base could not pull Xray in anyway (the dep arrow is tool → mcp-base, never the reverse), so it projects from patches instead.
 
 ## Why operate on patches, not the annotated tree
 
-The patches already carry path + op + value — every signal needed to head a cluster. Operating on patches keeps mcp-base dep-free (no Xray pull-in), round-trips losslessly (each section's `:patches` is a subset of the flat list; concatenating them reconstructs the path-ordered list that `apply-patches` replays unchanged), and loses no fidelity vs the annotated-tree projection for the agent-query use case — both produce the same N path-headed clusters; only the per-cluster body shape differs (patches here vs annotated subtree there).
+The patches already carry path + op + value — every signal needed to head a cluster. Operating on patches keeps mcp-base dep-free (no Xray pull-in), round-trips losslessly (each section's `:patches` is a subset of the flat list; concatenating them reconstructs the path-ordered list that `apply-patches` replays unchanged), and lost no fidelity vs the annotated-tree projection it was modelled on for the agent-query use case — both produced the same N path-headed clusters; only the per-cluster body shape differed (patches here vs annotated subtree there).
 
 ## Shape
 
@@ -46,7 +46,7 @@ The patches already carry path + op + value — every signal needed to head a cl
 
 ## Algorithm
 
-Mirrors the Xray pass (`section_grouping.cljc` §3.1.1), recast over patches:
+The pass, recast over patches (originally a mirror of Xray's since-excised `section_grouping.cljc`, rf2-7is22):
 
 1. **Trivial cases first.** Empty patches → `[]`. A single root-path `:assoc` (`[[] :assoc <full-db>]`, the `replace-app-db!` signature) → one `[]`-headed `:modified` section.
 
