@@ -703,10 +703,15 @@
 
 (defn initial-cascade
   "Given a target path landing on a possibly-compound node, descend
-  through :initial chain until we reach a leaf. Returns the leaf path."
+  through :initial chain until we reach a leaf. Returns the leaf path.
+
+  An EMPTY path names the machine (or region body) root, whose `:initial`
+  chain is the one to descend — a root `:same-state` target re-resolves the
+  whole configuration to the machine's `:initial`, never to `:state []`
+  (rf2-gdne8). A root with no `:initial` (a parallel root) stays `[]`."
   [machine path]
   (loop [p path]
-    (let [n (node-at machine p)]
+    (let [n (if (empty? p) machine (node-at machine p))]
       (if (and (map? n) (:initial n) (:states n))
         (recur (conj p (:initial n)))
         p))))
