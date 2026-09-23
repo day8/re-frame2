@@ -62,7 +62,13 @@
 ;; HTTP head: `[:rf.work/http logical-id issuance attempt]`. The logical
 ;; identity is the caller's `:request-id` when supplied (a stable, =-
 ;; comparable handle the caller already chose for supersede/abort), else
-;; the originating event-id (the default reply target's identity). HTTP has
+;; the originating event-id TAGGED as `[:rf.http/anonymous event-id]`
+;; (rf2-5g0bt). The tag is what keeps the key exact: named and anonymous
+;; issuances are numbered by independent counters, so an untagged anonymous
+;; `:ev` and a named request whose `:request-id` is `:ev` would both read
+;; `[:rf.work/http :ev 1 1]` while live together. A caller's request-id
+;; cannot take the tagged shape without spelling a reserved `:rf.*` keyword,
+;; so no app naming rule is needed. HTTP has
 ;; no generation counter of its own — supersession is keyed on `:request-id`
 ;; equality — so two discriminators ride the tuple:
 ;;
@@ -88,7 +94,10 @@
   "Build the HTTP work-id head for one attempt.
 
   `[:rf.work/http logical-id issuance attempt]` where `logical-id` is the
-  caller's `:request-id` (when non-nil) else the originating event-id;
+  caller's `:request-id` (when non-nil) else the originating event-id tagged
+  `[:rf.http/anonymous event-id]` (rf2-5g0bt — so an anonymous request can
+  never share a work id with a named one whose request-id equals its
+  event-id);
   `issuance` is the monotonic per-request-id issuance number (rf2-azcmd3 —
   bumped on each fresh request under the same `:request-id`, so a superseded
   attempt and its superseder carry distinct work ids; for an anonymous request
@@ -97,7 +106,9 @@
   (Managed-Effects §Work-id correlation). `issuance` defaults to 1 (the first
   issuance) when the ctx carries none."
   [{:keys [request-id origin-event issuance attempt]}]
-  (let [logical-id (if (some? request-id) request-id (first origin-event))]
+  (let [logical-id (if (some? request-id)
+                     request-id
+                     [:rf.http/anonymous (first origin-event)])]
     [:rf.work/http logical-id (or issuance 1) (or attempt 1)]))
 
 ;; ---------------------------------------------------------------------------

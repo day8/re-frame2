@@ -315,8 +315,12 @@
   Managed-Effects §Tracing — issuance/start with `:work/id`, frame and target
   summary). Runs inside the issuing fx handler, so `trace/build-event` stamps
   the issuing run's dispatch-id and the row lands in the issuing bundle. Its
-  `:rf.reply/work-id` is the attempt-1 work id every completion row of this
-  issuance carries — the join key between issuance and completion.
+  `:rf.reply/work-id` is the ATTEMPT-1 work id; a completion row carries the
+  work id of the attempt that completed, so after a retry the two differ in
+  the fourth (attempt) component (rf2-ojn0y). The join between issuance and
+  completion is therefore on the three-element issuance prefix
+  `[:rf.work/http logical-id issuance]` within the frame, never on full
+  work-id equality.
 
   `:url` is the merged request URL and rides through `prepare-emit-tags`, so it
   is redacted under the request's `:sensitive?` exactly as the retry row's is.

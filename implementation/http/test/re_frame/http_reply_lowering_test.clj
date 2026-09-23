@@ -121,8 +121,8 @@
 (deftest work-id-head
   (testing "HTTP work-id head is [:rf.work/http logical-id issuance attempt]"
     (is (= [:rf.work/http :article/by-id 1 1] (rf.http.reply/work-id base-ctx)))
-    (testing "logical-id falls back to the origin event-id when :request-id is absent"
-      (is (= [:rf.work/http :article/load 1 1]
+    (testing "logical-id falls back to the origin event-id, tagged anonymous, when :request-id is absent (rf2-5g0bt)"
+      (is (= [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
              (rf.http.reply/work-id (dissoc base-ctx :request-id)))))
     (testing "the attempt slot discriminates transport retries within one issuance"
       (is (= [:rf.work/http :article/by-id 1 3]

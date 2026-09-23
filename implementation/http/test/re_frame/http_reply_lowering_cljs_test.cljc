@@ -24,9 +24,9 @@
 (deftest work-id-head
   (testing "HTTP work-id head [:rf.work/http logical-id issuance attempt]"
     (is (= [:rf.work/http :article/by-id 1 1] (rf.http.reply/work-id ctx)))
-    (is (= [:rf.work/http :article/load 1 1]
+    (is (= [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
            (rf.http.reply/work-id (dissoc ctx :request-id)))
-        "logical-id falls back to origin event-id")
+        "logical-id falls back to the origin event-id, tagged anonymous (rf2-5g0bt)")
     (is (= [:rf.work/http :article/by-id 1 2]
            (rf.http.reply/work-id (assoc ctx :attempt 2)))
         "attempt slot discriminates retries within one issuance")
@@ -138,7 +138,7 @@
         (is (not (contains? f :max-attempts)))
         (is (nil? (:request-id f)))
         (is (= {:method :post :url "/x"} (:request f)))
-        (is (= [:rf.work/http :e 1 1] (:work/id f)))))))
+        (is (= [:rf.work/http [:rf.http/anonymous :e] 1 1] (:work/id f)))))))
 
 (deftest trace-summary-elides-wire-slots
   (testing "the canonical trace summary keeps identity facts verbatim"
