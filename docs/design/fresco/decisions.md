@@ -1551,6 +1551,26 @@ error, naming the intent. Witnessed, retry button and all, in
 > impl tier (`root!` / `hydrate-root!` / `render!` / `unmount!`) keeps its own
 > names beneath them. One thing here is NEW rather than respelled:
 > `rf/destroy-adapter!` now releases a live Fresco root, which it never did.
+>
+> **Amended again 2026-09-24 (rf2-3x7nj.7.2) — markup below a frame head acts
+> on that head's frame.** Everything lowered below `h/frame-provider` or
+> `h/frame-root` — an inline intent, an `h/event` or render callback, a
+> wrapper's children and callbacks, a child view — acts on the frame the head
+> names, at a root exactly as inside a body. The heads used to bind only the
+> frame's NAME around their children, so inside a body the body's own
+> frame-locked dispatch stayed in scope: an inline button directly under a
+> nested provider wrote the body's frame while the same button one
+> `h/error-boundary` deeper wrote the provider's. Each head now lowers under its
+> frame's whole render context (name, frame-locked dispatch and the refusal
+> tier's declared frame). `h/frame-provider` does so on the way past, its frame
+> already live. `h/frame-root` lowers its children in core's READY pass, after
+> the commit-owned ENSURE has made the frame, so a lowered callback is pinned to
+> that incarnation and a retained one refuses rather than writing a same-id
+> successor. What a body itself CALLS — `h/sub`, `h/route-link`,
+> `rf/capture-frame` — runs before any lowering and stays in the body's frame;
+> an intent with no frame head above it is still
+> `:rf.error/fresco-intent-outside-boundary`. Witnessed in
+> `re-frame.fresco.nested-frame-boundary-dom-cljs-test`.
 
 **Ruling.** (a) **Headless rendering** covers hook-free tier-1 bodies through a
 pure read resolver (structural render as data, sub reads overridable); bodies
