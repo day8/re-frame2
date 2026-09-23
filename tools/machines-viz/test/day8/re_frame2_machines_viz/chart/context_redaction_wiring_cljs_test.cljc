@@ -30,6 +30,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
+            [day8.re-frame2-machines-viz.chart.context-redaction :as ctx]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.projection :as projection]))
 
@@ -85,6 +86,30 @@
           "the sensitive :card slot shows the content-free redacted sentinel")
       (is (= "7" (value-for graph :count))
           "the non-sensitive :count slot still renders its value"))))
+
+(deftest documented-recipe-redacts-a-machine-declared-secret
+  (testing "rf2-3x7nj.33.3 — a host following the API.md recipe for a machine
+            that declares its secret slot the canonical way (Spec 015 / Spec
+            005: projection-relative `:sensitive [[:data :token]]`) gets it
+            redacted in the band — and so in every image export"
+    (let [secret  "sk-live-SECRET-123"
+          machine {:initial   :idle
+                   :sensitive [[:data :token]]
+                   :schemas   {:data [:map [:token :string] [:user :string]]}
+                   :data      {:token nil :user nil}
+                   :states    {:idle {}}}
+          cls     (ctx/derive-classification machine)
+          graph   (projection/xyflow-graph
+                    (layout/project-definition machine) {}
+                    {:context-band           (array-map :token secret :user "ann")
+                     :context-band-inferred? false
+                     :context-band-sensitive (:sensitive cls)
+                     :context-band-large     (:large cls)})]
+      (is (not (some #(str/includes? % secret) (all-row-strings graph)))
+          "the declared secret appears in NO display row")
+      (is (str/includes? (value-for graph :token) ":rf/redacted"))
+      (is (= "\"ann\"" (value-for graph :user))
+          "control: the undeclared sibling still renders its value"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (b) the sensitive / large sets are actually THREADED into the projection

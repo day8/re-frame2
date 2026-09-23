@@ -74,7 +74,7 @@ registry).
 | `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
 | `:context-band` | no | `nil` | rf2-qo5xy; rf2-q129z8; rf2-3q4k5b. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or the **static context shape** (key→type-caption, via Xray's `static-context-shape`), which is **declared over inferred** — authoritative off a `[:schemas :data]` schema when present, else inferred from one `:data` sample (rf2-3q4k5b). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
 | `:context-band-inferred?` | no | `true` | rf2-5tz9p; rf2-3q4k5b. Provenance gate for the Context-band badge. When `true` (default) the band shows a subtle `inferred from :data` badge — a type shape **inferred** from one sample of the definition's `:data`, **not** a declared schema and **not** the live runtime `:data`. When `false` the inferred badge is **dropped** and a positive `declared` badge shows instead; hosts pass `false` when feeding live `:data` **values** OR an AUTHORITATIVE shape off a `[:schemas :data]` schema (rf2-3q4k5b · EP-0005 · EP-0029 A3). Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
-| `:context-band-sensitive` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose VALUES are redacted to `:rf/redacted` before they reach the DOM (and therefore the SVG/PNG/clipboard export). The host derives it from the machine's `[:schemas :data]` schema `:sensitive?` slot props. See [§Context-band egress contract](#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015). |
+| `:context-band-sensitive` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose VALUES are redacted to `:rf/redacted` before they reach the DOM (and therefore the SVG/PNG/clipboard export). The host derives it from the machine definition's own projection-relative `:sensitive` declaration (`{:sensitive [[:data :token]]}`) via `context-redaction/derive-classification` (rf2-3x7nj.33.3). See [§Context-band egress contract](#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015). |
 | `:context-band-large` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose values are elided to the canonical content-FREE `:rf.size/large-elided` marker before export. Unmarked over-cap values elide too; sensitive wins over large. |
 | `:context-band-raw?` | no | `false` | rf2-27e38h · EP-0015. The explicit trusted-local (`:rf.egress/local-raw`) opt-in. `true` skips Context-band redaction and serialises raw values — an operator act for a developer inspecting their own process. Default `false` keeps the band local-redacted. |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
@@ -665,7 +665,7 @@ clipboard-image lanes derive from that SVG. A framework-created
 export/copy artefact is **egress** per
 [EP-0015](../../../docs/EP/EP-0015-frame-owned-egress-policy.md) §96-110.
 So when a host feeds **live `:data` VALUES** (the `:context-band-inferred?
-false` value path above), a schema-marked sensitive or large slot would
+false` value path above), a declared sensitive or large slot would
 otherwise be embedded in the exported SVG/PNG/clipboard verbatim.
 
 The chart therefore applies a **local-redacted projection
@@ -673,9 +673,27 @@ The chart therefore applies a **local-redacted projection
 single `chart.projection/xyflow-graph` projection chokepoint — so the
 redaction is identical for the on-screen band AND every export derived
 from it. The host declares which slots carry sensitive/large content
-(the machine's `[:schemas :data]` schema `:sensitive?` / `:large?` per-slot props —
-the EP-0005 mechanism; `context-redaction/derive-classification` extracts
-them) via two optional props:
+via two optional props. Their source is the machine definition's own
+projection-relative `:sensitive` / `:large` declaration (Spec 015
+§Subsystem projection-relative classification, Spec 005 — e.g.
+`{:sensitive [[:data :payment :token]]}`), and
+`context-redaction/derive-classification` turns a definition into the
+two key sets: each `[:data k …]` path names band key `k` (a deeper path
+classifies the whole top-level slot, because the band prints each value
+whole), and a bare `[:data]` names every key of the definition's
+`:data`. The `[:schemas :data]` schema's `:sensitive?` / `:large?`
+props do **not** feed it: EP-0025 reversed that EP-0005 bridge, and
+they drive only validation-failure-trace redaction (rf2-3x7nj.33.3).
+
+```clojure
+(let [{:keys [sensitive large]} (context-redaction/derive-classification machine-def)]
+  [viz/MachineChart {:machine-id             machine-id
+                     :definition             machine-def
+                     :context-band           live-data
+                     :context-band-inferred? false
+                     :context-band-sensitive sensitive
+                     :context-band-large     large}])
+```
 
 | Prop | Default | Meaning |
 |------|---------|---------|

@@ -11,17 +11,20 @@
   DOM (`chart.nodes/root-container-node`), and the SVG / PNG / clipboard
   exporters serialise that DOM (`export/chart-as-svg` clones the live
   `.react-flow__viewport`). So a host that feeds live `:data` carrying a
-  schema-marked **sensitive** or **large** slot would otherwise embed the
+  declared **sensitive** or **large** slot would otherwise embed the
   raw value in an official egress artefact with no local-redacted default.
 
   Per [EP-0015](../../../docs/EP/EP-0015-frame-owned-egress-policy.md)
   §96-110, §985-989: framework-created export/copy artefacts are egress;
   local tools default `:rf.egress/local-redacted`; raw requires an
-  explicit trusted-local opt-in. EP-0015 issue 12 / Spec 015 §Machine
-  `:data`: machine `:data` sensitivity is **schema-first** — per-slot
-  `:sensitive?` / `:large?` props on the machine's `[:schemas :data]`
-  schema (the EP-0029 A3 clean-break home for what EP-0005 called
-  `:data-schema`).
+  explicit trusted-local opt-in. Spec 015 §Subsystem projection-relative
+  classification / Spec 005: a machine's durable `:data` classification
+  is **declared on the machine definition** as projection-relative
+  `:sensitive` / `:large` paths (`{:sensitive [[:data :token]]}`). EP-0025
+  reversed the EP-0005 bridge: the `[:schemas :data]` schema still
+  validates `:data`, and its `:sensitive?` / `:large?` props drive only
+  validation-failure-trace redaction, so they do not classify the band
+  (rf2-3x7nj.33.3).
 
   ## What this does
 
@@ -36,9 +39,8 @@
     - everything else passes through unchanged.
 
   Sensitivity is supplied as a SET of sensitive keys + a SET of large keys
-  (`derive-classification` extracts them from a `[:schemas :data]` schema), so
-  this namespace stays dependency-free and JVM-portable (no Malli runtime — it
-  reads the schema as plain data, mirroring `context-shape`).
+  (`derive-classification` extracts them from the machine definition's own
+  declaration), so this namespace stays dependency-free and JVM-portable.
 
   The static type-caption shape is already value-free, so redaction over
   it is a no-op (captions like `\"string\"` are neither sensitive markers
@@ -46,60 +48,43 @@
   production surface; it only fires for a host feeding live values.")
 
 ;; ---------------------------------------------------------------------------
-;; Classification extraction from a [:schemas :data] schema (plain-data walk)
-
-(def ^:private map-unwrap-heads
-  "Malli wrapper heads whose first contained schema carries the real map —
-  mirrors `context-shape/map-unwrap-heads`."
-  #{:and :or :schema :ref})
-
-(defn- map-schema
-  "Unwrap common Malli wrappers to the contained `[:map …]` vector, else
-  nil. Mirrors `context-shape/map-schema` (kept local so this ns carries
-  no cross-dep on the caption namespace)."
-  [schema]
-  (loop [s schema budget 32]
-    (when (and (vector? s) (pos? budget))
-      (let [head (first s)]
-        (cond
-          (= :map head) s
-          (contains? map-unwrap-heads head)
-          (recur (some #(when-not (map? %) %) (rest s)) (dec budget))
-          :else nil)))))
-
-(defn- entry-props
-  "The per-entry props map of a Malli `:map` entry `[k props? child]`, or
-  nil. An entry is `[k child]` or `[k {…} child]`."
-  [entry]
-  (let [maybe-props (second entry)]
-    (when (map? maybe-props) maybe-props)))
+;; Classification extraction from the machine definition's declaration
 
 (defn derive-classification
-  "Extract `{:sensitive #{k …} :large #{k …}}` from a machine's
-  `[:schemas :data]` schema by reading the per-slot `:sensitive?` / `:large?`
-  props on each `:map` entry (EP-0005 / Spec 015 §Machine `:data`). Pure;
-  walks the schema as plain data — no Malli runtime. Returns
-  `{:sensitive #{} :large #{}}` when the schema is absent or carries no
-  `:map`."
-  [data-schema]
-  (if-let [ms (map-schema data-schema)]
-    (let [entries (->> (rest ms) (filter vector?))]
-      (reduce (fn [acc entry]
-                (let [k     (first entry)
-                      props (entry-props entry)]
-                  (cond-> acc
-                    (:sensitive? props) (update :sensitive conj k)
-                    (:large? props)     (update :large conj k))))
-              {:sensitive #{} :large #{}}
-              entries))
-    {:sensitive #{} :large #{}}))
+  "Extract `{:sensitive #{k …} :large #{k …}}` — sets of Context-band KEYS —
+  from a machine DEFINITION's own projection-relative `:sensitive` / `:large`
+  declaration (rf2-3x7nj.33.3; Spec 015 §Subsystem projection-relative
+  classification, Spec 005 — e.g. `{:sensitive [[:data :payment :token]]}`).
+  Pure.
+
+    - `[:data k …]` names band key `k`. The band prints each top-level
+      `:data` value WHOLE, so a deeper path classifies its whole top-level
+      slot (`[:data :payment :token]` redacts `:payment`).
+    - A bare `[:data]` classifies every key of the definition's own `:data`
+      map (a key only the live value carries is not known here).
+    - A path not rooted at `:data` names no band key and is ignored.
+
+  The `[:schemas :data]` schema's `:sensitive?` / `:large?` props are NOT
+  read: EP-0025 reversed that bridge, and they drive only validation-failure-
+  trace redaction. Returns `{:sensitive #{} :large #{}}` when nothing is
+  declared."
+  [definition]
+  (let [data-keys (let [d (:data definition)] (when (map? d) (keys d)))
+        band-keys (fn [paths]
+                    (into #{}
+                          (mapcat (fn [p]
+                                    (when (and (sequential? p) (= :data (first p)))
+                                      (if (next p) [(second p)] data-keys))))
+                          (when (sequential? paths) paths)))]
+    {:sensitive (band-keys (:sensitive definition))
+     :large     (band-keys (:large definition))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Large-value heuristic
 
 (def ^:private default-large-char-cap
   "A printed value longer than this many CHARACTERS is elided as large
-  even when the schema did not mark it `:large?`. A defensive size guard
+  even when the machine did not declare it `:large`. A defensive size guard
   so a big unmarked slot cannot bloat (and leak its content into) the
   export. Conservative — ordinary context values render well under this.
 

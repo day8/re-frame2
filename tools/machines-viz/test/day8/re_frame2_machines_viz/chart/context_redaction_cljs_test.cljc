@@ -12,30 +12,50 @@
             [day8.re-frame2-machines-viz.chart.context-redaction :as r]))
 
 ;; ---------------------------------------------------------------------------
-;; derive-classification — reads :sensitive? / :large? slot props off a
-;; machine's [:schemas :data] schema (EP-0005 / EP-0029 A3 plain-data walk).
+;; derive-classification — reads the machine DEFINITION's own
+;; projection-relative `:sensitive` / `:large` declaration (Spec 015
+;; §Subsystem projection-relative classification; Spec 005 — EP-0025
+;; reversed the EP-0005 `[:schemas :data]` bridge). rf2-3x7nj.33.3.
 
-(deftest derive-classification-reads-slot-props
-  (testing "sensitive? / large? slot props become the classification sets"
-    (let [schema [:map
-                  [:user/email {:sensitive? true} :string]
-                  [:auth/token {:sensitive? true} :string]
-                  [:receipt    {:large? true}     :string]
-                  [:count      :int]]
-          {:keys [sensitive large]} (r/derive-classification schema)]
+(deftest derive-classification-reads-declared-data-paths
+  (testing "each `[:data k …]` path names band key `k`"
+    (let [{:keys [sensitive large]}
+          (r/derive-classification
+            {:sensitive [[:data :user/email] [:data :auth/token]]
+             :large     [[:data :receipt]]
+             :initial   :idle
+             :states    {:idle {}}})]
       (is (= #{:user/email :auth/token} sensitive))
       (is (= #{:receipt} large)))))
 
-(deftest derive-classification-unwraps-refinement
-  (testing "a :map nested under :and is still walked (declared-but-wrapped)"
-    (let [schema [:and [:map [:secret {:sensitive? true} :string]] [:fn 'map?]]
-          {:keys [sensitive]} (r/derive-classification schema)]
-      (is (= #{:secret} sensitive)))))
+(deftest derive-classification-deeper-path-classifies-the-top-level-slot
+  (testing "the band prints each top-level :data value WHOLE, so a deeper path
+            classifies its whole top-level slot"
+    (is (= #{:payment}
+           (:sensitive (r/derive-classification
+                         {:sensitive [[:data :payment :token]]}))))))
 
-(deftest derive-classification-absent-schema-is-empty
-  (testing "no schema / non-map schema → empty sets (band passes through)"
+(deftest derive-classification-whole-data-path-covers-every-data-key
+  (testing "a bare `[:data]` path classifies every key of the definition's :data"
+    (is (= #{:token :user}
+           (:sensitive (r/derive-classification
+                         {:sensitive [[:data]] :data {:token nil :user nil}}))))))
+
+(deftest derive-classification-schema-props-do-not-classify
+  (testing "EP-0025 — `[:schemas :data]` `:sensitive?` props drive validation-
+            failure-trace redaction only; they classify nothing here"
+    (is (= {:sensitive #{} :large #{}}
+           (r/derive-classification
+             {:schemas {:data [:map [:token {:sensitive? true} :string]
+                               [:blob {:large? true} :string]]}
+              :initial :idle
+              :states  {:idle {}}})))))
+
+(deftest derive-classification-absent-declaration-is-empty
+  (testing "no declaration / nil definition / non-:data path → empty sets"
     (is (= {:sensitive #{} :large #{}} (r/derive-classification nil)))
-    (is (= {:sensitive #{} :large #{}} (r/derive-classification :int)))))
+    (is (= {:sensitive #{} :large #{}} (r/derive-classification {:initial :a :states {:a {}}})))
+    (is (= {:sensitive #{} :large #{}} (r/derive-classification {:sensitive [[:state]]})))))
 
 ;; ---------------------------------------------------------------------------
 ;; redact-value / redact-context — the projection itself
@@ -185,14 +205,14 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The end-to-end leak guard: a secret-bearing live value, projected with
-;; its schema's sensitivity, never produces display text carrying the
+;; its machine's declared sensitivity, never produces display text carrying the
 ;; secret — so it cannot reach the serialised SVG/PNG/clipboard.
 
 (deftest secret-never-survives-into-display-text
   (testing "a sensitive live :data slot never appears in the band display text"
     (let [secret "card-4111-1111-1111-1111"
-          schema [:map [:card {:sensitive? true} :string] [:count :int]]
-          cls    (r/derive-classification schema)
+          cls    (r/derive-classification {:sensitive [[:data :card]]
+                                           :data      {:card nil :count 0}})
           band   (array-map :card secret :count 7)
           rows   (->> (r/redact-context band cls)
                       (mapv (fn [[k v]] [(str (symbol k)) (r/display-string v)])))
