@@ -453,10 +453,18 @@
     ;; deref'd watches. The marker is set ONLY when a live render Reaction
     ;; was disposed by an unmount, so a normal first mount (render() already
     ;; ran, `cljsRenderRea` live, no marker) is a no-op here.
+    ;;
+    ;; It is also the ADOPTION point for the provisional-adoption reaper
+    ;; (rf2-3x7nj.6.3, see `reap-unless-adopted!`): `cljsIsMounted` tells the
+    ;; reaper this instance's render Reaction is no longer provisional, and
+    ;; componentWillUnmount clears it again. An instance the reaper reached
+    ;; first carries the same reattach marker, so a commit that lost the race
+    ;; re-renders here exactly as a StrictMode remount does.
     (let [user-fn (:component-did-mount spec)]
       (set! (.-componentDidMount prototype)
             (fn []
               (this-as ^js this
+                (set! (.-cljsIsMounted this) true)
                 (when (.-cljsRemountReattach this)
                   (set! (.-cljsRemountReattach this) false)
                   (batching/queue-render! this))
@@ -470,6 +478,12 @@
       (set! (.-componentWillUnmount prototype)
             (fn []
               (this-as ^js this
+                ;; Not mounted from here on (rf2-3x7nj.6.3). React also calls
+                ;; this when it HIDES a mounted instance (Activity / Suspense),
+                ;; may re-render it while hidden, and may then delete it
+                ;; without calling this again — so a render Reaction built
+                ;; while hidden must be provisional, and reaped, too.
+                (set! (.-cljsIsMounted this) false)
                 ;; Clear the dirty flag on unmount (rf2-mdgt8t (a)). A
                 ;; component queued via batching/queue-render! (which sets
                 ;; cljsIsDirty) and THEN unmounted would otherwise stay
@@ -583,6 +597,85 @@
         (when-not (:cljsHasError @a)
           (swap! a assoc :cljsHasError true))))))
 
+;; ---------------------------------------------------------------------------
+;; Provisional-adoption reaper (rf2-3x7nj.6.3)
+;;
+;; A render Reaction is built INSIDE render(), and from then on it watches
+;; every subscription the render derefs and holds re-frame's render-owned
+;; reference on each (Spec 006 §Which lifetime governs a ratom adapter).
+;; componentWillUnmount disposes it — but React calls that only for an
+;; instance it COMMITTED. A pass React renders and throws away (a Suspense
+;; boundary suspending on mount, an error boundary catching on mount, a hidden
+;; Activity never shown) used to leave every instance it rendered subscribed
+;; for the life of the page: the slot never reached 0, and each change
+;; forceUpdated an instance React never mounted.
+;;
+;; So a render Reaction built while its instance is NOT mounted is
+;; provisional: one host macrotask later the reaper disposes it unless
+;; componentDidMount has adopted the instance (`cljsIsMounted`, which
+;; componentWillUnmount clears again). Losing the race is safe: a reaped
+;; instance carries the reattach marker, so a commit that arrives after the
+;; horizon re-renders it in componentDidMount against current values — one
+;; extra render, never a stale or dead view.
+;;
+;; The shape and the 4 ms horizon are the React-hook spine's
+;; (`re-frame.substrate.spine/make-provisional-escrow` and
+;; `provisional-horizon-ms`, which carries the measurement). This artefact is
+;; bundle-isolated from re-frame, so it keeps its own constant. The class path
+;; adopts earlier than the spine's hooks: componentDidMount runs in the
+;; commit's layout phase, in the same task as a default or sync render.
+;; ---------------------------------------------------------------------------
+
+(def ^:private provisional-horizon-ms
+  "How long an unadopted render Reaction lives before the reaper disposes it.
+  Mirrors `re-frame.substrate.spine/provisional-horizon-ms` (rf2-2rtt6.71)."
+  4)
+
+(defonce ^:private unadopted
+  ;; `#js [instance render-reaction]` pairs awaiting the next drain.
+  #js [])
+
+(defonce ^:private reap-armed? (volatile! false))
+
+(defn- reap-if-unadopted!
+  "Dispose `rea` unless `inst` has been mounted since, or `rea` is no longer
+  its render Reaction (an unmount already disposed it, or a later render
+  replaced it). The user's :component-will-unmount is NOT called: React never
+  mounted this instance."
+  [^js inst rea]
+  (when (and (not (true? (.-cljsIsMounted inst)))
+             (identical? rea (.-cljsRenderRea inst)))
+    ;; As componentWillUnmount does: a queued flush must not forceUpdate an
+    ;; instance React never mounted.
+    (batching/mark-rendered inst)
+    (set! (.-cljsRenderRea inst) nil)
+    ;; Should React commit this instance after all, componentDidMount
+    ;; re-renders it and make-render-method builds a fresh Reaction.
+    (set! (.-cljsRemountReattach inst) true)
+    (ratom/dispose! rea)))
+
+(defn- drain-unadopted!
+  "The reaper. Splices the batch before processing it, so a render during the
+  drain belongs to the next burst, and isolates each disposal, so one throwing
+  teardown cannot strand the rest."
+  []
+  (vreset! reap-armed? false)
+  (let [batch (.splice unadopted 0 (.-length unadopted))]
+    (dotimes [i (alength batch)]
+      (let [pair (aget batch i)]
+        (try (reap-if-unadopted! (aget pair 0) (aget pair 1))
+             (catch :default _ nil))))))
+
+(defn- reap-unless-adopted!
+  "Queue `rea`, the render Reaction just built for the not-yet-mounted `inst`,
+  for the reaper. One timer per burst, armed on the empty → non-empty edge,
+  so a pass rendering three hundred views arms one timer."
+  [inst rea]
+  (.push unadopted #js [inst rea])
+  (when-not @reap-armed?
+    (vreset! reap-armed? true)
+    (js/setTimeout drain-unadopted! provisional-horizon-ms)))
+
 (defn- make-render-method
   "Build the React `render` method. Runs the user's render fn inside a
   per-component Reaction so deref'd RAtoms / Reactions register as
@@ -617,6 +710,13 @@
                                (fn [_changed-reaction]
                                  (batching/queue-render! this)))]
                          (set! (.-cljsRenderRea this) new-render-reaction)
+                         ;; Provisional until componentDidMount adopts it
+                         ;; (rf2-3x7nj.6.3). Armed BEFORE the deref: a render
+                         ;; that throws has already taken its subscription
+                         ;; references by then, and needs an owner that can
+                         ;; release them.
+                         (when-not (true? (.-cljsIsMounted this))
+                           (reap-unless-adopted! this new-render-reaction))
                          @new-render-reaction)
                        ;; ._run re-captures deps AND produces fresh hiccup.
                        (._run render-reaction false))]
