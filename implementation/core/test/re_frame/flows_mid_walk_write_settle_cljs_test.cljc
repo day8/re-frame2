@@ -34,6 +34,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.event-emit :as rf.event-emit]
    ;; Loading these publishes their late-bind hooks. Without `re-frame.flows`
    ;; no flow is ever registered and every assertion below reads the stale
    ;; value for the wrong reason; without `re-frame.machines` `reg-machine`
@@ -42,8 +43,7 @@
    [re-frame.fx :as rf.fx]
    [re-frame.machines]
    [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-   [re-frame.test-support :as rf.test-support]
-   [re-frame.trace.tooling :as rf.trace.tooling]))
+   [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -59,25 +59,29 @@
 (defn- db [] (rf/app-db-value :rf/default))
 
 (defn- call-counting-runs
-  "Run `(f runs)` with a trace listener recording the event id of every
-  `:rf.event/run-start`, in order.
+  "Run `(f runs)` with a listener recording the event id of every processed
+  event, in order.
+
+  The listener is on the ALWAYS-ON event-emit substrate (one record per
+  processed event), not on the dev trace stream: the core artefact also runs
+  under the production gate (`-Dre-frame.debug=false`), where traces are
+  compiled out and a trace-based counter would read zero for every
+  zero-settle control below.
 
   Installed INSIDE the test body, never at namespace load: the reset fixture
-  clears trace listeners, so a load-time listener counts nothing and every
+  clears listeners, so a load-time listener counts nothing and every
   zero-settle control below would pass against a dead instrument. Each caller
   therefore also asserts the total run count it expects — the positive
   control that the recorder is live."
   [f]
   (let [runs (atom [])]
-    (rf.trace.tooling/register-listener!
+    (rf.event-emit/register-event-listener!
       ::run-recorder
-      (fn [ev]
-        (when (= :rf.event/run-start (:operation ev))
-          (swap! runs conj (get-in ev [:tags :rf.trace/event-id])))))
+      (fn [record] (swap! runs conj (:event-id record))))
     (try
       (f runs)
       (finally
-        (rf.trace.tooling/unregister-listener! ::run-recorder)))))
+        (rf.event-emit/unregister-event-listener! ::run-recorder)))))
 
 (defn- settles [runs] (count (filter #{:rf/settle-flows} @runs)))
 
