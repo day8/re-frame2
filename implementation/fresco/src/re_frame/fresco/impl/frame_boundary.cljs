@@ -34,15 +34,29 @@
   codec hands the shell a LOWERING CLOSURE it calls once, with the frame
   it resolved.
 
-  ## Why an ENSURE boundary is spellable in an eagerly-lowered tree
+  ## Markup below a boundary acts on the boundary's frame
 
-  Because lowering carries the frame's NAME, not the frame. `*frame*` is
-  the frame KEYWORD for the boundary currently rendering, and
-  `*dispatch*` — the binding that would need a live frame — is not bound
-  by a lowering at all: a frame-locked dispatch is established per
-  boundary at RENDER time, which under the two-pass is after the layout
-  effect has made the frame. So `frame-root`'s children lower under an
-  `:id` whose frame does not exist yet, and render only once it does.
+  Everything lowered below either head — an inline intent, an `h/event`
+  or render callback, a wrapper's children — acts on the frame the head
+  names, at a root exactly as inside a body (rf2-3x7nj.7.2). So each head
+  lowers its children under that frame's WHOLE render context: `*frame*`,
+  its frame-locked `*dispatch*` and the refusal tier's `:extent-frame`,
+  together, through `intent/with-frame`. Binding `*frame*` alone left a
+  body's own dispatch in scope, and the same button wrote the body's
+  frame directly under the head and the head's frame one wrapper deeper.
+
+  ## Why an ENSURE boundary lowers in its READY pass
+
+  A lowered callback keeps the dispatch it was lowered under, and that
+  dispatch is PINNED to one incarnation of its frame — which needs the
+  frame to exist. `frame-provider`'s frame is proven live before it
+  lowers, so it lowers on the way past. `frame-root`'s frame does not
+  exist until its ENSURE runs at commit, and a dispatch captured before
+  then is address-directed: a callback retained across a destroy and a
+  same-id re-create would write the successor. So `frame-root` hands the
+  core one internal child, `frame-root-children`, and core renders that
+  only in its READY pass, after the layout effect has made the frame;
+  the children are lowered there, under the incarnation ENSURE just made.
 
   ## The first paint is still the seeded one
 
@@ -56,13 +70,40 @@
   `re-frame.fresco.frame-boundary-heads-dom-cljs-test`."
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.substrate.spine :as rf.substrate.spine]
-            [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
+            [re-frame.views.frame-boundary :as rf.views.frame-boundary]
+            ["react" :as react]))
 
 ;; The `:where` symbols are the FACADE spellings, not these impl names:
 ;; a refusal names the head the author wrote.
 (def ^:private root-where 're-frame.fresco/frame-root)
 (def ^:private provider-where 're-frame.fresco/frame-provider)
+
+(defn- lower-in-frame
+  "Call the codec's `lower` closure under `frame-kw`'s whole render
+  context — the 3-arity `with-frame`, so `*frame*`, the frame-locked
+  `*dispatch*` and the refusal tier's `:extent-frame` move together and
+  a render callback captures all three. `frame-dispatch` is the one
+  memoised row the collector's bodies bind, pinned to the incarnation
+  live now, so the caller must have a live frame in hand."
+  [frame-kw lower]
+  (rf.fresco.impl.intent/with-frame frame-kw
+    (rf.fresco.impl.collector/frame-dispatch frame-kw)
+    (fn [] (lower frame-kw))))
+
+(def ^:private frame-root-children
+  "`frame-root`'s one internal child: lowers the author's children in
+  core's READY pass, which is the only render `frame-root-fc` gives it,
+  after the ENSURE has made the frame. Answers a Fragment of them, or nil
+  for a head written with no children. Reads no cell and no context, so
+  nothing re-renders it but its parent."
+  (doto (fn frame-root-children [^js props]
+          (when-some [children (lower-in-frame (unchecked-get props "rfFrame")
+                                               (unchecked-get props "rfLower"))]
+            (apply react/createElement (.-Fragment react) nil children)))
+    (unchecked-set "displayName" "fresco/frame-root-children")))
 
 (def frame-root
   "`h/frame-root` — the ENSURE boundary. See the facade var for the
@@ -81,12 +122,18 @@
       (when (contains? props :frame)
         (rf.views.frame-boundary/reject-frame-root-frame! (:frame props) root-where))
       (let [frame-kw (rf.views.frame-boundary/require-frame-root-id! (:id props) root-where)]
-        ;; The children are lowered under the id the author wrote, before
-        ;; the frame exists. `frame-root-react-element` re-runs the two
-        ;; validators above; they are cheap, and delegating the element
-        ;; build is what keeps the two-pass unforked.
+        ;; The children are NOT lowered here: the frame may not exist yet,
+        ;; and a callback lowered now would keep an unpinned dispatch.
+        ;; `frame-root-children` lowers them in the ready pass instead,
+        ;; always — one path, whether or not the frame is already live.
+        ;; `frame-root-react-element` re-runs the two validators above;
+        ;; they are cheap, and delegating the element build is what keeps
+        ;; the two-pass unforked.
         (rf.views.frame-boundary/frame-root-react-element
-          props (lower frame-kw) root-where)))))
+          props
+          (react/createElement frame-root-children
+                               #js {"rfFrame" frame-kw "rfLower" lower})
+          root-where)))))
 
 (def frame-provider
   "`h/frame-provider` — the SCOPE-only boundary. See the facade var for
@@ -106,6 +153,8 @@
         ;; SCOPE requires a LIVE frame, and it is required here rather
         ;; than inside the element build because the children lower under
         ;; this frame on the way past: a subtree scoped to an absent frame
-        ;; must refuse before it is built, not after.
+        ;; must refuse before it is built, not after. Live is also what
+        ;; lets the lowering pin its dispatch to this incarnation now.
         (rf.views.frame-boundary/require-live-frame-for-scope! frame-kw provider-where)
-        (rf.substrate.spine/build-frame-provider-element frame-kw (lower frame-kw))))))
+        (rf.substrate.spine/build-frame-provider-element
+          frame-kw (lower-in-frame frame-kw lower))))))
