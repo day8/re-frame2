@@ -1271,7 +1271,12 @@
                       ;; advances to the NEXT attempt only when it fires.
                       :origin-event (:origin-event ctx)
                       :issuance     (:issuance ctx)
-                      :attempt      (:attempt ctx)})
+                      :attempt      (:attempt ctx)}
+                     ;; rf2-3x7nj.16.3 — take the request-id slot only from
+                     ;; `prev-handle`: a same-id successor that registered
+                     ;; since `maybe-retry!` decided to retry keeps it, and the
+                     ;; re-check below finishes this cancelled request.
+                     prev-handle)
         ;; rf2-6nczv9 — the shared `finalised?` / `aborted?` cells are NOT
         ;; stamped onto the backoff handle: the abort-fn closes over them
         ;; lexically, and the re-check / timer-guard read the same lexical
@@ -2001,7 +2006,13 @@
                     ;; reply-envelope trace when a fresh request replaces it.
                     :origin-event (:origin-event ctx)
                     :issuance     (:issuance ctx)
-                    :attempt      (:attempt ctx)})
+                    :attempt      (:attempt ctx)}
+                   ;; rf2-3x7nj.16.3 — on the retry handoff take the request-id
+                   ;; slot only from the predecessor backoff handle: a same-id
+                   ;; successor that registered after the timer won `fired?`
+                   ;; keeps it, and the re-check below finishes this request.
+                   ;; nil on the first attempt, which claims the slot outright.
+                   (:prev-handle handoff))
         ;; Publish the stamped handle so the abort closure
         ;; (defined above, before `handle` was bound) can pass it to the
         ;; 2-arg `clear-in-flight!` via `@handle-holder`. The reset!
