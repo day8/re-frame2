@@ -623,7 +623,7 @@ Atomic create-and-register. There is no way to obtain an unregistered frame; thi
 
 **Construction is one fail-fast per-frame-id transaction.** After pure config preflight and before any adapter allocation callback or mutable publication, `make-frame` reserves its frame id. The reservation remains held through provisional registry seating, trace-policy publication, synchronous `:initial-events`, lifecycle trace emission, registration hooks, and the final transition (or exact rollback). A same-id construction attempt — including synchronous re-entry from an adapter, setup event, trace listener, or hook, and a competing JVM thread — fails immediately with `:rf.error/frame-construction-in-progress`; it never waits, queues, adopts the provisional row, or allocates a competing container. A different frame id proceeds independently. The internal admission primitive accepts a **set** of ids and claims all or none in one CAS; its one-shot handoff permits exactly one reserved id to enter the ordinary construction engine without turning same-owner callback re-entry into blanket re-entrancy.
 
-The registry transition is explicitly **reserved → provisional → final**. A provisional row is visible only to its exact owner on the owning host thread, so setup and lifecycle publication can use ordinary frame machinery while unrelated callers cannot observe a live-looking half-construction. Any throw restores the prior final record on re-registration, or exactly tears down the newly-created incarnation, before releasing admission. A lifecycle-dead or exact-closing raw row is never a surgical-refresh target: construction fails with the same typed in-progress category until teardown's exact dissoc completes. Once a transaction settles, ordinary later `make-frame` calls retain the sequential create/refresh semantics below.
+The registry transition is explicitly **reserved → provisional → final**. A **first construction's** provisional row is visible only to its exact owner on the owning host thread, so setup and lifecycle publication can use ordinary frame machinery while unrelated callers cannot observe a live-looking half-construction. A **re-registration's** staged revision is visible to every actor: the frame is live throughout, and its runtime state (app-db, router queue, drain lock, sub-cache) is the same objects, so there is no half-construction to hide (see [§Re-registration](#re-registration--surgical-update)). Any throw restores the prior final record on re-registration, or exactly tears down the newly-created incarnation, before releasing admission. A lifecycle-dead or exact-closing raw row is never a surgical-refresh target: construction fails with the same typed in-progress category until teardown's exact dissoc completes. Once a transaction settles, ordinary later `make-frame` calls retain the sequential create/refresh semantics below.
 
 **`make-frame` is the ONE programmatic constructor (rf2-h1vqa4).** The `reg-frame` macro spelling is DELETED — no alias, no tombstone. A frame is a **live runtime object**, not a registered program member: `reg-*` registers image-resolved, inert program members, and a spelling that *constructs* under the registrar grammar corrupted that grammar. Frame construction therefore captures **no source coordinates** (frames are not click-to-source targets; live metadata lives in `frame-meta`, and `:initial-events` dispatch traces carry their own `:source :frame-init` provenance). The **day-1 mount recipe** is [`frame-root`](#frame-root--the-ensure-component-cljs-reference) (ENSURE — creates the frame if absent and establishes it for the subtree); `make-frame` is the programmatic path for tools, tests, SSR, dynamic construction, and image-loaded frames (see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)).
 
@@ -831,6 +831,8 @@ So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 3) 
 `make-frame` against an already-registered `:id` performs a **surgical update**: existing runtime state (`app-db`, sub-cache, router queue, in-flight events) is preserved; only the metadata/config is replaced. This is what makes hot-reload Just Work — figwheel/shadow-cljs recompile triggers re-evaluation of `make-frame` forms, the page doesn't blink, the user's state survives. The contract for re-registration of every other registry kind (events, subs, fx, cofx, machine actions/guards, views, routes, heads, error projectors) is owned by [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics).
 
 The surgical update rides the same per-id transaction as first construction. Its candidate config is staged as a provisional revision while trace policy, `:rf.frame/re-registered`, and the registration hook run; complete success publishes final, while any throw restores the exact prior record and its prior auxiliary trace policy before admission is released. A same-id constructor or destroyer cannot interleave with that staged revision.
+
+While the revision is staged, ordinary traffic — dispatch, drain, subscribe — carries on against the staged config, from every actor (including other JVM threads). If the trace or hook phase throws, the restore brings back the prior config and the prior auxiliary trace policy; work other events already did under the staged config (commits, effects) stands, because restoring config cannot undo it. Auxiliary trace policy is published separately from the registry record, so the refresh is not an atomically isolated config-and-policy transaction.
 
 **What gets replaced on surgical update:**
 
@@ -1869,6 +1871,8 @@ On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's
 
 A drain runs to **fixed point** in one go: once engaged, the outer loop dequeues and processes every synchronously-dispatched event (the originating event plus every event its handlers `:fx`-dispatch, transitively) until the queue is empty or a terminal depth/destroy boundary halts it, *then* yields. This is the run-to-completion guarantee above expressed as a scheduling property — one drain, one settle; never a mid-drain paint.
 
+A throw that escapes a drain (one outside `process-event!`'s per-event trapping, such as a hard coeffect or chain-assembly error) ends that drain and propagates to the host — for a synchronous drain, to the `dispatch-sync` caller; events still queued on the live frame run in a freshly scheduled drain (the next task, with a fresh depth budget), and the failing event is not retried.
+
 **Drains are scheduled as a next-turn task (a macrotask).** When a `dispatch` lands on an empty queue, the runtime schedules the drain via the interop layer's `next-tick` — `goog.async.nextTick` in the CLJS reference, an executor task on the JVM. (See the [§Drain-loop pseudocode](#drain-loop-pseudocode) `dispatch` / `interop/next-tick` seam, and [Runtime-Architecture §Router](Runtime-Architecture.md).)
 
 **The portable guarantee is the task boundary, and only that.** Across every supported host, `next-tick` schedules the drain to run **asynchronously, as a task** — *not* a microtask, and *not* `requestAnimationFrame`. On CLJS that fixes an observable ordering: the drain runs after the current synchronous stack unwinds *and* after the host has drained its microtask checkpoint, then **yields to the event loop** between drains so rendering and other host work interleave. The one boundary that deliberately rides a *true* host microtask (`js/queueMicrotask`) is the UI-render tear-correction flush, which must run before the next paint; keep the two distinct (see [006-ReactiveSubstrate §Render batching](006-ReactiveSubstrate.md) — "`goog.async.nextTick` … is a macrotask").
@@ -2035,16 +2039,27 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       (when-let [envelope (peek-and-pop! (:queue (:router frame)))]
         (process-event! frame envelope)                ;; per-event drain
         (recur (inc depth))))
-    ;; Catch ONLY the `::halt` control-flow sentinel — the two `(throw ::halt)`
-    ;; sites above (destroyed-frame drop, drain-depth-exceeded) use it to break
-    ;; the loop after they have already emitted their diagnostic. Any OTHER
-    ;; escaping throw is a genuine bug — it must NOT be swallowed here; it
-    ;; propagates so the host surfaces it. (`process-event!` already traps
-    ;; per-event handler / fx / interceptor throws internally per steps 1–3;
-    ;; anything reaching this level is outside that contract.)
-    (catch ::halt _ nil)
+    (swap! (:router frame) assoc :scheduled? false)    ;; fixed point: queue empty
+    ;; The `::halt` control-flow sentinel — the two `(throw ::halt)` sites above
+    ;; (destroyed-frame drop, drain-depth-exceeded) use it to break the loop
+    ;; after they have already emitted their diagnostic — ends the drain.
+    (catch ::halt _
+      (swap! (:router frame) assoc :scheduled? false))
+    ;; Any OTHER escaping throw is a genuine bug — it must NOT be swallowed
+    ;; here; it propagates so the host surfaces it. (`process-event!` already
+    ;; traps per-event handler / fx / interceptor throws internally per steps
+    ;; 1–3; anything reaching this level is outside that contract.) It ends
+    ;; THIS drain, not the frame's queue: the failing event was already
+    ;; dequeued above and is NOT retried, but if the live, not-closing frame
+    ;; still has queued work, keep `:scheduled?` true and schedule a fresh
+    ;; drain (next task, fresh depth budget) before the throw propagates.
+    (catch :default t
+      (if (and (seq @(:queue (:router frame)))
+               (not (frame-disposed-for-drain? (:id frame))))
+        (interop/next-tick (fn [] (drain! frame)))
+        (swap! (:router frame) assoc :scheduled? false))
+      (throw t))
     (finally
-      (swap! (:router frame) assoc :scheduled? false)
       ;; render-tick: the substrate adapter's reactions fire on next read.
       ;; Per the run-to-completion rule, no view re-renders observed any
       ;; intermediate state of this drain.
