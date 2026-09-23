@@ -246,6 +246,12 @@
   `:flat-rows`, `:wholly-changed-roots`, `:vector-removals`) sees
   member-level granularity.
 
+  `before-value` resolves the edit's AFTER-coordinate path to its BEFORE
+  value (rf2-3x7nj.26.2): a replaced collection nested under a vector
+  element that a prior insert/delete shifted lives at a different index
+  on the before side, so a raw `(value-at before path)` would compare the
+  replacement against the wrong element.
+
   Rule:
     - SET↔SET `:r` (both sides sets) → membership-delta expansion, any
       member count (`expand-set-replacement`).
@@ -262,11 +268,11 @@
       fires (both sides must be the SAME sequential kind to expand).
 
   Pure; non-matching edits pass through unchanged."
-  [edit before after]
+  [edit before-value after]
   (let [[path op _value] edit]
     (if (not= op :r)
       [edit]
-      (let [before-at (value-at before path)
+      (let [before-at (before-value path)
             after-at  (value-at after path)]
         (cond
           ;; SET↔SET replace — synthesize the membership delta for ANY
@@ -317,24 +323,31 @@
           :else
           [edit])))))
 
-(defn- expanded-editscript
+(defn- raw-editscript
   "Return Editscript A* edits for `(before, after)` as a vector of
-  3-tuples `[path op value?]`, with whole-value collection replacements
+  3-tuples `[path op value?]`, exactly as Editscript emits them. Pure."
+  [before after]
+  (try
+    (ee/get-edits (es/diff before after {:algo :a-star}))
+    (catch #?(:clj Exception :cljs js/Error) _e
+      ;; Editscript can throw on certain pathological inputs
+      ;; (e.g. comparing maps with unreadable keys); fall
+      ;; back to a conservative whole-value replacement so
+      ;; the renderer doesn't crash. The fallback edit
+      ;; reproduces the operator-visible signal ("everything
+      ;; changed") without false sub-tree precision.
+      [[[] :r after]])))
+
+(defn- expanded-editscript
+  "Return `raw-edits` with whole-value collection replacements
   pre-expanded into per-member `:+` / `:-` edits: empty↔populated maps
   (rf2-9d4j8), empty↔populated sets (rf2-l0us2), and multi-member set
-  swaps (rf2-4vp8c). Pure."
-  [before after]
-  (let [raw (try
-              (ee/get-edits (es/diff before after {:algo :a-star}))
-              (catch #?(:clj Exception :cljs js/Error) _e
-                ;; Editscript can throw on certain pathological inputs
-                ;; (e.g. comparing maps with unreadable keys); fall
-                ;; back to a conservative whole-value replacement so
-                ;; the renderer doesn't crash. The fallback edit
-                ;; reproduces the operator-visible signal ("everything
-                ;; changed") without false sub-tree precision.
-                [[[] :r after]]))]
-    (into [] (mapcat (fn [edit] (expand-collection-replacement edit before after))) raw)))
+  swaps (rf2-4vp8c). `before-value` resolves an AFTER-coordinate path to
+  its BEFORE value (rf2-3x7nj.26.2). Pure."
+  [raw-edits before-value after]
+  (into []
+        (mapcat (fn [edit] (expand-collection-replacement edit before-value after)))
+        raw-edits))
 
 ;; =========================================================================
 ;; value-pair op classification
@@ -516,6 +529,137 @@
     (vec slots)))
 
 ;; =========================================================================
+;; vector coordinates — AFTER-side paths onto BEFORE-side slots
+;; (rf2-3x7nj.26.2)
+;; =========================================================================
+;;
+;; Editscript addresses every edit against the EVOLVING sequence, so each
+;; vector index in an edit's path is an AFTER index — not only the last
+;; segment of a `:+`/`:-`/`:r` at the vector itself, but any segment of a
+;; path that descends THROUGH a vector element (`[:todos 2 :done?]` after a
+;; prepend names before-element 1). A before-side read must therefore map
+;; every vector segment of the path, from the root down, through that
+;; vector's replay `:slots` — the same 1:1 after→before alignment the
+;; removals and shift channels already use. Translating the last segment
+;; alone (the rf2-96csq4 repair) left every nested path reading the wrong
+;; element.
+
+(defn- seq-coll?
+  "A vector, list or seq — a sequential that is neither a map nor a set."
+  [v]
+  (or (vector? v)
+      (and (sequential? v) (not (map? v)) (not (set? v)))))
+
+(defn- vector-parent?
+  "True when `path`'s parent is a sequential on either side. A `:-`'s
+  parent is a sequential in `before`, a `:+`'s in `after`; for an in-place
+  edit (no parent type-change) both agree, and accepting either lets a
+  single grouping capture the whole edit script per vector parent
+  (rf2-3eplfk)."
+  [before after path]
+  (when (seq path)
+    (let [pp (vec (butlast path))]
+      (or (seq-coll? (value-at before pp))
+          (seq-coll? (value-at after pp))))))
+
+(defn- group-vector-edits
+  "rf2-3eplfk — UNIFIED grouping. Collect, per vector parent, the ordered
+  `:+`/`:-` edits (in edit-script order) for the single
+  `replay-vector-edits` walk, plus the set of `:r` after-indices (replaces
+  are length-/order-preserving so they sit OUT of the replay, but their
+  after-indices are skipped from the shift output). Vector `:-` deletions
+  are also peeled OUT of the per-leaf classification stream into
+  `:other-edits` (their after-path identity is unstable — a removed element
+  rides the off-path `:vector-removals` channel); `:+`/`:r` stay in
+  `:other-edits` for their `:added`/`:modified` leaf ops. Pure."
+  [before after edits]
+  (reduce
+    (fn [acc [path op _value :as edit]]
+      (let [parent-path (vec (butlast path))
+            leaf-key    (peek path)
+            vparent?    (and (integer? leaf-key)
+                             (vector-parent? before after path))]
+        (cond
+          ;; vector `:-` — feeds the unified replay; NOT a per-leaf op.
+          (and vparent? (= op :-))
+          (update-in acc [:vec-groups parent-path :ordered] (fnil conj []) edit)
+
+          ;; vector `:+` — feeds the unified replay AND stays in
+          ;; other-edits for its `:added` leaf expansion.
+          (and vparent? (= op :+))
+          (-> acc
+              (update-in [:vec-groups parent-path :ordered] (fnil conj []) edit)
+              (update :other-edits conj edit))
+
+          ;; vector `:r` — record its after-index for the shift
+          ;; skip-set; stays in other-edits for its `:modified` op.
+          (and vparent? (= op :r))
+          (-> acc
+              (update-in [:vec-groups parent-path :replace-idxs] (fnil conj #{}) leaf-key)
+              (update :other-edits conj edit))
+
+          :else
+          (update acc :other-edits conj edit))))
+    {:vec-groups {} :other-edits []}
+    edits))
+
+(defn- translate-before-path
+  "Map an AFTER-coordinate `path` onto the BEFORE-coordinate path naming
+  the same slot: every integer segment whose prefix is a replayed vector
+  parent is looked up in that parent's `:slots`. Returns nil when the path
+  passes through an element INSERTED on the after side — it has no
+  before-side counterpart. A segment under a vector with no replay (no
+  `:+`/`:-`/`:r` at that parent) is unshifted and passes through. Pure."
+  [vec-replays path]
+  (let [path (vec path)
+        n    (count path)]
+    (loop [i 0 out []]
+      (if (= i n)
+        out
+        (let [seg  (nth path i)
+              slot (when (integer? seg)
+                     (get-in vec-replays [(subvec path 0 i) :slots seg]))]
+          (cond
+            (= ::insert slot) nil
+            (integer? slot)   (recur (inc i) (conj out slot))
+            :else             (recur (inc i) (conj out seg))))))))
+
+(defn- before-value-at
+  "The BEFORE-side value at AFTER-coordinate `path`, or `missing-sentinel`
+  when that slot does not exist before (an inserted element, or an absent
+  key/index). Pure."
+  [before vec-replays path]
+  (if-let [before-path (translate-before-path vec-replays path)]
+    (value-at before before-path)
+    missing-sentinel))
+
+(defn- replay-vector-groups
+  "ONE `replay-vector-edits` walk per vector parent in `vec-groups`, keyed
+  by the parent's AFTER-coordinate path. Each replay also carries
+  `:inverse` — `{before-index after-index}` for every survivor — so a walk
+  over the BEFORE tree can find a surviving element's after-side path.
+
+  A nested parent's before-length is read through `before-value-at`, so a
+  vector nested under a shifted element replays against its OWN before
+  counterpart. Parents are replayed shallowest-first because translating a
+  parent path consults only the replays of its strict prefixes. Pure."
+  [before vec-groups]
+  (reduce
+    (fn [acc parent-path]
+      (let [before-val (before-value-at before acc parent-path)
+            before-len (if (seq-coll? before-val) (count before-val) 0)
+            replay     (replay-vector-edits
+                         before-len (get-in vec-groups [parent-path :ordered] []))]
+        (assoc acc parent-path
+               (assoc replay :inverse
+                      (into {}
+                            (keep-indexed (fn [after-idx slot]
+                                            (when (integer? slot) [slot after-idx])))
+                            (:slots replay))))))
+    {}
+    (sort-by count (keys vec-groups))))
+
+;; =========================================================================
 ;; main projection
 ;; =========================================================================
 
@@ -620,14 +764,50 @@
   the present side's members (all one op), so cold-boot / clear sets still
   promote correctly. Maps and vectors are unchanged: their slots are keyed
   by a shared key/index, so the one-sided walk was always correct for
-  them — the union is taken only for sets."
-  [before after path-ops]
-  (let [collect-leaves
-        ;; `opposite` is the value at the SAME path on the other side of
-        ;; the diff (`missing-sentinel` when absent). Only sets consult it
-        ;; (member-keyed → disjoint paths across sides); maps/vectors walk
-        ;; `data` alone exactly as before.
-        (fn collect-leaves [data opposite path]
+  them — the union is taken only for sets.
+
+  ## Both walks run in AFTER coordinates (rf2-3x7nj.26.2)
+
+  `path-ops` is keyed by AFTER-coordinate paths, so a walk that pairs a
+  vector element with its counterpart by EQUAL index — or looks a
+  before-side path up in `path-ops` — reads another element as soon as an
+  insert or delete at that vector has shifted it. Each walk therefore
+  carries its paths in after coordinates and pairs vector children
+  through the replay: the `:added` walk over the after tree finds each
+  element's before counterpart at `slots[i]` (none for an insert); the
+  `:removed` walk over the before tree finds each surviving element's
+  after index through `:inverse` and skips a REMOVED element, which has no
+  after path and rides `:vector-removals` instead."
+  [before after path-ops vec-replays]
+  (let [nth-or-missing
+        (fn [v idx]
+          (if (and v (integer? idx) (< -1 idx (count v)))
+            (nth v idx)
+            missing-sentinel))
+        ;; `[child-path child-data child-opposite]` for each element of the
+        ;; sequential `data` at AFTER-coordinate `path`. `side` names the
+        ;; tree `data` came from.
+        vector-children
+        (fn [side path data opposite]
+          (let [replay (get vec-replays path)
+                ov     (when (seq-coll? opposite) (vec opposite))]
+            (keep-indexed
+              (fn [i cv]
+                (if (= side :after)
+                  (let [slot (if replay (get-in replay [:slots i]) i)]
+                    [(conj path i) cv (if (= ::insert slot)
+                                        missing-sentinel
+                                        (nth-or-missing ov slot))])
+                  (let [after-idx (if replay (get-in replay [:inverse i]) i)]
+                    (when (some? after-idx)
+                      [(conj path after-idx) cv (nth-or-missing ov after-idx)]))))
+              data)))
+        collect-leaves
+        ;; `opposite` is the value at the SAME slot on the other side of
+        ;; the diff (`missing-sentinel` when absent). Sets consult it
+        ;; (member-keyed → disjoint paths across sides); maps walk `data`'s
+        ;; own keys; vectors pair children through the replay.
+        (fn collect-leaves [side data opposite path]
           (cond
             ;; rf2-bufw2 — an empty container is a terminal leaf (it has
             ;; no descendant slots), exactly as `expand-leaf-paths`
@@ -646,11 +826,12 @@
 
             (map? data)
             (mapcat (fn [[k cv]]
-                      (collect-leaves cv
+                      (collect-leaves side
+                                      cv
                                       (if (map? opposite)
                                         (get opposite k missing-sentinel)
                                         missing-sentinel)
-                                      (conj (vec path) k)))
+                                      (conj path k)))
                     data)
 
             ;; rf2-l0us2 — sets are member-keyed, so a swap puts each
@@ -662,37 +843,48 @@
             (let [opposite-set (when (set? opposite) opposite)
                   members      (into data (or opposite-set #{}))]
               (mapcat (fn [el]
-                        (collect-leaves el missing-sentinel
-                                        (conj (vec path) el)))
+                        (collect-leaves side el missing-sentinel
+                                        (conj path el)))
                       members))
 
-            (or (vector? data) (sequential? data))
-            (let [opp-vec (when (or (vector? opposite) (sequential? opposite))
-                            (vec opposite))]
-              (mapcat (fn [[i cv]]
-                        (collect-leaves cv
-                                        (if (and opp-vec (< i (count opp-vec)))
-                                          (nth opp-vec i)
-                                          missing-sentinel)
-                                        (conj (vec path) i)))
-                      (map-indexed vector data)))
+            (seq-coll? data)
+            (mapcat (fn [[child-path cv co]]
+                      (collect-leaves side cv co child-path))
+                    (vector-children side path data opposite))
 
             :else
             [path]))
         check-uniform
-        (fn [data opposite root-path target-op]
-          (let [leaves (collect-leaves data opposite root-path)]
+        (fn [side data opposite root-path target-op]
+          (let [leaves (collect-leaves side data opposite root-path)]
             (and (seq leaves)
                  (every? (fn [lp]
                            (= target-op (:op (get path-ops lp))))
                          leaves))))
-        ;; `opposite-root` is the OTHER side's whole value — the after-
-        ;; side walk (`:added`) threads `before`, the before-side walk
-        ;; (`:removed`) threads `after` — so `check-uniform` can resolve
-        ;; the counterpart at any path via `value-at`.
+        ;; `side` names the tree `data` is walked over — the `:added` walk
+        ;; runs over `after` threading `before` as the opposite, the
+        ;; `:removed` walk over `before` threading `after` — and `path` is
+        ;; always in AFTER coordinates, the key space of `path-ops`.
         walk-containers
-        (fn walk-containers [data path target-op opposite-root acc]
-          (let [opposite (value-at opposite-root path)]
+        (fn walk-containers [side data opposite path target-op acc]
+          (let [descend
+                (fn [acc]
+                  (cond
+                    (map? data)
+                    (reduce-kv (fn [acc k cv]
+                                 (walk-containers side cv
+                                                  (if (map? opposite)
+                                                    (get opposite k missing-sentinel)
+                                                    missing-sentinel)
+                                                  (conj path k) target-op acc))
+                               acc data)
+
+                    (seq-coll? data)
+                    (reduce (fn [acc [child-path cv co]]
+                              (walk-containers side cv co child-path target-op acc))
+                            acc (vector-children side path data opposite))
+
+                    :else acc))]
             (cond
               (not (container? data))
               acc
@@ -700,38 +892,14 @@
               ;; Root path `[]` never qualifies as a wholly-changed root —
               ;; recurse into children instead so nested containers can
               ;; still be marked (rf2-9d4j8).
-              (and (= [] path) (check-uniform data opposite path target-op))
-              (cond
-                (map? data)
-                (reduce-kv (fn [acc k cv]
-                             (walk-containers cv (conj (vec path) k)
-                                              target-op opposite-root acc))
-                           acc data)
+              (= [] path)
+              (descend acc)
 
-                (or (vector? data) (sequential? data))
-                (reduce (fn [acc [i cv]]
-                          (walk-containers cv (conj (vec path) i)
-                                           target-op opposite-root acc))
-                        acc (map-indexed vector data))
-
-                :else acc)
-
-              (check-uniform data opposite path target-op)
+              (check-uniform side data opposite path target-op)
               (conj acc path)
 
-              (map? data)
-              (reduce-kv (fn [acc k cv]
-                           (walk-containers cv (conj (vec path) k)
-                                            target-op opposite-root acc))
-                         acc data)
-
-              (or (vector? data) (sequential? data))
-              (reduce (fn [acc [i cv]]
-                        (walk-containers cv (conj (vec path) i)
-                                         target-op opposite-root acc))
-                      acc (map-indexed vector data))
-
-              :else acc)))
+              :else
+              (descend acc))))
         ;; rf2-y8doi.25 — ASK BEFORE WALKING. `check-uniform` promotes a
         ;; container only when EVERY leaf under it carries `target-op`, so a
         ;; `path-ops` holding no `:added` leaf anywhere cannot produce a
@@ -750,10 +918,10 @@
           (boolean (some (fn [[_p {:keys [op]}]] (= op target-op)) path-ops)))
         added-roots
         (when (and (container? after) (any-leaf-op? :added))
-          (walk-containers after [] :added before #{}))
+          (walk-containers :after after before [] :added #{}))
         removed-roots
         (when (and (container? before) (any-leaf-op? :removed))
-          (walk-containers before [] :removed after #{}))
+          (walk-containers :before before after [] :removed #{}))
         all-roots (into (or added-roots #{}) (or removed-roots #{}))
         ;; Elide deeper roots — when a path is wholly-changed AND its
         ;; ancestor is also wholly-changed, drop the deeper one (the
@@ -938,7 +1106,21 @@
      :flat-rows            []
      :wholly-changed-roots #{}
      :shift-suffix         {}}
-    (let [script-edits (expanded-editscript before after)
+    (let [raw-edits (raw-editscript before after)
+          ;; rf2-3x7nj.26.2 — the expansion below compares a replaced
+          ;; collection against its BEFORE counterpart, and a replacement
+          ;; nested under a shifted vector element has that counterpart at
+          ;; another index. The translation it needs consults only the
+          ;; replays of the replacement's strict ancestors, and expansion
+          ;; adds edits only BENEATH a replaced path, so the raw script's
+          ;; own replays are exact for it. Forced only when a `:r` asks.
+          raw-replays  (delay
+                         (replay-vector-groups
+                           before (:vec-groups (group-vector-edits before after raw-edits))))
+          script-edits (expanded-editscript
+                         raw-edits
+                         (fn [path] (before-value-at before @raw-replays path))
+                         after)
           ;; A `:-` edit at a vector parent removes a before-element by
           ;; before-index. That index identity does NOT correspond to a
           ;; stable after-side path — the surviving elements shift up.
@@ -946,64 +1128,10 @@
           ;; before-idx]` would collide with the shifted element now
           ;; occupying that slot. We therefore route vector deletions
           ;; into a separate `:vector-removals` channel and leave the
-          ;; after-path leaf classifications to the shift walker.
-          ;;
-          ;; A vector PARENT is recognised from EITHER side (rf2-3eplfk):
-          ;; a `:-`'s parent is a sequential in `before`, a `:+`'s parent
-          ;; is a sequential in `after`. For an in-place edit (no parent
-          ;; type-change) both agree; we accept either so a single grouping
-          ;; captures the whole edit script per vector parent.
-          seq-coll?
-          (fn [v]
-            (or (vector? v)
-                (and (sequential? v) (not (map? v)) (not (set? v)))))
-          vector-parent?
-          (fn [path]
-            (when (seq path)
-              (let [pp (vec (butlast path))]
-                (or (seq-coll? (value-at before pp))
-                    (seq-coll? (value-at after pp))))))
-          ;; rf2-3eplfk — UNIFIED grouping. Collect, per vector parent, the
-          ;; ordered `:+`/`:-` edits (in edit-script order) for the single
-          ;; `replay-vector-edits` walk, plus the set of `:r` after-indices
-          ;; (replaces are length-/order-preserving so they sit OUT of the
-          ;; replay, but their after-indices are skipped from the shift
-          ;; output). Vector `:-` deletions are also peeled OUT of the
-          ;; per-leaf classification stream into `other-edits` (their after-
-          ;; path identity is unstable — see the channel rationale above);
-          ;; `:+`/`:r` stay in `other-edits` for their `:added`/`:modified`
-          ;; leaf ops.
+          ;; after-path leaf classifications to the shift walker
+          ;; (`group-vector-edits`).
           {:keys [vec-groups other-edits]}
-          (reduce
-            (fn [acc [path op _value :as edit]]
-              (let [parent-path (vec (butlast path))
-                    leaf-key    (peek path)
-                    vparent?    (and (integer? leaf-key)
-                                     (vector-parent? path))]
-                (cond
-                  ;; vector `:-` — feeds the unified replay; NOT a per-leaf op.
-                  (and vparent? (= op :-))
-                  (-> acc
-                      (update-in [:vec-groups parent-path :ordered] (fnil conj []) edit))
-
-                  ;; vector `:+` — feeds the unified replay AND stays in
-                  ;; other-edits for its `:added` leaf expansion.
-                  (and vparent? (= op :+))
-                  (-> acc
-                      (update-in [:vec-groups parent-path :ordered] (fnil conj []) edit)
-                      (update :other-edits conj edit))
-
-                  ;; vector `:r` — record its after-index for the shift
-                  ;; skip-set; stays in other-edits for its `:modified` op.
-                  (and vparent? (= op :r))
-                  (-> acc
-                      (update-in [:vec-groups parent-path :replace-idxs] (fnil conj #{}) leaf-key)
-                      (update :other-edits conj edit))
-
-                  :else
-                  (update acc :other-edits conj edit))))
-            {:vec-groups {} :other-edits []}
-            script-edits)
+          (group-vector-edits before after script-edits)
           ;; rf2-3eplfk — ONE `replay-vector-edits` walk per vector parent
           ;; produces BOTH the removals (`:removed`) and the shift slots
           ;; (`:slots`). Both downstream channels derive from this single
@@ -1011,58 +1139,29 @@
           ;; slot a `:-` removed (the scar history rf2-1njv97/yucxn/vu42n
           ;; was two replays that diverged on mixed insert+delete scripts).
           vec-replays
-          (reduce-kv
-            (fn [acc parent-path {:keys [ordered]}]
-              (let [before-val (value-at before parent-path)
-                    before-len (if (seq-coll? before-val) (count before-val) 0)]
-                (assoc acc parent-path
-                       (replay-vector-edits before-len (or ordered [])))))
-            {}
-            vec-groups)
+          (replay-vector-groups before vec-groups)
+          ;; rf2-3x7nj.26.2 — every BEFORE-side read below goes through
+          ;; the translated path, never a raw `(value-at before path)`.
+          ;; Editscript addresses edits against the evolving sequence, so
+          ;; any vector index on an edit's path — the edit's own leaf or
+          ;; an ancestor it descends through — is an AFTER index. REPROS:
+          ;; before `[:x :y]`, after `[:new :x :z]` ⇒ `[[0] :+ :new]
+          ;; [[2] :r :z]` (rf2-96csq4: the raw read of `[2]` is out of
+          ;; range); and a toggled todo after a prepend ⇒ `[[:todos 0] :+
+          ;; …] [[:todos 2 :done?] :r true]`, whose raw read of `[:todos 2]`
+          ;; is out of range too, so the change classified `:added`.
+          before-at
+          (fn [path] (before-value-at before vec-replays path))
           vector-removals
           (reduce-kv
             (fn [acc parent-path {:keys [removed]}]
               (if (seq removed)
-                (let [bvec (vec (value-at before parent-path))]
+                (let [bvec (vec (before-at parent-path))]
                   (assoc acc parent-path
                          (resolve-vector-removals removed bvec)))
                 acc))
             {}
             vec-replays)
-          ;; rf2-96csq4 — resolve a vector `:r`'s BEFORE-value through the
-          ;; unified replay, NOT a raw post-shift `value-at`. Editscript
-          ;; applies vector edits SEQUENTIALLY against an evolving
-          ;; sequence, so an `:r`'s edit-index addresses a position in the
-          ;; FINAL after-vector, not a pristine before-index, whenever a
-          ;; prior `:+`/`:-` at the SAME vector parent shifted positions
-          ;; (`:r` deliberately stays OUT of the replay itself — see
-          ;; `replay-vector-edits` — but the FINAL `:slots` it produces
-          ;; still aligns 1:1 with the after-vector, rf2-3eplfk). REPRO:
-          ;; before `[:x :y]`, after `[:new :x :z]` ⇒ editscript
-          ;; `[[0] :+ :new] [[2] :r :z]`; raw `(value-at before [2])` is
-          ;; out-of-range on a 2-element before-vector (missing-sentinel,
-          ;; misclassifying the slot as `:added` and losing `:y`'s
-          ;; removal), while `slots[2]` (from the SAME replay that already
-          ;; feeds the removals + shift channels) correctly resolves to
-          ;; before-index 1 (`:y`). Non-vector `:r` (map / scalar / root
-          ;; replace) is untouched — those keys are never index-shifted,
-          ;; so the raw `value-at` lookup stays correct for them.
-          r-before-value
-          (fn [path]
-            (let [parent-path (vec (butlast path))
-                  after-idx   (peek path)
-                  slot        (when (and (integer? after-idx)
-                                         (vector-parent? path))
-                                (get-in vec-replays [parent-path :slots after-idx]))]
-              (if (integer? slot)
-                (nth (vec (value-at before parent-path)) slot)
-                ;; Non-vector `:r`, or (defensively) a replay that
-                ;; produced no slot / an `::insert` marker at this
-                ;; after-index — shouldn't happen for a real Editscript
-                ;; `:r` (a fresh insert and an in-place replace never
-                ;; target the identical index), but fall back to the raw
-                ;; lookup rather than crash.
-                (value-at before path))))
           ;; Step 1 — expand each non-vector-deletion script edit into
           ;; per-leaf ops at every path the operator can navigate to in
           ;; the AFTER tree.
@@ -1071,15 +1170,15 @@
             (fn [[path op value]]
               (case op
                 :+ (expand-leaf-paths path :added value)
-                :- (let [removed-val (value-at before path)]
+                :- (let [removed-val (before-at path)]
                      (if (container? removed-val)
                        (expand-leaf-paths path :removed removed-val)
                        [{:path path :op :removed :value removed-val}]))
                 :r [{:path path :op :modified
-                     :before (r-before-value path)
+                     :before (before-at path)
                      :after  value}]
                 :s [{:path path :op :modified
-                     :before (value-at before path)
+                     :before (before-at path)
                      :after  (value-at after path)}]
                 []))
             other-edits)
@@ -1100,7 +1199,7 @@
                 (assoc acc path {:op :added :after (or value (value-at after path))})
 
                 (= op :removed)
-                (assoc acc path {:op :removed :before (or value (value-at before path))})
+                (assoc acc path {:op :removed :before (or value (before-at path))})
 
                 (= op :modified)
                 (let [classified (classify-value-pair (:before entry) (:after entry))]
@@ -1146,7 +1245,7 @@
             shift-suffix)
           ;; Step 4 — wholly-changed reclassification (R5).
           wholly-changed
-          (mark-wholly-changed before after path-ops-with-shifts)
+          (mark-wholly-changed before after path-ops-with-shifts vec-replays)
           ;; Step 5 — container-ancestor ops (:children) derived from the
           ;; final path-ops map.
           container-ops
