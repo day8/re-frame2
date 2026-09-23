@@ -1903,10 +1903,16 @@
                                    :snapshot-id nil :rollback nil
                                    :reconciliation-refetches nil}
                             ;; EP-0019 — FILL the reserved optimistic slots on a
-                            ;; committed optimistic write.
+                            ;; committed optimistic write. The commit DISCARDS the
+                            ;; inverse, so `:rollback` keeps each key's revision
+                            ;; facts and drops its `:before` snapshot — the whole
+                            ;; pre-apply entry, `:data` included, which would
+                            ;; otherwise ride `:rf.mutation/succeeded` off-box and
+                            ;; stay pinned on the settled row (rf2-3x7nj.11.1).
                             opt-applied?
                             (assoc :snapshot-id (:snapshot-id opt-summary)
-                                   :rollback    (:rollback opt-summary)
+                                   :rollback    (mapv #(dissoc % :before)
+                                                      (:rollback opt-summary))
                                    :committed   committed-keys
                                    :reconciliation-refetches reconciliation-refetches))
             inst'       (rf.resources.mutation-runtime/instance-succeeded

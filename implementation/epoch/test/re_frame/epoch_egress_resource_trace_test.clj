@@ -342,6 +342,123 @@
       (is (not (contains-secret? projected)) "no raw secret survives the nest"))))
 
 ;; ---------------------------------------------------------------------------
+;; (3c) a REAL optimistic commit — the settlement row ships no entry snapshot
+;; ---------------------------------------------------------------------------
+;;
+;; rf2-3x7nj.11.1. The (3b) arm above feeds a hand-built `:rollback` row with no
+;; `:before`, so it could not see that the REAL commit put the recorded inverse
+;; — `:before` being the WHOLE pre-apply cache entry, `:data` included — on the
+;; `:rf.mutation/succeeded` `:patch-summary`, where the projector tokenized the
+;; row's own `:resource/key` and let `:before` ride. Two fixes, one per arm: the
+;; commit records no snapshot on the settlement row (the producer), and a
+;; disposition row's slots other than `:resource/key` fail closed like the
+;; unknown-slot default (the projector).
+
+(declare secret-leak-paths)
+
+(def ^:private optimistic-params
+  "The `:secret/article` params the optimistic drive uses. Deliberately NOT the
+  secret: only the cached `:data` carries it, so a hit can only be the entry
+  snapshot."
+  {:auth-token "u1"})
+
+(defn- drive-optimistic-commit!
+  "Drive a REAL optimistic write to an accepted `:ok` over the `:sensitive?`
+  `:secret/article` entry, first loaded with the secret in its `:data`. Returns
+  every trace row the drive put on the bus. The managed-HTTP fx is a capturing
+  stub (`fx/reg-fx`, the plain fn — see `drive-real-cascade!`) and each reply
+  is replayed through the runtime's own internal reply event."
+  []
+  (rf/configure! {:epoch-history {:trace-events-keep 80}})
+  (let [captured (atom nil)
+        rows     (atom [])
+        k        ::optimistic-commit-recorder]
+    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf/reg-mutation :m/rename
+      {:scope         :rf.scope/global
+       :params-schema [:map [:auth-token :string]]
+       :optimistic    (fn [params]
+                        {{:resource :secret/article :params params
+                          :scope    :rf.scope/global}
+                         (fn [data] (assoc data :nick "new"))})}
+      (fn [_ _] {:request {:method :put :url "/x"}}))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! rows conj ev)))
+    (try
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :secret/article :params optimistic-params
+                          :owner    real-owner}]
+                        {:frame :test/rt})
+      (rf/dispatch-sync (conj (:on-success @captured)
+                              {:status :ok :value {:ssn secret :nick "old"}})
+                        {:frame :test/rt})
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/rename :params optimistic-params
+                          :instance :rename-1}]
+                        {:frame :test/rt})
+      (rf/dispatch-sync (conj (:on-success @captured) {:status :ok :value {:saved true}})
+                        {:frame :test/rt})
+      (finally (rf.trace.tooling/unregister-listener! k)))
+    @rows))
+
+(deftest real-optimistic-commit-ships-no-entry-snapshot-off-box
+  (testing "rf2-3x7nj.11.1 — an optimistic write that COMMITS over a :sensitive?
+            entry puts no pre-apply entry snapshot on :rf.mutation/succeeded,
+            and project-egress over the REAL settled record carries no secret"
+    (let [bus-rows  (drive-optimistic-commit!)
+          applied   (first (filter #(= :rf.mutation/optimistic-applied (:operation %)) bus-rows))
+          succeeded (first (filter #(= :rf.mutation/succeeded (:operation %)) bus-rows))
+          rollback  (get-in succeeded [:tags :patch-summary :rollback])]
+      (testing "FIXTURE — the optimistic apply ran and the write committed, so
+                the assertions below are not passing over a pessimistic write"
+        (is (some? applied) "the optimistic apply fired")
+        (is (some? succeeded) "the write committed")
+        (is (= 1 (count rollback)) "one touched key is recorded on the commit"))
+      (testing "the PRODUCER — each committed row carries the key and the
+                revision facts, and no :before snapshot"
+        (is (= [:rf.scope/global :secret/article optimistic-params]
+               (:resource/key (first rollback)))
+            "the row still names its key")
+        (is (= :patch (:forward (first rollback))) "and the forward op")
+        (is (every? #(not (contains? % :before)) rollback)
+            "no row carries the pre-apply entry")
+        (is (empty? (secret-leak-paths (:tags succeeded)))
+            "the RAW settlement row carries no secret at all"))
+      (testing "OFF-BOX — the settled record's projected :rf.mutation/succeeded
+                row carries no secret"
+        (let [proj (->> (rf/epoch-history :test/rt)
+                        (map rf/project-egress)
+                        (mapcat :trace-events)
+                        (filterv #(= :rf.mutation/succeeded (:operation %))))]
+          (is (= 1 (count proj)) "the settlement row reached a settled record")
+          (is (true? (get-in (first proj) [:tags :sensitive?]))
+              "the row is stamped :sensitive? — the projector ran over it")
+          (is (empty? (secret-leak-paths proj))
+              "no leaf of the projected settlement row carries the secret"))))))
+
+(deftest off-box-disposition-row-fails-closed-on-non-key-slots
+  (testing "rf2-3x7nj.11.1 (defence in depth) — a disposition row's slots other
+            than :resource/key are projected by the unknown-slot rule: a MAP
+            (a stray entry snapshot) tokenizes, the scalar facts ride verbatim"
+    (let [k      (sk :rf.scope/global :secret/article optimistic-params)
+          record (record-with
+                   [(event :rf.mutation/succeeded
+                           {:rf.frame/id :test/rt :mutation :m/rename :instance 1
+                            :patch-summary
+                            {:rollback [{:resource/key     k
+                                         :revision         3
+                                         :applied-revision 4
+                                         :forward          :patch
+                                         :before           {:resource/key k
+                                                            :data {:ssn secret}}}]}})])
+          projected (rf/project-egress record)
+          row       (first (get-in (first (:trace-events projected))
+                                   [:tags :patch-summary :rollback]))]
+      (is (redacted-component? (:before row)) "the map slot is tokenized")
+      (is (= [3 4 :patch] [(:revision row) (:applied-revision row) (:forward row)])
+          "the scalar disposition facts ride verbatim")
+      (is (empty? (secret-leak-paths projected)) "no raw secret egresses"))))
+
+;; ---------------------------------------------------------------------------
 ;; (4) plain resource rides verbatim — no over-redaction
 ;; ---------------------------------------------------------------------------
 
