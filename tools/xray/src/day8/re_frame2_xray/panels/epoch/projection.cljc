@@ -2512,10 +2512,12 @@
                                 (or (common/tag-of ev :rf.sub/value-changed?)
                                     (common/tag-of ev :rf.sub/changed?)))
                  :first-run?  (boolean (common/tag-of ev :rf.sub/first-run?))
-                 :before      (or (common/tag-of ev :rf.sub/prev-value)
-                                  (common/tag-of ev :rf.sub/before))
-                 :after       (or (common/tag-of ev :rf.sub/value)
-                                  (common/tag-of ev :rf.sub/after))
+                 ;; rf2-3x7nj.22.2 — first PRESENT, not first truthy: a
+                 ;; `false` sub value falls through an `or` to the legacy key.
+                 :before      (let [v (common/tag-of ev :rf.sub/prev-value)]
+                                (if (some? v) v (common/tag-of ev :rf.sub/before)))
+                 :after       (let [v (common/tag-of ev :rf.sub/value)]
+                                (if (some? v) v (common/tag-of ev :rf.sub/after)))
                  :cascade?    (boolean cascade?)
                  :duration-ms (or (common/tag-of ev :rf.sub/elapsed-ms)
                                   (common/tag-of ev :duration-ms))}
@@ -2890,7 +2892,9 @@
              :failing-id         (or (:failing-id tags)
                                      (when (= :rf.schema/violation op-kw)
                                        (:frame tags)))
-             :value              (or (:value tags) (:mismatching-value tags))
+             ;; rf2-3x7nj.22.2 — first PRESENT: a `false` value is the value.
+             :value              (let [v (:value tags)]
+                                   (if (some? v) v (:mismatching-value tags)))
              :explain            (:explain tags)
              ;; rf2-2ek7t — when the substrate's humanize hook is
              ;; installed (Malli adapter ships malli.error/humanize

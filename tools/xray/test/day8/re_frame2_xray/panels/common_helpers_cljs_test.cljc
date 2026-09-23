@@ -19,6 +19,19 @@
       "flat shape falls through — tolerant for test fixtures")
   (is (nil?    (common/tag-of {} :missing))))
 
+(deftest tag-of-keeps-a-false-tag-value
+  (testing "rf2-3x7nj.22.2 — `false` under `:tags` is a value, not 'absent'"
+    (is (false? (common/tag-of {:tags {:k false}} :k)))
+    (is (false? (common/tag-of {:tags {:k false} :k :flat} :k))
+        "the flat fallback does not shadow a present false tag")
+    (is (false? (common/tag-of {:k false} :k))
+        "a flat false survives too"))
+  (testing "the fallback still covers a nil or absent tag, as before"
+    (is (= :flat (common/tag-of {:tags {:k nil} :k :flat} :k)))
+    (is (= :flat (common/tag-of {:tags {} :k :flat} :k)))
+    (is (true? (common/tag-of {:tags {:k true}} :k)))
+    (is (= 0 (common/tag-of {:tags {:k 0}} :k)))))
+
 ;; ---- panel-row-cap ------------------------------------------------------
 
 (deftest panel-row-cap-is-200
