@@ -1049,6 +1049,36 @@
              (-> tree (find-by-testid "rf-xray-epoch-step-flow-total-parity")
                  second :data-rf-xray-flow-db-diff))))))
 
+(deftest flow-step-db-diff-shows-only-its-own-flow-test
+  (testing "rf2-3x7nj.22.4 — with TWO flows in one epoch, each FLOW step's
+            `:db` diff differs from its baseline ONLY at its own path. The
+            snapshots are the ones a real two-flow epoch projects: `::fa`
+            writes `[:fa]` from `[:a]`, `::fb` writes `[:fb]` from `[:b]`,
+            and t2 (`:db-post-flow`) carries BOTH writes."
+    (rf/make-frame {:id :rf/xray})
+    (let [pre   {:a 2 :b 11 :fa 100 :fb 1000}
+          post  {:a 2 :b 11 :fa 200 :fb 1100}
+          diff  (fn [step]
+                  (let [tree  (rf/with-frame :rf/xray (view/render-flow-step step))
+                        props (some #(when (and (vector? %)
+                                                (= ei/edn-inspector-view (first %)))
+                                       (second %))
+                                    (raw-nodes tree))
+                        before (-> props :opts :before)
+                        value  (:value props)]
+                    (set (filter #(not= (get before %) (get value %))
+                                 (into (set (keys before)) (keys value))))))]
+      (is (= #{:fa}
+             (diff {:step :flow :badge :FLOW :step-number 4
+                    :flow-id :user/fa :path [:fa] :before 100 :after 200
+                    :db-pre-flow pre :db-post-flow post}))
+          "the `::fa` step shows only `[:fa]` changing, not `::fb`'s write")
+      (is (= #{:fb}
+             (diff {:step :flow :badge :FLOW :step-number 5
+                    :flow-id :user/fb :path [:fb] :before 1000 :after 1100
+                    :db-pre-flow pre :db-post-flow post}))
+          "and the `::fb` step only `[:fb]`"))))
+
 (deftest handler-body-renders-source-placeholder-test
   (testing "rf2-66wis — HANDLER body carries a source-code slot.
             When no handler-meta has been stamped the slot renders

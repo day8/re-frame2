@@ -4081,10 +4081,13 @@ The accompanying view-layer chrome:
   renderer (FULL+DIFF, parity with the HANDLER `:db` sub-section
   §9.1.5.1 + the App-DB Diff panel), under a `↳ :db <path>` sub-header.
   The diff is **scoped to the flow's `:path`**: `:before` =
-  `:db-pre-flow` with the flow's pre-write value at `:path`, value =
-  `:db-post-flow` with the flow's post-write value at `:path`, so each
-  FLOW step shows ONLY its own slot's reshape even when several flows
-  rode the same pre→post transition. Because `:db-pre-flow` is the
+  `:db-pre-flow`, value = `:db-pre-flow` with the flow's post-write
+  value at `:path`. Both endpoints share the ONE pre-flow baseline, so
+  each FLOW step shows ONLY its own slot's reshape even when several
+  flows rode the same pre→post transition. `:db-post-flow` is never an
+  endpoint: it is taken after ALL flows ran, so diffing against it
+  painted every other flow's write on each FLOW step
+  (rf2-3x7nj.22.4). Because `:db-pre-flow` is the
   EFFECTIVE post-handler db, this renders correctly EVEN WHEN the
   handler returned no `:db` (the diff baseline is `db-before`, NOT a
   scalar fallback — rf2-48oc4). This keeps the flow's change (e.g.

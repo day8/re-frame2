@@ -4454,12 +4454,13 @@
   HANDLER step's `:db` sub-section + the App-DB Diff panel) reads as
   'what the flow changed in app-db', and — crucially — keeps it SEPARATE
   from the HANDLER step's `:db` (which shows only the post-handler
-  state). The diff endpoints are the projection's `:db-pre-flow` (the
-  EFFECTIVE post-handler db) and `:db-post-flow` (t2 · what the flow
-  returned). Scoped to the flow's `:path` so each FLOW step shows only
-  its own slot's reshape (the projection threads the shared snapshots
-  onto every flow step; `assoc-in` at the flow's path against pre / post
-  isolates this flow's contribution).
+  state). The diff runs from the projection's `:db-pre-flow` (the
+  EFFECTIVE post-handler db) to that same db with this flow's `:after`
+  written at its `:path`, so each FLOW step shows only its own slot's
+  reshape. The projection threads the shared snapshots onto every flow
+  step, and `:db-post-flow` (t2) is taken after ALL flows ran — it gates
+  diff mode but is never an endpoint, or every other flow's write would
+  paint on this step too (rf2-3x7nj.22.4).
 
   rf2-48oc4 — `:db-pre-flow` is the effective post-handler db, so the
   diff renders correctly EVEN WHEN the handler returned no `:db`: in
@@ -4490,15 +4491,18 @@
         label      (fmt/ns-keyword flow-id)
         ;; rf2-4wywy / rf2-48oc4 — render a `:db` diff scoped to this
         ;; flow's path. db-pre-flow (effective post-handler db) lacks this
-        ;; flow's write; db-post-flow (t2) carries it. Scoping to the path
-        ;; isolates THIS flow's slot even when several flows rode the same
-        ;; pre→post transition. When either endpoint is absent (pre-
-        ;; rf2-ta0y7 / no snapshots) we render the scalar fallback.
+        ;; flow's write. When either endpoint is absent (pre-rf2-ta0y7 / no
+        ;; snapshots) we render the scalar fallback.
+        ;;
+        ;; rf2-3x7nj.22.4 — BOTH endpoints are built on the ONE pre-flow
+        ;; baseline, so only this flow's slot differs. db-post-flow (t2) is
+        ;; taken after ALL flows ran, so diffing against it painted every
+        ;; other flow's write on this step too.
         db-diff?   (boolean
                      (and (some? db-pre-flow) (some? db-post-flow)
                           (sequential? path) (seq path)))
-        diff-before (when db-diff? (assoc-in db-pre-flow path before))
-        diff-after  (when db-diff? (assoc-in db-post-flow path after))]
+        diff-before (when db-diff? db-pre-flow)
+        diff-after  (when db-diff? (assoc-in db-pre-flow path after))]
     [:div {:data-testid (str "rf-xray-epoch-step-flow-" (name flow-id))
            :data-step-kw "flow"
            :data-flow-id (name flow-id)
@@ -4521,8 +4525,9 @@
      (if db-diff?
        ;; rf2-4wywy — the flow's own `:db` diff via the shared
        ;; edn-inspector diff renderer (FULL+DIFF, parity with HANDLER
-       ;; `:db`). `:before` = t1-scoped, value = t2-scoped at this
-       ;; flow's path → the inspector paints the flow's slot reshape.
+       ;; `:db`). `:before` = the pre-flow db, value = that db with this
+       ;; flow's output at its path → the inspector paints only this
+       ;; flow's slot reshape.
        [:div {:data-testid (str "rf-xray-epoch-flow-db-diff-" (name flow-id))
               :style handler-db-all-style}
         (sub-header ":db" (fmt/path-display path))
