@@ -3052,6 +3052,45 @@
       (is (= 6 (:after row))
           "after is read from `:rf.sub/value`"))))
 
+(deftest false-valued-tags-survive-projection-test
+  (testing "rf2-3x7nj.22.2 — a boolean sub flipping true → false projects
+            `false`, not nil. The tags are the ones a live `:rf.sub/run`
+            carries for `(rf/reg-sub :user/flag (fn [db _] (:flag db)))`."
+    (let [row (first (proj/subscription-rows
+                       [(ev :rf.sub :rf.sub/run
+                            {:rf.sub/id             :user/flag
+                             :rf.sub/value          false
+                             :rf.sub/prev-value     true
+                             :rf.sub/value-changed? true
+                             :rf.sub/first-run?     false})]))]
+      (is (false? (:after row)) "after is false, not nil")
+      (is (true? (:before row)))
+      (is (true? (:changed? row)))))
+
+  (testing "a false primary tag is not shadowed by the legacy key"
+    (let [row (first (proj/subscription-rows
+                       [(ev :rf.sub :rf.sub/run
+                            {:rf.sub/id         :user/flag
+                             :rf.sub/value      false
+                             :rf.sub/after      :legacy
+                             :rf.sub/prev-value false
+                             :rf.sub/before     :legacy})]))]
+      (is (false? (:after row)))
+      (is (false? (:before row))))
+    (let [row (first (proj/schema-violation-rows
+                       [(ev :error :rf.error/schema-validation-failure
+                            {:where :sub-return :failing-id :user/flag
+                             :value false :mismatching-value :legacy})]))]
+      (is (false? (:value row)) "a violation's false :value survives")))
+
+  (testing "false fx args and a false flow result survive"
+    (is (false? (:args (first (proj/fx-effect-rows
+                                [(fx-handled-ev :app/set-dark-mode false 1)]))))
+        "fx args false")
+    (is (false? (:after (first (proj/flow-rows
+                                 [(flow-recomputed-ev :user/any? [:any?] true false)]))))
+        "flow :result false")))
+
 (deftest subscriptions-row-carries-first-run-flag-test
   (testing "rf2-fyd8u — projection lifts `:rf.sub/first-run?` onto
             each sub-run row as `:first-run?` so the view-side

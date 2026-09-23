@@ -50,10 +50,15 @@
   metadata under `:tags`; the helper reads the slot defensively so
   test fixtures that supply a flat shape (no `:tags`) also work.
   Canonical tag-reader shared across every panel-helper that walks
-  the Xray trace buffer."
+  the Xray trace buffer.
+
+  rf2-3x7nj.22.2 — a `false` tag value is a VALUE: the flat fallback is
+  taken only when the `:tags` slot is nil or absent. The prior `or` read
+  `false` as 'no value', so a boolean sub flipping true → false rendered
+  `~ nil ← was true`."
   [ev k]
-  (or (get-in ev [:tags k])
-      (get ev k)))
+  (let [v (get-in ev [:tags k])]
+    (if (some? v) v (get ev k))))
 
 ;; ---- 200-row rendering cap ----------------------------------------------
 
