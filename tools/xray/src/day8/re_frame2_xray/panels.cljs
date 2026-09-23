@@ -488,7 +488,8 @@
 
 (defn mount-machine-inspector!
   "Mount Xray's Machines tab in isolation at `mount-point`. Renders
-  the chart + arc/ring/cluster overlays for the focused machine.
+  the topology chart for each machine the focused event transitioned,
+  with the `:after` countdown-rings overlay when timers are armed.
   The auxiliary inspector (AfterRingsOverlay) renders under this Panel
   — it is not independently mountable (see ns docstring §Internal
   sub-components).

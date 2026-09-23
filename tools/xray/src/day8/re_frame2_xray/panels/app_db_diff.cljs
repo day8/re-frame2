@@ -53,9 +53,10 @@
     its `-flow-writes` / `-redacted-modified-count` inputs) was PRUNED:
     it had no production view consumer. The Epoch panel's `:db` diff
     reads `:rf.xray/selected-epoch-record` and runs its own
-    `db-diff-paths`; the MCP `get-app-db-diff` tool projects directly
-    through `diff.engine/project` (runtime.cljs) — neither consumed the
-    composite."
+    `db-diff-paths`; the MCP `get-app-db-diff` tool projected directly
+    through `diff.engine/project` — neither consumed the composite. (That
+    tool went with Xray's runtime seam in rf2-7htk7; agent access is
+    `re-frame2-pair.runtime`'s.)"
   ;; rf2-k97c.3 — `re-frame.core` is no longer required here. Both reads
   ;; moved to `rf.fresco/sub` inside the boundary, and this panel dispatches
   ;; nothing, so nothing in the file resolves through core's door any more.

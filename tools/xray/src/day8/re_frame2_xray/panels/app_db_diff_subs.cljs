@@ -29,16 +29,16 @@
   `:rf.xray/app-db-state` (+ `:rf.xray/app-db-current+diff` for the
   render key); the Epoch panel's `:db` diff reads
   `:rf.xray/selected-epoch-record` and runs its own `db-diff-paths`;
-  the MCP `get-app-db-diff` tool projects directly through
-  `diff.engine/project` (`runtime.cljs`), never the sub chain. The
+  the MCP `get-app-db-diff` tool projected directly through
+  `diff.engine/project`, never the sub chain (that tool went with
+  Xray's runtime seam in rf2-7htk7). The
   composite + its inner subs + caches were a hardened-but-unrendered
   surface carrying a docstring that claimed false consumers (the Epoch
   panel + an MCP exporter — neither consumed it). Per the pre-alpha
   masterpiece posture (CLARITY) the dead surface is gone; the canonical
   per-path diff lens lives in the Editscript-backed engine at
   `day8.re-frame2-xray.diff.engine` (consumed by the Epoch HANDLER
-  `:db` view + the Machine Inspector `:diff` lens) and in the MCP
-  `get-app-db-diff` tool.
+  `:db` view + the Machine Inspector `:diff` lens).
 
   ### rf2-zgrhw — the prune-cache growth RISK is resolved by THIS prune
 
