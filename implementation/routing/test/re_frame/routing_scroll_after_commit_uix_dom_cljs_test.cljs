@@ -13,7 +13,7 @@
             [uix.core :refer-macros [defui $]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.routing :as rf.routing]
-            [re-frame.routing-scroll-witness-test-support :as witness]
+            [re-frame.routing-scroll-witness-test-support :as rf.routing-scroll-witness-test-support]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -25,21 +25,21 @@
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
                       (rf.routing/reset-counters!)
                       (rf.routing/reset-scroll-cache!)
-                      (witness/register-routes!))}))
+                      (rf.routing-scroll-witness-test-support/register-routes!))}))
 
 (defui Page []
-  (if (= witness/docs-route (rf.adapter.uix/use-sub [:rf.route/id]))
+  (if (= rf.routing-scroll-witness-test-support/docs-route (rf.adapter.uix/use-sub [:rf.route/id]))
     ($ :div
        ($ :div {:style {:height "3000px"}})
-       ($ :h2 {:id witness/install-id} "Install")
+       ($ :h2 {:id rf.routing-scroll-witness-test-support/install-id} "Install")
        ($ :div {:style {:height "3000px"}}))
     ($ :div {:style {:height "100px"}} "home")))
 
 (deftest a-cross-route-fragment-lands-on-the-arriving-section
-  (if-not (witness/browser?)
+  (if-not (rf.routing-scroll-witness-test-support/browser?)
     (is true "a scroll witness needs a real browser — :node-test has no layout or scroll model")
     (async done
-      (witness/run-fragment-row!
+      (rf.routing-scroll-witness-test-support/run-fragment-row!
         {:adapter-name "UIx (native mount)"
          :mount!       (fn [container frame-id]
                          (let [root (react-dom-client/createRoot container)]

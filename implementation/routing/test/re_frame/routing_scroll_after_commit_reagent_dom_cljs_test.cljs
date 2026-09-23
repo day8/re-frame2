@@ -33,7 +33,7 @@
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.routing :as rf.routing]
-            [re-frame.routing-scroll-witness-test-support :as witness]
+            [re-frame.routing-scroll-witness-test-support :as rf.routing-scroll-witness-test-support]
             [re-frame.test-support :as rf.test-support]))
 
 (defn- skip! [why]
@@ -68,7 +68,7 @@
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
                       (rf.routing/reset-counters!)
                       (rf.routing/reset-scroll-cache!)
-                      (witness/register-routes!)
+                      (rf.routing-scroll-witness-test-support/register-routes!)
                       (register-back-routes!))}))
 
 (defn- mount! [view container frame-id]
@@ -80,12 +80,12 @@
     root))
 
 (deftest a-cross-route-fragment-lands-on-the-arriving-section
-  (if-not (witness/browser?)
+  (if-not (rf.routing-scroll-witness-test-support/browser?)
     (skip! ":node-test has no layout or scroll model")
     (async done
-      (witness/run-fragment-row!
+      (rf.routing-scroll-witness-test-support/run-fragment-row!
         {:adapter-name "Reagent"
-         :mount!       (partial mount! ::witness/page)
+         :mount!       (partial mount! ::rf.routing-scroll-witness-test-support/page)
          :unmount!     #(.unmount %)}
         done))))
 
@@ -105,21 +105,21 @@
         prior      (.-scrollRestoration js/window.history)
         container  (.createElement js/document "div")
         _          (.appendChild js/document.body container)
-        restore!   (witness/isolate! container)]
+        restore!   (rf.routing-scroll-witness-test-support/isolate! container)]
     (set! (.-scrollRestoration js/window.history) scroll-restoration)
     (.replaceState js/window.history nil "" from-url)
     (rf/make-frame {:id frame-id :url-bound? true})
     (let [root (mount! ::back-page container frame-id)]
-      (-> (witness/after-commit (fn []) (fn [] nil))
+      (-> (rf.routing-scroll-witness-test-support/after-commit (fn []) (fn [] nil))
           (.then
             (fn [_]
               (.scrollTo js/window 0 deep-offset)
-              (is (= deep-offset (witness/scroll-y))
+              (is (= deep-offset (rf.routing-scroll-witness-test-support/scroll-y))
                   (str "precondition: the tall page scrolls to " deep-offset
-                       " — it reads " (witness/scroll-y)))
-              (witness/after-commit
+                       " — it reads " (rf.routing-scroll-witness-test-support/scroll-y)))
+              (rf.routing-scroll-witness-test-support/after-commit
                 #(rf/dispatch-sync [:rf.route/navigate {:to detail}] {:frame frame-id})
-                (fn [] [(witness/scroll-y) (witness/max-scroll-y)]))))
+                (fn [] [(rf.routing-scroll-witness-test-support/scroll-y) (rf.routing-scroll-witness-test-support/max-scroll-y)]))))
           (.then
             (fn [[y max-y]]
               (is (= 0 y) "precondition: forward to the detail page lands at the top")
@@ -137,7 +137,7 @@
                   (let [on-pop (fn on-pop [_]
                                  (.removeEventListener js/window "popstate" on-pop)
                                  (rf.interop/after-render
-                                   (fn [] (resolve (witness/scroll-y)))))]
+                                   (fn [] (resolve (rf.routing-scroll-witness-test-support/scroll-y)))))]
                     (.addEventListener js/window "popstate" on-pop)
                     (.back js/window.history))))))
           (.then check)
@@ -153,7 +153,7 @@
                    (done)))))))
 
 (deftest back-to-a-taller-page-restores-the-whole-offset
-  (if-not (witness/browser?)
+  (if-not (rf.routing-scroll-witness-test-support/browser?)
     (skip! ":node-test has no history or scroll model")
     (async done
       (back-after-deep-scroll!
@@ -166,7 +166,7 @@
         done))))
 
 (deftest a-top-route-stays-at-the-top-after-back-from-a-tall-page
-  (if-not (witness/browser?)
+  (if-not (rf.routing-scroll-witness-test-support/browser?)
     (skip! ":node-test has no history or scroll model")
     (async done
       (back-after-deep-scroll!
@@ -184,8 +184,8 @@
               (js/requestAnimationFrame
                 (fn [] (js/requestAnimationFrame
                          (fn []
-                           (is (= 0 (witness/scroll-y))
-                               (str "two frames later the page reads " (witness/scroll-y)
+                           (is (= 0 (rf.routing-scroll-witness-test-support/scroll-y))
+                               (str "two frames later the page reads " (rf.routing-scroll-witness-test-support/scroll-y)
                                     " — the browser's restore landed after the runtime's"))
                            (resolve nil))))))))
         done))))
