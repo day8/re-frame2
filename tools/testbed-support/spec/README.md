@@ -127,9 +127,12 @@ endpoint.
 ## Endpoint wire contract
 
 `handler` is the shadow-cljs fallback entry point. The lower-level `handle`
-returns nil for another URI; `handler` turns that fallthrough into a plain-text
-404. On `/__rf-open-in-editor`, the request's query string carries `file`
-(required), `line`, `column` and `editor`; it is not a JSON-body API.
+returns nil for another URI; `handler` hands a `GET`/`HEAD` page load that
+falls through to shadow's own push-state handler, so the root's `index.html`
+still serves at `/`, and turns every other fallthrough — an off-endpoint
+`POST` included — into a plain-text 404. On `/__rf-open-in-editor`, the
+request's query string carries `file` (required), `line`, `column` and
+`editor`; it is not a JSON-body API.
 
 Query values are percent-decoded without turning a literal `+` into a space.
 A column without a line targets line 1. Classpath-relative source files are
