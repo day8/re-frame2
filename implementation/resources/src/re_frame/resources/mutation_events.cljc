@@ -248,6 +248,33 @@
         populates)
       [runtime-db #{} {} (vec nil-ids) (vec skipped)])))
 
+(defn- supersede-reads-under-writes
+  "Settle the read each authoritative `:patches` / `:populates` write superseded
+  (rf2-3x7nj.11.3). `patch-entry` / `populate-entry` clear the written entry's
+  `:current-work` — a settled entry owns no read — so a read still in flight on
+  it can no longer land: its late reply fails the work-id gate and is
+  stale-suppressed, as a forced `refetch` supersedes one (Spec 016 §Race and
+  in-flight semantics). Without this, a GET the server answered before it
+  committed the write overwrote the written value, stamped fresh.
+
+  Settles that read's row terminal `:suppressed {:reason :superseded :by
+  by-work-id}` and returns `[runtime-db' superseded-work]`, `superseded-work`
+  being `[[work-id transport] …]` for the best-effort abort. `pre-db` is the
+  cache before the writes; a stale pointer to an already-terminal row supersedes
+  nothing."
+  [pre-db runtime-db written-keys by-work-id]
+  (reduce
+    (fn [[rdb superseded] scoped-key]
+      (let [wid    (:current-work (get-in pre-db (rf.resources.state/entry-path scoped-key)))
+            record (when wid (rf.resources.work-ledger/get-record rdb wid))]
+        (if (and record (not (rf.resources.work-ledger/terminal? (:status record))))
+          [(rf.resources.work-ledger/settle-terminal
+             rdb wid :suppressed {:reason :superseded :by by-work-id})
+           (conj superseded [wid (:transport record)])]
+          [rdb superseded])))
+    [runtime-db []]
+    written-keys))
+
 (defn- apply-removes
   "Apply the mutation spec's `:removes` to the resource cache (EP-0016 Rider 2 /
   Spec 016 §Map-form exact resource targets — accepted replies apply patches,
@@ -1761,6 +1788,9 @@
             ;; populate wins on a key written by both (it ran last).
             [rdb1 patched-ks patch-policies patch-nil-ids patch-skipped]        (apply-patches runtime-db (:patches spec) params result clock-ms scope app-db where)
             [rdb2 populated-ks populate-policies populate-nil-ids populate-skipped] (apply-populates rdb1 (:populates spec) params result clock-ms scope app-db where)
+            ;; rf2-3x7nj.11.3 — a written key's in-flight read is superseded.
+            [rdb2' superseded-reads] (supersede-reads-under-writes
+                                       runtime-db rdb2 (set/union patched-ks populated-ks) work-id)
             ;; controlled REMOVES (EP-0016 Rider 2 / rf2-fi6tda.3 finding 1 —
             ;; accepted replies apply patches, populates, invalidates, AND
             ;; removes). Each map-form target's scope resolves exactly as a
@@ -1768,7 +1798,7 @@
             ;; in-flight work settled `:cancelled` (mirroring
             ;; `:rf.resource/remove`). Applied BEFORE the invalidation match so
             ;; a removed key is never ALSO reported stale (it is gone).
-            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2 (:removes spec) params result clock-ms scope app-db where)
+            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2' (:removes spec) params result clock-ms scope app-db where)
             timer-policies      (merge patch-policies populate-policies)
             target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
             ;; rf2-1vpbld — the RECOVERABLE post-write targets the relaxed
@@ -1998,7 +2028,16 @@
                                   removed-work)
             remove-timer-fx (when (seq removed-ks)
                               [[:rf.resource/cancel-timers
-                                {:frame-id frame-id :resource/keys (vec removed-ks)}]])]
+                                {:frame-id frame-id :resource/keys (vec removed-ks)}]])
+            ;; rf2-3x7nj.11.3 — drop each superseded read's host handle and
+            ;; best-effort abort its request, as a forced refetch does.
+            supersede-fx (into [] (mapcat (fn [[wid transport]]
+                                            (let [abort (rf.resources.work-ledger/abort-fx
+                                                          transport frame-id wid)]
+                                              (cond-> [[:rf.resource/clear-work-handle
+                                                        {:frame-id frame-id :work-id wid}]]
+                                                abort (conj abort)))))
+                               superseded-reads)]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (rf.trace/emit! :rf.event :rf.mutation/succeeded
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
@@ -2059,6 +2098,7 @@
                         :status (:status reply) :reply-to reply-to})
         {:rf.db/runtime rdb'
          :fx (cond-> (vec timer-fx)
+               (seq supersede-fx)    (into supersede-fx)
                (seq remove-abort-fx) (into remove-abort-fx)
                remove-timer-fx       (into remove-timer-fx)
                inv-fxs               (into inv-fxs)

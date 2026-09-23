@@ -279,7 +279,11 @@
             :loaded-at      clock-ms
             :stale-at       stale-at
             :invalidated-at nil
-            :refresh-error  nil)
+            :refresh-error  nil
+            ;; rf2-3x7nj.11.3 — a settled entry owns no read: a read in flight
+            ;; is SUPERSEDED by this write (the caller settles its work row),
+            ;; so its late reply fails the work-id gate and cannot revert it.
+            :current-work   nil)
           ;; EP-0019 / byl7bk: a patch is an authoritative durable write
           ;; (re-stamps :loaded-at / :stale-at, clears :invalidated-at), so it
           ;; bumps the per-entry :revision write identity UNCONDITIONALLY —
@@ -319,6 +323,8 @@
           :loaded-at      clock-ms
           :stale-at       stale-at
           :invalidated-at nil
+          ;; rf2-3x7nj.11.3 — as `patch-entry`: a read in flight is superseded.
+          :current-work   nil
           :tags           (or tags (:tags base) #{}))
         ;; EP-0019 / byl7bk: a populate is an authoritative durable write (it
         ;; seeds / re-stamps :loaded-at / :stale-at / :tags), so it bumps the
