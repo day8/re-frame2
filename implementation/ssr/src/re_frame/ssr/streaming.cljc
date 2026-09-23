@@ -264,11 +264,11 @@
       ;; `:rf/redacted` sentinel, which the host's `(seq …)` emit guard cannot
       ;; walk). Short-circuit to `{}` so the host emits no delta script.
       (if (seq allowed)
-        ;; rf2-3x7nj.13.3 — a delta is hydration state too, so it obeys the
-        ;; final payload's numeric crossing rule (a no-op on CLJS).
-        (rf.ssr.payload-policy/check-portable-numbers!
-          :rf/app-db
-          (rf.ssr.payload-policy/project-app-db-egress allowed frame-id))
+        (let [projected (rf.ssr.payload-policy/project-app-db-egress allowed frame-id)]
+          ;; rf2-3x7nj.13.3 — a delta is hydration state too, so on a JVM
+          ;; host it obeys the final payload's numeric crossing rule.
+          #?(:clj (rf.ssr.payload-policy/check-portable-numbers! :rf/app-db projected))
+          projected)
         {}))))
 
 ;; ---- continuation registry (per-request, transient) -----------------------
