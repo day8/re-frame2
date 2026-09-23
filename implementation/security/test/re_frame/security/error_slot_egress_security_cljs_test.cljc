@@ -315,7 +315,9 @@
       (when trace
         (is (not= :rf/redacted (:error tags)) ":error NOT redacted")
         (is (map? (:error tags)) ":error rode through as the raw ex-data map")
-        (is (not (contains? tags :sensitive?))
+        ;; Read the envelope: `:tags` never carries `:sensitive?`
+        ;; (rf2-3x7nj.20.2).
+        (is (not (contains? trace :sensitive?))
             "no :sensitive? stamp on a non-sensitive route")))))
 
 ;; Per-slot projection happens before MCP filtering. The explicit raw-event

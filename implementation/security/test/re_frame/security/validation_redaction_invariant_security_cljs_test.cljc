@@ -766,7 +766,9 @@
                           #(rf.machines.data-validation/validate-snapshot-data!
                              :plain/machine {:data plain-value} plain-schema :macrostep))]
       (is (some? event-trace))
-      (is (not (contains? (:tags event-trace) :sensitive?))
+      ;; The stamp lives on the envelope: the trace builder strips
+      ;; `:sensitive?` from `:tags` on every trace (rf2-3x7nj.20.2).
+      (is (not (contains? event-trace :sensitive?))
           ":where :event — no :sensitive? stamp when nothing is sensitive")
       (is (not= :rf/redacted (-> event-trace :tags :value))
           ":where :event — :value rides verbatim")
