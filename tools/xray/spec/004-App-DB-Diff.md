@@ -254,10 +254,24 @@ vectors and lists to member-level parity with sets and maps. The
 expansion is scoped to the empty edge **and to same-family
 sequentials** — both sides must be sequentials (neither set nor map), so
 a vector↔map (or vector↔set) flip at the empty edge stays an R7
-`:modified` type-change rather than a spurious member delta. A
-populated↔populated vector swap never collapses to a whole-value `:r`
-(Editscript emits per-index edits), so there is no `:r` to intercept
-there.
+`:modified` type-change rather than a spurious member delta.
+
+**A populated collection's whole-value `:r` expands too
+(rf2-3x7nj.26.4).** Editscript's A* does collapse a POPULATED vector or
+map to one whole-value `:r` once enough of it differs — every element
+changed (`{:scores [10 20 30]} → {:scores [11 21 31]}` ⇒ `[[[:scores]
+:r [11 21 31]]]`), a reversal, or every key of a map replaced. Left
+alone that `:r` is one `:modified` at the container with every member
+`:same`, so each changed element paints as unchanged and the `[N∆]`
+chip reads 0. Whether A* collapses is its cost model's call, so the
+projection expands **every** `:r` between two collections of the same
+kind: a map into its per-key union delta (`:-` before-only, `:+`
+after-only, the expansion of each differing shared key), a sequential
+into per-index expansions for `0 … min(n,m)-1` plus a `:+` / `:-` tail
+(removals in descending index order, as above). The expansion recurses,
+so an element that is itself a changed collection diffs member by
+member. A type change (vector↔list, vector↔map, scalar↔collection) stays
+an R7 `:modified`.
 
 A vector/list `:-` removal flows through the off-path
 `:vector-removals` channel (a removed before-index has no stable
