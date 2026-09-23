@@ -113,7 +113,8 @@
   callback retains. Public because the shell is not the only thing that
   lowers hiccup: `impl.presence-react` re-binds the frame inside its own
   React render, after the parent body's extent has unwound, and the
-  dispatch it binds has to be this one."
+  frame heads (`impl.frame-boundary`) bind their own frame's around the
+  markup below them — and the dispatch each binds has to be this one."
   [frame-kw]
   (:dispatch (frame-row frame-kw)))
 

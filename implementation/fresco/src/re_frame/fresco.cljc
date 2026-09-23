@@ -631,7 +631,12 @@
   SCOPE is the verb there, and it is a shape argument rather than a state
   one: see `h/render!`'s `{:hydrate? true}`. **A subtree on another
   frame** — a tenant switcher, a preview pane — nested under the root's
-  own boundary.
+  own boundary. Everything written below the head acts on that frame —
+  an inline intent, an `h/event`, a wrapper's children, a child view —
+  while the calls the enclosing body itself makes (`h/sub`,
+  `h/route-link`, `rf/capture-frame`) stay in the body's frame, because
+  they run before the head lowers anything: read or link the scoped
+  frame from a child view under the provider.
 
   `:frame` is required and takes the one frame-target grammar `dispatch`
   and `subscribe` teach: a frame-id keyword, or the live frame value

@@ -1023,13 +1023,17 @@
 ;; which prop key names the frame, and the head never has to know how
 ;; Fresco lowers hiccup.
 ;;
-;; Nothing here needs the frame to EXIST. `*frame*` carries the frame
-;; KEYWORD (`impl.intent`), and `*dispatch*` — the binding that would
-;; need a live frame — is not bound by a lowering; a frame-locked
-;; dispatch is established per boundary at RENDER time, which under
-;; `frame-root`'s commit-owned two-pass is after the effect has made the
-;; frame. That is why an ENSURE boundary can be spelled in a tree a
-;; substrate lowers EAGERLY.
+;; The closure binds `*frame*` only. The frame-locked `*dispatch*` and
+;; the refusal tier's `:extent-frame` need a LIVE frame, and a codec
+;; cannot require the collector that mints them (the collector requires
+;; the codec), so the HEAD binds them around its call: markup below a
+;; boundary acts on the boundary's frame, root or body alike
+;; (rf2-3x7nj.7.2). `frame-provider` calls it on the way past, its frame
+;; already live; `frame-root` calls it in core's ready pass, after the
+;; commit-owned ENSURE has made the frame, so a lowered callback is
+;; pinned to that incarnation. That is how an ENSURE boundary is spelled
+;; in a tree a substrate otherwise lowers EAGERLY
+;; (`re-frame.fresco.impl.frame-boundary`).
 
 (def ^:private frame-boundary-marker "frescoFrameBoundary")
 
@@ -1041,8 +1045,10 @@
   `lower-children` is `(frame-kw) -> children`: a vector of React
   elements lowered with `intent/*frame*` bound to `frame-kw`, or nil when
   the vector carries no children. Calling it is what names the frame for
-  the subtree, so a head calls it exactly once, AFTER it has validated
-  its props and resolved the name."
+  the subtree, so a head calls it only AFTER it has validated its props
+  and resolved the name, and inside the frame's own `*dispatch*` — at
+  once for a live frame, or from a component core renders once the frame
+  exists."
   [display-name element-fn]
   (let [head #js {"element"     element-fn
                   "displayName" display-name}]
@@ -1549,8 +1555,9 @@
 
 (defn- lower-children-under
   "The trailing forms of `argv` from `first-child`, each lowered to a
-  React child with `intent/*frame*` bound to `frame-kw` — the frame
-  boundary's whole mechanism. Answers a vector, or nil when the vector
+  React child with `intent/*frame*` bound to `frame-kw` — the codec's
+  half of a frame boundary; the head binds the frame's dispatch around
+  it (`mint-frame-boundary!`). Answers a vector, or nil when the vector
   has no children, which is the shape
   `re-frame.adapter.context/normalize-children` reads.
 
@@ -1919,8 +1926,9 @@
 
   `*dispatch*` is deliberately not bound either way: the frame is an
   identity, while a frame-locked dispatch is what makes an intent vector
-  legal, and an intent outside a boundary stays the loud
-  `:rf.error/fresco-intent-outside-boundary`."
+  legal. A frame head below binds its own frame's dispatch for the
+  markup under it, so an intent with no frame boundary above it stays
+  the loud `:rf.error/fresco-intent-outside-boundary`."
   [frame-kw hiccup]
   (binding [rf.fresco.impl.intent/*frame* frame-kw]
     (as-element hiccup)))
