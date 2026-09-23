@@ -873,11 +873,37 @@
   invalidation engine and the EP-0019 restore-dangle conflict-rollback share, so
   a `:stale?` sub derives `true` from `:invalidated-at` identically whether the
   staleness came from an invalidation pass or a dangle-inside-reconciler. A nil
-  entry is returned unchanged. Per Spec 016 §Invalidation / §Status semantics."
+  entry is returned unchanged. Per Spec 016 §Invalidation / §Status semantics.
+
+  Also records WHICH ATTEMPT the mark landed during (rf2-3x7nj.10.1):
+  `:invalidated-during` is the entry's `:current-work` at the time of the mark,
+  and is absent when no read is in flight. That attempt's request was served
+  before the invalidation, so its success must not clear the mark
+  (`invalidation-kept-by-settle`). Judged by attempt identity, never by
+  comparing milliseconds — a same-ms tie or a pinned clock would read as
+  covered."
   [entry invalidated-at]
   (if entry
-    (bump-revision (assoc entry :invalidated-at invalidated-at))
+    (bump-revision
+      (let [marked (assoc entry :invalidated-at invalidated-at)]
+        (if-let [w (:current-work entry)]
+          (assoc marked :invalidated-during w)
+          (dissoc marked :invalidated-during))))
     entry))
+
+(defn invalidation-kept-by-settle
+  "Pure: the `:invalidated-at` a SUCCESS settle of `entry`'s current attempt
+  leaves in place — the mark when it was written DURING that attempt
+  (`:invalidated-during` equals the settling `:current-work`), else nil. The
+  settling attempt's request was served before such a mark, so its reply
+  cannot satisfy it (Spec 016 §Race and in-flight semantics — no coverage
+  policy exists). A mark written before the attempt started is covered by it
+  and clears, as before. Read by `entry-succeeded`, `entry-append-page` and
+  `entry-replace-page` against the PRE-settle entry (rf2-3x7nj.10.1)."
+  [entry]
+  (let [w (:current-work entry)]
+    (when (and (some? w) (= w (:invalidated-during entry)))
+      (:invalidated-at entry))))
 
 ;; ---- owner-liveness entry writes (rf2-cxwuhl / EP-0019 §Decision 2) --------
 ;;
@@ -1025,12 +1051,14 @@
           :refresh-error nil
           :loaded-at     loaded-at
           :stale-at      stale-at
-          :invalidated-at nil
+          ;; a mark written DURING this attempt survives it (rf2-3x7nj.10.1)
+          :invalidated-at (invalidation-kept-by-settle entry)
           :current-work  nil
           ;; the new key now has its OWN data — drop the previous-key
           ;; projection pointer (Spec 016 §Paginated and previous data).
           :previous-key  nil
           :tags          (or tags (:tags entry) #{}))
+        (dissoc :invalidated-during)
         ;; EP-0019 / byl7bk: every authoritative durable write bumps the
         ;; per-entry write identity, unconditionally — including the
         ;; freshness-only (`=`-shared `:data`) settle the ruling names.
@@ -1220,8 +1248,10 @@
                  :refresh-error   nil
                  :loaded-at       loaded-at
                  :stale-at        stale-at
-                 :invalidated-at  nil
+                 ;; a mark written DURING this attempt survives it (rf2-3x7nj.10.1)
+                 :invalidated-at  (invalidation-kept-by-settle entry)
                  :current-work    nil)
+          (dissoc :invalidated-during)
           bump-revision))
     entry))
 
@@ -1295,8 +1325,11 @@
                      :refresh-error   nil
                      :loaded-at       loaded-at
                      :stale-at        stale-at
-                     :invalidated-at  nil
+                     ;; a mark written DURING this attempt survives it
+                     ;; (rf2-3x7nj.10.1)
+                     :invalidated-at  (invalidation-kept-by-settle entry)
                      :current-work    nil)
+              (dissoc :invalidated-during)
               bump-revision))))
     entry))
 

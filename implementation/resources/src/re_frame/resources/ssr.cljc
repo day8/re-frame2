@@ -821,7 +821,8 @@
         ;; entry currently points at references a host handle that does not
         ;; survive the round-trip (Spec 016 §Restore and replay part 2 — a
         ;; non-terminal attempt is dangling on install).
-        wire-entry  (dissoc wire-entry :current-work)
+        ;; `:invalidated-during` names such an attempt too (rf2-3x7nj.10.1).
+        wire-entry  (dissoc wire-entry :current-work :invalidated-during)
         ;; rf2-9e0tyq — the in-entry `:resource/key` copy is the SAME projected
         ;; key computed above (`disposition+project-key`), matching the wire MAP
         ;; key: a `:redact` / `:omit` resource redacts its scope + params to
@@ -1441,7 +1442,10 @@
         kept    (into #{} (remove orphan?) owners)]
     [(-> entry
          (assoc :active-owners kept)
-         (assoc :current-work nil))
+         (assoc :current-work nil)
+         ;; the attempt an in-flight invalidation was stamped against is gone
+         ;; too (rf2-3x7nj.10.1); the stale mark itself stays.
+         (dissoc :invalidated-during))
      dropped]))
 
 (defn clock-skew-ms

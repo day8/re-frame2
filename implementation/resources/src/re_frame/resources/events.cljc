@@ -1576,7 +1576,14 @@
   - `:exempt-hit` — the EXEMPT keys that WOULD have matched (Rider 1 trace);
   - `:other-scope-hit?` — whether the tags match an entry in ANOTHER scope
                     (\"no match HERE\" vs \"no resource provides this tag in
-                    any scope\" — only meaningful for a scoped invalidation).
+                    any scope\" — only meaningful for a scoped invalidation);
+  - `:in-flight-unmatched-ids` — the byte `key-id`s of in-scope, NOT-exempt
+                    entries the tags did NOT match whose `:current-work` is
+                    set (rf2-3x7nj.10.1). Their current tags describe their
+                    OLD data, so the reply in flight may still produce a
+                    matching tag: the invalidation engine records the
+                    invalidation against those attempts and resolves it at
+                    their success. Not part of `:affected-keys`.
 
   Per Spec 016 §Invalidation / §Populate is an authoritative load."
   [entries cscope cross-scope? tag-set exempt-ids]
@@ -1587,6 +1594,14 @@
                         (filter (fn [[k-id entry]] (and (not (contains? exempt-ids k-id))
                                                         (in-scope? entry) (tags-hit? entry))))
                         entries)
+        in-flight-unmatched-ids
+        (into #{}
+              (comp (filter (fn [[k-id entry]] (and (not (contains? exempt-ids k-id))
+                                                    (in-scope? entry)
+                                                    (not (tags-hit? entry))
+                                                    (some? (:current-work entry)))))
+                    (map key))
+              entries)
         exempt-hit (into []
                          (comp (filter (fn [[k-id entry]] (and (contains? exempt-ids k-id)
                                                                (in-scope? entry) (tags-hit? entry))))
@@ -1600,7 +1615,67 @@
     {:matched     (mapv (fn [[_k-id entry]] (sk-of entry)) matched)
      :matched-ids (set (keys matched))
      :exempt-hit  exempt-hit
-     :other-scope-hit? other-scope-hit?}))
+     :other-scope-hit? other-scope-hit?
+     :in-flight-unmatched-ids in-flight-unmatched-ids}))
+
+(defn- record-pending-invalidation
+  "Record an invalidation of `tag-set` at `invalidated-at` against an in-flight
+  resource work `record` whose entry the tags did not match
+  (rf2-3x7nj.10.1). Repeated invalidations UNION their tags and keep the latest
+  event's time. A terminal record is left alone (its attempt can no longer
+  settle a success). The record IS the attempt, so the note dies with it — a
+  failure, abort or supersession drops it — and an optimistic restore landing
+  on the entry mid-attempt cannot erase it."
+  [record tag-set invalidated-at]
+  (if (rf.resources.work-ledger/terminal? (:status record))
+    record
+    (-> record
+        (update-in [:pending-invalidation :tags] (fnil into #{}) tag-set)
+        (assoc-in [:pending-invalidation :invalidated-at] invalidated-at))))
+
+(defn- settle-invalidations
+  "Resolve the invalidations that landed during the attempt a SUCCESS just
+  settled (rf2-3x7nj.10.1). `entry` is the PRE-settle entry, `settled` the
+  entry the success produced (its `:tags` are the tags the reply produced),
+  `record` the settling work record. Spec 016 §Race and in-flight semantics:
+  the attempt in flight when an invalidation lands never covers it.
+
+  - DEFINITE: a mark written during the attempt was kept by the settle
+    (`rf.resources.state/invalidation-kept-by-settle`).
+  - TENTATIVE: an invalidation recorded on the attempt (its tags did not match
+    the entry's old tags) whose tags intersect the tags just produced marks
+    the entry stale at the recorded time; one that does not intersect is
+    discarded, so an unrelated mutation never stales an unrelated resource.
+
+  Returns `[settled' follow-up-tags]`: `follow-up-tags` is non-nil when the
+  entry was left stale AND has active owners AT SETTLE — the caller then
+  dispatches ONE `:rf.resource/refetch`. An owner-free entry keeps the stale
+  mark only."
+  [entry settled record]
+  (let [pending       (:pending-invalidation record)
+        pending-hit?  (and pending
+                           (seq (set/intersection (set (:tags settled))
+                                                  (set (:tags pending)))))
+        definite?     (some? (:invalidated-at settled))
+        settled'      (if (and pending-hit? (not definite?))
+                        (rf.resources.state/entry-invalidate
+                          settled (:invalidated-at pending))
+                        settled)
+        stale?        (some? (:invalidated-at settled'))]
+    [settled'
+     (when (and stale? (seq (:active-owners settled')))
+       (if definite? (:tags entry) (:tags pending)))]))
+
+(defn- follow-up-refetch-fx
+  "The ONE follow-up `:rf.resource/refetch` a success that left an owned entry
+  stale dispatches (rf2-3x7nj.10.1; Spec 016 §Race and in-flight semantics —
+  \"otherwise schedule a follow-up refetch\"). The same fx shape the
+  invalidation engine arms for a matched owned entry."
+  [resource-key tags]
+  (let [[s rid p] resource-key]
+    [:dispatch [:rf.resource/refetch
+                {:resource rid :scope s :params p
+                 :cause [:invalidate {:tags tags}]}]]))
 
 (defn invalidate-tags-handler
   "`:rf.resource/invalidate-tags` — exact tag invalidation (Spec 016
@@ -1820,7 +1895,8 @@
         ;; on the byte key-id; `:matched` are scoped-key VECTORS.
         {matched-ids :matched-ids
          exempt-hit  :exempt-hit
-         other-scope-hit? :other-scope-hit?}
+         other-scope-hit? :other-scope-hit?
+         in-flight-unmatched-ids :in-flight-unmatched-ids}
         (match-invalidation-keys entries cscope cross-scope? tag-set exempt)
         ;; mark each matched entry stale (durable :invalidated-at fact). Keyed
         ;; on the byte key-id — write straight to the entries-path slot.
@@ -1836,6 +1912,18 @@
                        (update-in db (rf.resources.state/entry-path-by-id k-id)
                                   rf.resources.state/entry-invalidate invalidated-at))
                      runtime-db matched-ids)
+        ;; rf2-3x7nj.10.1 — an in-scope entry the tags did NOT match may still
+        ;; be answered by a reply already in flight (its current tags describe
+        ;; its OLD data; a first load has none yet). Record the invalidation
+        ;; against that ATTEMPT — not the entry, so nothing reads stale now —
+        ;; and let its success resolve it against the tags the reply produces
+        ;; (`settle-invalidations`).
+        rdb'       (reduce
+                     (fn [db k-id]
+                       (rf.resources.work-ledger/update-record
+                         db (:current-work (get entries k-id))
+                         record-pending-invalidation tag-set invalidated-at))
+                     rdb' in-flight-unmatched-ids)
         ;; per-entry decision: active-owner entries refetch (Spec 016
         ;; §Invalidation 3); ownerless entries are left stale / GC-eligible
         ;; (§Invalidation 4). Collected once for both the dispatches and the
@@ -2525,9 +2613,17 @@
             ;; tags are produced from the params + decoded data; the canonical
             ;; params are the third element of the scoped key
             tags      (when tags-fn (set (tags-fn (nth resource-key 2) data)))
-            entry'    (rf.resources.state/entry-succeeded
-                        entry {:data data :loaded-at loaded-at
-                               :stale-at stale-at :tags tags})
+            ;; rf2-3x7nj.10.1 — an invalidation that landed during THIS attempt
+            ;; survives its success (definite mark kept, or a recorded one the
+            ;; produced tags intersect); an owned entry left stale gets ONE
+            ;; follow-up refetch.
+            [entry' follow-up-tags]
+            (settle-invalidations
+              entry
+              (rf.resources.state/entry-succeeded
+                entry {:data data :loaded-at loaded-at
+                       :stale-at stale-at :tags tags})
+              record)
             ;; EP-0020 §Polling: arm the active-owner POLL timer from the
             ;; resource's `:poll-interval-ms` — but ONLY while the freshly-
             ;; loaded entry has at least one active owner (a poll never pins an
@@ -2596,7 +2692,9 @@
                                             :gc    gc-delay-ms
                                             :poll  poll-delay-ms}
                              :server?      (rf.resources.state/server-frame? frame-id)}]])
-              fx        (into (vec timers-fx) cont-fxs)]
+              fx        (cond-> (vec timers-fx)
+                          follow-up-tags (conj (follow-up-refetch-fx resource-key follow-up-tags)))
+              fx        (into fx cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx)))))))
 
@@ -2968,8 +3066,14 @@
             ;; tag invalidation — and a mutation's `:invalidates` — can find the
             ;; feed. A resource declaring no `:tags` keeps what it has.
             tags-fn   (:tags spec)
-            entry'    (cond-> swept
-                        tags-fn (assoc :tags (set (tags-fn (nth resource-key 2) (:data swept)))))
+            ;; rf2-3x7nj.10.1 — resolve invalidations that landed during this
+            ;; attempt against the tags just produced (the scalar success's twin).
+            [entry' follow-up-tags]
+            (settle-invalidations
+              entry
+              (cond-> swept
+                tags-fn (assoc :tags (set (tags-fn (nth resource-key 2) (:data swept)))))
+              record)
             ;; rf2-c64uiz — the accepted `:reply-to` continuation carries the
             ;; MERGED items list over the POST-settle feed (`entry'`), the SAME
             ;; `:value` shape the fresh-skip cache-hit path delivers, NOT the
@@ -3038,7 +3142,8 @@
                             :server?      (rf.resources.state/server-frame? frame-id)}])
               fx        (cond-> []
                           timers-fx (conj timers-fx)
-                          sweep-fx  (conj sweep-fx))
+                          sweep-fx  (conj sweep-fx)
+                          follow-up-tags (conj (follow-up-refetch-fx resource-key follow-up-tags)))
               ;; append the accepted-reply `:reply-to` fan-out last (rf2-p1yri7)
               fx        (into fx cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
