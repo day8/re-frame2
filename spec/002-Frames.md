@@ -1970,7 +1970,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
 (defn drain! [frame]
   (try
-    (loop [depth 0]
+    (loop [depth 0 last-event-id nil]                  ;; id of the last SETTLED event
       ;; Destruction-ownership check fires BEFORE dequeue (Edge case #4):
       ;; exact-incarnation claim, lifecycle-dead, or absent all halt an
       ;; ordinary drain. The private on-destroy driver passes the exact claim
@@ -2026,11 +2026,13 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
         ;; so :rollback? is false. Drop the remaining queue (the next, halting
         ;; event never runs) and commit ONE trailing :halted-depth epoch record
         ;; for it so devtools get a halt marker; its :db-before/:db-after both
-        ;; equal the durable last-settled db.
+        ;; equal the durable last-settled db. The descriptor names the last
+        ;; SETTLED event by id, never the halting event at the queue head (the
+        ;; record's own trigger names that one) and never an event vector.
         (let [halt-reason {:operation :rf.error/drain-depth-exceeded
                            :frame (:id frame) :depth depth
                            :queue-size (count @(:queue (:router frame)))
-                           :last-event (peek @(:queue (:router frame)))}]
+                           :last-event-id last-event-id}]
           (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
           (raise! :rf.error/drain-depth-exceeded
                   (assoc halt-reason :rollback? false))
@@ -2038,7 +2040,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
         (throw ::halt))
       (when-let [envelope (peek-and-pop! (:queue (:router frame)))]
         (process-event! frame envelope)                ;; per-event drain
-        (recur (inc depth))))
+        (recur (inc depth) (first (:event envelope)))))
     (swap! (:router frame) assoc :scheduled? false)    ;; fixed point: queue empty
     ;; The `::halt` control-flow sentinel — the two `(throw ::halt)` sites above
     ;; (destroyed-frame drop, drain-depth-exceeded) use it to break the loop
