@@ -382,21 +382,21 @@
                       (:rf.error/id (ex-data ex))))))))))
 
 ;; ===========================================================================
-;; 8. the merge is framework-owned + MEMOISED (R3)
+;; 8. the merge is framework-owned and PURE (R3; rf2-3x7nj.10.2)
 ;; ===========================================================================
 
-(deftest items-merge-is-memoised
-  (testing "the merged-items computation is memoised on the page-vector identity
-            (a re-run with an identical page vector returns the cached merge)"
+(deftest items-merge-is-a-pure-function-of-the-pages
+  (testing "the merged-items projection pins VALUE, not identity: two merges of
+            one entry are `=` to each other and to the direct merge (no
+            process-global computation cache — the sub layer's output `=` is
+            the only memo)"
     (load-page-0! :is8/feed (page [:a :b] "c1"))
     (let [e      (entry (feed-key :is8/feed))
-          first  (rf.resources.state/merge-pages->items
+          direct (rf.resources.state/merge-pages->items
                    (:data e) (rf.resources.state/resolve-page->items :items)
                    :is8/feed 'rf.resource/items)
-          ;; via the memoised entry path
           m1     (#'re-frame.resources.subs/merged-items e 'rf.resource/items)
           m2     (#'re-frame.resources.subs/merged-items e 'rf.resource/items)]
-      (is (= [:a :b] first))
-      (is (= [:a :b] m1))
-      (is (identical? m1 m2)
-          "a second merge of the IDENTICAL page vector returns the same (cached) value"))))
+      (is (= [:a :b] direct))
+      (is (= direct m1))
+      (is (= m1 m2)))))
