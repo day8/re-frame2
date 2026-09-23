@@ -1404,3 +1404,84 @@
       (is (= {:op :modified :before :pending :after :done}
              (engine/entry-at p [:status]))))))
 
+;; ---- rf2-3x7nj.26.2 — a NESTED path's before-side reads its own element ---
+;;
+;; rf2-96csq4 translated an edit's index through the replay only when that
+;; index was the LAST segment of the path. But every vector index on an
+;; Editscript path is an AFTER index — including one the path merely
+;; descends THROUGH — so an edit beneath a shifted element read its before
+;; side from whatever element sat at that index before the shift. Each
+;; case below was run against Editscript 0.6.5 and its raw script is
+;; quoted.
+
+(deftest x7nj-26-2-toggle-after-prepend-is-modified-not-added
+  (testing "`[[:todos 0] :+ …] [[:todos 2 :done?] :r true]` — the toggled
+            todo was at before-index 1, not 2. Pre-fix the before read of
+            `[:todos 2 :done?]` fell out of range and the change classified
+            `:added`, with no `← was` chip"
+    (let [p (engine/project
+              {:todos [{:id 1 :done? false} {:id 2 :done? false}]}
+              {:todos [{:id 0 :done? false} {:id 1 :done? false} {:id 2 :done? true}]})]
+      (is (= {:op :modified :before false :after true}
+             (engine/entry-at p [:todos 2 :done?])))
+      (is (= :added (engine/op-at p [:todos 0]))
+          "control: the prepended todo is still a wholly-added element"))))
+
+(deftest x7nj-26-2-delete-then-edit-shows-the-survivors-prior
+  (testing "`[[0] :-] [[0 :n] :r 21]` — the edited element is the survivor
+            from before-index 1, so its prior is 20. Pre-fix the chip read
+            10, the REMOVED element's value, while the same projection named
+            that element as removed"
+    (let [p (engine/project [{:id 1 :n 10} {:id 2 :n 20}] [{:id 2 :n 21}])]
+      (is (= {:op :modified :before 20 :after 21} (engine/entry-at p [0 :n])))
+      (is (= [{:before-index 0 :before-value {:id 1 :n 10}}]
+             (engine/vector-removals-at p []))
+          "control: the removals channel already named the removed element"))))
+
+(deftest x7nj-26-2-nested-removal-after-prepend-carries-its-value
+  (testing "`[[0] :+ {:new 0}] [[2 :c] :-]` — the removed key's value is 3.
+            Pre-fix `:before` leaked the internal missing-sentinel"
+    (let [p (engine/project [{:a 1} {:b 2 :c 3}] [{:new 0} {:a 1} {:b 2}])]
+      (is (= {:op :removed :before 3} (engine/entry-at p [2 :c]))))))
+
+(deftest x7nj-26-2-two-levels-deep-is-modified
+  (testing "`[[:rows 0] :+ [0 0]] [[:rows 2 1] :r 5]` — the outer index is
+            translated, the inner one is not shifted"
+    (let [p (engine/project {:rows [[1 2] [3 4]]} {:rows [[0 0] [1 2] [3 5]]})]
+      (is (= {:op :modified :before 4 :after 5} (engine/entry-at p [:rows 2 1]))))))
+
+(deftest x7nj-26-2-set-swap-after-prepend-is-member-level
+  (testing "`[[0] :+ :new] [[1] :r #{:a :d :e}]` — the replaced set's before
+            counterpart is at before-index 0. Pre-fix the expansion read
+            index 1, found no set, and left one whole-set `:modified` with
+            every member path `:same`"
+    (let [p (engine/project [#{:a :b :c}] [:new #{:a :d :e}])]
+      (is (= :removed (engine/op-at p [1 :b])))
+      (is (= :removed (engine/op-at p [1 :c])))
+      (is (= :added (engine/op-at p [1 :d])))
+      (is (= :added (engine/op-at p [1 :e])))
+      (is (= :same (engine/op-at p [1 :a])) "the kept member is unchanged")
+      (is (not= :modified (engine/op-at p [1]))))))
+
+(deftest x7nj-26-2-swapped-set-after-prepend-is-not-promoted
+  (testing "`[[0] :+ :new] [[1] :r #{:d :e}]` — every member swapped. The
+            wholly-changed walk must pair after-element 1 with before-element
+            0; pairing by EQUAL index finds no counterpart, sees only the
+            added members, and promotes a set that already existed to a
+            wholly-added root"
+    (let [p (engine/project [#{:b :c}] [:new #{:d :e}])]
+      (is (= :removed (engine/op-at p [1 :b])))
+      (is (= :added (engine/op-at p [1 :d])))
+      (is (= #{} (:wholly-changed-roots p))))))
+
+(deftest x7nj-26-2-nested-vector-removal-under-a-shift-is-reported
+  (testing "`[[:rows 0] :+ [0 0]] [[:rows 2 1] :-]` — the nested vector's
+            replay must run against its OWN before counterpart
+            (`[:rows 1]`, three elements). Pre-fix it read `[:rows 2]`,
+            found nothing, and dropped the removal of 4 entirely"
+    (let [p (engine/project {:rows [[1 2] [3 4 5]]} {:rows [[0 0] [1 2] [3 5]]})]
+      (is (= [{:before-index 1 :before-value 4}]
+             (engine/vector-removals-at p [:rows 2])))
+      (is (= 2 (engine/shifted-was-index p [:rows 2 1]))
+          "5 moved up from before-index 2"))))
+

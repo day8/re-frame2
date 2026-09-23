@@ -291,9 +291,19 @@ is out-of-range on the 2-element before-vector — the missing-sentinel
 misclassifies the slot as `:added` and `:y`'s removal never surfaces
 anywhere (not `:modified`, not `:removed` — silently lost). The replay-
 resolved read, `slots[2]`, is `1` (`:y`'s original index), correctly
-classifying `[2]` as `:modified :y → :z`. Non-vector `:r` (map key,
-scalar, root replace) is unaffected — those addressing modes are never
-index-shifted, so the raw `value-at` lookup stays correct for them.
+classifying `[2]` as `:modified :y → :z`.
+
+**The same holds for every vector index a path descends THROUGH, not
+only its last segment (rf2-3x7nj.26.2).** `{:todos [a b]} → {:todos
+[new a b']}` ⇒ `[[:todos 0] :+ new] [[:todos 2 :done?] :r true]` edits
+the todo that sat at before-index 1, so a raw read of `[:todos 2
+:done?]` falls out of range and the toggle reads as `:added`. Every
+before-side read — an `:r`'s `:before`, a nested `:-`'s removed value, a
+replaced collection's expansion, a nested vector's own replay, and the
+wholly-changed walk's pairing of an element with its counterpart — maps
+each vector segment of the path through that vector's replay slots, from
+the root down. A map key or set member is never index-shifted and passes
+through unchanged.
 
 > **Why the unified `:+`/`:-` replay (rf2-3eplfk).** An earlier
 > implementation replayed **only** the `:-` edits against pristine
