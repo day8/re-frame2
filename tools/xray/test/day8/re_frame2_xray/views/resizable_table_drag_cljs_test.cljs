@@ -15,6 +15,7 @@
   removes the listeners AND clears the state in one place. Mirrors
   `resize_handle_cljs_test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [day8.re-frame2-xray.test-helpers.popout-document :as popout-document]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -92,3 +93,36 @@
       (is (false? (rt/dragging?)) "pointerup cleared the drag state")
       (is (= 1 (count (filter #(= :rf.xray.column-widths/resize-pair-commit (first %)) @d)))
           "exactly one commit per drag (one localStorage write, not one per pixel)"))))
+
+;; ---- the gutter's own window (rf2-3x7nj.25.5) ---------------------------
+
+(deftest drag-binds-the-gutters-own-window
+  (testing "rf2-3x7nj.25.5 — in the pop-out, `js/window` is the OPENER,
+            whose listeners the pop-out's pointer events never reach, so
+            the Trace table's gutters could not be dragged there. The drag
+            must bind to the gutter's OWN window (its document's
+            `defaultView`), and detach from that same one."
+    (popout-document/with-opener-globals
+      (fn [{opener-window-listeners :window-listeners}]
+        (let [{pdoc :doc pwin-listeners :window-listeners}
+              (popout-document/mk-document)
+              d  (atom [])
+              df (fn [ev] (swap! d conj ev))
+              e  (stub-pointer-event 100 :a 120 :b 80)]
+          (set! (.. e -currentTarget -ownerDocument) pdoc)
+          (rt/on-pointer-down df :tbl :a :b e)
+          (is (= 1 (count (popout-document/listeners-on pwin-listeners "pointermove")))
+              "the move listener sits on the POP-OUT window")
+          (is (popout-document/detached? opener-window-listeners)
+              "and the opener window received no listener at all")
+          (when-let [on-move (first (popout-document/listeners-on pwin-listeners "pointermove"))]
+            (on-move #js {:clientX 130}))
+          (is (some #(= [:rf.xray.column-widths/resize-pair-tick :tbl :a 150 :b 50] %) @d)
+              "a pop-out pointer move resizes the pair")
+          (when-let [on-up (first (popout-document/listeners-on pwin-listeners "pointerup"))]
+            (on-up #js {}))
+          (is (false? (rt/dragging?)) "the pop-out release ends the drag")
+          (is (some #(= :rf.xray.column-widths/resize-pair-commit (first %)) @d)
+              "and commits it")
+          (is (popout-document/detached? pwin-listeners)
+              "detaching from the SAME window the drag attached to"))))))

@@ -457,17 +457,19 @@
   (some? @col-divider-drag-state))
 
 (defn- col-divider-detach-listeners! []
-  (when-let [{:keys [on-move on-up on-cancel prev-cursor]} @col-divider-drag-state]
-    (when (and (exists? js/document) (.-removeEventListener js/document))
-      (try (.removeEventListener js/document "pointermove" on-move)
-           (catch :default _ nil))
-      (try (.removeEventListener js/document "pointerup" on-up)
-           (catch :default _ nil))
-      (try (.removeEventListener js/document "pointercancel" on-cancel)
-           (catch :default _ nil)))
-    (when (and (exists? js/document) (.-body js/document))
-      (set! (-> js/document .-body .-style .-cursor)
-            (or prev-cursor "")))
+  (when-let [{:keys [doc on-move on-up on-cancel prev-cursor]} @col-divider-drag-state]
+    ;; The SAME document the drag attached to (rf2-3x7nj.25.5).
+    (let [^js doc doc]
+      (when (and doc (.-removeEventListener doc))
+        (try (.removeEventListener doc "pointermove" on-move)
+             (catch :default _ nil))
+        (try (.removeEventListener doc "pointerup" on-up)
+             (catch :default _ nil))
+        (try (.removeEventListener doc "pointercancel" on-cancel)
+             (catch :default _ nil)))
+      (when (and doc (.-body doc))
+        (set! (-> doc .-body .-style .-cursor)
+              (or prev-cursor ""))))
     (reset! col-divider-drag-state nil)))
 
 (defn- col-divider-on-move [^js e]
@@ -523,16 +525,22 @@
    (col-divider-start-drag! e col-id current-width rf/dispatch))
   ([^js e col-id current-width dispatch-fn]
   (col-divider-detach-listeners!)
-  (let [start-x     (.-pageX e)
+  ;; The divider's own document, not `js/document`: `ShellView` is also
+  ;; the pop-out's body, and there `js/document` names the OPENER's
+  ;; document, which the pop-out's pointer events never reach
+  ;; (rf2-3x7nj.25.5). Kept in the state so the detach removes the
+  ;; listeners from the same document.
+  (let [^js doc     (resize-handle/pointer-document e)
+        start-x     (.-pageX e)
         pointer-id  (.-pointerId e)
-        prev-cursor (when (and (exists? js/document)
-                               (.-body js/document))
-                      (-> js/document .-body .-style .-cursor))
+        prev-cursor (when (and doc (.-body doc))
+                      (-> doc .-body .-style .-cursor))
         on-move     col-divider-on-move
         on-up       col-divider-on-up
         on-cancel   col-divider-on-cancel]
     (reset! col-divider-drag-state
             {:col-id      col-id
+             :doc         doc
              :start-x     start-x
              :start-width (or current-width 0)
              :pointer-id  pointer-id
@@ -541,14 +549,14 @@
              :on-up       on-up
              :on-cancel   on-cancel
              :prev-cursor prev-cursor})
-    (when (and (exists? js/document) (.-body js/document))
-      (set! (-> js/document .-body .-style .-cursor) "col-resize"))
-    (when (and (exists? js/document) (.-addEventListener js/document))
-      (try (.addEventListener js/document "pointermove" on-move)
+    (when (and doc (.-body doc))
+      (set! (-> doc .-body .-style .-cursor) "col-resize"))
+    (when (and doc (.-addEventListener doc))
+      (try (.addEventListener doc "pointermove" on-move)
            (catch :default _ nil))
-      (try (.addEventListener js/document "pointerup" on-up)
+      (try (.addEventListener doc "pointerup" on-up)
            (catch :default _ nil))
-      (try (.addEventListener js/document "pointercancel" on-cancel)
+      (try (.addEventListener doc "pointercancel" on-cancel)
            (catch :default _ nil)))
     (try (.preventDefault e) (catch :default _ nil)))))
 

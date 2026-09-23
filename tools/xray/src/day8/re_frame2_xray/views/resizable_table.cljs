@@ -350,9 +350,21 @@
 ;; drag-state + `detach-…!` pattern — `resizable-table` was the lone
 ;; drag surface diverging from it.
 (defonce ^:private drag-state
-  ;; {:on-move <fn> :on-up <fn> :on-cancel <fn>} — the bound window
-  ;; handlers for the in-progress drag; nil when no drag is running.
+  ;; {:win <Window> :on-move <fn> :on-up <fn> :on-cancel <fn>} — the
+  ;; gutter's own window and the handlers bound on it for the in-progress
+  ;; drag; nil when no drag is running.
   (atom nil))
+
+(defn- gutter-window
+  "The window that owns `gutter-el`: its document's `defaultView`, never
+  simply `js/window`. In pop-out mode the table is painted into the
+  pop-out's document by code running in the OPENER's realm, so
+  `js/window` there is the opener, whose listeners the pop-out's pointer
+  events never reach (rf2-3x7nj.25.5). Falls back to `js/window` for an
+  element with no document (the drag tests' stubs), nil without either."
+  [^js gutter-el]
+  (or (some-> gutter-el .-ownerDocument .-defaultView)
+      (when (exists? js/window) js/window)))
 
 (defn dragging?
   "Test seam — true iff a column-resize drag is in progress. Pure read
@@ -368,13 +380,14 @@
   pointerdown so a stranded listener from a failed prior drag never
   double-fires or piles up. Guards on `js/window` (node-test has none)
   and swallows per-listener removal errors so teardown always reaches
-  the `reset!`."
+  the `reset!`. Detaches from the window the drag attached to."
   []
-  (when-let [{:keys [on-move on-up on-cancel]} @drag-state]
-    (when (and (exists? js/window) (.-removeEventListener js/window))
-      (try (.removeEventListener js/window "pointermove" on-move)   (catch :default _ nil))
-      (try (.removeEventListener js/window "pointerup" on-up)       (catch :default _ nil))
-      (try (.removeEventListener js/window "pointercancel" on-cancel) (catch :default _ nil)))
+  (when-let [{:keys [win on-move on-up on-cancel]} @drag-state]
+    (let [^js win win]
+      (when (and win (.-removeEventListener win))
+        (try (.removeEventListener win "pointermove" on-move)   (catch :default _ nil))
+        (try (.removeEventListener win "pointerup" on-up)       (catch :default _ nil))
+        (try (.removeEventListener win "pointercancel" on-cancel) (catch :default _ nil))))
     (reset! drag-state nil)))
 
 (defn on-pointer-down
@@ -441,12 +454,13 @@
                           (dispatch-fn [:rf.xray.column-widths/resize-pair-commit])
                           (detach-window-listeners!))
               on-up     (fn [_] (finish!))
-              on-cancel (fn [_] (finish!))]
-          (reset! drag-state {:on-move on-move :on-up on-up :on-cancel on-cancel})
-          (when (and (exists? js/window) (.-addEventListener js/window))
-            (try (.addEventListener js/window "pointermove" on-move)     (catch :default _ nil))
-            (try (.addEventListener js/window "pointerup" on-up)         (catch :default _ nil))
-            (try (.addEventListener js/window "pointercancel" on-cancel) (catch :default _ nil))))))))
+              on-cancel (fn [_] (finish!))
+              ^js win   (gutter-window gutter-el)]
+          (reset! drag-state {:win win :on-move on-move :on-up on-up :on-cancel on-cancel})
+          (when (and win (.-addEventListener win))
+            (try (.addEventListener win "pointermove" on-move)     (catch :default _ nil))
+            (try (.addEventListener win "pointerup" on-up)         (catch :default _ nil))
+            (try (.addEventListener win "pointercancel" on-cancel) (catch :default _ nil))))))))
 
 ;; ---- test seams (rf2-65015d) --------------------------------------------
 ;; Drive the window-level drag handlers without a real DOM — node-test
