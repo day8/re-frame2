@@ -214,7 +214,9 @@ signals described under [Advanced](#advanced).
 <a id="frame-safe-callbacks"></a>
 ## Frame-safe callbacks and `rf/capture-frame`
 
-Generated intent callbacks and `h/event` callbacks retain their view's frame.
+Generated intent callbacks and `h/event` callbacks retain the frame they were
+lowered under — their view's, or the one a nested `h/frame-root` /
+`h/frame-provider` names for the markup below it.
 Application-owned async work should normally move to the event/effect layer,
 where an fx handler already receives the frame id in its context and
 `:dispatch-later` expresses delay as data.
