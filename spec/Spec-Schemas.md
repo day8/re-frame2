@@ -835,7 +835,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:op-type` | Used for | Spec |
 |---|---|---|
 | `:rf.frame` | Frame-lifecycle family — `:rf.frame/created`, `:rf.frame/re-registered`, `:rf.frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
-| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason` — one of `:rf.machine/finished` / `:explicit` — the complete non-frame-exit vocabulary (parent-cascade teardowns stamp `:explicit`; the frame-exit cause `:parent-frame-destroyed` rides exclusively on the `:rf.machine.lifecycle/destroyed` family below; per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
+| `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`, `:rf.machine.spawn/stale-completion`). `:rf.machine/destroyed` carries `:reason` — one of `:rf.machine/finished` / `:explicit` — the complete non-frame-exit vocabulary (parent-cascade teardowns stamp `:explicit`; the frame-exit cause `:parent-frame-destroyed` rides exclusively on the `:rf.machine.lifecycle/destroyed` family below; per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
 | `:rf.machine.lifecycle/created` | Machine instance lifecycle — `created` half. Uniform create-emit shape used by lifecycle observers; `:tags {:frame <id> :machine-id <id>}` | 005 / 009 |
 | `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :actor-id <live-instance-id> :last-state <state> :reason :parent-frame-destroyed}`. `:reason` is always `:parent-frame-destroyed` — the frame-exit cascade is this channel's sole trigger, one emit per active machine snapshot; every non-frame-exit teardown signals on the fx-substrate `:rf.machine/destroyed` row above instead (per the [009 §channel/reason matrix](009-Instrumentation.md#op-type-vocabulary)). `:actor-id` is the reaped actor's live INSTANCE address (`:machine-id` is reserved for the registered TYPE, carried by the `created` half above) | 005 / 009 |
 | `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
@@ -2845,6 +2845,15 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; harness's hand-built input snapshots) may omit it — the reducer
    ;; defaults absent slots to 0 via `fnil`.
    [:rf/spawn-counter {:optional true} [:map-of :keyword :int]]
+   ;; :rf/spawn-attempts is the per-invoke spawn ATTEMPT token (rf2-3x7nj.9.3),
+   ;; keyed by the single-`:spawn`-bearing state's invoke-id (region-qualified
+   ;; under `:type :parallel`). Bumped on every entry of that state and stamped
+   ;; on the child as `:rf/invoke-attempt`; the parent delivers a completion
+   ;; carrier only while the carried attempt is still current and the state is
+   ;; still active (per [005 §Stale suppression](005-StateMachines.md#spawned-actor-completion)).
+   ;; Runtime-owned; allocated lazily — absent until the first single-`:spawn`
+   ;; entry.
+   [:rf/spawn-attempts {:optional true} [:map-of [:vector :keyword] :int]]
    ;; :rf/history is the recorded-history map for machines declaring a
    ;; `:type :history` pseudo-state (per [005 §History states]
    ;; (005-StateMachines.md#history-states-type-history--shallow--deep--default-target)).
@@ -2878,12 +2887,12 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
 
 Stability invariants the implementation upholds (see [005 §Snapshot shape](005-StateMachines.md#snapshot-shape)):
 
-1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean). `:rf/spawn-counter` is a map of keyword→int and round-trips cleanly; `:rf/history` is a map of keyword-vectors to keyword-vectors-or-keywords and round-trips cleanly.
+1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean). `:rf/spawn-counter` is a map of keyword→int and `:rf/spawn-attempts` a map of keyword-vector→int, and both round-trip cleanly; `:rf/history` is a map of keyword-vectors to keyword-vectors-or-keywords and round-trips cleanly.
 2. Snapshots represent committed state only; no in-flight microstate is captured.
 3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member. The history analogue: a **recorded** configuration in `:rf/history` that references a substate the reloaded definition removed is a *dangling recorded path* — on a restore-to-history transition the runtime discards it and falls back to the pseudo-state's `:default-target` (or the compound's `:initial`), never entering the dead path. Per [005 §Dangling recorded paths after hot reload](005-StateMachines.md#dangling-recorded-paths-after-hot-reload).
 4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.error/machine-snapshot-version-mismatch` (per [Spec 009 §Trace events](009-Instrumentation.md); older drafts spelled this `:rf.warning/machine-snapshot-version-mismatch`, the `:rf.error/` form is canonical).
 5. `:tags` is **read-only** for users — actions cannot return `:tags` in their `{:data :fx}` effect map; the runtime owns the slot and recomputes it from `:state` at every commit.
-6. `:rf/spawn-counter` is **read-only** for users — the runtime owns the slot and bumps it on every declarative-`:spawn` spawn. Apps that need to address a spawned actor by id read it from the parent's own `:data` under `[:rf/spawned <invoke-id>]`, or from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` (the runtime-owned registry) — never from the counter directly.
+6. `:rf/spawn-counter` is **read-only** for users — the runtime owns the slot and bumps it on every declarative-`:spawn` spawn. Apps that need to address a spawned actor by id read it from the parent's own `:data` under `[:rf/spawned <invoke-id>]`, or from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` (the runtime-owned registry) — never from the counter directly. `:rf/spawn-attempts` is **read-only** on the same terms — the runtime bumps it on every single-`:spawn` entry.
 7. `:rf/history` is **read-only** for users — the runtime owns the slot and writes it during the history-bearing compound's exit cascade. Actions cannot return `:rf/history` in their `{:data :fx}` effect map; the recorded configuration is derived from the active path at exit, not authored. Per [005 §The `:rf/history` snapshot slot](005-StateMachines.md#the-rfhistory-snapshot-slot).
 8. `:rf/spawned` (inside `:data`) is **read-only** for users — the runtime's pure transition reducer owns the slot and binds the assigned actor id under `[:rf/spawned <invoke-id>]` on every declarative `:spawn` / `:spawn-all`, the XState-context-parity capture. Actions READ it (`(get-in data [:rf/spawned <invoke-id>])`) to obtain the id of an actor they spawned and emit `[:rf.machine/destroy <id>]`, but MUST NOT write it. It is keyword-keyed / keyword-vector-valued (EDN-clean) and round-trips through `pr-str` / `read-string`, riding SSR hydration + Tool-Pair epoch replay with the rest of `:data`. Per [005 §Recording the spawned id user-side](005-StateMachines.md#recording-the-spawned-id-user-side).
 
@@ -4162,7 +4171,8 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    ;; spawns (those user-owned destroys are still hand-emitted with the actor id).
    [:rf/parent-id  {:optional true} :keyword]                               ;; parent machine's registration-id
    [:rf/invoke-id  {:optional true} [:vector :keyword]]                     ;; declarative spawn invocation path — absolute prefix-path of the :spawn-bearing state node (was `:rf/spawn-id`)
-   [:rf/spawned-id {:optional true} :keyword]])                             ;; resolved gensym'd id, threaded through so spawn-fx registers under the id the reducer allocated
+   [:rf/spawned-id {:optional true} :keyword]                               ;; resolved gensym'd id, threaded through so spawn-fx registers under the id the reducer allocated
+   [:rf/invoke-attempt {:optional true} :int]])                             ;; declarative single :spawn only — the parent's spawn attempt token, stamped into the child's :data (rf2-3x7nj.9.3)
 
 ;; The spawned actor's snapshot lives at [:rf.runtime/machines :snapshots <gensym'd-id>] in the
 ;; active frame's app-db — runtime-managed; not part of the spawn-spec.
