@@ -107,6 +107,25 @@
   #{:rf.sub/run
     :rf.sub/skip})
 
+;; ---- sub-surface schema failures -----------------------------------------
+;;
+;; A sub's `:schema` is checked as it recomputes, so a failure on the
+;; `:sub-return` surface (or its render-phase `:sub-override` sibling) shares
+;; its recompute's timing AND its routing tags: a `:frame`, and no
+;; `:rf.trace/dispatch-id` when the recompute ran post-settle. It follows its
+;; `:rf.sub/run` into the causing epoch through the same hook, riding only
+;; `:trace-events` (`sub-run-row` projects no row for it). Without that it
+;; would be orphan-dropped while its run was kept, and Xray would show the
+;; replaced `nil` as a clean SUBSCRIPTIONS row (Spec 010 §Per-step recovery).
+(def ^:private sub-schema-failure-surfaces
+  #{:sub-return
+    :sub-override})
+
+(defn- sub-schema-failure?
+  [operation event-tags]
+  (and (= :rf.error/schema-validation-failure operation)
+       (contains? sub-schema-failure-surfaces (:where event-tags))))
+
 ;; ---- unmount op ------------------------------------------------------------
 ;;
 ;; The view-teardown sibling of render-ops. `:rf.view/unmounted`
@@ -177,9 +196,11 @@
   that fires WITH a cascade in flight (synchronous flush) belongs to
   that cascade and is buffered as before.
 
-  The same timing applies to reactive sub-runs and view unmounts. They are
-  back-filled through their dedicated hooks when no event is in flight, while
-  synchronous occurrences stay in the current buffer."
+  The same timing applies to reactive sub-runs, to a `:sub-return` /
+  `:sub-override` schema failure from the same recompute (which follows its
+  run through the sub-run hook), and to view unmounts. They are back-filled
+  through their dedicated hooks when no event is in flight, while synchronous
+  occurrences stay in the current buffer."
   [event]
   (when rf.interop/debug-enabled?
     (let [operation  (:operation event)
@@ -223,6 +244,7 @@
                      (in-flight-cascade? frame-id)
                      (contains? render-ops operation)
                      (contains? sub-run-ops operation)
+                     (sub-schema-failure? operation event-tags)
                      (contains? unmount-ops operation)))
         (when-let [owner-token (rf.frame/frame-incarnation-token frame-id)]
           (rf.epoch.state/claim-frame-owner! frame-id owner-token)))
@@ -256,10 +278,12 @@
             (record-render! frame-id event)
             (rf.epoch.state/buffer-event! frame-id event))
 
-          ;; Post-settle sub-run. Same
+          ;; Post-settle sub-run, and a sub-surface schema failure from the
+          ;; same recompute, which follows its run into the same epoch. Same
           ;; back-fill shape, distinct hook. Falls through to the normal
           ;; buffer path during the pre-facade-install load-order window.
-          (and (contains? sub-run-ops operation)
+          (and (or (contains? sub-run-ops operation)
+                   (sub-schema-failure? operation event-tags))
                (not (in-flight-cascade? frame-id)))
           (if-let [record-sub-run! (rf.late-bind/get-fn-cached :epoch/record-sub-run!)]
             (record-sub-run! frame-id event)
@@ -291,14 +315,15 @@
           ;; fired between the last settled event and the next dequeue, or a
           ;; registry-time emit. Per Spec 009 §Dispatch correlation it stays
           ;; UNCORRELATED — neither a new epoch nor folded into another
-          ;; epoch's `:trace-events`. It still rides the raw trace ring +
-          ;; listener fan-out (those run independently of this capture seam);
-          ;; only the epoch-record capture buffer skips it.
+          ;; epoch's `:trace-events`. It still reaches live listeners (that
+          ;; fan-out runs independently of this capture seam), but nothing
+          ;; retains it: the per-frame trace ring keeps only emits carrying
+          ;; a dispatch-id. So a post-settle consequence of an event must be
+          ;; claimed by one of the back-fill arms above, never left here.
           ;;
-          ;; This is the third out-of-cascade emit class: the post-settle
-          ;; render/sub-run branches above gate on the same
-          ;; `in-flight-cascade?` signal, and an orphan emit with no cascade
-          ;; in flight is left uncorrelated here.
+          ;; The post-settle render / sub-run / unmount arms above gate on
+          ;; the same `in-flight-cascade?` signal; an orphan emit with no
+          ;; cascade in flight is left uncorrelated here.
           ;;
           ;; A `:dispatch-id`-bearing emit is ALWAYS buffered even when no
           ;; cascade is in flight for THIS frame at the instant of the emit:
