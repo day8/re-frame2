@@ -119,7 +119,8 @@
   via Closure DCE. JVM consumers run validation unconditionally — JVM
   paths are dev/server-side, the cost is invisible against the
   surrounding tree-walk."
-  (:require [re-frame.mcp-base.section-grouping :as rf.mcp-base.section-grouping]
+  (:require [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
+            [re-frame.mcp-base.section-grouping :as rf.mcp-base.section-grouping]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---------------------------------------------------------------------------
@@ -394,6 +395,13 @@
                 ;; Key added — genuinely absent from `a`.
                 (nil? e)
                 (conj acc [p :assoc bv])
+                ;; `find` paired `k` with an `=` key of another KIND (a
+                ;; vector key respelled as a list). `assoc` would keep the
+                ;; OLD key, so drop it and re-add under `b`'s own key. Both
+                ;; patches share path `p`, so the stable section sort keeps
+                ;; the `:dissoc` first (rf2-3x7nj.35.1).
+                (not (rf.mcp-base.dedup/wire= (key e) k))
+                (conj acc [p :dissoc] [p :assoc bv])
                 ;; A changed EXISTING key: delegate to `collect-patches-into`
                 ;; so the dispatch is decided in ONE place — two maps recurse
                 ;; key-by-key, two same-length vectors recurse element-wise,
@@ -450,9 +458,9 @@
                  ;; unchanged element — the common case for tables/queues
                  ;; where most rows hold steady across an epoch.
                  ;; `collect-patches-into` would also no-op via its own
-                 ;; `(= a b)` arm; the inline guard avoids the index-conj
+                 ;; `wire=` arm; the inline guard avoids the index-conj
                  ;; + call on the hot slice.
-                 (if (= av bv)
+                 (if (rf.mcp-base.dedup/wire= av bv)
                    acc
                    (collect-patches-into acc av bv (conj path i)))))
         acc))))
@@ -469,10 +477,17 @@
     - two SAME-LENGTH vectors        → `collect-vector-patches-into`
       (element-wise, numeric-index paths)
     - any other change (incl. a length-changed or non-vector sequential)
-      → a single whole-leaf `[path :assoc b]` replacement."
+      → a single whole-leaf `[path :assoc b]` replacement.
+
+  \"Unchanged\" is `wire=` (`=` refined by collection kind), not bare `=`:
+  `(= [1 2] '(1 2))`, so an event that turns a vector into a seq without
+  changing its elements (`sort-by`, `filter`, `map` …) would otherwise
+  emit no patch and the decoder would rebuild the OLD kind
+  (rf2-3x7nj.35.1). An `=` pair of different kinds falls through to the
+  arms below, so the patch lands on the slot whose kind changed."
   [acc a b path]
   (cond
-    (= a b) acc
+    (rf.mcp-base.dedup/wire= a b) acc
     (and (map? a) (map? b)) (collect-map-patches-into acc a b path)
     (and (vector? a) (vector? b) (= (count a) (count b)))
     (collect-vector-patches-into acc a b path)

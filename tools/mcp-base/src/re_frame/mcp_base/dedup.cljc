@@ -464,11 +464,15 @@
     (set? a)         (every? (fn [x] (same-kinds? (get a x) x)) b)
     :else            true))
 
-(defn ^:private wire=
+(defn wire=
   "The one equivalence the encoder pools by: `=`, refined by
   `same-kinds?`. The counting pass, the repeat check and slot lookup all
   use it, so they cannot disagree about what one slot may hold. It is
-  still EQUALITY, not identity — see the namespace docstring."
+  still EQUALITY, not identity — see the namespace docstring.
+
+  Public because `re-frame.mcp-base.diff-encode` decides \"unchanged\" by
+  the same equivalence: a vector respelled as a list is a change on the
+  wire even though `=` holds (rf2-3x7nj.35.1)."
   [a b]
   (and (= a b) (same-kinds? a b)))
 
