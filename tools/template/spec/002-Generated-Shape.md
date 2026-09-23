@@ -217,7 +217,7 @@ the template's own additions.
 | `{{npm-name}}` | The `package.json` `name`: the artefact segment of `:name`, lowercased — unscoped, npm-valid. A qualified name copied verbatim (`acme/my-app`) is what npm rejects. | `my-app` |
 | `{{rf2-version}}` | re-frame2 framework coord version | `0.0.1.alpha` |
 | `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
-| `{{react-version}}` | react & react-dom pin | `19.2.0` |
+| `{{react-version}}` | react & react-dom pin | `19.3.0` |
 | `{{xyflow-version}}` | `@xyflow/react` pin — Story's shell embeds Xray's machine canvas | `12.4.2` |
 | `{{elkjs-version}}` | `elkjs` pin — that canvas's layout engine | `0.11.1` |
 

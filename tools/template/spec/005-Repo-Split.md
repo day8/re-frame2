@@ -76,8 +76,8 @@ github.com/day8/re-frame2-template/        ; external repo (NEW) — the TEMPLAT
 │   ├── template.edn                       ; the deps-new template config (the only template.edn in the tree)
 │   ├── root/                              ; bulk-copied: README.md + resources/public/ (index.html, css/app.css)
 │   ├── _shared/                           ; substrate-agnostic: gitignore, events.cljs, events_test.cljs, subs.cljs, shadow-cljs.edn, package.json
-│   ├── _reagent/                          ; Reagent-specific (core.cljs / views.cljs / deps.edn)
-│   └── _uix/                              ; UIx-specific (core.cljs / views.cljs / deps.edn)
+│   ├── _reagent/                          ; Reagent-specific (core.cljs / views.cljs / stories.cljs / deps.edn)
+│   └── _uix/                              ; UIx-specific (core.cljs / views.cljs / stories.cljs / deps.edn)
 ├── spec/                                  ; 000-Vision, 001-Substrate-Variants, 002-Generated-Shape,
 │                                          ;   005-Repo-Split (this doc), API, DESIGN-RATIONALE, Principles, README
 ├── test/day8/re_frame2_template/          ; framework-fixture-coupled — see §3.2.1
