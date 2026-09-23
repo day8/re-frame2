@@ -3482,9 +3482,10 @@
                                 ;; method); it carries no debug gate and
                                 ;; survives `:advanced` + `goog.DEBUG=false`.
                                 ;;
-                                ;; The callback is GUARDED three ways so it
+                                ;; The callback is GUARDED four ways so it
                                 ;; re-acquires exactly once, for the right
-                                ;; holder, and cannot resurrect a dead frame:
+                                ;; holder, and cannot resurrect a dead frame
+                                ;; or adapter:
                                 ;;   * `released?` — an unmounted hook takes
                                 ;;     nothing back;
                                 ;;   * identity — this callback fires only for
@@ -3497,14 +3498,24 @@
                                 ;;     frame reads nil here and the hook lets go
                                 ;;     rather than emitting a
                                 ;;     `:rf.error/frame-destroyed` recovery per
-                                ;;     mounted component.
+                                ;;     mounted component;
+                                ;;   * adapter liveness (rf2-3x7nj.2.2) —
+                                ;;     `rf/destroy-adapter!` disposes every
+                                ;;     sub-cache BEFORE it unmounts the roots,
+                                ;;     with the generation already claimed, so
+                                ;;     `current-adapter` reads nil here and the
+                                ;;     hook lets go exactly as it does for a
+                                ;;     destroyed frame. A rebuild would reach
+                                ;;     `make-derived-value`, which throws
+                                ;;     `:rf.error/adapter-disposed` mid-teardown.
                                 (rf.interop/add-on-dispose! reaction
                                   (fn on-committed-disposed []
                                     (let [h @held]
                                       (when (and (not @released?)
                                                  (some? h)
                                                  (identical? (aget h 0) reaction)
-                                                 (some? (rf.frame/frame stable-frame-kw)))
+                                                 (some? (rf.frame/frame stable-frame-kw))
+                                                 (some? (rf.substrate.adapter/current-adapter)))
                                         ;; Take the REBUILT entry and re-wire
                                         ;; onto it, then tell React to re-read
                                         ;; the snapshot. `subscribe-fn`'s
