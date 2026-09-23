@@ -72,9 +72,12 @@
             HTTP fact — the request went out — so a section drawn over nothing
             could only mislead. The old RESPONSE row read '(no response payload
             yet)', which promises a reply that will never arrive here."
-    (let [r   (record {:surface :http :fx-id :rf.http/managed
-                       :status :issued
-                       :handler [:user/loaded]})
+    ;; `:res nil` — an unjoined HTTP record carries no response summary
+    ;; (rf2-6ooch draws RESPONSE exactly when the join found one).
+    (let [r   (assoc (record {:surface :http :fx-id :rf.http/managed
+                              :status :issued
+                              :handler [:user/loaded]})
+                     :res nil)
           out (template/record-panel r)
           ids (set (testids out))]
       (is (contains? ids "rf-xray-managed-fx-record-http-99"))
@@ -884,6 +887,72 @@
             label (str (:surface r) "/" (:status r))]
         (assert-no-internal-refs! (str "visible-text[" label "]") (visible-text panel))
         (assert-no-internal-refs! (str "tooltip-text[" label "]") (tooltip-text panel))))))
+
+;; ---- the joined HTTP record (rf2-6ooch) ----------------------------------
+;;
+;; The join itself is pinned on producer captures in
+;; `managed_fx_http_join_cljs_test`; these rows grade only the RENDERING of
+;; the fields it fills.
+
+(defn- joined-http-record [status extra]
+  (merge (assoc (record {:surface :http :fx-id :rf.http/managed :status status})
+                :res nil :duration-ms nil :completion :joined)
+         extra))
+
+(deftest joined-http-record-draws-what-the-join-found
+  (testing "an ERROR after a retry: the http status, the attempt count, the
+            ELAPSED label, WIRE and RESPONSE, and the reply link"
+    (let [seen (atom [])
+          r    (joined-http-record :error
+                 {:http-status 500 :attempts 2 :duration-ms 850
+                  :wire        {:phases [[:issued 0] [:elapsed 850]] :total-ms 850}
+                  :res         {:kind :rf.http/http-5xx :status 500}
+                  :failure     {:kind :rf.http/http-5xx :tags {:kind :rf.http/http-5xx :status 500}}
+                  :reply-link  {:dispatch-id 41 :frame :rf/default}})
+          tree (template/record-panel #(swap! seen conj %) nil r)
+          ids  (set (testids tree))
+          txt  (visible-text tree)
+          link (first (filter #(= "rf-xray-managed-fx-reply-link" (:data-testid (second %)))
+                              (hiccup-vectors tree)))]
+      (is (contains? ids "rf-xray-managed-fx-status-error"))
+      (is (str/includes? txt "ERROR 500"))
+      (is (str/includes? txt "2 attempts"))
+      (is (str/includes? txt "elapsed 850ms"))
+      (is (contains? ids "rf-xray-managed-fx-section-wire") "an elapsed brings WIRE TIMING")
+      (is (contains? ids "rf-xray-managed-fx-section-response"))
+      (is (not (contains? ids "rf-xray-managed-fx-section-app-db")))
+      (is (not (contains? ids "rf-xray-managed-fx-no-completion")))
+      (is (some? link) "a delivered reply draws the link")
+      ((:on-click (second link)) nil)
+      (is (= [[:rf.xray/focus-event 41 :rf/default]] @seen)
+          "the link focuses the REPLY bundle, never the issuing one")))
+
+  (testing "CANCELLED and STALE are their own statuses, not ERROR"
+    (let [c (joined-http-record :cancelled {:cancel-cause :actor-destroyed})
+          s (joined-http-record :stale {:cancel-cause :rf.http/superseded})]
+      (is (contains? (set (testids (template/record-panel c))) "rf-xray-managed-fx-status-cancelled"))
+      (is (str/includes? (visible-text (template/record-panel c)) "CANCELLED"))
+      (is (contains? (set (testids (template/record-panel s))) "rf-xray-managed-fx-status-stale"))
+      (is (str/includes? (visible-text (template/record-panel s)) "STALE"))
+      (is (not (contains? (set (testids (template/record-panel s))) "rf-xray-managed-fx-reply-link"))
+          "no link without a delivered reply")))
+
+  (testing "an issued row with no terminal row says so, and never 'in flight'"
+    (let [r   (assoc (joined-http-record :issued {}) :completion :none)
+          ids (set (testids (template/record-panel r)))
+          txt (visible-text (template/record-panel r))]
+      (is (contains? ids "rf-xray-managed-fx-no-completion"))
+      (is (str/includes? txt "no completion in this capture"))
+      (is (not (str/includes? (str/lower-case txt) "in flight")))
+      (is (not (contains? ids "rf-xray-managed-fx-section-wire")))
+      (is (not (contains? ids "rf-xray-managed-fx-section-response")))))
+
+  (testing "CONTROL — an unjoined record draws none of it"
+    (let [r   (assoc (joined-http-record :issued {}) :completion nil)
+          ids (set (testids (template/record-panel r)))]
+      (is (not (contains? ids "rf-xray-managed-fx-no-completion")))
+      (is (not (contains? ids "rf-xray-managed-fx-attempts")))
+      (is (not (contains? ids "rf-xray-managed-fx-reply-link"))))))
 
 ;; ---- the per-mount qualifier (rf2-5ykm) ----------------------------------
 ;;

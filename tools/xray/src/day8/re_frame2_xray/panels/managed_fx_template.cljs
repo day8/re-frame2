@@ -25,35 +25,36 @@
   two open, as drawn above); the operator's overrides live in app-db,
   keyed per record so sibling panels open independently.
 
-  ## The HTTP record is narrower, and says so
-
-  An HTTP record draws REQUEST and REPLY TARGET only, plus RESPONSE when
-  a failure landed in this very bundle:
-
-  ```
-  ┌─ MANAGED FX [HTTP] · :rf.http/managed ────────────────────────┐
-  │ STATUS: ◦ ISSUED · correlation: :checkout                      │
-  │                                                                │
-  │ ▶ REQUEST                                                      │
-  │ ▶ REPLY TARGET                                                 │
-  └────────────────────────────────────────────────────────────────┘
-  ```
+  ## The HTTP record reads its outcome off the whole capture
 
   The issuing event-bundle holds essentially one HTTP fact — the request
   went out — because almost every row the runtime emits afterwards is
   emitted from a transport callback with no handler scope, or inside a
-  different run's drain. So there is no phase, no wire timing, no response
-  and no app-db slice to draw, and the record says `ISSUED` rather than
-  `OK`.
+  different run's drain. So the record's outcome is JOINED from the whole
+  trace buffer on the request's work id (rf2-6ooch; see
+  `managed-fx-helpers/http-adapter`), and it draws what that join found:
 
-  Three rows DO reach the issuing bundle, because all three run inside the
-  issuing fx handler's own stack: a synchronous request-body-prep failure;
-  the `:rf.http/aborted` an issuance fires at the attempt it SUPERSEDES
-  (rf2-n3sx9); and (CLJS) the `:rf.http/aborted` an already-aborted
-  external `:abort-signal` fires at THIS attempt's own abort-fn during
-  attempt setup. Which of them belongs to which record is
-  `managed-fx-helpers/http-row-for-this-record?`'s call, not this ns's —
-  see `managed-fx-helpers/http-adapter`.
+  ```
+  ┌─ MANAGED FX [HTTP] · :rf.http/managed · elapsed 1204ms ───────┐
+  │ STATUS: ✗ ERROR 500 · 2 attempts · → reply ↗ · correlation: … │
+  │                                                                │
+  │ ▶ REQUEST                                                      │
+  │ ▼ WIRE TIMING          (issued → elapsed)                      │
+  │ ▶ RESPONSE             (the terminal row's elided summary)     │
+  │ ▶ REPLY TARGET                                                 │
+  └────────────────────────────────────────────────────────────────┘
+  ```
+
+  Statuses are the framework's closed reply statuses (`OK`, `ERROR`,
+  `CANCELLED`, `STALE`) plus `ISSUED`, which is what a record reads when
+  no completion joined: `ISSUED · no completion in this capture` when its
+  issued row is here and no terminal row is (the buffer cannot tell
+  pending from aged-out, so it never says in flight), and plain `ISSUED`
+  when there is no issued row to join from at all. `→ reply ↗` appears
+  only for a DELIVERED reply whose bundle is still in the capture — a
+  stale outcome delivered nothing. There is no APP-DB section: what the
+  reply did to app-db is the reply bundle's own story, and the link is
+  the bridge to it.
 
   ## Five surfaces, one template
 
@@ -73,18 +74,18 @@
   tag or the `edn-inspector-view` boundary, both of which Fresco's codec
   accepts and Reagent renders unchanged.
 
-  ## No cross-link from the reply target
+  ## The reply target is configuration; the reply link is observed
 
   The REPLY TARGET row shows the event vector the CALLER CONFIGURED for
   the reply; it does not observe a delivery and offers no pivot to one.
 
-  It used to carry a '→ focus event ↗' button, removed here. That button
-  dispatched `:rf.xray/focus-event` with the ISSUING record's own
+  It used to carry a '→ focus event ↗' button, removed with rf2-y8doi.18:
+  it dispatched `:rf.xray/focus-event` with the ISSUING record's own
   dispatch-id and frame, so it re-focused the event-bundle already in
-  focus — it read as 'jump to where the response landed' and did
-  nothing. Reaching the reply really does need the completion row, which
-  lives in another bundle entirely and is a deferred feature, so the
-  honest affordance for now is no affordance."
+  focus. The header's `→ reply ↗` (rf2-6ooch) dispatches the same spine
+  event with the dispatch-id of the bundle that DELIVERED the reply,
+  found through the joined completion's work id — a different bundle by
+  construction."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
             [day8.re-frame2-xray.chart.timing-waterfall :as waterfall]
@@ -189,6 +190,56 @@
                     :font-weight   600}}
      (str "cancel: " cancel-cause)]))
 
+(defn- attempts-pill
+  "`N attempts` when the joined terminal row is a retry's (rf2-6ooch). A
+  single attempt says nothing worth a pill."
+  [attempts]
+  (when (and (number? attempts) (< 1 attempts))
+    [:span {:data-testid "rf-xray-managed-fx-attempts"
+            :style {:padding       "1px 6px"
+                    :margin-left   "8px"
+                    :border-radius "3px"
+                    :background    (:bg-3 tokens)
+                    :color         (:text-secondary tokens)
+                    :font-family   mono-stack
+                    :font-size     "10px"}}
+     (str attempts " attempts")]))
+
+(defn- completion-note
+  "The honest label for an issued row with no terminal row in the buffer
+  (rf2-6ooch). Never 'in flight': the ring cannot tell a request still
+  pending from one whose completion aged out."
+  [completion]
+  (when (= :none completion)
+    [:span {:data-testid "rf-xray-managed-fx-no-completion"
+            :style {:margin-left "8px"
+                    :color       (:text-tertiary tokens)
+                    :font-family mono-stack
+                    :font-size   "10px"}}
+     "no completion in this capture"]))
+
+(defn- reply-link
+  "`→ reply ↗` — focus the bundle that DELIVERED this record's reply
+  (rf2-6ooch). Dispatches the spine's canonical `:rf.xray/focus-event`
+  with THAT bundle's dispatch-id and frame, so it always names a
+  different bundle from the one in focus."
+  [dispatch {:keys [dispatch-id frame] :as link}]
+  (when link
+    [:button {:data-testid "rf-xray-managed-fx-reply-link"
+              :type        "button"
+              :title       "Focus the event that received this reply"
+              :on-click    (fn [_] (dispatch [:rf.xray/focus-event dispatch-id frame]))
+              :style {:margin-left   "8px"
+                      :padding       "1px 6px"
+                      :border        (str "1px solid " (:border-subtle tokens))
+                      :border-radius "3px"
+                      :background    "transparent"
+                      :color         (:accent tokens)
+                      :font-family   mono-stack
+                      :font-size     "10px"
+                      :cursor        "pointer"}}
+     "→ reply ↗"]))
+
 (defn- stub-pill
   [stubbed?]
   (when stubbed?
@@ -208,7 +259,8 @@
 
 (defn- panel-header
   [dispatch
-   {:keys [surface fx-id duration-ms status http-status correlation-id phase cancel-cause stubbed?]
+   {:keys [surface fx-id duration-ms status http-status correlation-id phase cancel-cause stubbed?
+           attempts completion]
     :as   record}]
   [:header {:data-testid (str "rf-xray-managed-fx-header-" (name surface))
             :style       {:display       "flex"
@@ -251,9 +303,16 @@
    [:span {:style {:color (:text-tertiary tokens)
                    :font-family mono-stack
                    :font-size "11px"}}
-    (h/format-duration-ms duration-ms)]
+    ;; An HTTP record's duration is ELAPSED — issued row to terminal row,
+    ;; retry backoff included — so it says so (rf2-6ooch).
+    (if (and (= :http surface) (number? duration-ms))
+      (str "elapsed " (h/format-duration-ms duration-ms))
+      (h/format-duration-ms duration-ms))]
    [:span {:style {:flex 1}}]
    (status-pill record)
+   (completion-note completion)
+   (attempts-pill attempts)
+   (reply-link dispatch (:reply-link record))
    (correlation-pill dispatch correlation-id)
    (phase-pill phase)
    (cancel-pill cancel-cause)
@@ -639,19 +698,17 @@
                            :border-radius "4px"
                            :background    (:bg-2 tokens)}}
    (panel-header dispatch record)
-   ;; WHICH SECTIONS AN HTTP RECORD DRAWS IS NARROWER THAN THE OTHER
-   ;; FOUR SURFACES', and that is the shape of the trace rather than a
-   ;; feature gap. The issuing event-bundle holds essentially one HTTP
-   ;; fact — that the request went out — because almost every later row is
-   ;; emitted without a handler scope or inside another run's drain (see
-   ;; `managed-fx-helpers/http-trace-operations` for the two that are not,
-   ;; and which record each belongs to). So WIRE TIMING,
-   ;; RESPONSE and APP-DB SLICE have nothing to read for HTTP, and a
-   ;; section drawn over nothing is not neutral: the old RESPONSE row
-   ;; read "(no response payload yet)", which says a reply is still
-   ;; coming, and the old WIRE row read "this surface does not emit
-   ;; per-phase wire timing today", which says the runtime is at fault.
-   ;; Both are false. The four surfaces whose end events DO land
+   ;; WHICH SECTIONS AN HTTP RECORD DRAWS DEPENDS ON WHAT ITS JOIN FOUND.
+   ;; The issuing event-bundle holds essentially one HTTP fact — that the
+   ;; request went out — and the outcome is joined from the whole buffer
+   ;; (rf2-6ooch). WIRE TIMING is drawn once an elapsed exists and
+   ;; RESPONSE once there is a response summary or a failure to show;
+   ;; APP-DB SLICE never, because what the reply did to app-db belongs to
+   ;; the reply bundle `→ reply ↗` focuses. A section drawn over nothing
+   ;; is not neutral: the old RESPONSE row read "(no response payload
+   ;; yet)", which says a reply is still coming, and the old WIRE row read
+   ;; "this surface does not emit per-phase wire timing today", which says
+   ;; the runtime is at fault. The four surfaces whose end events DO land
    ;; in-bundle keep all five sections and are untouched here.
    ;;
    ;; The section-ids are unchanged, so `section-defaults` and
@@ -659,22 +716,21 @@
    ;; has no row, and its stored override (if the operator ever set one
    ;; on another surface) is inert rather than wrong.
    (let [http?    (= :http (:surface record))
-         failure? (some? (:failure record))]
+         failure? (some? (:failure record))
+         res?     (some? (:res record))]
      [:div {:style {:padding "8px 12px"}}
       (section :request  "REQUEST"
                "rf-xray-managed-fx-section-request"  (request-section instance record))
-      (when-not http?
+      (when (or (not http?) (some? (:wire record)))
         (section :wire     "WIRE TIMING"
                  "rf-xray-managed-fx-section-wire"     (wire-section record)))
-      ;; For HTTP the only thing RESPONSE can ever carry is a failure
-      ;; this bundle witnessed about its own attempt — a synchronous
-      ;; body-prep failure, or (CLJS) an already-aborted external
-      ;; `:abort-signal` firing this attempt's own abort-fn during
-      ;; attempt setup — so the section appears exactly when `:failure`
-      ;; is non-nil. A superseded attempt's abort and a stranger's
-      ;; cancellation are excluded upstream (see
-      ;; `managed-fx-helpers/http-row-for-this-record?`) and leave it nil.
-      (when (or (not http?) failure?)
+      ;; For HTTP, RESPONSE carries the joined terminal row's summary (a
+      ;; value, or the failure / cancellation map), or — when nothing
+      ;; joined — a failure this bundle witnessed about its own attempt,
+      ;; so the section appears exactly when there is one to show. A
+      ;; superseded attempt's abort and a stranger's cancellation are
+      ;; excluded upstream and leave both nil.
+      (when (or (not http?) failure? res?)
         (section :response "RESPONSE"
                  "rf-xray-managed-fx-section-response" (response-section instance record)))
       (section :handler  "REPLY TARGET"
