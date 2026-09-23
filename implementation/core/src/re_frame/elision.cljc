@@ -660,18 +660,16 @@
      :cljs
      nil))
 
-(defn- handle-of
-  [path as-of-epoch]
-  (if as-of-epoch
-    [:rf.elision/at path :as-of-epoch as-of-epoch]
-    [:rf.elision/at path]))
-
 (defn ^:no-doc ->marker
   "Build the `:rf.size/large-elided` marker map for value `v` at `path`.
   `^:no-doc` public so `re-frame.classification/large-marker` builds the marker
   here (with `{:reason :classification}`) rather than re-inlining the shape a
-  second time."
-  [v path {:keys [hint as-of-epoch include-digests? reason]}]
+  second time.
+
+  The `:handle` is always the two-element `[:rf.elision/at <path>]`, a
+  live-path locator — the only shape Spec-Schemas `:rf/elision-marker` types
+  (rf2-aakv6 retired the `:as-of-epoch` variant, which the schema rejects)."
+  [v path {:keys [hint include-digests? reason]}]
   (let [;; rf2-3x7nj.32.6 — `:digest` is associated only when a digest string
         ;; was actually computed; the browser build computes none, and an
         ;; `:digest nil` both fails the schema and reads as a false "unchanged".
@@ -686,14 +684,14 @@
                       ;; explicit source).
                       :reason (or reason :effect)
                       :hint   hint
-                      :handle (handle-of (vec path) as-of-epoch)}
+                      :handle [:rf.elision/at (vec path)]}
                (string? digest) (assoc :digest digest))]
     {:rf.size/large-elided body}))
 
 (defn- marker-opts
   "The `->marker` option map for a declared-`:large` node — derived from the
   matched path's retained `large-owners` set and the walk `ctx` (its
-  `:as-of-epoch` / `:include-digests?`). The 4-key option map the path-based
+  `:include-digests?`). The 3-key option map the path-based
   wire walker (`walk-decider`) passes to `->marker`. A large path may carry
   several independent owners (rf2-wdm1vg); the marker's `:reason` picks the
   highest-priority source deterministically (`owners->provenance`) and its
@@ -704,7 +702,6 @@
         hint   (some (fn [o] (when (= source (:source o)) (:hint o))) large-owners)]
     {:hint             hint
      :reason           source
-     :as-of-epoch      (:as-of-epoch ctx)
      :include-digests? (:rf.egress/include-digests? ctx)}))
 
 (defn- warn-large-unschema'd!
@@ -1117,8 +1114,7 @@
                    :rf.egress/include-large?     (true? (:rf.egress/include-large? opts))
                    :rf.egress/include-sensitive? (true? (:rf.egress/include-sensitive? opts))
                    :rf.egress/include-digests?   (true? (:rf.egress/include-digests? opts))
-                   :threshold-bytes    threshold
-                   :as-of-epoch        (:as-of-epoch opts)}
+                   :threshold-bytes    threshold}
         seed-path (vec (:path opts))
         n         (count seed-path)
         decide    (:decide (walk-decider ctx))
@@ -1181,11 +1177,13 @@
   `:rf.size/*` spellings (rf2-kuky.93 moved the whole opts vocabulary
   under one namespace); `:rf.size/*` now reserves the wire MARKER
   `:rf.size/large-elided` and nothing else, so a marker and a policy
-  are no longer spelled alike."
+  are no longer spelled alike. `:as-of-epoch` is absent too: rf2-aakv6
+  retired it, because its only effect was a four-element marker handle the
+  normative schema rejects, so passing it is now a loud
+  `:rf.error/bad-egress-opts`."
   #{:frame
     :path
     :query-v
-    :as-of-epoch
     :rf.egress/include-sensitive?
     :rf.egress/include-large?
     :rf.egress/include-digests?
@@ -1246,7 +1244,6 @@
       {:frame                      <frame-id>   ;; by KEY PRESENCE, see below
        :path                       [...]        ;; absolute app-db offset of `v`; a declaration at or above it governs `v`
        :query-v                    [...]        ;; route-sub re-seeding
-       :as-of-epoch                <epoch-id>
        :rf.egress/include-sensitive? <bool>
        :rf.egress/include-large?     <bool>
        :rf.egress/include-digests?   <bool>

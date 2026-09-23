@@ -340,10 +340,13 @@
 (deftest marker-options
   (install-class! [] [[:b]])
   (let [out    (rf.elision/elide-wire-value {:b "X"}
-                                    {:rf.egress/include-digests? true
-                                     :as-of-epoch 42})
+                                    {:rf.egress/include-digests? true})
         marker (get-in out [:b :rf.size/large-elided])]
-    (is (= [:rf.elision/at [:b] :as-of-epoch 42] (:handle marker)))
+    ;; rf2-aakv6 — the handle is ALWAYS the two-element live-path locator
+    ;; Spec-Schemas `:rf/elision-marker` types; the retired `:as-of-epoch`
+    ;; opt's four-element variant is gone (its refusal is pinned in
+    ;; `re-frame.egress-closed-opts-test/as-of-epoch-is-retired`).
+    (is (= [:rf.elision/at [:b]] (:handle marker)))
     (is (= :string (:type marker)))
     (is (= :effect (:reason marker)))
     (is (string? (:digest marker)))))

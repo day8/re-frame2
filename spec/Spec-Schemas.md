@@ -3665,8 +3665,8 @@ The wire shape `re-frame.elision/elide-wire-value` substitutes for an elided lar
 Per-field MUST-level requirements (catalogued at [009 §Wire marker — `:rf.size/large-elided`](009-Instrumentation.md#wire-marker--rfsizelarge-elided)):
 
 - `:path` is **absolute** inside the snapshot slice — not relative to the elision site. An agent that asked for `:path [:user]` and got the marker back at `:uploaded-pdf` sees `:path [:user :uploaded-pdf]`.
-- `:handle` is an EDN vector (not a tagged literal). The default shape is `[:rf.elision/at <path>]`; markers riding inside a past-epoch payload (e.g. an `:rf.mcp/diff-from` patch's `:assoc` slot) carry the variant `[:rf.elision/at <path> :as-of-epoch <epoch-id>]` so `get-path` resolves against that epoch's `:db-after` snapshot rather than now's.
-- `:digest` is OPTIONAL and only present when the caller passed `:rf.egress/include-digests? true` (per [API.md §Size-elision wire-boundary walker](API.md#size-elision-wire-boundary-walker)). Default off because the digest forces a full walk of the elided value, which negates the cost-saving.
+- `:handle` is an EDN vector (not a tagged literal) of shape `[:rf.elision/at <path>]`, the two-element form the schema above types and the only one. It is a live-path locator: it addresses the CURRENT app-db, including on a marker riding inside a past-epoch payload. The fetch route is at [009 §Wire marker](009-Instrumentation.md#wire-marker--rfsizelarge-elided).
+- `:digest` is OPTIONAL and only present when the caller passed `:rf.egress/include-digests? true` (per [API.md §Size-elision wire-boundary walker](API.md#size-elision-wire-boundary-walker)) AND the host computed one synchronously, which is the JVM. The browser build omits the slot, and never ships `:digest nil`, which the schema above rejects. Default off because `:bytes` already serialises the elided value once, and a digest adds a second serialisation plus a SHA-256 per marker. Absent a digest, equal markers (same `:path` / `:bytes` / `:type`) say nothing about whether the content is equal.
 
 The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) marks the handle as fetchable. Agents pattern-match on the leading `:rf.elision/at` keyword — no decoder needed.
 
@@ -3676,9 +3676,9 @@ The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per 
 > **Owner:** [015-Data-Classification §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)
 > **Status:** v1-required
 
-The opts map `rf/project-egress` accepts (EP-0015 §10/§11). `project-egress` is the public, record-level egress boundary primitive — **the ONE record-level egress door** (rf2-bv1p, ruling rf2-kuky.9 option A); it dispatches on a record's `:kind` to a private per-kind projector and delegates every tree-shaped slot to `re-frame.elision/elide-wire-value`. The opts carry the named `:rf.egress/profile` (the closed six-member `EgressProfile` enum above) plus the advanced `:rf.egress/*` overrides `elide-wire-value` consumes — the profile resolves to a `:rf.egress/*` opt-set, and an explicit `:rf.egress/*` boolean **composes on top (the override wins)**. `:frame` / `:path` / `:query-v` / `:rf.egress/threshold-bytes` / `:as-of-epoch` flow through to the walker.
+The opts map `rf/project-egress` accepts (EP-0015 §10/§11). `project-egress` is the public, record-level egress boundary primitive — **the ONE record-level egress door** (rf2-bv1p, ruling rf2-kuky.9 option A); it dispatches on a record's `:kind` to a private per-kind projector and delegates every tree-shaped slot to `re-frame.elision/elide-wire-value`. The opts carry the named `:rf.egress/profile` (the closed six-member `EgressProfile` enum above) plus the advanced `:rf.egress/*` overrides `elide-wire-value` consumes — the profile resolves to a `:rf.egress/*` opt-set, and an explicit `:rf.egress/*` boolean **composes on top (the override wins)**. `:frame` / `:path` / `:query-v` / `:rf.egress/threshold-bytes` flow through to the walker.
 
-The map is **`{:closed true}`** (rf2-kuky.6) and holds **twelve** keys: the walker's own closed eight, the ONE key this layer owns (`:rf.egress/profile`), and the three **epoch-only axes** the retired `projected-record` door handed over (rf2-bv1p — a door that retires must not take a capability with it). An unrecognised key raises `:rf.error/bad-egress-opts` naming it. Closing it is what makes the door and the walker beneath it read ONE vocabulary — open, a recognised policy key the reading door does not read vanished without a signal, in both directions.
+The map is **`{:closed true}`** (rf2-kuky.6) and holds **eleven** keys: the walker's own closed seven, the ONE key this layer owns (`:rf.egress/profile`), and the three **epoch-only axes** the retired `projected-record` door handed over (rf2-bv1p — a door that retires must not take a capability with it). An unrecognised key raises `:rf.error/bad-egress-opts` naming it. Closing it is what makes the door and the walker beneath it read ONE vocabulary — open, a recognised policy key the reading door does not read vanished without a signal, in both directions.
 
 ```clojure
 (def ProjectEgressOpts
@@ -3691,7 +3691,6 @@ The map is **`{:closed true}`** (rf2-kuky.6) and holds **twelve** keys: the walk
    [:rf.egress/include-large?     {:optional true} :boolean]
    [:rf.egress/include-digests?   {:optional true} :boolean]
    [:rf.egress/threshold-bytes    {:optional true} :int]                     ;; pass-through tuning knob (not profile-resolved)
-   [:as-of-epoch                {:optional true} :any]                     ;; pass-through epoch handle
    ;; The three EPOCH-ONLY axes (rf2-bv1p). Trusted-local opt-ins over
    ;; keyspaces only an :rf/epoch-record HAS — not app-db axes, which is why
    ;; they were spelled BARE until rf2-kuky.93 brought all six axes under the
