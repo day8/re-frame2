@@ -47,8 +47,14 @@
   When the final `__rf_payload` lands, the bootstrap (`ssr/hydrate!`)
   dispatches `:rf/hydrate` with `:replace-frame-state` semantics — the
   deltas were speculative, the final payload is the correctness lock.
-  `install!` reconciles by disconnecting its observer once it sees the
-  final-payload node, so no stray delta can race the canonical state.
+  `install!` reconciles by disconnecting its observer once the parser has
+  closed the final-payload node, so no stray delta can race the canonical
+  state.
+
+  Every chunk element is read only once the parser has CLOSED it
+  (`parser-closed?`): the parser inserts a `<script>` or `<template>` at
+  its start tag and fills it as bytes arrive, so an element's presence
+  says nothing about whether its contents are all there.
 
   ## Wire-shape contract — matches the SHIPPED server emitter EXACTLY
 
@@ -175,6 +181,34 @@
   (presence, any value). `root` is a Document or Element."
   [root attribute-name]
   (array-seq (.querySelectorAll root (str "[" attribute-name "]"))))
+
+(defn- still-parsing?
+  "True while the HTML parser may still be writing into `root`: `root` is a
+  Document whose `readyState` is `\"loading\"`. Only a Document reports its
+  parse state, so an Element root reads false — the test-harness contract,
+  where each chunk is appended whole and is complete the moment it exists."
+  [root]
+  (= "loading" (.-readyState root)))
+
+(defn- parser-closed?
+  "True once the HTML parser can no longer be writing into chunk element
+  `el` (rf2-3x7nj.13.2).
+
+  The parser INSERTS a `<script>` or `<template>` at its start tag, then
+  fills it — a script's text, a template's `.content` — as network bytes
+  arrive, and an observer batch can fall between two reads. Reading such an
+  element early gets a prefix: a payload or delta whose EDN fails to parse,
+  or a template clone missing its tail while the parser writes that tail
+  into the removed original.
+
+  So an element counts as whole once a node FOLLOWS it — the parser adds a
+  sibling only after closing the element, and the server writes every chunk
+  after the one before — or once the document has finished parsing. The
+  last element on the page (usually the payload) has nothing after it, so
+  for that one the end of parsing is the signal."
+  [root el]
+  (or (not (still-parsing? root))
+      (some? (.-nextSibling el))))
 
 (defn- template-content-fragment
   "Materialise a `<template>`'s parsed content as a DocumentFragment
@@ -480,6 +514,9 @@
       boundary's delta.
     - not yet swapped (`nil` outcome) — a delta racing ahead of its template:
       LEFT in the DOM (not consumed) for a future sweep to reclassify.
+    - still being parsed (`parser-closed?` false) — LEFT in the DOM whatever
+      its outcome. Its text so far is a prefix of the delta, which would
+      fail to parse and be dropped (rf2-3x7nj.13.2).
 
   This decouples delta handling from the resolved-template's transient
   presence. The server flushes the resolved `<template>` and its delta
@@ -504,7 +541,8 @@
   mirroring the swap's own once-only-by-node-removal guarantee, so no separate
   `delta-applied` set is needed."
   [root frame-id boundary-outcomes]
-  (doseq [script (query-by-attr root attr-suspense-hydrate)]
+  (doseq [script (query-by-attr root attr-suspense-hydrate)
+          :when  (parser-closed? root script)]
     (let [wire-id-string (.getAttribute script attr-suspense-hydrate)
           outcome        (get @boundary-outcomes wire-id-string)]
       ;; `:resolved` and `:failed` both CONSUME the script (drop it) so it
@@ -630,7 +668,9 @@
 (defn- sweep!
   "One full sweep: materialise any un-mounted fallback `<template>`s into
   live visible mounts, process every `data-rf2-suspense-resolved`
-  `<template>` (swap the mount + record its outcome), then apply every ready
+  `<template>` the parser has closed (swap the mount + record its outcome;
+  a template still being parsed waits for a later sweep, `parser-closed?`),
+  then apply every ready
   per-subtree delta `<script>` (`apply-ready-deltas!`). Called once on
   install (chunks that streamed in before the bundle ran) and again whenever
   the observer reports new nodes. Fallback materialisation runs FIRST so a
@@ -667,7 +707,8 @@
                                     root frame-id boundary-outcomes resolved-template)
                                   made-progress?))
                             false
-                            (query-by-attr root attr-suspense-resolved))]
+                            (filter #(parser-closed? root %)
+                                    (query-by-attr root attr-suspense-resolved)))]
       (when progress?
         (recur))))
   ;; Apply any per-subtree deltas whose boundary has now swapped in. Runs
@@ -697,17 +738,22 @@
     (->> (array-seq (.querySelectorAll root "[id]"))
          (some #(when (= id (.-id %)) %)))))
 
-(defn- final-payload-present?
-  "True once the canonical `__rf_payload` `<script>` has parsed into the
-  DOM — the signal that streaming is complete and the observer should
-  disconnect (the final `:rf/hydrate` is the reconciliation point;
-  deltas after it would race the canonical replace).
+(defn- stream-complete?
+  "True once the parser has CLOSED the canonical `__rf_payload` `<script>` —
+  the signal that streaming is complete and the observer should disconnect
+  (the final `:rf/hydrate` is the reconciliation point; deltas after it
+  would race the canonical replace). The element's presence is not enough:
+  it exists from its start tag, holding only the EDN parsed so far, and a
+  bootstrap hydrating from it would refuse it as malformed
+  (`parser-closed?`, rf2-3x7nj.13.2).
 
   Matches the payload by exact id string via
   `element-by-id`, never a raw `#id` CSS selector, so a documented
   `:payload-id` override with CSS-special chars cannot throw or mis-match."
   [root payload-id]
-  (some? (element-by-id root payload-id)))
+  (if-let [payload (element-by-id root payload-id)]
+    (parser-closed? root payload)
+    false))
 
 (defn- readiness-report
   "The outcome summary handed to `:on-ready` — `{:resolved #{ids} :failed
@@ -724,8 +770,8 @@
              @boundary-outcomes))
 
 (defn- finalize!
-  "The one-time FINALIZATION step, run when the final `__rf_payload`
-  lands (or when it had already landed at install time).
+  "The one-time FINALIZATION step, run once the parser has closed the
+  final `__rf_payload` (or had already closed it at install time).
 
   Spec 011 pins the streaming protocol as progressive PRE-HYDRATION PAINT
   followed by ONE ordinary whole-root hydration. Finalization is the
@@ -772,8 +818,10 @@
   (or a supplied root) for resolved-subtree chunks as the chunked
   response streams in; for each, swaps the fallback `<template>` for the
   resolved content in-place and merges the per-subtree app-db delta into
-  the target frame. Disconnects once the final `__rf_payload` node lands
-  (the bootstrap's `:rf/hydrate` then replaces app-db canonically).
+  the target frame. Disconnects once the parser has closed the final
+  `__rf_payload` node (the bootstrap's `:rf/hydrate` then replaces app-db
+  canonically). A chunk element is read only once the parser has closed
+  it; see `parser-closed?`.
 
   Opts:
 
@@ -786,6 +834,9 @@
     :root       — the DOM root to observe + query. Default
                   `js/document`. A test harness passes a detached
                   container so it can drive chunk-arrival deterministically.
+                  Only a Document root reports whether the parser is still
+                  writing into it, so an Element root is taken to receive
+                  each chunk whole, as a harness appends it.
     :payload-id — the id of the final-payload `<script>` whose arrival
                   signals stream completion. Default
                   `re-frame.ssr.constants/payload-script-id`
@@ -810,15 +861,17 @@
                   markup carrying protocol DOM and no framework handlers;
                   taking React ownership of it early is the
                   create-root/hydrate-root race a live stream exposes.
-                  Fires SYNCHRONOUSLY during `install!` when the whole
-                  response had already buffered before the bundle booted
-                  (the common fast-page case), so the callback must not
-                  assume a later tick.
+                  Fires SYNCHRONOUSLY during `install!` when the parser
+                  had already closed the payload before the bundle booted
+                  (the common fast-page case, and always so for a
+                  deferred or module bundle or a bundle `<script>` placed
+                  after the payload), so the callback must not assume a
+                  later tick.
 
   Returns a 0-arity `stop!` fn that disconnects the observer early (so a
   host can tear the runtime down on its own schedule — e.g. an SPA
   navigation that abandons the stream). The runtime also auto-disconnects
-  when it observes the final-payload node, so most hosts never call it.
+  once the final payload is complete, so most hosts never call it.
   Calling `stop!` early ABANDONS the stream: finalization does not run
   and `:on-ready` never fires.
 
@@ -877,16 +930,20 @@
        (fn no-op-stop! [])
        (let [boundary-outcomes (atom {}) ;; wire-id-string → :resolved | :failed
              observer          (atom nil)
+             parsed-listener   (atom nil) ;; the DOMContentLoaded listener, while armed
              ready?            (atom false) ;; once-only finalization latch
              stop!             (fn stop! []
                                  (when-let [observer-instance @observer]
                                    (.disconnect observer-instance)
-                                   (reset! observer nil)))
+                                   (reset! observer nil))
+                                 (when-let [listener @parsed-listener]
+                                   (.removeEventListener root "DOMContentLoaded" listener)
+                                   (reset! parsed-listener nil)))
              finish!           (fn finish! []
                                  (finalize! root frame-id boundary-outcomes
                                             ready? stop! on-ready))
-             on-mutations
-             (fn [_mutations _observer]
+             on-change
+             (fn on-change []
                ;; A cheap full re-sweep on any mutation is correct + simple:
                ;; `boundary-outcomes` makes re-processing idempotent, and the
                ;; resolved-chunk count over a page's lifetime is small (one per
@@ -894,18 +951,18 @@
                ;; the added resolved templates is a micro-opt that adds tree-
                ;; walking complexity for no measurable win at these cardinalities.
                (sweep! root frame-id boundary-outcomes)
-               ;; The payload is the LAST chunk: its arrival means the
-               ;; stream is done, so run finalization (which re-sweeps for
-               ;; anything in this same batch, unwraps the protocol DOM,
+               ;; The payload is the LAST chunk: once the parser has closed
+               ;; it the stream is done, so run finalization (which re-sweeps
+               ;; for anything in this same batch, unwraps the protocol DOM,
                ;; disconnects, and signals readiness).
-               (when (final-payload-present? root payload-id)
+               (when (stream-complete? root payload-id)
                  (finish!)))]
          ;; Initial sweep — chunks that streamed in before this bundle
          ;; executed (the common case: the shell + several cards land while
          ;; main.js downloads + boots). Materialises fallbacks into visible
          ;; mounts + applies any resolved chunks already present.
          (sweep! root frame-id boundary-outcomes)
-         (if (final-payload-present? root payload-id)
+         (if (stream-complete? root payload-id)
            ;; Stream already complete by the time we installed — the whole
            ;; response buffered before the bundle booted. There is nothing
            ;; to observe, but finalization still MUST run: the initial
@@ -915,10 +972,18 @@
            ;; readiness-driven bootstrap must not hang on.
            (do (finish!)
                (fn already-complete-stop! []))
-           (let [observer-instance (js/MutationObserver. on-mutations)]
+           (let [observer-instance (js/MutationObserver.
+                                     (fn [_mutations _observer] (on-change)))]
              (reset! observer observer-instance)
              ;; Observe the whole subtree: resolved `<template>`s + the
              ;; final payload `<script>` arrive as descendant additions of
              ;; `<body>` / `#app` as the response streams.
              (.observe observer-instance root #js {:childList true :subtree true})
+             ;; The last element the parser writes has no node after it, so
+             ;; only the end of parsing closes it — and the end of parsing
+             ;; mutates nothing. Re-sweep on DOMContentLoaded too.
+             (when (still-parsing? root)
+               (let [listener (fn on-parsed [_event] (on-change))]
+                 (reset! parsed-listener listener)
+                 (.addEventListener root "DOMContentLoaded" listener)))
              stop!)))))))
