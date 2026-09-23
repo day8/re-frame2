@@ -799,8 +799,11 @@
    ;; Dry-run is an AI-facing READ surface. Gate OFF (the default
    ;; published posture) MUST run the app-db-rooted egress slot
    ;; (:db-state-after-simulation) through the elision walker server-side,
-   ;; with sensitive slots forced to redact and large slots forced to
-   ;; elide. The :would-fire-effects[*].args slot is NOT app-db-rooted, so
+   ;; with sensitive slots forced to redact. The caller's `:elision false`
+   ;; is the size override and is honoured on every launch (rf2-ealv5 /
+   ;; rf2-3x7nj.32.4): an `include-large? true` overlay on the off-box-tool
+   ;; floor, never the local-raw boundary, and echoed as `:elision false`.
+   ;; The :would-fire-effects[*].args slot is NOT app-db-rooted, so
    ;; it FAILS CLOSED (assoc :rf/redacted) rather than running through the
    ;; walker. The eval form must carry the walker call
    ;; (for the db slot) + the safe walker opts + the fx-args redaction
@@ -811,7 +814,9 @@
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? false
     :fixture/args  {:event "[:auth/login]"
-                    ;; caller tries to bypass; the gate forces safe.
+                    ;; the size override is honoured on every launch
+                    ;; (rf2-ealv5); the sensitive + fx-args opt-ins are
+                    ;; dropped by the gate.
                     :elision false
                     :include-sensitive true
                     :include-fx-args true}
@@ -828,11 +833,14 @@
      ":db-state-after-simulation"
      ":would-fire-effects"
      ":rf.egress/profile :rf.egress/off-box-tool"
+     ":rf.egress/include-large? true"
      "configure-raw-state!"
      ":allow-raw-state? false"]
+    :fixture/eval-form-must-not-contain
+    [":rf.egress/local-raw"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :dry-run? true :elision true}}}
+     :edn-submap {:ok? true :dry-run? true :elision false}}}
 
    ;; Fail-CLOSED. Gate ON + a BARE `:elision false` (no
    ;; `:include-sensitive true`) MUST still walk the app-db-rooted
@@ -1510,10 +1518,12 @@
      :edn-submap {:ok? true :tool "get-re-frame2-pair-instructions"}}}
 
    ;; ---------- raw-state boot-gate ---------------------------------------
-   ;; The default-OFF gate forces `:include-sensitive false` AND
-   ;; `:elision true` on every snapshot / get-path call,
-   ;; regardless of the per-call arg. The gate-ON path defers to the
-   ;; caller's args. The wire-key carries no trailing `?`; the namespaced
+   ;; The default-OFF gate forces `:include-sensitive false` on every
+   ;; snapshot / get-path call, regardless of the per-call arg; the
+   ;; gate-ON path defers to it. `:elision` (the size override) is NOT
+   ;; gated — a caller's `:elision false` overlays
+   ;; `:rf.egress/include-large? true` on the off-box-tool floor on every
+   ;; launch (rf2-ealv5 / rf2-3x7nj.32.4). The wire-key carries no trailing `?`; the namespaced
    ;; walker-option keyword `:rf.egress/include-sensitive?` retains it
    ;; (internal framework key, not on the wire).
    {:fixture/id    :raw-state/snapshot-gated-default-forces-redact
@@ -1547,8 +1557,8 @@
     :fixture/expect
     {:isError? false}}
 
-   {:fixture/id    :raw-state/snapshot-gated-default-forces-elision
-    :fixture/doc   "Gate OFF + caller passes :elision false ⇒ form must still project via project-egress."
+   {:fixture/id    :raw-state/snapshot-gated-default-honours-elision-false
+    :fixture/doc   "Gate OFF + caller passes :elision false ⇒ the size override is honoured: the form still projects via project-egress under :rf.egress/off-box-tool, with a :rf.egress/include-large? true overlay, never local-raw (rf2-ealv5 / rf2-3x7nj.32.4)."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? false
     :fixture/args  {:frames "all" :elision false}
@@ -1557,9 +1567,57 @@
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
                                    :elided-count 0}]]
     :fixture/eval-form-must-contain
-    ["re-frame.core/project-egress"]
+    ["re-frame.core/project-egress"
+     ":rf.egress/profile :rf.egress/off-box-tool"
+     ":rf.egress/include-large? true"]
+    :fixture/eval-form-must-not-contain
+    [":rf.egress/local-raw"]
     :fixture/expect
-    {:isError? false}}
+    {:isError? false
+     :edn-submap {:ok? true :elision false}}}
+
+   ;; rf2-ealv5 / rf2-3x7nj.32.4 — the get-path size override on a DEFAULT
+   ;; launch, singular and batch. RED on the pre-fix tree: the gate forced
+   ;; `:elision true`, so the overlay was absent and the echo read `true`.
+   {:fixture/id    :raw-state/get-path-gated-default-honours-elision-false
+    :fixture/doc   "get-path: gate OFF + caller passes :elision false ⇒ the form names :rf.egress/off-box-tool with a :rf.egress/include-large? true overlay, never local-raw, and the envelope echoes :elision false."
+    :fixture/tool  "get-path"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:path "[:rows 0]" :elision false}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    {:ok? true :exists? true :path [:rows 0]
+                                   :value {:id 0} :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/project-egress"
+     ":rf.egress/profile :rf.egress/off-box-tool"
+     ":rf.egress/include-large? true"]
+    :fixture/eval-form-must-not-contain
+    [":rf.egress/local-raw"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :elision false}}}
+
+   {:fixture/id    :raw-state/get-path-batch-gated-default-honours-elision-false
+    :fixture/doc   "get-path batch: gate OFF + caller passes :elision false ⇒ same overlay on the batch form, echoed :elision false."
+    :fixture/tool  "get-path"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:paths "[[:rows 0] [:rows 1]]" :elision false}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    {:ok? true
+                                   :results {[:rows 0] {:exists? true :value {:id 0}}
+                                             [:rows 1] {:exists? true :value {:id 1}}}
+                                   :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/project-egress"
+     ":rf.egress/profile :rf.egress/off-box-tool"
+     ":rf.egress/include-large? true"]
+    :fixture/eval-form-must-not-contain
+    [":rf.egress/local-raw"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :elision false}}}
 
    ;; Fail-CLOSED. A BARE `:elision false` (no `:include-sensitive true`)
    ;; MUST still walk: large content passes (`include-large? true`) but a

@@ -135,11 +135,10 @@
         sub-str  (wire/arg raw-args :sub)
         ;; Same `--allow-sensitive-reads` gate posture as snapshot's
         ;; `:sub-cache` slice / get-path / list-subscriptions: gate OFF
-        ;; forces elision on + sensitive off; the per-call args win only
-        ;; when the operator opted in.
-        elision? (if (raw-state/raw-state-allowed?)
-                   (args/parse-bool-arg raw-args :elision)
-                   true)
+        ;; forces sensitive off; `:include-sensitive` wins only when the
+        ;; operator opted in. `:elision` (the size override) is honoured
+        ;; on every launch (rf2-ealv5 / rf2-3x7nj.32.4).
+        elision? (args/parse-bool-arg raw-args :elision)
         incl?    (if (raw-state/raw-state-allowed?)
                    (args/parse-bool-arg raw-args :include-sensitive)
                    false)

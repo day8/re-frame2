@@ -66,7 +66,7 @@ narrowest one first.
 | `include ["app-db"]` | `snapshot` | all 5 slices | Drop slices you don't need (`app-db`, `sub-cache`, `machines`, `epochs`, `traces`). |
 | `epochs-mode "diff"` / `"full"` | `snapshot`, `trace-window`, `watch-epochs` | `"diff"` | Keep diff (default). Only opt back to `"full"` when you need it for **time-travel restore** — the diffed `:db-after` can't drive `restore-epoch`. |
 | `dedup` | epoch-carrying tools | `true` | Keep on. Pass `false` only if your host can't `expand`, or for round-trip debugging. |
-| `elision` | `snapshot`, `get-path` | `true` | Keep on. Pass `false` only when you have explicit override permission and need the raw bytes of a `:large?` slot. |
+| `elision` | `snapshot`, `get-path`, `read-sub`, `list-subscriptions`, `record`, `watch-until`, `dispatch-dry-run` | `true` | Keep on. Pass `false` when you need the raw bytes of a `:large` slot. It is the size override: honoured on every launch (no launch flag needed), and declared-sensitive slots still redact. |
 | `limit` + `cursor` | `trace-window`, `watch-epochs` | 50 / nil | Paginated epoch streams. First call returns up-to-`limit` records and a `:next-cursor`; pass that back to consume the next page. A stale cursor (id aged out of the ring) surfaces as `:reason :rf.mcp/cursor-stale` — drop it and restart. |
 | `cache` | `snapshot`, `get-path`, `trace-window`, `watch-epochs`, `discover-app` | `false` | Repeated reads of the same (tool, args) within a session. On a hit the payload is replaced with `{:rf.mcp/cache-hit {:hash ... :unchanged-since <ms> :tool ... :hint ...}}` — you already have the byte-identical prior payload locally. 8-slot LRU, scoped to one MCP-server process. |
 | `include-sensitive` | epoch-carrying tools | `false` | Per-call privacy override (the MCP wire arg, **no `?`** — distinct from the walker option `:rf.egress/include-sensitive?`, which keeps the `?`). Off by default; honoured only when the server was launched with `--allow-sensitive-reads`. Turn on for a debug session inspecting `:sensitive? true` cascades. |
@@ -81,9 +81,20 @@ narrowest one first.
   `limit 50`; paginate via `cursor` if `:has-more?`.
 - **Live-watching an event landing?** `watch-epochs` — poll in a loop,
   advancing `since-id` to each response's `:head-id`.
-- **Got an `{:rf.size/large-elided ...}` marker?** Re-call `get-path`
-  on the handle's `:path` to drill into a non-elided child, or pass
-  `elision false` if you actually need the raw slot.
+- **Got an `{:rf.size/large-elided ...}` marker?** It names a path at
+  or below a `:large` declaration. Reads there elide too, so a deeper
+  `get-path` returns markers. To get the raw value, re-call `get-path`
+  on the marker's `:path` with `elision false` (pass the `:path`, never
+  the `:handle` vector). No launch flag is needed; sensitive slots
+  still redact. That read is of the CURRENT app-db. For a marker from a
+  past epoch record (`trace-window`, `watch-epochs`, `snapshot :epochs`,
+  `dispatch :trace` / `:settle`), read the retained record with
+  `eval-cljs` instead:
+  `(if-let [r (re-frame2-pair.runtime/epoch-by-id 7 :my/app)] (get-in r [:db-after :doc :body]) {:epoch-unavailable 7})`
+  — use `:db-before` when the marker came from that side. A marker
+  describes size and shape, not content: equal markers (same `:path` /
+  `:bytes` / `:type`) across reads or epochs do NOT mean the value is
+  unchanged.
 - **Got a `{:rf.mcp/overflow ...}` marker?** You tripped `max-tokens`.
   Narrow `path`, switch a slice to `"summary"`, lower `limit`, or add
   a tighter `pred` — pick whichever knob the overflow's
@@ -101,7 +112,8 @@ inside the relevant slice) before treating a result as raw data:
 - `{:rf.mcp/cache-hit {:hash ... :unchanged-since ... :hint ...}}` —
   reuse the prior call's payload.
 - `{:rf.size/large-elided {:path ... :handle [:rf.elision/at ...] ...}}` —
-  drill into the handle (or pass `elision false`). Markers come from
+  re-call `get-path` on its `:path` with `elision false` (see the
+  decision tree above for past-epoch markers). Markers come from
   owner-declared `:large` path classification: a durable app-db path
   classified by the **`:large` commit-plane effect** a handler returns
   alongside `:db`, or a projection-relative `:large` declaration on a

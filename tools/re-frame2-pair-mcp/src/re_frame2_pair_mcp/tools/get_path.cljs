@@ -165,14 +165,13 @@
         ;; Wholesale-read backstop (built once; consulted in the `cond`
         ;; below). nil when the read is allowed.
         refused   (guard/get-path-refusal frame path paths)
-        ;; When the `--allow-sensitive-reads` boot gate is OFF, the
-        ;; per-call `:elision false` arg is overridden so the walker
-        ;; still fires. A single intention-naming predicate
-        ;; `raw-state-allowed?` (positive sense — true when operator
-        ;; opted in at launch); the gate-off branch forces elision true.
-        elision?  (if (raw-state/raw-state-allowed?)
-                    (args/parse-bool-arg raw-args :elision)
-                    true)
+        ;; `:elision` is the SIZE override and is honoured on every
+        ;; launch (rf2-ealv5 / rf2-3x7nj.32.4): `:elision false` renders
+        ;; an `:rf.egress/include-large? true` overlay on the off-box-tool
+        ;; floor, which cannot reveal a declared-sensitive slot, so the
+        ;; `--allow-sensitive-reads` gate governs `:include-sensitive`
+        ;; alone.
+        elision?  (args/parse-bool-arg raw-args :elision)
         ;; `:include-sensitive` threads into the walker's
         ;; `:rf.egress/include-sensitive?` opt. Off-box default per
         ;; Tool-Pair §`Direct-read privacy posture for sub-cache and
@@ -194,10 +193,11 @@
         ;; `:rf.egress/include-large? true` on the off-box-tool floor so
         ;; large passes, while include-sensitive? stays at the profile's
         ;; false so a frame-declared-sensitive slot still redacts to
-        ;; `:rf/redacted`. Only the deliberate BOTH-axes opt-in names
+        ;; `:rf/redacted`. Only the deliberate BOTH-axes opt-in (which
+        ;; needs the launch gate for its sensitive half) names
         ;; `:rf.egress/local-raw`, under which the projection is the
-        ;; identity. The `:elision` echo below still reports the caller's
-        ;; large-slot intent.
+        ;; identity. The `:elision` echo below reports the honoured
+        ;; large-slot choice.
         egress-opts   (elision/egress-opts-edn (not elision?) incl?)
         ;; ONE resolution, one truth: both forms read app-db through
         ;; the frame id `with-resolved-frame` binds, and hand that same

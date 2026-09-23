@@ -12,9 +12,10 @@
   Dry-run is an AI-facing READ surface: its
   `:db-state-after-simulation` (would-be app-db) and
   `:would-fire-effects[*].args` (fx-derived) slots are off-box egress.
-  The tool runs them through the elision walker server-side BY DEFAULT
-  (gate OFF forces `:elision true` + `:include-sensitive false`); the
-  per-call knobs win only under `--allow-sensitive-reads`. It also
+  The tool runs them through the elision walker server-side ALWAYS
+  (gate OFF forces `:include-sensitive false`, which wins only under
+  `--allow-sensitive-reads`; the `:elision false` size override is
+  honoured on every launch, rf2-ealv5). It also
   issues `configure-raw-state!` between the preload probe and the eval
   (raw-state tap posture). These tests pin the wire boundary: the arg
   parser, the runtime call shape, the elision-form shape, and the
@@ -299,11 +300,13 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Privacy gate. Gate OFF (default published posture) forces
-;; the elision walker on AND forces sensitive slots to redact; the form
-;; must carry the walker call + the safe opts. The runtime envelope's
-;; egress slots are walked server-side (the unit test stubs the runtime,
-;; so it asserts on the EMITTED form, not on a live walker).
+;; Privacy gate. Gate OFF (default published posture) forces sensitive
+;; slots to redact; the walker ALWAYS runs. The `:elision false` size
+;; override is honoured on every launch (rf2-ealv5 / rf2-3x7nj.32.4) — it
+;; overlays `:rf.egress/include-large? true` on the off-box-tool floor,
+;; which cannot reveal a sensitive slot. The runtime envelope's egress
+;; slots are walked server-side (the unit test stubs the runtime, so it
+;; asserts on the EMITTED form, not on a live walker).
 ;; ---------------------------------------------------------------------------
 
 (deftest gate-off-emits-elision-walker-with-safe-opts
@@ -315,14 +318,14 @@
                 (fn []
                   (dry-run/dispatch-dry-run-tool (fresh-conn)
                                                  #js {:event "[:auth/login]"
-                                                      ;; caller tries to opt OUT / opt IN;
-                                                      ;; gate OFF must ignore both.
+                                                      ;; the size override is honoured;
+                                                      ;; the sensitive opt-in is dropped.
                                                       :elision false
                                                       :include-sensitive true})))))
           (.then (fn [r]
                    (let [form (dispatch-form forms)]
                      (is (str/includes? form "re-frame.core/project-egress")
-                         "gate OFF forces the projection even when caller passed :elision false")
+                         "the projection runs with the caller's :elision false")
                      (is (str/includes? form ":db-state-after-simulation")
                          "the would-be db slot is walked")
                      (is (str/includes? form ":would-fire-effects")
@@ -331,11 +334,11 @@
                          "gate OFF names the off-box tool boundary even when caller passed :include-sensitive true")
                      (is (not (str/includes? form ":rf.egress/local-raw"))
                          "the dropped opt-in never reaches the trusted-local boundary")
-                     (is (not (str/includes? form ":rf.egress/include-large? true"))
-                         "gate OFF emits markers (no large pass-through overlay)"))
-                   ;; the envelope echoes the effective elision state
+                     (is (str/includes? form ":rf.egress/include-large? true")
+                         "gate OFF honours the size override (rf2-ealv5 / rf2-3x7nj.32.4)"))
+                   ;; the envelope echoes the honoured elision state
                    (let [edn (read-result-text r)]
-                     (is (true? (:elision edn)) "effective elision is true under gate OFF"))
+                     (is (false? (:elision edn)) "the echo reports the honoured :elision false"))
                    (done)))))))
 
 (deftest gate-off-signals-configure-raw-state-before-dispatch

@@ -82,3 +82,56 @@
           "snapshot must still document the :machines slice")
       (is (str/includes? desc ":rf/redacted")
           "snapshot must say :machines egresses redacted under the off-box-tool profile"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ealv5 / rf2-3x7nj.32.4 — the size override is honoured on EVERY
+;; launch; only `include-sensitive` is launch-gated. The descriptions
+;; used to say `elision false` was honoured only under
+;; `--allow-sensitive-reads` (snapshot: "else both forced safe"), and the
+;; shared knob said nothing about a gate at all — two contradicting
+;; halves of one contract, neither true after the un-gating.
+;; ---------------------------------------------------------------------------
+
+(def ^:private knob-description
+  (get-in (into {} (map (juxt :name identity)) registry/tool-descriptors)
+          ["get-path" :inputSchema :properties :elision :description]))
+
+(deftest size-override-is-described-as-ungated
+  (testing "get-path / snapshot say elision false works without the launch flag, and sensitive stays gated"
+    (doseq [tool ["get-path" "snapshot"]
+            :let [desc (description-by-name tool)]]
+      (is (str/includes? desc "honoured on every launch")
+          (str tool " must say the `elision false` size override needs no launch flag"))
+      (is (str/includes? desc "`include-sensitive true`")
+          (str tool " must still name the sensitive opt-in"))
+      (is (str/includes? desc "--allow-sensitive-reads")
+          (str tool " must still tie the sensitive opt-in to its launch gate"))
+      (is (not (str/includes? desc "else both forced safe"))
+          (str tool " must not say the launch gate forces the size override"))))
+  (testing "the shared elision knob says the same"
+    (is (string? knob-description))
+    (is (str/includes? knob-description "honoured on every launch"))
+    (is (not (str/includes? knob-description "Schemas are the only nomination path"))
+        "a schema `:large?` prop is not a declaration route (EP-0025)")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.32.5 — a marker's `:path` is a LIVE app-db locator. Following
+;; a marker out of a past epoch record with `get-path` returns TODAY's
+;; value, so every surface where the agent meets an epoch marker, or reads
+;; how to follow one, must say the path addresses the current app-db.
+;; ---------------------------------------------------------------------------
+
+(deftest marker-path-is-described-as-live
+  (doseq [tool ["get-path" "trace-window" "watch-epochs"]
+          :let [desc (description-by-name tool)]]
+    (is (str/includes? desc "CURRENT app-db")
+        (str tool " must say a marker's :path addresses the CURRENT app-db (rf2-3x7nj.32.5)")))
+  (testing "get-path carries the eval-cljs recipe for a past epoch's value"
+    (let [desc (description-by-name "get-path")]
+      (is (str/includes? desc "re-frame2-pair.runtime/epoch-by-id"))
+      (is (str/includes? desc ":db-before")
+          "the recipe names the other side of the record too")
+      (is (str/includes? desc "never the `:handle` vector")
+          "get-path decodes no handle, so the agent passes the :path")))
+  (testing "the shared elision knob carries the live-path rule"
+    (is (str/includes? knob-description "CURRENT app-db"))))
