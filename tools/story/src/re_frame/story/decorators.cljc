@@ -34,8 +34,9 @@
   decorators live on the parent story's `:decorators` slot.
 
   Unknown decorator-ids surface as an entry in the returned `:errors`
-  vector; the runtime then projects those into the variant's
-  `:assertions` (per `002-Runtime.md` §Error projection)."
+  vector; a run whose stack carries any REFUSES before a phase runs, with
+  an `:rf.error/story-decorator-unresolved` `:error` assertion naming them
+  (`runtime/refuse-unresolved-decorators!`, rf2-3x7nj.30.6)."
   (:require [re-frame.story.args      :as rf.story.args]
             [re-frame.story.plan      :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]))
@@ -224,8 +225,8 @@
 
   Each `<resolved-decorator>` carries `{:id ... :args [...] :body
   <registered-body>}`. Unknown decorators land in `:errors` instead of
-  their kind-vector — the runtime projects them as `:rf.error/decorator-*`
-  assertions per `002-Runtime.md` §Error projection.
+  their kind-vector — the runtime refuses a run on them, carrying these
+  `:rf.error/decorator-*` maps on its refusal record (rf2-3x7nj.30.6).
 
   Composition order (per `002-Runtime.md` §Decorator composition order + rf2-835ey global decorators):
   - `:hiccup` — outermost wraps innermost. Global decorators come first

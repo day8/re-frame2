@@ -552,8 +552,10 @@
     (`.4`'s `rf.story.play.evidence/project-evidence`, via `rf.story.result/run-result`) — NOT a
     parallel accumulator;
   - the judgement slots (`:assertions` / `:checks`) fold the
-    `:rf.story/assertions` accumulator (the ONE non-tape input) into
-    unified records + groups them under their check ids;
+    `:rf.story/assertions` accumulator, plus the executed plays' failed
+    steps that recorded no assertion (`run-state-failures`,
+    rf2-3x7nj.30.1), into unified records + group them under their check
+    ids;
   - the top-level `:status` is the unified verdict.
 
   The `:lifecycle` / `:frame` / `:snapshot` / `:decorators` /
@@ -619,14 +621,22 @@
         ;; cannot report a proof present while the tape's slot is empty.
         evidence (rf.story.play.evidence/project-evidence tape {:script      executed-script
                                                   :attribution attribution})
-        ;; The run-state's `:cannot-run` refusals (a no-DOM
+        ;; The run-state of EVERY play this run executed, in execution order
+        ;; — not merely the last one driven (rf2-3x7nj.30.1).
+        play-states (into []
+                          (keep #(rf.story.play.runner-events/current-state-for-play variant-id %))
+                          (or executed-play-keys []))
+        ;; The run-states' `:cannot-run` refusals (a no-DOM
         ;; `[:assert-dom …]` skip, a boundary `:cannot-run?`): steps that
         ;; recorded NO `:rf.story/assertions` entry. Without this fold the
         ;; unified result would aggregate to `:pass` (vacuous green) while the
-        ;; run-state read `:cannot-run`. The facade degrades to nil run-state
-        ;; (empty refusals) on a host with no runner-events run-state.
-        run-state-unmet (rf.story.play.runner/run-state-refusals
-                          (rf.story.play.runner-events/current-state variant-id))
+        ;; run-state read `:cannot-run`.
+        run-state-unmet (into [] (mapcat rf.story.play.runner/run-state-refusals) play-states)
+        ;; …and their genuine step failures that recorded none either — a
+        ;; `[:wait-until …]` that never held, a `[:click …]` matching no
+        ;; node, a step exception — or the unified result would read `:pass`
+        ;; while the play read `:fail` (rf2-3x7nj.30.1).
+        step-failures (into [] (mapcat rf.story.play.runner/run-state-failures) play-states)
         ;; The requirements-registry refusals: the `:auto`
         ;; no-capable-runner refusal, the fixed-runner per-unit capability
         ;; gaps (`unmet-assertions` / `unmet-steps`), and the post-run
@@ -644,7 +654,8 @@
                     ;; boundaries (above) so `run-result`'s ONE evidence
                     ;; projection attributes the `:narrative` EXACTLY.
                     :attribution         attribution
-                    :assertions          (or (:rf.story/assertions app-db) [])
+                    :assertions          (into (or (:rf.story/assertions app-db) [])
+                                               step-failures)
                     :script              executed-script
                     :check->atoms        (plan-checks plan)
                     ;; The CHOSEN runner + the plan's required
@@ -816,6 +827,36 @@
   (when (contains? (set (rf/frame-ids)) variant-id)
     (rf.story.frames/reset-state! variant-id)))
 
+(defn- refuse-unresolved-decorators!
+  "Throw the structured `:rf.error/story-decorator-unresolved` refusal when
+  `decorator-stack` carries resolution `:errors` — a ref naming no
+  registered decorator (a typo, or the specs' old bare `:force-fx-stub`
+  spelling), a malformed ref, an unknown `:kind` (rf2-3x7nj.30.6). No-op
+  otherwise.
+
+  Called BEFORE any phase runs, because the damage is done by then: the
+  missing decorator is most often the `:fx-override` stub that was meant
+  to stop a real effect, and with it absent the variant's loaders, `:setup`
+  and script fire that effect for real. A verdict folded after the run
+  would be honest, and the real call would already have gone out. So the
+  run never starts, and resolves `:error` — the result an unknown composed
+  fragment gets, which likewise refuses before any phase runs."
+  [variant-id decorator-stack]
+  (when-let [errors (seq (:errors decorator-stack))]
+    (rf.error/throw-error!
+      :rf.error/story-decorator-unresolved
+      'rf.story/run-variant
+      (str "re-frame2-story: variant " variant-id " — " (count errors)
+           " decorator reference(s) did not resolve "
+           (pr-str (mapv #(or (:id %) (:ref %)) errors))
+           ", so the run was refused before any loader, :setup step or "
+           "script could fire an effect the missing decorator was meant to "
+           "stub. Register the decorator or correct the id (the shipped fx "
+           "stub is :rf.story/force-fx-stub).")
+      {:recovery :register-or-correct-the-decorator
+       :extra    {:variant/id       variant-id
+                  :decorator-errors (vec errors)}})))
+
 (defn- stamp-epoch-baseline!
   "Record the run's `:epoch-baseline` — the last committed `:epoch-id` at
   the fresh-run boundary — on `ctx` AND as the frame's assertion scope, so
@@ -868,7 +909,13 @@
   classification (`:sensitive` / `:large`), the lowered frame `:fx-overrides`
   and the loader world (`:loaders` / `:loaders-complete-when` /
   `:loaders-teardown`) all reach the frame `:extends`- and `:compose`-resolved.
-  Registered and inline plans therefore allocate from the same shape."
+  Registered and inline plans therefore allocate from the same shape.
+
+  A decorator stack that failed to resolve REFUSES the run here
+  (`refuse-unresolved-decorators!`, rf2-3x7nj.30.6) — after the frame is
+  reset/allocated WITHOUT its `:frame-setup` `:init` events and loader world,
+  so a mounted canvas still has a frame to read while nothing of the
+  variant's runs."
   [{:keys [variant-id decorator-stack plan] :as ctx}]
   (ensure-fresh-frame! variant-id)
   ;; rf2-shx4 — realize the compiled `:network` fixture BEFORE allocation, so
@@ -877,6 +924,12 @@
   ;; emits the `{:rf.http/managed :rf.http/managed-test-stub}` redirect but
   ;; registers nothing, so without this the variant reached the REAL transport.
   (rf.story.network/install-for-frame! variant-id (get-in plan [:world :network]))
+  (when (seq (:errors decorator-stack))
+    (rf.story.frames/allocate! variant-id
+                               (assoc decorator-stack :frame-setup [])
+                               (dissoc (:world plan) :loaders :loaders-complete-when
+                                       :loaders-teardown))
+    (refuse-unresolved-decorators! variant-id decorator-stack))
   ;; Allocate from the compiled `:world` — one argument carrying every
   ;; scenario slot the frame needs (classification, the lowered frame
   ;; `:fx-overrides`, the resolved loader world), rather than a positional
@@ -1023,6 +1076,48 @@
     (catch #?(:clj Throwable :cljs :default) _ nil))
   nil)
 
+(defn- selected-plays
+  "The plays phase 4 drives, in order. `plays` is the COMPILED plan's
+  `[:world :scripts]`, so a selected play runs with its `[:arg …]`
+  placeholders substituted and any `:compose`d fragment script prepended —
+  the program the plan describes, never the raw registered body
+  (rf2-3x7nj.30.3).
+
+  `selection` (from `resume-run!`):
+
+  - nil                 — the auto-plays (`auto-runnable-plays`): every
+                          caller that names no play, unchanged;
+  - `{:play play-key}`  — that one play, WHETHER OR NOT it auto-runs; a nil
+                          key is the default (first) play. A key naming no
+                          play refuses the run rather than running another;
+  - `{:play :all}`      — every play, in declared order;
+  - `{:spec spec}`      — a hand-built play spec with concrete steps (the
+                          recorder export's replay), folded like the plan's."
+  [variant-id plays selection]
+  (cond
+    (nil? selection)
+    (rf.story.play.runner/auto-runnable-plays plays)
+
+    (contains? selection :spec)
+    [(update (:spec selection) :script rf.story.assertions/fold-script)]
+
+    (= :all (:play selection))
+    (vec plays)
+
+    :else
+    (let [pk (:play selection)]
+      (if-let [play (rf.story.play.runner/find-play plays pk)]
+        [play]
+        (if (nil? pk)
+          []
+          (rf.error/throw-error!
+            :rf.error/story-unknown-play
+            'rf.story/run-variant
+            (str "re-frame2-story: variant " variant-id " has no play named "
+                 (pr-str pk) "; its plays are "
+                 (pr-str (mapv :name plays)) ".")
+            {:extra {:variant/id variant-id :play pk}}))))))
+
 (defn- run-phase-4!
   "Phase 4: run the play-script. Returns `[ctx' play-promise]` — `ctx'`
   carries `:executed-script` (the folded steps the auto-plays ran, for the
@@ -1065,12 +1160,15 @@
   which the Story/Xray play-scripts browser gate reads via
   `rf.story.play.runner-events/current-state`. The headless `run-variant` / inline paths
   never set it, so their contract (loader-incomplete ⇒ events + play skipped,
-  lifecycle parks at `:loading`) is unchanged."
-  [{:keys [variant-id loaders-complete? plan force-play?] :as ctx}]
+  lifecycle parks at `:loading`) is unchanged.
+
+  `:play-selection` on the ctx (rf2-3x7nj.30.3) replaces the auto-plays with
+  an explicit choice — see `selected-plays`. Only `resume-run!` sets it."
+  [{:keys [variant-id loaders-complete? plan force-play? play-selection] :as ctx}]
   (if-not (or loaders-complete? force-play?)
     [ctx (rf.story.async/resolved (read-assertions variant-id))]
     (let [plays      (get-in plan [:world :scripts] [])
-          auto-plays (rf.story.play.runner/auto-runnable-plays plays)
+          auto-plays (selected-plays variant-id plays play-selection)
           ;; The folded steps the auto-plays ran, concatenated in order —
           ;; the script the unified result's two-level narrative spans.
           executed   (vec (mapcat :script auto-plays))
@@ -1250,6 +1348,22 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))
     record))
 
+(defn- decorator-refusal?
+  "True iff `e` is the `refuse-unresolved-decorators!` refusal (rf2-3x7nj.30.6)."
+  [e]
+  (= :rf.error/story-decorator-unresolved (:rf.error/id (ex-data e))))
+
+(defn- decorator-refusal-record
+  "The `:error` assertion record for a decorator refusal, carrying the
+  resolution errors so the result names every ref that did not resolve."
+  [variant-id e]
+  {:assertion        :rf.error/story-decorator-unresolved
+   :variant-id       variant-id
+   :status           :error
+   :passed?          false
+   :reason           (exception-message e)
+   :decorator-errors (:decorator-errors (ex-data e))})
+
 (defn- run-error-result
   "The run result for a throw `e` anywhere in the run chain — the
   orchestrator's catch-branch, the play chain's rejection path and the
@@ -1283,6 +1397,11 @@
   torn down mid-run, a malformed plan slot), the frame-free result is the
   answer.
 
+  A decorator refusal (`refuse-unresolved-decorators!`, rf2-3x7nj.30.6)
+  records its own `:rf.error/story-decorator-unresolved` assertion naming
+  the unresolved refs — onto the registered run's bare frame, or, for an
+  inline run refused before its frame exists, onto a frame-free result.
+
   The plan-construction branch is gated SOLELY on
   `plan-construction-error?` (the `:where 'rf.story/variant-plan` marker
   that `re-frame.story.plan/fail!` stamps). The `:where` discriminator
@@ -1297,12 +1416,24 @@
     (try
       (cond
         (plan-construction-error? e)        (plan-error-result variant-id e)
-        (nil? (rf/app-db-value variant-id)) (frame-free)
+        ;; An inline run's decorator refusal lands before its frame exists.
+        (nil? (rf/app-db-value variant-id))
+        (if (decorator-refusal? e)
+          (assoc (empty-result variant-id)
+                 :status     :error
+                 :lifecycle  :error
+                 :assertions [(decorator-refusal-record variant-id e)])
+          (frame-free))
         :else
         (do
-          (if (db-seed-error? e)
-            (record-seed-error! variant-id e)
-            (record-error! variant-id :phase-0-setup nil e))
+          (cond
+            (db-seed-error? e)     (record-seed-error! variant-id e)
+            (decorator-refusal? e) (try
+                                     (rf/dispatch-sync [::append-assertion
+                                                        (decorator-refusal-record variant-id e)]
+                                                       {:frame variant-id})
+                                     (catch #?(:clj Throwable :cljs :default) _ nil))
+            :else                  (record-error! variant-id :phase-0-setup nil e))
           (rf.story.loaders/error! variant-id (ex-data e))
           (record-result-map ctx start-ms)))
       (catch #?(:clj Throwable :cljs :default) _
@@ -1486,8 +1617,11 @@
         (:generation cur)
         (let [variant-body (rf.story.frames/variant-body variant-id)
               gen          (inc (get cur :generation 0))
-              base         {:run-key run-key :generation gen :resumed-gen (dec gen)
-                            :start-ms (rf.interop/now-ms)}]
+              ;; `:opts` are this run's inputs, kept so `rerun!` can run the
+              ;; variant again from its declared start with the SAME
+              ;; Controls overrides, modes, substrate and run-key.
+              base         {:run-key run-key :opts opts :generation gen
+                            :resumed-gen (dec gen) :start-ms (rf.interop/now-ms)}]
           (if (nil? variant-body)
             (do (swap! run-owner assoc variant-id (assoc base :error :unknown-variant))
                 gen)
@@ -1532,9 +1666,14 @@
   Must be called AFTER `prepare-run!` and AFTER React has committed the canvas
   (so DOM steps see the mounted view). Returns a promise of the result, or nil
   when there is nothing to resume (already resumed for this generation, or
-  never prepared)."
-  ([variant-id] (resume-run! variant-id nil))
-  ([variant-id done-cb]
+  never prepared).
+
+  `selection` (rf2-3x7nj.30.3) names the play(s) to run instead of the
+  auto-plays — `{:play play-key}`, `{:play :all}` or `{:spec spec}`, see
+  `selected-plays`. Absent, the auto-plays run, as every shell trigger wants."
+  ([variant-id] (resume-run! variant-id nil nil))
+  ([variant-id done-cb] (resume-run! variant-id done-cb nil))
+  ([variant-id done-cb selection]
    (when (and rf.story.config/enabled? variant-id)
      (when-let [attempt (claim-resume! variant-id)]
        (let [my-gen   (:generation attempt)
@@ -1569,7 +1708,9 @@
                  ;; flag, so its loader-incomplete contract (play skipped,
                  ;; lifecycle parks at :loading) is unchanged.
                  :else
-                 (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt) :force-play? true))
+                 (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt)
+                                                                :force-play? true
+                                                                :play-selection selection))
                        ;; Publish via `publish!` unless superseded, then fire
                        ;; `done-cb` — once, on whichever path settles.
                        settle! (fn [publish!]
@@ -1592,6 +1733,31 @@
                            nil)))))
                (catch #?(:clj Throwable :cljs :default) e
                  (handle-run-error! resolve variant-id e start-ms))))))))))
+
+(defn rerun!
+  "Run `variant-id` again FRESH, through the one run owner (rf2-3x7nj.30.3):
+  re-PREPARE the frame in place to its declared start (phases 0-2, which
+  also re-stamps the run's epoch baseline) with the inputs the owner was
+  last prepared with — the canvas's Controls overrides, modes, substrate
+  and run-key, so the canvas sees no key change and does not run a second
+  time — then RESUME with `selection` (see `resume-run!`).
+
+  This is the author-facing 'run it again': the play chip's and failure
+  banner's Re-run, a dropdown play row, Run all, the recorder export's
+  replay and the CI `runPlay` hook. Each is a fresh run, so a correct
+  variant never grades against the previous run's app-db or tape. A
+  single play starts from `:setup`; `{:play :all}` prepares once and runs
+  every play in order. The engine drivers (`runner-events/run!`,
+  `run-play!`, `run-all-plays!`) still drive the frame AS IT STANDS.
+
+  A re-prepare after a resume claims a fresh generation, so no new run-key
+  is needed; one prepared but not yet resumed is still fresh, and dedupes.
+  Returns the resume's promise of the unified result."
+  ([variant-id selection] (rerun! variant-id selection nil))
+  ([variant-id selection done-cb]
+   (when (and rf.story.config/enabled? variant-id)
+     (prepare-run! variant-id (get-in @run-owner [variant-id :opts]))
+     (resume-run! variant-id done-cb selection))))
 
 ;; ---- inline plan execution -----------------------------------------------
 ;;
@@ -1698,6 +1864,10 @@
   and an equivalent registered variant project the same-shaped tape (and
   therefore the same run-hash)."
   [{:keys [variant-id plan decorator-stack] :as ctx}]
+  ;; rf2-3x7nj.30.6 — an unresolved decorator refuses the run BEFORE the
+  ;; anonymous frame exists (nothing is ever rendered over it), so there is
+  ;; nothing to tear down.
+  (refuse-unresolved-decorators! variant-id decorator-stack)
   ;; rf2-shx4 — the inline path already TRANSFERRED the lowered redirect but
   ;; installed no route map, so `:rf.http/managed-test-stub` was an
   ;; unregistered fx id. Realize the fixture first, same ordering as

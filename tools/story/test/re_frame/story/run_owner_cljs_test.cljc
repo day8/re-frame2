@@ -20,6 +20,10 @@
   selects it. Under its old `-cljc-test` name no CLJS build selected it, so
   the `:cljs` branches below never compiled (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            ;; Loaded so `rf/epoch-history` records a live tape: the fresh
+            ;; re-run tests below read `:rf.assert/dispatched?`, which is
+            ;; tape-projected (rf2-3x7nj.30.3).
+            [re-frame.epoch]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.machines :as rf.machines]
@@ -31,7 +35,9 @@
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.story.runtime :as rf.story.runtime]
             #?@(:clj [[re-frame.story.async :as rf.story.async]
-                      [re-frame.story.config :as rf.story.config]])))
+                      [re-frame.story.config :as rf.story.config]
+                      [re-frame.story.recorder.play-export-events
+                       :as rf.story.recorder.play-export-events]])))
 
 ;; ---- external-effect counter (an irreversible effect proxy) --------------
 ;;
@@ -279,3 +285,147 @@
              ;; could dispatch — it never mutated the successor frame.
              (is (= 1 @ext-effect-count)
                  "ONLY B's effect fired — A's stale continuation dispatched nothing")))))))
+
+;; ---- (8) every author-triggered run is FRESH (rf2-3x7nj.30.3) -------------
+;;
+;; The play chip's and banner's Re-run, a dropdown play row, Run all, the
+;; recorder export's replay and the CI `runPlay` hook all call `rerun!`. These
+;; drive THAT operation — never the engine's `runner-events/run!` — after the
+;; canvas's own run (`select!`, a prepare + resume like `run-if-needed!`).
+;; Every script is `:dispatch-sync` / `[:assert …]`, so each run has settled
+;; when `rerun!` returns, on both runtimes.
+
+(defn- select!
+  "The canvas's own run for `vid` under run opts `opts`: prepare + resume."
+  [vid opts]
+  (rf.story.runtime/prepare-run! vid (assoc opts :run-key {:variant-id vid :opts opts}))
+  (resume! vid))
+
+(defn- rerun!
+  "The operation every author-triggered run calls. Returns its result promise."
+  [vid selection]
+  (rf.story.runtime/rerun! vid selection))
+
+(defn- play-status [vid play-key]
+  (:status (rf.story.play.runner-events/current-state-for-play vid play-key)))
+
+#?(:clj
+   (defn- settled-status [p]
+     (:status (rf.story.async/deref-blocking p 5000))))
+
+(deftest rerun-is-fresh-for-a-stateful-variant
+  (testing "Re-run after the author poked the canvas runs from the declared
+            start, so a correct counter variant passes — press after press"
+    (let [vid :story.fresh/counter]
+      (rf/reg-event :fresh/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+      (rf.story/reg-variant vid
+        {:script [[:dispatch-sync [:fresh/inc]]
+                  [:assert [:rf.assert/path-equals [:n] 1]]]})
+      (select! vid {})
+      (is (= :pass (play-status vid nil)) "the canvas's own run passes")
+      (rf/dispatch-sync [:fresh/inc] {:frame vid})
+      (rf/dispatch-sync [:fresh/inc] {:frame vid})
+      (is (= 3 (:n (rf/app-db-value vid))) "the author poked the canvas twice")
+      (dotimes [press 2]
+        (let [p (rerun! vid {:play nil})]
+          (is (= :pass (play-status vid nil))
+              (str "Re-run press " (inc press) " passes"))
+          (is (= 1 (:n (rf/app-db-value vid)))
+              "the play ran once from :setup, not on top of the poked state")
+          #?(:clj (is (= :pass (settled-status p)) "the unified verdict agrees")))))))
+
+(deftest rerun-reads-only-its-own-tape
+  (testing "a tape assertion on Re-run reads THIS run's epochs: the author's
+            own dispatch is not the play's evidence"
+    (let [vid :story.fresh/tape]
+      (rf/reg-event :fresh/evidence (fn [{:keys [db]} _] {:db (assoc db :evidence true)}))
+      (rf.story/reg-variant vid
+        {:script [[:assert [:rf.assert/dispatched? [:fresh/evidence]]]]})
+      (select! vid {})
+      (is (= :fail (play-status vid nil))
+          "control: the canvas's own run fails — the play never dispatches it")
+      (rf/dispatch-sync [:fresh/evidence] {:frame vid})
+      (let [p (rerun! vid {:play nil})]
+        (is (= :fail (play-status vid nil))
+            "Re-run fails too: the author's click belongs to no run of the play")
+        #?(:clj (is (= :fail (settled-status p))))))))
+
+(deftest rerun-runs-the-compiled-play-with-the-run-inputs
+  (testing "Re-run takes its play from the compiled plan under the canvas's run
+            inputs, so an [:arg] resolves through a Controls override and a
+            :compose'd fragment's script runs ahead of the variant's own"
+    (rf/reg-event :fresh/set (fn [{:keys [db]} [_ k v]] {:db (assoc db k v)}))
+    (let [vid :story.fresh/args]
+      (rf.story/reg-variant vid
+        {:args   {:value 7}
+         :script [[:dispatch-sync [:fresh/set :value [:arg :value]]]
+                  [:assert [:rf.assert/path-equals [:value] 11]]]})
+      (select! vid {:cell-overrides {:value 11}})
+      (rf/dispatch-sync [:fresh/set :value 0] {:frame vid})
+      (rerun! vid {:play nil})
+      (is (= :pass (play-status vid nil)))
+      (is (= 11 (:value (rf/app-db-value vid))) "the Controls override carried into the re-run"))
+    (let [vid :story.fresh/composed]
+      (rf.story/reg-fragment :fragment.fresh/seed
+        {:script {:script [[:dispatch-sync [:fresh/set :seeded true]]]}})
+      (rf.story/reg-variant vid
+        {:compose [:fragment.fresh/seed]
+         :script  [[:assert [:rf.assert/path-equals [:seeded] true]]]})
+      (select! vid {})
+      (rerun! vid {:play nil})
+      (is (= :pass (play-status vid nil)) "the fragment's seed ran before the assert"))))
+
+(deftest rerun-selects-a-play-and-run-all-sequences
+  (testing "a dropdown row runs THAT play from :setup whether or not it
+            auto-runs, and leaves it the active play; Run all prepares once
+            and runs every play in order"
+    (rf/reg-event :fresh/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (let [vid  :story.fresh/multi
+          play (fn [nm n] {:name nm :auto-run? false
+                           :script [[:dispatch-sync [:fresh/inc]]
+                                    [:assert [:rf.assert/path-equals [:n] n]]]})]
+      (rf.story/reg-variant vid {:plays [(play "a" 1) (play "b" 2) (play "c" 3)]})
+      (select! vid {})
+      (is (nil? (:n (rf/app-db-value vid))) "no play auto-runs on selection")
+      (rerun! vid {:play "b"})
+      (is (= :fail (play-status vid "b"))
+          "b alone starts from :setup, where the count reaches 1, not 2")
+      (is (= 1 (:n (rf/app-db-value vid))))
+      (is (= "b" (rf.story.play.runner-events/active-play-key vid))
+          "the chosen play is the active play afterwards")
+      (rerun! vid {:play :all})
+      (is (= [:pass :pass :pass] (mapv #(play-status vid %) ["a" "b" "c"]))
+          "Run all chains every play in declared order")
+      (is (= 3 (:n (rf/app-db-value vid))) "one reset, then a/b/c: 1 -> 2 -> 3")
+      #?(:clj (is (= :error (settled-status (rerun! vid {:play "no-such-play"})))
+                  "a play key naming no play refuses the run rather than running another")))))
+
+;; ---- (9) the recorder export's replay is the same fresh run (rf2-3x7nj.29.4)
+
+#?(:clj
+   (deftest export-replay-runs-the-recording-fresh
+     (testing "'replay in this story' runs the exported script from the recorded
+               variant's declared start, as the pasted form does: a correct
+               export reads PASS and the recording is not doubled"
+       (let [vid :story.fresh/recorded-source]
+         (rf/reg-event :fresh/submit (fn [{:keys [db]} _] {:db (update db :submits (fnil inc 0))}))
+         (rf.story/reg-variant vid {:setup []})
+         (select! vid {})
+         ;; the recording: two submits on the live canvas
+         (rf/dispatch-sync [:fresh/submit] {:frame vid})
+         (rf/dispatch-sync [:fresh/submit] {:frame vid})
+         (let [{:keys [spec]} (rf.story.recorder.play-export-events/build-export
+                                [[:fresh/submit] [:fresh/submit]]
+                                {:variant-id   :story.fresh/recorded
+                                 :extends      vid
+                                 :auto-run?    true
+                                 :auto-assert? true
+                                 :final-db     (rf/app-db-value vid)})
+               done (promise)]
+           (is (some #{[:assert-db [:submits] 2]} (:script spec))
+               "the producer's export asserts the recorded end state")
+           (rf.story.recorder.play-export-events/replay-script! vid spec #(deliver done %))
+           (let [final (deref done 5000 :timeout)]
+             (is (= :pass (:status final)) "the correct export reads PASS")
+             (is (= 2 (:submits (rf/app-db-value vid)))
+                 "the replay ran once from :setup — not doubled onto the recording")))))))

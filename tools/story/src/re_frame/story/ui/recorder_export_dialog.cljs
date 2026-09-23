@@ -31,8 +31,9 @@
   - The rendered `(reg-variant ...)` form — pretty-printed, live
     re-rendered on every option change.
   - `[Copy to clipboard]` — primary action.
-  - `[Replay in this story]` — drives the runner against the active
-    frame so the user can verify the export before pasting.
+  - `[Replay in this story]` — runs the export FRESH on the recorded
+    variant, reset to its declared start as the pasted form would be, so
+    the user can verify the export before pasting.
   - `[Close]`.
 
   ## Pure / impure split
@@ -151,9 +152,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- run-replay!
-  "Drive the just-exported `:script` against the recorded variant's
-  frame via the runner. Updates the dialog's `:replay-status` slot so
-  the UI can surface the outcome."
+  "Replay the just-exported `:script` as a FRESH run of the recorded
+  variant — reset to its declared start, exactly as the pasted form runs
+  (rf2-3x7nj.29.4). Updates the dialog's `:replay-status` slot so the UI
+  can surface the outcome; the callback fires once, on the settled run,
+  so anything but a pass reads FAIL."
   [{:keys [source-id]} spec]
   (when (and rf.story.config/enabled? source-id spec)
     (swap! ui-dialog assoc :replay-status :running :replay-failure-msg nil)
@@ -161,13 +164,14 @@
       source-id spec
       (fn [final-state]
         (let [status (:status final-state)
-              msg    (when (= :fail status)
+              msg    (when (not= :pass status)
                        (let [first-fail (some (fn [r]
                                                 (when (false? (:passed? r)) r))
                                               (:results final-state))]
-                         (:message first-fail)))]
+                         (or (:message first-fail)
+                             (str "replay " (name (or status :error))))))]
           (swap! ui-dialog assoc
-                 :replay-status      (case status :pass :pass :fail :fail :running)
+                 :replay-status      (if (= :pass status) :pass :fail)
                  :replay-failure-msg msg))))))
 
 ;; ---------------------------------------------------------------------------

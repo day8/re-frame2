@@ -43,7 +43,8 @@
   `install-ci-hooks!` is gated by reader conditionals."
   (:require [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.story.registrar   :as rf.story.registrar]
-            #?(:cljs [re-frame.story.play.runner-events :as rf.story.play.runner-events])))
+            #?(:cljs [re-frame.story.play.runner-events :as rf.story.play.runner-events])
+            #?(:cljs [re-frame.story.runtime :as rf.story.runtime])))
 
 ;; ---- pure discovery ------------------------------------------------------
 
@@ -262,13 +263,19 @@
      "Trigger a run for `(variant-id, play-key)` (multi-play).
      Used by the CI runner when the auto-run default doesn't fire the
      intended play (e.g. the second play of a multi-play variant whose
-     `:auto-run?` defaults to false)."
+     `:auto-run?` defaults to false).
+
+     The same fresh 'Run play' the toolbar dropdown offers
+     (rf2-3x7nj.30.3): the one run owner resets the variant to its declared
+     start and runs that play (`rf.story.runtime/rerun!`). The reset clears
+     the OTHER plays' run-states, so read each play's state right after
+     triggering it — as the CI runner does."
      [variant-id-str play-key-str]
      (let [vid (->variant-id variant-id-str)
            pk  (when (and play-key-str
                           (not= "" play-key-str))
                  (str play-key-str))]
-       (rf.story.play.runner-events/run-play! vid pk)
+       (rf.story.runtime/rerun! vid {:play pk})
        nil)))
 
 #?(:cljs

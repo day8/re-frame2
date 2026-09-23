@@ -332,8 +332,9 @@ async function waitForPlayTerminalState(page, variantId, playKey) {
 }
 
 /**
- * Trigger a specific play to run. The CI hook's `runPlay` picks the
- * spec off the variant body and drives the runner.
+ * Trigger a specific play to run. The CI hook's `runPlay` is the toolbar's
+ * fresh "Run play": the one run owner resets the variant to its declared
+ * start and runs that play from the compiled plan (`runtime/rerun!`).
  */
 async function triggerPlay(page, variantId, playKey) {
   return page.evaluate(
@@ -827,8 +828,9 @@ async function runTestbed(browser, baseUrl, testbed) {
 
         if (!row['auto-run?']) {
           // Manual play — trigger it explicitly. The CI hook routes
-          // through runner-events/run-play! which sets the active
-          // play + drives the runner; we read per-play state below.
+          // through runtime/rerun!, a fresh run of just this play (the
+          // reset clears the other plays' states); we read this play's
+          // state straight after triggering it, below.
           await triggerPlay(page, vid, playKey);
         }
 
