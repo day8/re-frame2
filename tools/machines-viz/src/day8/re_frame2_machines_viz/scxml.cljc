@@ -2,12 +2,14 @@
   "SCXML (W3C State Chart XML) import/export for re-frame2 machine
   definitions.
 
-  SCXML is the W3C standard for statecharts. Round-tripping through
-  SCXML lets re-frame2 machines be shared with non-CLJS tooling —
+  SCXML is the W3C standard for statecharts. Exporting to SCXML lets
+  re-frame2 machines be shared with non-CLJS tooling —
   external workflow systems, Erlang `gen_statem`-derived tools,
   Stately's importers, the xstate-visualizer. Same pure-data posture
   as `mermaid.cljc`: a machine definition in, an XML string out;
-  and the inverse on the read side.
+  and the inverse on the read side, which reads back ONLY documents this
+  library exported (the format marker — see `scxml->spec`,
+  rf2-3x7nj.33.5).
 
   ## Input / output
 
@@ -804,6 +806,32 @@
      (str (indent-str depth) "</scxml>")]))
 
 ;; ---------------------------------------------------------------------------
+;; Format marker (rf2-3x7nj.33.5)
+;;
+;; `scxml->spec` is ROUND-TRIP-ONLY: it reads back documents `spec->scxml`
+;; wrote, and nothing else. The id codec, the `after.*` / `done.state.*`
+;; event conventions, the explicit `type=` on every targeted transition and
+;; the path-derived ids are all THIS library's conventions, so a third-party
+;; document decoded through them imports as a confident, valid, DIFFERENT
+;; machine (`logged-out` → `:logged/out`, W3C's default-external transition
+;; read as internal, `after.500` read as a timer). The exporter therefore
+;; writes this fixed comment on its own line right after the prolog, and the
+;; importer refuses any document that does not begin with exactly it.
+;;
+;; A COMMENT rather than an attribute: an unqualified attribute on `<scxml>`
+;; would make every export fail a strict XSD check in the external tools the
+;; export exists to serve, while the round trip already depends on comments
+;; surviving (the `<!-- action: NAME -->` carrier). The marker names a FORMAT,
+;; not trusted authorship — a marked file can still be hand-edited, which is
+;; why the rf2-qy8p hardening below stays.
+
+(def ^:private format-marker
+  "The exact format comment every `spec->scxml` document carries after its
+  prolog, and every `scxml->spec` input must begin with. A different version
+  is a different format and is refused like an absent marker."
+  "<!-- re-frame2 machines-viz SCXML v1 -->")
+
+;; ---------------------------------------------------------------------------
 ;; Public emit fn
 
 (defn spec->scxml
@@ -841,7 +869,11 @@
   fallback, which W3C SCXML cannot host as a root `<transition>`. The
   exporter preserves it as an annotated, non-conformant child, but it
   does **not** survive the parse back (alongside `:spawn-all`, `:tags`,
-  action/guard bodies, and source-coord metadata)."
+  action/guard bodies, and source-coord metadata).
+
+  rf2-3x7nj.33.5 — the line after the XML prolog is always the fixed format
+  comment `<!-- re-frame2 machines-viz SCXML v1 -->`, the marker
+  `scxml->spec` requires before it reads a document."
   [machine-spec]
   ;; EP-0029 — lower the named-intent grammars before export: `:timeout` /
   ;; `:on-timeout` → `:after` (A4, surfaces as a `delayed` SCXML
@@ -872,6 +904,7 @@
          ;; carry live runtime values).
          :extra    {:spec-summary (g/definition-summary machine-spec)}}))
     (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+         format-marker "\n"
          (str/join "\n"
                    (if parallel?
                      (emit-parallel machine-spec 0)
@@ -880,12 +913,12 @@
 ;; ---------------------------------------------------------------------------
 ;; XML parse — minimal regex-based reader for the SCXML subset we
 ;; emit. This deliberately doesn't try to be a full XML parser; it
-;; round-trips our own output and consumes the common SCXML shapes
-;; external tools emit (single-line tags, attribute order is free,
-;; whitespace tolerated). For unsupported XML constructs (CDATA,
-;; namespaces beyond the default scxml ns, processing instructions
-;; other than the leading `<?xml ... ?>`) the parser is best-effort
-;; and may throw.
+;; round-trips our own output (attribute order is free, whitespace
+;; tolerated), and `scxml->spec` refuses any document that lacks the
+;; `format-marker` before this reader sees it (rf2-3x7nj.33.5). For
+;; unsupported XML constructs (CDATA, namespaces beyond the default scxml
+;; ns, processing instructions other than the leading `<?xml ... ?>`) the
+;; parser is best-effort and may throw.
 
 (defn- strip-prolog
   "Drop the leading `<?xml ... ?>` declaration if present."
@@ -1175,7 +1208,9 @@
                   ;; target-bearing transition can be external (a targetless
                   ;; transition has no state to re-enter), matching the
                   ;; emitter's `(and target reenter?)` guard. Any other `type`
-                  ;; value (incl. the SCXML default `internal`) leaves
+                  ;; value (incl. `internal`, and an absent `type`, which the
+                  ;; exporter never writes on a targeted transition even
+                  ;; though W3C defaults it to `external`) leaves
                   ;; `:reenter?` unset — the re-frame2 internal default.
                   type-s   (get attrs "type")
                   reenter? (and target (= type-s "external"))
@@ -1579,6 +1614,16 @@
 
   for the supported subset documented in the ns docstring.
 
+  rf2-3x7nj.33.5 — **round-trip-only.** It reads only documents
+  `spec->scxml` wrote: the input must begin (after an optional XML prolog
+  and whitespace) with exactly the format comment
+  `<!-- re-frame2 machines-viz SCXML v1 -->`, or it throws
+  `:rf.error/id :scxml/unsupported-format` (recovery
+  `:re-export-from-the-source-definition`) before any export convention is
+  applied. Third-party SCXML is not read: its ids, event descriptors,
+  default-external transitions and document-wide target references do not
+  mean what this codec would decode them to.
+
   Throws the canonical thrown-error shape with
   `:rf.error/id :scxml/parse-error` when the input is not a valid SCXML
   document our parser recognises (missing root `<scxml>`, unclosed tags,
@@ -1600,9 +1645,9 @@
   subtree cannot supply the `<parallel>` that decides it. This matters for a
   CONFORMING document: W3C SCXML §6.4 lets `<invoke>` carry a whole nested
   `<scxml>` inline through `<content>`, and reading into it let the invoked
-  document's topology replace the importing one outright. Such a payload is
-  ignored, exactly like every other unsupported subtree — never rejected
-  (it is valid SCXML) and never adopted.
+  document's topology replace the importing one outright. Inside a marked
+  document such a payload is ignored, exactly like every other unsupported
+  subtree — never rejected (it is valid SCXML) and never adopted.
 
   rf2-qy8p — **and success is a postcondition, not a hope**: every
   definition this returns has passed the canonical recursive grammar gate
@@ -1620,6 +1665,19 @@
       {:recovery :pass-an-scxml-string
        ;; rf2-8nzxib — value-FREE; never the raw input.
        :extra    {:input-summary (input-summary scxml-string)}}))
+  (let [body (str/triml (strip-prolog scxml-string))]
+    ;; rf2-3x7nj.33.5 — the format gate runs BEFORE any export convention
+    ;; (comment lifting, the id codec, the `after.` / `done.state.` events).
+    (when-not (str/starts-with? body format-marker)
+      (rf.error/throw-error!
+        :scxml/unsupported-format
+        'machines-viz/scxml->spec
+        (str "SCXML import: scxml->spec reads only documents spec->scxml "
+             "wrote, and this one does not begin with its format marker; "
+             "re-export the document from the re-frame2 machine definition.")
+        {:recovery :re-export-from-the-source-definition
+         ;; value-FREE, like every error here; never the raw input.
+         :extra    {:input-summary (input-summary scxml-string)}})))
   (let [tokens (-> scxml-string strip-prolog lift-action-comments strip-comments tokenize vec)
         root-start (first (filter #(= "scxml" (:tag %)) tokens))]
     (when-not root-start
