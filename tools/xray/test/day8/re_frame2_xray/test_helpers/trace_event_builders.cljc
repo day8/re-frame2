@@ -50,6 +50,8 @@
   | `frame-state-changed-ev`       | `:rf.event/frame-state-changed`        | SIDE EFFECTS `:rf.db/runtime` row   |
   | `do-fx-ev`                     | `:rf.fx/do-fx`                         | FX per-row attribution              |
   | `fx-handled-ev`                | `:rf.fx/handled`                       | FX per-row outcome                  |
+  | `fx-override-applied-ev`       | `:rf.fx/override-applied`              | FX `↺` overridden provenance        |
+  | `http-issued-ev`               | `:rf.http/issued`                      | an `:info` activity row, NOT an issue |
   | `flow-recomputed-ev`           | `:rf.flow/computed`                    | FLOW step (one row per flow)        |
   | `sub-run-ev`                   | `:rf.sub/run`                          | SUBSCRIPTIONS step                  |
   | `sub-dispose-ev`               | `:rf.sub/dispose`                      | SUBSCRIPTIONS DISPOSED sub-section  |
@@ -209,11 +211,50 @@
   `:rf.fx/elapsed-ms` here.
 
   rf2-ipaza — substrate stamps the canonical `:rf.fx/elapsed-ms`
-  (rf2-hhh92 · `re-frame.fx`; spec 009 §241)."
-  [fx-id args duration-ms]
-  (ev :rf.fx :rf.fx/handled {:rf.fx/id         fx-id
-                             :rf.fx/args       args
-                             :rf.fx/elapsed-ms duration-ms}))
+  (rf2-hhh92 · `re-frame.fx`; spec 009 §241).
+
+  The 4-arity is a KEYWORD-REDIRECTED entry: `re-frame.fx/emit-handled!`
+  stamps the TARGET as `:rf.fx/id` and the id the handler emitted as
+  `:rf.fx/from`."
+  ([fx-id args duration-ms]
+   (fx-handled-ev fx-id args duration-ms nil))
+  ([fx-id args duration-ms from]
+   (ev :rf.fx :rf.fx/handled (cond-> {:rf.fx/id         fx-id
+                                      :rf.fx/args       args
+                                      :rf.fx/elapsed-ms duration-ms}
+                               (some? from) (assoc :rf.fx/from from)))))
+
+(defn fx-override-applied-ev
+  "`:rf.fx/override-applied` trace — an `:fx-overrides` entry replaced
+  an fx's handler. Mirrors `re-frame.fx` exactly: the tags carry ONLY
+  `:rf.fx/from` (the id the handler emitted) and `:rf.fx/to` (a redirect
+  TARGET id, or `:re-frame.fx/fn-value` for a function override) — never
+  `:rf.fx/id`. A keyword redirect emits it at resolution, before the
+  target runs; a function override emits it immediately before the
+  function fires. Either way the matching `:rf.fx/handled` (or the
+  `:rf.error/fx-handler-exception`, if the replacement threw) follows."
+  [from to]
+  (ev :rf.fx :rf.fx/override-applied {:rf.fx/from from :rf.fx/to to}))
+
+;; ---- managed HTTP ------------------------------------------------------
+
+(defn http-issued-ev
+  "`:rf.http/issued` trace — the `:info` issuance row
+  `re-frame.http.handlers/emit-issued-trace!` emits inside the issuing fx
+  handler on EVERY managed request, so it lands in the issuing bundle's
+  `:other`. Tag set as the producer stamps it (captured from the real
+  runtime): the attempt-1 work id, the work kind, the request id, the
+  merged URL, the method, the frame and the reply-target summary.
+  Healthy success-path activity — never an issue."
+  [request-id url]
+  (ev :info :rf.http/issued
+      {:rf.reply/work-id   [:rf.work/http request-id 1 1]
+       :rf.reply/work-kind :http
+       :request-id         request-id
+       :url                url
+       :method             :get
+       :frame              :rf/default
+       :reply-to           {:on-success :app/done :on-failure :app/done}}))
 
 ;; ---- pending-`:db` snapshots (t1 / t2) — rf2-ta0y7 / rf2-4wywy ----------
 

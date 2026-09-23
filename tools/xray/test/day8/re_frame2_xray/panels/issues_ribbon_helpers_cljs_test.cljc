@@ -30,6 +30,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]
+            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- fixture builders ---------------------------------------------------
@@ -57,9 +58,10 @@
     :time      time
     :tags      tags}))
 
-(defn- advisory-ev
+(defn- info-ev
+  "An `:op-type :info` row — ACTIVITY, not an issue (rf2-3x7nj.24.1)."
   ([id operation]
-   (advisory-ev id operation {}))
+   (info-ev id operation {}))
   ([id operation {:keys [time tags] :or {time 1000 tags {}}}]
    {:id        id
     :op-type   :info
@@ -88,11 +90,12 @@
 ;; ---- (1) op-type → severity mapping ------------------------------------
 
 (deftest op-type-severity-mapping-honours-spec
-  (testing "the three issue op-types map to the panel's severity buckets"
+  (testing "the two issue op-types map to the panel's severity buckets"
     (is (= :error    (h/op-type->severity :error)))
-    (is (= :warning  (h/op-type->severity :warning)))
-    (is (= :advisory (h/op-type->severity :info))))
+    (is (= :warning  (h/op-type->severity :warning))))
   (testing "non-issue op-types return nil"
+    (is (nil? (h/op-type->severity :info))
+        "`:info` is activity (Spec 009: issue filters subscribe to :warning / :error)")
     (is (nil? (h/op-type->severity :event)))
     (is (nil? (h/op-type->severity :fx)))
     (is (nil? (h/op-type->severity :frame)))
@@ -125,9 +128,9 @@
 (deftest issue-event?-classification
   (testing "every issue op-type is an issue"
     (is (true? (h/issue-event? (error-ev    1 :rf.error/handler-exception))))
-    (is (true? (h/issue-event? (warning-ev  2 :rf.warning/recoverable))))
-    (is (true? (h/issue-event? (advisory-ev 3 :rf.info/note)))))
+    (is (true? (h/issue-event? (warning-ev  2 :rf.warning/recoverable)))))
   (testing "non-issue op-types are NOT issues"
+    (is (false? (h/issue-event? (info-ev 3 :rf.info/note))))
     (is (false? (h/issue-event? (non-issue-ev 1))))
     (is (false? (h/issue-event? {:id 1 :op-type :rf.fx})))
     (is (false? (h/issue-event? {:id 1 :op-type :rf.frame})))
@@ -140,7 +143,7 @@
     (is (= "rf.error"   (h/category-prefix (error-ev 1 :rf.error/handler-exception))))
     (is (= "rf.warning" (h/category-prefix (warning-ev 2 :rf.warning/recoverable))))
     (is (= "rf.ssr"     (h/category-prefix (warning-ev 3 :rf.ssr/hydration-mismatch))))
-    (is (= "rf.info"    (h/category-prefix (advisory-ev 4 :rf.info/note))))
+    (is (= "rf.info"    (h/category-prefix (info-ev 4 :rf.info/note))))
     (is (= "rf.route.nav-token"
            (h/category-prefix (error-ev 5 :rf.route.nav-token/rejected)))))
   (testing "category-prefix returns nil when operation has no namespace"
@@ -185,7 +188,7 @@
     (is (= "hydration-mismatch"
            (h/category-label (warning-ev 2 :rf.ssr/hydration-mismatch))))
     (is (= "note"
-           (h/category-label (advisory-ev 3 :rf.info/note)))))
+           (h/category-label (info-ev 3 :rf.info/note)))))
   (testing "falls back to the literal string for a non-keyword op"
     (is (= "literal-string"
            (h/category-label {:operation "literal-string"}))))
@@ -287,17 +290,18 @@
 
 (deftest project-feed-renders-issues-from-trace-events
   (testing "the focused epoch's :trace-events feed the projection;
-            non-issue traces are silently dropped"
+            non-issue traces — the `:info` activity row among them — are
+            silently dropped"
     (let [record (epoch-record 42
                    [(error-ev   1 :rf.error/handler-exception)
                     (non-issue-ev 2)
                     (warning-ev 3 :rf.warning/recoverable)
                     (non-issue-ev 4)
-                    (advisory-ev 5 :rf.info/note)])
+                    (info-ev 5 :rf.info/note)])
           feed   (h/project-feed record :focused)]
-      (is (= 3 (:total feed)))
-      (is (= 3 (:rendered feed)))
-      (is (= #{1 3 5} (set (map :id (:issues feed)))))
+      (is (= 2 (:total feed)))
+      (is (= 2 (:rendered feed)))
+      (is (= #{1 3} (set (map :id (:issues feed)))))
       (is (nil? (:empty-kind feed)))
       (is (= 42 (:epoch-id feed))))))
 
@@ -428,12 +432,45 @@
             every issue in the focused epoch surfaces, :rendered = :total"
     (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-exception)
                                   (warning-ev 2 :rf.warning/missing-doc)
-                                  (advisory-ev 3 :rf.info/note)
+                                  (info-ev 3 :rf.info/note)
                                   (error-ev   4 :rf.ssr/hydration-mismatch)])
           feed   (h/project-feed record :focused)]
-      (is (= 4 (:total feed)))
-      (is (= 4 (:rendered feed)))
-      (is (= #{1 2 3 4} (set (map :id (:issues feed))))))))
+      (is (= 3 (:total feed)))
+      (is (= 3 (:rendered feed)))
+      (is (= #{1 2 4} (set (map :id (:issues feed))))
+          "every ISSUE renders; the :info activity row is not one"))))
+
+;; ---- (9) an :info lifecycle row is activity, never an issue (rf2-3x7nj.24.1)
+;;
+;; The runtime emits `:rf.http/issued` at `:info` inside the issuing fx
+;; handler on EVERY managed request, so it lands in the issuing bundle —
+;; and while `:info` classed as an `:advisory` issue, every healthy
+;; HTTP-issuing epoch put one issue on the ribbon (tripping the
+;; auto-open-on-error watcher's empty→non-empty edge) and washed its L2
+;; row pink beside a green status. The row below is the producer's shape.
+
+(deftest info-lifecycle-row-is-not-an-issue
+  (testing "a healthy managed-HTTP epoch — the producer's `:rf.http/issued`
+            `:info` row beside its `:rf.fx/handled` — projects NO issue"
+    (let [issued (assoc (teb/http-issued-ev :app/load "/api/load") :id 32)
+          record (epoch-record 7 [issued
+                                  (assoc (teb/fx-handled-ev :rf.http/managed {} 1) :id 33)])
+          feed   (h/project-feed record :focused)]
+      (is (false? (h/issue-event? issued)))
+      (is (= [] (h/project-issues [issued])))
+      (is (= 0 (:total feed)))
+      (is (= :no-issues (:empty-kind feed))
+          "the ribbon stays EMPTY, so auto-open-on-error has no edge to fire on")))
+  (testing "CONTROLS — the two issue tiers still project, so the drop above is
+            about :info and not about the projection having gone blank"
+    (let [warn  (teb/ev :warning :rf.fx/skipped-on-platform {:rf.fx/id :app/clip})
+          err   (teb/handler-exception-ev :app/load "boom")
+          feed  (h/project-feed (epoch-record 7 [(assoc (teb/http-issued-ev :app/load "/api/load") :id 1)
+                                                 (assoc warn :id 2)
+                                                 (assoc err :id 3)])
+                                :focused)]
+      (is (= [:error :warning] (mapv :severity (:issues feed))))
+      (is (= 2 (:total feed))))))
 
 ;; ---- (10) format-time ---------------------------------------------
 
