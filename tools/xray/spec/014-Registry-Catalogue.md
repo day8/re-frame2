@@ -58,7 +58,7 @@ this doc enumerates what sits inside it.
 |---|---|
 | `:rf.xray/<id>` | Every subscription, every cofx, and every cross-panel event (consumed from ≥2 panels) or shared-infrastructure event (trace-buffer pump, epoch-history pump, etc.). |
 | `:rf.xray.<panel>/<id>` | Panel-owned registrations, for example `:rf.xray.static.routes/set-query`. The namespace identifies ownership, not a prohibition on a coordinating shell or palette dispatching the event. |
-| `:rf.xray.fx/<id>` | Every effect (fx). The trailing `.fx/` segment is the canonical effect-id marker — agents grepping for the fx subset MAY use `:rf.xray.fx/` as the discriminator. |
+| `:rf.xray.fx/<id>` | Cross-panel effects (fx). Panel-owned fx follow the `:rf.xray.<panel>/<id>` row above (`:rf.xray.static/persist-mode`, `:rf.xray.palette.fx/persist-recents`, …), so `:rf.xray.fx/` is NOT a complete fx discriminator — `registry_cljs_test`'s `all-fx-names` is. |
 
 Xray MUST NOT register a handler under any non-`:rf.xray*/` keyword.
 A host registering `:user/login` and Xray registering
@@ -161,7 +161,11 @@ Version 4's clause no longer installs them; a process crossing 3 → 6 in one
 step never acquires an id it would immediately have to be relieved of, and
 clearing an id a process never registered is inert, which is what lets the
 version-6 clause run for every behind process rather than branching on how far
-behind. `migrate-schema!` reaches each delta through the facade the
+behind. Version `7` (rf2-2qtgt) adds ONE event,
+`:rf.xray/focus-after-frame`, inside the gated `focus/install!` — the
+continuation `focus!`'s async path queues behind a frame step; a pure
+addition, so re-running `focus/install!` is the whole delta.
+`migrate-schema!` reaches each delta through the facade the
 orchestrator already requires (the idempotent re-install applies only the
 missing/changed delta).
 
@@ -717,7 +721,7 @@ Spec: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode +
 [`018-Event-Spine.md`](./018-Event-Spine.md) §Static surface
 architectural section. Static mode is unconditionally available
 (per rf2-8l3uk — the prior `:rf.xray/static-mode?` feature gate
-was removed). The mode pill mounts at ribbon-left, `Cmd-Shift-M` /
+was removed). The mode pill mounts at ribbon-right, `Cmd-Shift-M` /
 `Ctrl-Shift-M` toggles between Dynamic and Static surfaces, and the
 **selected mode persists to localStorage under the key `xray.mode`**.
 Per rf2-o5f5f.1 + rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
@@ -914,13 +918,13 @@ localStorage).
 
 ### Command-item names (the 6 new verbs landed by rf2-ybjkx)
 
-That landing expanded the catalogue; the complete current ten-item
+That landing expanded the catalogue; the complete current nine-item
 catalogue is owned by [`API.md` §Command palette verbs](./API.md#command-palette-verbs-catalogue).
 In particular, the shipped names are `:cycle-reduced-motion` and
 `:snapshot-app-db`, not `:toggle-reduced-motion` or `:snapshot-db`.
 Snapshot copies an egress-projected value to console/clipboard; it does
-not create a pin. Clear-epoch-history clears only Xray's local app-db
-history slot, not the framework's epoch ring.
+not create a pin. (`:clear-epoch-history` was retired under
+rf2-y8doi.27 — see API.md §Command palette verbs.)
 
 The `:modes` filter is the normative convention for palette command
 authoring: a command's `:modes` set MUST include every mode in which

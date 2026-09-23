@@ -79,7 +79,7 @@ one edit per token.
 `--devtools-success`.
 
 - **Issues severities:** `error` (red) · `warning` (amber) · `advisory` (cool blue) — three
-  distinct tones so the Issues panel reads at a glance.
+  distinct tones so issue severities read at a glance inline (Epoch panel + L2 issue-row wash).
 - **`info` vs `accent`:** both are blue, but `accent` is the **primary** chrome signal (active /
   selected / changed) and `info` is a **fixed categorical** cool blue used where a surface needs
   to read as a distinct peer of the primary accent (the in-flight head rides `accent`; the

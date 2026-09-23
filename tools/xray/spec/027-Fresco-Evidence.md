@@ -673,7 +673,7 @@ proves the SUBSCRIPTION invalidates and recomputes. It does not prove the
 RUNNING PANEL re-renders: it calls `Panel` a second time itself, with no React
 root mounted, nothing committed and no DOM read — a claim about the sub, cited
 for a claim about the tab (merged-PR audit of #7881). The panel's half is
-`fresco_live_panel_dom_cljs_test/the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick`:
+`fresco_live_panel_dom_cljs_test/w0-the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick`:
 one `Panel` mounted into a real `reagent.dom.client` root inside the shell's own
 `[frame-provider {:frame :rf/xray}]`, a real boundary mounted, the render queue
 DRAINED with the panel still showing its empty note — the control, because a

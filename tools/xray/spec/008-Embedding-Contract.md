@@ -3,10 +3,11 @@
 Xray's default integration is an app-provided true-inline layout host
 (`[data-rf-xray-host]`) described in
 [`011-Launch-Modes.md`](./011-Launch-Modes.md). This doc covers the
-**full-shell embed contract** — the canonical shape Story (per
-[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) §RHS) uses to mount
-the entire 4-layer Xray shell as its right-hand-side observability
-surface.
+**full-shell embed contract** (`panels/mount-shell!`) for a host that
+mounts the entire 4-layer Xray shell into its own layout. Story's
+right-hand side is NOT that shape: since rf2-v1ach it is the per-panel +
+`mount-event-spine!` embed (`re-frame.story.ui.xray-embed`), one
+chip-selected panel at a time.
 
 Single-panel embedding as a host-facing affordance is **not part of
 the v1.0 contract**. Hosts that want per-panel mount fns reach for
@@ -88,7 +89,7 @@ capture is suppressed.
 sequence.** `keybinding.cljs` watches the slot (rf2-y8doi.17) and
 attaches / detaches the global listener on every change, so a host
 whose mount lifecycle runs AFTER Xray's preload — Story's
-`ensure-xray-mounted!` fires at variant-selection time — needs
+`xray-preset/on-variant-selected!` fires at variant-selection time — needs
 nothing further: the listener the preload already installed under
 the default-true posture comes off when the flip lands. Host boot
 ordering no longer changes what the host has to call.
@@ -111,10 +112,11 @@ full API contract for `detach!` is documented in
 
 ## Embed props inventory
 
-The full-shell embed exposes exactly two host-visible props:
+The full-shell embed exposes these host-visible props:
 
 | Prop | Required | Default | Meaning |
 |---|---|---|---|
+| `:mode` | no | `:inline` | The shell's chrome mode — `:inline` (default) or `:overlay` — threaded to `shell-view`. |
 | `:frame` | no | `:rf/xray` (Xray-internal default) | The frame the shell's frame-provider wraps. Hosts that need the embedded shell to read a non-default Xray-internal frame pass this through `mount-shell!`'s `opts`; in practice the default is what every shipped host uses. The shell's frame-picker UI is the canonical way to choose which *host* frame Xray observes — that selection lives in `:rf.xray/target-frame` inside `:rf/xray`'s db. |
 | `:height` | no | host-CSS owned | Xray does not read a height prop. The host's stylesheet sizes the mount-point container (typically via `--rf-xray-inline-width` for inline-host width and the host's flex / grid rules for height). Listed here because hosts often think of "height" as part of the embed contract; the contract is "the host owns it". |
 
@@ -137,7 +139,7 @@ exist.
 
 ## What the host owns
 
-When Xray is embedded full-shell, the host (Story) owns:
+When Xray is embedded full-shell, the host owns:
 
 - **Layout.** Where the Xray shell goes on the page, its surrounding
   chrome, its size.
@@ -195,8 +197,7 @@ shape:
 
 `focus!` fires into Xray's own `:rf/xray` shell frame (via
 `re-frame.core/with-frame defaults/default-frame-id` — the same
-no-surrounding-frame seam `runtime.cljs` mutations and
-`spine-filters/hydrate!` use). The host never names Xray's internal
+no-surrounding-frame seam `spine-filters/hydrate!` uses). The host never names Xray's internal
 frame; the channel is the command, not the frame split.
 
 This is **separate from open-full-Xray.** Mounting / opening /
@@ -279,8 +280,7 @@ lighter selector for callers that only have an epoch.
 
 ### Return shape
 
-`focus!` returns a data-shaped result mirroring `runtime.cljs`'s
-`{:ok? …}` idiom:
+`focus!` returns a data-shaped `{:ok? …}` result:
 
 ```clojure
 {:ok? true  :applied [[:rf.xray/select-frame :checkout] …] :source {…}}
@@ -335,8 +335,8 @@ dispatched" follows the same post-settle-listener shape.
 
 ## State isolation (Option-C frame-provider)
 
-Embedding is zero-config — drop a `mount-shell!` call into Story / your
-own layout and it renders. Xray's *state* must never bleed into the
+Embedding is zero-config — drop a `mount-shell!` call into your own
+layout and it renders. Xray's *state* must never bleed into the
 host's app-db, its subs, or its dispatch queue, and that isolation is
 achieved by an internal frame-provider wrapper; see
 [`011-Launch-Modes.md`](./011-Launch-Modes.md) for the in-app overlay
@@ -566,8 +566,8 @@ de-singleton sweep (rf2-1w07r EPIC,
 closed via rf2-nesy9) applied this end-to-end: every Xray panel, modal,
 and static surface now captures its instance frame, and the
 `:rf/xray`-literal / global-dispatch guard's `pending-migration`
-allowlist is empty. The few production-singleton seams (trace-collector
-`note-suppressed!`, per-feature `hydrate!` init) have no surrounding
+allowlist is empty. The few production-singleton seams (`config/note-suppressed!`
+→ `drain-suppressed-counts!`, per-feature `hydrate!` init) have no surrounding
 render/event frame, so they target the shell via the named
 `defaults/default-frame-id` Var. (The share-URL on-load restore was
 another such seam until rf2-nugvv removed the whole share surface.) A `:rf/xray`-literal /

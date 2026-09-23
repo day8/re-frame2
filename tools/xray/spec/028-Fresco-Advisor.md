@@ -53,8 +53,10 @@ The three unavailable rows are not an oversight awaiting a later bead.
   on it orders noise*; independently, two clock reads per attempt inflate a
   boundary in proportion to its attempt COUNT rather than its true cost, so two
   boundaries close in true self time and far apart in attempt count invert.
-- **Commit, paint and attempt outcome are React's.** `re-frame.fresco.tool`'s
-  `host-projection` states all three `:host-opaque` on every envelope it emits.
+- **Commit, paint and attempt outcome are React's.** The producer ships no
+  field for them (the `:host` sub-projection went with v3 —
+  [`027`](027-Fresco-Evidence.md) §v2 → v3); `causal/link-host` states all
+  three `:host-opaque` on the slice.
 - Fresco emits no `:rf.view/render` trace, and its User-Timing `:render`
   measures ride `re-frame.performance/enabled?` — an independently gated,
   observer-first channel that is off by default.

@@ -500,8 +500,8 @@ live partition) + each focused epoch's runtime-db pre/post-image (the
 same way the Machines inspector + Routing tab read runtime-db. The TOP
 user-domain section reads the app-db partition (minus any reserved `:rf*`
 key). Because the runtime subsystems no longer live in app-db, an app-db
-diff triple is never runtime-owned; `partition-reserved` /
-`reserved-path?` now key on the reserved `:rf*` NAMESPACE family (a
+diff triple is never runtime-owned; `reserved-namespace-key?` /
+`user-domain-db` now key on the reserved `:rf*` NAMESPACE family (a
 framework-internal slot a host might stash at the app-db root). If a new
 subsystem lands in Conventions, the `runtime-areas` table and this
 section are updated in lockstep.
@@ -771,7 +771,10 @@ one means building the renderer, not reviving the walker.
   of its children, auto-expansion is ceilinged at the panel's
   `:default-expanded-depth` of 3, and recursion stops at the widget's
   `:max-depth`. There is **no** slice virtualisation — no head/tail
-  windowing and no `… N entries …` row.
+  windowing and no `… N entries …` row. What IS bounded is realisation:
+  a not-`counted?` sequential is realised to `count-bound` (1001) and a
+  slot past a capped side paints `::unrealised` — an explicit unknown,
+  never `:added` / `:removed` (`views/edn_inspector.cljs`).
 - **Sticky expand + zoom.** Both key off the panel's stable `:site-id`
   (rf2-pvsxs · rf2-t3fz), so a subtree the operator drilled into stays
   drilled across a tab-switch round-trip.

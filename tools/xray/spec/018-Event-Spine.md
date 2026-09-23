@@ -124,7 +124,7 @@ where Dynamic's hardcodes 34px, so the two tab bars really do differ.
 Left as measured rather than harmonised: whether they SHOULD differ is a
 design question this page does not own.
 
-L2's absence is itself a functional signal — see §The mode signals below. The L1 chrome ribbon retains the frame picker, the mode dropdown (ribbon-left) and the right-icons cluster (`⚙` settings · `✕` close); what it DROPS is the spine chrome sharing that same bar — the `Event History` label, the nav cluster and the `+ filter` add affordance, all of which live on the CHROME ribbon rather than the events one (rf2-3f2di A5; see §L1.5 events ribbon) — while the Dynamic chrome's L1.5 events ribbon (filter pills + hidden-by-filters count) is hidden entire. Static is event-independent and has no spine, so none of those DROPPED clusters has any meaning here. The frame picker is not one of them: it is MODE-INDEPENDENT, though NOT because registrations belong to a frame — per [`Spec 001`](../../../spec/001-Registration.md) the registrar is process-GLOBAL, so the event / sub / route / interceptor / machine-definition catalogues are shared across every frame and read the same whichever frame is picked. What the picker DOES scope is the genuinely per-frame data Static projects beside those catalogues: live machine snapshots, the per-frame flows registry and the `schemas-by-frame` app-db-schema side-table — three of the five Static tabs carry one, which is why `static/shell.cljs`'s `ribbon-tree` composes the `frame_switcher` boundary unconditionally, beside the mode pill; a mode toggle preserves the selection. Routes and Interceptors are catalogue surfaces: Static Routes projects the route catalogue plus its own hermetic Simulate-URL / Simulate-navigation previews, and reads no current-route slice — that slice belongs to the Dynamic Routing lens. (The per-tab split is tabulated in [`007-UX-IA.md`](007-UX-IA.md) §Static mode; `static/shell.cljs`'s namespace docstring carries the same division.) (There is no focus-chip to hide in either mode: the focus dimension was RETIRED per rf2-pjjwh.)
+L2's absence is itself a functional signal — see §The mode signals below. The L1 chrome ribbon retains the frame picker, the mode dropdown (ribbon-right) and the right-icons cluster (`⚙` settings · `✕` close); what it DROPS is the spine chrome sharing that same bar — the `Event History` label, the nav cluster and the `+ filter` add affordance, all of which live on the CHROME ribbon rather than the events one (rf2-3f2di A5; see §L1.5 events ribbon) — while the Dynamic chrome's L1.5 events ribbon (filter pills + hidden-by-filters count) is hidden entire. Static is event-independent and has no spine, so none of those DROPPED clusters has any meaning here. The frame picker is not one of them: it is MODE-INDEPENDENT, though NOT because registrations belong to a frame — per [`Spec 001`](../../../spec/001-Registration.md) the registrar is process-GLOBAL, so the event / sub / route / interceptor / machine-definition catalogues are shared across every frame and read the same whichever frame is picked. What the picker DOES scope is the genuinely per-frame data Static projects beside those catalogues: live machine snapshots, the per-frame flows registry and the `schemas-by-frame` app-db-schema side-table — three of the five Static tabs carry one, which is why `static/shell.cljs`'s `ribbon-tree` composes the `frame_switcher` boundary unconditionally, beside the mode pill; a mode toggle preserves the selection. Routes and Interceptors are catalogue surfaces: Static Routes projects the route catalogue plus its own hermetic Simulate-URL / Simulate-navigation previews, and reads no current-route slice — that slice belongs to the Dynamic Routing lens. (The per-tab split is tabulated in [`007-UX-IA.md`](007-UX-IA.md) §Static mode; `static/shell.cljs`'s namespace docstring carries the same division.) (There is no focus-chip to hide in either mode: the focus dimension was RETIRED per rf2-pjjwh.)
 
 ### The mode signals (chrome silhouette + 2 reinforcing)
 
@@ -132,7 +132,7 @@ The user reads "Static" at a glance via **three stacked signals**; together they
 
 | # | Signal | Dynamic | Static |
 |---|---|---|---|
-| 1 | **Mode dropdown** at chrome-ribbon-left — a compact `<select>` (rf2-4vp5j; replaced the old 160px two-segment radio pill) sharing the frame picker's control weight. Lives in BOTH modes (it's the toggle, not the indicator). | `Dynamic ▾` | `Static ▾` |
+| 1 | **Mode dropdown** at chrome-ribbon-right — a compact `<select>` (rf2-4vp5j; replaced the old 160px two-segment radio pill) sharing the frame picker's control weight. Lives in BOTH modes (it's the toggle, not the indicator). | `Dynamic ▾` | `Static ▾` |
 | 2 | **2-px left-edge ribbon stripe — REMOVED; it signals nothing.** rf2-4yemd took it off the Dynamic ribbon on 2026-05-24 (the blue left edge was absent from the Figma authority); rf2-y8doi.30 took off the Static mirror. Both absences are pinned (`chrome-ribbon-has-no-left-edge-stripe`, `static-ribbon-has-no-left-edge-stripe`), and rf2-ad7zx.13 left no `:accent-violet` / `:cyan` tokens to paint it with. | — (removed) | — (removed) |
 | 3 | **Motion dampening.** | 180ms tab fade (no continuous pulse — the LIVE pulse was never built, rf2-pjjwh; the machine-active pulse was refused, rf2-2sez0) | Tab fade collapses to 0ms instant. Honours `prefers-reduced-motion: reduce` via `--rf-xray-motion-scale`. |
 | 4 | **Chrome silhouette.** | 4-layer (L1 · L2 · L3 · L4) | 3-layer (L1 · L3 · L4 — no spine) |
@@ -166,7 +166,7 @@ Sub-surface slots (e.g. Static Machines' selected-id and per-machine sub-mode) r
 
 ### Availability
 
-Static mode is unconditionally available. The mode dropdown mounts at chrome-ribbon-left in every host, `Cmd-Shift-M` / `Ctrl-Shift-M` dispatches `:rf.xray/toggle-mode` against `:rf/xray`, and the surface composer switches on `:rf.xray/mode`. Per rf2-8l3uk the prior `:rf.xray/static-mode?` opt-in feature gate was removed (pre-alpha posture — back-compat shims are out of scope; if Static mode is useful, expose it unconditionally).
+Static mode is unconditionally available. The mode dropdown mounts at chrome-ribbon-right in every host, `Cmd-Shift-M` / `Ctrl-Shift-M` dispatches `:rf.xray/toggle-mode` against `:rf/xray`, and the surface composer switches on `:rf.xray/mode`. Per rf2-8l3uk the prior `:rf.xray/static-mode?` opt-in feature gate was removed (pre-alpha posture — back-compat shims are out of scope; if Static mode is useful, expose it unconditionally).
 
 ### Mnemonic mode-scoping rule
 
@@ -238,7 +238,7 @@ nav cluster + `+ filter` add affordance live UP on the chrome ribbon
 
 Earlier drafts of this spec **dropped** the mode pill, communicating
 LIVE/RETRO via the L2 spine alone. The rf2-4vp5j redesign **re-adds a
-mode control as a compact `<select> dropdown`** at chrome-ribbon-left
+mode control as a compact `<select> dropdown`** at chrome-ribbon-right
 (not the old 160px two-segment radio pill — that was too dominant for an
 occasional-use control). The dropdown and the `Cmd/Ctrl-Shift-M` global
 chord share the same `:rf.xray/toggle-mode` handler. (LIVE vs RETRO
@@ -330,7 +330,7 @@ The orienting layer. Single-line rows; latest-on-bottom; virtualised; eight visi
 | Row height | 28px (single line) | No density tiers; one shape |
 | Sort order | Latest at bottom | Auto-scrolls to bottom in LIVE mode |
 | Resizable | Drag handle on L2/L3 boundary | Min 2 rows ≈ 56px; max bounded by canvas |
-| Virtualisation | Viewport + 20-row overscan | Uses existing `panels/overflow_indicator.cljs` |
+| Virtualisation | Viewport + 20-row overscan | Uses existing `panels/overflow_indicator.cljc` |
 
 #### v1 ships — Compact density baseline (rf2-htik0)
 
@@ -363,7 +363,7 @@ The Row anatomy table below documents the `Event id` column as
 event vector** inline (`[:cart/add-item {:item-id "apple" :qty 2}]`)
 truncated at the 80-char inline cap (`<head>…]` suffix preserves the
 closing bracket so the row still reads as a vector). The event-id
-gets the accent-violet keyword colour so it pops out of the payload;
+gets the keyword syntax colour ([022](022-Design-Tokens.md) §Syntax highlighting) so it pops out of the payload;
 the payload renders in the row's default text colour. Empty payloads
 collapse to `[:counter/inc]` (no `{}` placeholder). The 80-char cap
 is a single-row legibility constraint — clicking the row opens the
@@ -452,7 +452,7 @@ glyph-free post-rf2-pjjwh).
   as an issue, so the wash stays in lockstep with the ribbon/feed by
   construction. It is the SAME trace-derived signal the Epoch panel's
   per-step `:status` + `epoch-outcome` and `event-status-colour/
-  cascade-outcome` key off (rf2-ahhgn): a cascade carrying any issue trace
+  event-bundle-outcome` key off (rf2-ahhgn): a cascade carrying any issue trace
   lights up. ONE light pink for ANY issue (Mike default — warnings are not
   given a distinct shade from errors).
 - **Colour** is the `:bg-issue-row` theme token (a low-opacity rose wash —
@@ -546,8 +546,7 @@ The Epoch panel (L4 when active) is the OTHER home for the dropped detail. The t
 | **`o` while row focused** | **Not built.** `o` is one of the keys trimmed under rf2-f7748x (see §11) — `keybinding.cljs` binds no `o`. The source coord opens by clicking the coord chip itself (per [`007-UX-IA.md`](007-UX-IA.md) §Editor protocol matrix). |
 | **`Ctrl+click` row** | Copy cascade-id to clipboard — **designed, not built** (2026-09-06, rf2-mv9e). Nothing in `tools/xray/src` writes a cascade-id to the clipboard, and the Epoch panel's row handlers carry no `Ctrl` branch. Value-free (an id, not a value), so it is not an egress site and is not covered by the B.9 lock — it is simply unbuilt. |
 | **Right-click row** | Context menu (see [§7 Filter system — right-click context menu](#7-filter-system)) |
-| **Hover badge** | Category tooltip (see Row badges table) |
-| **Click badge** | Category action (see Row badges table) |
+| **Hover / click badge** | Retired — the per-row activity badges went under rf2-pjjwh (see §Gutter glyphs / row badges / redaction marker) |
 
 ### LIVE-tracking + sticky rules
 
@@ -587,7 +586,7 @@ Round-3 decision: rows are **NOT click-expandable** in place. The Epoch panel (L
 
 ### Multi-instance Mode C lineage overlay
 
-When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)), event rows that triggered transitions on the focused machine get a thin violet underline — a "this is the lineage of the machine you're focused on" overlay layered ON TOP of the row's normal rendering. The overlay is additive; standard row layout unchanged.
+When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)), event rows that triggered transitions on the focused machine get a thin violet underline — a "this is the lineage of the machine you're focused on" overlay layered ON TOP of the row's normal rendering. The overlay is additive; standard row layout unchanged. **Not built** — rf2-y9xmf collapsed the Dynamic Machines panel to a single event-driven lens, so there is no Mode C and no lineage overlay.
 
 ### Empty states
 
@@ -634,7 +633,7 @@ is accepted as a host-friendly alias normalising to `:routing`):
 | 3 | **Views** | `v` | `:views` | The shipped **left → right reactive flow graph** (app-db → Level-1 subs → derived subs → views), then the unmounted-view and destroyed-subscription lists, then the unchanged-sub disclosure. `(rerendered)` is a per-node label on a View node, never a group — the `012-Views.md` three-group + clustering design is superseded (rf2-ee38b.2). Render-attribution isolation-scoped to the selected frame (invariant I3 below). | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3 |
 | 4 | **Trace** | `t` | `:trace` | The focused EPOCH's raw `:trace-events` slice, rendered as plain-language rows. **No filtering UI at all** — the focused epoch IS the scope (rf2-o6yqq + rf2-gkczt removed the trace-type chips, the local IN/OUT pills and the clear control). | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
 | 5 | **Machines** | `m` | `:machines` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.xray.static.machines/sim-*`, view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
-| 6 | **Routing** (label "Routes") | `r` | `:routing` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. **Simulate-URL is NOT here** — it was promoted to the Static Routes panel under rf2-o5f5f.3 (see §5.6). The id is `:routing`; the tab RENDERS as "Routes" (matching the Static Routes catalogue tab). | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
+| 6 | **Routing** (label "Routes") | `r` | `:routing` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + per-focused-event markers `◀ current` / `◇ FROM` / `◉ TO`. Silent when no routes registered. **Simulate-URL is NOT here** — it was promoted to the Static Routes panel under rf2-o5f5f.3 (see §5.6). The id is `:routing`; the tab RENDERS as "Routes" (matching the Static Routes catalogue tab). | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
 | 7 | **Resources** | `s` | `:resources` | Server-state / resource cache lens (EP-0016): registry · instances · in-flight work · invalidations · the route→resource graph · scope-resolver audit. Cohesive sub-domain earns its own L4 tab (Mike's cohesive-sub-domain ruling). | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Xray and AI tooling |
 | 8 | **Graph** | `g` | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014 prop-3, rf2-9ett2d). **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
 | 9 | **Frames** | `u` | `:module-view` | The EP-0023 **`image -> frame`** PUBLIC model (rf2-wtg9z4 · rf2-32siq3.12): each live image-loaded frame as an execution context carrying its resolved image's `[kind id]` descriptors with per-descriptor provenance; the same `(kind id)` resolves differently in frames running different images. A process not using image-loaded frames shows the honest no-image caption. (The retired EP-0013 realm / app-value / module substrate this tab once also surfaced was **deleted in full**.) **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
@@ -665,10 +664,10 @@ noise that flagged the Xray events-list as a problem.)
 
 - **Active:** `◉` gutter + 2px violet underline + `text-primary`.
 - **Inactive:** `○` gutter + `text-secondary`.
-- **Count badge:** `<tab> <N>` (`Views 8` = views that rendered this cascade; `Trace 47` = filtered trace count). The number IS the badge — no extra dot.
+- **Count badge:** designed, not built — the shipped strip is label-only (`shell.cljs` `tab-bar-tree`); the `<tab> <N>` form (`Views 8`, `Trace 47`) has no renderer.
 - (The Issues-tab `⚠` weight was removed with the tab per rf2-gbz39 Option (c); the cross-epoch issue signal now lives on the L2 event-row pink-wash + the always-on issues ribbon.)
 - **Dormant tab:** `text-disabled` + `○`; clickable → empty state.
-- **Count flash on LIVE update:** count flashes violet 200ms then settles. No continuous spinner.
+- **Count flash on LIVE update:** not built (no count renders). No continuous spinner.
 
 Single-row at all widths. Below 800px labels truncate to 3 chars; counts always full. Below 560px the strip scrolls horizontally. (The worked truncation example this line used to carry — `Eve App Vie Tra Mac Can Rou Iss` — was an eight-tab strip from a superseded inventory: it opened on the Event/Handler tab retired under rf2-5gl5r, closed on the Issues tab removed under rf2-gbz39 Option (c), and omitted Resources, Graph, Frames and Fresco. The live inventory is the ten-row table above; an example that has to be re-derived on every tab landing is worse than none.)
 
@@ -1002,7 +1001,7 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
 
 7. **EFFECTS RETURNED** (the returned half of the SIDE EFFECTS ledger) —
    silent-by-default when neither `:db` nor `:fx`
-   was returned. Reads `:fx` + `:db-present?` off the `:event/do-fx`
+   was returned. Reads `:rf.event/fx` off the `:rf.fx/do-fx`
    trace's `:tags` (rf2-twt7m Change 2). `:db` is shown as
    `<… changed; see App-db tab …>` — the diff itself lives in the
    App-db tab (and already reflects any FLOWS recomputes folded in,
@@ -1095,6 +1094,12 @@ All sections use the §5 renderer. Long-keyword treatment (per
 classification sentinels render per §12.
 
 ### §5.2 App-db tab content (changed-slices-first)
+
+**Design sketch.** The shipped App-db tab is the sectioned inspector of
+[`004-App-DB-Diff.md`](004-App-DB-Diff.md) + [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
+§4 (APP STATE + reserved runtime-area cards, `diff-gutter` glyphs); the
+changed-slices-first layout, its token names and the path-origin chips
+below were not built.
 
 ```
 ┌─ App-db tab · :app/main · cascade #347 :order/submit ───────────────────────────────────┐
@@ -1246,7 +1251,7 @@ The category table below is retained as the canonical **"what counts as an issue
 |---|---|
 | Subscription design advisories | Views tab → per-sub advisory chip on sub-row |
 | Framework-internal `console.warn` | Dev console (where they originate) |
-| Recoverable HTTP retries (recovered = not an issue) | Trace tab (visible when `fx` chip ON) |
+| Recoverable HTTP retries (recovered = not an issue) | Trace tab |
 | Filtered-OUT events that errored (already surfaced via row error-override) | Event list — re-added by `filters.error-override`, painted with the pink issue-wash + tagged `data-rf-xray-filter-bypassed` |
 
 ### §5.5 Machines tab — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
@@ -1257,7 +1262,7 @@ Briefly (rf2-y9xmf): the Dynamic panel is **event-driven only**. It is BLANK whe
 
 Promoted from "lives in App-db + Trace" to its own lens tab per Mike's design call (2026-05-18) — the 6th tab (it was the 7th before the Issues tab was removed per rf2-gbz39 Option (c)). The full content contract lives in [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab; this section locks the L4 detail-panel switch entry + the lens model the Event-Spine asserts.
 
-**FLAT lens model (rf2-lq0ef).** The Routing tab opens to a **flat, focused-event lens** — current matched route + params/query/fragment + the per-focused-event `◆ HERE` / `◆ FROM` / `◆ TO` markers below. The legacy URL-depth route TREE as the orientation surface is **gone** — URL-depth nesting was hard to scan.
+**FLAT lens model (rf2-lq0ef).** The Routing tab opens to a **flat, focused-event lens** — current matched route + params/query/fragment + the per-focused-event `◀ current` / `◇ FROM` / `◉ TO` markers below. The legacy URL-depth route TREE as the orientation surface is **gone** — URL-depth nesting was hard to scan.
 
 > **Simulate-URL is a STATIC-surface affordance, not a Dynamic one
 > (corrected 2026-09-18).** This section specified the Simulate-URL
@@ -1278,17 +1283,17 @@ Promoted from "lives in App-db + Trace" to its own lens tab per Mike's design ca
 
 | Marker | When | Visual |
 |---|---|---|
-| `◆ HERE` | The current matched route, always | Violet chip (`accent-violet`); left-border accent |
-| `◆ FROM` | Cascade caused navigation — the prior route | Cyan chip; left-border accent |
-| `◆ TO` | Cascade caused navigation — the new route | Green chip; left-border accent |
+| `◀ current` | The current matched route, always | Mode-accent row highlight + `◀ current` text marker (no glyph) |
+| `◇ FROM` | Cascade caused navigation — the prior route | `◇` outline diamond in `:info` blue |
+| `◉ TO` | Cascade caused navigation — the new route | `◉` dot in `:green` |
 
-When `◆ TO` is set, `◆ HERE` collapses into it — TO is the new HERE. When the focused cascade has no routing impact, only `◆ HERE` surfaces (orientation only).
+When the focused cascade has no routing impact, only the `◀ current` marker surfaces (orientation only).
 
 **Detection contract:** the panel scans the focused cascade's trace events for the routing lifecycle emits (per [`spec/012-Routing.md`](../../../spec/012-Routing.md) §Trace events — emitted in the order allocated → deactivated? → activated?, inside both `:rf.route/navigate` and `:rf.route/handle-url-change`). Both ids are read off the cascade, **never the live slice**: the `:rf.route.nav-token/allocated` emit's `:tags :route-id` is the TO; the `:rf.route/deactivated` emit's `:tags :route-id` is the FROM. The runtime emits `deactivated` only on a cross-route nav, so first navigations and same-route re-navigations (which emit none) correctly collapse FROM to nil. Deriving FROM from the cascade rather than the live slice keeps the marker time-independent — focusing an older A→B epoch still shows FROM A / TO B after the app has navigated elsewhere (rf2-m9rx6). The live slice's `:id` drives only the HERE / current-orientation marker.
 
 **Below the active route:** params + query + fragment rendered as a labelled grid so the lens always shows the same skeleton (predictable scanning); absent slots render as `—`. (The Simulate-URL input + ranked candidate list this paragraph placed below the params block moved to the Static Routes panel with the rest of the Simulate-URL family — see the correction above. [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Simulate-URL contract still owns the data shape and interaction rules.)
 
-**Silent state.** When the host app registers no routes the panel renders only the header + a terse `No routes registered.` one-liner. No `(none)` placeholder, no marketing copy (silent-by-default per rf2-g3ghh).
+**Silent state.** When the host app registers no routes the panel renders only the header + a terse `No routes registered in the host app.` one-liner. No `(none)` placeholder, no marketing copy (silent-by-default per rf2-g3ghh).
 
 **L4 case-switch entry.** The detail panel's case-switch (`shell.cljs` §L4 detail panel) routes `:routing → [routing/Panel]`. The panel reads `:rf.xray/routing-tab-data`, a composite over `:rf.xray/registered-routes` + `:rf.xray/current-route-slice` + `:rf.xray/event-bundles` + `:rf.xray/focus`.
 
@@ -1318,8 +1323,8 @@ The single-axis selection that every layer reads from.
 | Event | When dispatched | Effect on spine |
 |---|---|---|
 | `:rf.xray/focus-event <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
-| `:rf.xray/focus-event-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` |
-| `:rf.xray/focus-event-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` if not already at head |
+| `:rf.xray/focus-event-prev` | `◀` button · `j` key | Steps `:dispatch-id` back one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` |
+| `:rf.xray/focus-event-next` | `▶` button · `k` key | Steps `:dispatch-id` forward one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` if not already at head |
 | `:rf.xray/follow-head` | `⏭` button · `l` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
 | `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
@@ -1335,10 +1340,10 @@ The single-axis selection that every layer reads from.
 | L2 event list | Newer-events marker | `:mode`, `:head?` | Paints only while the list is showing an older epoch with newer events waiting, and nothing at all while the spine is following (`shell.cljs`'s `newer-events-marker`, rf2-y8doi.30). No head-row pulse cue was ever built (rf2-pjjwh removed the gutter glyph that would have carried one; rf2-2sez0 refused the continuous pulse), and the focused row's `>` caret is a SELECTION signal present in LIVE too, not a RETRO cue. (LIVE/RETRO is a spine state; the Dynamic/Static mode dropdown is a separate chrome-ribbon control.) |
 | L2 event list | Row selection caret | `:dispatch-id` | `>` on the focused row; the fixed-width 10px gutter renders empty on every other row (`shell.cljs`'s `rf-xray-row-selection-caret` span, rf2-hga49) |
 | L2 event list | Auto-scroll behaviour | `:mode`, `:head?` | LIVE: auto-scroll bottom; RETRO: sticky position |
-| L3 tab bar | Count badges (`Views 8`) | Focused cascade's projection counts | Re-derives on `:rf.xray/focus` change |
+| L3 tab bar | Active-tab state (the `Views 8` count badges are designed, not built) | Focused cascade | Re-derives on `:rf.xray/focus` change |
 | L4 detail panel | Tab content | `:dispatch-id`, `:epoch-id`, `:frame` | Per-tab projection consumes spine |
 
-**Atomicity contract:** the spine sub is the ONLY axis. When a user clicks a row, EVERY dependent surface (count badges, the row selection caret, detail panel content, the spine's newer-events marker) rebinds in the next animation frame. No panel maintains its own selection state; no panel reads `(peek history)`; no panel reads `:selected-dispatch-id` (the two-axis legacy slots are deleted).
+**Atomicity contract:** the spine sub is the ONLY axis. When a user clicks a row, EVERY dependent surface (the row selection caret, detail panel content, the spine's newer-events marker) rebinds in the next animation frame. No panel maintains its own selection state; no panel reads `(peek history)`; no panel reads `:selected-dispatch-id` (the two-axis legacy slots are deleted).
 
 ### Sub-graph
 
@@ -1384,7 +1389,7 @@ The scoping + filtering happens at the data layer (`:rf.xray/filtered-event-bund
 | LIVE | LIVE (paused) | `Space` key |
 | LIVE (paused) | LIVE | `Space` key · `l` key (snap-LIVE implies resume) |
 
-The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky-on-older + the newer-events marker (`shell.cljs`'s `newer-events-marker`, rf2-y8doi.30), which paints only while the list is showing an older epoch with newer events waiting and nothing at all while the spine is following. There is no head-row pulse cue — none was ever built (rf2-pjjwh removed the gutter glyph that would have carried one; rf2-2sez0 refused the continuous pulse). (The dedicated `● LIVE` / `◐ RETRO` Mode pill widget that earlier drafts placed in the ribbon was dropped — rf2-g9pee. That is a different control from the Dynamic/Static mode dropdown at chrome-ribbon-left, which ships.)
+The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky-on-older + the newer-events marker (`shell.cljs`'s `newer-events-marker`, rf2-y8doi.30), which paints only while the list is showing an older epoch with newer events waiting and nothing at all while the spine is following. There is no head-row pulse cue — none was ever built (rf2-pjjwh removed the gutter glyph that would have carried one; rf2-2sez0 refused the continuous pulse). (The dedicated `● LIVE` / `◐ RETRO` Mode pill widget that earlier drafts placed in the ribbon was dropped — rf2-g9pee. That is a different control from the Dynamic/Static mode dropdown at chrome-ribbon-right, which ships.)
 
 **Every head-aware mode selector must agree on what "head" means
 (rf2-pqt7cb).** `focus-event-bundle-reducer`'s LIVE/RETRO pivot is `(=
@@ -1559,7 +1564,7 @@ Ship empty by default — no shipping `:mouse-move` filtered out, because there'
 
 ### Auto-filter chip strip (data-classification)
 
-Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under the default `:rf.egress/local-redacted` egress profile), Xray's chrome surfaces the count via the per-row redaction markers and the ribbon's `● N` REDACTED indicator — NOT as an auto-filter chip. (**There is no Settings → Diagnostics tab**, and this sentence named one: the Settings popup ships four sections — General, Keybindings, Buffer, Diff — per §9. Corrected 2026-09-18.) (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Xray does not auto-add filters on the user's behalf.
+Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under the default `:rf.egress/local-redacted` egress profile), Xray's chrome surfaces the count via the ribbon's `● N` REDACTED indicator (per-row markers are designed, not built) — NOT as an auto-filter chip. (**There is no Settings → Diagnostics tab**, and this sentence named one: the Settings popup ships four sections — General, Keybindings, Buffer, Diff — per §9. Corrected 2026-09-18.) (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the ribbon indicator is the only session-totals surface.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Xray does not auto-add filters on the user's behalf.
 
 ### v1 ships: right-click → edit-popup (NOT silent append)
 
@@ -1730,7 +1735,7 @@ landed as the multi-frame panel-focus fix wave (rf2-fvplw + rf2-y8bik
 |---|---|---|
 | `:focus :frame` | spine | Set to picked frame-id; clears `:dispatch-id` to head of new frame. |
 | `:rf.xray/target-frame` | per-frame projection axis | Re-seeded to picked frame-id. This is the legacy axis the App-db diff + Views composites compose against; pre-fix the picker only wrote the spine's `:focus :frame` and the composites stayed bound to whichever frame was last targeted (commonly `:rf/default`). |
-| `:rf.xray/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db tab's `:rf.xray/app-db-current+diff` (rf2-p53m2 — was the pruned `:selected-epoch-diff`) and Views' `:focused-cascade-pair` / `:views-sub-diff` composites refresh against the new frame's epoch ring in the same dispatch. |
+| `:rf.xray/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db tab's `:rf.xray/app-db-current+diff` (rf2-p53m2 — was the pruned `:selected-epoch-diff`) and the Views panel's `:rf.xray/reactive-data` composite refresh against the new frame's epoch ring in the same dispatch. |
 
 **Invariant P (Panel follows focus):** every per-frame panel
 composite (App-db diff, Views, Machines, Routing, Trace) MUST refresh
@@ -1814,8 +1819,8 @@ end-to-end cross-frame `:rf.xray/focus-event` / `:rf.xray/focus-epoch`
 / `:rf.xray/select-dispatch-id` resolution (multi-frame, picker
 untouched), plus the rf2-j5xjvt cross-frame STEP case (`focus-event-
 prev` landing on a different-frame row re-seeds before resolving) and
-its same-frame no-op sibling; the `app_db_diff_cljs_test.cljs` +
-`views_subs_cljs_test.cljs` regression suites pin the panel render
+its same-frame no-op sibling; the `panels/app_db_diff_cljs_test.cljs` +
+`panels/reactive_panel_subs_cljs_test.cljs` regression suites pin the panel render
 bodies post-reseed. For the preview path (rf2-uo0rc.5)
 `spine_cljs_test.cljs` additionally pins that preview-clear RESTORES
 the committed `:dispatch-id` / `:epoch-id` (RETRO hover-then-leave) and
@@ -1826,10 +1831,10 @@ cross-frame `:target-frame` / `:epoch-history` re-key.
 only WITHIN a frame (Spec 002 §Frame isolation + rf2-g6ih4); the
 framework's trace projection groups cascades by `[frame dispatch-id]`
 and intentionally emits two cascade records when the same id occurs in
-two frames (`re-frame.trace.projection/grouped-cascades`). Panel reads
+two frames (`re-frame.trace.projection/group-by-event`). Panel reads
 that resolve a focused cascade therefore key by BOTH `:frame` and
 `:dispatch-id` whenever the focus carries a frame — `spine/event-bundle-by-focus`
-is the canonical helper (and `routing_helpers/focused-cascade` mirrors
+is the canonical helper (and `routing_helpers/focused-event-bundle` mirrors
 it as a pure CLJC data fn for its JVM-testable algebra). When no cascade
 in the focused frame carries the id, these reads return nil rather than a
 same-id cascade from a FOREIGN frame, so a panel renders no overlay
@@ -1837,7 +1842,7 @@ rather than a wrong-frame one. The composing surfaces are: the Trace
 tab's `:rf.xray.trace/focused-event-bundle`, the Routes tab's
 `:rf.xray/routing-tab-data`, the Managed-FX composite
 `:rf.xray/managed-fx-for-focused-event`, and the per-row status the
-event-status-colour `cascade->state` projects (its `focused?` flag now
+event-status-colour `event-bundle->state` projects (its `focused?` flag now
 requires frame agreement when both the cascade and focus carry a
 frame). The spine's own step path resolves the stepped row as a whole
 cascade record (`spine/step-event-bundle`) so its `:frame` comes from the
@@ -2054,7 +2059,7 @@ rf2-f7748x — tab mnemonics, tab numbers, `Ctrl`+arrows, `r`/`R`, `*`,
 |---|---|
 | **Spine keys (inside the shell, non-editable, non-modal)** | `Space` pause/resume LIVE · `l` snap to LIVE (follow head) · `Shift+G` fast-forward to head · `j` step back one event · `k` step forward one event · `,` or `s` settings popup |
 | **Detail panel (L4)** | `Tab` / `Shift+Tab` cycle focusables (ordinary browser focus order) |
-| **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Dynamic** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Dispatches `:rf.xray/toggle-mode` against the `:rf/xray` frame. Mode pill at ribbon-left mirrors the toggle (chord + pill share the handler). |
+| **Surface toggle** | `Cmd-Shift-M` (macOS) / `Ctrl+Shift+M` (every other host) toggles between **Dynamic** and **Static** surfaces (per Lock #14 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) + §Static surface below). Dispatches `:rf.xray/toggle-mode` against the `:rf/xray` frame. Mode pill at ribbon-right mirrors the toggle (chord + pill share the handler). |
 | **Global** | `Ctrl+Shift+C` toggle Xray shell visibility · `Cmd-K` / `Ctrl+K` command palette · `Esc` dismiss the open-in-editor hint (modals close on their own Esc) |
 
 ### Retired keys (from pre-rewrite spec)
@@ -2107,7 +2112,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 
 | Layer | Surface | Sentinels rendered |
 |---|---|---|
-| L2 event list row | Trailing redaction marker | `[● REDACTED N]` magenta / `[● ELIDED N]` yellow as static trailing marker on the row (no inline preview slot); marker count = total sentinels in event arg-map |
+| L2 event list row | Trailing redaction marker | Designed, not built — no trailing `[● REDACTED N]` / `[● ELIDED N]` marker renders on the row; the ribbon's `REDACTED N` indicator (`shell.cljs`) carries the count |
 | L4 Epoch panel | Event vector + handler `:tags` + fx-args payload | Via `inspect` renderer; sentinels render as colourful inline chips |
 | L4 App-db tab | Diff slice tree before/after | Via the widget's opt-in `:before` diff mode; sentinel position in path preserved |
 | L4 Views tab | Sub and view node labels in the reactive flow graph — sub ids / query vectors and view names, not values | No value-borne sentinel renders here: the shipped panel per [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.2 encodes changed/unchanged state on nodes and edges, its SUB VALUES section retired (rf2-uz3wm), and the unchanged-sub rows key by concrete query vector (the bare `[sub-id]` shape when the skip evidence carries none) while the teardown rows key by registered sub id (DESTROYED SUBSCRIPTIONS) or view id (UNMOUNTED VIEWS). Per-cascade sub values — and the sentinels riding in them — render on the Epoch panel's SUBSCRIPTIONS step (`021` §9.1.10.1). |
@@ -2115,7 +2120,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 | L4 Machines tab | `:data` slot of focused instance + per-transition `:context` | Via `inspect`; per-`reg-machine` `:sensitive` paths drive redaction |
 | L4 Trace tab | Raw `:tags` per trace event | Via `inspect-inline` for compact rows; severity colouring applies |
 | L4 Epoch panel — inline issue surfacing (rf2-gbz39; the Issues tab was removed per Option (c)) | Exception `:data` payload in the "Exception Thrown" block; sensitive-data warning rows | Via `inspect`; sentinels prevent error-message leakage; sensitive warnings marker-aware so the warning itself doesn't leak the value |
-| Settings → Diagnostics panel | Per-session totals | `[● REDACTED N · ● ELIDED M]` aggregate (the Mode pill widget that earlier drafts surfaced this on was dropped; per-row markers + Settings carry the totals now) |
+| Settings popup | Per-session totals | Not built — there is no Diagnostics section (§9: General / Keybindings / Buffer / Diff); the ribbon's `REDACTED N` indicator is the only aggregate |
 
 ### Combination semantics
 
@@ -2195,10 +2200,10 @@ Coverage is enumerated in [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matr
 |---|---|
 | **4-layer chrome rendering** | `tools/xray/test/.../shell_cljs_test.cljs` — `shell-mounts-the-four-layers` asserts the L1/L2/L3/L4 shell envelope mounts; asserts no legacy sidebar; asserts ribbon cluster order |
 | **Spine binding** | `tools/xray/test/.../spine_cljs_test.cljs` (+ `spine_filters_cljs_test.cljs`) — asserts `:rf.xray/focus` rebinds atomically when a row is clicked; asserts L2 mode cue, L3 count badges, L4 detail content all reflect the new focus |
-| **Filter IN/OUT pills round-trip** | `tools/xray/test/.../filters/pills_cljs_test.cljs` — asserts pill add/edit/delete via popup; asserts AND-across-modes / OR-within-mode semantics; asserts localStorage persistence; asserts Recommended-filters quick-add |
+| **Filter IN/OUT pills round-trip** | `tools/xray/test/.../filters/pills_cljs_test.cljs` — asserts pill add/edit/delete via popup; asserts AND-across-modes / OR-within-mode semantics |
 | **Event-driven Dynamic Machines panel (rf2-y9xmf)** | per-feature across `tools/xray/test/.../panels/machines/trace_state_cljs_test.cljs` (current-state-from-traces resolution backing the per-machine transition view) + `panels/machine_after_rings_helpers_cljs_test.cljc` (`:after` rings) + `panels/machine_inspector_helpers_cljs_test.cljc` + the `panels_e2e/machine_inspector_e2e_cljs_test.cljs` e2e — assert BLANK state on no-activity, per-machine section on transition, topology highlight + guards + actions + cancellation + `:after` rings. No single `machines/runtime_test.cljs` file; coverage is split across these |
 | **UC1 Sim engine + UC2 Mode A/B/C (rf2-r4nao — Static re-host, landed)** | NOT a Dynamic test row. The Sim engine subs/events (`:rf.xray.static.machines/sim-*`) + the `static/machines/sim.cljs` view ship under the Static Machines surface's Sim sub-mode per [`003-Machine-Inspector.md`](003-Machine-Inspector.md); Static-side tests gate those surfaces. UC2 Mode A/B/C remains Dynamic-side (reached via the per-row → Dynamic JUMP). |
-| **Data classification rendering** | `tools/xray/test/.../sensitive_trace_cljs_test.cljc` (+ `views/edn_inspector_cljs_test.cljs` for the size-elided drill affordance) — asserts `:rf/redacted` opaque (no reveal button); asserts `:rf.size/large-elided` drillable; asserts combination semantics; asserts the sentinel-suppression path. No single `classification_rendering` gate; coverage is split across the sensitive-trace + edn-inspector tests |
+| **Data classification rendering** | `tools/xray/test/.../sensitive_trace_cljs_test.cljc` (+ `views/edn_inspector_cljs_test.cljs` for the size-elided marker) — asserts `:rf/redacted` opaque (no reveal button); asserts `:rf.size/large-elided` renders as an inert marker (the drill-in is designed, not built); asserts combination semantics; asserts the sentinel-suppression path. No single `classification_rendering` gate; coverage is split across the sensitive-trace + edn-inspector tests |
 | **Frame-isolation invariants** | I1 → `tools/xray/test/.../frame_switcher_cljs_test.cljs` (picker excludes `:rf/xray`); I3/I4 → `panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs` + `self_noise_cljs_test.cljc` (Xray-internal renders stay out of the inspected frame's surfaces); runs under `npm run test:cljs`; **failure blocks merge** |
 | **Sub-graph isolation lint (I2) — PLANNED / NOT YET SHIPPED** | The dev-time lint predicate in `shell.cljs` and its `sub_graph_lint_test.cljs` do not exist yet (no `lint` predicate in `shell.cljs`, no such test file). I2 is enforced today by code review + the `self_noise` drop logic only — true missing coverage, NOT a renamed gate |
 | **Settings modal popup** | `tools/xray/test/.../settings/popup_cljs_test.cljs` (+ `settings/popup_dispatch_routing_cljs_test.cljs`) — asserts modal open/close via `,`/`s`/`⚙`/`Esc`/outside-click; asserts section navigation; asserts fields map to a configure! key. (The fourth claim this row carried — that the suite asserts a "Show tool frames in picker" toggle flips the picker option list — is **struck 2026-09-18**: the toggle was removed 2026-05-27 and rf2-y8doi.27 removed the slot behind it, so there is no such assertion to make. The picker's unconditional exclusion is gated in the frame-switcher suite instead — see §8 §Gate names.) |

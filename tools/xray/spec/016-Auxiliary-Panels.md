@@ -118,8 +118,7 @@ fits and DESIGN-RATIONALE.md Lock #6 supersedence.
 The AI co-pilot panel is dropped from Xray. Xray is the human-only
 observability surface; AI access is via `tools/re-frame2-pair-mcp/`. The
 collapsed-rail cue glyph + the right-rail co-pilot panel + all
-co-pilot panel namespaces (`panels/ai_co_pilot*`) die in a separate
-deletion PR.
+co-pilot panel namespaces (`panels/ai_co_pilot*`) were deleted.
 
 All tab content shares the cross-panel substrate:
 
@@ -175,7 +174,8 @@ originally targeted the Event/Handler tab; rf2-5gl5r retired that panel
 and the Epoch panel now hosts the "fx handlers that ran" rows.)
 
 Per-fx invocation status (`:ok` / `:error` / `:overridden` /
-`:skipped`) renders as the leading status glyph on each fx row of that
+`:skipped`, plus `:noop` / `:rollback` on the synthesised `:db` row —
+`badge/fx-row-status-glyph`) renders as the leading status glyph on each fx row of that
 step. Registered fx handlers are reachable through the Cmd-K palette's
 `:handler` source, which indexes the host's `:event` / `:sub` / `:fx` /
 `:cofx` registrations by id and source coordinate; it carries no
@@ -416,8 +416,8 @@ empty.
 
 Per rf2-nrbs9 (tab promotion) + rf2-o5f5f.3 (focused-event narrowing).
 The Dynamic-side home for Routes — focused-event lens that surfaces
-`FROM` / `TO` chips when the cascade allocated a nav-token, or
-`◆ HERE` orientation when it did not.
+`◇ FROM` / `◉ TO` markers when the cascade allocated a nav-token, or
+the `◀ current` row marker when it did not.
 
 ### Shape (per rf2-lq0ef + focused-event narrowing)
 
@@ -457,12 +457,12 @@ supplies present orientation.
 
 | Marker | Trigger | Visual |
 |---|---|---|
-| `◆ HERE` | Current matched route — always when no navigation happened | Violet chip (`accent-violet`); left-border accent |
-| `◆ FROM` | Cascade caused navigation — the prior route | Cyan chip; left-border accent |
-| `◆ TO` | Cascade caused navigation — the new route | Green chip; left-border accent; replaces `◆ HERE` (TO is the new HERE) |
+| `◀ current` | Current matched route — always when no navigation happened | Mode-accent row highlight + `◀ current` text marker (no glyph) |
+| `◇ FROM` | Cascade caused navigation — the prior route | `◇` outline diamond in `:info` blue |
+| `◉ TO` | Cascade caused navigation — the new route | `◉` dot in `:green` |
 
-When the focused cascade has no routing impact, only `◆ HERE`
-surfaces — orientation glyph.
+When the focused cascade has no routing impact, only the `◀ current`
+marker surfaces.
 
 ### Detection contract — how the panel knows the cascade caused navigation
 
@@ -563,8 +563,9 @@ skeleton (predictable scanning).
 ### Empty state
 
 When the host app registers no routes the panel renders only the
-header + a terse `No routes registered.` one-liner. Identical to the
-Static Routes empty state — the same registrar feeds both.
+header + a terse `No routes registered in the host app.` one-liner
+(the Static Routes empty state reads `No routes registered.` — the same
+registrar feeds both).
 
 ### Pre-rewrite app-db / trace overlap
 

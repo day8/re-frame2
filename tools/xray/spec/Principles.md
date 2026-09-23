@@ -31,7 +31,7 @@ The mechanism:
 - There is **no re-dispatch affordance**, no way to poke a value into
   `app-db`, and no schema substitution. The Static Schemas panel's
   registry override is a declared test-only seam, not a user surface.
-- MCP-driven mutations are tagged `:origin :re-frame2-pair-mcp` and
+- MCP-driven mutations are tagged `:origin :pair` and
   surface in the trace stream as distinguishable from app-issued
   mutations. They arrive through `tools/re-frame2-pair-mcp/` and its
   own `re-frame2-pair.runtime` preload, against the framework's
@@ -103,7 +103,7 @@ Trace tab tags.
 Settings persist (theme, density); captured content does not. What
 Xray writes to `localStorage` is *view state* — the frame-switcher
 selection, column widths, command-palette recents, the spine mute
-set, filter pills, the Static mode flag and a couple of
+set, the Static mode flag and a couple of
 selection/collapse maps — never a value it observed. The trace
 buffer and the epoch history are session-only and are never written
 out.
@@ -208,12 +208,12 @@ schema validation and the registrar trace emit are gated on
 production build (`:advanced` + `goog.DEBUG=false`) elides all of it —
 per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code),
 verified by `npm run test:elision` and
-`npm run test:browser-prod-elision`. The advanced gate executes a
-private-state assertion in addition to bundle sentinels. Its second
-advanced build deliberately creates and mutates a renamed `cacheline*`
-atom and must fail the runtime assertion, proving this specific
-evidence-state oracle still has teeth after minification; it is not a
-general heap analyser. Those jobs are the *framework's* contract: a
+`npm run test:browser-prod-elision`. The first greps the `:elision-probe`
+bundle for dev-only sentinels against a `goog.DEBUG=true` control build
+(`scripts/check-elision.cjs`); the second builds
+`:browser-test-prod-elision`, runs Fresco's source-coordinate sentinel
+scan (`fresco/scripts/check_source_coord_elision.cjs`) and then the
+prod-elision browser suite. Those jobs are the *framework's* contract: a
 release build that accidentally loaded Xray would find those substrate
 surfaces inert, and Xray's own bytes would still be in the bundle.
 

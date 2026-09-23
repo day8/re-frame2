@@ -331,7 +331,7 @@ authoritative list.
 | `day8.re-frame2-xray.panels.*` | `panels/*.cljs` | The 7 standalone-mountable Dynamic `Panel` exports — `epoch-panel/Panel`, `app-db-diff/Panel`, `reactive-panel/Panel`, `trace/Panel`, `machine-inspector/Panel`, `routing/Panel`, `resources/Panel` (per [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) + [`018-Event-Spine.md`](./018-Event-Spine.md) §The 10 tabs). The three remaining Dynamic tabs — `derivation_graph/Panel` (Graph, EP-0014), `module_view/Panel` (Frames, EP-0023) and `fresco/Panel` (Fresco, rf2-hic-023) — are **L4-only registry tabs**: focusable via `focus!` but with no standalone `mount-*!` facade (shell-internal). rf2-gbz39 removed `issues-ribbon/Panel` + `mount-issues-ribbon!` per Mike's Option (c) ruling — the Issues tab + its aggregate panel were removed; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (the `:rf.xray/issues-ribbon` projection survives in `registry.cljs` as the ribbon signal's data source). rf2-5gl5r removed `event-detail/Panel` — the Epoch panel supersedes the Event/Handler design as the canonical "what happened in this epoch" surface. rf2-4v67l removed `chrome-a11y.panel/Panel` — a11y dogfooding is Story's domain (rf2-18t6p · `tools/story/src/re_frame/story/ui/chrome_a11y.cljs`). rf2-ga16q removed `machines-canvas.panel/Panel` — its spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab (the Runtime Machines tab is the event-driven lens per rf2-y9xmf). |
 | `day8.re-frame2-xray.config` | `config.cljc` | The `configure!` map dispatcher, the per-key setters (`set-editor!`, `set-project-root!`, `set-layout-host-selector!`, `set-auto-open!`, `set-keybinding-enabled!`, `set-egress-profile!`, `set-filter-seed!`, `set-filters-auto-hide-error-overrides!`, `update-setting!`, `reset-settings!`, `reset-suppressed-count!`) and the published constants enumerated in §Published layout-host constants above. The full normative key inventory lives in [`015-Configuration.md`](./015-Configuration.md); the **key-naming axis** (how authors navigate the key surface by topical cluster prefix — editor / launch / keybinding / settings / filters / render / trace / logging) is documented at [`015-Configuration.md` §Key-naming axis](./015-Configuration.md#key-naming-axis--navigation-map-rf2-dz35f--audit-of-audits-16) per `rf2-dz35f`. |
 | `day8.re-frame2-xray.keybinding` | `keybinding.cljs` | `attach!` / `detach!` — the symmetric, idempotent lifecycle pair for the `Ctrl+Shift+C` global listener. `detach!` is the embed-host escape hatch documented at [`015-Configuration.md`](./015-Configuration.md) §`keybinding/detach!` and [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Full-shell embed contract — for a host that wants the listener gone WITHOUT declaring the slot, or that must remove it from a mount-time hook it does not own. A `configure!` flip of `:rf.xray/keybinding-enabled?` is self-acting at any point in the boot sequence (rf2-y8doi.17 watches the slot), so calling `detach!` alongside the flip is harmless — merely redundant. |
-| `window.day8.re_frame2_xray.*` | `preload.cljs` | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_xray.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. The preload's install sits inside its `(when interop/debug-enabled? …)` block, so a `goog.DEBUG=false` build folds that install away; `init!` installs the same globals with no such gate. |
+| `window.day8.re_frame2_xray.*` | `install.cljs` (re-exported + called by `preload.cljs`) | The browser-global JS API the preload installs (`interop/debug-enabled?`-gated). The exact Closure-name-mangled spellings: `open_BANG_`, `open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_`, `status`. Mirrored under `window.day8.re_frame2_xray.core.*` once `core.cljs` has loaded so JS-console users see the canonical facade names. The preload's install sits inside its `(when interop/debug-enabled? …)` block, so a `goog.DEBUG=false` build folds that install away; `init!` installs the same globals with no such gate. |
 
 Two surfaces deliberately not re-exported through the canonical
 facade:
@@ -566,8 +566,7 @@ reference:
 
 Every panel that surfaces a source-coord makes it a clickable `open`
 affordance. The surfaces that do so today are the Epoch panel's step
-rows, the trace panel's per-event rows, the machine inspector's
-guard / action rows, the Static Machines / Routes / Schemas
+rows, the trace panel's per-event rows, the Static Machines / Routes / Schemas
 catalogues, and the Views panel's reactive-graph nodes — the last
 binding `coord-link/open-in-editor!` to the SVG node itself rather
 than mounting a chip. Click sets
@@ -606,7 +605,7 @@ yields a clickable URI rather than a no-op; source-coords without
 Static mode is unconditionally available: the surface composer
 mounts a 3-layer Static silhouette (no L2 event list) alongside the
 default 4-layer Dynamic silhouette, with a Dynamic/Static **mode
-dropdown** at chrome-ribbon-left (rf2-4vp5j — a compact `<select>`,
+dropdown** at chrome-ribbon-right (rf2-4vp5j — a compact `<select>`,
 not the earlier two-segment pill) and a `Cmd-Shift-M` /
 `Ctrl-Shift-M` chord wired to `:rf.xray/toggle-mode`. Per rf2-8l3uk the prior
 `:rf.xray/static-mode?` opt-in feature gate was removed (pre-alpha
@@ -616,7 +615,7 @@ useful, expose it unconditionally).
 | Surface | Spelling | Notes |
 |---|---|---|
 | Toggle chord | `Cmd-Shift-M` / `Ctrl-Shift-M` | Global keydown listener; fires `:rf.xray/toggle-mode`. |
-| Mode dropdown | `data-testid="rf-xray-mode-pill"` | Mounts at ribbon-left in every host. A native `<select>` dispatches `:rf.xray/set-mode` on change; its selected value and `data-active-mode` reflect state. The historical test id is retained. |
+| Mode dropdown | `data-testid="rf-xray-mode-pill"` | Mounts at ribbon-right in every host. A native `<select>` dispatches `:rf.xray/set-mode` on change; its selected value and `data-active-mode` reflect state. The historical test id is retained. |
 | Persistence | `xray.mode` (localStorage) | Bare string `"dynamic"` / `"static"`. Hydrates on boot; missing/corrupt → `"dynamic"` fallback. |
 | Toggle event | `:rf.xray/toggle-mode` | Public dispatch surface (chord parity + the palette's `:toggle-mode` verb). |
 
@@ -635,15 +634,17 @@ required.
 
 | Surface | Spelling | Notes |
 |---|---|---|
-| CSS variable | `--rf-xray-font-size` | The anchor for every type-scale entry. Default `13px`, published on `:root` by `theme/global-styles/motion-css`. Below `10px`: refused (the `:micro` token sits at the floor). |
+| CSS variable | `--rf-xray-font-size` | The anchor for every type-scale entry. Default `13px`, published on `:root` by `theme/global-styles/motion-css`. No floor is enforced — `density->px` resolves only the density keywords (unknown → `:cosy`). |
 | Host override | `:root { --rf-xray-font-size: 14px }` | A single stylesheet rule rescales every typographic surface ~1.08× without a code change. |
-| Density Settings consumer | `[:general :density]` (`:compact` / `:cosy`) | The Settings → General Density radio is the in-shell consumer of the same var. Mapping: `:compact 12px`, `:cosy 13px` (default). The helper also maps `:comfy` to 14px, but it is not a shipped radio choice. Persisted inside `:general`, not as a top-level `:density`. |
+| Density Settings consumer | `[:general :density]` (`:compact` / `:cosy`) | The palette's `Cycle display density` item (`:palette/cycle-density`) and `init! {:density …}` are the in-shell writers of the same var (the Settings → General radio was removed 2026-05-27). Mapping: `:compact 12px`, `:cosy 13px` (default). The helper also maps `:comfy` to 14px, but it is not a shipped radio choice. Persisted inside `:general`, not as a top-level `:density`. |
 | Writer | `effects/apply-density-font-size!` | Idempotent; writes the resolved px value into `--rf-xray-font-size` on both the Xray shell root AND `<html>` (so popout/fullscreen mounts inherit). Re-runs on boot from `apply-all!` so a persisted density survives reload before first paint. |
 
 `--rf-xray-font-size` is **distinct** from `--rf-xray-text-size`
-(the Settings → General Text-size slider's user-knob, rf2-9poxq):
-two CSS vars, two knobs, one shell. Hosts that want a single density
-knob target `--rf-xray-font-size` and leave the slider's var alone.
+(written by `settings/effects/apply-text-size!` from the
+`[:general :text-size]` slot, rf2-9poxq; the Settings slider that once
+drove it was removed 2026-05-27): two CSS vars, one shell. Hosts that
+want a single density knob target `--rf-xray-font-size` and leave the
+text-size var alone.
 See [`007-UX-IA.md`](./007-UX-IA.md) §Sizes — one knob, whole scale.
 
 ### Cascade rule — three `--rf-xray-*` size / motion vars
@@ -656,13 +657,13 @@ compete:
 
 | CSS var | Knob axis | Surface | Origin |
 |---|---|---|---|
-| `--rf-xray-font-size` | Host-overridable density anchor (also driven by the Settings → General Density radio: `:compact 12px` / `:cosy 13px` / `:comfy 14px`) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`. Flipping it rescales every typographic surface in lockstep. | rf2-n8i2c |
-| `--rf-xray-text-size` | User-side Settings → General Text-size slider (10–18 px; default 13) | Xray surfaces that opt-in read `var(--rf-xray-text-size, 13px)` directly — primarily the event-list rows and a small set of inline-style call sites. | rf2-9poxq |
+| `--rf-xray-font-size` | Host-overridable density anchor (also driven by the palette's `:palette/cycle-density` and `init! {:density …}`: `:compact 12px` / `:cosy 13px` / `:comfy 14px`; the Settings radio was removed 2026-05-27) | The whole `theme/tokens.cljc :type-scale` — every typographic size resolves through `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`. Flipping it rescales every typographic surface in lockstep. | rf2-n8i2c |
+| `--rf-xray-text-size` | `[:general :text-size]` slot via `apply-text-size!` (default 13; host-set through `:rf.xray/settings` — no popup slider since 2026-05-27) | Xray surfaces that opt-in read `var(--rf-xray-text-size, 13px)` directly — primarily the event-list rows and a small set of inline-style call sites. | rf2-9poxq |
 | `--rf-xray-motion-scale` | Reduced-motion gate (`1` = full motion; `0` = motion off; `:cycle-reduced-motion` palette verb cycles `:os → :always → :never`) | Every Xray transition / animation reads `calc(<duration> * var(--rf-xray-motion-scale, 1))`. Setting to `0` collapses motion to zero duration without losing the end-state geometry. | rf2-5kfxe |
 
 **The rule:** host overrides density via `--rf-xray-font-size` (the
-density anchor); the user fine-tunes per-row text via the slider's
-`--rf-xray-text-size` (the row knob); motion gates collapse to 0
+density anchor); per-row text follows the `[:general :text-size]`
+slot's `--rf-xray-text-size` (the row knob); motion gates collapse to 0
 under `--rf-xray-motion-scale: 0` (the motion knob). Each var has
 its own write path
 (`settings/effects/apply-density-font-size!` for `--rf-xray-font-size`;
@@ -872,13 +873,10 @@ has selected nothing: `project-egress` validates the id against the
 live registry, so an unselected picker and a host frame destroyed
 between render and click both take the walker's frameless arm and
 egress the whole-value `:rf/redacted` sentinel. `egress-value`
-substitutes a
-private identity value for an explicitly-passed `nil` to make that so —
-an identity, not a keyword: the registry is keyed by whatever `:id`
-`make-frame` is handed, so any keyword, however it is namespaced, is a
-public frame id an app can register, and a live frame under the
-substitute's id would resolve and egress the value RAW under its empty
-registry (the third-pass collision regression pins this). A caller that
+forwards an explicitly-passed `:frame` verbatim, nil included —
+`project-egress` reads the opt by key presence (rf2-kuky.5), so an
+explicit nil takes the frameless fail-closed arm; the substitute
+identity this ns once minted for that case is gone. A caller that
 omits `:frame` entirely keeps the ambient-resolution behaviour, which is
 what the palette's already-validated `with-frame` wrap wants.
 

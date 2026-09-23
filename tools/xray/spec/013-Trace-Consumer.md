@@ -488,9 +488,9 @@ Panels read the buffer through layer-1 subscriptions:
 - **`:rf.xray/event-bundles`** — chained off `:rf.xray/trace-buffer`,
   composes `re-frame.trace.projection/group-by-event` and applies
   the `self-noise/xray-internal-event-bundle?` data-layer filter (per
-  `rf2-g1pt8`). Every downstream consumer reads from this projection;
-  the L2 event list, the spine, the Event / Issues / Trace / Views
-  tabs.
+  `rf2-g1pt8`). Every downstream consumer reads from this projection —
+  the L2 event list, the spine, the Trace tab's lifecycle stripe, and the
+  Routing / managed-fx surfaces.
 
 ## One work/reply vocabulary — reading the uniform reply envelope
 

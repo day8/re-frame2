@@ -383,8 +383,7 @@ to state was never the order `registry.cljs` runs.** Registration order
 is cosmetic — re-frame resolves a declared `:inputs` list lazily at
 subscribe time, and dispatch targets the same way — so the calls are
 grouped to read top-down by dependency story instead. Add a new panel's
-`install!` wherever that story reads best, and do not re-derive an
-ordering rule from a comment in the registry that still claims one.
+`install!` wherever that story reads best.
 
 ## Setter-naming axis
 

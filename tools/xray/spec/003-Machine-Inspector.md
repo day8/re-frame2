@@ -335,7 +335,7 @@ below for the data contract the lens reads.
 The lens reads guard and action fn source via the `:machine-guard` /
 `:machine-action` handler-meta surfaces (rf2-ftrcv, supersedes rf2-ypu5i;
 parallel to the `:rf/cofx-id` marker work per #2097). These are **NOT**
-registrar kinds — `registrar/kinds` is the closed ten. The `reg-machine`
+registrar kinds — `registrar/kinds` is a closed set. The `reg-machine`
 macro walks the literal spec at expansion time, captures `pr-str` of every
 guard / action fn-form, and co-locates it onto the spec's `:guards` /
 `:actions` entries; that spec is stored under `:rf/machine` in the
@@ -1431,7 +1431,7 @@ The Static Machines tab is **tab 1 of 5** in the Static L3 strip (per [`007-UX-I
 └──────────────────────────┴───────────────────────────────────────────────┘
 ```
 
-**Left pane — browse-all list.** Scrollable list of every registered machine; search box + sort-cycle button (`Name → States → Live → Name`) at the top. Each row carries: a selection glyph (`◉` active / `○` inactive — same vocabulary as the Static tab-bar), the machine-id rendered in monospace accent-violet, a source-coord chip (jump-to-source via the existing open-in-editor affordance), a state-count chip, a live-instance pip cluster (capped at 12; beyond that → textual count), and a per-row `→ Dynamic` JUMP chip. Empty-state: "No machines registered. `rf/reg-machine` to add the first."
+**Left pane — browse-all list.** Scrollable list of every registered machine; search box + sort-cycle button (`Name → States → Live → Name`) at the top. Each row carries: a selection glyph (`◉` active / `○` inactive — same vocabulary as the Static tab-bar), the machine-id rendered in monospace accent-violet, a source-coord chip (jump-to-source via the existing open-in-editor affordance), a state-count chip, a live-instance pip cluster (capped at 12; beyond that → textual count), and a per-row `→ Dynamic` JUMP chip. Empty-state: "No machines registered." / "Register a machine with `rf/reg-machine` to populate this list."
 
 **Right pane — definition detail.** Header carries `<machine-id> · <source-coord ↗> · <N> states · <M> live · [Copy Mermaid]`. Below the header, the **4-mode sub-strip** drives the per-mode body.
 
@@ -1456,7 +1456,7 @@ The 4 sub-modes (mnemonic letters `t/s/i/c` surfaced in each pill's `title`) liv
 | Pill | Behaviour in Static | Body renderer |
 |---|---|---|
 | **Topology** (`t`, default) | Static-read of the machine's state graph — the SAME `chart/MachineChart` (xyflow + elkjs) primitive the Dynamic panel uses (single implementation), but with **NO `:highlight-id`** because Static is event-INDEPENDENT (there is no active state to spotlight). Click on a state node fires `:rf.xray.static.machines/state-clicked`; the **per-state metadata rail is NOT built** — that event is a registered no-op slot (`{:db db}`), present so the click lands on a known handler instead of raising `:rf.warning/no-handler`. There is **no pop-out button**: the pop-out window orchestration is unbuilt, so the affordance is hidden until it does something (rf2-h6ooa). Its event, `:rf.xray.static.machines/open-chart-popout`, stays registered as the second no-op slot, reserved for that affordance; nothing dispatches it today. | xyflow MachineChart |
-| **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is **the runtime's own initial snapshot**, built by handing the definition to the engine's `build-initial-snapshot` (rf2-y8doi.21), so a compound root opens at its LEAF and a parallel root at its region map — exactly where the runtime would have opened. **`:entry` actions are not run at seed time**; action evaluation starts from step 1, and the rail says so. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). **What ships is the list at the head of [§UC1 — Sim sub-mode (historical — not built)](#uc1--sim-sub-mode-historical--not-built) below, NOT that section's guard-verdict UI**: the rail lists the current state's outgoing `:on` transitions with their targets, tagging a guarded one `[guard]` without predicting a verdict, and a step that moved nothing surfaces as one inline diagnostic naming all three possible causes (no transition matched · a guard declined · the matched transition was a no-op), because the engine's public result cannot tell them apart. | Sim body panel (banner + on-chart highlight + event/payload inputs + Step / Reset / Exit + available-transitions list + audit trail) |
+| **Sim** (`s`) | Hermetic 'what-if' simulator (rf2-r4nao — landed). Clones the registered machine definition into Xray's app-db at `[:rf.xray.static.machines/sim-by-machine <machine-id>]`; production registry is untouched. Event-INDEPENDENT — Sim does NOT read the live snapshot; the seed is **the runtime's own initial snapshot**, built by handing the definition to the engine's `build-initial-snapshot` (rf2-y8doi.21), so a compound root opens at its LEAF and a parallel root at its region map — exactly where the runtime would have opened. **`:entry` actions are not run at seed time**; action evaluation starts from step 1, and the rail says so. Engine events/subs live under the `:rf.xray.static.machines/sim-*` namespace (`sim-start`, `sim-step`, `sim-chart-edge-clicked`, `sim-reset`, `sim-stop`, `sim-set-pending-event`, `sim-set-pending-data`). View at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs` exports `pill` (the strip cell), `body` (the per-machine Sim panel) and `SimRail` (the geometry-coupled side rail). **What ships is the list at the head of [§UC1 — Sim sub-mode (historical — not built)](#uc1--sim-sub-mode-historical--not-built) below, NOT that section's guard-verdict UI**: the rail lists the current state's outgoing `:on` transitions with their targets (a targetless / action-only row reads `↻ internal <action>`, rf2-kmr2i), tagging a guarded one `[guard]` without predicting a verdict, and a step that moved nothing surfaces as one inline diagnostic naming all three possible causes (no transition matched · a guard declined · the matched transition was a no-op), because the engine's public result cannot tell them apart. | Sim body panel (banner + on-chart highlight + event/payload inputs + Step / Reset / Exit + available-transitions list + audit trail) |
 | **Instances** (`i`) | **JUMP to Dynamic.** Clicking the pill (or the per-row `→ Dynamic` chip in the browse-list) dispatches three events against `:rf/xray`: `:rf.xray/set-mode :dynamic` · `:rf.xray/select-tab :machines` · `:rf.xray/select-machine-id <mid>`. The user lands on the Dynamic Machines tab with this machine pre-selected, and **the pre-selection LANDS — on the epoch AND on the screen**: `:rf.xray/select-machine-id` writes the selection slot and moves the spine focus to the newest epoch touching that machine, through the same epoch walk Prev/Next uses, which is what makes it stick against the panel's live head-tracking (rf2-y8doi.23); **and the panel then BINDS to that machine** rather than to the cascade's first-by-trace-order record (rf2-mj4jp — see [§Explicit selection outranks the tiebreaker (rf2-mj4jp)](#explicit-selection-outranks-the-tiebreaker-rf2-mj4jp)). Both halves are needed and the first alone was shipped: when the landing epoch's cascade touches A and then B, a JUMP to B pinned exactly the right epoch and drew A, so the slot write and the epoch move were both correct and invisible. It is a deliberate no-op when the machine has no epoch in the window, so a JUMP made before the machine has done anything leaves the spine where it was. **There is no Mode A/B/C auto-detection to defer to** — rf2-y9xmf collapsed the Dynamic panel to a single event-driven lens, so no live-instance-count thresholds exist anywhere in the shipped tree. | no body — the click is the surface |
 | **Cascade** (`c`) | **Dimmed + disabled** with a tooltip: *"Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view."* The pill renders for muscle-memory consistency with the Dynamic sub-strip (same DOM, same letter mnemonic) but is non-interactive — `disabled` + `aria-disabled="true"` + dashed border + 0.5 opacity. The cancellation cascade composes against the trace ring buffer which is event-coupled — there is no spine in Static mode, so the surface has no source data. | no body — the pill IS the surface |
 
@@ -1861,9 +1861,9 @@ Per Spec 005 and Spec 009:
 
 | Surface | Used for |
 |---|---|
-| `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?` | Enumerate registered machines (drop-down in panel header). Per Spec 005 §Querying machines — no per-kind accessor. |
+| `(rf/registrations {:source :store :kind :event})` filtered on `:rf/machine?` | Enumerate registered machines (the Static browse-list; the Dynamic panel has no picker). Per Spec 005 §Querying machines — no per-kind accessor. |
 | `[:rf.runtime/machines :snapshots <id>]` slot in the **runtime-db partition** (EP-0001 rf2-vzld77) | Read current snapshot; deref drives the live-highlight. The host passes the snapshot's `:state` straight through as the chart's `:current-state`; for a **parallel** machine that `:state` is a region-map and the chart highlights **every** active region leaf simultaneously (parity gap G1; resolution via `chart.layout/highlight-ids` — see [machines-viz API §Parallel multi-active highlight](../../machines-viz/spec/API.md#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). |
-| `:rf.machine/transition` traces | Build the transition-history ribbon. |
+| `:rf.machine/transition` traces | `project-transitions` fills the per-machine `:transitions` slot, but no view renders it — the transition-history ribbon went under rf2-y9xmf. |
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | Drive `:after` countdown rings. |
 | `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). **Not a Machines-tab surface today** — no code in this slice reads these; see §`:spawn-all` viz below, which is unbuilt. |
@@ -1892,7 +1892,7 @@ The history surface rides the **EVENT HANDLER machine cascade** in the Epoch pan
 
    A parallel macrostep that restores / records per region renders one banner line per record (the traces are region-qualified by `:compound-path` head segment).
 
-2. **The per-`:entry`-step `:source` chip.** Each structured-cascade `:entry` step produced by a history restore additively carries `:source :recorded | :default` (Spec 009 line 291 — the only addition history makes to the rf2-n9f4z step shape; absent on every non-history step). Xray renders a small chip — **`from history`** (`:recorded`) or **`default`** (`:default`) — on those `:entry` step rows, so the viewer sees WHICH entry steps came from a history restore vs an ordinary `:initial` descent. The chip's `:source` value matches the banner's `:source`; the consumer reads the headline off the banner, then the per-level origin off the `:source`-tagged entry steps without re-deriving either.
+2. **The per-`:entry`-step `:source` chip.** Each structured-cascade `:entry` step produced by a history restore additively carries `:source :recorded | :default` (Spec 009 §History trace events — the only addition history makes to the rf2-n9f4z step shape; absent on every non-history step). Xray renders a small chip — **`from history`** (`:recorded`) or **`default`** (`:default`) — on those `:entry` step rows, so the viewer sees WHICH entry steps came from a history restore vs an ordinary `:initial` descent. The chip's `:source` value matches the banner's `:source`; the consumer reads the headline off the banner, then the per-level origin off the `:source`-tagged entry steps without re-deriving either.
 
 ### Inspectable `:rf/history` slot
 
@@ -1949,6 +1949,11 @@ Xray auto-pans on every transition so the active state stays in view.
 The user can disable auto-pan via the panel header toggle (kept state
 per-machine in localStorage).
 
+**Not built.** The shipped viewport behaviour is xyflow `fitView` on
+layout plus the `:fit-signal` re-fit; there is no per-transition
+auto-pan, header toggle or localStorage slot (the `:auto-pan?` key in
+`machine_inspector_helpers` lands in a `:chart-props` slot no view reads).
+
 ## Performance
 
 - **Chart re-layout** runs only on registry change (machine
@@ -2003,7 +2008,7 @@ chart is dev-only: Xray preload + the static viewer page; the
 
 The pass is async + cached:
 
-1. When the `[definition direction layout-options]` tuple changes,
+1. When the `[definition elk-direction layout-options density context-rows adaptive?]` tuple changes,
    `MachineChart` calls `compute-layout!` with the parsed graph.
 2. `compute-layout!` builds an elk.js input graph (`->elk-input`),
    calls `elk.layout` (returns a Promise), and on resolution maps the
@@ -2017,7 +2022,7 @@ The pass is async + cached:
    manage a `{:scale :tx :ty}` viewport.
 
 Canonical elk options (`default-elk-options`): `"elk.algorithm" "layered"`,
-`"elk.direction" "DOWN"` (or `"RIGHT"` for `:lr`), spline edge routing,
+`"elk.direction" "DOWN"` (or `"RIGHT"` for `:lr`), orthogonal edge routing (`"elk.edgeRouting" "ORTHOGONAL"`),
 and `"elk.hierarchyHandling" "INCLUDE_CHILDREN"` whenever the graph nests
 (parallel regions per rf2-lkwev, or compound substates per rf2-54s5a).
 Hosts may override via the `:layout-options` prop (merged over the
@@ -2126,9 +2131,9 @@ ships **without** a chart alt-view; the alt-view is a COMMITMENT,
 re-anchored to first external alpha (or earlier if the first external
 consumer needs assistive-tech access to chart topology) — see
 [`tools/machines-viz/spec/000-Vision.md`](../../machines-viz/spec/000-Vision.md#committed-with-a-trigger)
-§Committed with a trigger. Until then, the transition-history ribbon
-and the machines picker are the accessible surfaces — both are
-text-heavy and reach the same data.
+§Committed with a trigger. Until then, the Static Machines browse-list /
+definition-detail text and the shared mini-pipeline rows are the
+accessible surfaces — text-heavy, and reaching the same data.
 
 ## The bug catalogue
 
@@ -2308,9 +2313,10 @@ Each done/failed: click → opens the per-child completion event.
 
 **Affordance:** `:spawn-all` join inspector card (M-C4).
 
-**v1 ships:** the `:spawn-all` viz row (children rendered inline; basic
-`done?` / `failed?` colouring). **Future:** the full join inspector card
-with click-to-pivot.
+**v1 ships:** nothing here — the `:spawn-all` viz row is unbuilt (see
+§`:spawn-all` viz above). **Future:** the viz row (children rendered
+inline; basic `done?` / `failed?` colouring), then the full join
+inspector card with click-to-pivot.
 
 ### M.5 — Per-instance "why am I stuck"
 
@@ -2401,7 +2407,7 @@ resolution rule is "deepest wins; parent fallthrough on miss." When a
 child consumes an event the parent expected to handle, the author is
 surprised.
 
-**Insight Xray provides:** In the Epoch panel's "EFFECTS HANDLERS RAN"
+**Insight Xray provides:** In the Epoch panel's "EFFECT HANDLERS"
 section, add a sub-row for each `:rf.machine/transition` showing the
 **path walked**:
 
@@ -2453,7 +2459,8 @@ per slot (`:data.retry-count incremented from 2 → 3 by action
 **Affordance:** Snapshot diff visualisation (M-C10). Phase 5. Needs
 per-action attribution.
 
-**Phase 4 — snapshot drill-in (rf2-lxvn6 · landed).** The
+**Phase 4 — snapshot drill-in (rf2-lxvn6 · landed; since removed by
+rf2-g2axio — `:data` reads off the mini-pipeline `-data-write-N` rows).** The
 visibility-only half of M.10 lands first: the BEFORE / AFTER snapshot
 maps for the focused transition render as collapsible trees via the
 first-class edn-inspector widget (see
