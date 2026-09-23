@@ -64,7 +64,7 @@
     (is (nil? (rf.testbed.open-in-editor-server/resolve-file "")))
     (is (nil? (rf.testbed.open-in-editor-server/resolve-file "   ")))))
 
-;; Launch is stubbed while the method, Host, Origin, and CORS guards are tested.
+;; Launch is stubbed while the peer, method, Host and Origin guards are tested.
 
 (defn ^:private req
   "Build a minimal endpoint request; nil host/origin values omit the header.
@@ -92,10 +92,23 @@
                                 {:ok true})]
      ~@body))
 
+(defn- cors-headers
+  "The response's CORS header names, plus `vary`, lower-cased and sorted.
+  Matched CASE-INSENSITIVELY because the defect this pins was a casing
+  collision: shadow-http keeps response headers in a case-sensitive map, so a
+  lowercase `access-control-allow-origin` went out as a SECOND header beside
+  shadow's own `Access-Control-Allow-Origin: *` (rf2-3x7nj.38.2)."
+  [resp]
+  (->> (keys (:headers resp))
+       (map #(str/lower-case (name %)))
+       (filter #(or (str/starts-with? % "access-control-") (= "vary" %)))
+       sort
+       vec))
+
 (deftest guard-allows-valid-local-post
-  (testing "a POST addressed to a loopback Host with a loopback Origin
-            (a cross-PORT dev request: Story shell on :8042 → app on :8031)
-            reaches the launch path and answers 200"
+  (testing "a POST addressed to a loopback Host with a loopback Origin from
+            another local port is admitted and answers 200 — admission, not
+            CORS, is the boundary"
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (rf.testbed.open-in-editor-server/handle
@@ -105,9 +118,8 @@
                            :file   "fake_ns/core.cljs"}))]
           (is (= 200 (:status resp)) "valid local POST is accepted")
           (is (= 1 (count @calls)) "launch! was invoked exactly once")
-          (is (= "http://localhost:8042"
-                 (get-in resp [:headers "access-control-allow-origin"]))
-              "CORS reflects the validated loopback origin, not `*`")))))
+          (is (= [] (cors-headers resp))
+              "the endpoint sets no CORS header of its own")))))
   (testing "a same-origin POST that omits Origin entirely still passes on the
             loopback Host check alone"
     (let [calls (atom [])]
@@ -132,8 +144,8 @@
                            :file   "/etc/passwd"}))]
           (is (= 403 (:status resp)) "cross-origin POST is forbidden")
           (is (zero? (count @calls)) "launch! was not called")
-          (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))
-              "no wildcard CORS — the remote origin is not reflected"))))))
+          (is (= [] (cors-headers resp))
+              "no CORS header — the remote origin is not reflected"))))))
 
 (deftest guard-rejects-non-loopback-host
   (testing "a POST addressed to a non-loopback Host (a public binding /
@@ -237,7 +249,7 @@
 
 (deftest guard-rejects-remote-peer-before-method-and-preflight
   (testing "the transport check is the OUTERMOST gate: a remote peer gets 403
-            for a GET (not 405) and for an OPTIONS preflight (not 204)"
+            for a GET (not 405) and for an OPTIONS (not 405 either)"
     (let [calls (atom [])]
       (with-launch-spy calls
         (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
@@ -327,9 +339,9 @@
             (str "control: the input is the socket rendering, not a bare literal: " peer))
         (is (#'rf.testbed.open-in-editor-server/loopback-peer? peer)
             (str "loopback socket peer: " peer)))))
-  (testing "…and through `handle`: the launch POST reaches `launch!` and the
-            OPTIONS preflight answers 204. On shadow-cljs 3.4.10 both answered
-            403"
+  (testing "…and through `handle`: the launch POST reaches `launch!` and an
+            OPTIONS gets past the peer check to the POST-only 405. On
+            shadow-cljs 3.4.10 both answered 403"
     (doseq [peer [(socket-peer (ip "127.0.0.1")) (socket-peer (ip "::1"))]]
       (let [calls (atom [])]
         (with-launch-spy calls
@@ -341,7 +353,7 @@
                                   :origin "http://localhost:8042" :peer peer}))]
             (is (= 200 (:status post)) (str "launch POST from " peer))
             (is (= 1 (count @calls)) (str "launch! ran for " peer))
-            (is (= 204 (:status preflight)) (str "preflight from " peer))))))))
+            (is (= 405 (:status preflight)) (str "OPTIONS from " peer))))))))
 
 (deftest loopback-peer?-refuses-non-loopback-socket-renderings
   (testing "a non-loopback socket peer is refused, IPv4 and IPv6 alike"
@@ -367,7 +379,7 @@
       (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? peer))
           (str "refused unrecognised rendering: " (pr-str peer)))))
   (testing "…and through `handle`: a remote socket peer is 403 for the launch
-            POST and the preflight alike, however loopback its Host, Origin
+            POST and an OPTIONS alike, however loopback its Host, Origin
             and hostname half read, and never launches"
     (let [calls (atom [])]
       (with-launch-spy calls
@@ -382,7 +394,7 @@
                                 (req {:method :options :host "localhost:8031"
                                       :origin "http://localhost:8042"
                                       :peer peer}))))
-              (str "remote socket peer preflight: " peer)))
+              (str "remote socket peer OPTIONS: " peer)))
         (is (zero? (count @calls)) "launch! was not called")))))
 
 (deftest peer-literal-never-hands-getByName-a-name
@@ -415,22 +427,63 @@
           (is (= 405 (:status resp)) "GET is method-not-allowed")
           (is (zero? (count @calls)) "launch! was not called"))))))
 
-(deftest guard-options-preflight-reflects-loopback-origin
-  (testing "an OPTIONS preflight from a loopback origin reflects that origin
-            and offers POST only (no GET) — never launches"
+(deftest guard-options-is-not-a-preflight
+  (testing "the supported client workflow is same-origin (the client posts a
+            relative URL), so the endpoint answers no CORS preflight: an
+            admitted loopback OPTIONS takes the POST-only 405 with a JSON body
+            and never launches. The non-nil body is what keeps shadow-http's
+            nil-body → 304 rewrite off every endpoint answer (rf2-3x7nj.38.2)"
+    (doseq [origin ["http://localhost:8042" nil]]
+      (let [calls (atom [])]
+        (with-launch-spy calls
+          (let [resp (rf.testbed.open-in-editor-server/handle
+                       (req {:method :options
+                             :host   "localhost:8031"
+                             :origin origin}))]
+            (is (= 405 (:status resp)) (str "Origin " (pr-str origin)))
+            (is (some? (:body resp)) (str "Origin " (pr-str origin)))
+            (is (re-find #"\"error\":\"method-not-allowed\"" (str (:body resp))))
+            (is (zero? (count @calls))))))))
+  (testing "an OPTIONS that fails admission — a remote Origin, a non-loopback
+            Host — is refused 403, also with a JSON body"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :options
-                           :host   "localhost:8031"
-                           :origin "http://localhost:8042"}))]
-          (is (= 204 (:status resp)))
-          (is (= "http://localhost:8042"
-                 (get-in resp [:headers "access-control-allow-origin"])))
-          (is (= "POST, OPTIONS"
-                 (get-in resp [:headers "access-control-allow-methods"]))
-              "GET is no longer an allowed method")
-          (is (zero? (count @calls))))))))
+        (doseq [r [(req {:method :options :host "localhost:8031"
+                         :origin "https://evil.example"})
+                   (req {:method :options :host "app.evil.example"
+                         :origin nil})]]
+          (let [resp (rf.testbed.open-in-editor-server/handle r)]
+            (is (= 403 (:status resp)) (pr-str (:headers r)))
+            (is (re-find #"\"error\":\"forbidden\"" (str (:body resp))))))
+        (is (zero? (count @calls)) "launch! was not called")))))
+
+(deftest endpoint-answers-carry-no-cors-headers
+  (testing "no endpoint answer carries a CORS header or `vary` of its own,
+            whatever its status. shadow-cljs `:dev-http` adds its own
+            `Access-Control-Allow-Origin: *` to every response; that is
+            shadow's behaviour, and this endpoint neither relies on it nor
+            adds a second value beside it (rf2-3x7nj.38.2)"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (doseq [[status label r]
+                [[200 "a same-origin POST" (req {:file "fake_ns/core.cljs"})]
+                 [200 "a POST from another local port"
+                  (req {:origin "http://localhost:8042" :file "fake_ns/core.cljs"})]
+                 [400 "a POST with no file" (req {})]
+                 [403 "a remote Origin"
+                  (req {:origin "https://evil.example" :file "/etc/passwd"})]
+                 [403 "a remote peer"
+                  (req {:peer "203.0.113.7" :file "/etc/passwd"})]
+                 [405 "a GET" (req {:method :get :file "/etc/passwd"})]
+                 [405 "an OPTIONS"
+                  (req {:method :options :origin "http://localhost:8042"})]
+                 [422 "a coordinate for a position-blind editor"
+                  (assoc (req {})
+                         :query-string "file=fake_ns/core.cljs&line=3&editor=windsurf")]]]
+          (let [resp (rf.testbed.open-in-editor-server/handle r)]
+            (is (= status (:status resp)) (str label " answers " status))
+            (is (= [] (cors-headers resp))
+                (str label " carries no CORS header"))))))))
 
 ;; Safety negatives assert both the response and absence of a launch call.
 
@@ -446,37 +499,8 @@
           (is (= 403 (:status resp)) "opaque-origin POST is forbidden")
           (is (re-find #"\"error\":\"forbidden\"" (:body resp)))
           (is (zero? (count @calls)) "launch! was not called")
-          (is (= "null" (get-in resp [:headers "access-control-allow-origin"]))
-              "CORS denies via `null` — never reflects the opaque origin, never `*`")
-          (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))))))))
-
-(deftest guard-options-preflight-denies-remote-origin
-  (testing "a remote preflight receives no usable CORS origin"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :options
-                           :host   "localhost:8031"
-                           :origin "https://evil.example"}))]
-          (is (= 204 (:status resp)) "preflight still answers 204")
-          (is (= "null" (get-in resp [:headers "access-control-allow-origin"]))
-              "the remote origin is DENIED via `null`")
-          (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))
-              "never a wildcard")
-          (is (not= "https://evil.example"
-                    (get-in resp [:headers "access-control-allow-origin"]))
-              "the remote origin is never reflected back")
-          (is (zero? (count @calls)) "launch! was not called")))))
-  (testing "a preflight without a validated loopback Origin is denied"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :options
-                           :host   "app.evil.example"
-                           :origin nil}))]
-          (is (= 204 (:status resp)))
-          (is (= "null" (get-in resp [:headers "access-control-allow-origin"])))
-          (is (zero? (count @calls))))))))
+          (is (= [] (cors-headers resp))
+              "no CORS header — the opaque origin is never reflected"))))))
 
 (deftest guard-non-endpoint-path-falls-through
   (testing "a request for any other path still falls through (nil) untouched"

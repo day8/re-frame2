@@ -524,8 +524,8 @@
  ;; `re-frame.testbed.open-in-editor-server/handler` (a JVM-only `.clj`,
  ;; on the classpath via the `../tools/testbed-support/src` source path
  ;; above). The handler answers
- ;; `POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>` (with OPTIONS
- ;; for the CORS preflight) by resolving the (classpath-relative) `:file`
+ ;; `POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>` by resolving
+ ;; the (classpath-relative) `:file`
  ;; against the live source-paths at RUNTIME and launching the editor via
  ;; the `launch-editor` npm package. POST-only + loopback-guarded by
  ;; design — a GET/HEAD drive-by must never launch an editor (405; the
