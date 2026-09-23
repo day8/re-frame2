@@ -105,7 +105,17 @@
      :substrates #{:reagent}})
   (rf.story/reg-variant* :story.workspace-routing/undeclared
     {:doc        "Declares NO substrates — the shell's host substrate decides."
-     :component  :views/probe}))
+     :component  :views/probe})
+  ;; rf2-3x7nj.28.2 — the subject and layer inherited through `:extends`
+  ;; from a variant of a story that names neither.
+  (rf.story/reg-story* :story.workspace-extends {:doc "rf2-3x7nj.28.2 witness story"})
+  (rf.story/reg-variant* :story.workspace-extends/base
+    {:doc        "Names the subject and the layer."
+     :component  :views/probe
+     :substrates #{:uix}})
+  (rf.story/reg-variant* :story.workspace-extends/child
+    {:doc     "Declares neither; inherits both from its :extends parent."
+     :extends :story.workspace-extends/base}))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -144,6 +154,22 @@
       (is (not (rendered-under-reagent? tree))
           "and it did NOT also paint Reagent — the silent Reagent render is
            what a UIx author got before"))))
+
+(deftest an-extends-child-cell-renders-what-it-inherits
+  (testing "rf2-3x7nj.28.2 — a cell resolved its `:component` and
+            `:substrates` from the variant's RAW body, then its story's, so
+            an `:extends` child of a variant naming both rendered 'no
+            :component registered'. The compiled plan folds the `:extends`
+            chain; the cell must read it, as the canvas does."
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (let [tree (cell-tree :story.workspace-extends/child)]
+      (is (= "rendered under uix: :views/probe"
+             (some-> (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "uix-stub-render")
+                     (nth 2)))
+          "the inherited layer rendered the inherited subject — the stub
+           prints the view-id it was handed")
+      (is (not (rendered-under-reagent? tree))
+          "and it did not fall back to the host substrate"))))
 
 (deftest reagent-variants-are-behaviour-unchanged
   (testing "the overwhelmingly common case — a variant declaring

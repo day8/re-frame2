@@ -72,34 +72,41 @@
 
 ;; ---- per-story override lookup -------------------------------------------
 
+(defn- override
+  "The `:background` override `variant-id` renders on: the nearest body on
+  its `:extends` chain that declares one (the variant, then its ancestors),
+  else its parent story's. That is the plan compiler's `[:world :background]`
+  — inherited through `:extends` as world context (spec/017 §`:extends`) —
+  with the story fallback this lookup always had. The chain is walked rather
+  than compiled, to keep plan compiles out of every toolbar render; reading
+  the variant's own body alone framed an `:extends` child at the toolbar
+  selection (rf2-3x7nj.28.2). An unregistered parent or a cycle ends the
+  walk; plan construction refuses both with its own error."
+  [variant-id]
+  (when variant-id
+    (or (loop [vid variant-id seen #{}]
+          (when-let [body (when-not (contains? seen vid)
+                            (rf.story.registrar/handler-meta :variant vid))]
+            (or (:background body)
+                (recur (:extends body) (conj seen vid)))))
+        (some->> (rf.story.predicates/parent-story-id variant-id)
+                 (rf.story.registrar/handler-meta :story)
+                 :background))))
+
 (defn effective-background
   "Resolve the effective background preset for the currently-focused
   variant. Returns the preset map `{:label :color}`."
   []
-  (let [shell      @rf.story.ui.state/shell-state-atom
-        variant-id (:selected-variant shell)
-        var-body   (when variant-id
-                     (rf.story.registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
-        story-body (when story-id
-                     (rf.story.registrar/handler-meta :story story-id))
-        override   (or (:background var-body)
-                       (:background story-body))]
-    (rf.story.backgrounds/resolve override (:background shell))))
+  (let [shell @rf.story.ui.state/shell-state-atom]
+    (rf.story.backgrounds/resolve (override (:selected-variant shell))
+                                  (:background shell))))
 
 (defn effective-id
   "Resolved id (preset keyword or `:custom`) for the focused variant."
   []
-  (let [shell      @rf.story.ui.state/shell-state-atom
-        variant-id (:selected-variant shell)
-        var-body   (when variant-id
-                     (rf.story.registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
-        story-body (when story-id
-                     (rf.story.registrar/handler-meta :story story-id))
-        override   (or (:background var-body)
-                       (:background story-body))]
-    (rf.story.backgrounds/resolve-id override (:background shell))))
+  (let [shell @rf.story.ui.state/shell-state-atom]
+    (rf.story.backgrounds/resolve-id (override (:selected-variant shell))
+                                     (:background shell))))
 
 ;; ---- styling -------------------------------------------------------------
 

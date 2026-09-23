@@ -185,6 +185,50 @@
                     (is false (str "a canvas run rejected: " e))
                     (done)))))))
 
+;; rf2-iwl02: every author-triggered run goes through `runtime/rerun!`, which
+;; re-prepares the variant in place under the SAME run-key, so the canvas sees
+;; no key change and runs nothing itself. Only the run's starter — the play
+;; chip — held its promise, so the canvas never heard the verdict and its
+;; stamp vanished instead of following the new run. Setup reads `rerun-n`, so
+;; a flip between runs makes the re-run's verdict differ from the first.
+
+(def ^:private rerun-n (atom 1))
+
+(deftest a-rerun-from-the-play-chip-is-stamped-when-it-settles
+  (async done
+    (reset! rerun-n 1)
+    (rf/reg-event :iwl02/boot (fn [{:keys [db]} _] {:db (assoc db :n @rerun-n)}))
+    (rf.story/reg-variant :story.iwl02/rerun
+      {:setup  [[:iwl02/boot]]
+       :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
+    (let [vid       :story.iwl02/rerun
+          [_ k p]   (canvas-run! vid)]
+      (-> p
+          (.then (fn [_]
+                   (is (= "pass" (stamp vid k))
+                       "precondition: the canvas's own run settled and is stamped")
+                   (reset! rerun-n 2)
+                   (let [old-gen (rf.story.runtime/current-generation vid)
+                         ;; What the play chip's Re-run does.
+                         rerun   (rf.story.runtime/rerun! vid {:play nil})]
+                     (is (> (rf.story.runtime/current-generation vid) old-gen)
+                         "precondition: the Re-run claimed a fresh generation")
+                     (is (nil? (get @run-settled vid))
+                         "the previous verdict is dropped as the Re-run starts, which
+                          re-renders the section without the stamp")
+                     (is (nil? (stamp vid k))
+                         "no stamp while the Re-run is in flight")
+                     rerun)))
+          (.then (fn [result]
+                   (is (= :fail (:status result))
+                       "precondition: the Re-run settled fail on its flipped setup")
+                   (is (= "fail" (stamp vid k))
+                       "the canvas stamps the Re-run's verdict, under the canvas's run-key")
+                   (done)))
+          (.catch (fn [e]
+                    (is false (str "a run rejected: " e))
+                    (done)))))))
+
 (deftest the-section-carries-the-status-only-for-its-own-run
   (testing "rf2-mc87a / rf2-oovoq: `data-run-status` stamps the settled verdict of the run in view"
     (let [rk      {:variant-id :story.mc87a/declarative :hot-reload-tick 0}

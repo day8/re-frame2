@@ -14,6 +14,10 @@
   `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
+            ;; Loaded for its epoch tape: without it a run records no
+            ;; effects, so `run-all-records-the-run-level-status`'s thrown fx
+            ;; is invisible to the run's floor when this ns runs alone.
+            [re-frame.epoch]
             [re-frame.frame           :as rf.frame]
             [re-frame.machines        :as rf.machines]
             [re-frame.registrar       :as rf.registrar]
@@ -863,8 +867,8 @@
 (deftest run-all-runs-declarative-expectation-variants
   (testing "rf2-uiihg: Run all — the sidebar's `testable-variant-ids`
             selection driven through its per-variant pipeline
-            (`run-one-test!`: run-variant → aggregate-summary →
-            record-test-run) — executes an :assertions-only and a
+            (`run-one-test!`: run-variant → aggregate-summary + the run's
+            `:status` → record-test-run) — executes an :assertions-only and a
             :checks-only variant beside a :script control, and their
             records take the script assert's shape"
     (rf.story/reg-check :story.rall/c-is-zero
@@ -889,8 +893,9 @@
                         ids)
           state   (reduce (fn [s vid]
                             (rf.story.ui.state/record-test-run
-                              s vid (rf.story.ui.state/aggregate-summary
-                                      (:assertions (get results vid)))))
+                              s vid (assoc (rf.story.ui.state/aggregate-summary
+                                             (:assertions (get results vid)))
+                                           :status (:status (get results vid)))))
                           rf.story.ui.state/default-shell-state
                           ids)
           status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))
@@ -909,6 +914,48 @@
              (shape :story.rall/assertions-only)
              (shape :story.rall/checks-only))
           "declarative records carry the same keys as a script assert record"))))
+
+(deftest run-all-records-the-run-level-status
+  (testing "rf2-3x7nj.28.1: Run all and watch mode record the run's `:status`,
+            as the Tests pane does. A thrown fx after the `:db` commits is
+            agreement-floor evidence, so the run fails while its one
+            assertion passes; folded from the assertion counts alone, the
+            sidebar dot read a green `:pass`. The pipeline below is
+            `run-one-test!`'s — CLJS-only, so its own witness is
+            `re-frame.story.ui.run-all-status-cljs-test`."
+    (rf/reg-fx :story.rstat/boom {:platforms #{:client :server}}
+      (fn [_ _] (throw (ex-info "rf2-3x7nj.28.1 probe fx" {}))))
+    (rf/reg-fx :story.rstat/quiet {:platforms #{:client :server}} (fn [_ _] nil))
+    (rf/reg-event :story.rstat/set-n
+      (fn [{:keys [db]} [_ fx-id]] {:db (assoc db :n 1) :fx [[fx-id true]]}))
+    (rf.story/reg-variant :story.rstat/floor
+      {:tags   #{:test}
+       :script [[:dispatch-sync [:story.rstat/set-n :story.rstat/boom]]
+                [:assert [:rf.assert/path-equals [:n] 1]]]})
+    (rf.story/reg-variant :story.rstat/clean
+      {:tags   #{:test}
+       :script [[:dispatch-sync [:story.rstat/set-n :story.rstat/quiet]]
+                [:assert [:rf.assert/path-equals [:n] 1]]]})
+    (let [run    (fn [vid] (rf.story.async/deref-blocking
+                             (rf.story.runtime/run-variant vid nil) 30000))
+          floor  (run :story.rstat/floor)
+          clean  (run :story.rstat/clean)
+          record (fn [result]
+                   (-> rf.story.ui.state/default-shell-state
+                       (rf.story.ui.state/record-test-run
+                         :v (assoc (rf.story.ui.state/aggregate-summary (:assertions result))
+                                   :status (:status result)))
+                       (rf.story.ui.state/variant-test-status :v)))]
+      (is (= :fail (:status floor))
+          "precondition: the run itself fails on the thrown fx")
+      (is (:all-passed? (rf.story.ui.state/aggregate-summary (:assertions floor)))
+          "precondition: every assertion that ran passed, so the counts alone read green")
+      (is (= :fail (record floor))
+          "the dot takes the run's verdict, not the assertion counts")
+      (is (= :pass (:status clean)) "control: the same shape with a quiet fx passes")
+      (is (= :pass (record clean)) "control: and its dot is green"))
+    (rf.story/destroy-variant! :story.rstat/floor)
+    (rf.story/destroy-variant! :story.rstat/clean)))
 
 (deftest inherited-and-composed-checks-select-and-run
   (testing "rf2-ckpm4: :checks a variant receives only through :extends or a
@@ -945,8 +992,9 @@
                         ids)
           state   (reduce (fn [s vid]
                             (rf.story.ui.state/record-test-run
-                              s vid (rf.story.ui.state/aggregate-summary
-                                      (:assertions (get results vid)))))
+                              s vid (assoc (rf.story.ui.state/aggregate-summary
+                                             (:assertions (get results vid)))
+                                           :status (:status (get results vid)))))
                           rf.story.ui.state/default-shell-state
                           ids)
           status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))]
@@ -993,8 +1041,9 @@
                         ids)
           state   (reduce (fn [s vid]
                             (rf.story.ui.state/record-test-run
-                              s vid (rf.story.ui.state/aggregate-summary
-                                      (:assertions (get results vid)))))
+                              s vid (assoc (rf.story.ui.state/aggregate-summary
+                                             (:assertions (get results vid)))
+                                           :status (:status (get results vid)))))
                           rf.story.ui.state/default-shell-state
                           ids)
           status  (fn [vid] (rf.story.ui.state/variant-test-status state vid))]

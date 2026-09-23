@@ -83,6 +83,32 @@
        (is (= :paper (rf.story.ui.backgrounds-switcher/effective-id))))))
 
 #?(:cljs
+   (deftest cljs-effective-background-follows-the-extends-chain
+     (testing "rf2-3x7nj.28.2: `:background` is world context, which spec/017
+               §`:extends` inherits — an `:extends` child is framed on its
+               parent's background, the one the compiled plan carries, not
+               on the toolbar selection"
+       (rf.story/reg-story* :story.bg-extends
+         {:doc "names no background" :component :ignored})
+       (rf.story/reg-variant* :story.bg-extends/base
+         {:doc "parent" :background :midnight})
+       (rf.story/reg-variant* :story.bg-extends/child
+         {:doc "child" :extends :story.bg-extends/base})
+       (rf.story/reg-variant* :story.bg-extends/own
+         {:doc "grandchild with its own" :extends :story.bg-extends/child
+          :background :paper})
+       (rf.story.ui.state/swap-state! assoc :background :dark)
+       (rf.story.ui.state/swap-state! assoc :selected-variant :story.bg-extends/child)
+       (is (= :midnight (rf.story.ui.backgrounds-switcher/effective-id))
+           "the parent's background, not the toolbar's")
+       (is (= (get-in (rf.story/variant-plan :story.bg-extends/child) [:world :background])
+              (rf.story.ui.backgrounds-switcher/effective-id))
+           "the background the compiled plan carries")
+       (rf.story.ui.state/swap-state! assoc :selected-variant :story.bg-extends/own)
+       (is (= :paper (rf.story.ui.backgrounds-switcher/effective-id))
+           "the nearest declaration on the chain wins"))))
+
+#?(:cljs
    (deftest cljs-effective-background-falls-through-to-toolbar
      (testing "no override → toolbar selection takes effect"
        (rf.story.ui.state/swap-state! assoc :background :dark)

@@ -86,6 +86,33 @@
        (is (= :desktop (rf.story.ui.viewport-switcher/effective-id))))))
 
 #?(:cljs
+   (deftest cljs-effective-viewport-follows-the-extends-chain
+     (testing "rf2-3x7nj.28.2: `:viewport` is world context, which spec/017
+               §`:extends` inherits — an `:extends` child is framed at its
+               parent's viewport, the one the compiled plan carries, not at
+               the toolbar selection"
+       (rf.story/reg-story* :story.vp-extends
+         {:doc "names no viewport" :component :ignored})
+       (rf.story/reg-variant* :story.vp-extends/base
+         {:doc "parent" :viewport :mobile-portrait})
+       (rf.story/reg-variant* :story.vp-extends/child
+         {:doc "child" :extends :story.vp-extends/base})
+       (rf.story/reg-variant* :story.vp-extends/own
+         {:doc "grandchild with its own" :extends :story.vp-extends/child
+          :viewport :desktop})
+       (rf.story.ui.state/swap-state! assoc :viewport :tablet)
+       (rf.story.ui.state/swap-state! assoc :selected-variant :story.vp-extends/child)
+       (is (= :mobile-portrait (rf.story.ui.viewport-switcher/effective-id))
+           "the parent's viewport, not the toolbar's")
+       (is (= "Mobile portrait" (:label (rf.story.ui.viewport-switcher/effective-viewport))))
+       (is (= (get-in (rf.story/variant-plan :story.vp-extends/child) [:world :viewport])
+              (rf.story.ui.viewport-switcher/effective-id))
+           "the viewport the compiled plan carries")
+       (rf.story.ui.state/swap-state! assoc :selected-variant :story.vp-extends/own)
+       (is (= :desktop (rf.story.ui.viewport-switcher/effective-id))
+           "the nearest declaration on the chain wins"))))
+
+#?(:cljs
    (deftest cljs-effective-viewport-falls-through-to-toolbar
      (testing "no override → toolbar selection takes effect"
        (rf.story.ui.state/swap-state! assoc :viewport :tablet)
