@@ -50,7 +50,10 @@ This EP proposes:
   (the optimistic patch is reconciled against the authoritative success-time
   plan), an accepted `:error`/`:cancelled` reply **rolls back** (the inverse
   patches replay), and a **stale/superseded** reply does neither — its inverse
-  patches are discarded and the *current* generation owns the entry;
+  patches are discarded and the *current* generation owns the entry
+  *(amended 2026-09-24: the superseded apply itself is rolled back or
+  inherited when it is superseded, and a baseline from an abandoned attempt
+  ends stale — see the Amendment under Decision 3's stale/superseded bullet)*;
 - **rollback-by-invalidation on conflict** (`:on-conflict :invalidate`, the
   default): when a touched entry's revision token has moved since the
   optimistic apply (a concurrent mutation, a refetch, a populate from another
@@ -381,6 +384,43 @@ write:
       stale reply's inverse is **discarded, never replayed** — the current
       generation owns the entry. This is the determinism guarantee for
       superseded responses.
+
+      **Amendment (2026-09-24, rf2-3x7nj.11.2) — the superseded apply is
+      rolled back, not forgotten.** The paragraph above rests on a premise
+      that does not hold: that the newer apply snapshotted pre-optimistic
+      truth. After a re-execute it snapshotted the *older paint*, so a failed
+      second attempt "restored" the first attempt's unconfirmed value and the
+      revision check called it unmoved; after a `:rf.mutation/clear` there is
+      no newer apply at all, and the paint stayed as fresh `:loaded` data. The
+      stale **reply** still writes nothing — suppression is unchanged — but the
+      superseded **apply** is now disposed of at the moment it is superseded:
+      - a same-instance **re-execute** over a still-pending apply rolls back,
+        at once, the keys the successor does not re-touch (all of them when the
+        successor has no optimistic plan or runs `{:optimistic? false}`). For
+        the keys it does re-touch, the successor paints on the **current**
+        value (so an in-flight delta stays right) and **inherits** the
+        superseded row's `:before` while the key is unmoved since that apply;
+        a moved key keeps the successor's own snapshot. Inheritance
+        propagates, so a chain restores its earliest unconfirmed baseline.
+        Replaying the old inverse and then applying the new plan was rejected:
+        with a delta patch it paints the wrong value in flight.
+      - **`:rf.mutation/clear`** of a pending apply rolls it back before the
+        row is dropped.
+      - **Any rollback whose baseline came from an attempt whose reply the
+        runtime discarded or abandoned ends stale**: restore the snapshot, mark
+        the key stale, refetch it when owned — the abandoned write may still
+        have reached the server. The deciding fact is the provenance of the
+        baseline, not what triggered the rollback, so a successor's own
+        reply-driven rollback of an inherited key also ends stale. An ordinary
+        single-attempt rollback stays exact, and the epoch-restore dangle is
+        unchanged.
+
+      This is **recovery, not write serialisation.** A re-execute does not
+      abort the earlier request, so the superseded write can still reach the
+      server after the recovery read, and an abort never proves a write was
+      not processed. An app that needs ordered writes needs its own latch or
+      server policy. Normative text: `spec/016-Resources.md` §Optimistic
+      settle.
 5. **Instance settlement** (settle the row, work-ledger row).
 6. **Continuation** — `:reply-to`, unchanged (fires only for the accepted
    terminal reply, after settle).
@@ -418,6 +458,10 @@ entry's **current revision** against the **recorded revision**:
 - **failed mutation, conflict** → entry invalidated + refetched (authoritative).
 - **stale/superseded reply** → its inverse discarded; current generation owns
   the entry (the newer apply already recorded the truthful inverse).
+  *(Amended 2026-09-24: that premise failed — the reply still writes nothing,
+  but the superseded apply is rolled back or inherited at supersession, and a
+  rollback of an abandoned attempt's baseline ends stale; see the Amendment
+  under Decision 3.)*
 - **success** → authoritative `:populates`/`:patches`/`:invalidates`; optimistic
   value overwritten.
 
@@ -673,6 +717,8 @@ Proposed sequence (not a one-PR requirement):
 5. `:on-conflict :force` restores the inverse even on conflict (with a warning).
 6. A **stale/superseded** reply discards its inverse and never rolls back; the
    newer generation's optimistic value (or its settle) owns the entry.
+   *(Amended 2026-09-24: plus — a superseded or cleared pending apply is
+   rolled back or inherited, and that rollback ends stale.)*
 7. Two concurrent optimistic writes on the same entry each record their own
    inverse + revision; the later commit and the earlier rollback compose
    deterministically per the conflict rule.
@@ -866,7 +912,9 @@ deferred-keys line changed. The normative text:
 >   restores absence only where no read is in flight.)*
 > - a **stale/superseded** reply rolls back nothing — its inverse is discarded,
 >   the current generation owns the entry (the newer apply recorded the truthful
->   inverse).
+>   inverse). *(Amended 2026-09-24, rf2-3x7nj.11.2: the superseded apply is
+>   rolled back or inherited when superseded, `:rf.mutation/clear` rolls a
+>   pending apply back, and a baseline from an abandoned attempt ends stale.)*
 >
 > `:optimistic` / `:optimistic-tags` are **incompatible** with
 > `:invalidate-timing :before-request` (a loud registration error,
