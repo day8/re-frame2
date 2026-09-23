@@ -31,8 +31,9 @@
           existing map.
         * `[:tag & children]` (no attrs map) → splice an attrs map in
           carrying both attributes.
-        * `[fn-or-component-or-fragment …]` (head is a fn / class / `:>`
-          / React-fragment marker) → SKIP and emit a one-shot warning
+        * `[fn-or-component-or-fragment …]` (head is a fn / class / an
+          interop head `:>` / `:r>` / `:f>` / React-fragment marker) →
+          SKIP and emit a one-shot warning
           per id. Pair-tool consumers fall back to the registry's
           `:rf/id` for source-coord; the view itself is untagged and so
           invisible to view-id lookup — a documented limit in Spec 006
@@ -112,12 +113,17 @@
 
 (defn- dom-tag?
   "True if `head` is a Hiccup DOM-tag keyword. Reagent's React-fragment
-  marker is `:<>`; the `:>` (interop) marker is for arbitrary React
-  components — both are exempt from annotation per Spec 006."
+  marker `:<>` and its interop heads `:>`, `:r>` (raw createElement) and
+  `:f>` (function component) are exempt from annotation per Spec 006. The
+  interop heads carry the component at position 1, the slot the DOM-root
+  branch splices an attrs map into, so annotating one displaces the
+  component (rf2-3x7nj.3.2)."
   [head]
   (and (keyword? head)
        (not= :<> head)
-       (not= :> head)))
+       (not= :> head)
+       (not= :r> head)
+       (not= :f> head)))
 
 (defn inject-source-coord-attr
   "Walk the user's render-fn output and merge `:data-rf2-source-coord`
