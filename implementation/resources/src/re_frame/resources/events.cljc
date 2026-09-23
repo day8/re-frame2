@@ -675,11 +675,13 @@
             ;; `:refetch-sweep` cursor (the pages beyond 0), which
             ;; `page-succeeded-handler` then drives ONE LEG AT A TIME (each its
             ;; own fresh generation + work-id) — replacing each page in place
-            ;; without ever truncating the accumulation. On an ENSURE (not
-            ;; force-new) the entry is left as-is — a fresh ensure of an infinite
-            ;; feed first-loads page 0 (empty `:data`), and an ensure of an
-            ;; already-loaded feed never reaches this `:else` fresh-load branch
-            ;; (fresh-skip / dedupe handle it).
+            ;; without ever truncating the accumulation. An ENSURE arms the same
+            ;; sweep when the feed is INVALIDATED (rf2-3x7nj.10.3): fresh-skip
+            ;; declines a stale feed and dedupe declines when no work is live,
+            ;; so an owner-free feed marked stale by an invalidation reaches this
+            ;; branch on its next ensure, which "refetches per the refetch rule"
+            ;; (Spec 016 §Refetch and invalidation of an infinite feed). A first
+            ;; load has no pages, so its tail is empty and it arms nothing.
             refetch-policy (when infinite? (:refetch spec))
             entry'     (cond-> (rf.resources.state/entry-start-load
                                  entry {:generation generation :work-id work-id
@@ -689,9 +691,9 @@
                          prev-key (assoc :previous-key prev-key)
                          ;; EP-0021 R6 — arm the multi-page sweep cursor for an
                          ;; opt-in refetch (empty tail for the window-preserving
-                         ;; default = no cursor, no sweep). An ensure (not
-                         ;; force-new) arms nothing.
-                         (and infinite? force-new?)
+                         ;; default = no cursor, no sweep), and for an ensure of
+                         ;; an invalidated feed (rf2-3x7nj.10.3).
+                         (and infinite? (or force-new? (some? (:invalidated-at entry))))
                          (rf.resources.state/entry-begin-refetch-sweep refetch-policy))
             ;; EP-0021 R8 — the page context for THIS fetch. A first ensure /
             ;; a refetch's replacement fetch a page-0 (`page-param-for-spec` —

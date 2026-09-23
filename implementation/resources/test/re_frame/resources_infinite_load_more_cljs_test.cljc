@@ -584,6 +584,42 @@
         (is (some? (:page-error e)) ":page-error recorded for the failed sweep leg")
         (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared — chain stopped")))))
 
+(deftest ensure-of-an-invalidated-feed-sweeps-per-its-refetch-policy
+  ;; rf2-3x7nj.10.3 — Spec 016 §Refetch and invalidation of an infinite feed:
+  ;; tag invalidation marks the feed stale and "the feed refetches per the
+  ;; refetch rule above on the next ensure". An OWNER-FREE feed is only marked
+  ;; stale, so that next ensure is the re-entry path — and it used to refresh
+  ;; page 0 alone while page 0's settle cleared `:invalidated-at` for the whole
+  ;; feed, leaving the tail pre-invalidation and reading fresh.
+  (testing ":refetch-all-pages? sweeps every page on the ensure that follows an
+            owner-free invalidation"
+    (let [k (accumulate-3! :ris/feed {:refetch {:refetch-all-pages? true}})]
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope :rf.scope/global
+                                                       :tags #{[:feed :recent]}
+                                                       :cause [:test :write]}])
+      (testing "FIXTURE — the owner-free feed went stale without a request"
+        (is (some? (:invalidated-at (entry k))))
+        (is (nil? @last-managed-args)))
+      (ensure! :ris/feed)
+      (testing "the ensure fetches page 0 and arms the sweep for the tail"
+        (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args)))))
+        (is (= [["c1" 1] ["c2" 2]] (:refetch-sweep (entry k)))))
+      (reply-success! (page [:a*] "c1"))
+      (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args))))
+          "page 0's settle chained the page-1 leg")
+      (reply-success! (page [:b*] "c2"))
+      (is (= 2 (:rf.resource/page-index (second (:on-success @last-managed-args))))
+          "then the page-2 leg")
+      (reply-success! (page [:c*] "c3"))
+      (let [e (entry k)]
+        (is (= [(page [:a*] "c1") (page [:b*] "c2") (page [:c*] "c3")] (:data e))
+            "every page refreshed — no tail left holding pre-invalidation data")
+        (is (nil? (:invalidated-at e)))
+        (is (not (contains? e :refetch-sweep)) "the sweep is exhausted")
+        (is (= :loaded (:status e)))))))
+
 ;; ===========================================================================
 ;; 8. ensure dedupe / fresh-skip still applies to an infinite feed's page-0
 ;; ===========================================================================
