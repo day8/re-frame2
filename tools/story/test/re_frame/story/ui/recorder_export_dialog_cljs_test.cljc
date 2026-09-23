@@ -193,6 +193,36 @@
              "auto-assert ON produces trailing :assert-db steps in the snippet")))))
 
 #?(:cljs
+   (deftest dialog-auto-assert-diffs-against-the-recording-seed
+     (testing "rf2-3x7nj.29.2: given the recording's seed db, the default
+               auto-assert pins only what the recording changed — not the
+               static keys it never touched, not Story's :rf.story/* records"
+       (rf.story.ui.recorder-export-dialog/open-dialog!
+         {:source-id :story.x/source
+          :events    [[:counter/inc]]
+          :seed-db   {:static-a 1 :static-b 2 :n 0 :rf.story/lifecycle :ready}
+          :final-db  {:static-a 1 :static-b 2 :n 1 :rf.story/lifecycle :ready
+                      :rf.story/assertions [{:passed? true}]}})
+       (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
+         (is (str/includes? flat "[:assert-db [:n] 1]")
+             "the changed path is asserted")
+         (is (not (str/includes? flat ":static-"))
+             "the unchanged static keys are not")
+         (is (not (str/includes? flat "[:assert-db [:rf.story/"))
+             "Story's own bookkeeping is not")))))
+
+#?(:cljs
+   (deftest open-from-recorder-dialog-carries-the-seed
+     (testing "rf2-3x7nj.29.2: the recorder save dialog's export hand-off
+               carries the recording's seed db onto the export dialog"
+       (rf.story.ui.recorder-export-dialog/open-from-recorder-dialog!
+         {:events    [[:counter/inc]]
+          :entries   []
+          :source-id nil
+          :seed-db   {:n 0}})
+       (is (= {:n 0} (:seed-db @rf.story.ui.recorder-export-dialog/ui-dialog))))))
+
+#?(:cljs
    (deftest dialog-without-final-db-omits-assertions
      (testing "auto-assert ON but no :final-db → no :assert-db steps"
        (rf.story.ui.recorder-export-dialog/open-dialog!

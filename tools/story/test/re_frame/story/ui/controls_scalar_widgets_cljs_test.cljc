@@ -418,6 +418,36 @@
        (is (= {:widget :text :coerce :keyword}
               (rf.story.ui.controls/infer-widget :keyword))))))
 
+;; ---- rf2-3x7nj.28.4 · a scalar schema carrying properties keeps its type ---
+
+#?(:cljs
+   (deftest infer-widget-property-carrying-scalars-infer-as-their-keyword
+     (testing "a scalar schema with Malli properties infers the widget its
+               bare keyword does, never the untyped text fallback"
+       (is (= {:widget :number} (rf.story.ui.controls/infer-widget [:int {:min 8 :max 64}])))
+       (is (= {:widget :number} (rf.story.ui.controls/infer-widget [:double {:min 0}])))
+       (is (= {:widget :boolean} (rf.story.ui.controls/infer-widget [:boolean {:doc "off?"}])))
+       (is (= {:widget :text :coerce :keyword}
+              (rf.story.ui.controls/infer-widget [:keyword {:doc "status"}])))
+       (is (= {:widget :text} (rf.story.ui.controls/infer-widget [:string {:min 1}])))
+       (is (= {:widget :number} (rf.story.ui.controls/infer-widget [:maybe :int]))
+           "[:maybe X] infers as X"))))
+
+#?(:cljs
+   (deftest bounded-int-control-writes-a-number-its-schema-accepts
+     (testing "the flagship [:int {:min 8 :max 64}] prop's GENERATED control
+               writes a number that same schema accepts, not the string \"24\""
+       (let [schema  [:int {:min 8 :max 64}]
+             tree    (rf.story.ui.controls/scalar-widget
+                       :story.x/v [:size] 16 (rf.story.ui.controls/infer-widget schema))
+             handler (-> tree second :on-change)]
+         (handler (input-event "24"))
+         (let [written (get-in (rf.story.ui.state/get-state)
+                               [:cell-overrides :story.x/v :size])]
+           (is (= 24 written))
+           (is (m/validate schema written)
+               "the written value satisfies the schema that generated the control"))))))
+
 #?(:cljs
    (deftest keyword-text-widget-on-change-writes-a-keyword
      (testing "a schema-derived :keyword text field edits to a KEYWORD, so
