@@ -318,3 +318,112 @@
         "the named frame's flow is gone")
     (is (some? (rf.flows/flow-meta {:frame :rf/default :id :probe/a}))
         "the ambient frame's flow is untouched")))
+
+;; ---------------------------------------------------------------------------
+;; The settle re-evaluates only flows that have already run (rf2-3x7nj.18.2)
+;; ---------------------------------------------------------------------------
+;;
+;; A direct `reg-flow` registers without evaluating; the flow's first
+;; evaluation belongs to the next drain (Spec 013 §Why a direct `reg-flow`
+;; does not settle). The direct-clear settle runs the ordinary pass, whose
+;; dirty check compares inputs against the flow's recorded last inputs — and a
+;; flow that has not evaluated since it was (re-)registered has NO row, so the
+;; pass used to evaluate it. A clear of ANY flow therefore forced the first
+;; evaluation of every never-run flow on the frame, at a moment the caller did
+;; not choose and often against an unseeded app-db. The settle now leaves such
+;; a flow untouched, row still absent, for the next drain.
+
+(defn- strict-greeting
+  "A `:derive` that is NOT total on nil — legal under Spec 013, which does not
+  require a derive to accept absent inputs."
+  [calls]
+  (fn [n]
+    (swap! calls conj n)
+    (when (nil? n) (throw (ex-info "derive refuses nil" {})))
+    (str "Hi " n)))
+
+(deftest direct-clear-does-not-first-evaluate-a-never-run-flow
+  (testing "S1 — boot-time setup: register two flows cold, clear one, THEN
+            seed. The clear neither throws nor evaluates the other flow"
+    (let [calls (atom [])]
+      (rf/reg-event :seed (fn [_ _] {:db {:user {:name "Ada"}}}))
+      (rf/reg-flow :t/greeting {:inputs [[:user :name]] :output-path [:greeting]}
+        (strict-greeting calls))
+      (rf/reg-flow :t/legacy {:inputs [[:x]] :output-path [:legacy]} identity)
+      ;; Red before the fix: this THROWS :rf.error/flow-eval-exception
+      ;; blaming :t/greeting, whose derive was called with nil.
+      (let [outcome (try (rf/clear :flow :t/legacy) :returned
+                         (catch #?(:clj Throwable :cljs :default) e
+                           [:threw (:rf.error/id (ex-data e))]))]
+        (is (= :returned outcome)
+            "the clear returns rather than failing on a flow it never touched"))
+      (is (= [] @calls) "the never-run flow was not evaluated by the clear")
+      (is (= {} (rf/app-db-value :rf/default)) "the clear wrote nothing")
+      (rf/dispatch-sync [:seed])
+      (is (= "Hi Ada" (:greeting (rf/app-db-value :rf/default)))
+          "the seeding drain performs the first evaluation")
+      (is (= ["Ada"] @calls) "exactly once, against the seeded input"))))
+
+(deftest direct-clear-defers-a-never-run-flow-even-over-seeded-inputs
+  (testing "S1b — a lifecycle rule, not an empty-db exemption: inputs seeded
+            BEFORE the cold registration still do not make the clear evaluate it"
+    (let [calls (atom [])]
+      (rf/reg-event :seed (fn [_ _] {:db {:user {:name "Ada"}}}))
+      (rf/reg-event :noop (fn [_ _] {}))
+      (rf/dispatch-sync [:seed])
+      (rf/reg-flow :t/greeting {:inputs [[:user :name]] :output-path [:greeting]}
+        (strict-greeting calls))
+      (rf/reg-flow :t/legacy {:inputs [[:x]] :output-path [:legacy]} identity)
+      (rf/clear :flow :t/legacy)
+      ;; Red before the fix: ["Ada"], and :greeting installed by the clear.
+      (is (= [] @calls) "the clear performed no first evaluation")
+      (is (= {:user {:name "Ada"}} (rf/app-db-value :rf/default))
+          "and installed no output")
+      (rf/dispatch-sync [:noop])
+      (is (= "Hi Ada" (:greeting (rf/app-db-value :rf/default)))
+          "the next drain evaluates it"))))
+
+(deftest direct-clear-writes-no-boot-time-placeholder
+  (testing "S2 — even a nil-total derive: the clear leaves an unseeded app-db
+            untouched instead of installing the flow's nil-case output"
+    (rf/reg-flow :t/greeting {:inputs [[:user :name]] :output-path [:greeting]}
+      (fn [n] (str "Hi " (or n "stranger"))))
+    (rf/reg-flow :t/legacy {:inputs [[:x]] :output-path [:legacy]} identity)
+    (rf/clear :flow :t/legacy)
+    ;; Red before the fix: {:greeting "Hi stranger"} before any event ran.
+    (is (= {} (rf/app-db-value :rf/default)))))
+
+(deftest direct-clear-still-settles-an-established-chain
+  (testing "S3 CONTROL — the skip must not disable the settle: an established
+            A -> B -> C chain is derived from A's absence at return"
+    (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
+    (rf/reg-flow :c/a {:inputs [[:x]] :output-path [:a]} identity)
+    (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} identity)
+    (rf/reg-flow :c/c {:inputs [[:b]] :output-path [:c]} identity)
+    (rf/dispatch-sync [:seed])
+    (is (= {:x 2 :a 2 :b 2 :c 2} (rf/app-db-value :rf/default)) "precondition")
+    (rf/clear :flow :c/a)
+    (is (= {:x 2 :b nil :c nil} (rf/app-db-value :rf/default))
+        "B and C both recomputed transitively before the clear returned")))
+
+(deftest direct-clear-leaves-a-cold-re-registration-for-the-next-drain
+  (testing "S4 — PINNED DELIBERATELY. A dependent re-registered cold since its
+            last evaluation has no row, so the clear leaves it (and anything
+            established downstream of it) at its current value — the stale but
+            OWNED state Spec 013 §Re-registration already accepts — and the
+            next drain recomputes both. Changing this is a ruling, not a fix."
+    (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
+    (rf/reg-event :noop (fn [_ _] {}))
+    (rf/reg-flow :c/a {:inputs [[:x]] :output-path [:a]} identity)
+    (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} (fn [a] (some-> a (* 10))))
+    (rf/reg-flow :c/c {:inputs [[:b]] :output-path [:c]} (fn [b] (str "c:" b)))
+    (rf/dispatch-sync [:seed])
+    (is (= {:x 2 :a 2 :b 20 :c "c:20"} (rf/app-db-value :rf/default)) "precondition")
+    ;; Cold re-registration of B — a NEW definition, row dropped.
+    (rf/reg-flow :c/b {:inputs [[:a]] :output-path [:b]} (fn [a] (if a (* 100 a) :none)))
+    (rf/clear :flow :c/a)
+    (is (= {:x 2 :b 20 :c "c:20"} (rf/app-db-value :rf/default))
+        "B keeps its previous value and established C stays derived from it")
+    (rf/dispatch-sync [:noop])
+    (is (= {:x 2 :b :none :c "c::none"} (rf/app-db-value :rf/default))
+        "the next drain evaluates the new B against A's absence, and C follows")))

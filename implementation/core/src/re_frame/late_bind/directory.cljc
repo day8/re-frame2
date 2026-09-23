@@ -309,6 +309,10 @@
     :producer-ns 're-frame.flows
     :design-bead "rf2-wbtjn"
     :description "Drop the destroyed frame's per-frame flow registry slot, its `last-inputs` rows, and its pending abandoned-output-path (vacation) state. No `:flow` registrar entry is pruned — per rf2-en00bk that registrar kind is RESERVED-but-empty and `reg-flow` writes only to the flows artefact's per-frame store. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook (rf2-vsigt) — without this hook a long-running SSR JVM with per-request frame churn grows the flow registry unboundedly."}
+   {:key         :flows/frame-has-flows?
+    :producer-ns 're-frame.flows
+    :design-bead "rf2-3x7nj.9.7"
+    :description "`(fn [frame-id])` — true when the frame holds at least one registered flow. Read by the `:fx` walk's terminal branch only after the walk changed the frame's state container, so a writing walk on a flow-free frame (or in an app without the flows artefact, where the hook is unbound) enqueues no `[:rf/settle-flows]` (Spec 013 §Sequencing)."}
 
    ;; ---- re-frame.schemas -----------------------------------------------------
    {:key         :schemas/validate-event!
