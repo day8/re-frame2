@@ -39,7 +39,10 @@
     9. when ONE success plan targets the SAME exact key through BOTH `:patches`
        AND `:populates`, POPULATE wins — the fixed `patches → populates → removes
        → invalidates` order applies the populate last (rf2-8sqr1, closing the
-       rf2-5gj77s acceptance gap: this is the RED-if-reversed contract tooth).
+       rf2-5gj77s acceptance gap: this is the RED-if-reversed contract tooth);
+   10. a populate / patch landing while a read of the same key is IN FLIGHT
+       supersedes that read, so its late pre-write reply cannot revert the
+       write (rf2-3x7nj.11.3).
 
   The transport is exercised end-to-end by overriding `:rf.http/managed` with a
   capturing stub that synthesises the transport's reply-event-append shape."
@@ -52,6 +55,7 @@
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
@@ -504,3 +508,80 @@
           "the patch arm applied to the shared key")
       (is (= [global-article-key] (:populated ps))
           "the populate arm applied to the SAME shared key"))))
+
+;; ===========================================================================
+;; 10. An authoritative write SUPERSEDES a read in flight (rf2-3x7nj.11.3)
+;; ===========================================================================
+;;
+;; A `:populates` / `:patches` write that lands while a read of the same key is
+;; in flight settles the entry `:loaded` — so it must not leave that read owning
+;; the entry. Otherwise the read's reply (answered BEFORE the server committed
+;; the write) still passes the work-id + generation gate and overwrites the
+;; written value, stamped fresh, and the user's write appears to revert.
+
+(defn- write-over-read-in-flight!
+  "Load the owned article as `v1`, force a refetch so a read is IN FLIGHT, then
+  execute `mutation-id` and settle its write (`v2`) while that read is pending.
+  Returns the read's transport args (to replay its late reply), its work id,
+  the entry status it left, and an atom of the aborts the settle requested."
+  [mutation-id]
+  (let [aborts (atom [])]
+    (rf.fx/reg-fx :rf.http/managed-abort
+                  (fn [_ctx request-id] (swap! aborts conj request-id) nil))
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
+                                            :params {:slug "w"} :owner [:v :a]}])
+    (reply-success! @last-managed-args {:slug "w" :title "v1"})
+    (rf/dispatch-sync [:rf.resource/refetch {:resource :r/article :scope :rf.scope/global
+                                             :params {:slug "w"}}])
+    (let [read-args (deref last-managed-args)
+          in-flight (entry global-article-key)]
+      (rf/dispatch-sync [:rf.mutation/execute {:mutation mutation-id :params {:slug "w"}
+                                               :instance :race1}])
+      (reply-success! @last-managed-args {:slug "w" :title "v2"})
+      {:read-args read-args
+       :read-work (:current-work in-flight)
+       :in-flight-status (:status in-flight)
+       :aborts aborts})))
+
+(defn- read-superseded-by-write?
+  [{:keys [read-args read-work in-flight-status aborts]}]
+  (testing "FIXTURE — a read was genuinely in flight when the write settled"
+    (is (= :fetching in-flight-status))
+    (is (some? read-work)))
+  (testing "the write leaves the entry coherent — :loaded with no read owning it"
+    (let [e (entry global-article-key)]
+      (is (= "v2" (:title (:data e))))
+      (is (= :loaded (:status e)))
+      (is (nil? (:current-work e)))))
+  (testing "the superseded read's row settles terminal and its request is aborted"
+    (let [row (rf.resources.work-ledger/get-record (runtime-db) read-work)]
+      (is (= :suppressed (:status row)))
+      (is (= :superseded (:reason (:outcome row)))))
+    (is (= 1 (count @aborts)) "one best-effort abort, for the superseded read"))
+  (reply-success! read-args {:slug "w" :title "v1"})
+  (testing "the read's late pre-write reply is suppressed — the write does not revert"
+    (let [e (entry global-article-key)]
+      (is (= "v2" (:title (:data e))))
+      (is (= :loaded (:status e)))
+      (is (nil? (:invalidated-at e))))))
+
+(deftest populate-supersedes-a-read-in-flight
+  (reg-article-resource!)
+  (rf/reg-mutation :m/save
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :populates (fn [{:keys [slug]} result]
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (read-superseded-by-write? (write-over-read-in-flight! :m/save)))
+
+(deftest patch-supersedes-a-read-in-flight
+  (reg-article-resource!)
+  (rf/reg-mutation :m/patch
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :patches (fn [{:keys [slug]} _result]
+                {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                 (fn [old result] (merge old result))})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (read-superseded-by-write? (write-over-read-in-flight! :m/patch)))
