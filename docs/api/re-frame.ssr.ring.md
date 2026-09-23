@@ -66,7 +66,9 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
     - `:head` and `:body-end` — raw content hooks, injected verbatim with no escaping.
     - `:script-src` (default `"/main.js"`) and `:app-element-id` (default `"app"`) — escaped attribute hooks, escape-attr'd into a quoted attribute value.
 
-    Non-string non-nil values throw `:rf.error/ssr-trusted-shell-opt-invalid` at construction. Wiring the raw content hooks from untrusted input (a CMS field, a tenant-admin form, a query-string parameter) is an arbitrary-script-injection XSS vector. When content originates upstream of the trust boundary, use the structured alternatives: [`reg-head`](re-frame.ssr.md) for head fragments, and registered views plus the [`:rf.server/*` fx](re-frame.ssr.md) for body content.
+    A nil value means "use the default" for all four. `:script-src false` emits no bootstrap `<script src>` at all, for an app that boots from `:body-end` (for example a `type="module"` tag). Any other non-string non-nil value throws `:rf.error/ssr-trusted-shell-opt-invalid` at construction.
+
+    A page gets its `<title>` from the active route's `:head` (declared with `reg-head`); a page with none ships no `<title>`. A static non-routing app can pass a whole-head `:head` string instead, which replaces the resolved head, default viewport meta included. Wiring the raw content hooks from untrusted input (a CMS field, a tenant-admin form, a query-string parameter) is an arbitrary-script-injection XSS vector. When content originates upstream of the trust boundary, use the structured alternatives: [`reg-head`](re-frame.ssr.md) for head fragments, and registered views plus the [`:rf.server/*` fx](re-frame.ssr.md) for body content.
 
 - **Example**:
   ```clojure
@@ -263,7 +265,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   ```clojure
   (default-streaming-suffix opts) → HTML string
   ```
-- **Description**: The shell suffix flushed after the final-payload chunk. It emits the bootstrap `<script>` (if `:script-src` is set; default `"/main.js"`, escape-attr'd), the raw `:body-end` HTML, and the document close (`</body></html>`).
+- **Description**: The shell suffix flushed after the final-payload chunk. It emits the bootstrap `<script>` (`:script-src`, escape-attr'd; nil or absent means the default `"/main.js"`, and `false` omits the tag), the raw `:body-end` HTML, and the document close (`</body></html>`).
 
     The app root (`</div>`) is not closed here. It is closed at the end of the shell chunk, so the resolved templates, hydration-delta scripts, and the final `__rf_payload` script all stream outside `#app`. The suffix is therefore purely bootstrap script + raw `:body-end` + document close. All of it is already outside `#app`, mirroring the non-streaming `default-html-shell`.
 

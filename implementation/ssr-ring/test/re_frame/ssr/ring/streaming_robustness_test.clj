@@ -80,13 +80,18 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
+            [re-frame.ssr.request :as rf.ssr.request]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.streaming :as rf.ssr.ring.streaming]
-            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
+            [ring.middleware.head :as ring.head])
   (:import [java.io InputStream IOException
                     PipedInputStream PipedOutputStream]
-           [java.net.http HttpResponse$BodyHandlers]))
+           [java.net.http HttpResponse$BodyHandlers]
+           [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
@@ -204,9 +209,7 @@
           ;; absorbs. The contract under test is unchanged: `catch
           ;; Throwable, then finally close out` — the writer returns
           ;; normally and the OutputStream is left closed.
-          rendered {:head-html     ""
-                    :html-attrs    nil
-                    :body-attrs    nil
+          rendered {:shell-prefix  "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
                     :shell-html    "<div></div>"
                     :continuations []}
           result   (try
@@ -690,3 +693,232 @@
             (str "no orphan rf2-ssr-streaming-* daemon thread after a
                  nested-boundary stream. Live threads observed: "
                  (mapv (fn [^Thread t] (.getName t)) leaked)))))))
+
+;; ===========================================================================
+;; Test 8 (rf2-3x7nj.14.1) — a body nobody drains cannot pin the writer, the
+;;                          request frame or the request slot for ever
+;; ===========================================================================
+;;
+;; Middleware that drops the streamed body without reading or closing it —
+;; Ring core's own `wrap-head`, `(assoc response :body nil)` on every HEAD —
+;; left a page larger than the 16 KiB pipe parked in the JDK's
+;; `PipedInputStream.awaitSpace` for the life of the JVM: one writer thread,
+;; one `:rf.frame/*` frame and one request slot per request. A live reader
+;; that drained a few bytes and then abandoned the body unclosed leaked the
+;; same set. The writer now hands the pipe only what fits and aborts through
+;; its existing catch/finally once the consumer has drained nothing for
+;; `streaming/stall-timeout-ms` (60 s; redefined to `stall-limit-ms` here).
+;;
+;; Counts are read in the test body, before the `:each` fixture's reset
+;; clears the slots and would hide a leak. Every test closes the bodies it
+;; captured in a `finally`, so a regression does not leak into later tests.
+
+(def ^:private stall-limit-ms
+  "What these tests redefine `streaming/stall-timeout-ms` to."
+  500)
+
+(defn- register-sized-page!
+  "Register a no-op server init event and `:test/sized-root`: `rows`
+  paragraphs of about 38 bytes each."
+  [rows]
+  (rf/reg-event :rf.test.server/init-sized
+    {:platforms #{:server}}
+    (fn [_ _] {:db {}}))
+  (rf/reg-view* :test/sized-root
+    (fn []
+      (into [:div]
+            (for [i (range rows)]
+              ^{:key i} [:p (str "row-" i "-padding-padding-padding")])))))
+
+(defn- recording-stream-handler
+  "A `stream-handler` over `:test/sized-root` that also records each
+  response body into `bodies`, so a test can close a body the middleware
+  under test dropped."
+  [bodies]
+  (let [handler (rf.ssr.ring/stream-handler
+                  {:initial-events [[:rf.test.server/init-sized]]
+                   :root-view      (fn [] ((rf/view :test/sized-root)))
+                   :payload        :rf.ssr.payload/whole-app-db})]
+    (fn [request]
+      (let [response (handler request)]
+        (swap! bodies conj (:body response))
+        response))))
+
+(defn- close-bodies! [bodies]
+  (doseq [body @bodies]
+    (when (instance? InputStream body)
+      (.close ^InputStream body))))
+
+(defn- leak-census
+  "Live `rf2-ssr-streaming-*` writer threads, live `:rf.frame/*` request
+  frames, and filled request slots."
+  []
+  {:writers (count (rf.ssr.ring.test-support/live-streaming-threads))
+   :frames  (count (rf.frame/frame-ids "rf.frame"))
+   :slots   (count @rf.ssr.request/request-slots)})
+
+(def ^:private no-leak {:writers 0 :frames 0 :slots 0})
+
+(defn- await-no-leak!
+  "Poll `leak-census` until it reads `no-leak` or `timeout-ms` elapses;
+  return the last reading."
+  [timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+    (loop []
+      (let [census (leak-census)]
+        (if (or (= no-leak census) (>= (System/currentTimeMillis) deadline))
+          census
+          (do (Thread/sleep (long leak-poll-ms)) (recur)))))))
+
+(defn- with-writer-failed-records
+  "Call `f` with an always-on error listener attached; return
+  `[(f) records]`, `records` being the `:rf.error/ssr-streaming-writer-failed`
+  records emitted meanwhile."
+  [f]
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener!
+      ::stall-recorder (fn [record] (swap! seen conj record)))
+    (try
+      (let [result (f)]
+        [result (filterv #(= :rf.error/ssr-streaming-writer-failed (:error %))
+                         @seen)])
+      (finally
+        (rf.error-emit/unregister-error-listener! ::stall-recorder)))))
+
+(deftest wrap-head-dropped-body-is-reclaimed-within-the-stall-limit
+  (testing "rf2-3x7nj.14.1: Ring's wrap-head drops a streamed body larger than
+            the 16 KiB pipe, unread and unclosed; the writer thread, the
+            request frame and the request slot are reclaimed within the stall
+            limit, with one always-on writer-failed record"
+    (register-sized-page! 1000)
+    (let [bodies (atom [])
+          app    (ring.head/wrap-head (recording-stream-handler bodies))]
+      (try
+        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
+          (let [[[response census] records]
+                (with-writer-failed-records
+                  (fn []
+                    (let [response (app {:request-method :head :uri "/"})]
+                      [response (await-no-leak! 3000)])))]
+            (is (= 200 (:status response)) "HEAD answers the GET's status")
+            (is (nil? (:body response)) "wrap-head dropped the body")
+            (is (instance? InputStream (first @bodies))
+                "the handler did hand out a streamed body")
+            (is (= no-leak census)
+                "no writer thread, request frame or request slot outlives the
+                 stall limit (before the fix: 1 / 1 / 1, for the life of the
+                 JVM)")
+            (is (= 1 (count records))
+                "exactly one always-on writer-failed record — the visible
+                 signal that a middleware discards bodies")
+            (is (= "java.util.concurrent.TimeoutException"
+                   (:ex-class (first records)))
+                "the stall limit stopped the writer, not some other failure")))
+        (finally (close-bodies! bodies))))))
+
+(deftest partially-read-then-abandoned-body-is-reclaimed-within-the-stall-limit
+  (testing "rf2-3x7nj.14.1: a live reader drains 255 bytes and then abandons
+            the body unclosed, so the JDK's dead-reader check never fires; the
+            stall limit reclaims it all the same"
+    (register-sized-page! 1000)
+    (let [bodies  (atom [])
+          handler (recording-stream-handler bodies)
+          release (CountDownLatch. 1)]
+      (try
+        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
+          (let [^InputStream body (:body (handler {:request-method :get :uri "/"}))
+                bytes-read (promise)
+                reader     (doto (Thread.
+                                   ^Runnable
+                                   (fn []
+                                     (deliver bytes-read
+                                              (.read body (byte-array 255) 0 255))
+                                     ;; Stay alive; never close the body.
+                                     (.await release 10 TimeUnit/SECONDS)))
+                             (.setDaemon true)
+                             (.start))
+                census     (await-no-leak! 3000)]
+            (is (pos? (long (deref bytes-read 3000 0)))
+                "the reader drained part of the body")
+            (is (.isAlive reader)
+                "the reader is still alive, so the JDK never calls the read end
+                 dead")
+            (is (= no-leak census)
+                "no writer thread, request frame or request slot outlives the
+                 stall limit (before the fix: 1 / 1 / 1, for the life of the
+                 JVM)")))
+        (finally
+          (.countDown release)
+          (close-bodies! bodies))))))
+
+(deftest fully-read-body-arrives-whole-without-a-stall-abort
+  (testing "rf2-3x7nj.14.1 control: a consumer that reads the whole body gets
+            all of it, and the stall limit never fires"
+    (register-sized-page! 1000)
+    (let [bodies  (atom [])
+          handler (recording-stream-handler bodies)]
+      (try
+        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
+          (let [[[html census] records]
+                (with-writer-failed-records
+                  (fn []
+                    (let [html (with-open [^InputStream is
+                                           (:body (handler {:request-method :get :uri "/"}))]
+                                 (slurp is))]
+                      [html (await-no-leak! 3000)])))]
+            (is (> (count html) (* 16 1024)) "the page outgrew the pipe")
+            (is (str/includes? html "row-999-padding") "the last row arrived")
+            (is (str/ends-with? html "</body></html>") "the document closed")
+            (is (= no-leak census))
+            (is (empty? records) "no writer-failed record")))
+        (finally (close-bodies! bodies))))))
+
+(deftest steady-slow-reader-gets-the-whole-body-over-longer-than-the-limit
+  (testing "rf2-3x7nj.14.1 control: the limit measures NO PROGRESS, not total
+            time — a reader draining 4 KiB every 150 ms receives the complete
+            body over well over the stall limit"
+    (register-sized-page! 1000)
+    (let [bodies  (atom [])
+          handler (recording-stream-handler bodies)]
+      (try
+        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
+          (let [[[html elapsed-ms] records]
+                (with-writer-failed-records
+                  (fn []
+                    (let [^InputStream is (:body (handler {:request-method :get :uri "/"}))
+                          ^java.io.ByteArrayOutputStream
+                          out   (java.io.ByteArrayOutputStream.)
+                          buf   (byte-array 4096)
+                          start (System/currentTimeMillis)]
+                      (loop []
+                        (let [n (.read is buf 0 4096)]
+                          (when (pos? n)
+                            (.write out buf 0 n)
+                            (Thread/sleep 150)
+                            (recur))))
+                      (.close is)
+                      [(.toString out "UTF-8")
+                       (- (System/currentTimeMillis) start)])))]
+            (is (> elapsed-ms (* 2 stall-limit-ms))
+                "the read took well over the stall limit in total")
+            (is (str/includes? html "row-999-padding") "the last row arrived")
+            (is (str/ends-with? html "</body></html>") "the document closed")
+            (is (empty? records) "no writer-failed record")))
+        (finally (close-bodies! bodies))))))
+
+(deftest small-dropped-body-fits-the-pipe-and-ends-without-a-record
+  (testing "rf2-3x7nj.14.1 control: a page that fits the 16 KiB pipe, dropped
+            by wrap-head, ends at once — nothing waits and nothing is recorded"
+    (register-sized-page! 10)
+    (let [bodies (atom [])
+          app    (ring.head/wrap-head (recording-stream-handler bodies))]
+      (try
+        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
+          (let [[census records]
+                (with-writer-failed-records
+                  (fn []
+                    (app {:request-method :head :uri "/"})
+                    (await-no-leak! 3000)))]
+            (is (= no-leak census))
+            (is (empty? records) "no writer-failed record")))
+        (finally (close-bodies! bodies))))))

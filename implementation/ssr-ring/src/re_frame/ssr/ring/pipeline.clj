@@ -317,8 +317,10 @@
       ;; handler's teardown consumes for incarnation-EXACT cleanup (rf2-moftbs).
       (let [frame-value
             (rf/make-frame
+              ;; No `:doc`: the default head rolls a frame's `:doc` into the
+              ;; page `<title>`, and the adapter does not know the app's
+              ;; title (rf2-3x7nj.14.4).
               (cond-> {:id        frame-id
-                       :doc       "ssr-ring per-request frame"
                        :platform  :server
                         ;; Resolve after `set-request!`: the function form can derive
                         ;; durable event payloads while handlers use the request coeffect

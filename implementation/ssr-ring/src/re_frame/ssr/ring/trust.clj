@@ -62,8 +62,9 @@
   [:head :body-end :script-src :app-element-id])
 
 (defn validate-trusted-shell-opts!
-  "Validate the four trusted-shell-hook opts are STRINGS (or nil).
-  Surfaces `:rf.error/ssr-trusted-shell-opt-invalid` at handler-
+  "Validate the four trusted-shell-hook opts are STRINGS (or nil, meaning
+  \"use the default\"). `:script-src` alone also accepts `false` — emit no
+  bootstrap `<script src>`. Surfaces `:rf.error/ssr-trusted-shell-opt-invalid` at handler-
   construction time on anything else — a map / vector / symbol /
   number is a structural error (the shell would throw a
   `ClassCastException` deep in the rendering path otherwise; this
@@ -82,12 +83,17 @@
   (doseq [option-key trusted-shell-string-opts]
     (when (contains? opts option-key)
       (let [option-value (get opts option-key)]
-        (when (and (some? option-value) (not (string? option-value)))
+        (when (and (some? option-value)
+                   (not (string? option-value))
+                   ;; The one non-string spelling: no bootstrap script.
+                   (not (and (= :script-src option-key) (false? option-value))))
           (rf.error/throw-error!
             :rf.error/ssr-trusted-shell-opt-invalid
             'rf.ssr/trusted-shell
             (str "ssr-handler / stream-handler " (pr-str option-key)
-                 " must be a string (or nil) — the four "
+                 " must be a string (or nil, meaning use the default; "
+                 ":script-src also accepts false, emit no bootstrap "
+                 "script) — the four "
                  "trusted shell-hook string opts ("
                  (str/join ", " (map pr-str trusted-shell-string-opts))
                  ") cross the trust boundary into the rendered HTML "

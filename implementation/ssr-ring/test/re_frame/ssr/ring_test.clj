@@ -1824,13 +1824,21 @@
             "all four opts passed as strings — handler construction succeeds"))
 
       (testing "nil values pass — explicit nil signals 'no override,
-                use the default'; the construction-time check accepts it"
-        (is (fn? (rf.ssr.ring/ssr-handler
-                   (assoc base-opts
-                          :head           nil
-                          :body-end       nil
-                          :script-src     nil
-                          :app-element-id nil)))))
+                use the default'; the construction-time check accepts it
+                AND the page renders the defaults (rf2-3x7nj.14.3: this used
+                to check construction only, so it could not see nil drop the
+                bootstrap script and render id=\"\")"
+        (let [body (:body ((rf.ssr.ring/ssr-handler
+                             (assoc base-opts
+                                    :head           nil
+                                    :body-end       nil
+                                    :script-src     nil
+                                    :app-element-id nil))
+                           {:uri "/" :request-method :get}))]
+          (is (str/includes? body "<script src=\"/main.js\"></script>")
+              "nil :script-src renders the default bootstrap script")
+          (is (str/includes? body "<div id=\"app\">")
+              "nil :app-element-id renders the default app root id")))
 
       (testing "absent keys pass (regression guard — the check is
                 contains?-aware so absent opts don't trip on the
@@ -1871,6 +1879,121 @@
                           :body-end       "<script src=\"/x.js\"></script>"
                           :script-src     "/boot.js"
                           :app-element-id "root"))))))))
+
+;; ===========================================================================
+;; rf2-3x7nj.14.3 — nil means "use the default" for every shell opt, and
+;; `:script-src false` is the one spelling for "emit no bootstrap script".
+;;
+;; The shell destructured its defaults with `:or`, which fires only for an
+;; ABSENT key, so an explicit nil — the ordinary result of
+;; `{:script-src (:script-src cfg)}` with the key absent from `cfg` — was used
+;; as the value: no bootstrap `<script src>`, `<div id="">`, `<html>` with no
+;; lang, and on ssr-handler `:html-shell nil` answered 500 on every request.
+;; ===========================================================================
+
+(defn- render-both-handlers
+  "Render `opts` through ssr-handler and stream-handler; return
+  `[[:ssr status body] [:stream status body]]`, the streamed body drained."
+  [opts]
+  (let [request {:uri "/" :request-method :get}
+        ssr     ((rf.ssr.ring/ssr-handler opts) request)
+        stream  ((rf.ssr.ring/stream-handler opts) request)
+        drain   (fn [body]
+                  (if (instance? java.io.InputStream body)
+                    (with-open [^java.io.InputStream is body] (slurp is))
+                    body))]
+    [[:ssr (:status ssr) (drain (:body ssr))]
+     [:stream (:status stream) (drain (:body stream))]]))
+
+(defn- script-srcs
+  "Every `src` attribute value in `html`, in document order."
+  [html]
+  (mapv second (re-seq #"src=\"([^\"]*)\"" html)))
+
+(deftest explicit-nil-shell-opts-render-the-defaults
+  (testing "rf2-3x7nj.14.3: an explicit nil on a shell opt renders exactly as
+            the absent key, on both handlers"
+    (rf/reg-event :init/nil-shell-opts {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/nil-shell-opts (fn [] [:div "nil-shell body"]))
+    (let [base {:initial-events [[:init/nil-shell-opts]]
+                :root-view      [(rf/view :pages/nil-shell-opts)]
+                :payload        [:public/x]}]
+      (doseq [[label opts] [["absent keys (control)" base]
+                            ["explicit nils" (assoc base
+                                                    :script-src     nil
+                                                    :app-element-id nil
+                                                    :lang           nil)]]
+              [mode status body] (render-both-handlers opts)]
+        (is (= 200 status) (str label ", " mode))
+        (is (= ["/main.js"] (script-srcs body))
+            (str label ", " mode ": the default bootstrap script, once"))
+        (is (str/includes? body "<div id=\"app\"")
+            (str label ", " mode ": the default app root id"))
+        (is (not (str/includes? body "<div id=\"\""))
+            (str label ", " mode ": never an empty id"))
+        (is (str/includes? body "<html lang=\"en\">")
+            (str label ", " mode ": the default lang")))
+
+      (testing "explicit strings still pass through (control)"
+        (doseq [[mode _status body] (render-both-handlers
+                                      (assoc base
+                                             :script-src     "/custom-bootstrap.js"
+                                             :app-element-id "root"))]
+          (is (= ["/custom-bootstrap.js"] (script-srcs body)) (str mode))
+          (is (str/includes? body "<div id=\"root\"") (str mode))))
+
+      (testing ":html-shell nil on ssr-handler falls back to default-html-shell
+                (it used to answer 500 on every request)"
+        (let [response ((rf.ssr.ring/ssr-handler (assoc base :html-shell nil))
+                        {:uri "/" :request-method :get})]
+          (is (= 200 (:status response)))
+          (is (str/includes? (:body response) "nil-shell body"))
+          (is (= ["/main.js"] (script-srcs (:body response)))))))))
+
+(deftest script-src-false-emits-no-bootstrap-script
+  (testing "rf2-3x7nj.14.3: `:script-src false` constructs on both handlers
+            and emits no bootstrap `<script src>`; the hydration payload and
+            the caller's `:body-end` bootstrap are untouched"
+    (rf/reg-event :init/no-bootstrap {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/no-bootstrap (fn [] [:div "no-bootstrap body"]))
+    (let [base {:initial-events [[:init/no-bootstrap]]
+                :root-view      [(rf/view :pages/no-bootstrap)]
+                :payload        [:public/x]}]
+      (doseq [[mode status body] (render-both-handlers (assoc base :script-src false))]
+        (is (= 200 status) (str mode))
+        (is (empty? (script-srcs body)) (str mode ": no script src at all"))
+        (is (str/includes? body "id=\"__rf_payload\"")
+            (str mode ": the hydration payload script still ships")))
+      (doseq [[mode _status body]
+              (render-both-handlers
+                (assoc base
+                       :script-src false
+                       :body-end   "<script type=\"module\" src=\"/module.js\"></script>"))]
+        (is (= ["/module.js"] (script-srcs body))
+            (str mode ": exactly the caller's module bootstrap loads"))
+        (is (str/includes? body "id=\"__rf_payload\"")
+            (str mode ": the hydration payload script still ships")))))
+
+  (testing "rf2-3x7nj.14.3 control: the `false` carve-out is `:script-src`
+            only — `:app-element-id false` is still refused"
+    (let [opts {:initial-events [[:init/no-bootstrap]]
+                :root-view      [(rf/view :pages/no-bootstrap)]
+                :payload        [:public/x]
+                :app-element-id false}]
+      (doseq [construct [rf.ssr.ring/ssr-handler rf.ssr.ring/stream-handler]]
+        (is (= :rf.error/ssr-trusted-shell-opt-invalid
+               (try (construct opts) nil
+                    (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e))))))))))
+
+(deftest top-level-lang-nil-defaults-but-html-attrs-bag-stays-verbatim
+  (testing "rf2-3x7nj.14.3: a top-level `:lang nil` falls back to \"en\", while
+            the head model's `:html-attrs` bag stays verbatim — `{:lang nil}`
+            there still omits the attribute (control)"
+    (is (str/includes? (rf.ssr.ring/default-html-shell "b" "{}" {:lang nil})
+                       "<html lang=\"en\">"))
+    (is (str/includes? (rf.ssr.ring/default-html-shell
+                         "b" "{}" {:html-attrs {:lang nil :data-x "1"}})
+                       "<html data-x=\"1\">"))))
 
 ;; ===========================================================================
 ;; rf2-7x0qk — :app-element-id and :script-src are ATTRIBUTE-VALUE positions,
@@ -2034,26 +2157,52 @@
       (is (str/includes? body "<title>From head fragment</title>")
           "the head fragment's title is what reaches the wire"))))
 
-(deftest default-shell-emits-default-head-title-when-no-route-head
-  (testing "no route :head → head-model returns default-head, which rolls
-            the frame's :doc into :title; still exactly one <title> tag."
+(deftest default-shell-emits-no-title-when-no-route-head
+  (testing "rf2-3x7nj.14.4: no route :head → head-model returns default-head,
+            whose :title is the frame's :doc or \"\". The adapter's request
+            frame carries no :doc, so the page ships NO <title> — before the
+            fix every such page was titled `ssr-ring per-request frame`."
     (rf/reg-view* :pages/blank-no-head (fn [] [:div]))
     (rf/reg-event :init/noop (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-route :route/no-head {:doc "Route without :head"} "/")
+    (rf/reg-event :init/seed-no-head-route
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                  {:route-id :route/no-head})}))
+    (doseq [[label init] [["no routing" :init/noop]
+                          ["a route without :head" :init/seed-no-head-route]]
+            [mode status body] (render-both-handlers
+                                 {:initial-events [[init]]
+                                  :root-view      [(rf/view :pages/blank-no-head)]
+                                  :payload        :rf.ssr.payload/whole-app-db})]
+      (is (= 200 status) (str label ", " mode))
+      (is (zero? (count (re-seq #"<title" body)))
+          (str label ", " mode ": no <title> — the adapter never titles a page")))))
 
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/noop]]
-                      :root-view [(rf/view :pages/blank-no-head)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (:body response)
-          opens    (count (re-seq #"<title" body))]
-      (is (= 200 (:status response)))
-      ;; default-head pulls :title from :doc; ssr-ring per-request frame's
-      ;; :doc is "ssr-ring per-request frame". The presence (or absence)
-      ;; of a non-empty :doc-derived title is contract-dependent; the
-      ;; tight invariant is "no more than one <title>".
-      (is (<= opens 1)
-          "no duplicate <title> when head fragment carries (or omits) a title"))))
+(deftest a-page-title-comes-from-the-route-head-or-the-head-string
+  (testing "rf2-3x7nj.14.4 controls: a route :head title, and a whole-head
+            :head string, each render their title exactly once on both
+            handlers"
+    (rf/reg-head :head/my-page (fn [_db _route] {:title "My Page"}))
+    (rf/reg-route :route/my-page {:doc "Route with a title" :head :head/my-page} "/")
+    (rf/reg-event :init/seed-my-page
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                  {:route-id :route/my-page})}))
+    (rf/reg-event :init/noop-title (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-view* :pages/titled (fn [] [:div]))
+    (doseq [[label opts expected]
+            [["route :head" {:initial-events [[:init/seed-my-page]]} "My Page"]
+             [":head string" {:initial-events [[:init/noop-title]]
+                              :head           "<title>X</title>"} "X"]]
+            [mode status body] (render-both-handlers
+                                 (merge {:root-view [(rf/view :pages/titled)]
+                                         :payload   :rf.ssr.payload/whole-app-db}
+                                        opts))]
+      (is (= 200 status) (str label ", " mode))
+      (is (= [(str "<title>" expected "</title>")]
+             (re-seq #"<title>[^<]*</title>" body))
+          (str label ", " mode ": exactly one title, the declared one")))))
 
 (deftest default-shell-emits-no-title-when-head-fragment-empty
   (testing "head fragment with no :title → shell emits zero <title> tags.
