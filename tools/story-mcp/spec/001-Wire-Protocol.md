@@ -252,7 +252,8 @@ The server replies:
  "result": {"protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": false}},
             "serverInfo": {"name": "re-frame2-story-mcp",
-                           "version": "<from VERSION file>"}}}
+                           "version": "<from VERSION file>"},
+            "instructions": "<one-line orientation string>"}}
 ```
 
 The agent then sends a `notifications/initialized` notification

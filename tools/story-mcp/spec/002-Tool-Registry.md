@@ -267,7 +267,8 @@ belongs on the predicate, not on the data key whose wire form
 disallows it).
 
 ```clojure
-{:status         :pass | :fail | :cannot-run | :error   ; the unified verdict
+{:variant-id     <variant-id>
+ :status         :pass | :fail | :cannot-run | :error   ; the unified verdict
  :lifecycle      :ready | :error                         ; loader STATE (not the verdict)
  :share-url      "..."
  :app-db         {...}
@@ -291,7 +292,7 @@ annotations as `run-variant`. Both tools invoke the same
 `(story/run-variant vk opts)` lifecycle under the covers; they dispatch
 the variant author's events into the variant's frame and accumulate
 assertions. The semantic split (`preview-variant` returns the share URL
-+ rendered view; `run-variant` is the headline run/verdict call) does
++ effective args; `run-variant` is the headline run/verdict call) does
 not change the side-effect surface, and the annotation must reflect that
 side-effect surface (agent hosts that auto-approve `readOnlyHint true`
 would otherwise auto-approve a call that mutates the frame).
@@ -341,7 +342,11 @@ panel).
 ### `list-stories`
 
 `(story/registrations :story)` enumeration, optionally filtered by tag-set
-intersection (`{:tags [...]}`).
+intersection (`{:tags [...]}`). A supplied `:tags` filter is always
+honoured: an entry naming no registered tag is dropped from the
+intersection and echoed back in an `:ignored-tags` slot, so an
+unknown-only filter returns an empty `:stories`, never the full
+catalogue (rf2-wu1o2d).
 
 ### `get-story`
 
@@ -490,8 +495,16 @@ Full lifecycle invocation; returns the unified run-result (see
  :narrative          [...]   ; ordered narrative beats
  :app-db             {...}
  :snapshot           {...}
- :elapsed-ms         ...}
+ :elapsed-ms         ...
+ :plan-hash          "..."   ; snapshot identity: the plan that ran
+ :run-hash           "..."}  ; snapshot identity: its behavioural evidence
 ```
+
+`:plan-hash` / `:run-hash` are the snapshot-identity strings (spec/017
+§Run result), forwarded verbatim from the run-result — equal across
+reruns of a deterministic scenario, so compare them to tell a changed
+plan from changed behaviour. Each is present iff the run minted it; a
+planless `:status :error` carries no `:plan-hash`.
 
 Inputs: `:variant-id` (required), plus optional `:substrate`,
 `:active-modes`, `:cell-overrides`, `:timeout-ms`, and
@@ -516,9 +529,9 @@ baseline (rf2-it1cd) — one ceiling, one number an agent learns.
 
 ### `snapshot-identity`
 
-Content hash of `(variant × args × decorators × loaders × substrate ×
-modes)`. The agent uses this to skip cells unchanged since a
-previous run, or to key downstream pixel-diff services.
+Content hash of `(variant × resolved args × decorators × loaders ×
+substrate × modes × cell-overrides)`. The agent uses this to skip cells
+unchanged since a previous run, or to key downstream pixel-diff services.
 
 ### `read-a11y-violations`
 

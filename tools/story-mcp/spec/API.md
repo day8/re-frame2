@@ -155,7 +155,8 @@ form disallows it.
 `run-variant`):
 
 ```clojure
-{:status         :pass | :fail | :cannot-run | :error  ; the unified verdict
+{:variant-id     keyword
+ :status         :pass | :fail | :cannot-run | :error  ; the unified verdict
  :lifecycle      :ready | :error                        ; loader STATE (not the verdict)
  :share-url      string
  :app-db         map
@@ -252,7 +253,11 @@ top-level cap via `:max-tokens` + the `:rf.mcp/overflow` marker.
                 :cursor string (optional)}`.
 
 **Output.** `{:stories [{:id keyword :doc string ...}]}`, plus the
-pagination metadata when active (see "Pagination" above).
+pagination metadata when active (see "Pagination" above). A supplied
+`:tags` entry naming no registered tag is dropped from the intersection
+and echoed back as `:ignored-tags [string ...]` (raw wire strings, never
+interned); an unknown-only filter returns `:stories []`, never the full
+catalogue (rf2-wu1o2d).
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Docs.
 
@@ -450,7 +455,9 @@ shape the human Story UI reads; `re-frame.story.result/run-result`):
  :narrative          [map]    ; ordered narrative beats
  :app-db             map
  :snapshot           map
- :elapsed-ms         number}
+ :elapsed-ms         number
+ :plan-hash          string   ; snapshot identity: the plan that ran (present iff minted)
+ :run-hash           string}  ; snapshot identity: its behavioural evidence (present iff minted)
 ```
 
 `:status` is the headline verdict. The retired `:passing?` boolean and
@@ -695,7 +702,7 @@ Not tools per se, but documented here for completeness:
 
 | Method | Input | Output |
 |---|---|---|
-| `initialize` | `{:protocolVersion str :capabilities map :clientInfo map}` | `{:protocolVersion str :capabilities map :serverInfo map}` |
+| `initialize` | `{:protocolVersion str :capabilities map :clientInfo map}` | `{:protocolVersion str :capabilities map :serverInfo map :instructions str}` |
 | `tools/list` | `{}` | `{:tools [tool-descriptor]}` |
 | `tools/call` | `{:name str :arguments map}` | `{:content [...] :structuredContent map :isError bool}` |
 | `ping` | `{}` | `{}` |

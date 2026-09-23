@@ -313,10 +313,10 @@ the arg on either server uses it uniformly here.
 ### Why `de-dupe-eq` not `de-dupe`
 
 Most subtrees the story-mcp surface emits are equality-shared rather
-than identity-shared — assertion records and rendered hiccup are
-synthesised fresh per run, not interned. `de-dupe-eq` is the
-equality-based variant that actually fires on these cross-record
-duplicates. Same rationale as re-frame2-pair-mcp's choice;
+than identity-shared — assertion records and the derived `:snapshot` /
+`:effective-args` trees are synthesised fresh per run, not interned.
+`de-dupe-eq` is the equality-based variant that actually fires on these
+cross-record duplicates. Same rationale as re-frame2-pair-mcp's choice;
 documented identically at the call site.
 
 ### Idempotence on no-dedup-opportunity
