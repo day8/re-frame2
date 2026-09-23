@@ -70,7 +70,7 @@
   "Read a pin for `pkg` (e.g. `\"react\"`) from
   `implementation/package.json`, searching `:dependencies` AND
   `:devDependencies` (first hit wins). Returns the pin string (e.g.
-  `\"19.2.0\"`).
+  `\"19.3.0\"`).
 
   Searching both sections decouples this guard from an incidental
   layout choice in the impl package.json: today react / react-dom /
