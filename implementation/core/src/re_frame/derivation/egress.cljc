@@ -118,10 +118,12 @@
   element is the registration `resource-id` keyword and the LAST is the
   canonical-params MAP (resource params are validated by a `[:map …]`
   `:params-schema`, so the concrete params are always a map). Requiring the
-  params map is what keeps this from misfiring on an unrelated 3-vector —
-  e.g. the `:output` runtime path `[:rf.runtime/resources :entries …]` has
-  a non-map last element. A static resource node's `:id` is a bare keyword
-  (not this shape), so only LIVE resource identities match. Already-projected
+  params map keeps it from matching the `:output` runtime path
+  `[:rf.runtime/resources :entries …]`, whose last element is not a map. A
+  static resource node's `:id` is a bare keyword (not this shape). It is
+  still a pure SHAPE test, and an unrelated 3-vector can match it: a live
+  subscription's query vector `[:sub-id :kw {…}]` does. So `project-graph`
+  applies it to resource nodes only (`resource-node?`). Already-projected
   handles do NOT re-match (the projected scoped key's tail is an opaque
   VECTOR, not a map), so re-projection is a no-op — see `opaque-handle`."
   [v]
@@ -287,6 +289,18 @@
        (= :resource (first node-key))
        (scoped-resource-key? (second node-key))))
 
+(defn- resource-node?
+  "True when the graph node `node` under `node-key` is a RESOURCE node, the
+  only family whose identity embeds a scoped key. Read off the composer's
+  `:rf/family` stamp, or off a live resource node KEY, so every node whose key
+  `project-resource-node-key` remaps has its fields projected too. Any other
+  family's node is left alone: a live subscription's `:id` and `:output`
+  carry its query vector, which can have the scoped-key shape without being
+  one (rf2-3x7nj.3.5)."
+  [node-key node]
+  (or (= :resources (:rf/family node))
+      (resource-node-key? node-key)))
+
 (defn- project-resource-node-key
   "Project a live resource node KEY `[:resource <scoped-key>]` to
   `[:resource <projected-scoped-key>]`; other node keys ride through."
@@ -355,7 +369,9 @@
   the `:nodes` keys AND every edge endpoint that names a resource node, so
   the remap stays CONSISTENT — a redacted resource node is still a node, and
   the edges naming it still connect (connectivity survives, the raw
-  scope/params never cross the wire).
+  scope/params never cross the wire). The identity walk runs over RESOURCE
+  nodes only (`resource-node?`): a subscription's query vector can have the
+  scoped-key shape without being one (rf2-3x7nj.3.5).
 
   `frame-id` is the frame whose elision policy governs egress (the observed
   app's frame — typically the graph's `:frame` for a live graph). `opts`
@@ -405,17 +421,18 @@
    ;; local reachability probe and no sentinel frame id to mint (rf2-kuky.5).
    (let [walk-opts  (assoc opts :frame frame-id)
          redact-node
-         (fn [node]
-           (-> (reduce
-                (fn [n k]
-                  (if (contains? n k)
-                    (assoc n k (rf.elision/elide-wire-value (get n k) walk-opts))
-                    n))
-                node
-                value-bearing-node-keys)
-               ;; the live resource scoped-key identity walk (rf2-k0meap.1) —
-               ;; the secrets the value-path walk above cannot reach.
-               project-resource-node-identity))]
+         (fn [node-key node]
+           (cond-> (reduce
+                    (fn [n k]
+                      (if (contains? n k)
+                        (assoc n k (rf.elision/elide-wire-value (get n k) walk-opts))
+                        n))
+                    node
+                    value-bearing-node-keys)
+             ;; the live resource scoped-key identity walk (rf2-k0meap.1) —
+             ;; the secrets the value-path walk above cannot reach. Resource
+             ;; nodes only (rf2-3x7nj.3.5).
+             (resource-node? node-key node) project-resource-node-identity))]
      (-> graph
          ;; remap node KEYS so a live resource scoped key no longer carries
          ;; raw scope/params in the node id (and the edge endpoints below
@@ -424,7 +441,7 @@
                           (into {}
                                 (map (fn [[k node]]
                                        [(project-resource-node-key k)
-                                        (redact-node node)]))
+                                        (redact-node k node)]))
                                 nodes)))
          (update :edges (fn [edges]
                           (project-resource-edge-endpoints (or edges []))))))))
