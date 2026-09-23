@@ -11,7 +11,7 @@
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.core :as rf]
             [re-frame.routing :as rf.routing]
-            [re-frame.routing-scroll-witness-test-support :as witness]
+            [re-frame.routing-scroll-witness-test-support :as rf.routing-scroll-witness-test-support]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
@@ -24,19 +24,19 @@
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
                       (rf.routing/reset-counters!)
                       (rf.routing/reset-scroll-cache!)
-                      (witness/register-routes!))}))
+                      (rf.routing-scroll-witness-test-support/register-routes!))}))
 
 (deftest a-cross-route-fragment-lands-on-the-arriving-section
-  (if-not (witness/browser?)
+  (if-not (rf.routing-scroll-witness-test-support/browser?)
     (is true "a scroll witness needs a real browser — :node-test has no layout or scroll model")
     (async done
-      (witness/run-fragment-row!
+      (rf.routing-scroll-witness-test-support/run-fragment-row!
         {:adapter-name "reagent-slim"
          :mount!       (fn [container frame-id]
                          (let [root (rdc/create-root container)]
                            (react-dom/flushSync
                              (fn [] (rdc/render root [rf/frame-provider {:frame frame-id}
-                                                      [(rf/view ::witness/page)]])))
+                                                      [(rf/view ::rf.routing-scroll-witness-test-support/page)]])))
                            root))
          :unmount!     #(.unmount %)}
         done))))
