@@ -754,8 +754,8 @@
 
 (def ^:dynamic ^:private *flow-settle-requested*
   "An atom bound by `do-fx` for the duration of ONE event's `:fx` walk, or nil
-  outside one. A flow-lifecycle reserved fx sets it; the walk's terminal branch
-  reads it and enqueues at most one settle event.
+  outside one. A flow-lifecycle call sets it (see `request-flow-settle!`); the
+  walk's terminal branch reads it and enqueues at most one settle event.
 
   An atom rather than a return value because the request must survive the walk:
   `handle-one-fx` deliberately discards a reserved body's value (Spec 002 §`:fx`
@@ -769,12 +769,20 @@
   runs, nothing is requested, and a dry run cannot enqueue a settle."
   nil)
 
-(defn- request-flow-settle!
+(defn ^:no-doc request-flow-settle!
   "Ask the current `:fx` walk to settle this frame's flows when it finishes.
 
   Called by `:rf.fx/reg-flow` / `:rf.fx/clear-flow` after the flows hook
   returned — so a build without the flows artefact, where the hook is
-  unresolved and the effect no-ops, requests nothing and pays nothing.
+  unresolved and the effect no-ops, requests nothing and pays nothing — and by
+  the flows registry itself, from the in-drain branches of `clear-flow` and of
+  an `:output-path`-moving `reg-flow` (rf2-3x7nj.18.3). Those branches queue
+  their vacation for the event's pending flow pass, which has ALREADY RUN when
+  the call comes from any effect, reserved or user-registered. Public for that
+  one caller; flows requires core, so the call needs no late-bind hook.
+
+  A no-op outside a walk (the var is unbound), so a lifecycle call from a
+  handler BODY — whose own pending pass still settles it — requests nothing.
 
   Idempotent by construction: N lifecycle effects in one `:fx` vector set the
   same flag and produce exactly ONE settle event, because one pass over the
@@ -783,8 +791,44 @@
   (some-> *flow-settle-requested* (reset! true))
   nil)
 
+(defn- walk-changed-flowed-frame-state?
+  "True when a completed `:fx` walk left `frame-id`'s frame-state container no
+  longer `identical?` to `state-at-walk-start` AND the frame holds a flow.
+
+  The write trigger for the settle (rf2-3x7nj.9.7). The flow pass is the
+  router's outermost `:after`, so it has already run when the walk starts;
+  any effect that writes app-db or runtime-db DURING the walk — the machine
+  lifecycle effects `:rf.machine/update-snapshot` / `:rf.machine/destroy` /
+  `:rf.machine/spawn`, a resource write, a user fx calling
+  `re-frame.frame/swap-runtime-db!` — lands after it. A flow over a machine
+  snapshot, Spec 013's own example input, would otherwise publish the pre-write
+  value, and a continuation the same handler queued would read it. Keyed on
+  the container rather than on a list of writers because a list was wrong on
+  day one: two reviews of this defect named update-snapshot and destroy and
+  both missed spawn.
+
+  The flows guard is what keeps this free where it does not apply. Without it
+  every writing walk on a flow-free frame (or in an app without the flows
+  artefact, where the hook is unbound) would enqueue a settle that recomputes
+  nothing — measured, 50 `update-snapshot` dispatches became 100 events. The
+  hook is read only once the container has actually changed.
+
+  A dry run never gets here with a change: `*effect-sink*` executes no entry,
+  so the container is untouched."
+  [frame-id state-at-walk-start]
+  (and (not (identical? state-at-walk-start (rf.frame/frame-state-value frame-id)))
+       (if-let [has-flows? (rf.late-bind/get-fn-cached :flows/frame-has-flows?)]
+         (boolean (has-flows? frame-id))
+         false)))
+
 (defn- settle-flows-if-requested!
   "Enqueue the one settle event a completed `:fx` walk asked for, if it did.
+
+  Two triggers, one settle. A flow-lifecycle call set the request flag, or the
+  walk changed the frame's state on a frame that holds a flow
+  (`walk-changed-flowed-frame-state?`). Only the second is guarded by \"has
+  flows\": a clear of the frame's LAST flow must still settle so that its
+  vacation lands, and it leaves the frame holding none.
 
   Placed at the END of the walk rather than inside the lifecycle bodies so the
   settle observes the registry as the WHOLE walk left it — a `:fx` vector that
@@ -828,8 +872,9 @@
   registrar nor `router/resolve-unhandled`, raising
   `:rf.error/no-such-handler` and leaving every flow-lifecycle effect
   unsettled, which is exactly what the settle tests assert against."
-  [frame-id parent-envelope]
-  (when (some-> *flow-settle-requested* deref)
+  [frame-id parent-envelope state-at-walk-start]
+  (when (or (some-> *flow-settle-requested* deref)
+            (walk-changed-flowed-frame-state? frame-id state-at-walk-start))
     (child-dispatch! frame-id parent-envelope
                      [:rf/settle-flows]
                      {:source            :fx-dispatch
@@ -2008,49 +2053,56 @@
              ;; walk. Fresh per `do-fx` call, so one event's lifecycle effects
              ;; can never settle another's.
              *flow-settle-requested*  (atom false)]
-     (loop [pairs (seq fx-vec)]
-       (cond
-         (not (exact-owner-live? frame-id))
-         stale-incarnation
+     ;; Spec 013 §Sequencing — the baseline for the settle's WRITE trigger
+     ;; (rf2-3x7nj.9.7): the frame state as this walk found it, i.e. after
+     ;; the event's flow pass and install. One read, compared by identity
+     ;; when the walk ends (`walk-changed-flowed-frame-state?`).
+     (let [state-at-walk-start (rf.frame/frame-state-value frame-id)]
+       (loop [pairs (seq fx-vec)]
+         (cond
+           (not (exact-owner-live? frame-id))
+           stale-incarnation
 
-         (nil? pairs)
-         (do
-           ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto
-           ;; the terminal marker only while the exact owner remains live.
-           (rf.trace/emit! :rf.fx :rf.fx/do-fx
-                        (cond-> {:frame frame-id}
-                          (some? effects)
-                          (assoc :rf.event/fx          (:fx effects)
-                                 :rf.event/db-present? (contains? effects :db))))
-           ;; Spec 013 §Sequencing: the walk is over, so the flow registry is
-           ;; in its final shape for this event — settle it on this frame if
-           ;; the walk touched it. AFTER the terminal `:rf.fx/do-fx` marker so
-           ;; the settle's own dispatch trace reads as what it is, a
-           ;; consequence of the completed walk rather than part of it; and
-           ;; behind the same liveness check every other tail stage uses, so a
-           ;; frame destroyed mid-walk queues nothing.
-           (if (exact-owner-live? frame-id)
-             (do (settle-flows-if-requested! frame-id parent-envelope)
-                 (if (exact-owner-live? frame-id) :ok stale-incarnation))
-             stale-incarnation))
-
-         :else
-         (let [pair (first pairs)]
-           ;; Shape policing may emit through synchronous listeners, so its
-           ;; callback boundary is followed by the same exact-owner check.
-           (if-not (fx-entry-ok? pair frame-id origin-event)
+           (nil? pairs)
+           (do
+             ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto
+             ;; the terminal marker only while the exact owner remains live.
+             (rf.trace/emit! :rf.fx :rf.fx/do-fx
+                          (cond-> {:frame frame-id}
+                            (some? effects)
+                            (assoc :rf.event/fx          (:fx effects)
+                                   :rf.event/db-present? (contains? effects :db))))
+             ;; Spec 013 §Sequencing: the walk is over, so the flow registry and
+             ;; the frame state are in their final shape for this event —
+             ;; settle this frame's flows if the walk touched either. AFTER the
+             ;; terminal `:rf.fx/do-fx` marker so
+             ;; the settle's own dispatch trace reads as what it is, a
+             ;; consequence of the completed walk rather than part of it; and
+             ;; behind the same liveness check every other tail stage uses, so a
+             ;; frame destroyed mid-walk queues nothing.
              (if (exact-owner-live? frame-id)
-               (recur (next pairs))
-               stale-incarnation)
-             (let [result
-                   (if-let [sink *effect-sink*]
-                     ;; Dry-run records but never executes the entry.
-                     (do (swap! sink conj [(first pair) (second pair)])
-                         :ok)
-                     (handle-one-fx frame-id pair active-platform
-                                    (or overrides {}) origin-event
-                                    parent-envelope))]
-               (if (or (= stale-incarnation result)
-                       (not (exact-owner-live? frame-id)))
-                 stale-incarnation
-                 (recur (next pairs)))))))))))
+               (do (settle-flows-if-requested! frame-id parent-envelope
+                                               state-at-walk-start)
+                   (if (exact-owner-live? frame-id) :ok stale-incarnation))
+               stale-incarnation))
+
+           :else
+           (let [pair (first pairs)]
+             ;; Shape policing may emit through synchronous listeners, so its
+             ;; callback boundary is followed by the same exact-owner check.
+             (if-not (fx-entry-ok? pair frame-id origin-event)
+               (if (exact-owner-live? frame-id)
+                 (recur (next pairs))
+                 stale-incarnation)
+               (let [result
+                     (if-let [sink *effect-sink*]
+                       ;; Dry-run records but never executes the entry.
+                       (do (swap! sink conj [(first pair) (second pair)])
+                           :ok)
+                       (handle-one-fx frame-id pair active-platform
+                                      (or overrides {}) origin-event
+                                      parent-envelope))]
+                 (if (or (= stale-incarnation result)
+                         (not (exact-owner-live? frame-id)))
+                   stale-incarnation
+                   (recur (next pairs))))))))))))

@@ -160,9 +160,19 @@
 ;; the out-of-drain settle below runs the SAME pass over the COMMITTED one.
 ;; Everything about evaluation is identical across the two — same topological
 ;; sort, same dirty check, same phases, same error id — so nothing here
-;; branches on the caller except the one thing that genuinely differs: what a
-;; failure LEAVES BEHIND, and therefore what the diagnostic may truthfully say
-;; about it.
+;; branches on the caller except the two things that genuinely differ.
+;;
+;; WHICH flows it may evaluate for the FIRST time (rf2-3x7nj.18.2). A drain is
+;; where a flow's first evaluation belongs (Spec 013 §Why a direct `reg-flow`
+;; does not settle), so the drain evaluates a flow with no dirty-check row. The
+;; direct-clear settle does not: it re-evaluates only flows that have already
+;; run, and leaves a never-run flow — row still absent — for the next drain.
+;; Otherwise a clear of ANY flow would force the first evaluation of every flow
+;; registered cold since the last drain, at a moment the caller did not choose
+;; and often against an unseeded app-db.
+;;
+;; And what a failure LEAVES BEHIND, and therefore what the diagnostic may
+;; truthfully say about it.
 ;;
 ;; In a drain the pass output is a candidate `:db` the router discards on a
 ;; throw, so the event aborts before the install and app-db is unchanged. In a
@@ -174,13 +184,15 @@
 ;; unchanged — and sends the reader looking for an event that never existed.
 ;;
 ;; A dynamic var rather than an extra parameter: the pass's hot loop already
-;; carries seven arguments, this one is read at exactly ONE site on the failure
-;; path, and the settle is synchronous, so the binding cannot outlive its pass.
+;; carries seven arguments, this one is read at two sites — the first-
+;; evaluation skip in `evaluate-flow!` and the failure path — and the settle is
+;; synchronous, so the binding cannot outlive its pass.
 
 (def ^:private ^:dynamic *pass-caller*
   "Which caller's commit boundary the running flow pass belongs to — `:drain`
   (the router, over a pending db) or `:direct-clear` (`settle-frame-flows!`,
-  over the committed one). Read only by [[flow-eval-failure!]]."
+  over the committed one). Read by [[evaluate-flow!]] (a `:direct-clear` pass
+  performs no first evaluation) and by [[flow-eval-failure!]]."
   :drain)
 
 (defn- failure-site
@@ -370,6 +382,17 @@
                   (flow-eval-failure! frame-id owner-token exact-owner?
                                       flow new-inputs :output-write e))))))))))
 
+(defn- first-evaluation-deferred?
+  "True when this pass must leave `flow` untouched for the next drain: it is
+  the direct-clear settle, and the flow has not evaluated since it was
+  (re-)registered (rf2-3x7nj.18.2). The flow's slot, and anything established
+  downstream of it, keep their current values until that drain — the stale
+  but OWNED state Spec 013 §Re-registration already accepts. The drain itself
+  never defers: a first evaluation is its job."
+  [pass flow]
+  (and (= :direct-clear *pass-caller*)
+       (not (rf.flows.registry/pass-flow-evaluated? pass (:id flow)))))
+
 (defn- run-flows-on-db*
   [frame-id db runtime-db owner-token exact-owner?]
   (if-not (owner-live? frame-id owner-token exact-owner?)
@@ -402,9 +425,11 @@
 
                       :else
                       (let [flow   (flow-map (first remaining))
-                            result (evaluate-flow! frame-id owner-token
-                                                   exact-owner? pass db
-                                                   runtime-db flow)]
+                            result (if (first-evaluation-deferred? pass flow)
+                                     db
+                                     (evaluate-flow! frame-id owner-token
+                                                     exact-owner? pass db
+                                                     runtime-db flow))]
                         (if (= stale-incarnation result)
                           stale-incarnation
                           (recur (rest remaining) result)))))
@@ -452,7 +477,11 @@
   `clear-flow` has no pending db, so it runs the SAME pass over the committed
   one. This adds no evaluation semantics of its own — same topological sort,
   same dirty check, same failure taxonomy — it only supplies the db and writes
-  the result back.
+  the result back, with one exception: it performs no FIRST evaluation. A flow
+  that has not evaluated since it was (re-)registered is left for the next
+  drain (`first-evaluation-deferred?`, rf2-3x7nj.18.2), because a direct
+  `reg-flow` promises exactly that and a clear of some other flow must not
+  break the promise.
 
   The candidate is computed BEFORE anything is written, so the three
   non-results all leave app-db exactly as the vacation left it: a lost
@@ -526,3 +555,6 @@
 ;; Frame destruction must release registry rows and caches owned by that frame.
 (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
                    rf.flows.registry/teardown-on-frame-destroy!)
+;; Core's `:fx` walk settles a frame whose state it changed only when the frame
+;; holds a flow (rf2-3x7nj.9.7).
+(rf.late-bind/set-fn! :flows/frame-has-flows? rf.flows.registry/frame-has-flows?)

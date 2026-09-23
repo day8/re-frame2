@@ -10,6 +10,10 @@
             [re-frame.error :as rf.error]
             [re-frame.flows.topo :as rf.flows.topo]
             [re-frame.frame :as rf.frame]
+            ;; `request-flow-settle!` only — see the in-drain branches of
+            ;; `clear-flow*` and `reg-flow`. Core never requires this artefact,
+            ;; so the edge is cycle-free.
+            [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.path :as rf.path]
             [re-frame.source-coords :as rf.source-coords]
@@ -101,6 +105,16 @@
   accepts a frame-id keyword or a frame value."
   [{:keys [id] :as opts}]
   (get-in @flows-by-frame [(read-frame-id opts 're-frame.flows/flow-meta) id]))
+
+(defn ^:no-doc frame-has-flows?
+  "True when `frame-id` holds at least one registered flow.
+
+  The `:flows/frame-has-flows?` late-bind hook: core's `:fx` walk asks it
+  before settling a frame whose state the walk changed, so a frame with no
+  flows pays no settle (rf2-3x7nj.9.7). Takes a resolved frame id — no
+  ambient fallback, no validation — because its one caller already holds it."
+  [frame-id]
+  (boolean (seq (get @flows-by-frame frame-id))))
 
 (defn ^:no-doc last-inputs-snapshot
   "Return raw cached inputs as `{flow-id {frame-id inputs}}`.
@@ -224,6 +238,14 @@
 
 (defn ^:no-doc pass-flow-last-inputs [pass flow-id]
   (get @(get pass :last-inputs) flow-id))
+
+(defn ^:no-doc pass-flow-evaluated?
+  "True when the pass holds a dirty-check row for `flow-id` — i.e. the flow
+  has evaluated since it was last registered. Row PRESENCE, never the row's
+  value: a registration or re-registration drops the row, and a failed pass
+  restores the prior row map, so an absent row means not yet established."
+  [pass flow-id]
+  (contains? @(get pass :last-inputs) flow-id))
 
 (defn ^:no-doc pass-set-flow-last-inputs! [pass flow-id inputs]
   (swap! (get pass :last-inputs) assoc flow-id inputs))
@@ -663,11 +685,18 @@
            ;; rf2-vxgfnd.155: the direct-path vacation is a callback-bearing
            ;; app-db write — thread A's pinned incarnation so a watch that loses
            ;; A cannot bump same-id B's commit epoch or write B's app-db.
+           ;;
+           ;; rf2-3x7nj.18.3: called from an effect, the in-drain call runs
+           ;; AFTER the event's flow pass, so no pending pass remains to apply
+           ;; the queued vacation; ask the `:fx` walk to settle the frame when
+           ;; it ends. From a handler body the request is a no-op and the
+           ;; pending pass applies it, as before.
            (when-let [prior @prior-frame-flow]
              (let [old-path (:output-path prior)]
                (when (not= old-path (:output-path flow))
                  (if (rf.frame/in-drain? frame-id)
-                   (record-abandoned-output-path! frame-id old-path)
+                   (do (record-abandoned-output-path! frame-id old-path)
+                       (rf.fx/request-flow-settle!))
                    (vacate-output-path! frame-id pinned-incarnation old-path)))))
            ;; rf2-rxsldx: the output-mark write below is itself exact-
            ;; incarnation — it threads `pinned-incarnation` through
@@ -957,14 +986,22 @@
                ;; region defers trace-listener delivery past the release, so no
                ;; listener runs arbitrary code underneath it.
                ;;
-               ;; IN-DRAIN is deliberately excluded: there the vacation is
-               ;; queued for the pending-`:db` pass and that pass performs the
-               ;; settle, which is where `:rf.fx/clear-flow`'s already-correct
-               ;; one-settle/topological behaviour comes from. Settling here
-               ;; too would write the live app-db that the deferred commit is
-               ;; about to replace, and count a second pass.
-               (when-let [settle! (and (not in-drain?) @settle-frame-flows-fn)]
-                 (settle! frame-id pinned)))))))
+               ;; IN-DRAIN does not settle here: that would write the live
+               ;; app-db the deferred commit is about to replace. The vacation
+               ;; is queued instead, and what applies it depends on WHERE in
+               ;; the drain the call ran. From a handler body, the event's own
+               ;; pending flow pass has not run yet and settles it. From ANY
+               ;; effect — the reserved `:rf.fx/clear-flow` or a user fx —
+               ;; that pass has ALREADY run, so the request below asks the
+               ;; `:fx` walk to enqueue its one settle when it ends
+               ;; (rf2-3x7nj.18.3; before it, only the reserved body asked,
+               ;; and a user-fx clear left the row gone and its value present).
+               ;; The request is a no-op outside a walk, which is what keeps
+               ;; the handler-body case unchanged.
+               (if in-drain?
+                 (rf.fx/request-flow-settle!)
+                 (when-let [settle! @settle-frame-flows-fn]
+                   (settle! frame-id pinned))))))))
      nil))
 
 (defn clear-flow
@@ -975,11 +1012,20 @@
 
   Called OUTSIDE an event drain, this settles the frame's remaining flows
   before returning, so a dependent cannot still publish a value derived from
-  the slot just removed (Spec 013 §Sequencing). A remaining flow whose
+  the slot just removed (Spec 013 §Sequencing). The settle re-evaluates only
+  flows that have evaluated since they were (re-)registered: a flow registered
+  or re-registered since the last drain is left untouched for that drain to
+  evaluate, exactly as a direct `reg-flow` promises (rf2-3x7nj.18.2), and
+  anything established downstream of it keeps deriving from its current value
+  until then. A remaining flow whose
   `:derive` throws during that settle propagates the ordinary
   `:rf.error/flow-eval-exception` to this caller; the deregistration and
   vacation — already committed, and what the caller asked for — stand, and the
   settle's candidate db is discarded unwritten.
+
+  Called INSIDE a drain, the vacation is queued for the event's pending flow
+  pass; from an effect, which runs after that pass, the call also asks the
+  `:fx` walk to settle the frame when it ends (rf2-3x7nj.18.3).
 
   NOT a public NAME: the public door is `(rf/clear :flow id)` /
   `(rf/clear :flow id {:frame f})`. This fn is the `:flows/clear-flow`
