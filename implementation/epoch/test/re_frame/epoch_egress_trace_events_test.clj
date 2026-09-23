@@ -194,6 +194,29 @@
           "no record in the bulk snapshot leaks the secret anywhere —
            including nested inside any :rf.event/db trace tag"))))
 
+(deftest off-box-projection-of-a-path-focused-event-omits-its-after-delta-secret
+  (testing "rf2-3x7nj.4.2 — a [:rf.interceptor/path …] handler that never reads
+            :auth still stamps the WHOLE db into :rf.event/after-deltas on
+            :rf.event/run-end (the path interceptor's :after restores and widens
+            it). The off-box-tool projection of that epoch record — what the
+            pair MCP trace-window / watch-epochs tools send — leaks nothing"
+    (rf/make-frame {:id :test/eg})
+    (install-sensitive-schema! :test/eg)
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db (assoc db :auth {:password secret} :n 0)}))
+    (rf/reg-event :bump {:interceptors [[:rf.interceptor/path [:n]]]}
+      (fn [{:keys [db]} _] {:db (inc db)}))
+    (rf/dispatch-sync [:seed] {:frame :test/eg})
+    (rf/dispatch-sync [:bump] {:frame :test/eg})
+    (let [raw     (last (rf/epoch-history :test/eg))
+          run-end (first (filter #(= :rf.event/run-end (:operation %)) (:trace-events raw)))]
+      (is (= [:bump] (:trigger-event raw)) "control: the newest record is :bump's")
+      (is (= [:rf.interceptor/path]
+             (mapv :rf.interceptor.delta/id (get-in run-end [:tags :rf.event/after-deltas])))
+          "control: the record carries the path interceptor's after-delta")
+      (is (not (contains-secret?
+                 (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})))
+          "the off-box-tool projection carries the secret nowhere"))))
+
 ;; ===========================================================================
 ;; 2. Direct unit: project-egress over a hand-built record whose
 ;;    :trace-events carries a t1/t2 event with a sensitive leaf. Isolates
