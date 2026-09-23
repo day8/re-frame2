@@ -19,6 +19,7 @@
   and through this artefact's JVM `:test` alias."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.set :as set]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
@@ -29,6 +30,9 @@
             ;; can test the same implementation used by tool consumers without
             ;; introducing a dependency on `tools/`.
             [re-frame.derivation.egress :as rf.derivation.egress]
+            [re-frame.identity :as rf.identity]
+            ;; Only for the unkeyed SHA-256 the egress handle must NOT equal.
+            [re-frame.schemas.digest]
             [re-frame.privacy :as rf.privacy]
             [re-frame.elision :as rf.elision]
             ;; Load-bearing requires: each facade installs its framework
@@ -1247,14 +1251,17 @@
 
 (defn- contains-secret?
   "Return true when the secret token appears anywhere in a nested value,
-  including map keys."
+  including map keys: as a whole string leaf, EMBEDDED in a larger string (a
+  CEDN-1 token such as `v[k::rf.scope/tenant s:\"<secret>\"]` carries the raw
+  value inside it), or inside the printed form of any other leaf, such as a
+  keyword or symbol built from it (rf2-3x7nj.20.1)."
   [v]
   (boolean
     (cond
-      (= v secret-token) true
-      (map? v)           (some contains-secret? (concat (keys v) (vals v)))
-      (coll? v)          (some contains-secret? v)
-      :else              false)))
+      (string? v) (str/includes? v secret-token)
+      (map? v)    (some contains-secret? (concat (keys v) (vals v)))
+      (coll? v)   (some contains-secret? v)
+      :else       (str/includes? (pr-str v) secret-token))))
 
 (defn- projected-scoped-key?
   "Return true for a projected scoped-key tuple that preserves resource id."
@@ -1262,6 +1269,22 @@
   (and (vector? v)
        (= 3 (count v))
        (keyword? (nth v 1))))
+
+(deftest g-leak-predicate-catches-a-handle-that-embeds-the-raw-token
+  ;; Every "no raw secret survives" assertion below is only as strong as
+  ;; `contains-secret?`. A handle minted from the CEDN-1 token instead of its
+  ;; digest carries the secret INSIDE a larger string, and a predicate that
+  ;; matched only a leaf EQUAL to the secret let it pass (rf2-3x7nj.20.1).
+  (testing "a handle that embeds the raw token trips the predicate"
+    (let [leaking [:rf.resource/opaque (rf.identity/canonical-bytes secret-scope)]]
+      (is (not-any? #(= secret-token %) leaking)
+          "sanity: no leaf of the leaking handle EQUALS the secret")
+      (is (contains-secret? leaking)
+          "the predicate finds the secret embedded in the token string")))
+  (testing "a keyword built from the secret trips the predicate"
+    (is (contains-secret? {:tenant (keyword "tenant" secret-token)})))
+  (testing "a real opaque handle does not trip it"
+    (is (not (contains-secret? (#'rf.derivation.egress/opaque-handle secret-scope))))))
 
 (deftest g-live-resource-identity-redacted-at-graph-egress
   ;; A sensitive scope/params fixture, projected through the shared graph
@@ -1534,6 +1557,100 @@
           "no raw secret survives — resource projection still applies")
       (is (not (contains? (:nodes redacted) [:resource egress-scoped-key]))
           "the raw resource node key is gone"))))
+
+;; ---- (g) the opaque handle is a keyed, full-width digest ------------------
+;;
+;; The handle used to be a 32-bit `hash` of the CEDN-1 token. `{:q "Aa"}` and
+;; `{:q "BB"}` share a `String.hashCode`, so two live entries of one resource
+;; merged into one egressed node, and a low-entropy param such as a user id
+;; could be recovered by enumerating candidates. The handle is now the full
+;; 64-char hex HMAC-SHA-256 of the token under a private per-runtime key
+;; (rf2-3x7nj.3.4).
+
+(defn- search-results-contributors
+  "A live `:resources` contributor holding one `:search/results` entry per
+  params map, each keyed by its global scoped key."
+  [& params]
+  {:resources
+   {:live-shape :map
+    :static-fn  (constantly {})
+    :live-fn    (constantly
+                  (into {}
+                        (for [p params
+                              :let [k [:rf.scope/global :search/results p]]]
+                          [k {:id k :kind :process :refinement :resource-process
+                              :rf/family :resources :storage :runtime-db
+                              :output [:runtime [:rf.runtime/resources :entries k]]}])))}})
+
+(defn- resource-node-keys
+  [graph]
+  (filterv #(= :resource (first %)) (keys (:nodes graph))))
+
+(defn- egress-search-results
+  "The raw and egressed live graphs for one `:search/results` entry per params."
+  [& params]
+  (let [raw (rf.derivation.graph/live-derivation-graph
+              egress-frame (apply search-results-contributors params))]
+    [raw (rf.derivation.egress/project-graph raw egress-frame)]))
+
+(defn- key-bytes
+  "Host key bytes (`byte[]` / an array of ints) from 0-255 integers."
+  [xs]
+  #?(:clj (byte-array (map unchecked-byte xs)) :cljs (into-array xs)))
+
+(deftest g-distinct-resource-identities-stay-distinct-nodes-at-egress
+  (rf/make-frame {:id egress-frame})
+  (testing "two params that share a String.hashCode stay two nodes"
+    (let [[raw redacted] (egress-search-results {:q "Aa"} {:q "BB"})]
+      (is (= 2 (count (resource-node-keys raw))) "sanity: two live entries")
+      (is (= 2 (count (resource-node-keys redacted)))
+          "{:q \"Aa\"} and {:q \"BB\"} must not merge into one egressed node")))
+  (testing "control: a pair that never collided stays two nodes"
+    (let [[_ redacted] (egress-search-results {:q "Aa"} {:q "Ab"})]
+      (is (= 2 (count (resource-node-keys redacted)))))))
+
+(deftest g-opaque-handle-digest-is-hmac-sha256
+  ;; Known answers prove the digest IS HMAC-SHA-256 on this host. Merely
+  ;; differing from the old hash would prove nothing about keying.
+  (let [hmac #'rf.derivation.egress/hmac-sha256-hex
+        jefe (key-bytes [0x4a 0x65 0x66 0x65])]
+    (testing "RFC 4231 test vectors"
+      (is (= "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+             (hmac (key-bytes (repeat 20 0x0b)) "Hi There"))
+          "RFC 4231 test case 1")
+      (is (= "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+             (hmac jefe "what do ya want for nothing?"))
+          "RFC 4231 test case 2"))
+    (testing "the message is digested as UTF-8"
+      (is (= "a956a5d2b915c9ced86c9664fbd1903b82f72541a8a2d71ff0638382c79f5c1e"
+             (hmac jefe "café ✓"))))
+    (testing "the digest depends on the key"
+      (let [token (rf.identity/canonical-bytes {:user/id 424242})]
+        (is (not= (hmac jefe token)
+                  (hmac (key-bytes [0x4a 0x65 0x66 0x66]) token)))))))
+
+(deftest g-live-handle-is-a-full-width-keyed-digest
+  (rf/make-frame {:id egress-frame})
+  (let [params         {:user/id 424242}
+        [raw redacted] (egress-search-results params)
+        [_ [_ _ handle]] (first (resource-node-keys redacted))
+        hex            (second handle)
+        token          (rf.identity/canonical-bytes params)]
+    (testing "the params handle is the full keyed digest"
+      (is (= :rf.resource/opaque (first handle)))
+      (is (re-matches #"[0-9a-f]{64}" hex) "64 lowercase hex chars, untruncated")
+      (is (not= #?(:clj  (Integer/toHexString (hash token))
+                   :cljs (.toString (bit-and (hash token) 0xffffffff) 16))
+                hex)
+          "not the old 32-bit hash")
+      (is (not= (#'re-frame.schemas.digest/sha256-hex token) hex)
+          "not an unkeyed SHA-256: the digest is keyed"))
+    (testing "control: the same value gets the same handle within one runtime"
+      (is (= redacted (rf.derivation.egress/project-graph raw egress-frame))))
+    (testing "control: a value outside the CEDN-1 domain still fails closed"
+      (let [[_ redacted'] (egress-search-results {:f (fn [] nil)})
+            [_ [_ _ handle']] (first (resource-node-keys redacted'))]
+        (is (= rf.privacy/redacted-sentinel handle'))))))
 
 ;; ===========================================================================
 ;; (g+) RESOURCE-CONTRIBUTOR EGRESS THROUGH THE COMPOSER.
