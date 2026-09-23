@@ -72,13 +72,17 @@
 
 (defn- dom-tag-head?
   "True when `head` is a Hiccup DOM-tag keyword. The React-fragment marker
-  `:<>` and the Reagent interop marker `:>` are NOT DOM tags and are
-  exempt from annotation, mirroring the client `dom-tag?` predicate per
-  Spec 006."
+  `:<>` and the Reagent interop heads `:>`, `:r>` and `:f>` are NOT DOM
+  tags and are exempt from annotation, mirroring the client `dom-tag?`
+  predicate per Spec 006. The interop heads carry the component at
+  position 1, where the splice below would otherwise land
+  (rf2-3x7nj.3.2)."
   [head]
   (and (keyword? head)
        (not= :<> head)
-       (not= :> head)))
+       (not= :> head)
+       (not= :r> head)
+       (not= :f> head)))
 
 (defn annotate-root
   "Merge `:data-rf2-source-coord` (= `coord-attr`) and `:data-rf-view`
@@ -93,10 +97,10 @@
     - DOM-tag-rooted hiccup: annotate the existing root element,
       PRESERVING any author-supplied `:data-rf2-source-coord` /
       `:data-rf-view` value.
-    - Anything else (fragment `:<>`, a callable/view-ref head, a
-      lazy-seq, a scalar, nil): pass through unannotated — the documented
-      non-DOM-root exemption. Pair tools fall back to the registry
-      `:rf/id` for those.
+    - Anything else (fragment `:<>`, a Reagent interop head `:>` / `:r>`
+      / `:f>`, a callable/view-ref head, a lazy-seq, a scalar, nil): pass
+      through unannotated — the documented non-DOM-root exemption. Pair
+      tools fall back to the registry `:rf/id` for those.
 
   It annotates the EXISTING root; it never introduces a synthetic
   wrapper element (which would change layout / selector semantics), just
