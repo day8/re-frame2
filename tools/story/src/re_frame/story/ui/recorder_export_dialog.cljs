@@ -76,6 +76,7 @@
    :variant-id          nil   ; the new variant id (user-editable)
    :name                ""    ; optional :name field on the play-script
    :auto-assert?        true
+   :seed-db             nil   ; app-db at recording start (auto-assert diffs against it)
    :final-db            nil
    :replay-status       nil   ; nil | :running | :pass | :fail
    :replay-failure-msg  nil})
@@ -98,9 +99,12 @@
     :variant-id       — default new-variant id (user-editable inline).
     :final-db         — optional app-db snapshot at recording-end;
                         consumed by the auto-assert option.
+    :seed-db          — optional app-db the recording started from; with
+                        it auto-assert asserts only the paths the
+                        recording changed (rf2-3x7nj.29.2).
 
   Idempotent — opening twice replaces the in-flight state."
-  [{:keys [source-id events entries variant-id final-db]}]
+  [{:keys [source-id events entries variant-id final-db seed-db]}]
   (when rf.story.config/enabled?
     (reset! ui-dialog
             (assoc initial-state
@@ -113,6 +117,7 @@
                                      (keyword (namespace source-id)
                                               "recorded-script"))
                                    :story.recorded/play-export)
+                   :seed-db    seed-db
                    :final-db   final-db))))
 
 (defn- set-name! [s]
@@ -133,7 +138,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- build-export-from-dialog
-  [{:keys [events entries source-id variant-id name auto-assert? final-db]}]
+  [{:keys [events entries source-id variant-id name auto-assert? final-db seed-db]}]
   ;; Prefer the rich :entries snapshot when it carries anything —
   ;; that's where DOM-events + per-event timestamps live.
   ;; Fall back to the legacy :events vector for back-compat.
@@ -145,7 +150,8 @@
                :auto-run?  true}
         (and (string? name) (seq name)) (assoc :name name)
         auto-assert?                     (assoc :auto-assert? true
-                                                :final-db     final-db)))))
+                                                :final-db     final-db
+                                                :seed-db      seed-db)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Replay
@@ -410,12 +416,15 @@
   option can derive assertions from real data. The
   caller threads the recorder's `:entries` (rich DOM-event + timing
   record) alongside `:events` so the translator emits `:click` /
-  `:type` / `:wait` steps when DOM-events were captured."
-  [{:keys [events entries source-id]}]
+  `:type` / `:wait` steps when DOM-events were captured, and the
+  recording's `:seed-db` so auto-assert diffs against the recording's
+  start (rf2-3x7nj.29.2)."
+  [{:keys [events entries source-id seed-db]}]
   (when rf.story.config/enabled?
     (open-dialog!
       {:source-id source-id
        :events    events
        :entries   entries
+       :seed-db   seed-db
        :final-db  (when source-id
                     (rf.story.recorder.play-export-events/snapshot-frame-db source-id))})))

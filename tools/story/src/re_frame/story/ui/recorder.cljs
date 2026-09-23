@@ -813,9 +813,15 @@
            ;; DON'T close the parent dialog; the export dialog stacks on
            ;; top via a higher z-index.
            :on-export         (fn []
-                                (rf.story.ui.recorder-export-dialog/open-from-recorder-dialog!
-                                  {:events    events
-                                   :entries   entries
-                                   :source-id source-id}))
+                                (let [rec (rf.story.recorder/current-state)]
+                                  (rf.story.ui.recorder-export-dialog/open-from-recorder-dialog!
+                                    {:events    events
+                                     :entries   entries
+                                     :source-id source-id
+                                     ;; rf2-3x7nj.29.2 — the app-db THIS recording
+                                     ;; started from, never a later recording's.
+                                     :seed-db   (when (and (not (:recording? rec))
+                                                           (= source-id (:variant-id rec)))
+                                                  (:seed-db rec))})))
            :on-close          close-dialog!
            :data-test-prefix  "story-recorder"})))))
