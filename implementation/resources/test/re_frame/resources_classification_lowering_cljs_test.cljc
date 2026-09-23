@@ -161,7 +161,8 @@
       ;; The walker's opts map is CLOSED (rf2-kuky.6): a `:rf.egress/profile`
       ;; names a BOUNDARY and belongs to `project-egress`, which resolves it to
       ;; the `:rf.egress/*` opt-set below before delegating here. Spelt directly,
-      ;; this IS what `:rf.egress/off-box-tool` resolves to.
+      ;; this is the `:rf.egress/off-box-tool` floor PLUS the explicit digest
+      ;; override (that profile carries no digest since rf2-3x7nj.32.6).
       (let [entry-data (get-in lowered [rf.resources.state/resources-key :entries k-id :data])
             projected  (rf.elision/elide-wire-value
                          entry-data

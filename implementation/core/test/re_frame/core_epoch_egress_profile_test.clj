@@ -9,9 +9,13 @@
   FACADE WRAPPER — `rf/project-egress` is the public surface consumers reach
   for, and the bead's finding was that the wrapper's documented vocabulary
   lagged the EP. The test drives the named selector through the wrapper and
-  asserts the profile is honored (the off-box-tool boundary adds the structural
-  `:digest`; the default observability boundary omits it), proving the wrapper
-  passes `:rf.egress/profile` through rather than only the legacy booleans.
+  asserts the profile is honored (`:rf.egress/local-raw` ships the raw value
+  where the off-box boundaries elide it, and an explicit
+  `:rf.egress/include-digests? true` overlay on the tool profile adds a
+  `:digest`), proving the wrapper passes `:rf.egress/profile` and the override
+  layer through rather than only the legacy booleans. Since rf2-3x7nj.32.6 no
+  profile turns digests on: off-box-tool and off-box-observability share one
+  size floor and differ by the boundary they NAME, so their markers are equal.
 
   JVM-only (`.clj`): it requires the epoch + machines artefacts and declares
   the frame's durable `:large` path via the EP-0025 commit-plane
@@ -35,7 +39,7 @@
   conflation was expensive. With the ring empty, `raw` is nil,
   `large-marker-body` is nil, and SIX assertions passed for that reason alone:
   `(= default-body obs-body)` (nil = nil), `(not (contains? obs-body :digest))`
-  (nil contains nothing), `(= (dissoc tool-body :digest) obs-body)`, the raw-
+  (nil contains nothing), the tool-equals-observability marker check, the raw-
   bytes-never-egress row over an empty string, `(not-any? ... obs-hist)` over an
   empty history, and the human-sentence check over a nil message. An egress-
   PRIVACY suite certifying that no raw bytes escaped, having projected nothing.
@@ -106,10 +110,11 @@
 
 (deftest core-project-egress-honors-egress-profile
   (testing "rf2-ylvp4m — `rf/project-egress` (the core facade wrapper)
-            honors the named EP-0015 §10 :rf.egress/profile selector: the
-            :rf.egress/off-box-tool boundary adds the structural :digest a tool
-            consumer needs, while the default :rf.egress/off-box-observability
-            boundary omits it. Both elide the large value (no raw bytes egress)."
+            honors the named EP-0015 §10 :rf.egress/profile selector:
+            :rf.egress/local-raw ships the raw value while both off-box
+            boundaries elide it, and neither off-box boundary carries a
+            :digest by default (rf2-3x7nj.32.6) — the explicit
+            :rf.egress/include-digests? true overlay adds one."
     (rf/make-frame {:id :ep/main})
     (install-large-path! :ep/main)
     (rf/reg-event :store
@@ -137,11 +142,20 @@
           "the bare 1-arity default == :rf.egress/off-box-observability")
       (is (not (contains? obs-body :digest))
           ":rf.egress/off-box-observability (through the wrapper) omits :digest")
-      (is (contains? tool-body :digest)
-          ":rf.egress/off-box-tool (through the wrapper) includes the structural
-           :digest — the named selector is honored end-to-end")
-      (is (= (dissoc tool-body :digest) obs-body)
-          "tool boundary == observability marker PLUS the structural digest"))
+      (is (not (contains? tool-body :digest))
+          ":rf.egress/off-box-tool (through the wrapper) omits :digest by default
+           (rf2-3x7nj.32.6)")
+      (is (= tool-body obs-body)
+          "the tool boundary shares observability's size floor, so the markers are equal")
+      (is (= 50000 (count (get-in (rf/project-egress
+                                    synth {:rf.egress/profile :rf.egress/local-raw})
+                                  [:db-after :blob :payload])))
+          ":rf.egress/local-raw ships the raw value — the named selector is honored end-to-end")
+      (is (string? (:digest (large-marker-body
+                              (rf/project-egress
+                                synth {:rf.egress/profile          :rf.egress/off-box-tool
+                                       :rf.egress/include-digests? true}))))
+          "the explicit digest overlay composes on the tool profile (a sha256 string on the JVM)"))
 
     ;; ---- rf2-d2841 dev arm: the CAPTURE half — that a real dispatch put a
     ;;      record of exactly that shape into the ring. The ring is fed from the
@@ -169,17 +183,20 @@
       ;; The bare 1-arity default == the named observability boundary.
       (is (= default-body obs-body)
           "the bare 1-arity default == :rf.egress/off-box-observability")
-      ;; THE PROFILE IS HONORED THROUGH THE WRAPPER: observability omits the
-      ;; structural :digest; the tool boundary includes it. Pre-finding, the
-      ;; wrapper documented only the legacy :include-* booleans, masking the
-      ;; named selector as a public surface.
+      ;; THE PROFILE IS HONORED THROUGH THE WRAPPER: local-raw ships the raw
+      ;; value, and neither off-box boundary carries a :digest by default
+      ;; (rf2-3x7nj.32.6). Pre-finding, the wrapper documented only the legacy
+      ;; :include-* booleans, masking the named selector as a public surface.
       (is (not (contains? obs-body :digest))
           ":rf.egress/off-box-observability (through the wrapper) omits :digest")
-      (is (contains? tool-body :digest)
-          ":rf.egress/off-box-tool (through the wrapper) includes the structural
-           :digest — the named selector is honored end-to-end")
-      (is (= (dissoc tool-body :digest) obs-body)
-          "tool boundary == observability marker PLUS the structural digest")))))
+      (is (not (contains? tool-body :digest))
+          ":rf.egress/off-box-tool (through the wrapper) omits :digest by default")
+      (is (= tool-body obs-body)
+          "the tool boundary shares observability's size floor, so the markers are equal")
+      (is (= 50000 (count (get-in (rf/project-egress
+                                    raw {:rf.egress/profile :rf.egress/local-raw})
+                                  [:db-after :blob :payload])))
+          ":rf.egress/local-raw ships the raw value — the named selector is honored end-to-end")))))
 
 (deftest core-project-egress-rejects-unknown-profile
   (testing "rf2-ylvp4m — an unknown :rf.egress/profile through the core wrapper
@@ -249,9 +266,18 @@
                           ring)
           obs-hist  (mapv rf/project-egress ring)]
       (is (seq tool-hist) "the composition returns the ring")
-      (is (every? #(contains? (large-marker-body %) :digest)
-                  (filter large-marker-body tool-hist))
-          "every large marker in the tool-profile history carries the :digest")
+      (is (seq (filter large-marker-body tool-hist))
+          "the tool-profile history carries at least one large marker")
+      (is (not-any? #(contains? (large-marker-body %) :digest)
+                    (filter large-marker-body tool-hist))
+          "no large marker in the tool-profile history carries a :digest (rf2-3x7nj.32.6)")
       (is (not-any? #(contains? (large-marker-body %) :digest)
                     (filter large-marker-body obs-hist))
-          "the default observability history omits the :digest on every record")))))
+          "the default observability history omits the :digest on every record")
+      (let [digest-hist (mapv #(rf/project-egress
+                                 % {:rf.egress/profile          :rf.egress/off-box-tool
+                                    :rf.egress/include-digests? true})
+                              ring)]
+        (is (every? #(string? (:digest (large-marker-body %)))
+                    (filter large-marker-body digest-hist))
+            "the explicit digest overlay reaches every record through the composition"))))))

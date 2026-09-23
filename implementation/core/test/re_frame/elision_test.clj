@@ -417,13 +417,14 @@
 (deftest nested-axis-large-over-sensitive-redacts-not-marks
   (testing "a :large [[:a]] subtree with a :sensitive [[:a :b]] descendant
             REDACTS the descendant and emits NO large marker / digest over it
-            (rf2-izlr7f) — the off-box-tool floor with digests ON is the
+            (rf2-izlr7f) — digests ON with sensitive redaction in force is the
             verified leak scenario"
     (install-class! [[:a :b]] [[:a]])
     (let [secret "TOP-SECRET-TOKEN-do-not-egress"
           input  {:a {:b secret :c "public"}}
-          ;; The off-box-tool floor: digests ON, sensitive redaction in force
-          ;; (NOT opted out). This is the exact opts that triggered the leak.
+          ;; Digests ON, sensitive redaction in force (NOT opted out) — the
+          ;; off-box-tool floor when the leak was found; since rf2-3x7nj.32.6
+          ;; digests are an explicit override, which is what this passes.
           out    (rf.elision/elide-wire-value input {:rf.egress/include-digests? true})]
       ;; The sensitive descendant is REDACTED in place …
       (is (= :rf/redacted (get-in out [:a :b]))

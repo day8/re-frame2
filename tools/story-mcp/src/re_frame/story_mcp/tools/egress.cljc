@@ -139,14 +139,15 @@
 ;; story-mcp is an off-box MCP/AI tool wire — the same boundary class as
 ;; re-frame2-pair-mcp. Per EP-0015 §10 the egress posture names a
 ;; `:rf.egress/*` profile, resolved to its `:rf.egress/*` floor by the
-;; cross-MCP `re-frame.mcp-base.egress` mirror (pinned byte-identical to
-;; the framework `re-frame.projection` table by the mcp-conformance
-;; wire-vocab gate). The boolean `include?` each tool computes
+;; framework's `re-frame.projection` table inside `project-egress` (the
+;; cross-MCP `re-frame.mcp-base.egress` ns carries only the profile NAME
+;; set, pinned to the framework's by the mcp-conformance wire-vocab gate).
+;; The boolean `include?` each tool computes
 ;; (`(and (sensitive-reads-allowed?) per-call-include-sensitive)`) is
 ;; mapped to the boundary by the SHARED pure fn
 ;; `re-frame.mcp-base.egress/mcp-tool-profile`: not-opted-in ⇒
-;; `:rf.egress/off-box-tool` (redact sensitive, elide large, structural
-;; digests on); the trusted-local opt-in ⇒ `:rf.egress/local-raw`
+;; `:rf.egress/off-box-tool` (redact sensitive, elide large, no digest —
+;; rf2-3x7nj.32.6); the trusted-local opt-in ⇒ `:rf.egress/local-raw`
 ;; (sensitive AND large pass through). The mapping lives in mcp-base so
 ;; story-mcp and re-frame2-pair-mcp cannot drift; this server calls it
 ;; only AFTER its own operator + per-call permission checks. The server
@@ -183,8 +184,9 @@
 
   The walk runs under the `:rf.egress/off-box-tool` profile floor (named
   here, resolved by `project-egress`): sensitive redacts to
-  `:rf/redacted`, large elides to `:rf.size/large-elided` (with the
-  structural digest off-box-tool carries), seeded at `variant-id`'s frame.
+  `:rf/redacted`, large elides to `:rf.size/large-elided` (no digest —
+  off-box-tool carries none since rf2-3x7nj.32.6), seeded at `variant-id`'s
+  frame.
 
   Two short-circuits avoid pointless work:
 

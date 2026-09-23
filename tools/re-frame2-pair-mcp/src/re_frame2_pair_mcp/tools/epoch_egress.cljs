@@ -68,7 +68,8 @@
   - Gate OFF (default) — `incl?` is forced false regardless of the
     per-call arg, so `egress-opts-edn` emits the bare
     `:rf.egress/off-box-tool` profile: sensitive slots redact, large
-    slots elide WITH the structural digest the tool needs. A hostile
+    slots elide to a marker carrying `:path` / `:bytes` / `:type` /
+    `:handle`. A hostile
     per-call `:include-sensitive true` cannot talk an operator who did
     not pass `--allow-sensitive-reads` into shipping raw state.
   - Gate ON + caller opts in (`include-sensitive true`) — `incl?` is
@@ -86,11 +87,10 @@
   egress, NOT the `:rf.egress/off-box-observability` profile the epoch
   projector falls back to when none is named. Both share the
   redact/elide floor (sensitive → `:rf/redacted`, large →
-  `:rf.size/large-elided`); off-box-tool additionally carries the
-  `:rf.egress/include-digests?` structural indicators a tool needs to reason
-  about an elided slot's shape. `egress-opts-edn` names the profile
-  unconditionally, so the off-box wire always ships the tool marker, never
-  the less-informative hosted-observability one.
+  `:rf.size/large-elided`) and, since rf2-3x7nj.32.6, the same no-digest
+  floor, so their markers are equal; what differs is the boundary the call
+  NAMES. `egress-opts-edn` names the profile unconditionally, because a
+  pair-MCP epoch wire is always the tool boundary.
 
   `project-egress` is the framework's single record-level egress door —
   on a stamped `:rf/epoch-record` it dispatches to the late-bound
@@ -149,15 +149,12 @@
   hand-rolled `:rf.egress/*` combination and NOT the unnamed default. With
   no `:rf.egress/profile` opt the epoch projector resolves
   `:rf.egress/off-box-observability` (epoch/tool_pair.cljc
-  §resolve-egress-profile) — same redact/elide floor,
-  but it OMITS the `:rf.egress/include-digests?` structural indicators a tool
-  needs to reason about an elided slot's shape. The off-box-tool profile
-  turns digests ON. Both boundaries fail-closed identically on the
-  sensitive / large redaction axes (projection.cljc §profile->size-opts);
-  the ONLY difference the profile makes here is the digest indicators —
-  the off-box-tool marker is more informative than the
-  hosted-observability one (the same tool profile the direct-read
-  surfaces resolve via `tools.elision`), and neither leaks raw data. The
+  §resolve-egress-profile) — the same redact/elide floor and, since
+  rf2-3x7nj.32.6, the same no-digest floor (projection.cljc
+  §profile->size-opts), so today the two resolve to equal markers. The
+  profile is named because it IS the tool boundary (the same tool profile
+  the direct-read surfaces resolve via `tools.elision`), not for anything
+  it adds to the marker, and neither leaks raw data. The
   named selector is the framework's primary boundary answer —
   *\"which boundary is this?\"* — and a pair-MCP epoch wire is always the
   tool boundary. So the profile is emitted UNCONDITIONALLY (default + the
@@ -331,11 +328,11 @@
   `re-frame.core/project-egress` under the `:rf.egress/off-box-tool`
   egress profile (Pair-MCP is an off-box tool wire; see
   `egress-opts-edn`) — sensitive payload slots land as `:rf/redacted`,
-  large slots as `:rf.size/large-elided` markers CARRYING the structural
-  `:digest` the tool profile enables. There is no projection bypass: a
-  page NEVER crosses the off-box wire unprojected, and it NEVER crosses
-  under the unnamed default profile (which resolves
-  `:rf.egress/off-box-observability` and would omit the tool digests).
+  large slots as `:rf.size/large-elided` markers (no `:digest`, since
+  rf2-3x7nj.32.6). There is no projection bypass: a page NEVER crosses
+  the off-box wire unprojected, and it always NAMES the tool boundary
+  rather than the unnamed default profile (which resolves
+  `:rf.egress/off-box-observability`).
 
   GUARD G3 (`stamped-epoch-guard-src`) runs on EVERY record in the
   `mapv`, before the door call. `project-egress` recognises an epoch

@@ -645,6 +645,11 @@
     :else       :scalar))
 
 (defn- sha256-hex
+  "The `sha256:<hex>` content digest of `v`'s printed form, for the marker's
+  optional `:digest` slot. JVM only: the browser build returns nil (no
+  synchronous digest without pulling a crypto library into core), and
+  `->marker` then OMITS the slot rather than shipping `:digest nil`, which
+  the normative marker schema rejects (rf2-3x7nj.32.6)."
   [v]
   #?(:clj
      (let [bytes (.getBytes ^String (pr-str v) "UTF-8")
@@ -667,7 +672,11 @@
   here (with `{:reason :classification}`) rather than re-inlining the shape a
   second time."
   [v path {:keys [hint as-of-epoch include-digests? reason]}]
-  (let [body (cond-> {:path   (vec path)
+  (let [;; rf2-3x7nj.32.6 — `:digest` is associated only when a digest string
+        ;; was actually computed; the browser build computes none, and an
+        ;; `:digest nil` both fails the schema and reads as a false "unchanged".
+        digest (when include-digests? (sha256-hex v))
+        body (cond-> {:path   (vec path)
                       :bytes  (pr-str-bytes v)
                       :type   (value-type v)
                       ;; Carry the declaration's source provenance in
@@ -678,7 +687,7 @@
                       :reason (or reason :effect)
                       :hint   hint
                       :handle (handle-of (vec path) as-of-epoch)}
-               include-digests? (assoc :digest (sha256-hex v)))]
+               (string? digest) (assoc :digest digest))]
     {:rf.size/large-elided body}))
 
 (defn- marker-opts

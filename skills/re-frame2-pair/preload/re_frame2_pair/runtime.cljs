@@ -3041,9 +3041,10 @@
    falls to `:rf.egress/off-box-observability` — the all-false floor the
    no-profile walk resolved to before, so both paths are
    output-identical. It is deliberately NOT `:rf.egress/off-box-tool`
-   here: that profile turns `:rf.egress/include-digests?` ON, which would
-   change what a bare REPL caller gets. The MCP path still reaches
-   off-box-tool, because that is the profile it names.
+   here: a bare REPL caller is not the tool boundary, so it is not named
+   as one (the two floors are equal today, since rf2-3x7nj.32.6 turned
+   off-box-tool's digests off, but the name is the claim). The MCP path
+   still reaches off-box-tool, because that is the profile it names.
 
    `frame-id` is supplied so the projection resolves the right per-frame
    elision registry."
