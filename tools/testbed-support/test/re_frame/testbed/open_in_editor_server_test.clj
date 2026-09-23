@@ -1452,9 +1452,13 @@
                         "/./../outside/"]]
           (let [r     (page-req method uri root)
                 label (str (name method) " " (pr-str uri))]
-            (is (= outside-body (:body (shadow.push-state/handle r)))
-                (str "control: shadow's own push-state serves the sibling for "
-                     label))
+            ;; `\` separates path segments only where the filesystem says so,
+            ;; so the backslash spelling traverses on Windows alone; the 404
+            ;; below is asserted everywhere.
+            (when (or (not (str/includes? uri "\\")) (= "\\" File/separator))
+              (is (= outside-body (:body (shadow.push-state/handle r)))
+                  (str "control: shadow's own push-state serves the sibling for "
+                       label)))
             (let [resp (rf.testbed.open-in-editor-server/handler r)]
               (is (= 404 (:status resp)) (str label " answers 404"))
               (is (not= outside-body (:body resp))
