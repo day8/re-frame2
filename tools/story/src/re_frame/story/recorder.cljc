@@ -552,16 +552,23 @@
   `variant-id`. `now-ms` is the wall-clock start time.
 
   EP-0023: the recording's address is the variant frame; the state carries no
-  separate realm key. The returned map is the bare recorder shape."
-  [_state variant-id now-ms]
-  {:recording? true
-   :variant-id variant-id
-   :events     []
-   ;; EP-0017: parallel captured-cofx slot, index-aligned
-   ;; with :events.
-   :cofx       []
-   :entries    []
-   :started-ms now-ms})
+  separate realm key. The returned map is the bare recorder shape.
+
+  The 4-arity also keeps `seed-db`, the frame's app-db when the recording
+  started, as `:seed-db` (when non-nil), so the export dialog's auto-assert
+  diffs the end state against it and asserts only what the recording
+  changed (rf2-3x7nj.29.2)."
+  ([state variant-id now-ms] (start state variant-id now-ms nil))
+  ([_state variant-id now-ms seed-db]
+   (cond-> {:recording? true
+            :variant-id variant-id
+            :events     []
+            ;; EP-0017: parallel captured-cofx slot, index-aligned
+            ;; with :events.
+            :cofx       []
+            :entries    []
+            :started-ms now-ms}
+     (some? seed-db) (assoc :seed-db seed-db))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-event timestamps + DOM-event entries
@@ -818,6 +825,9 @@
   keystroke still buffered from a prior recording cannot bleed into this one
   (rf2-x76af2.18).
 
+  Snapshots the frame's app-db as the recording's `:seed-db` (see `start`),
+  nil when the frame is not running.
+
   The two-arity `(start-recording! variant-id now-ms)` lets a test pin the
   wall-clock start time."
   ([variant-id]
@@ -825,8 +835,10 @@
                                    :cljs (.now js/Date))))
   ([variant-id now-ms]
    (if rf.story.config/enabled?
-     (do (reset-dom-buffer!)
-         (swap! state start variant-id now-ms))
+     (let [seed-db (try (rf/app-db-value variant-id)
+                        (catch #?(:clj Throwable :cljs :default) _ nil))]
+       (reset-dom-buffer!)
+       (swap! state start variant-id now-ms seed-db))
      initial-state)))
 
 (defn stop-recording!

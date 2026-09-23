@@ -24,9 +24,11 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
             [re-frame.story.artifact :as rf.story.artifact]
+            [re-frame.story.async :as rf.story.async]
             [re-frame.story.author-expectations :as rf.story.author-expectations]
             [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]
+            [re-frame.story.recorder.play-export-events :as rf.story.recorder.play-export-events]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.save-variant :as rf.story.save-variant]
             [re-frame.story.ui.promotion :as rf.story.ui.promotion]
@@ -221,3 +223,50 @@
                                :extends    :story.paste/source})]
       (paste! snippet)
       (is (= :cannot-run (:status (run-result :story.paste/recorded-click)))))))
+
+;; ---- rf2-3x7nj.29.2 — auto-assert asserts what the RECORDING changed --------
+
+(deftest recorder-export-auto-assert-asserts-what-the-recording-changed
+  (testing "rf2-3x7nj.29.2: recorded against a variant whose db carries static
+            keys and Story's own :rf.story/assertions records, the export
+            dialog's default auto-assert pins only the path the recording
+            changed; the pasted form compiles and its run passes"
+    (rf/reg-event :paste/seed-static
+      (fn [{:keys [db]} _]
+        {:db (merge db {:static-a 1 :static-b 2 :static-c 3
+                        :static-d 4 :static-e 5 :static-f 6})}))
+    (rf.story/reg-variant :story.paste/asserted
+      {:extends    :story.paste/source
+       :setup      [[:dispatch [:paste/seed-static]]]
+       :assertions [[:rf.assert/path-equals [:submits] nil]]})
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.paste/asserted) 5000)
+    (rf.story.recorder/install-trace-listener!)
+    (try
+      (rf.story.recorder/start-recording! :story.paste/asserted)
+      (rf/dispatch-sync [:paste/submit] {:frame :story.paste/asserted})
+      (rf/dispatch-sync [:paste/submit] {:frame :story.paste/asserted})
+      (rf.story.recorder/stop-recording!)
+      (let [final-db  (rf.story.recorder.play-export-events/snapshot-frame-db
+                        :story.paste/asserted)
+            recording (rf.story.recorder/current-state)
+            ;; What the save dialog's :on-export hands the export dialog, built
+            ;; with the export dialog's defaults.
+            {:keys [spec rendered]}
+            (rf.story.recorder.play-export-events/build-export
+              (:entries recording)
+              {:variant-id   :story.paste/asserted-script
+               :extends      :story.paste/asserted
+               :auto-run?    true
+               :auto-assert? true
+               :final-db     final-db
+               :seed-db      (:seed-db recording)})]
+        (is (contains? final-db :rf.story/assertions)
+            "control: the recorded frame's db carries Story's run records")
+        (is (= [[:assert-db [:submits] 2]]
+               (filterv #(= :assert-db (first %)) (:script spec)))
+            "the one path the recording changed, and nothing else")
+        (paste! rendered)
+        (is (= :pass (:status (run-result :story.paste/asserted-script)))))
+      (finally
+        (rf.story.recorder/remove-trace-listener!)
+        (rf.story.recorder/clear!)))))
