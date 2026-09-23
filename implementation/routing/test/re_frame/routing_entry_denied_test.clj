@@ -366,7 +366,9 @@
       (rf/dispatch-sync [:rf.route/navigate {:query {:tab "history"}}])
       (is (= 1 @leave) "an in-place query change is a full transition — leave ran")
       (is (= 1 @enter) "…and entry ran too; the in-place form is not a bypass")
-      (is (= {:tab "history"} (get-in (rdb) [:rf.runtime/routing :current :query]))))))
+      ;; rf2-3x7nj.12.1: `/page` declares no query vocabulary, so `:tab` is
+      ;; committed the way the URL spells it.
+      (is (= {"tab" "history"} (get-in (rdb) [:rf.runtime/routing :current :query]))))))
 
 (deftest fragment-only-transition-runs-both-guards
   (testing "a FRAGMENT-ONLY transition preserves the both-guard contract"

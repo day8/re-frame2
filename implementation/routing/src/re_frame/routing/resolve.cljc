@@ -96,11 +96,17 @@
 
     - `:query` — the route's declared `:query-defaults` are filled into absent
       keys (`rf.routing.registry/query-with-defaults`), because that is the \"defaults\"
-      step Spec 012's own definition of a `ResolvedTarget` names; and
-      nil-valued keys are dropped first (`without-nil-query-values`), because
-      `route-url` elides them from the URL. Stripping BEFORE filling is what the
-      programmatic door already did inline, preserved exactly: a route that
-      declares a nil DEFAULT still gets it.
+      step Spec 012's own definition of a `ResolvedTarget` names; nil-valued
+      keys are dropped first (`without-nil-query-values`), because `route-url`
+      elides them from the URL; and between the two every entry is SPELLED the
+      way the URL spells it (`rf.routing.registry/canonical-query`,
+      rf2-3x7nj.12.1) — an undeclared key as a string key with a string value, a
+      string key naming a declared token as that keyword — because `match-url`
+      resolves the URL doors that way, and a `{:to …}` that kept the caller's
+      `{:q \"x\"}` committed a different slice from the same URL's `{\"q\" \"x\"}`.
+      Stripping BEFORE filling is what the programmatic door already did
+      inline, preserved exactly: a route that declares a nil DEFAULT still gets
+      it.
     - `:fragment` — an empty-string fragment collapses to nil
       (`rf.routing.plan/normalize-fragment`), because `route-url` emits no trailing `#` for
       it. `\"\"` is truthy, so an un-normalised one made the slice say
@@ -148,12 +154,14 @@
   `normalize-fragment` (which it still needs, to rebuild an unmatched raw URL
   before this seam runs) lowers through unchanged."
   [{:keys [route-id params query fragment url]}]
-  {:route-id route-id
-   :params   params
-   :query    (rf.routing.registry/query-with-defaults (rf.registrar/lookup :route route-id)
-                                           (without-nil-query-values query))
-   :fragment (rf.routing.plan/normalize-fragment fragment)
-   :url      url})
+  (let [route-meta (rf.registrar/lookup :route route-id)]
+    {:route-id route-id
+     :params   params
+     :query    (->> (without-nil-query-values query)
+                    (rf.routing.registry/canonical-query route-meta)
+                    (rf.routing.registry/query-with-defaults route-meta))
+     :fragment (rf.routing.plan/normalize-fragment fragment)
+     :url      url}))
 
 ;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
 

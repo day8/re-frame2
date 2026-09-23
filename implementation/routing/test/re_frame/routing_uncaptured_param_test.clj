@@ -181,7 +181,9 @@
     (is (= {:url "/nope"} (:params (current-slice)))
         "the miss record is the fallback's :params — never path captures")
     (rf/dispatch-sync [:rf.route/navigate {:query {:x "1"}}])
-    (is (= {:x "1"} (:query (current-slice)))
+    ;; rf2-3x7nj.12.1: the fallback declares no query vocabulary, so `:x` is
+    ;; committed the way the URL spells it.
+    (is (= {"x" "1"} (:query (current-slice)))
         "the in-place edit committed rather than rejecting")
     (is (= {:url "/nope"} (:params (current-slice)))
         "and the miss record survived the edit unchanged")))

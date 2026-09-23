@@ -83,6 +83,10 @@
 ;; ---- ResolvedTarget: facts, not intent ------------------------------------
 
 (deftest resolved-target-reflects-facts-verbatim
+  ;; rf2-3x7nj.12.1: the route declares `:tab`, so the keyword spelling IS the
+  ;; one the URL resolves to — an undeclared key would come back a string.
+  (rf.routing/reg-route :route/article
+    {:query [:map [:tab {:optional true} :string]]} "/articles/:slug")
   (testing "the ResolvedTarget carries the resolved FACTS (facts say :route-id, intent says :to)"
     (is (= {:route-id :route/article
             :params   {:slug "routing-as-data"}
@@ -124,7 +128,9 @@
     (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                                  :params   {:slug "x"}
                                                  :query    {:drop nil}}))))
-    (is (= {:keep "y"}
+    ;; rf2-3x7nj.12.1: `:route/plain` declares no query vocabulary, so the
+    ;; survivor is spelled the way the URL spells it.
+    (is (= {"keep" "y"}
            (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                               :params   {:slug "x"}
                                               :query    {:keep "y" :drop nil}})))))
@@ -137,16 +143,18 @@
   (testing "a query holding no nil is returned IDENTICALLY — the URL doors'
             query arrives in canonical key order and rebuilding it would throw
             that order away"
-    (let [q (array-map :b 2 :a 1)]
+    ;; Spelled as `match-url` spells a bare route's query (rf2-3x7nj.12.1), which
+    ;; is the shape every URL door hands this seam.
+    (let [q (array-map "b" "2" "a" "1")]
       (is (identical? q (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                                            :params   {:slug "x"}
                                                            :query    q}))))))
   (testing "and when a nil IS present the survivors keep their order"
-    (is (= [:b :a]
+    (is (= ["b" "a"]
            (keys (:query (rf.routing.resolve/resolved-target
                            {:route-id :route/plain
                             :params   {:slug "x"}
-                            :query    (array-map :b 2 :drop nil :a 1)}))))))
+                            :query    (array-map "b" "2" :drop nil "a" "1")}))))))
   (testing "nil / empty queries are untouched"
     (is (nil? (:query (rf.routing.resolve/resolved-target {:route-id :route/plain :params {}}))))
     (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
@@ -406,7 +414,8 @@
     (testing "params / query contribute KEY SETS, not values — that :invite was
               bound is diagnostic; that invite=SECRET100 is the leak"
       (is (= [:slug] (:param-keys tags)))
-      (is (= [:invite :tab] (:query-keys tags)))
+      ;; rf2-3x7nj.12.1: a bare route's query keys are URL strings.
+      (is (= ["invite" "tab"] (:query-keys tags)))
       (is (not (contains? tags :params)))
       (is (not (contains? tags :query))))
     (testing "and NOTHING in the tag map reproduces a carrier value — not the
@@ -612,12 +621,13 @@
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the navigation really
       ;; happened, and the projection over its address really does redact.
       (is (= :route/invite (current-id)) "the navigation committed")
-      (is (= {:invite "SECRET100"} (:query (nav-slice)))
+      (is (= {"invite" "SECRET100"} (:query (nav-slice)))
           "IN PROCESS the carrier rides raw — redaction is an egress rule, not
            a storage rule (the same distinction routing_egress_test pins)")
       (is (= "tok-99" (:fragment (nav-slice))))
       (is (= [:id] (:param-keys would-carry)))
-      (is (= [:invite] (:query-keys would-carry)))
+      ;; rf2-3x7nj.12.1: `:route/invite` is bare, so its query keys are strings.
+      (is (= ["invite"] (:query-keys would-carry)))
       (is (not (re-find #"SECRET100" (pr-str would-carry)))
           "the projection the emit site consults reproduces no query VALUE")
       (is (not (re-find #"tok-99" (pr-str would-carry)))
@@ -629,7 +639,7 @@
       (when rf.interop/debug-enabled?
         (is (= 1 (count ts)))
         (is (= [:id] (:param-keys tags)))
-        (is (= [:invite] (:query-keys tags)))
+        (is (= ["invite"] (:query-keys tags)))
         (is (not (re-find #"SECRET100" (pr-str tags))))
         (is (not (re-find #"tok-99" (pr-str tags))))
         (is (= "/invite/acct-42?invite=rf/redacted#rf/redacted" (:url tags))

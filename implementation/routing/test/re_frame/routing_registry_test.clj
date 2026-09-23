@@ -931,13 +931,19 @@
             :rf.error/route-url-validation. Non-nil invalid values STILL fail."
     (let [restore (rf.routing-test-support/with-stub-validator)]
       (try
-        ;; Predicate modelling `:query [:map [:sort {:optional true} :string]]`:
-        ;; :sort is OPTIONAL (absent OK), but when PRESENT it must be a
-        ;; string. Because nil is elided before validation, `{:sort nil}`
-        ;; reaches the predicate as `{}` (key absent) and conforms.
+        ;; Predicate modelling an OPTIONAL :sort restricted to "name" / "date":
+        ;; absent is OK, but when PRESENT it must be one of the two. Because nil
+        ;; is elided before validation, `{:sort nil}` reaches the predicate as
+        ;; `{}` (key absent) and conforms.
+        ;;
+        ;; rf2-3x7nj.12.1: a PREDICATE schema declares no query vocabulary (only
+        ;; a `[:map …]` vector does), so `:sort` is an undeclared key and reaches
+        ;; the predicate spelled the way the URL spells it — the string key
+        ;; "sort" carrying a string value.
         (rf/reg-route :route/search
-                      {:query (fn [m] (or (not (contains? m :sort))
-                                          (string? (:sort m))))} "/search")
+                      {:query (fn [m] (or (not (contains? m "sort"))
+                                          (contains? #{"name" "date"} (get m "sort"))))}
+                      "/search")
         ;; (1) route-url: nil omits the key, no throw, returns /search.
         (is (= "/search"
                (rf.routing/route-url {:to :route/search :params {} :query {:sort nil}}))
@@ -952,12 +958,12 @@
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
-              "a non-nil invalid :sort (a number) STILL fails validation")
+              "a non-nil invalid :sort (a number outside the allowlist) STILL fails validation")
           ;; rf2-vvixub — anchor on :rf.error/id; assert the token, not equality.
           (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
           (is (re-find #"\[:rf\.error/route-url-validation\]" (ex-message ex)))
           (is (= :query (:slot (ex-data ex))))
-          (is (= {:sort 123} (:value (ex-data ex)))
+          (is (= {"sort" "123"} (:value (ex-data ex)))
               ":value reports the elided map actually validated (nil-free)"))
         (finally (restore)))))
 
@@ -1554,8 +1560,8 @@
 ;; ---- rf2-3k3o7 / rf2-x0ngkv: keyword-interning defence on query keys -------
 ;;
 ;; The keyword-interning DoS (an attacker-influenced URL stream with
-;; N-unique query keys burning N permanent slots on a long-running SSR
-;; JVM) is closed at the source by SELECTIVE KEYWORDING — `coerce-query`
+;; N-unique query keys choosing N interns, each retained as long as a slice
+;; holds it, on a long-running SSR JVM) is closed at the source by SELECTIVE KEYWORDING — `coerce-query`
 ;; promotes ONLY keys declared by the route's `:query` schema /
 ;; `:query-defaults` to keyword keys; every undeclared
 ;; URL key passes through as a **string**, so a hostile URL of N-unique
@@ -1608,8 +1614,7 @@
 (deftest rf2-3k3o7-undeclared-query-keys-stay-as-strings
   (testing "query keys NOT declared by the route's `:query` schema or
             `:query-defaults` stay as **string** keys in the parsed
-            :query map — no permanent keyword-table slot is burned on
-            their behalf"
+            :query map — no keyword is interned on their behalf"
     (rf/reg-route :route/search
                   {:query [:map [:q :string]]} "/search")
     (let [m (rf.routing/match-url "/search?q=clojure&unknown1=foo&unknown2=bar")]
@@ -1650,8 +1655,8 @@
 ;; Authors who want keyword keys declare them via `:query` /
 ;; `:query-defaults` — author-named intent is the
 ;; trust boundary. Symmetrical to the rf2-3k3o7 value-side fix: hostile
-;; URLs composed of N-unique keys would otherwise burn N permanent JVM
-;; keyword slots, and a bare `(reg-route :route/x {} "/x")` is the
+;; URLs composed of N-unique keys would otherwise choose N keyword interns,
+;; and a bare `(reg-route :route/x {} "/x")` is the
 ;; high-cardinality public-surface case where the DoS hits hardest.
 
 (deftest rf2-5ifai-no-vocabulary-route-keeps-all-keys-as-strings

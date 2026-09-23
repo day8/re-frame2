@@ -29,8 +29,8 @@
 ;;      reg-route reject is pinned by the routing unit tests, not this
 ;;      match-url behaviour corpus.
 ;;
-;; Together these close the "burn permanent JVM keyword slots from
-;; user-controlled URLs" surface AT THE SOURCE: a hostile URL of N-unique
+;; Together these close the "intern keywords chosen by user-controlled
+;; URLs" surface AT THE SOURCE: a hostile URL of N-unique
 ;; undeclared keys interns zero keywords, so the routing side needs no
 ;; per-URL key cap (rf2-x0ngkv removed the redundant `default-max-decoded-
 ;; keys` ceiling). This differs from `:rf.http`, which genuinely

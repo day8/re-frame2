@@ -418,8 +418,18 @@
               ;; branches above hand it through as nil. The seam must NOT do
               ;; this one: there, an ABSENT `:query` stays absent rather than
               ;; being conjured into `{}`, which is a different fact.
+              ;;
+              ;; rf2-3x7nj.12.1: the deltas are SPELLED the way the current
+              ;; route's URL spells them before they fold, so a delta overwrites
+              ;; or removes the entry it names instead of landing beside it: on a
+              ;; route that does not declare `:page`, the URL-seeded
+              ;; `{"page" "1"}` merged with `{:page 2}` used to keep BOTH keys
+              ;; and push `page=2&page=1`, and `{:page nil}` removed nothing.
+              ;; Nil deltas stay nil through `canonical-query`, so the seam below
+              ;; still reads them as removals.
               query-params (or (if-let [merge-in (:query-merge request)]
-                                 (merge (:query current) query-params merge-in)
+                                 (merge (:query current) query-params
+                                        (rf.routing.registry/canonical-query route-meta merge-in))
                                  query-params)
                                {})
               ;; EP-0037 R0b: shape the ResolvedTarget ONCE, HERE — before the

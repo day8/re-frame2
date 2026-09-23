@@ -196,7 +196,8 @@
               (let [entry (first @calls)]
                 (is (= :route/docs (:route-id entry)))
                 (is (= {:page "routing"} (:params entry)))
-                (is (= {:tab "a"} (:query entry)))
+                ;; rf2-3x7nj.12.1: `:route/docs` declares no query vocabulary.
+                (is (= {"tab" "a"} (:query entry)))
                 (is (= "top" (:fragment entry)))
                 (is (= token (:nav-token entry)) "the UNCHANGED token — no allocation")
                 (is (= {} (:ctx entry)) "the reserved entry ctx, never nil")

@@ -25,10 +25,13 @@
 
   ## Keyword-interning cap
 
-  JVM keywords are interned and
-  never GC'd. An attacker-controlled JSON response with N unique keys
-  permanently burns N keyword slots — a long-running SSR JVM is the
-  worst case. Both readers enforce a per-call cap on the number of
+  Object keys decode to keywords, so an attacker-controlled JSON
+  response with N unique keys costs N interns, and each keyword lives
+  as long as the decoded reply does. On the pinned Clojure (1.12.4) the
+  JVM keyword table holds keywords by reference and reclaims those
+  nothing references any more — the cost is churn and retention, not a
+  permanent leak — and a long-running SSR JVM sees the most such input.
+  Both readers enforce a per-call cap on the number of
   unique keys decoded (default `default-max-decoded-keys` = 10000;
   overridable per request via `(json-parse s {:max-decoded-keys N})`).
   Overflow throws `:rf.error/id :rf.error/malformed-json` with
