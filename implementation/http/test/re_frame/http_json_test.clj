@@ -16,7 +16,8 @@
                  the fallback removed those manual-parser regressions
                  are moot — Cheshire is RFC-8259-conforming and bulletproof
                  around `\\uXXXX` escapes by construction."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [cheshire.core :as cheshire]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.http.json :as rf.http.json]))
 
 ;; ---- rf2-wu1n5 — keyword-interning cap -----------------------------------
@@ -128,6 +129,35 @@
     (is (= "[1,2,3]" (rf.http.json/json-stringify [1 2 3])))
     (is (= "true" (rf.http.json/json-stringify true)))
     (is (= "null" (rf.http.json/json-stringify nil)))))
+
+;; rf2-3x7nj.16.2 — the same body writes the same JSON on both hosts. The CLJS
+;; twin (`cljs-json-stringify-matches-across-hosts` in
+;; http_json_cljs_test.cljs) pins the identical expectations; this JVM half is a
+;; regression pin, because Cheshire already wrote them. Parsed JSON is compared,
+;; because key order is not part of the contract.
+(def ^:private uuid-a #uuid "6f1c2b3a-0000-4000-8000-000000000001")
+
+(defn- wire [v]
+  (cheshire/parse-string (rf.http.json/json-stringify v)))
+
+(deftest json-stringify-matches-across-hosts
+  (testing "rf2-3x7nj.16.2 — keywords keep their namespace, keys and values
+  alike, and a UUID goes out as its canonical string wherever it sits"
+    (is (= {"order/id" 1 "customer/id" 7} (wire {:order/id 1 :customer/id 7}))
+        "two qualified keys sharing a local name stay two members")
+    (is (= {"status" "order/pending"} (wire {:status :order/pending}))
+        "a qualified keyword VALUE keeps its namespace")
+    (is (= {"id" "6f1c2b3a-0000-4000-8000-000000000001"} (wire {:id uuid-a}))
+        "a UUID value is its canonical string")
+    (is (= {"ids" ["6f1c2b3a-0000-4000-8000-000000000001"]} (wire {:ids [uuid-a]}))
+        "a UUID nested in a vector is its canonical string")
+    (is (= {"6f1c2b3a-0000-4000-8000-000000000001" 1} (wire {uuid-a 1}))
+        "a UUID map key is its canonical string")
+    (is (= {:order/id 1 :customer/id 7}
+           (rf.http.json/json-parse (rf.http.json/json-stringify {:order/id 1 :customer/id 7})))
+        "qualified keys round-trip through the framework's own decoder")
+    (is (= "{\"a\":1,\"b\":\"hello\"}" (rf.http.json/json-stringify {:a 1 :b "hello"}))
+        "control: an unqualified body is unchanged")))
 
 ;; ---- rf2-mih7n — non-string / empty input coverage -----------------------
 ;;
