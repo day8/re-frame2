@@ -198,6 +198,11 @@
   `epoch-history` at settle time) re-sync to the corrected `:sub-runs` +
   `:value-changed?` attribution.
 
+  A `:sub-return` / `:sub-override` schema failure from the same recompute
+  arrives here too, so it lands in the same epoch as its run. Like a
+  `:rf.sub/skip` it projects no `:sub-runs` row, so it rides only
+  `:trace-events`, where Xray attaches it to the SUBSCRIPTIONS row.
+
   No-op when the frame has no settled epoch yet (a sub-run before the
   first cascade) or when the target epoch has been evicted from the ring
   — `back-fill-sub-run!` returns nil and we skip the re-notify."
