@@ -172,10 +172,12 @@
                :url        "/api/messages"}})
 
 (deftest http-adapter-success-record
-  (testing "The issuing event-bundle can only see that the request was ISSUED —
-            the fx handler returned and the transport was entered. Every field
-            that would describe an OUTCOME is nil by construction, because no
-            completion row can reach this bundle."
+  (testing "Read from the issuing event-bundle ALONE, a record can only say the
+            request was ISSUED — the fx handler returned and the transport was
+            entered. Every field that would describe an OUTCOME is nil, because
+            no completion row reaches this bundle; the outcome comes from the
+            cross-buffer join (rf2-6ooch), pinned on producer captures in
+            `managed_fx_http_join_cljs_test`."
     (let [args   {:request {:method :get :url "/api/users/42"
                             :headers {:accept "application/json"}}
                   :decode  :json
@@ -361,14 +363,14 @@
 ;;     only when the destroy rides the SAME event's `:fx` vector, and then it
 ;;     names a request this bundle never issued — see the anonymous-record row
 ;;     above. `surface-events->cancel-cause` itself is KEPT and still pinned
-;;     below — the deferred cross-buffer join (rf2-6ooch) reuses it, and
-;;     `http-row-for-this-record?` now reads it to decide which rows are
+;;     below — `http-row-for-this-record?` reads it to decide which rows are
 ;;     cancellations at all.
 ;;   - the wire-timing fixture injected the PHANTOM `:rf.http/handled` as a
-;;     surface event. HTTP `:wire` is now nil by construction: the only in-bundle
+;;     surface event. HTTP `:wire` is never synthesised in-bundle: the only in-bundle
 ;;     HTTP row is the sync failure above, and `:rf.fx/handled` is emitted AFTER
 ;;     the fx handler returns, so the failure row never post-dates the issue row
-;;     and no elapsed window exists to synthesise. The non-HTTP wire-timing
+;;     and no elapsed window exists to synthesise. (An HTTP record's elapsed
+;;     comes from the cross-buffer join instead, rf2-6ooch.) The non-HTTP wire-timing
 ;;     coverage for the four surfaces that DO get end events in-bundle is
 ;;     unchanged (see the machine-destroy and websocket rows below).
 
