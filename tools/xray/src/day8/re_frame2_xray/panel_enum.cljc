@@ -77,9 +77,9 @@
                                        (008 §Embeddable event spine).
                       :full-shell    — the master `mount-shell!` entry.
 
-  Tier 4 internal sub-components (after-rings overlay, sim side-rail)
-  are NOT in this enum — they are geometry-coupled to
-  `machine-inspector/Panel` and expose no standalone mount fn (per
+  The Tier 4 internal sub-component (the after-rings overlay) is NOT
+  in this enum — it is geometry-coupled to
+  `machine-inspector/Panel` and exposes no standalone mount fn (per
   007-UX-IA §Tier 4). The enum carries exactly the mountable surface.")
 
 ;; ---------------------------------------------------------------------------

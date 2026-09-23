@@ -125,15 +125,14 @@
 
   ## Internal sub-components — not independently mountable
 
-  Five surfaces inside `machine-inspector/Panel` are auxiliary
-  inspectors that depend on the chart's positioned graph for their
-  geometry: `AfterRingsOverlay`, `ArcOverlay`, `ClusterView`,
-  `ScrubberStrip`, `SimSideRail`. These render under
-  `machine-inspector/Panel` (which owns the chart) and are not
-  exposed as standalone mount fns — mounting a ring overlay without
-  a chart underneath is geometrically meaningless. They remain
-  reachable via `machine-inspector/Panel` and document themselves
-  as internal sub-components.
+  One surface inside `machine-inspector/Panel` is an auxiliary
+  inspector that depends on the chart's positioned graph for its
+  geometry: `AfterRingsOverlay`. It renders under
+  `machine-inspector/Panel` (which owns the chart) and is not
+  exposed as a standalone mount fn — mounting a ring overlay without
+  a chart underneath is geometrically meaningless. It remains
+  reachable via `machine-inspector/Panel` and documents itself
+  as an internal sub-component.
 
   ## Frame-provider opt — `:frame` defaults to `:rf/xray`
 
@@ -490,9 +489,8 @@
 (defn mount-machine-inspector!
   "Mount Xray's Machines tab in isolation at `mount-point`. Renders
   the chart + arc/ring/cluster overlays for the focused machine.
-  The auxiliary inspectors (AfterRingsOverlay, ArcOverlay,
-  ClusterView, ScrubberStrip, SimSideRail) render under this Panel
-  — they are not independently mountable (see ns docstring §Internal
+  The auxiliary inspector (AfterRingsOverlay) renders under this Panel
+  — it is not independently mountable (see ns docstring §Internal
   sub-components).
 
   `opts :instance-id` — OPTIONAL (rf2-3ymg), and this panel is the one

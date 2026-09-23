@@ -937,10 +937,9 @@
 ;; ABI — and the `[rf/frame-provider {:frame :rf/xray}]` the shell already
 ;; wraps the panel in is what puts `:rf/xray` in that context.
 ;;
-;; The Tier 4 sub-components (after-rings overlay, arc/cluster overlays,
-;; scrubber strip, sim side-rail) render UNDER `Panel` and are not
-;; independently mountable, so they need no bridge of their own. The
-;; after-rings overlay carries its own
+;; The Tier 4 sub-component (the after-rings overlay) renders UNDER
+;; `Panel` and is not independently mountable, so it needs no bridge of
+;; its own for this panel. It does carry one
 ;; (`machine_after_rings/AfterRingsOverlay-bridge`), but NOT for this
 ;; panel's sake any more: rf2-k97c.3 made `machine-canvas/Chart-view` a
 ;; boundary, and it heads the overlay directly. The bridge survives for the

@@ -23,9 +23,10 @@
   - `:event-id-pattern` — the `{:pattern <kw-or-str>}` shape.
     Delegates to the event-id pattern matcher.
   - `:machine` — match event-bundles whose trace-events include a
-    `:tags :machine-id` equal to `<params :machine-id>`. The right-
-    click affordance on the Machines panel rows fires
-    `:rf.xray/filter-by-machine` which appends this kind.
+    `:tags :machine-id` equal to `<params :machine-id>`.
+    `:rf.xray/filter-by-machine` appends this kind; it is registered,
+    but no UI surface dispatches it yet (see the note above its
+    `reg-event` in `filters.cljs`).
   - `:http-correlation` — match the event-bundles of ONE managed-fx
     exchange: the ISSUING bundle (a trace-event whose `:tags
     :rf.fx/args` carries the caller's id) and the REPLY-DISPATCH

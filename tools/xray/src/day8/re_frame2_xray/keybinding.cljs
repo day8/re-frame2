@@ -568,7 +568,8 @@
   in the boot sequence — the `::sync-global-listener` watch at the foot of
   this namespace attaches and detaches on every change — so an embed host
   whose mount lifecycle runs AFTER Xray's preload (e.g. Story's
-  `ensure-xray-mounted!`) needs nothing further, and calling `detach!`
+  `re-frame.story.xray-preset/wire-cross-host!`) needs nothing further,
+  and calling `detach!`
   alongside the flip is harmless, merely redundant. The hatch is for a
   host that wants the listener gone WITHOUT declaring the slot, or that
   must remove it from a mount-time hook it does not own. Symmetric
