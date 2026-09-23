@@ -502,9 +502,16 @@
         ;; inspection missed one — so both failure routes now read ONE
         ;; predicate, and `parent-instance-live?` reads exactly the two signals
         ;; named above.
+        ;;
+        ;; rf2-3x7nj.9.1 — the gate reads the REPLY coordinates, which fall
+        ;; back to the `:rf/join-child` membership record. A `:spawn-all` join
+        ;; child never carries a public `:rf/invoke-id`, so a gate keyed on
+        ;; `invoke-id` was always false for it: a join child finishing after
+        ;; its parent's explicit destroy dispatched its carrier at the dead
+        ;; address, and the surviving definition RESURRECTED the parent.
         parent-live?  (rf.machines.lifecycle-fx.spawn-error/parent-instance-live?
-                        runtime-db parent-id)
-        stale-spawn?  (and parent-id invoke-id (not parent-live?))
+                        runtime-db reply-parent-id)
+        stale-spawn?  (and reply-parent-id reply-invoke-id (not parent-live?))
         ;; The carried generation is parsed off THIS finishing actor's id;
         ;; the CURRENT generation is the LIVE counterpart — the generation of
         ;; the actor currently occupying the spawn slot at
