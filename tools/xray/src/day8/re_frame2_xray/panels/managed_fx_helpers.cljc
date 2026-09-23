@@ -777,7 +777,8 @@
   attempt has terminated — measured on the producer: an explicit
   `[:rf.http/managed-abort :y]` evicts `:y`'s issuance counter, so a
   same-id re-issue in the same run is `[:rf.work/http :y 1 1]` again, and
-  both replies carry it. `reply-link-for` resolves by position.
+  both replies carry it; so does any named id re-issued after it
+  completed. `reply-link-for` resolves by position.
 
   `:source :http` is required, not decorative: an app handler that
   forwards the reply map to another event carries the same work id, and
@@ -800,15 +801,40 @@
     (reduce-kv (fn [m k v] (assoc m k (vec (sort-by :id v)))) {} grouped)))
 
 (defn- reply-link-for
-  "The delivery of ONE terminal row: the first reply bundle under the same
-  frame and full work id whose dispatch comes after the terminal row —
-  the transport emits the completion row and only then dispatches the
-  reply. `{:dispatch-id :frame}`, or nil when the delivery is not in the
-  capture."
-  [reply-index frame wid terminal-id]
-  (when-let [hit (some #(when (and (number? (:id %)) (> (:id %) terminal-id)) %)
+  "The delivery of ONE completion: the first reply bundle under the same
+  frame and full work id whose dispatch lands AFTER that completion's
+  terminal row and BEFORE the next completion under the same issuance key
+  (`until-id`, nil when there is none in the capture).
+
+  Both ends are the producer's own order. The transport emits the
+  completion row and then dispatches the reply in one synchronous tail
+  (`emit-reply-trace!`, then `dispatch-reply!`, whose `:rf.event/dispatched`
+  row the router emits at enqueue), so a completion's delivery lands
+  before any later completion under its key can. A delivery past that
+  next completion therefore belongs to it, never to this one — which is
+  exactly the case of a SILENCED reply (`:on-failure nil`, `:reply-to
+  nil`) followed by a delivered one under a reused id: both carry the
+  identical full work id, and without the upper bound the silenced
+  record would borrow its successor's reply. `{:dispatch-id :frame}`, or
+  nil when this completion's delivery is not in the capture — including
+  when it delivered nothing."
+  [reply-index frame wid terminal-id until-id]
+  (when-let [hit (some #(let [id (:id %)]
+                          (when (and (number? id)
+                                     (> id terminal-id)
+                                     (or (nil? until-id) (< id until-id)))
+                            %))
                        (get reply-index [frame wid]))]
     (select-keys hit [:dispatch-id :frame])))
+
+(defn- next-completion-id
+  "The trace `:id` of the first terminal-index row under `key` after
+  `terminal-id` — where the NEXT completion under the same issuance key
+  begins — or nil when there is none in the capture. A completion's own
+  failure-kind and `:rf.http/aborted` rows precede its canonical row, so
+  the first row after a canonical terminal is always a later request's."
+  [terminal-index key terminal-id]
+  (some #(when (> (:id %) terminal-id) (:id %)) (get terminal-index key)))
 
 (defn http-join-context
   "The per-recompute join context the walker threads to every HTTP
@@ -849,8 +875,9 @@
   epoch milliseconds on a different clock and is never subtracted from
   trace time. RESPONSE is whatever summary the row carries: the elision
   walker's output is the ceiling, and under `:sensitive?` it is the
-  `:rf/redacted` sentinel."
-  [issued terminal reply-index]
+  `:rf/redacted` sentinel. `until-id` bounds the reply link to this
+  completion's own delivery — see `reply-link-for`."
+  [issued terminal reply-index until-id]
   (let [tags    (:tags terminal)
         row     (re/work-event-row terminal)
         status  (or (:status row)
@@ -888,12 +915,13 @@
                                     (when (map? error) (:reason error)))
                      :stale     (:rf.reply/stale-reason tags)
                      nil)
-     ;; A stale outcome was never delivered; every other status was, so
-     ;; its reply-dispatch bundle is the link — when it is still in the
-     ;; capture.
+     ;; A stale outcome is never delivered. Any other status MAY have been
+     ;; — a silenced branch (`:on-failure nil`, `:reply-to nil`) completes
+     ;; and delivers nothing — so the link is an observed delivery in this
+     ;; completion's own window, never inferred from the status.
      :reply-link   (when (contains? #{:ok :error :cancelled} status)
                      (reply-link-for reply-index (terminal-row-frame terminal) wid
-                                     (:id terminal)))}))
+                                     (:id terminal) until-id))}))
 
 (defn http-adapter
   "HTTP surface adapter — the ISSUING bundle says `:issued`; the WHOLE
@@ -975,7 +1003,8 @@
                                :status      (if (= :ok (:status rec)) :issued (:status rec)))]
      (if (and key (some? terminal-index))
        (if-let [terminal (terminal-row-for terminal-index key (:id issued))]
-         (merge base (joined-fields issued terminal reply-index))
+         (merge base (joined-fields issued terminal reply-index
+                                    (next-completion-id terminal-index key (:id terminal))))
          (assoc base :completion :none))
        base))))
 
