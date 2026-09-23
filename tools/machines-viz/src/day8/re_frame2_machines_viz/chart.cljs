@@ -1628,8 +1628,10 @@
                                ;; SVG/PNG/clipboard, so live `:data` values
                                ;; are redacted by default; the host declares
                                ;; which slots are sensitive/large (from the
-                               ;; machine's `[:schemas :data]` schema) and may
-                               ;; opt into raw via `:context-band-raw?`.
+                               ;; machine definition's own `:sensitive` /
+                               ;; `:large` paths, via `context-redaction/
+                               ;; derive-classification`) and may opt into
+                               ;; raw via `:context-band-raw?`.
                                :context-band-sensitive context-band-sensitive
                                :context-band-large context-band-large
                                :context-band-raw? context-band-raw?})))
