@@ -41,8 +41,13 @@ Every tool that needs the runtime calls `ensure-runtime!`:
 1. `cljs-eval` the probe
    `(some? (and (exists? js/globalThis) (.-__re_frame2_pair_runtime js/globalThis)))`.
 2. If `true` comes back, the runtime is live; proceed.
-3. Otherwise, reject with
-   `{:reason :runtime-not-preloaded :hint <setup-message>}`.
+3. Otherwise, run the failure-path diagnostic ladder (rf2-7tgfk;
+   [`003-Tool-Catalogue.md` §discover-app](003-Tool-Catalogue.md#failure-path-diagnostic-ladder-rf2-7tgfk))
+   and reject with one of its four specific reasons
+   (`:nrepl-unreachable` / `:build-not-running` / `:no-runtime-connected` /
+   `:runtime-loaded-but-preload-missing`), degrading to the blanket
+   `{:reason :runtime-not-preloaded :hint <setup-message>}` only when
+   the ladder itself errors.
 
 There is no cljs-eval inject fallback (rf2-7dvg cut it). The consumer
 adds the preload entry to their shadow-cljs build per

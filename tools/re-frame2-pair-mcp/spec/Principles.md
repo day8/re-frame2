@@ -106,7 +106,7 @@ re-frame2-pair-mcp without code changes.
 If the nREPL endpoint cannot be resolved on the first app-facing call,
 the server still answers `tools/list` and retries discovery later.
 App-facing calls return a structured
-`:ok? false :reason :nrepl-port-not-found` error. Server-local tools,
+`:ok? false :reason :rf.error/pair-mcp-nrepl-port-not-found` error. Server-local tools,
 unknown-tool diagnostics, and disabled-write guards do not require a
 connection and continue to return their own results.
 
@@ -135,12 +135,15 @@ canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
 and arg shapes — only the transport differed. Every other MCP tool
 (the write pair `restore-epoch` / `replace-app-db`, `dispatch-dry-run`,
-the mega-op reads `snapshot` / `get-path`, the read-orientation pair
-`orient` / `read-sub`, the view-plane reads `read-dom` / `read-ui`,
+`replay-epoch`, the mega-op reads `snapshot` / `get-path`, the
+read-orientation pair `orient` / `read-sub`, the view-plane reads
+`read-dom` / `read-ui`, the Fresco evidence reads
+`read-mounted-boundaries` / `read-read-attribution` / `explain-render`,
 the signal recorder `record` / `read-recording` / `watch-until`, the
 operating-frame trio `set-operating-frame` / `reset-operating-frame` /
 `get-operating-frame`, the reactive-sub-cache reader `list-subscriptions`,
-the registrar-introspection pair `handler-meta` / `list-handlers`, and
+the registrar-introspection pair `handler-meta` / `list-handlers`,
+`describe-image`, and
 `get-re-frame2-pair-instructions` — full catalogue in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) has no shim
 equivalent. That is what made the back-compat tractable while it
@@ -159,7 +162,7 @@ The cross-server contract — default cap, override slot name,
 overflow marker key, agent-host retry contract, and chained-budget
 rules when an agent attaches the triplet in one session — lives at
 [`tools/mcp-conformance/TOKEN-BUDGETS.md`](../../mcp-conformance/TOKEN-BUDGETS.md).
-The eight mechanisms below are re-frame2-pair-mcp's expansion of that
+The seven mechanisms below are re-frame2-pair-mcp's expansion of that
 contract.
 
 The motivation is the 2026 trend axis. Microsoft's April 2026
@@ -324,7 +327,7 @@ sees the same slot here.
 
 Concretely on re-frame2-pair-mcp's catalogue: `snapshot` accepts a
 top-level `:path` arg (drilling into the chosen slice) and a
-`:mode` arg (`:summary` default, `:sample`, `:full`) plus a
+`:mode` arg (`"summary"` default, `"full"`) plus a
 per-slice `:modes` override map; `get-path` takes a `:path`
 arg for the targeted-read surface. The discovery workflow ("I
 don't know which slice carries the answer") stays inside the
@@ -866,10 +869,12 @@ Tool names in re-frame2-pair-mcp's catalogue pick from the verb table at
 (rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
 shared with story-mcp. The shared verbs the pair pins are
 `get-` / `list-` / `read-` / `discover-` /
-`restore-` / `reset-` / `register-` / `unregister-` / `run-` /
-`preview-` / `record-as-` / `tail-` plus the bare universals
-`dispatch` and `eval-cljs`, plus the
-mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
+`restore-` / `replay-` / `replace-` / `reset-` / `set-` / `register-` /
+`unregister-` / `run-` / `preview-` / `explain-` / `describe-` /
+`record-as-` / `tail-` / `watch-` plus the bare universals
+`dispatch`, `dispatch-dry-run` and `eval-cljs`, plus the
+mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`,
+`orient`, `record`)
 reserved for derived projections that span multiple registry kinds.
 
 The tools in the canonical [catalogue](003-Tool-Catalogue.md), in

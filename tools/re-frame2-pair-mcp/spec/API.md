@@ -53,13 +53,14 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 |---|---|---|
 | `SHADOW_CLJS_BUILD_ID` | `"app"` | Final-fallback build id passed to `cljs-eval`. See §Build-id resolution below for the full precedence ladder. |
 | `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; follows `--port-file` and precedes automatic port-file discovery. |
+| `RE_FRAME2_PAIR_MCP_EDITOR` | `vscode` | Editor scheme for the `:rf.mcp/source-uri` jump-to-editor links (`vscode` / `cursor` / `windsurf` / `zed` / `idea`); read once at server start (`src/re_frame2_pair_mcp/config.cljs`). |
 
 ### Build-id resolution
 
 Every tool call needs a shadow-cljs build id to route over the nREPL
 socket. The server walks **three sources in precedence order** (rf2-l9ixp;
 impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools/wire.cljs)
-`arg-build`, lines 125-146):
+`arg-build`, lines 275-324):
 
 1. **Explicit `:build` MCP arg on the call.** Operator override always
    wins; no surprise from the cache. The arg is **colon-tolerant**
@@ -105,8 +106,8 @@ impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools
    final fallback when neither (1) nor (2) is available.
 
 **Invalidation.** The cache resets on `nrepl/connect!`
-(`src/re_frame2_pair_mcp/nrepl.cljs` line 398) and `nrepl/close!`
-(line 416) — the operator may relaunch shadow-cljs against a different
+(`src/re_frame2_pair_mcp/nrepl.cljs` line 519) and `nrepl/close!`
+(line 620) — the operator may relaunch shadow-cljs against a different
 build id, so the next reconnect starts with no cached resolution.
 
 **Consequence for callers.** After **any** call that names a build —
@@ -285,7 +286,8 @@ Server: {:ok? true
          :debug-enabled? true
          :frames [:app/main]
          :coord-annotation-enabled? true
-         :build-id "app"}
+         :build-id :app
+         :build :app}
 ```
 
 If the health summary comes back `:ok? true`, the connection is
@@ -310,8 +312,8 @@ analogues. Listed here for reference:
 | `re-frame2-pair.runtime/session-id` | preload/re_frame2_pair/runtime.cljs | Per-session UUID; mirrored on the global marker. |
 | `re-frame2-pair.runtime/dispatch-consequence!` | preload/re_frame2_pair/runtime.cljs | Default synchronous dispatch and compact consequence response. |
 | `re-frame2-pair.runtime/pair-dispatch!`, `dispatch-and-collect`, `dispatch-and-settle!` | preload/re_frame2_pair/runtime.cljs | Explicit queued, trace, and settle modes respectively. |
-| `re-frame2-pair.runtime/trace-window` | preload/re_frame2_pair/runtime.cljs | Last-N-ms epoch lookback. |
-| `re-frame2-pair.runtime/watch-epochs` | preload/re_frame2_pair/runtime.cljs | Poll for epochs after id. |
+| `re-frame2-pair.runtime/epoch-history` | preload/re_frame2_pair/runtime.cljs | Per-frame epoch ring; `trace-window` slices the last-N-ms window from it inside its eval form. |
+| `re-frame2-pair.runtime/epochs-since`, `epoch-matches?` | preload/re_frame2_pair/runtime.cljs | Poll for epochs after id, with the server-side `:pred` filter (`watch-epochs`). |
 | `re-frame2-pair.runtime/snapshot-state` | preload/re_frame2_pair/runtime.cljs | Per-frame slice composer fed by `:include` / `:frames` opts; backs the `snapshot` MCP tool. |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
