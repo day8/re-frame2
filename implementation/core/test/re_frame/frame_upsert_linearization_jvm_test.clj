@@ -27,6 +27,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -427,6 +428,220 @@
             (is (identical? prior-revision
                             (get-in (rf.frame/frame id) [:construction :revision]))
                 "rollback restores the pre-attempt final revision")))
+        (finally
+          (.countDown release)
+          (rf.late-bind/set-fn! hook-key original-hook))))))
+
+;; ===========================================================================
+;; rf2-3x7nj.2.1 — a re-registering LIVE frame stays visible to every actor.
+;;
+;; Owner-only visibility of a provisional row is for FIRST construction, where
+;; the row is half-built. A same-id re-registration stages a new config onto the
+;; live record — app-db, router, queue, drain lock and sub-cache are the same
+;; objects — so while the revision is staged every actor, foreign JVM threads
+;; included, sees the frame with its STAGED config. Admission is unchanged: a
+;; same-id constructor or destroyer still loses at the per-id reservation.
+;;
+;; Each case pauses the owner at `*upsert-policy-probe*`, which fires AFTER the
+;; revision is staged (`*upsert-decide-probe*` fires before, while the row is
+;; still final). The test thread and the `next-tick` executor are the foreign
+;; actors.
+;; ===========================================================================
+
+(defn- flush-executor!
+  "Block until every task already submitted to the single-thread `next-tick`
+  executor has run: it is FIFO, so a marker submitted now runs after them."
+  []
+  (let [p (promise)]
+    (rf.interop/next-tick #(deliver p true))
+    (deref p 10000 :timeout)))
+
+(defn- router-summary
+  "The raw router flags for `id`, read off the registry row so the read does not
+  depend on the visibility under test."
+  [id]
+  (let [r @(:router (get @rf.frame/frames id))]
+    {:scheduled? (boolean (:scheduled? r))
+     :queue-count (count (:queue r))}))
+
+(defn- reg-inc! []
+  (rf/reg-event :rereg/inc
+    (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))})))
+
+(deftest reregistration-window-foreign-lookup-and-dispatch-see-the-live-frame
+  (let [id      :rereg/visible
+        reached (CountDownLatch. 1)
+        release (CountDownLatch. 1)]
+    (reg-inc!)
+    (rf.frame/upsert-frame! id {:tags #{:prior}})
+    (let [owner (binding [rf.frame/*upsert-policy-probe*
+                          (window-probe id reached release)]
+                  (future (rf.frame/upsert-frame! id {:tags #{:staged}})))]
+      (try
+        (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
+        (is (= :provisional (get-in @rf.frame/frames [id :construction :state]))
+            "the window is open: the staged revision is provisional")
+        (is (some? (rf.frame/frame id))
+            "a foreign thread still sees the live frame")
+        (is (= #{:staged} (get-in (rf.frame/frame id) [:config :tags]))
+            "and sees it with its STAGED config")
+        (is (contains? (rf.frame/frame-ids) id)
+            "the live frame stays enumerable")
+        (rf/dispatch [:rereg/inc] {:frame id})
+        (is (true? (flush-executor!)))
+        (is (= {:n 1} (rf.frame/frame-app-db-value id))
+            "a foreign dispatch issued inside the window reaches app-db")
+        (finally
+          (.countDown release)))
+      (is (= id @owner) "the re-registration completes")
+      (is (= #{:staged} (get-in (rf.frame/frame id) [:config :tags])))
+      (is (= {:scheduled? false :queue-count 0} (router-summary id))))))
+
+(deftest reregistration-window-a-drain-starting-inside-it-drains
+  (let [id      :rereg/scheduled
+        park    (CountDownLatch. 1)
+        reached (CountDownLatch. 1)
+        release (CountDownLatch. 1)]
+    (reg-inc!)
+    (rf.frame/upsert-frame! id {:tags #{:prior}})
+    ;; Park the executor so the drain this dispatch schedules starts only
+    ;; once the window is open.
+    (rf.interop/next-tick #(.await park 10 TimeUnit/SECONDS))
+    (rf/dispatch [:rereg/inc] {:frame id})
+    (is (= {:scheduled? true :queue-count 1} (router-summary id))
+        "the drain is armed and waiting behind the parked executor")
+    (let [owner (binding [rf.frame/*upsert-policy-probe*
+                          (window-probe id reached release)]
+                  (future (rf.frame/upsert-frame! id {:tags #{:staged}})))]
+      (try
+        (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
+        (.countDown park)
+        (is (true? (flush-executor!)) "the scheduled drain ran inside the window")
+        (is (= {:n 1} (rf.frame/frame-app-db-value id))
+            "the drain processed the event rather than reading the frame as dead")
+        (finally
+          (.countDown park)
+          (.countDown release)))
+      (is (= id @owner))
+      (is (= {:scheduled? false :queue-count 0} (router-summary id))
+          "the router settled — :scheduled? is not left stuck true")
+      (rf/dispatch [:rereg/inc] {:frame id})
+      (is (true? (flush-executor!)))
+      (is (= {:n 2} (rf.frame/frame-app-db-value id))
+          "later async dispatches still drain")
+      (is (= {:scheduled? false :queue-count 0} (router-summary id))))))
+
+(deftest reregistration-window-an-in-flight-drain-keeps-its-commit
+  (let [id          :rereg/in-flight
+        in-handler  (CountDownLatch. 1)
+        window-open (CountDownLatch. 1)
+        reached     (CountDownLatch. 1)
+        release     (CountDownLatch. 1)
+        lifecycle   (atom [])]
+    (rf/reg-event :rereg/slow
+      (fn [{:keys [db]} _]
+        (.countDown in-handler)
+        (.await window-open 10 TimeUnit/SECONDS)
+        {:db (assoc db :slow true)}))
+    (rf/reg-event :rereg/after
+      (fn [{:keys [db]} _] {:db (assoc db :after true)}))
+    (rf.frame/upsert-frame! id {:tags #{:prior}})
+    (rf/register-listener! :trace ::in-flight
+      (fn [ev]
+        (when (and (= id (get-in ev [:tags :frame]))
+                   (= :rf.frame/drain-interrupted (:operation ev)))
+          (swap! lifecycle conj ev))))
+    (rf/dispatch [:rereg/slow] {:frame id})
+    (rf/dispatch [:rereg/after] {:frame id})
+    (is (.await in-handler 10 TimeUnit/SECONDS) "the drain is inside :rereg/slow")
+    (let [owner (binding [rf.frame/*upsert-policy-probe*
+                          (window-probe id reached release)]
+                  (future (rf.frame/upsert-frame! id {:tags #{:staged}})))]
+      (try
+        (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
+        ;; :rereg/slow returns while the revision is staged.
+        (.countDown window-open)
+        (is (true? (flush-executor!)))
+        (is (= {:slow true :after true} (rf.frame/frame-app-db-value id))
+            "the in-flight event's commit stands and the queued event behind it runs")
+        (finally
+          (.countDown window-open)
+          (.countDown release)))
+      (is (= id @owner))
+      (is (empty? @lifecycle)
+          "a hot re-registration is not reported as a destroy (no drain-interrupted)")
+      (is (= {:scheduled? false :queue-count 0} (router-summary id))))))
+
+(deftest reregistration-window-a-foreign-cold-op-is-drain-serialized
+  ;; `call-serialized-with-drain!` (reg-flow, Tool-Pair state writes) resolves
+  ;; the frame first; had the window hidden it, the op would run WITHOUT the
+  ;; drain lock, unserialized against a concurrent drain.
+  (let [id      :rereg/cold
+        reached (CountDownLatch. 1)
+        release (CountDownLatch. 1)]
+    (rf.frame/upsert-frame! id {:tags #{:prior}})
+    (let [drain-lock (:drain-lock (rf.frame/frame id))
+          owner      (binding [rf.frame/*upsert-policy-probe*
+                               (window-probe id reached release)]
+                       (future (rf.frame/upsert-frame! id {:tags #{:staged}})))]
+      (try
+        (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
+        (is (true? (rf.frame/call-serialized-with-drain! id (fn [] @drain-lock)))
+            "the foreign cold op ran holding the frame's drain lock")
+        (finally
+          (.countDown release)))
+      (is (= id @owner))
+      (is (false? @drain-lock) "the cold section released the lock"))))
+
+(deftest failed-reregistration-window-keeps-foreign-work-and-restores-config
+  (let [id            :rereg/failed
+        hook-key      :routing/on-frame-registered!
+        original-hook (rf.late-bind/get-fn hook-key)
+        reached       (CountDownLatch. 1)
+        release       (CountDownLatch. 1)]
+    (reg-inc!)
+    (rf.frame/upsert-frame! id {:tags #{:prior}
+                                :rf.trace/frame-no-emit? true
+                                :rf.trace/events-retained 5})
+    (let [prior-config (:config (rf.frame/frame id))]
+      (try
+        (rf.late-bind/set-fn!
+          hook-key
+          (fn [candidate-id]
+            (when (= id candidate-id)
+              (throw (ex-info "registration hook failed"
+                              {:test/outcome :hook-failed})))))
+        (let [owner (binding [rf.frame/*upsert-policy-probe*
+                              (window-probe id reached release)]
+                      (future
+                        (try
+                          (rf.frame/upsert-frame! id {:tags #{:failed}
+                                                      :rf.trace/frame-no-emit? false
+                                                      :rf.trace/events-retained 99})
+                          :unexpected-success
+                          (catch clojure.lang.ExceptionInfo e
+                            (:test/outcome (ex-data e))))))]
+          (try
+            (is (.await reached 10 TimeUnit/SECONDS) "the owner staged its revision")
+            (is (= #{:failed} (get-in (rf.frame/frame id) [:config :tags]))
+                "a foreign thread sees the frame with the staged config")
+            (rf/dispatch [:rereg/inc] {:frame id})
+            (is (true? (flush-executor!)))
+            (is (= {:n 1} (rf.frame/frame-app-db-value id))
+                "the foreign event ran under the staged config")
+            (finally
+              (.countDown release)))
+          (is (= :hook-failed @owner) "the staged re-registration fails")
+          (is (some? (rf.frame/frame id)) "the frame stayed live throughout")
+          (is (= prior-config (:config (rf.frame/frame id)))
+              "the prior config is restored")
+          (is (true? (rf.trace/frame-trace-disabled? id))
+              "the prior no-emit policy is restored")
+          (is (= 5 (retained-cap id)) "the prior retention policy is restored")
+          (is (= {:n 1} (rf.frame/frame-app-db-value id))
+              "work other events did under the staged config stands")
+          (is (= {:scheduled? false :queue-count 0} (router-summary id))
+              "the queue drained and :scheduled? ended false"))
         (finally
           (.countDown release)
           (rf.late-bind/set-fn! hook-key original-hook))))))

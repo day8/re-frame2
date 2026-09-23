@@ -118,6 +118,10 @@
         "the final image-loaded id becomes enumerable")))
 
 (deftest ensure-default-does-not-adopt-a-foreign-provisional-row
+  ;; The fixture has already made `:rf/default`; remove it so the foreign row
+  ;; below is a FIRST construction. (A re-registration of a live `:rf/default`
+  ;; is visible to every actor, rf2-3x7nj.2.1, and is correctly "established".)
+  (rf.frame/destroy-frame! :rf/default)
   (let [id      :rf/default
         reached (CountDownLatch. 1)
         release (CountDownLatch. 1)
@@ -134,6 +138,8 @@
           "the owner staged the replacement default before pausing")
       (is (= :provisional (get-in @rf.frame/frames [id :construction :state]))
           "the default row is provisional in the observed window")
+      (is (= :creation (get-in @rf.frame/frames [id :construction :kind]))
+          "and it is a first construction, not a re-registration")
       (is (= :rf.error/frame-construction-in-progress
              (outcome rf.frame/ensure-default-frame!))
           "the fixture helper must not treat a foreign provisional row as established")

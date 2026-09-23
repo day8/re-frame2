@@ -3927,15 +3927,38 @@
         ::settled (when (try-release-on-empty! router drain-lock hold-lock?)
                     (recur))))))
 
+(declare drain-try!)
+
 (defn- drain-emergency-release!
   "Mid-drain panic path. An unhandled exception escaped `drain-loop!`
   past its own `finally` cleanup. Clear the router flags and release
-  the drain-lock so the frame is not permanently stuck — then re-throw
-  so the caller observes the failure."
-  [router drain-lock]
-  (locking router
-    (swap! router assoc :scheduled? false :in-drain? nil)
-    (reset! drain-lock false)))
+  the drain-lock so the frame is not permanently stuck — the caller then
+  re-throws so the host observes the failure.
+
+  rf2-3x7nj.1.1: the throw ends THIS drain, not the frame's queue. The
+  failing event was already dequeued (`take-event!` pops before
+  `process-event!`), so it is not retried; but anything still queued
+  behind it — its own `:fx` siblings included — would strand with
+  `:scheduled?` false, since `ensure-drain-scheduled!` arms a drain only
+  when it flips that flag. So when the queue is non-empty and the frame is
+  still live and not being destroyed, keep `:scheduled?` true and schedule
+  one fresh `drain-try!` (next task, fresh depth budget) — the same
+  snapshot / release / re-kick shape as the cold-serialization release in
+  `rf.frame/call-serialized-with-drain!`. A destroy claim is the
+  queued-work cutoff, so a closing incarnation is never re-kicked."
+  [frame-id frame-record router drain-lock]
+  (let [re-arm? (locking router
+                  (let [re-arm? (boolean
+                                  (and (seq (:queue @router))
+                                       (rf.frame/frame-incarnation-live? frame-id drain-lock)
+                                       (not (rf.frame/frame-incarnation-closing?
+                                              frame-id drain-lock))))]
+                    (swap! router assoc :scheduled? re-arm? :in-drain? nil)
+                    (reset! drain-lock false)
+                    re-arm?))]
+    (when re-arm?
+      (rf.interop/next-tick
+        (fn [] (drain-try! frame-id frame-record))))))
 
 (defn- drain-try!
   "Async drain entry point (called from `rf.interop/next-tick`). CAS-tries
@@ -3964,7 +3987,7 @@
             (try
               (drain-loop! frame-id frame-record router drain-lock drain-depth false)
               (catch #?(:clj Throwable :cljs :default) t
-                (drain-emergency-release! router drain-lock)
+                (drain-emergency-release! frame-id frame-record router drain-lock)
                 (throw t)))
             (reset! drain-lock false)))))))
 
@@ -4020,7 +4043,7 @@
             (drain-loop! frame-id frame-record router drain-lock drain-depth false)
             true
             (catch #?(:clj Throwable :cljs :default) t
-              (drain-emergency-release! router drain-lock)
+              (drain-emergency-release! frame-id frame-record router drain-lock)
               (throw t)))
           (do (reset! drain-lock false)
               false))))))
