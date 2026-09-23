@@ -176,7 +176,8 @@
       (> (count order) retained)
       (let [drop-n     (- (count order) retained)
             evicted    (subvec order 0 drop-n)
-            kept-order (subvec order drop-n)]
+            ;; A fresh vector, not a `subvec` view — see `push-to-ring!`.
+            kept-order (into [] (subvec order drop-n))]
         {:events-retained retained
          :override?      override?
          :run-order      kept-order
@@ -288,7 +289,11 @@
                              (if (> (count o) retained)
                                (let [oldest (first o)]
                                  (recur (subvec o 1) (dissoc c oldest)))
-                               [o c]))]
+                               ;; Copy the survivors out of the `subvec`: a
+                               ;; later `conj` onto a subvec appends to its
+                               ;; BACKING vector, so the spine would retain
+                               ;; every evicted dispatch-id (rf2-3x7nj.4.7).
+                               [(if (identical? o order') o (into [] o)) c]))]
                        (assoc rings frame-id
                               {:events-retained retained
                                :override?         override?
@@ -700,7 +705,9 @@
 
                       (> (count order) events-retained)
                       (let [drop-n     (- (count order) events-retained)
-                            kept-order (subvec order drop-n)
+                            ;; A fresh vector, not a `subvec` view — see
+                            ;; `push-to-ring!`.
+                            kept-order (into [] (subvec order drop-n))
                             evicted    (subvec order 0 drop-n)]
                         (assoc acc frame-id
                                {:events-retained events-retained

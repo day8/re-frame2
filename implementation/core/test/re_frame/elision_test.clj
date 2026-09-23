@@ -1040,6 +1040,129 @@
     (is (not (rf.elision/marker? slot))
         "sensitive suppresses the large marker even when nested in a vector")))
 
+;; rf2-3x7nj.4.1 — `:path` is the ABSOLUTE app-db offset of the walked value
+;; (the direct-read / MCP `get-path` shape, Spec 015 §Direct reads), so a
+;; declaration AT or ABOVE the offset must govern it exactly as it does in the
+;; whole-db walk. The walk used to seed its candidate set with the bare offset,
+;; which can only match declarations EXTENDING the offset — so a read BELOW a
+;; declaration shipped raw. Each case carries the whole-db control it must
+;; agree with.
+
+(defn- read-at
+  "Egress the value at `path` in `db` the way a direct read does: the value
+  alone, walked at its absolute offset."
+  ([db path] (read-at db path nil))
+  ([db path opts]
+   (rf.elision/elide-wire-value (get-in db path) (assoc opts :path path))))
+
+(deftest offset-read-below-a-sensitive-declaration-redacts
+  (install-class! [[:auth]] [])
+  (let [db {:auth   {:token "SECRET-TOKEN" :user {:name "bob" :pw "hunter2"}}
+            :public 1}]
+    (is (= {:auth :rf/redacted :public 1} (read-at db []))
+        "control: the whole-db walk redacts the declared [:auth] subtree")
+    (is (= :rf/redacted (read-at db [:auth]))
+        "control: a read AT the declaration redacts")
+    (is (= :rf/redacted (read-at db [:auth :token]))
+        "a read of a leaf below the declaration redacts")
+    (is (= :rf/redacted (read-at db [:auth :user]))
+        "a read of a subtree below the declaration redacts")
+    (is (= 1 (read-at db [:public]))
+        "an unclassified sibling offset still rides verbatim")
+    (testing "through rf/project-egress under the off-box profile — the call the
+              pair MCP `get-path` eval form makes"
+      (is (= :rf/redacted
+             (rf/project-egress (get-in db [:auth :token])
+                                {:frame             :rf/default
+                                 :path              [:auth :token]
+                                 :rf.egress/profile :rf.egress/off-box-tool}))))))
+
+(deftest offset-read-through-an-index-obeys-an-index-free-declaration
+  (install-class! [[:items :token]] [])
+  (let [db {:items [{:token "T0" :x 1} {:token "T1" :x 2}]}]
+    (is (= {:items [{:token :rf/redacted :x 1} {:token :rf/redacted :x 2}]}
+           (read-at db []))
+        "control: the whole-db walk redacts :token in every element")
+    (is (= {:token :rf/redacted :x 1} (read-at db [:items 0]))
+        "a read of one element redacts its :token and keeps its sibling")
+    (is (= :rf/redacted (read-at db [:items 1 :token]))
+        "a read of the declared leaf through an index redacts")))
+
+(deftest offset-read-below-a-large-declaration-elides
+  (install-class! [] [[:big]])
+  (let [db   {:big {:blob "xxxx" :n 1}}
+        slot (read-at db [:big :blob])]
+    (is (rf.elision/marker? (:big (read-at db [])))
+        "control: the whole-db walk elides the declared [:big] subtree")
+    (is (rf.elision/marker? slot)
+        "a read below the declaration elides too")
+    (is (= [:big :blob] (get-in slot [:rf.size/large-elided :path]))
+        "the marker describes the value that was read, at its own offset")
+    (is (= [:rf.elision/at [:big :blob]] (get-in slot [:rf.size/large-elided :handle])))
+    (is (= "xxxx" (read-at db [:big :blob] {:rf.egress/include-large? true}))
+        "the large opt-in still fetches the value")))
+
+(deftest offset-read-below-a-shadowing-large-ancestor-redacts-and-never-marks
+  ;; The replayed descent must apply the SAME nested-axis decision the whole-db
+  ;; walk does (rf2-izlr7f): a large ancestor shadowing a sensitive descendant
+  ;; descends rather than marking, or the marker's digest is computed over a
+  ;; value that contains the secret.
+  (install-class! [[:a :x :secret]] [[:a]])
+  (let [secret "TOP-SECRET-do-not-egress"
+        db     {:a {:x {:secret secret :pub "ok"}}}
+        out    (read-at db [:a :x] {:rf.egress/include-digests? true})]
+    (is (= {:secret :rf/redacted :pub "ok"} out))
+    (is (not (.contains (pr-str out) secret)) "the raw secret does not leak")
+    (is (not (.contains (pr-str out) "sha256")) "no digest over the secret leaks")))
+
+;; rf2-3x7nj.4.6 — the walk rebuilds each map with `(empty v)`, which THROWS
+;; on the JVM for a record. With no guard on "nothing declared", any value
+;; holding a record made egress throw — including the event pipeline's own
+;; db projection and its error path.
+
+(defrecord Money [amount currency])
+
+(deftest walk-rebuilds-a-record-as-a-plain-map
+  (testing "a value holding a record egresses instead of throwing"
+    (let [out (rf.elision/elide-wire-value {:price (->Money 10 "AUD")})]
+      (is (= {:amount 10 :currency "AUD"} (:price out)))
+      (is (not (record? (:price out)))
+          "rebuilt as a plain map, which is what CLJS already does"))
+    (is (= {:price {:amount 10 :currency "AUD"}}
+           (rf/project-egress {:price (->Money 10 "AUD")}
+                              {:frame             :rf/default
+                               :rf.egress/profile :rf.egress/off-box-tool}))))
+  (testing "a declaration inside a record still applies"
+    (install-class! [[:price :amount]] [])
+    (is (= {:price {:amount :rf/redacted :currency "AUD"}}
+           (rf.elision/elide-wire-value {:price (->Money 10 "AUD")})))))
+
+(deftest a-record-in-app-db-does-not-reject-db-events-on-a-classified-frame
+  (rf/reg-event :elision-test/seed
+    (fn [{:keys [db]} _] {:db (assoc db :money (->Money 2 "AUD"))}))
+  (rf/reg-event :elision-test/inc
+    (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  ;; Seed while the frame declares nothing, so the record is in app-db before
+  ;; the classified frame's db projection ever sees it.
+  (rf/dispatch-sync [:elision-test/seed])
+  (is (record? (:money (rf/app-db-value :rf/default)))
+      "control: the record committed")
+  (install-class! [[:secret]] [])
+  (rf/dispatch-sync [:elision-test/inc])
+  (is (= 1 (:n (rf/app-db-value :rf/default)))
+      "a :db write commits once an unrelated path is classified"))
+
+(deftest a-handler-error-with-a-record-payload-is-contained
+  (rf/reg-event :elision-test/boom (fn [_ _] (throw (ex-info "boom" {}))))
+  (is (nil? (try (rf/dispatch-sync [:elision-test/boom {:m {:amount 1}}])
+                 nil
+                 (catch Throwable t t)))
+      "control: a plain payload's handler error is contained")
+  (is (nil? (try (rf/dispatch-sync [:elision-test/boom {:m (->Money 1 "AUD")}])
+                 nil
+                 (catch Throwable t t)))
+      "a record payload's handler error is contained too"))
+
 
 ;; EP-0025: the derived-tree value-match egress engine (`redact-derived-slots`,
 ;; `sensitive-value-set`, `collect-sensitive-values`, the non-unique-secret
