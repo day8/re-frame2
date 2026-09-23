@@ -136,27 +136,41 @@ the slot through `re-frame.core/project-egress` (rf2-v9tw2)
 server-side before the EDN crosses the wire (see
 [`Principles.md` §Size-elision wire markers](Principles.md#size-elision-wire-markers-rf2-urjnc)).
 Each affected tool accepts an `elision` arg (boolean,
-default `true`). Schema-driven `:large? true` slots are
-substituted with
+default `true`). A value at or below a path classified `:large`
+(the commit-plane `:large` effect) is substituted with
 
 ```clojure
 {:rf.size/large-elided
  {:path   [<segment>...]
   :bytes  <int>
   :type   :map | :vector | :set | :string | :scalar
-  :reason :schema
+  :reason :effect | :machine | :resource | :route | :flow
   :hint   <string-or-nil>
   :handle [:rf.elision/at <path>]}}
 ```
 
 The substitution is at the elided slot — small siblings ride
-verbatim. Agents drill into the slot via `get-path` using the
-handle's path, or pass `elision false` to opt large content back
-in and receive the un-elided value. Note `elision false` only
-governs the LARGE-slot toggle — it does NOT reveal
-declared-`:sensitive?` slots, which still redact to `:rf/redacted`
-unless the caller also passes `include-sensitive true` under the
-`--allow-sensitive-reads` gate (EP-0015 fail-closed, rf2-t55hxg.13).
+verbatim. A declaration governs its whole subtree, so a read at or
+BELOW a `:large` declaration elides too: `get-path` on a deeper path
+returns markers again (rf2-ealv5). To get the raw value, re-call
+`get-path` on the marker's `:path` with `elision false` (the batch
+`paths` form for several indices). Pass the marker's `:path`, never
+the `:handle` vector — `get-path` decodes no handle. `elision false`
+is the size override and is honoured on every launch; no launch flag
+is needed (rf2-3x7nj.32.4). It only governs the LARGE-slot toggle —
+it does NOT reveal declared-`:sensitive?` slots, which still redact
+to `:rf/redacted` unless the caller also passes `include-sensitive
+true` under the `--allow-sensitive-reads` gate (EP-0015 fail-closed,
+rf2-t55hxg.13).
+
+A marker's `:path` addresses the CURRENT app-db, and `get-path` reads
+the current app-db (rf2-3x7nj.32.5). Following a marker that came
+from a past epoch record (`trace-window`, `watch-epochs`,
+`snapshot :epochs`, `dispatch :trace` / `:settle`) returns today's
+value, not that epoch's. To read a past elided value, use `eval-cljs`
+against the retained record, e.g.
+`(if-let [r (re-frame2-pair.runtime/epoch-by-id 7 :my/app)] (get-in r [:db-after :doc :body]) {:epoch-unavailable 7})`,
+and use `:db-before` when the marker came from that side.
 Markers fire BEFORE the
 path-slicing / diff-encode / dedup / wire-cap pipeline, so
 cap measures post-elision bytes — a single declared-large
@@ -768,10 +782,7 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    would otherwise run with the runtime still at its permissive
    `{:allow-raw-state? true}` default, so the `:event-vector` redaction
    would not fire and the raw event vector would ship off-box.
-2. Force `:elision true` on every call. Caller-supplied
-   `:elision false` is dropped — large slots return the
-   `:rf.size/large-elided` marker.
-3. Signal the preload runtime via
+2. Signal the preload runtime via
    `(re-frame2-pair.runtime/configure-raw-state! {:allow-raw-state? false})`
    once per build per server lifetime. The runtime's `app-db-reset!`
    then wraps both `:previous` and `:next` slots in the `tap>` payload
@@ -796,11 +807,21 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    concurrent first caller awaits the same in-flight signal rather than
    racing ahead.
 
-Operators who need raw state for offline debug opt in at server launch
-by passing `--allow-sensitive-reads`. The per-call args then win again,
-but the two axes are independent and the walker FAILS CLOSED (EP-0015,
-rf2-t55hxg.13): `:elision false` opts large content back in but does NOT,
-on its own, reveal declared-`:sensitive?` slots — those still redact to
+The gate does NOT touch `:elision`: the size override is honoured on
+every launch (rf2-ealv5 / rf2-3x7nj.32.4). A caller's `:elision false`
+overlays `:rf.egress/include-large? true` on the off-box-tool floor with
+the walker still running, so it opts large content back in without
+revealing a declared-`:sensitive?` slot. (The gate once forced
+`:elision true` as well, from when `:elision false` skipped the walker
+entirely; rf2-t55hxg.13 made it an overlay and the coupling became
+vestigial.)
+
+Operators who need raw sensitive state for offline debug opt in at
+server launch by passing `--allow-sensitive-reads`. The per-call
+`:include-sensitive` arg then wins again, but the two axes are
+independent and the walker FAILS CLOSED (EP-0015, rf2-t55hxg.13):
+`:elision false` opts large content back in but does NOT, on its own,
+reveal declared-`:sensitive?` slots — those still redact to
 `:rf/redacted` unless the caller also passes `:include-sensitive true`.
 Only the deliberate full-raw combination (`:elision false` AND
 `:include-sensitive true`) passes a value through the walker untouched.
@@ -1429,10 +1450,11 @@ see §`--allow-sensitive-reads`), reusing the existing model rather than
 minting a new confirmation gate:
 
 - **App-db projection**: `:db-state-after-simulation` runs through
-  `re-frame.core/project-egress`. With the launch gate OFF, the
-  per-call knobs are forced safe. With it ON, `elision false` includes
-  large app-db values and `include-sensitive true` includes declared-
-  sensitive app-db leaves; these are independent axes.
+  `re-frame.core/project-egress`. `elision false` includes large
+  app-db values on every launch (the size override, rf2-ealv5).
+  `include-sensitive true` includes declared-sensitive app-db leaves
+  only with the launch gate ON; with it OFF that knob is forced
+  `false`. These are independent axes.
 - **Effect arguments**: every `:would-fire-effects[*].args` is
   `:rf/redacted` by default, including with the launch gate ON.
   These transient payloads are not in the app-db classification
@@ -1455,8 +1477,7 @@ recordable coeffects threaded into the simulated dispatch as
 `:rf.cofx`, e.g. `"{:rf/time-ms 1781078400123}"`; see §Composes with
 `cofx`), `elision` (boolean, default `true` —
 controls large-value elision in `:db-state-after-simulation`;
-honoured as `false` only under
-`--allow-sensitive-reads`), `include-sensitive` (boolean, default
+`false` is honoured on every launch), `include-sensitive` (boolean, default
 `false` — pass declared-`:sensitive?` slots verbatim; honoured only
 under `--allow-sensitive-reads`), `include-fx-args` (boolean, default
 `false` — reveal recorded effect arguments; honoured only under
@@ -2389,12 +2410,14 @@ a binary search. Because the miss surfaces through the error channel it
 is never response-cached (cache eligibility keys off `isError`), so a
 later successful read of the same path is not masked by a stale failure.
 
-When `elision` is enabled (default), a declared / schema-`:large?`
-path or an over-threshold leaf returns a `:rf.size/large-elided`
-marker (with a `:handle [:rf.elision/at <path>]` fetch handle) in
-place of the raw bytes. Drill into a non-elided child by re-calling
-with a deeper `path`. Pass `elision false` to opt large content back
-in. Note `elision false` governs only the LARGE-slot toggle — it does
+When `elision` is enabled (default), a value at or below a path
+classified `:large` returns a `:rf.size/large-elided` marker (with a
+`:handle [:rf.elision/at <path>]` fetch handle) in place of the raw
+bytes. A deeper `path` below the declaration elides too; pass
+`elision false` on the marker's `:path` to opt large content back in
+— honoured on every launch, and a read of the CURRENT app-db (see
+§Universal: size-elision on `:app-db` slots for a past epoch's
+value). Note `elision false` governs only the LARGE-slot toggle — it does
 NOT reveal declared-`:sensitive?` slots, which still redact to
 `:rf/redacted` unless the caller also passes `include-sensitive true`
 under `--allow-sensitive-reads` (EP-0015 fail-closed, rf2-t55hxg.13).
@@ -2451,13 +2474,15 @@ Privacy / elision matches `snapshot`'s `:sub-cache` slice and
 posture](../../../spec/Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path)):
 the value is run through `re-frame.core/project-egress` server-side —
 declared-sensitive values redact to `:rf/redacted`, declared-large
-values elide to `:rf.size/large-elided`. `elision false` /
-`include-sensitive true` (honoured only under `--allow-sensitive-reads`)
-opt back in along independent axes, and the walker FAILS CLOSED
-(EP-0015, rf2-t55hxg.13): `elision false` opts large content in but does
-NOT reveal sensitive values; `include-sensitive true` is required to
-pass declared-sensitive values through. Only both together ship the
-fully raw value (the walker is skipped entirely).
+values elide to `:rf.size/large-elided`. `elision false` (the size
+override, honoured on every launch) and `include-sensitive true`
+(honoured only under `--allow-sensitive-reads`) opt back in along
+independent axes, and the walker FAILS CLOSED (EP-0015, rf2-t55hxg.13):
+`elision false` opts large content in but does NOT reveal sensitive
+values; `include-sensitive true` is required to pass declared-sensitive
+values through. Only both together ship the fully raw value — the door
+is still called (rf2-kuky.88), under `:rf.egress/local-raw`, whose
+projection is the identity.
 
 Success: `{:ok? true :query-v <v> :frame <id> :value <elided-value>
 :elision <bool>}`. The structured failures (`:not-a-sub-vector` /
@@ -2965,10 +2990,10 @@ walked by `re-frame.core/project-egress` at sample time, **before**
 they enter the change-log read back by `read-recording` — declared-`:large?`
 slots collapse to `{:rf.size/large-elided ...}` markers and
 declared-`:sensitive?` leaves redact to `:rf/redacted`, the same off-box
-posture as `snapshot` / `get-path`. `elision` (size axis) and
-`include-sensitive` (sensitive axis) are honoured only under
-`--allow-sensitive-reads`; otherwise forced safe (`elision true`,
-`include-sensitive false`). `:dom` / `:focus` signals are content reads,
+posture as `snapshot` / `get-path`. `elision` (size axis) is honoured
+on every launch; `include-sensitive` (sensitive axis) is honoured only
+under `--allow-sensitive-reads`, otherwise forced `false`. `:dom` /
+`:focus` signals are content reads,
 not app-db-rooted, and ride unwalked.
 
 **Returns**: `{:ok? true :recording-id "rec-<uuid>" :signals [...]
@@ -3072,8 +3097,9 @@ omitted `timeout-ms` uses the documented 30000 default.
 `re-frame.core/project-egress` server-side — same off-box posture as
 `snapshot` / `get-path` / `record`. The predicate itself evaluates over
 the **unwalked** values, so elision never changes whether the watch trips
-— only what the returned sample shows. `elision` / `include-sensitive`
-are honoured only under `--allow-sensitive-reads`; otherwise forced safe.
+— only what the returned sample shows. `elision` (size axis) is honoured
+on every launch; `include-sensitive` is honoured only under
+`--allow-sensitive-reads`, otherwise forced `false`.
 
 **Returns** on the first poll where the predicate holds: `{:ok? true
 :held? true :elapsed-ms <n> :sample {<i> <v>} :t <ms>}`. On timeout:

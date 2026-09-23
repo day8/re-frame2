@@ -290,11 +290,10 @@
         ;; `read-recording` must be elided for off-box egress. Same gate
         ;; posture as snapshot / get-path / trace-window: the
         ;; `--allow-sensitive-reads` boot gate forces `:include-sensitive
-        ;; false` + `:elision true` when OFF (the published default);
-        ;; gate ON honours the per-call args.
-        elision?    (if (raw-state/raw-state-allowed?)
-                      (args/parse-bool-arg raw-args :elision)
-                      true)
+        ;; false` when OFF (the published default); gate ON honours it.
+        ;; `:elision` (the size override) is honoured on every launch
+        ;; (rf2-ealv5 / rf2-3x7nj.32.4).
+        elision?    (args/parse-bool-arg raw-args :elision)
         incl?       (if (raw-state/raw-state-allowed?)
                       (args/parse-bool-arg raw-args :include-sensitive)
                       false)

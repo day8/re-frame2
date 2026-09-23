@@ -632,9 +632,9 @@ such slots with a marker carrying a fetch handle.
 `snapshot`) and each get-path resolved value (in `get-path`)
 is run through the walker server-side, inside the eval form
 sent over nREPL. The walker reads the per-frame
-`[:rf.runtime/elision]` runtime-db registry — populated at boot from
-`:large? true` schema metadata (rf2-nwv63) — and substitutes
-registered paths:
+`[:rf.runtime/elision]` runtime-db registry — populated by the
+commit-plane `:large` classification effect (EP-0025) — and
+substitutes values at or below registered paths:
 
 ```clojure
 ;; Wire shape (substitution at a single elidable slot)
@@ -642,19 +642,25 @@ registered paths:
  {:path   [<segment>...]            ; address of the elided slot
   :bytes  <int>                     ; pr-str byte count
   :type   :map | :vector | :set | :string | :scalar
-  :reason :schema
+  :reason :effect                   ; the declaration's source
   :hint   <string-or-nil>           ; from the registry entry
-  :handle [:rf.elision/at <path>]}} ; agent re-fetches via get-path
+  :handle [:rf.elision/at <path>]}} ; get-path on :path, elision false
 ```
 
 The marker is a SUBSTITUTION at the elided slot — not a
 wrapper around the response. A 1MB app-db with a 100KB
-`:large?` slot at `[:user :uploaded-pdf]` returns the
+`:large` slot at `[:user :uploaded-pdf]` returns the
 small siblings verbatim and the marker at the elided slot.
-The walker recurses past containers and only elides at the
-declared path (or at a leaf over threshold) — drilling INTO
-the elided subtree via `get-path [:user :uploaded-pdf
-:metadata]` returns the small metadata directly.
+A declaration governs its whole subtree (rf2-ealv5): a read
+at or BELOW the declared path elides too, so `get-path
+[:user :uploaded-pdf :metadata]` returns a marker, not the
+metadata. The raw value comes from `get-path` on the
+marker's `:path` with `elision false`; finer grain comes
+from declaring the finer path instead (e.g. `[:attachments
+:data]`, which the index-free declaration rule supports).
+That `get-path` reads the CURRENT app-db, so a marker from a
+past epoch record is not a route to that epoch's value
+(rf2-3x7nj.32.5; read the retained record with `eval-cljs`).
 
 **Why server-side, not wire-side**. The walker reads the
 `[:rf.runtime/elision]` registry from the live frame's runtime-db partition. The MCP server
@@ -681,9 +687,11 @@ mechanism for the common case.
   already-substituted value. A `snapshot {:path [:user
   :uploaded-pdf]}` against a declared-large path returns
   the marker. A `snapshot {:path [:user :uploaded-pdf
-  :metadata]}` against a non-elided child returns the small
-  metadata directly — the walker emits at containers it
-  recognises in the registry, not at every descendent.
+  :metadata]}` BELOW it reports `:path-not-found` — the
+  slicer `get-in`s a slice where the declared value is
+  already a marker, so with elision on `snapshot {:path
+  ...}` is no route under a declaration; pass `elision
+  false`, or use `get-path` with `elision false`.
 - *Diff-encode × elision*. Elision applies to the `:app-db`
   slice only. The `:epochs` slice (where diff-encode lives)
   is unaffected; the `:db-before` reference inside each
@@ -697,12 +705,15 @@ mechanism for the common case.
 
 **`elision` arg**. Every tool that surfaces `:app-db`
 (snapshot, get-path) accepts an `elision` arg (boolean,
-default `true`). Pass `false` to bypass the walker entirely —
-useful for agents with explicit override permission that
-need the full payload (e.g. a debug session inspecting the
-elided slot itself, or a runtime that hasn't been taught the
-registry shape yet). The default-on posture matches the
-privacy / dedup defaults: shrink first, opt out explicitly.
+default `true`). Pass `false` to overlay
+`:rf.egress/include-large? true` on the profile floor — large
+content rides verbatim (e.g. a debug session inspecting the
+elided slot itself), while the walker still runs, so
+declared-sensitive slots still redact. It is honoured on
+every launch; only `include-sensitive` needs
+`--allow-sensitive-reads` (rf2-ealv5 / rf2-3x7nj.32.4). The
+default-on posture matches the privacy / dedup defaults:
+shrink first, opt out explicitly.
 
 **Cross-MCP vocabulary**. The marker key
 `:rf.size/large-elided` and the handle vocabulary

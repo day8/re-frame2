@@ -23,11 +23,12 @@
   (let [build-id    (wire/arg-build conn raw-args)
         frames      (args/parse-frames-arg (wire/arg raw-args :frames))
         include     (args/parse-include-arg (wire/arg raw-args :include))
-        ;; The `--allow-sensitive-reads` boot gate forces both
-        ;; `:include-sensitive` to false AND `:elision` to true when
-        ;; OFF (the default). The per-call args are still parsed (so the
-        ;; response envelope reports the effective post-gate value), but
-        ;; the gate wins. Single intention-naming predicate
+        ;; The `--allow-sensitive-reads` boot gate forces
+        ;; `:include-sensitive` to false when OFF (the default); the
+        ;; gate wins over the per-call arg. `:elision` is the SIZE
+        ;; override and is honoured on every launch (rf2-ealv5 /
+        ;; rf2-3x7nj.32.4) — its `include-large?` overlay cannot reveal a
+        ;; declared-sensitive slot. Single intention-naming predicate
         ;; `raw-state-allowed?` (positive sense — true when operator
         ;; opted in at launch).
         incl?       (if (raw-state/raw-state-allowed?)
@@ -42,9 +43,7 @@
         slice-mode  (args/parse-mode-arg (wire/arg raw-args :mode))
         slice-modes (args/parse-modes-arg (wire/arg raw-args :modes))
         dedup?      (args/parse-bool-arg raw-args :dedup)
-        elision?    (if (raw-state/raw-state-allowed?)
-                      (args/parse-bool-arg raw-args :elision)
-                      true)
+        elision?    (args/parse-bool-arg raw-args :elision)
         opts        {:frames frames :include include}
         ;; Eval form composition.
         ;; The snapshot composer returns a per-frame map; we wrap each
@@ -55,10 +54,9 @@
         ;;
         ;; The walker reads the `[:rf.runtime/elision]` registry from the
         ;; frame's durable runtime-db partition (EP-0001) — it has to run
-        ;; app-side, where the registry is reachable. When elision is
-        ;; disabled the eval form skips the walk entirely (a value
-        ;; pass-through is cheaper than walking with
-        ;; `:rf.egress/include-large? true`).
+        ;; app-side, where the registry is reachable. The walk fires on
+        ;; every read (rf2-kuky.88); `elision false` only overlays
+        ;; `:rf.egress/include-large? true` on the named profile.
         ;;
         ;; The Tool-Pair §`Direct-read privacy posture
         ;; for sub-cache and get-path` contract: BOTH the `:app-db` and
@@ -68,16 +66,13 @@
         ;; the walker's opt of the same shape via
         ;; `egress-opts-edn`'s two-arity form. Off-box defaults apply.
         ;;
-        ;; The eval form ALSO counts elision
-        ;; markers server-side and returns `{:value <snap>
-        ;; :elided-count N}`. The client-side wire-pipeline reads the
-        ;; count from opts instead of re-walking the post-pipeline
-        ;; payload — the walker is the only thing that inserts
-        ;; markers, so it can hand the count back as a piggyback on
-        ;; the same round-trip. Dedup never touches the `:app-db` /
-        ;; `:sub-cache` slices (where elision fired) — it only
-        ;; re-shapes `:epochs` — so the pre-dedup server count equals
-        ;; the post-dedup client count.
+        ;; The eval form returns `{:value <snap> :elided-count N}`; the
+        ;; `:elided-count` key is what marks the response as this shape
+        ;; (see `new-shape?` below). The count itself is NOT the
+        ;; envelope's `:elided-large`: it is taken over the WHOLE walked
+        ;; state, and the pipeline's path slice and summary pass then
+        ;; remove markers, so the wire pipeline counts what it ships
+        ;; instead (rf2-3x7nj.32.8).
         ;; `egress-opts-edn` takes the walker-aligned
         ;; `include-large?` polarity directly (no in-helper inversion).
         ;; MCP arg `elision` true = emit markers = `:rf.egress/include-large?` false,
@@ -85,7 +80,7 @@
         ;;
         ;; Fail-CLOSED: the `:app-db` / `:sub-cache` slices ALWAYS route
         ;; through the door (rf2-kuky.88) and the NAMED profile decides
-        ;; the floor. A gate-ON `:elision false` caller who leaves
+        ;; the floor. An `:elision false` caller who leaves
         ;; `:include-sensitive` at its default must NOT ship raw
         ;; `:app-db` / `:sub-cache` slices — a frame-declared-sensitive
         ;; slot would leak off-box — so that caller stays on
@@ -149,7 +144,7 @@
         ;; records; `redact-runtime-db?` substitutes
         ;; the `:machines` runtime-db slice with the `:rf/redacted`
         ;; sentinel. Emitted as a threaded `let` so a frame can carry all
-        ;; transforms. A gate-ON `:elision false` read stays on
+        ;; transforms. An `:elision false` read stays on
         ;; `:rf.egress/off-box-tool` with a large-inclusion overlay
         ;; (sensitive redacts, large passes); only the full-raw opt-in
         ;; (`:elision false` AND `:include-sensitive true`) names
@@ -246,7 +241,6 @@
                  ;; IS itself a map (`{<frame-id> {...}}`).
                  (let [new-shape?    (and (map? resp) (contains? resp :elided-count))
                        snap-value    (if new-shape? (:value resp) resp)
-                       server-elided (when new-shape? (:elided-count resp))
                        ;; The eval form piggybacks the reserved
                        ;; `:rf/*` tool frames the `:app` default dropped (an
                        ;; empty vector off the `:app` path / on the bare-snap
@@ -260,8 +254,7 @@
                                               :dedup?        dedup?
                                               :path          path
                                               :slice-mode    slice-mode
-                                              :slice-modes   slice-modes
-                                              :server-elided server-elided})
+                                              :slice-modes   slice-modes})
                        {:keys [dropped elided path-status
                                resolved-modes app-db-mode]} indicators
                        response-mode (cond

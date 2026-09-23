@@ -138,11 +138,10 @@
         ;; timeout) slots ship raw `:app-db` / `:sub` values back to the
         ;; model. Elide them for off-box egress under the same gate posture
         ;; as snapshot / get-path / record: gate
-        ;; OFF (the published default) forces `:include-sensitive false`
-        ;; + `:elision true`; gate ON honours the per-call args.
-        elision?   (if (raw-state/raw-state-allowed?)
-                     (args/parse-bool-arg raw-args :elision)
-                     true)
+        ;; OFF (the published default) forces `:include-sensitive false`;
+        ;; gate ON honours it. `:elision` (the size override) is honoured
+        ;; on every launch (rf2-ealv5 / rf2-3x7nj.32.4).
+        elision?   (args/parse-bool-arg raw-args :elision)
         incl?      (if (raw-state/raw-state-allowed?)
                      (args/parse-bool-arg raw-args :include-sensitive)
                      false)

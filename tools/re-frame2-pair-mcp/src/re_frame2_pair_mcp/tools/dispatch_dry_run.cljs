@@ -40,12 +40,14 @@
       to `:rf.size/large-elided` markers; declared-sensitive slots
       redact to `:rf/redacted`. This slot IS rooted at the frame's
       app-db, so the schema-path walker can prove it safe.
-      - The walker runs BY DEFAULT. The per-call `:elision false` /
-        `:include-sensitive true` knobs are honoured ONLY when the
-        operator launched with `--allow-sensitive-reads`
+      - The walker runs ALWAYS. The per-call `:elision false` size
+        override is honoured on every launch (it overlays
+        `:rf.egress/include-large? true`; sensitive slots still
+        redact). The `:include-sensitive true` knob is honoured ONLY
+        when the operator launched with `--allow-sensitive-reads`
         (`raw-state/raw-state-allowed?` — same gate that governs the
-        direct-read surfaces). When the gate is OFF the knobs are
-        forced safe (`elision` true, `include-sensitive` false).
+        direct-read surfaces); when the gate is OFF it is forced
+        `false`.
 
     - `:would-fire-effects[*].args` (the RAW fx-handler arguments — an
       HTTP request body, a dispatched event vector, a payment map) are
@@ -249,13 +251,12 @@
         ;; Dry-run is an AI-facing READ surface (it returns the would-be
         ;; app-db + recorded fx args). Gate its egress on the SAME
         ;; `--allow-sensitive-reads` posture as snapshot / get-path.
-        ;; Gate OFF (the
-        ;; default) forces the walker on (`elision` true) and forces
-        ;; sensitive slots to redact (`include-sensitive` false); gate
-        ;; ON lets the per-call args win.
-        elision?     (if (raw-state/raw-state-allowed?)
-                       (args/parse-bool-arg raw-args :elision)
-                       true)
+        ;; Gate OFF (the default) forces sensitive slots to redact
+        ;; (`include-sensitive` false); gate ON lets that arg win.
+        ;; `elision` (the size override) is honoured on every launch
+        ;; (rf2-ealv5 / rf2-3x7nj.32.4) — its `include-large?` overlay
+        ;; cannot reveal a declared-sensitive slot.
+        elision?     (args/parse-bool-arg raw-args :elision)
         incl?        (if (raw-state/raw-state-allowed?)
                        (args/parse-bool-arg raw-args :include-sensitive)
                        false)

@@ -12,18 +12,24 @@
   The boot-gate closes both holes. When `--allow-sensitive-reads` is OFF
   (the published-build default), re-frame2-pair-mcp:
 
-  1. FORCES `:include-sensitive false` on every snapshot / get-path
-     call, regardless of what the caller passed.
-  2. FORCES `:elision true` on every snapshot / get-path call,
+  1. FORCES `:include-sensitive false` on every state-reading call,
      regardless of what the caller passed.
-  3. Signals the preload runtime to default-elide its `tap>` emissions
+  2. Signals the preload runtime to default-elide its `tap>` emissions
      (see `runtime/configure-raw-state!`). This is one tiny idempotent
      nREPL round-trip issued before every state-emitting tool eval —
      re-signalled rather than cached-as-delivered, because the runtime's
      posture resets to its permissive default on every page/runtime
      reload (see `signal-runtime!`).
 
-  When `--allow-sensitive-reads` is ON, the per-call args win.
+  When `--allow-sensitive-reads` is ON, the per-call arg wins.
+
+  The gate governs the SENSITIVE axis only. `:elision` is the size
+  override and is honoured on every launch (rf2-ealv5 /
+  rf2-3x7nj.32.4): `:elision false` overlays `:rf.egress/include-large?
+  true` on the off-box-tool profile with the walker still running, so it
+  cannot reveal a declared-sensitive slot. (Until rf2-t55hxg.13,
+  `:elision false` skipped the walker entirely, which is why the gate
+  once forced it too; that coupling is gone.)
 
   ## Single intention-naming predicate
 
@@ -39,9 +45,6 @@
       incl?    (if (raw-state/raw-state-allowed?)
                  (args/parse-bool-arg raw-args :include-sensitive)
                  false)
-      elision? (if (raw-state/raw-state-allowed?)
-                 (args/parse-bool-arg raw-args :elision)
-                 true)
 
   The predicate name asserts the operator's opt-in state directly —
   the truthy value means \"the operator opted in via --allow-sensitive-reads\".
@@ -95,10 +98,8 @@
                  (args/parse-bool-arg raw-args :include-sensitive)
                  false)
 
-      ;; :elision — gate-on → caller's arg; gate-off → true (force walker)
-      elision? (if (raw-state/raw-state-allowed?)
-                 (args/parse-bool-arg raw-args :elision)
-                 true)
+  `:elision` (the size override) is NOT gated — it is parsed
+  unconditionally (rf2-ealv5 / rf2-3x7nj.32.4).
 
   Positive-sense and single-name, this predicate matches its truth
   value to the operator's intent, so a call site answers \"did the

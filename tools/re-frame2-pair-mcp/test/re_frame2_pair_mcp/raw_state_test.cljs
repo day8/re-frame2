@@ -49,7 +49,7 @@
   (raw-state/set-allow-raw-state! false)
   (is (false? (raw-state/allow-raw-state-enabled?)))
   (is (false? (raw-state/raw-state-allowed?))
-      "Gate OFF ⇒ raw-state-allowed? false; per-tool branches force redact + elide"))
+      "Gate OFF ⇒ raw-state-allowed? false; per-tool branches force redact (the :elision size override is not gated)"))
 
 ;; ---------------------------------------------------------------------------
 ;; Opt-in (--allow-sensitive-reads) posture.
@@ -60,7 +60,7 @@
   (raw-state/set-allow-raw-state! true)
   (is (true?  (raw-state/allow-raw-state-enabled?)))
   (is (true?  (raw-state/raw-state-allowed?))
-      "Gate ON ⇒ raw-state-allowed? true; caller's :include-sensitive / :elision args win")
+      "Gate ON ⇒ raw-state-allowed? true; caller's :include-sensitive arg wins")
   ;; Restore for downstream tests.
   (raw-state/set-allow-raw-state! false))
 
@@ -77,12 +77,11 @@
   ;;     (args/parse-bool-arg raw-args :include-sensitive) ; gate ON  → caller wins
   ;;     false)                                            ; gate OFF → force redact
   ;;
-  ;;   (if (raw-state/raw-state-allowed?)
-  ;;     (args/parse-bool-arg raw-args :elision)           ; gate ON  → caller wins
-  ;;     true)                                             ; gate OFF → force elide
+  ;; `:elision` (the size override) is parsed unconditionally — the gate
+  ;; governs the sensitive axis only (rf2-ealv5 / rf2-3x7nj.32.4).
   (raw-state/set-allow-raw-state! false)
   (is (false? (raw-state/raw-state-allowed?))
-      "Gate OFF ⇒ operator did NOT opt in; force redact + elide")
+      "Gate OFF ⇒ operator did NOT opt in; force redact")
   (raw-state/set-allow-raw-state! true)
   (is (true? (raw-state/raw-state-allowed?))
       "Gate ON ⇒ operator opted in via --allow-sensitive-reads; per-call args win")

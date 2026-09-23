@@ -84,19 +84,18 @@
         ;; resolve; default false.
         incl-vals? (args/parse-bool-arg raw-args :include-values)
         ;; The `--allow-sensitive-reads` boot gate forces
-        ;; `:elision true` + `:include-sensitive false` when OFF (the
-        ;; default), mirroring snapshot / get-path. `incl-sensitive?`
-        ;; threads into the walker's `:rf.egress/include-sensitive?` opt;
-        ;; `elision?` decides whether the server-side `:value` walk fires
-        ;; at all (a verbatim pass-through is only reachable when the
+        ;; `:include-sensitive false` when OFF (the default), mirroring
+        ;; snapshot / get-path. `incl-sensitive?` threads into the
+        ;; walker's `:rf.egress/include-sensitive?` opt. `elision?` is
+        ;; the size override, honoured on every launch (rf2-ealv5 /
+        ;; rf2-3x7nj.32.4): `false` overlays `include-large? true` on the
+        ;; named profile, and a verbatim value is only reachable when the
         ;; operator opted in via `--allow-sensitive-reads` AND passed
-        ;; `:elision false`).
+        ;; both `:elision false` and `:include-sensitive true`.
         incl-sensitive? (if (raw-state/raw-state-allowed?)
                           (args/parse-bool-arg raw-args :include-sensitive)
                           false)
-        elision?        (if (raw-state/raw-state-allowed?)
-                          (args/parse-bool-arg raw-args :elision)
-                          true)
+        elision?        (args/parse-bool-arg raw-args :elision)
         opts     (cond-> {}
                    frame      (assoc :frame frame)
                    incl-vals? (assoc :include-values? true))

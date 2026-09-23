@@ -9,15 +9,18 @@
   `[:user :uploaded-pdf]` — still rides the wire verbatim. The
   framework's egress door (`rf/project-egress`)
   substitutes such slots with a `{:rf.size/large-elided {...}}` marker
-  carrying a fetch handle (`[:rf.elision/at <path>]`). Agents drill
-  back into the slot via `get-path` using the handle's path.
+  carrying a fetch handle (`[:rf.elision/at <path>]`). A declaration
+  governs its whole subtree, so a deeper read below it elides too; agents
+  fetch the raw value with `get-path` on the marker's `:path` and
+  `elision false` (rf2-ealv5), which reads the CURRENT app-db
+  (rf2-3x7nj.32.5).
 
   ## Where in the pipeline
 
   Elision runs FIRST — server-side inside the eval form, where the
   frame's `[:rf.runtime/elision]` runtime-db registry is reachable. The MCP server gets
   back data that already carries `:rf.size/large-elided` markers in
-  place of declared / over-threshold slots. The downstream pipeline
+  place of declared-`:large` slots. The downstream pipeline
   (path-slicing → diff-encode → dedup → wire-cap) operates on the
   post-elision payload — cap measures post-elision bytes, so a single
   declared-large slot can't blow the cap on its own.

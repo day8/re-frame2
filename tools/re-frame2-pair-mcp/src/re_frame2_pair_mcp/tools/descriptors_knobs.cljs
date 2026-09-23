@@ -70,7 +70,7 @@
   `:value`,
   and the signal-recorder sample values — `record`'s `:app-db` / `:sub`
   samples and `watch-until`'s `:sample` / `:last-sample` —
-  surfaces where a declared-`:large?` slot or a declared-`:sensitive?` leaf
+  surfaces where a declared-`:large` slot or a declared-`:sensitive` leaf
   would otherwise ride off-box verbatim. Default `true`. (The pull-mode
   epoch tools — `trace-window`, `watch-epochs`, and `dispatch`'s
   `:trace` / `:settle` modes — egress whole records via the epoch arm of
@@ -79,33 +79,47 @@
   `:include-sensitive` arg governs the app-db sensitive axis of that
   projection instead.)
 
-  NOTE: this is the prose source of truth for which surfaces walk per-slot;
-  each tool declares its own inline `:elision` property in
-  `descriptors-data.cljs` rather than referencing this var, so keep the two
-  in sync (the `descriptor-elision-knob-parity` regression test pins it)."
+  NOTE: this is the prose source of truth for which surfaces walk per-slot.
+  `snapshot`, `get-path`, `read-sub` and `list-subscriptions` reference
+  this var; `dispatch-dry-run`, `record` and `watch-until` declare their
+  own inline `:elision` property in `descriptors-data.cljs` with
+  surface-specific text, so keep those in step by hand — no test pins the
+  knob TEXT in sync (`descriptor_privacy_knob_parity_test` pins knob
+  PRESENCE only)."
   {:type        "boolean"
    :description (str "Apply the size-elision walker "
                      "(`re-frame.core/project-egress`, rf2-v9tw2) "
                      "to the egressed app-db value server-side, before the "
                      "EDN crosses the wire. Default true. "
-                     "Schema-driven `:large? true` slots get "
-                     "substituted with a "
+                     "A value at or below a path classified `:large` "
+                     "(the commit-plane `:large` effect a handler "
+                     "returns, e.g. `{:db ... :large [[:doc :body]]}`) "
+                     "is substituted with a "
                      "`{:rf.size/large-elided {:path [...] :bytes N "
                      ":type ... :handle [:rf.elision/at <path>]}}` "
-                     "marker; the agent re-fetches via `get-path` "
-                     "using the handle's path. Schemas are the only "
-                     "nomination path — there is no runtime "
-                     "declaration API for size. This is the SIZE "
-                     "axis only (EP-0015 §10): false overlays "
-                     "`include-large? true` on the surface's "
-                     "`:rf.egress/off-box-tool` profile floor so "
-                     "large slots ride verbatim, but declared-"
+                     "marker. A declaration governs its whole subtree, "
+                     "so a deeper read below it returns markers too: to "
+                     "get the raw value, re-call `get-path` on the "
+                     "marker's `:path` (never the `:handle` vector — "
+                     "get-path decodes no handle) with `elision false`. "
+                     "This is the SIZE axis only (EP-0015 §10) and is "
+                     "honoured on every launch — no launch flag needed: "
+                     "false overlays `include-large? true` on the "
+                     "surface's `:rf.egress/off-box-tool` profile floor "
+                     "so large slots ride verbatim, but declared-"
                      "sensitive slots STILL redact to `:rf/redacted`. "
                      "Seeing raw sensitive values needs the separate "
                      "`include-sensitive true` opt-in, honoured only "
                      "under `--allow-sensitive-reads`; the opt-ins "
                      "thread through the walk rather than bypassing "
-                     "it.")})
+                     "it. A marker's `:path` addresses the CURRENT "
+                     "app-db: following a marker that came from a past "
+                     "epoch record (`trace-window`, `watch-epochs`, "
+                     "`snapshot :epochs`, `dispatch :trace`/`:settle`) "
+                     "returns today's value, not that epoch's — read a "
+                     "past elided value with `eval-cljs` against "
+                     "`re-frame2-pair.runtime/epoch-by-id` (the recipe "
+                     "is in `get-path`'s description).")})
 
 (def cache-property
   "Per-tool descriptor slot for the `:cache` opt-in.
