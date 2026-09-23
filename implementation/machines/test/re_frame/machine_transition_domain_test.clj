@@ -53,7 +53,8 @@
    ;; Root-declared (decl-path []).
    :on      {:root-to-q {:target [:p :q]}
              :root-to-s {:target [:p :r :s]}
-             :root-to-z {:target :z}}
+             :root-to-z {:target :z}
+             :root-same {:target :same-state}}
    :states
    {:p {:initial :q
         :entry   :enter-p
@@ -184,7 +185,8 @@
              :exit-busy  (logs :exit-busy)  :act       (logs :act)}
    :on      {:reset   :idle
              :reset!  {:target :idle :reenter? true}
-             :poke    {:action :act}}
+             :poke    {:action :act}
+             :same    {:target :same-state}}
    :states  {:idle {:entry :enter-idle
                     :exit  :exit-idle
                     :after {1000 :busy}
@@ -255,6 +257,37 @@
                      [:rf.machine/destroy [:p :q]]]
             :epoch  {[:p :q] 2 [:p :r] 1}}
            (step deep (at [:p :q]) [:root-to-z])))))
+
+(deftest root-same-state-re-descends-the-machine-initial
+  ;; rf2-gdne8: a root `:same-state` is the SELF row with the root as the
+  ;; declaring node — the root survives, every active state below it exits,
+  ;; and the machine's own `:initial` chain re-descends. It used to exit the
+  ;; active path and enter nothing, leaving the machine at `:state []`.
+  (testing "flat root :same-state from :busy lands on the machine's :initial"
+    (is (= {:status :ok
+            :state  :idle
+            :log    [:exit-busy :enter-idle]
+            :fx     [[:rf.machine/after-schedule [:idle]]]
+            :epoch  {[:idle] 2}}
+           (step flat (flat-at :busy) [:same]))))
+  (testing "flat root :same-state while AT :idle restarts :idle"
+    (is (= {:status :ok
+            :state  :idle
+            :log    [:exit-idle :enter-idle]
+            :fx     [[:rf.machine/after-cancel [:idle]]
+                     [:rf.machine/after-schedule [:idle]]]
+            :epoch  {[:idle] 2}}
+           (step flat (flat-at :idle) [:same]))))
+  (testing "compound root :same-state from [:p :r :x] re-descends :p -> :q"
+    (is (= {:status :ok
+            :state  [:p :q]
+            :log    [:exit-x :exit-r :exit-p :enter-p :enter-q]
+            :fx     [[:rf.machine/after-cancel [:p :r]]
+                     [:rf.machine/destroy [:p :r]]
+                     [:rf.machine/spawn [:p :q]]
+                     [:rf.machine/after-schedule [:p :q]]]
+            :epoch  {[:p :q] 2 [:p :r] 2}}
+           (step deep (at [:p :r :x]) [:root-same])))))
 
 (def ^:private par
   {:type    :parallel
