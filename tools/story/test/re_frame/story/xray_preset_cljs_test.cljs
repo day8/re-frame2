@@ -440,7 +440,7 @@
 ;;
 ;; The `:panel` arm used to dispatch `:rf.xray/select-panel`, an event Xray
 ;; stopped registering when the 4-layer shell replaced it with
-;; `:rf.xray/select-tab`. `safe-call!` swallowed the no-handler outcome, so
+;; `:rf.xray/select-tab`. Dispatching an unregistered id raises nothing, so
 ;; the slot was a silent no-op — and the only test asserted that the
 ;; dispatch HAPPENED, which stayed green throughout. This test reads the
 ;; OUTCOME instead: Xray's own `:rf.xray/selected-tab` sub.
