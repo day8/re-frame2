@@ -130,7 +130,10 @@ endpoint.
 returns nil for another URI; `handler` hands a `GET`/`HEAD` page load that
 falls through to shadow's own push-state handler, so the root's `index.html`
 still serves at `/`, and turns every other fallthrough — an off-endpoint
-`POST` included — into a plain-text 404. On `/__rf-open-in-editor`, the
+`POST` included — into a plain-text 404. A page load whose path carries a `..`
+segment (`/` or `\` separated) gets that 404 too: push-state joins the raw
+request path onto each root, so it would otherwise serve an `index.html` from
+outside the roots to any peer. On `/__rf-open-in-editor`, the
 request's query string carries `file` (required), `line`, `column` and
 `editor`; it is not a JSON-body API.
 

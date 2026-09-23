@@ -1392,6 +1392,58 @@
               "handler keeps the 404, so the client's editor:// fallback
                still fires"))))))
 
+;; rf2-3x7nj.38.1 — push-state concatenates the RAW request URI onto each root,
+;; so a `..` segment reaches any `index.html` beside it. Every wired port binds
+;; `0.0.0.0`, and push-state never consults the peer, so the fallthrough is the
+;; only place to refuse it.
+
+(def ^:private outside-body "<!doctype html><title>outside the root</title>")
+
+(defn- with-sibling-of-root*
+  "Call `f` with the absolute path of a throwaway root holding an `index.html`,
+  beside a sibling `outside/` directory holding one of its own."
+  [f]
+  (let [parent  (.toFile (java.nio.file.Files/createTempDirectory
+                           "oies-traversal-"
+                           (make-array java.nio.file.attribute.FileAttribute 0)))
+        root    (io/file parent "root")
+        outside (io/file parent "outside")
+        files   [(io/file root "index.html") (io/file outside "index.html")]]
+    (try
+      (.mkdirs root)
+      (.mkdirs outside)
+      (spit (first files) index-body)
+      (spit (second files) outside-body)
+      (f (.getAbsolutePath root))
+      (finally
+        (doseq [x (conj files root outside parent)] (.delete ^File x))))))
+
+(deftest off-endpoint-page-load-refuses-a-dot-dot-path
+  (testing "a page load whose path carries a `..` segment — either separator —
+            answers the plain 404 instead of the sibling's index.html"
+    (with-sibling-of-root*
+      (fn [root]
+        (doseq [method [:get :head]
+                uri    ["/../outside/" "/../outside" "/..\\outside\\"
+                        "/./../outside/"]]
+          (let [r     (page-req method uri root)
+                label (str (name method) " " (pr-str uri))]
+            (is (= outside-body (:body (shadow.push-state/handle r)))
+                (str "control: shadow's own push-state serves the sibling for "
+                     label))
+            (let [resp (rf.testbed.open-in-editor-server/handler r)]
+              (is (= 404 (:status resp)) (str label " answers 404"))
+              (is (not= outside-body (:body resp))
+                  (str label " never carries the sibling's index.html"))))))))
+  (testing "…and only a `..` SEGMENT: a name merely containing two dots still
+            falls through to push-state and gets the root's index.html"
+    (with-sibling-of-root*
+      (fn [root]
+        (let [resp (rf.testbed.open-in-editor-server/handler
+                     (page-req :get "/a..b/" root))]
+          (is (= 200 (:status resp)))
+          (is (= index-body (:body resp))))))))
+
 ;; ---------------------------------------------------------------------------
 ;; rf2-1i1ec (audit) — auto-detect is a capability question too
 ;; ---------------------------------------------------------------------------
