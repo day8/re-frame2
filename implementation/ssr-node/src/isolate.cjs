@@ -197,7 +197,15 @@ class Isolate {
         // real stack survives, and it is the diagnostic for a module that
         // cannot be loaded at all. Two audiences, and this one is already
         // the operator.
-        reject(new Refusal(CODE.MALFORMED_MODULE, err.message, { stack: err.stack }));
+        //
+        // Read NULLISH-SAFELY, because this line runs in every phase: the
+        // `reject` is a no-op after boot, but its arguments are still
+        // evaluated. A module callback that throws `null` or `undefined`
+        // (CLJS emits `throw null` for `(throw nil)`) arrives here as that
+        // value itself, and reading `.message` off it threw in the MAIN
+        // thread — an uncaught exception that took the whole sidecar down,
+        // every isolate's in-flight render with it (rf2-3x7nj.15.1).
+        reject(new Refusal(CODE.MALFORMED_MODULE, err?.message ?? String(err), { stack: err?.stack }));
       });
       worker.on('exit', (exitCode) => {
         clearTimeout(bootTimer);

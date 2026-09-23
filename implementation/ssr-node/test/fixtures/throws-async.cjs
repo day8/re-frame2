@@ -30,6 +30,12 @@
 //                     the returned promise never settles. Nothing awaits it.
 //   `app/uncaught-torn` — the same again, after a chunk has already left, so
 //                     the response is torn rather than clean.
+//   `app/uncaught-null` — a scheduled callback that throws `null`, which is
+//                     what CLJS emits for `(throw nil)`. Node hands the
+//                     parent's `'error'` listener `null` itself, not an
+//                     Error, so a listener that reads `err.message` throws
+//                     in the MAIN thread and takes the whole sidecar down
+//                     (rf2-3x7nj.15.1).
 //
 // The Error carries a `code` that is a real member of the service's closed
 // refusal family, for the same reason `throws-data.cjs` does: a module with
@@ -48,6 +54,7 @@ module.exports = {
     'app/rejected': ENTRY,
     'app/uncaught': ENTRY,
     'app/uncaught-torn': ENTRY,
+    'app/uncaught-null': ENTRY,
   },
 
   SPOOFED_CODE,
@@ -64,8 +71,10 @@ module.exports = {
 
     // The case. Thrown on a later tick, outside every `try` in this
     // process's render path — an uncaught exception in the worker thread.
+    // `app/uncaught-null` throws the nullish value instead of the Error.
+    const thrown = entry === 'app/uncaught-null' ? null : err;
     setImmediate(() => {
-      throw err;
+      throw thrown;
     });
 
     // And the render never finishes, so the only thing that can settle this

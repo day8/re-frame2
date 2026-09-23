@@ -925,6 +925,28 @@ test('a stream torn by an ESCAPED exception is destroyed, and still says nothing
   });
 });
 
+test('an escaped NULLISH throw is refused like any other, and the sidecar survives it', async () => {
+  // rf2-3x7nj.15.1. CLJS emits `throw null` for `(throw nil)`, and a
+  // scheduled callback that does it hands the parent's `'error'` listener
+  // `null` rather than an Error. That listener's boot arm read `err.message`
+  // in every phase, so the read threw in the MAIN thread and the uncaught
+  // TypeError exited the whole process — every in-flight render on every
+  // isolate, not only this one. Before the fix this row never reached an
+  // assertion: the file's own process died under it.
+  await withService('throws-async', { isolates: 1 }, async (service) => {
+    const err = await refusalOf(() => collect(service, asyncReq('app/uncaught-null')));
+    assert.ok(err, 'the render must not have succeeded');
+    assert.strictEqual(err.code, CODE.ISOLATE_LOST, 'the fault is what it is');
+    assert.strictEqual(err.message, ISOLATE_LOST_REFUSAL, 'the contract owns the wording');
+
+    // Still alive: the pool replaced its one dead isolate, and the next
+    // request is answered by a live one, through the awaited door.
+    const next = await refusalOf(() => collect(service, asyncReq('app/rejected')));
+    assert.ok(next, 'the next render must be answered');
+    assert.strictEqual(next.code, CODE.RENDER_THREW, 'by a live replacement isolate');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 6. The THIRD RECEIVER — a REPLACEMENT isolate that cannot boot (rf2-2hmg)
 //
