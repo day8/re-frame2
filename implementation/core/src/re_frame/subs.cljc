@@ -1560,12 +1560,81 @@
      (when-let [hook (rf.late-bind/get-fn-cached :adapter/reactive-owner)]
        (hook))))
 
+;; WHY A HOLDING DIES WITH EITHER END (rf2-3x7nj.3.1). A holding joins two
+;; lifetimes, the owner's and the claimed reaction's, and it has to end with
+;; whichever ends first. Keyed to the owner alone, it did not: every claim pushed
+;; a release closure onto the owner and recorded the reaction in its map, and
+;; nothing removed either when the CLAIMED reaction died. A mounted component
+;; whose conditional read was toggled, or whose parametric query changed per
+;; keystroke, kept every disposed reaction it had ever read, each still closing
+;; over its memo's last app-db. So each side carries exactly ONE callback and
+;; drops its half of the holding: the owner's releases what it still holds, and
+;; the claimed reaction's removes itself from every owner still holding it. Both
+;; records then name only live holdings, and neither grows with renders, claims
+;; or owner churn. Dropping a holding early loses nothing: every eviction path
+;; removes the slot before disposing, so the release it replaces would have
+;; no-oped on its identity guard.
+
+#?(:cljs
+   (defn- held-reaction
+     "The reaction an owner's holdings record at `slot`, or nil."
+     [holdings slot]
+     (nth (get holdings slot) 1 nil)))
+
+#?(:cljs
+   (defn- owner-holdings!
+     "The in-flight owner's holdings: a volatile map from SLOT to `[query-v
+     reaction]`, kept on the owner object beside the other per-instance state
+     the views layer keeps there. Created on the owner's first claim, together
+     with the ONE release the owner carries, which releases every holding still
+     recorded and forgets the cell so an owner re-run after disposal starts
+     afresh."
+     [owner]
+     (or (.-rfSubRefs ^js owner)
+         (let [cell (volatile! {})]
+           (set! (.-rfSubRefs ^js owner) cell)
+           (rf.interop/add-on-dispose! owner
+             (fn release-render-owned-refs [_]
+               (let [held @cell]
+                 (vreset! cell {})
+                 (set! (.-rfSubRefs ^js owner) nil)
+                 (doseq [[[frame-id _] [query-v reaction]] held]
+                   (some-> (.-rfSubHolders ^js reaction) (.delete cell))
+                   (unsubscribe-if-reaction frame-id query-v reaction)))))
+           cell))))
+
+#?(:cljs
+   (defn- record-holder!
+     "Record on `reaction` that the owner holdings `cell` holds it at `slot`.
+     The record is a JS Map from holdings cell to slot, created with the ONE
+     on-dispose callback the reaction carries for it, which drops the reaction
+     from every cell still holding it — identity-guarded, since a slot may by
+     then hold a successor."
+     [reaction cell slot]
+     (let [holders (or (.-rfSubHolders ^js reaction)
+                       (let [h (js/Map.)]
+                         (set! (.-rfSubHolders ^js reaction) h)
+                         (rf.interop/add-on-dispose! reaction
+                           (fn drop-render-owned-holdings [_]
+                             (set! (.-rfSubHolders ^js reaction) nil)
+                             (.forEach h
+                               (fn [slot cell]
+                                 (vswap! cell
+                                         (fn [m]
+                                           (if (identical? reaction (held-reaction m slot))
+                                             (dissoc m slot)
+                                             m)))))
+                             (.clear h)))
+                         h))]
+       (.set holders cell slot))))
+
 #?(:cljs
    (defn- claim-render-owned-ref!
      "Make this subscribe ONE reference held by the in-flight reactive owner.
 
      First read of a given SLOT by this owner: keep the bump `subscribe` just
-     took, record it, and register the release on the owner's dispose. Any later
+     took and record it, on the owner (released by its dispose) and on the
+     claimed reaction (dropped by ITS dispose, rf2-3x7nj.3.1). Any later
      read of the SAME slot by the SAME owner: release the duplicate bump
      immediately, so a re-rendering component holds exactly one reference no
      matter how many times it renders. The release order is bump-then-release
@@ -1583,8 +1652,8 @@
      this namespace, because the sub-cache is PER FRAME and `k` is unique only
      WITHIN one — and holds the REACTION, so a slot rebuilt under the same key
      (hot reload, `clear-sub-cache!`, a frame generation change) is seen as a
-     different holding and re-registered; the stale release then no-ops on its
-     identity guard rather than decrementing the successor.
+     different holding and recorded afresh; the holding it replaces is
+     dropped, never released, so it cannot decrement the successor.
 
      WHY THE FRAME HALF IS LOAD-BEARING (rf2-kk986). `subscribe` takes an
      explicit `{:frame target}`, so ONE render may legitimately read the same
@@ -1608,18 +1677,18 @@
                 (some? reaction)
                 (empty? *subs-under-construction*))
        (when-let [owner (reactive-owner)]
-         (let [cell (or (.-rfSubRefs ^js owner)
-                        (let [c (volatile! {})]
-                          (set! (.-rfSubRefs ^js owner) c)
-                          c))
-               slot [frame-id k]]
-           (if (identical? reaction (get @cell slot))
+         (let [cell (owner-holdings! owner)
+               slot [frame-id k]
+               held (held-reaction @cell slot)]
+           (if (identical? reaction held)
              (unsubscribe-if-reaction frame-id query-v reaction)
              (do
-               (vswap! cell assoc slot reaction)
-               (rf.interop/add-on-dispose! owner
-                 (fn release-render-owned-ref [_]
-                   (unsubscribe-if-reaction frame-id query-v reaction))))))))
+               ;; A successor for this slot: the owner no longer holds the one
+               ;; it replaces, so that one's record must stop naming this cell.
+               (when (some? held)
+                 (some-> (.-rfSubHolders ^js held) (.delete cell)))
+               (vswap! cell assoc slot [query-v reaction])
+               (record-holder! reaction cell slot))))))
      nil))
 
 (defn- subscribe-in-frame
