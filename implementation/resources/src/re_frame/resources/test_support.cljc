@@ -34,7 +34,6 @@
             [re-frame.resources.revalidate-listeners :as rf.resources.revalidate-listeners]
             [re-frame.resources.scope-registry :as rf.resources.scope-registry]
             [re-frame.resources.state :as rf.resources.state]
-            [re-frame.resources.subs :as rf.resources.subs]
             [re-frame.resources.timers :as rf.resources.timers]
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
@@ -69,11 +68,6 @@
   ;; likewise host-side transient state; detaches any installed window
   ;; listeners so a leftover listener cannot dispatch into a later test's frame.
   (rf.resources.revalidate-listeners/reset-cache!)
-  ;; Clear the framework-owned `:rf.resource/items` merge memo;
-  ;; host-side transient derivation cache (the infinite-feed merged-list
-  ;; projection), not runtime-db; cleared so a prior test's feed merge cannot
-  ;; be served for a later test's `=`-equal page vector.
-  (rf.resources.subs/reset-merge-memo!)
   ;; and the host-side WRITE-side scope-mismatch dev-warning dedupe set
   ;; (rf2-byl7bk.4); likewise host-side transient dev state, cleared so each
   ;; test observes the one-shot `:rf.warning/mutation-scope-mismatch` freshly.

@@ -308,66 +308,30 @@
   (let [e (entry-for runtime-db app-db payload)]
     (when (rf.resources.state/infinite-entry? e) e)))
 
-;; Framework-owned merge memo (R3). A bounded per-feed cache keyed on the
-;; feed's byte `key-id` → `{:pages <page-vector> :items <merged-vector>}`. The
-;; sub re-runs its body on EVERY frame-state change (an unrelated runtime-db /
-;; app-db commit), but the page vector only moves when a page is actually
-;; appended / replaced, so the expensive `(into [] (mapcat …) pages)` flatten
-;; is skipped (an `identical?` hit) on every re-run that did not touch THIS
-;; feed's pages. The subscription layer's own output `=` memoisation then keeps
-;; the sub quiet downstream; this memo additionally keeps the COMPUTATION quiet
-;; (the framework owns the merge, not the app — R3). Host-side transient state
-;; (NOT runtime-db); cleared per-test by the resources reset hook.
-(defonce ^:private
-  ^{:doc "Framework-owned `:rf.resource/items` merge memo: `{<feed-key-id>
-   {:pages <page-vector> :items <merged-items-vector>}}`. ONE slot per feed
-   key, OVERWRITTEN in place on each recompute — it grows with the number of
-   DISTINCT feed keys ever merged (the same growth profile as the runtime-db
-   `:entries` map), not per-append; each slot is a tiny pair of pointers
-   (structurally shared with the entry's `:data`). The merge recomputes ONLY
-   when the cached `:pages` is not `identical?` to the live page vector (a real
-   append / replace), so a sub re-running on an unrelated frame-state change
-   re-uses the prior merged list. A stale slot for a GC'd feed is harmless (it
-   is just re-keyed the next time that key reloads, or never read again) and is
-   dropped wholesale on the per-test reset; a host-side derivation cache is not
-   correctness-bearing, so it carries no eviction-on-GC machinery. Host-side
-   transient (NOT runtime-db); reset per-test by `reset-merge-memo!`."}
-  items-merge-memo
-  (atom {}))
-
-(defn reset-merge-memo!
-  "Drop the framework-owned `:rf.resource/items` merge memo (test isolation).
-  Published as a reset hook so the shared CLJS reset-runtime fixture clears it
-  per test — it is host-side transient dev state (a derivation cache), not
-  runtime-db. Returns nil."
-  []
-  (reset! items-merge-memo {})
-  nil)
-
 (defn merged-items
-  "The framework-owned, MEMOISED merged item list for an infinite-feed
-  `entry` (R3) — the headline `:rf.resource/items` read. Resolves the
-  resource's `:page->items` accessor and flattens the entry's `:data` page
-  vector via `rf.resources.state/merge-pages->items` (vector pages flatten by identity; a
+  "The framework-owned merged item list for an infinite-feed `entry` (R3) —
+  the headline `:rf.resource/items` read. PURE: resolves the resource's
+  `:page->items` accessor and flattens the entry's `:data` page vector via
+  `rf.resources.state/merge-pages->items` (vector pages flatten by identity; a
   non-vector page REQUIRES the accessor or raises
-  `:rf.error/infinite-missing-page-accessor`). Memoised on the page-vector
-  IDENTITY keyed by the feed's `key-id`: a re-run whose page vector is
-  `identical?` to the last merged one returns the cached merged list without
-  re-flattening. Returns `[]` for a nil / empty feed. Pure modulo the memo."
+  `:rf.error/infinite-missing-page-accessor`). Returns `[]` for a nil / empty
+  feed.
+
+  There is no computation cache here (rf2-3x7nj.10.2): the subs that call this
+  are memoised the way every sub is — by output `=` — so a re-run over
+  unchanged pages re-flattens but stays quiet downstream. The merged vector is
+  therefore `=` across unrelated commits, not `identical?`. A process-global
+  memo keyed on the feed key was never evicted (it outlived GC, `remove`,
+  `clear-scope` and the frame itself) and has been deleted; if a profile ever
+  shows the flatten, memoise through the signal graph, never a host table."
   [entry where]
   (let [pages (:data entry)]
     (if (empty? pages)
       []
-      (let [k-id   (rf.resources.state/key-id (:resource/key entry))
-            cached (get @items-merge-memo k-id)]
-        (if (and cached (identical? (:pages cached) pages))
-          (:items cached)
-          (let [spec     (rf.resources.registry/resource-meta (:resource/id entry))
-                accessor (rf.resources.state/resolve-page->items (:page->items spec))
-                merged   (rf.resources.state/merge-pages->items
-                           pages accessor (:resource/id entry) where)]
-            (swap! items-merge-memo assoc k-id {:pages pages :items merged})
-            merged))))))
+      (let [spec     (rf.resources.registry/resource-meta (:resource/id entry))
+            accessor (rf.resources.state/resolve-page->items (:page->items spec))]
+        (rf.resources.state/merge-pages->items
+          pages accessor (:resource/id entry) where)))))
 
 (defn items-sub-fn
   "Project `:rf.resource/items` — the merged / flattened item list of an
@@ -456,8 +420,9 @@
   `:pages`, `:page-count`, `:has-next-page?` / `:has-prev-page?`, the DERIVED
   `:loading?` / `:fetching?` / `:fetching-next?` / `:stale?` / `:has-data?`,
   and the three error channels (`:error` first-load / `:refresh-error`
-  whole-feed / `:page-error` load-more). Framework-owned + memoised merge (R3).
-  Empty-feed shape when no infinite entry. Per Spec 016 §Subscription
+  whole-feed / `:page-error` load-more). Framework-owned merge (R3), recomputed
+  per run — the sub itself is output-`=` memoised like every sub, so the nested
+  `:items` is `=`, not `identical?`, across unrelated commits. Empty-feed shape when no infinite entry. Per Spec 016 §Subscription
   contract."
   [frame-state [_id payload]]
   (let [rt (runtime-of frame-state)

@@ -281,8 +281,7 @@
   reads ONE stable `:value` regardless of how the read settled — never the raw
   page vector (the cache-hit `(:data entry)`) vs a single decoded page (the
   fetch's `page-succeeded-handler`). Mirrors the `:rf.resource/items` sub's
-  projection (`subs/merged-items`) sans the frame-keyed memo (a `:reply-to`
-  completion is a one-shot, not a re-render). `where` names the public surface
+  projection (`subs/merged-items`). `where` names the public surface
   for the loud `:page->items` missing-accessor diagnostic
   (`:rf.error/infinite-missing-page-accessor`) — the same error the
   `:rf.resource/items` sub raises for a misconfigured feed. Per Spec 016 §Read
