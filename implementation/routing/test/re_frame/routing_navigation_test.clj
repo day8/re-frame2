@@ -287,7 +287,9 @@
       (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query nil}])
       (is (= {} (query-of)) "a nil :query is a cleared query, never a nil slice")
       (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:sort "asc"}}])
-      (is (= {:sort "asc"} (query-of)))
+      ;; rf2-3x7nj.12.1: `/search` declares no query vocabulary, so `:sort` is
+      ;; an undeclared key and commits the way the URL spells it.
+      (is (= {"sort" "asc"} (query-of)))
       (testing "and the in-place edit branch agrees"
         (rf/dispatch-sync [:rf.route/navigate {:query nil}])
         (is (= {} (query-of)))))))

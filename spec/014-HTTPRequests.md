@@ -274,7 +274,7 @@ Handles 90% of cases without ceremony. Falling through to `:auto` (i.e., not sup
 
 ### Keyword-interning cap
 
-JSON object keys are decoded as Clojure keywords. On the JVM, keywords are interned and never garbage-collected — a compromised upstream returning N unique-key JSON per response would permanently burn N keyword slots per response. Long-running JVMs (SSR, webhook receivers, agent-controlled fetches) are the worst case.
+JSON object keys are decoded as Clojure keywords, so a compromised upstream chooses what the host interns: a response carrying N unique keys costs N interns — an allocation and an insert into the JVM's process-global keyword table each — and every one of those keywords then lives as long as the decoded reply does, which for a reply written into app-db can be the life of the session. On the pinned Clojure (1.12.4) the table holds keywords by reference and reclaims those nothing references any more, so the cost is churn and retention bounded by what the application keeps, not a permanent leak; CLJS keeps no global keyword table at all. Long-running JVMs (SSR, webhook receivers, agent-controlled fetches) see the most such input and remain the case that matters most.
 
 The decoder enforces a per-request cap on the number of unique object keys decoded. Overflow causes the decoder to throw `:rf.error/malformed-json`, which the transport classifies as `:rf.http/decode-failure` with `:reason :too-many-keys` and the configured `:limit`.
 

@@ -278,7 +278,9 @@
                       [:rf.runtime/routing :current])]
       (is (= :app/settings (:route-id cur))
           "in-place nav holds the route-id fixed at the protected route")
-      (is (= "x" (get-in cur [:query :tab]))
+      ;; rf2-3x7nj.12.1: `:app/settings` declares no query vocabulary, so
+      ;; `:tab` commits the way the URL spells it — a string key.
+      (is (= "x" (get-in cur [:query "tab"]))
           "and applies only the query change")
       (is (contains? (:tags (rf/handler-meta {:source :store :kind :route :id (:route-id cur)})) :requires-auth)
           "resolving the in-place request to the current route-id surfaces the

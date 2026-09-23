@@ -70,12 +70,19 @@ splat (`*rest`), root (`/`).
 
 ```clojure
 (rf/reg-route :app/search
-  {:query          [:map [:q :string] [:page {:optional true} :int]]
+  {:query          [:map [:q :string] [:page {:optional true} :int]
+                          [:tag {:optional true} :string]]
    :query-defaults {:page 1}}          ;; fills :page in when the URL omits it
   "/search")
 ```
 
 Path params and query params stay **separate maps** end to end.
+
+A query key the route does **not** declare stays exactly what a URL carries — a
+string key with a string value — whichever way you navigate: `{:query-merge {:sort
+"new"}}` on this route adds the entry `"sort" "new"`, the same entry a reload of
+the resulting URL reads back. Declare a key in `:query` or `:query-defaults` to get
+a keyword and a typed value.
 
 `:query-defaults` is **destination-local** — it describes this route's own query.
 No metadata key reaches into another route's query.

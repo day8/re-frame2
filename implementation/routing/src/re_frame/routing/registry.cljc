@@ -118,7 +118,7 @@
   [url]
   (rf.routing.url/malformed-url? url))
 
-(declare compile-schema-coercions)
+(declare compile-schema-coercions declared-query-tokens)
 
 ;; ---- authoring-boundary metadata validation ------------------------------
 ;; Per Spec 012 §Reserved route-metadata keys. `reg-route` has the
@@ -546,10 +546,16 @@
         ;; before validation — without it a non-`:string` path-param type
         ;; makes every valid URL fail :params validation → 404.
         params-coerce (compile-schema-coercions (:params metadata))
+        ;; rf2-3x7nj.12.1: the `{url-token -> declared-keyword}` table
+        ;; `canonical-query` looks a string key up in. Built once here rather
+        ;; than per `route-url`, which is the `route-link` render path.
+        query-tokens (when (or (seq query-coerce) (seq (:query-defaults metadata)))
+                       (declared-query-tokens query-coerce (:query-defaults metadata)))
         meta'        (cond-> (rf.source-coords/merge-coords metadata)
                        rank          (assoc :rf.route/rank rank)
                        compiled      (assoc :rf.route/compiled compiled)
                        query-coerce  (assoc :rf.route/query-coerce query-coerce)
+                       query-tokens  (assoc :rf.route/query-tokens query-tokens)
                        params-coerce (assoc :rf.route/params-coerce params-coerce))]
     ;; Spec 012 rule-6 warning (rf2-6gzobp): scan existing routes for one
     ;; whose structural rank (rules 1-5) equals ours AND whose pattern can
@@ -984,8 +990,10 @@
 
   A route declaring NO vocabulary keeps EVERY URL key as a string
   (rf2-5ifai) — the value-side rf2-3k3o7 enum gate's key-side mirror:
-  hostile URLs composed of N-unique keys would otherwise burn N
-  permanent JVM keyword slots, and a bare
+  hostile URLs composed of N-unique keys would otherwise choose N keyword
+  interns, each held as long as a slice holds it (the pinned Clojure 1.12.4
+  reclaims an unreferenced keyword, so this is churn and retention rather
+  than a permanent leak — rf2-1hhd8), and a bare
   `(reg-route :route/x {} \"/x\")` is the high-cardinality
   public-surface case where this hits hardest. Authors who want keyword
   keys declare them via `:query` / `:query-defaults` —
@@ -1004,7 +1012,13 @@
   back to `:user/id` — the prior `(keyword k)` collapsed it to `:id`,
   losing the namespace and breaking the EP-0012 route-prism law for any
   namespaced query key (and silently merging `:user/id` + `:account/id`
-  into one `:id`)."
+  into one `:id`).
+
+  The named-address doors mirror this rule through `canonical-query`
+  (rf2-3x7nj.12.1): `{:to …}`, the in-place `:query` / `:query-merge` edit and
+  `route-url` spell every entry by its URL token against this same vocabulary,
+  so an undeclared key is a string key with a string value on every door, not
+  only the URL ones."
   [query-coerce defaults raw-query]
   (let [token->declared (declared-query-tokens query-coerce defaults)]
     (reduce-kv
@@ -1549,6 +1563,147 @@
                (instance? java.util.Date v))
      :cljs (instance? js/Date v)))
 
+(defn- url-value-refusal
+  "The URL-scalar ADMISSION TEST, as a value rather than a throw: nil when `v` is
+  an admitted URL scalar, else why it is not — `::instant` for an instant / host
+  `Date`, or the `ExceptionInfo` `rf.identity/canonical-bytes` raised for it.
+
+  One definition with two readers: `assert-url-value!` turns a refusal into its
+  structured error, and `canonical-query` asks only whether `v` is admitted, so
+  the named-address doors stringify exactly the values `route-url` would emit
+  and leave every other value for `route-url` to refuse (rf2-3x7nj.12.1)."
+  [v]
+  ;; rf2-cno31 — THE ADMITTED-SCALAR FAST ANSWER. This test asks a DOMAIN
+  ;; question ("is `v` an admitted URL scalar?") and used to answer it by
+  ;; building the value's whole CEDN-1 token string and throwing it away, once
+  ;; per path param per href, on the render path. For the four kinds below the
+  ;; answer is unconditionally YES and is decidable by TYPE: none is a host
+  ;; instant, and `rf.identity/encode` cannot reject any of them (string / keyword
+  ;; / symbol route through `pr-str`, boolean through a literal). Every other
+  ;; value — integers, whose safe-range check is the whole point; UUIDs;
+  ;; instants; host objects — takes the identical encode-and-catch path it
+  ;; always did, so the fail-closed class is exactly what it was.
+  (cond
+    (or (string? v) (keyword? v) (boolean? v) (symbol? v)) nil
+    (host-instant? v)                                      ::instant
+    :else
+    (try
+      (rf.identity/canonical-bytes v)
+      nil
+      (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) ex
+        ex))))
+
+(defn- url-admitted?
+  "True when `v` is an admitted URL scalar (`url-value-refusal` is nil). Never
+  throws on a refused value."
+  [v]
+  (nil? (url-value-refusal v)))
+
+;; ---- `canonical-query`: one query spelling on every door (rf2-3x7nj.12.1) ---
+
+(defn- refused-url-value?
+  "True when `v` is a value `route-url` will REFUSE (`assert-url-value!`): not
+  nil, not a string, and not an admitted URL scalar. An undeclared entry carrying
+  one is left exactly as the caller spelled it, key and value, so the refusal
+  names the caller's own key rather than a spelling the caller never wrote."
+  [v]
+  (and (some? v) (not (string? v)) (not (url-admitted? v))))
+
+(defn- url-query-value
+  "An undeclared query VALUE spelled the way `match-url` reads it back: nil stays
+  nil (the deletion instruction — never `(str nil)`, which is `\"\"`), a string
+  is itself, and an admitted URL scalar is `(str v)` — exactly what
+  `rf.routing.url/url-encode` feeds `encodeURIComponent`. Only called for a value
+  `refused-url-value?` has already let through."
+  [v]
+  (if (or (nil? v) (string? v))
+    v
+    (str v)))
+
+(defn- canonical-query-entry?
+  "True when the entry `k` → `v` is already spelled the way the URL spells it.
+  `canonical-query-entry`'s answer, decided without building one — this runs
+  per entry on every `route-url`, where the all-canonical case must allocate
+  nothing."
+  [coerce defaults tokens k v]
+  (cond
+    (keyword? k) (or (contains? coerce k) (contains? defaults k) (refused-url-value? v))
+    (string? k)  (and (not (contains? tokens k))
+                      (or (nil? v) (string? v) (refused-url-value? v)))
+    :else        true))
+
+(defn- canonical-query-entry
+  "`[k' v']` for one query entry, spelled by its URL TOKEN against the route's
+  declared vocabulary. `tokens` is the `{url-token -> declared-keyword}` map
+  (nil when the route declares nothing)."
+  [coerce defaults tokens k v]
+  (cond
+    (and (keyword? k) (or (contains? coerce k) (contains? defaults k)))
+    [k v]
+
+    (and (string? k) (contains? tokens k))
+    [(get tokens k) v]
+
+    (and (or (keyword? k) (string? k)) (not (refused-url-value? v)))
+    [(if (keyword? k) (query-key->url-token k) k) (url-query-value v)]
+
+    :else
+    [k v]))
+
+(defn canonical-query
+  "Spell `query` the way the URL spells it, for the route `route-meta` describes
+  (rf2-3x7nj.12.1). Every entry is judged by its URL TOKEN against the route's
+  declared vocabulary (`:query` schema keys plus `:query-defaults` keys):
+
+    - an UNDECLARED entry becomes exactly what `match-url` hands back for it — a
+      STRING key and a STRING value (`url-query-value`);
+    - a STRING key whose token IS declared becomes that declared keyword, its
+      value untouched, so the route's `:query` schema grades it exactly as it
+      grades the keyword spelling;
+    - a declared keyword, any key that is neither keyword nor string, and an
+      undeclared entry whose value `route-url` will refuse (a host value, a
+      float, an integer past 2^53) are left as they are — `route-url` still
+      judges each, the last under the caller's own key.
+
+  This is `coerce-query`'s mirror for the named-address doors. `match-url` has
+  always kept an undeclared key a string (rf2-5ifai) while `{:to …}`, the
+  in-place `:query` / `:query-merge` edit and `route-url` passed the caller's
+  spelling through — so one destination committed two slices depending on the
+  door, `:query-merge {:page 2}` over a URL-seeded `{\"page\" \"1\"}` kept both
+  and pushed `page=2&page=1`, and a nil delta could not remove the key.
+  Applied at three sites: `re-frame.routing.resolve/resolved-target`, the
+  `:query-merge` deltas before the fold, and `route-url` before its canonical
+  sort. The rule a programmer is told: undeclared query keys are URL strings,
+  key and value, on every door; declare a key in `:query` or `:query-defaults`
+  to get a keyword and a typed value.
+
+  Never throws. Returns `query` IDENTICALLY when no entry changes — URL-door
+  queries arrive already canonical and are never rebuilt (which would lose
+  `match-url`'s canonical order). When two entries collide once canonicalised
+  (`:page` and `\"page\"` together) the later one in the map's iteration order
+  wins."
+  [route-meta query]
+  (if (or (not (map? query)) (empty? query))
+    query
+    (let [coerce   (:rf.route/query-coerce route-meta)
+          defaults (:query-defaults route-meta)
+          tokens   (when (or (seq coerce) (seq defaults))
+                     (or (:rf.route/query-tokens route-meta)
+                         (declared-query-tokens coerce defaults)))
+          changes? (reduce-kv (fn [_ k v]
+                                (if (canonical-query-entry? coerce defaults tokens k v)
+                                  false
+                                  (reduced true)))
+                              false
+                              query)]
+      (if-not changes?
+        query
+        (reduce-kv (fn [m k v]
+                     (let [[k' v'] (canonical-query-entry coerce defaults tokens k v)]
+                       (assoc m k' v')))
+                   {}
+                   query)))))
+
 (defn- assert-url-value!
   "Fail closed when `v` (a used path-param value or a non-nil query value) is
   not an admitted URL scalar — i.e. it is a host value outside the CEDN-1
@@ -1562,52 +1717,43 @@
   `:rf.error/non-edn-identity` rides `:rf.error/cause`); returns `v` unchanged
   when it is admitted."
   [route-id slot k v]
-  ;; rf2-cno31 — THE ADMITTED-SCALAR FAST ANSWER. This guard asks a DOMAIN
-  ;; question ("is `v` an admitted URL scalar?") and used to answer it by
-  ;; building the value's whole CEDN-1 token string and throwing it away, once
-  ;; per path param per href, on the render path. For the four kinds below the
-  ;; answer is unconditionally YES and is decidable by TYPE: none is a host
-  ;; instant, and `rf.identity/encode` cannot reject any of them (string / keyword
-  ;; / symbol route through `pr-str`, boolean through a literal). Every other
-  ;; value — integers, whose safe-range check is the whole point; UUIDs;
-  ;; instants; host objects — takes the identical encode-and-catch path it
-  ;; always did, so the fail-closed class is exactly what it was.
-  (if (or (string? v) (keyword? v) (boolean? v) (symbol? v))
-    v
-    (do
-      (when (host-instant? v)
-        (throw (route-error
-                 :rf.error/route-url-non-edn-value
-                 'rf.routing/route-url
-                 (str "route " route-id " " (name slot) " value for " k
-                      " is an instant / host Date — re-frame2 will not "
-                      "host-stringify it into a URL (its host string is "
-                      "host-divergent and has no round-trippable URL segment; "
-                      "EP-0012 §Canonical EDN identity). Encode it as a portable "
-                      "string (e.g. an ISO-8601 token) at the boundary first")
-                 {:route-id route-id
-                  :slot     slot
-                  :param    k
-                  :value    v})))
-      (try
-        (rf.identity/canonical-bytes v)
-        v
-        (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) ex
-          (if (= :rf.error/non-edn-identity (:rf.error/id (ex-data ex)))
-            (throw (route-error
-                     :rf.error/route-url-non-edn-value
-                     'rf.routing/route-url
-                     (str "route " route-id " " (name slot) " value for " k
-                          " is not a portable EDN identity (" (:bad-type (ex-data ex))
-                          ") — re-frame2 will not host-stringify it into a URL "
-                          "(EP-0012 §Canonical EDN identity); encode it as portable "
-                          "EDN at the boundary first")
-                     {:route-id        route-id
-                      :slot            slot
-                      :param           k
-                      :value           v
-                      :rf.error/cause  (ex-data ex)}))
-            (throw ex)))))))
+  (let [refusal (url-value-refusal v)]
+    (cond
+      (nil? refusal)
+      v
+
+      (= ::instant refusal)
+      (throw (route-error
+               :rf.error/route-url-non-edn-value
+               'rf.routing/route-url
+               (str "route " route-id " " (name slot) " value for " k
+                    " is an instant / host Date — re-frame2 will not "
+                    "host-stringify it into a URL (its host string is "
+                    "host-divergent and has no round-trippable URL segment; "
+                    "EP-0012 §Canonical EDN identity). Encode it as a portable "
+                    "string (e.g. an ISO-8601 token) at the boundary first")
+               {:route-id route-id
+                :slot     slot
+                :param    k
+                :value    v}))
+
+      (= :rf.error/non-edn-identity (:rf.error/id (ex-data refusal)))
+      (throw (route-error
+               :rf.error/route-url-non-edn-value
+               'rf.routing/route-url
+               (str "route " route-id " " (name slot) " value for " k
+                    " is not a portable EDN identity (" (:bad-type (ex-data refusal))
+                    ") — re-frame2 will not host-stringify it into a URL "
+                    "(EP-0012 §Canonical EDN identity); encode it as portable "
+                    "EDN at the boundary first")
+               {:route-id        route-id
+                :slot            slot
+                :param           k
+                :value           v
+                :rf.error/cause  (ex-data refusal)}))
+
+      :else
+      (throw refusal))))
 
 (defn- assert-fragment!
   "Fail closed when `fragment` is not an admitted `route-url` fragment value
@@ -1837,7 +1983,17 @@
               'rf.routing/route-url
               "route-url requires an address with a :to route-id (the destination route)."
               {:reason :missing-to})))
-   (let [query-params (or query-params {})
+   (let [route-meta   (rf.registrar/lookup :route route-id)
+         ;; rf2-3x7nj.12.1: spell the query the way the URL spells it BEFORE
+         ;; anything reads it — an undeclared key as a string key with a string
+         ;; value, a string key naming a declared token as that keyword — so
+         ;; validation, the canonical sort and emission all see what the URL
+         ;; doors see. `{:z "1" "a" "2"}` used to sort `:z` before `"a"` and
+         ;; emit `?z=1&a=2` where `{"z" "1" "a" "2"}` emitted `?a=2&z=1`, and
+         ;; `{:page 2 "page" 3}` on a route declaring `:page` emitted `page=`
+         ;; twice. An all-canonical query (every href `route-link` builds from a
+         ;; committed slice) comes back identical, allocating nothing.
+         query-params (canonical-query route-meta (or query-params {}))
          ;; Elide nil-valued query keys before schema validation, and reuse
          ;; that same map for emission. Per
          ;; Spec 012 §Bidirectional URL ↔ params a nil-valued query key is
@@ -1882,7 +2038,6 @@
                                         (sort-by (comp rf.identity/canonical-bytes key)
                                                  (remove (fn [[_ v]] (nil? v))
                                                          query-params)))))
-         route-meta   (rf.registrar/lookup :route route-id)
          pattern      (:path route-meta)
          ;; The same precompiled coercion tables `match-url` uses let the
          ;; emission side invert enum-keyword decode: a declared keyword-enum
