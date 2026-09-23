@@ -106,9 +106,10 @@ exports:
    chart with callbacks disabled and no runtime connection. The consumer
    hosts it; there is no Day8-hosted instance (Lock #7, rf2-8m344).
 3. **The share-URL encoding rules.** EDN-shaped data → transit-write →
-   base64url, with a `:rf.machines-viz.share/v1` envelope keying the
-   encoding version. Roundtrips: `(encode-share-url chart-state)`
-   and `(decode-share-url url)`.
+   base64url, with a versioned envelope (`:rf.machines-viz.share/v`,
+   currently `"2"`) keying the encoding. Roundtrips:
+   `(encode-share-url chart-state {:host …})` and
+   `(decode-share-url url)`.
 4. **PNG and SVG exporters.** Client-side rasterisers that emit a
    chart image at 2x DPR (PNG) or as `image/svg+xml` (SVG); fonts are
    referenced by name (system-monospace fallback), not embedded as glyph
@@ -185,9 +186,9 @@ must tell."
 | **`:rf.machine.microstep/transition`** | Host-side trace and replay surfaces; `MachineChart` does not render a dedicated microstep animation. |
 | **`:rf.machine.timer/*` events** | The host projects `:after` overlay descriptors; their tick drives countdown rings only while visible. |
 | **`:rf.machine.spawn-all/*` events** | Parallel-child rows render with per-child state plus the join-condition label (`:all` / `:any`). |
-| **`:rf.machine.spawn/spawned` + `-destroyed`** | Dynamic actors appear / disappear in the parent chart's "spawned" tray; allocated ids surface as-is, and a `:fixed-actor-id` spawn under its explicit address. |
-| **State-tags** (Spec 005 §State tags) | Tag-membership coloured rings on state nodes; tags listed in the node tooltip. |
-| **Source-coord stamping** (Spec 001) | Every state, transition, guard, and action carries a source-coord chip — click jumps to the registration. |
+| **`:rf.machine.spawn/spawned` + `-destroyed`** | The chart draws no spawn topology (per [`API.md`](./API.md) §What renders); spawned children surface only through the host-fed `:spawn-all-join` overlay descriptor, one row per child key. |
+| **State-tags** (Spec 005 §State tags) | A neutral tag-pill row below the state name (one chip style, rf2-az6e2); the full tag set on the node tooltip. |
+| **Source-coord stamping** (Spec 001) | The chart renders no coord chips; a state click fires `:on-state-click` with the state path and the host resolves the coords and jumps to the registration. |
 | **`reg-machine` definition as data** | The whole chart layout is a function of the transition table; no reflection, no instrumented build. |
 | **Compound states + parallel regions** | Nested compound states render with recursive active-child highlighting; parallel regions render as side-by-side panes. |
 | **Final states + `:on-done` completion** | `:final?` leaves render with a quiet doubled border (UML final-state ring) regardless of depth — but the doubled border is a STATIC topology marker, NOT a claim about finality semantics, which Spec 005 keys on the leaf's DEPTH (§Embedded vs top-level). A `:on-done` (XState `onDone`) on a compound / parallel-root projects the **completion transition** — a `✓ done` edge advancing the outer flow to the compound's sibling, or a terminal completion affordance for the action-only parallel-root form (rf2-41goo) — and is the surface the viz draws. The two are distinct: a ROOT-level `:final?` leaf is whole-machine finality (the runtime auto-destroys the actor) and carries no `:on-done` edge; an EMBEDDED `:final?` leaf signals compound-done and the machine **keeps running**, so the `:on-done` completion edge it projects is NOT tied to auto-destroy (Spec 005 §The done-state signal). |
@@ -245,7 +246,7 @@ interactive surfaces** plus the existing **Mermaid static
 emitter**:
 
 1. **Xray panel — the canonical observability surface.** The
-   Machines tab of Xray's 7-tab detail panel embeds
+   Machines tab of Xray's 10-tab Dynamic detail panel embeds
    `MachineChart` as its content view (per
    [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)).
    This is the front door for live machine observability — the
@@ -256,7 +257,8 @@ emitter**:
 
 2. **User-app drop-in — production observability of running
    machines.** The component ships as a substrate-agnostic
-   `:view` registration that consumer apps can mount into their
+   component (a Reagent component with React / UIx shells — not a
+   `reg-view` registration) that consumer apps can mount into their
    own UI to surface a registered machine to end-users or
    internal operators. **v1.0 in scope** — not speculative; the
    bundle-isolation contract holds (the component is a tool jar,

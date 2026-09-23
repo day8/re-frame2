@@ -36,7 +36,8 @@ embeds `MachineChart` must be able to count on identical behaviour.
 
 `MachineChart` does not know its host. Xray wraps it in the Machine
 Inspector panel, Story reaches that panel through its Xray embed, and
-the read-only viewer page mounts it in a small re-frame/Reagent shell.
+the read-only viewer page mounts it on a plain Reagent root (no
+framework boot).
 The component's contract is the same in every case:
 
 - Inputs: `:machine-id`, the `:definition` + `:current-state` the
@@ -227,7 +228,6 @@ looping:
 
 - Transition: one ~400ms edge-glow on the matching event (the
   focused edge between FROM-highlight + TO-highlight).
-- Microstep: one 150ms intermediate node flash.
 - `:after` countdown: a fill ring that updates at 60Hz **only**
   when the chart is visible; backgrounded charts pause the fill.
   This is a *fill-progressing* surface, not a looping animation —
@@ -274,9 +274,8 @@ Every coloured marker pairs with a shape, icon, or text:
   the remaining-ms text.
 - `:final?` state: a quiet doubled border (the geometry reads without
   hue).
-- `:spawn-all` failed child: red fill + an "!" badge + "failed"
-  label.
-- Stale microstep node: grey + dashed border + "(microstep)" text.
+- `:spawn-all` failed child: red + a `✗` status glyph beside the
+  child key (a `data-failed` pin for tests).
 
 The colour-blind path is reachable without hue. Same posture
 Xray takes
