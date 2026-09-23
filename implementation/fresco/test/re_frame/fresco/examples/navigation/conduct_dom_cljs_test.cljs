@@ -93,6 +93,7 @@
             [re-frame.fresco.examples.navigation.views :as rf.fresco.examples.navigation.views]
             [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
+            [re-frame.interop :as rf.interop]
             [re-frame.routing :as rf.routing]
             [re-frame.test-support :as rf.test-support]))
 
@@ -206,6 +207,14 @@
 
 (defn- next-frame []
   (js/Promise. (fn [resolve] (js/requestAnimationFrame #(resolve true)))))
+
+(defn- after-the-scroll
+  "Resolve once `:rf.nav/scroll` has run. The scroll touches the page after
+  the navigation's commit, through the adapter's after-render hook
+  (rf2-3x7nj.12.3) — later than the render `dispatch-and-settle!` commits —
+  and this queues behind it on that same hook."
+  []
+  (js/Promise. (fn [resolve] (rf.interop/after-render #(resolve nil)))))
 
 (defn- two-frames
   "Wait two animation frames.
@@ -525,6 +534,8 @@
                        m [:rf.route/navigate {:to rf.fresco.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}}])
                      (is (= rf.fresco.examples.navigation.routes/article (read-sub m [:rf.route/id])))
+                     (after-the-scroll)))
+            (.then (fn [_]
                      (is (= 0 (scroll-y))
                          (str "a forward navigation lands at the top and this one
                               is at " (scroll-y) ". Arriving at a new page
@@ -539,6 +550,8 @@
                        m [:rf.route/handle-url-change "/navigation"
                           {:rf.route/cause :popstate}])
                      (is (= rf.fresco.examples.navigation.routes/feed (read-sub m [:rf.route/id])))
+                     (after-the-scroll)))
+            (.then (fn [_]
                      (is (= deep-offset (scroll-y))
                          (str "Back restored " (scroll-y) " rather than "
                               deep-offset ". The list is where the user was
@@ -612,6 +625,8 @@
                      (rf.fresco.test.mounted/dispatch-and-settle!
                        m [:rf.route/navigate {:to rf.fresco.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}}])
+                     (after-the-scroll)))
+            (.then (fn [_]
                      (is (= 0 (scroll-y)))
                      (scrolled-to! 300)
 
@@ -622,6 +637,8 @@
                           {:rf.route/cause :popstate}])
                      (is (= "shallow-water" (:slug (read-sub m [:rf.route/params])))
                          "the navigation happened")
+                     (after-the-scroll)))
+            (.then (fn [_]
                      (is (= 300 (scroll-y))
                          (str "a `:restore` with nothing saved for this URL must
                               leave the page where it is; it reads " (scroll-y)
