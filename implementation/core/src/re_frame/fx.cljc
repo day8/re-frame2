@@ -2075,8 +2075,8 @@
              ;; Spec 013 §Sequencing: the walk is over, so the flow registry and
              ;; the frame state are in their final shape for this event —
              ;; settle this frame's flows if the walk touched either. AFTER the
-             ;; terminal `:rf.fx/do-fx` marker so
-             ;; the settle's own dispatch trace reads as what it is, a
+             ;; terminal `:rf.fx/do-fx` marker so the settle's own dispatch
+             ;; trace reads as what it is, a
              ;; consequence of the completed walk rather than part of it; and
              ;; behind the same liveness check every other tail stage uses, so a
              ;; frame destroyed mid-walk queues nothing.
