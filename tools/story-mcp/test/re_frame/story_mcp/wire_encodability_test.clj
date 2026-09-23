@@ -341,6 +341,9 @@
                        ["atom"        {:a (atom 1)}]
                        ["tagged EDN"  {:u (java.util.UUID/randomUUID)
                                        :d (java.util.Date. 0)}]
+                       ;; `inst?` is true of it, but Cheshire cannot write it
+                       ;; (rf2-3x7nj.34.1).
+                       ["java.time.Instant" {:at (java.time.Instant/ofEpochMilli 0)}]
                        ["nil"         nil]]]
       (is (string? (cheshire/generate-string
                      (rf.story-mcp.tools.result/wire-safe-ex-data d)))
@@ -501,6 +504,34 @@
             "no raw printed object in either slot")
         (is (nil? (re-find address-in-line line))
             "and no identity hash")))))
+
+(deftest instant-in-a-success-payload-crosses-as-a-marker
+  ;; rf2-3x7nj.34.1. `inst?` is true of a `java.time.Instant`, so the
+  ;; success projection let one through and Cheshire then threw inside
+  ;; `write-frame!`: `run-variant` answered `-32603` over a PASSING run. A
+  ;; `java.util.Date` in the same slot is the control — an instant the
+  ;; encoder can write, which must still cross as itself.
+  (rf/reg-event :probe/stamp-instant
+    (fn [{:keys [db]} _] {:db (assoc db :stamped-at (java.time.Instant/ofEpochMilli 0))}))
+  (rf/reg-event :probe/stamp-date
+    (fn [{:keys [db]} _] {:db (assoc db :stamped-at (java.util.Date. 0))}))
+  (rf.story/reg-variant* :story.probe/instant
+                         {:doc "instant" :script [[:dispatch-sync [:probe/stamp-instant]]]})
+  (rf.story/reg-variant* :story.probe/date
+                         {:doc "date" :script [[:dispatch-sync [:probe/stamp-date]]]})
+  (testing "a java.time.Instant in app-db: a result, the verdict intact, the value marked"
+    (let [[line frame] (call-success-tool "run-variant" "story.probe/instant" false)]
+      (is (nil? (:error frame))
+          (str "a result envelope, not a -32603 server fault: " line))
+      (is (= "pass" (:status (structured frame))) "the verdict survives")
+      (is (= {:rf.story-mcp/unencodable "java.time.Instant"}
+             (get-in (structured frame) [:app-db :stamped-at]))
+          "the Instant is withheld behind the bounded marker")
+      (is (not (str/includes? line "#object")) "no raw printed object in either slot")))
+  (testing "control: a java.util.Date in the same slot crosses as itself"
+    (let [[line frame] (call-success-tool "run-variant" "story.probe/date" false)]
+      (is (nil? (:error frame)) line)
+      (is (= "1970-01-01T00:00:00Z" (get-in (structured frame) [:app-db :stamped-at]))))))
 
 (deftest callable-projection-keeps-the-surrounding-data
   (rf.story/reg-variant* :story.button/predicate predicate-body)
