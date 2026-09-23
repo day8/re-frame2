@@ -78,6 +78,7 @@
                        [re-frame.story.config :as rf.story.config]
                        [re-frame.story.decorators :as rf.story.decorators]
                        [re-frame.story.plan    :as rf.story.plan]
+                       [re-frame.story.render  :as rf.story.render]
                        [re-frame.story.runtime :as rf.story.runtime]
                        ;; The merged `rf/frame-provider {:frame …}` shape
                        ;; routes through Reagent's `:r>` interop head, which
@@ -303,18 +304,6 @@
 ;; ---- the Reagent renderer ------------------------------------------------
 
 #?(:cljs
-   (defn- variant-component-id
-     "Resolve the variant's `:component` view id — variant body first,
-     falling back to the parent story (per `001-Authoring.md` §Registration macros, the parent
-     story usually carries the `:component`)."
-     [variant-id]
-     (let [vb       (rf.story.registrar/handler-meta :variant variant-id)
-           story-id (rf.story.args/parent-story-id variant-id)
-           sb       (when story-id
-                      (rf.story.registrar/handler-meta :story story-id))]
-       (or (:component vb) (:component sb)))))
-
-#?(:cljs
    (defn- run-variant-with-shell-opts!
      "Drive `run-variant` for `variant-id` with the current shell
      state's modes / cell overrides / substrate. Mirrors
@@ -357,18 +346,29 @@
      cards previously rendered identically (or empty when `:rf/default`
      carried no `:count`)."
      [variant-id]
-     (let [view-id        (variant-component-id variant-id)
-           shell          @rf.story.ui.state/shell-state-atom
-           ;; rf2-eyrpr — thread the per-run opts into `resolve-decorators`
-           ;; (mirrors `rf.story.ui.canvas/canvas-inner`) so the plan it recompiles to
-           ;; read `[:world :decorators]` substitutes `[:arg]` keys that
-           ;; resolve only through a mode / cell layer instead of throwing.
+     (let [shell          @rf.story.ui.state/shell-state-atom
+           ;; rf2-eyrpr — thread the per-run opts into the plan compile
+           ;; (mirrors `rf.story.ui.canvas/canvas-inner`) so it substitutes
+           ;; `[:arg]` keys that resolve only through a mode / cell layer
+           ;; instead of throwing.
            run-opts       {:active-modes   (:active-modes shell)
                            :cell-overrides (get-in shell
                                                    [:cell-overrides
                                                     variant-id])}
-           decorator-pack (rf.story.decorators/resolve-decorators variant-id run-opts)
-           eff-args       (rf.story.plan/effective-args variant-id run-opts)
+           ;; ONE compiled plan per cell render, as on the canvas, and every
+           ;; scenario read comes off it — the subject, the decorator stack,
+           ;; the effective args, the view-state overrides. The raw variant
+           ;; body missed an `:extends`-inherited `:component` (rf2-3x7nj.28.2),
+           ;; and the cell applied no `:sub-overrides` at all, so a pinned
+           ;; design state painted from the real app-db (rf2-3x7nj.28.6).
+           plan           (rf.story.plan/variant-plan
+                            variant-id
+                            {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+           view-id        (get-in plan [:world :component])
+           decorator-pack (rf.story.decorators/resolve-decorator-refs
+                            (get-in plan [:world :decorators] []))
+           eff-args       (get-in plan [:world :effective-args] {})
+           sub-ovr        (rf.story.render/resolve-render-sub-overrides plan eff-args)
            assertions     (rf.story.runtime/read-assertions variant-id)
            errors         (:errors decorator-pack)]
        ;; Per rf2-9la06: stamp `data-test-variant` on each cell so
@@ -424,7 +424,7 @@
           ;; above, so the cell consumes the render half and keeps its own
           ;; `safe-decorated-view` wrap — the same trap rf2-3afns navigated.
           (let [substrate (rf.story.ui.multi-substrate/single-render-substrate
-                            (rf.story.ui.canvas/variant-substrate-set variant-id)
+                            (rf.story.ui.canvas/variant-substrate-set plan (:substrate shell))
                             :reagent)]
             ;; Scope the rendered view's subscribe / dispatch to the
             ;; variant's allocated frame via the namespace-preserving
@@ -448,14 +448,18 @@
             ;; axe-core to ONLY the variant's rendered tree. It is also
             ;; the subject boundary for inherited text styles (rf2-w72ij):
             ;; the `:cell` colour and font stay on the cell title above.
+            ;; The view renders inside the variant's view-state override
+            ;; scope, exactly as on the canvas (a no-op wrapper when the
+            ;; variant pins none).
             [rf/frame-provider {:frame variant-id}
              [:div {:style rf.story.ui.multi-substrate/subject-root-style
                     :data-rf-story-variant-root (pr-str variant-id)}
-              (rf.story.ui.canvas/safe-decorated-view
-                (rf.story.ui.multi-substrate/render-view
-                  substrate variant-id view-id eff-args)
-                (:hiccup decorator-pack)
-                eff-args)]]))
+              [rf.story.ui.canvas/sub-overrides-scope sub-ovr
+               (rf.story.ui.canvas/safe-decorated-view
+                 (rf.story.ui.multi-substrate/render-view
+                   substrate variant-id view-id eff-args)
+                 (:hiccup decorator-pack)
+                 eff-args)]]]))
         (when (seq errors)
           [:div {:style {:background (:danger-bg rf.story.theme.colors/tokens)
                          :border "1px solid #be4040"

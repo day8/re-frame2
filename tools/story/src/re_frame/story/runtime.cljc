@@ -1575,6 +1575,37 @@
   ([] (reset! run-owner {}))
   ([variant-id] (swap! run-owner dissoc variant-id) nil))
 
+(defonce ^:private run-listeners
+  ;; key -> (fn [variant-id run]); see `listen-runs!`.
+  (atom {}))
+
+(defn listen-runs!
+  "Follow the one run owner's runs, however each was started — the canvas,
+  the shell's selection edge, or `rerun!` (a Re-run, a play row, Run all,
+  the recorder export's replay, the CI `runPlay` hook). `f` is called
+  `(f variant-id run)` when a fresh generation is prepared, with `run`
+  `{:run-key K :generation G}`, and again when a resume of that generation
+  settles, with the unified `:result` added. A superseded resume is
+  announced too, so compare `:generation` with `current-generation`.
+
+  Only the caller that started a run holds its promise, so this is how a
+  display follows a run somebody else started: the canvas's
+  `data-run-status` follows a play-chip Re-run this way (rf2-iwl02).
+  Registered under `k`; a nil `f` removes it. A listener that throws is
+  ignored."
+  [k f]
+  (if f
+    (swap! run-listeners assoc k f)
+    (swap! run-listeners dissoc k))
+  nil)
+
+(defn- announce-run!
+  "Call every `listen-runs!` listener with `(variant-id run)`."
+  [variant-id run]
+  (doseq [f (vals @run-listeners)]
+    (try (f variant-id run)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
+
 (defn- superseded-result
   "The explicit settle-value for a resume that a newer prepare superseded
   (rf2-j538f7.34 criteria 4/5). Never `:pass`; carries no successor state — it
@@ -1623,17 +1654,17 @@
               base         {:run-key run-key :opts opts :generation gen
                             :resumed-gen (dec gen) :start-ms (rf.interop/now-ms)}]
           (if (nil? variant-body)
-            (do (swap! run-owner assoc variant-id (assoc base :error :unknown-variant))
-                gen)
-            (do
-              (try
-                (let [ctx (prepare-ctx! variant-id variant-body opts)]
-                  (swap! run-owner assoc variant-id (assoc base :ctx ctx)))
-                (catch #?(:clj Throwable :cljs :default) e
-                  ;; Capture the prepare failure so the matching resume publishes
-                  ;; a structured error result (loaders/setup can throw).
-                  (swap! run-owner assoc variant-id (assoc base :error e))))
-              gen)))))))
+            (swap! run-owner assoc variant-id (assoc base :error :unknown-variant))
+            (try
+              (let [ctx (prepare-ctx! variant-id variant-body opts)]
+                (swap! run-owner assoc variant-id (assoc base :ctx ctx)))
+              (catch #?(:clj Throwable :cljs :default) e
+                ;; Capture the prepare failure so the matching resume publishes
+                ;; a structured error result (loaders/setup can throw).
+                (swap! run-owner assoc variant-id (assoc base :error e)))))
+          ;; A fresh generation is a new current run (`listen-runs!`).
+          (announce-run! variant-id {:run-key run-key :generation gen})
+          gen)))))
 
 (defn- claim-resume!
   "Atomically claim the current generation for resume. Returns the claimed
@@ -1679,60 +1710,67 @@
        (let [my-gen   (:generation attempt)
              start-ms (or (:start-ms attempt) (rf.interop/now-ms))]
          (rf.story.async/promise
-           (fn [resolve]
-             (try
-               (cond
-                 ;; A newer prepare already superseded this attempt.
-                 (not= my-gen (current-generation variant-id))
-                 (resolve (superseded-result variant-id my-gen))
-                 ;; The prepare half failed — project its error.
-                 (= :unknown-variant (:error attempt))
-                 (resolve (unknown-variant-result variant-id))
-                 (:error attempt)
-                 (handle-run-error! resolve variant-id (:error attempt) start-ms)
-                 ;; Run phase 4 against the prepared ctx, re-checking the
-                 ;; generation before publishing so a supersession DURING the
-                 ;; async script settles as superseded rather than reading the
-                 ;; successor frame.
-                 ;;
-                 ;; `:force-play?` so a loader-incomplete-but-drained variant
-                 ;; (`:story.counter-matrix/loader-never-completes` — loaders
-                 ;; ran and seeded state, but `:loaders-complete-when` reported
-                 ;; not-ready) STILL runs its auto-play against the rendered
-                 ;; view and publishes a play-runner run-state. In the browser
-                 ;; the canvas renders the user view for such a variant (the
-                 ;; recorded loader-incomplete assertion turns the skeleton
-                 ;; off), so the auto-play must run — matching the pre-split
-                 ;; browser `auto-run!` the Story/Xray play-scripts gate reads.
-                 ;; The headless `run-variant` (via `resume-ctx!`) sets no such
-                 ;; flag, so its loader-incomplete contract (play skipped,
-                 ;; lifecycle parks at :loading) is unchanged.
-                 :else
-                 (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt)
-                                                                :force-play? true
-                                                                :play-selection selection))
-                       ;; Publish via `publish!` unless superseded, then fire
-                       ;; `done-cb` — once, on whichever path settles.
-                       settle! (fn [publish!]
-                                 (if (= my-gen (current-generation variant-id))
-                                   (publish!)
-                                   (resolve (superseded-result variant-id my-gen)))
-                                 (when done-cb (try (done-cb) (catch #?(:clj Throwable :cljs :default) _ nil))))]
-                   (-> play-promise
-                       (rf.story.async/then
-                         (fn [_]
-                           (settle! #(resolve (record-result-map ctx' start-ms)))
-                           nil))
-                       ;; rf2-9ppq — the rejection path `finalise-run!` has: a
-                       ;; throw assembling the result (or a rejected play
-                       ;; promise) settles the run with an error instead of
-                       ;; leaving it pending for ever.
-                       (rf.story.async/catch*
-                         (fn [e]
-                           (settle! #(handle-run-error! resolve variant-id e start-ms))
-                           nil)))))
-               (catch #?(:clj Throwable :cljs :default) e
-                 (handle-run-error! resolve variant-id e start-ms))))))))))
+           (fn [settle]
+             ;; Every path below settles through `resolve`, which first tells
+             ;; the `listen-runs!` listeners how this generation settled.
+             (let [resolve (fn [result]
+                             (announce-run! variant-id {:run-key    (:run-key attempt)
+                                                        :generation my-gen
+                                                        :result     result})
+                             (settle result))]
+               (try
+                 (cond
+                   ;; A newer prepare already superseded this attempt.
+                   (not= my-gen (current-generation variant-id))
+                   (resolve (superseded-result variant-id my-gen))
+                   ;; The prepare half failed — project its error.
+                   (= :unknown-variant (:error attempt))
+                   (resolve (unknown-variant-result variant-id))
+                   (:error attempt)
+                   (handle-run-error! resolve variant-id (:error attempt) start-ms)
+                   ;; Run phase 4 against the prepared ctx, re-checking the
+                   ;; generation before publishing so a supersession DURING the
+                   ;; async script settles as superseded rather than reading the
+                   ;; successor frame.
+                   ;;
+                   ;; `:force-play?` so a loader-incomplete-but-drained variant
+                   ;; (`:story.counter-matrix/loader-never-completes` — loaders
+                   ;; ran and seeded state, but `:loaders-complete-when` reported
+                   ;; not-ready) STILL runs its auto-play against the rendered
+                   ;; view and publishes a play-runner run-state. In the browser
+                   ;; the canvas renders the user view for such a variant (the
+                   ;; recorded loader-incomplete assertion turns the skeleton
+                   ;; off), so the auto-play must run — matching the pre-split
+                   ;; browser `auto-run!` the Story/Xray play-scripts gate reads.
+                   ;; The headless `run-variant` (via `resume-ctx!`) sets no such
+                   ;; flag, so its loader-incomplete contract (play skipped,
+                   ;; lifecycle parks at :loading) is unchanged.
+                   :else
+                   (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt)
+                                                                  :force-play? true
+                                                                  :play-selection selection))
+                         ;; Publish via `publish!` unless superseded, then fire
+                         ;; `done-cb` — once, on whichever path settles.
+                         settle! (fn [publish!]
+                                   (if (= my-gen (current-generation variant-id))
+                                     (publish!)
+                                     (resolve (superseded-result variant-id my-gen)))
+                                   (when done-cb (try (done-cb) (catch #?(:clj Throwable :cljs :default) _ nil))))]
+                     (-> play-promise
+                         (rf.story.async/then
+                           (fn [_]
+                             (settle! #(resolve (record-result-map ctx' start-ms)))
+                             nil))
+                         ;; rf2-9ppq — the rejection path `finalise-run!` has: a
+                         ;; throw assembling the result (or a rejected play
+                         ;; promise) settles the run with an error instead of
+                         ;; leaving it pending for ever.
+                         (rf.story.async/catch*
+                           (fn [e]
+                             (settle! #(handle-run-error! resolve variant-id e start-ms))
+                             nil)))))
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (handle-run-error! resolve variant-id e start-ms)))))))))))
 
 (defn rerun!
   "Run `variant-id` again FRESH, through the one run owner (rf2-3x7nj.30.3):

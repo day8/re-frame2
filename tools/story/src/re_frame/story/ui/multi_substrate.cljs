@@ -135,7 +135,6 @@
             [re-frame.story.args :as rf.story.args]
             [re-frame.story.decorators :as rf.story.decorators]
             [re-frame.story.plan      :as rf.story.plan]
-            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as rf.story.theme.colors]))
@@ -521,17 +520,23 @@
   raw view-id under each substrate. When that work lands, resolve the
   decorator pack here and thread it into each cell's render."
   [variant-id]
-  (let [shell        @rf.story.ui.state/shell-state-atom
-        variant-body (rf.story.registrar/handler-meta :variant variant-id)
-        story-id     (rf.story.args/parent-story-id variant-id)
-        story-body   (when story-id (rf.story.registrar/handler-meta :story story-id))
-        substrates   (resolve-substrate-set variant-body story-body
-                                            (or (:substrate shell) :reagent))
-        view-id      (or (:component variant-body) (:component story-body))
-        eff-args     (rf.story.plan/effective-args
-                       variant-id
-                       {:active-modes   (:active-modes shell)
-                        :cell-overrides (get-in shell [:cell-overrides variant-id])})]
+  (let [shell      @rf.story.ui.state/shell-state-atom
+        run-opts   {:active-modes   (:active-modes shell)
+                    :cell-overrides (get-in shell [:cell-overrides variant-id])}
+        ;; The subject, its substrates and its args all come off ONE compiled
+        ;; plan, as on the canvas: the raw variant body misses an
+        ;; `:extends`-inherited `:component` / `:substrates`, so a child
+        ;; rendered its story's view here, or none (rf2-3x7nj.28.2).
+        ;; `[:world :substrates]` already folds the story in
+        ;; `resolve-substrate-set`'s order, which then only adds the host
+        ;; fallback.
+        plan       (rf.story.plan/variant-plan
+                     variant-id
+                     {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+        substrates (resolve-substrate-set (:world plan) nil
+                                          (or (:substrate shell) :reagent))
+        view-id    (get-in plan [:world :component])
+        eff-args   (get-in plan [:world :effective-args] {})]
     ;; The multi-substrate grid is the canvas's labelled landmark when a
     ;; variant declares ≥2 substrates. `role="group"` + `aria-label`
     ;; exposes the substrate-comparison surface as a group of cells; each

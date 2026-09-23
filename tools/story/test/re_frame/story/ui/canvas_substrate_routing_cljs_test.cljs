@@ -130,7 +130,36 @@
     {:doc        "Declares ONE substrate, Reagent — the unchanged baseline."
      :component  :views/probe
      :substrates #{:reagent}
-     :loaders    [[:noop/loader]]}))
+     :loaders    [[:noop/loader]]})
+  ;; rf2-3x7nj.28.2 — the same declaration, inherited through `:extends`.
+  ;; The parent VARIANT names the subject and the layer; its story names
+  ;; neither, and the child names neither.
+  (rf.story/reg-story* :story.substrate-extends
+    {:doc "rf2-3x7nj.28.2 witness — its variants render different views"})
+  (rf.story/reg-variant* :story.substrate-extends/base
+    {:doc        "Names the subject and the layer."
+     :component  :views/probe
+     :substrates #{:uix}
+     :loaders    [[:noop/loader]]})
+  (rf.story/reg-variant* :story.substrate-extends/child
+    {:doc     "Declares neither; inherits both from its :extends parent."
+     :extends :story.substrate-extends/base})
+  ;; A cross-story `:extends`, whose OWN story names a different subject.
+  (rf.story/reg-story* :story.substrate-borrow
+    {:doc       "rf2-3x7nj.28.2 witness — names a subject its variant does not render"
+     :component :views/story-level})
+  (rf.story/reg-variant* :story.substrate-borrow/borrow
+    {:doc     "Extends a variant of another story."
+     :extends :story.substrate-extends/base})
+  ;; The grid-bound shape: the inherited set names two substrates.
+  (rf.story/reg-variant* :story.substrate-extends/grid-base
+    {:doc        "Names the subject and two layers."
+     :component  :views/probe
+     :substrates #{:reagent :uix}
+     :loaders    [[:noop/loader]]})
+  (rf.story/reg-variant* :story.substrate-extends/grid-child
+    {:doc     "Inherits the subject and both layers."
+     :extends :story.substrate-extends/grid-base}))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -292,6 +321,131 @@
                (not (rendered-under-reagent? host-tree)))
           "and the host, which is what changed")
       (rf.story/destroy-variant! variant-id))))
+
+;; ===========================================================================
+;; rf2-3x7nj.28.2 — the declaration inherited through `:extends`
+;; ===========================================================================
+;;
+;; spec/017 §`:extends` inherits world context, and the plan compiler folds
+;; `[:world :component]` / `[:world :substrates]` over the `:extends` chain
+;; before falling back to the story. The canvas and the grid read the RAW
+;; variant body, then the story — so an `:extends` child of a variant naming
+;; its own subject rendered its story's view, or none, while `run-variant`,
+;; Docs and the plan hash used the inherited one.
+
+(defn- uix-stub-text
+  "The text the :uix stub rendered — it prints the view-id it was handed —
+  or nil when it did not render. The stub's own node, not the tree's text:
+  the canvas title row prints its view-id too."
+  [tree]
+  (some-> (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "uix-stub-render")
+          (nth 2)))
+
+(defn- react-class? [f]
+  (and (fn? f) (true? (.-cljs$lang$type ^js f))))
+
+(defn- expand-to-cells
+  "`e2e-multi-frame/expand-tree`, except that a Reagent CLASS head stays a
+  leaf. A grid cell is `safe-render-cell`'s `[<error-boundary class>
+  variant-id substrate view-id eff-args]`: only React can render it, and a
+  walk that calls its constructor without `new` runs it against the wrong
+  receiver. So its arguments are read as written."
+  [tree]
+  (cond
+    (and (vector? tree) (fn? (first tree)) (not (react-class? (first tree))))
+    (let [result (apply (first tree) (rest tree))]
+      (if (or (vector? result) (seq? result))
+        (expand-to-cells result)
+        (mapv expand-to-cells tree)))
+    (vector? tree) (mapv expand-to-cells tree)
+    (seq? tree)    (map expand-to-cells tree)
+    :else          tree))
+
+(defn- nodes [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- grid-node
+  "The side-by-side grid's node in an `expand-to-cells` tree, or nil."
+  [tree]
+  (some #(when (and (vector? %) (map? (second %)) (= "group" (:role (second %)))) %)
+        (nodes tree)))
+
+(defn- grid-label
+  "The grid's `aria-label` — it names the substrates the grid lays out."
+  [tree]
+  (:aria-label (second (grid-node tree))))
+
+(defn- grid-cells
+  "`[substrate view-id]` for each cell of the grid, name-sorted by substrate."
+  [tree]
+  (->> (nodes (grid-node tree))
+       (filter #(and (vector? %) (react-class? (first %))))
+       (map (fn [[_ _ substrate view-id]] [substrate view-id]))
+       (sort-by (comp name first))))
+
+(defn- ready-grid-tree
+  "`ready-tree`, expanded with `expand-to-cells`."
+  [variant-id]
+  (rf/make-frame {:id variant-id})
+  (rf.story.loaders/mount! variant-id)
+  (rf.story.loaders/start-loaders! variant-id)
+  (rf.story.loaders/finish-loaders! variant-id)
+  (rf.story.loaders/finish-events! variant-id)
+  (rf.story.ui.canvas/mark-variant-rendered! variant-id)
+  (expand-to-cells (canvas-inner variant-id)))
+
+(deftest an-extends-child-renders-the-subject-and-layer-it-inherits
+  (testing "rf2-3x7nj.28.2 — the child names neither `:component` nor
+            `:substrates`; its parent variant names both. The canvas must
+            render the parent's view under the parent's :uix layer. Before
+            the fix it read the child's raw body, then its story's, found
+            no `:component` and said so."
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (let [tree (ready-tree :story.substrate-extends/child)]
+      (is (= "rendered under uix: :views/probe" (uix-stub-text tree))
+          "the inherited layer rendered the inherited subject")
+      (is (not (rendered-under-reagent? tree))
+          "and it did not fall back to the host substrate")
+      (rf.story/destroy-variant! :story.substrate-extends/child))))
+
+(deftest a-cross-story-extends-renders-its-parents-subject
+  (testing "rf2-3x7nj.28.2 — the worse case: the child's OWN story names a
+            different subject, so the raw read rendered that view with args
+            meant for the parent's, while the plan, a headless run and Docs
+            all said the parent's"
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (let [tree (ready-tree :story.substrate-borrow/borrow)]
+      (is (= "rendered under uix: :views/probe" (uix-stub-text tree))
+          "the parent's subject, under the parent's layer")
+      (is (not (re-find #":views/story-level"
+                        (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)))
+          "never the child's story's subject")
+      (rf.story/destroy-variant! :story.substrate-borrow/borrow))))
+
+(deftest an-extends-child-takes-the-grid-it-inherits
+  (testing "rf2-3x7nj.28.2 — two inherited substrates put the canvas on its
+            side-by-side grid, and the grid must render the inherited subject
+            in each cell. The canvas's own substrate read decides the branch;
+            the grid read the raw bodies again for its cells."
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (let [tree (ready-grid-tree :story.substrate-extends/grid-child)]
+      (is (= "Multi-substrate render — reagent, uix" (grid-label tree))
+          "the canvas took the grid branch, over both inherited substrates")
+      (is (= [[:reagent :views/probe] [:uix :views/probe]] (grid-cells tree))
+          "and every cell renders the inherited subject")
+      (rf.story/destroy-variant! :story.substrate-extends/grid-child))))
+
+(deftest the-grid-resolves-an-extends-child-by-itself
+  (testing "rf2-3x7nj.28.2 — `multi-substrate-grid` on its own terms, so its
+            read is pinned apart from the canvas's"
+    (rf.story/register-substrate! :uix uix-stub-render)
+    (let [tree (expand-to-cells
+                 [rf.story.ui.multi-substrate/multi-substrate-grid
+                  :story.substrate-extends/grid-child])]
+      (is (= "Multi-substrate render — reagent, uix" (grid-label tree))
+          "the grid lays out both inherited substrates")
+      (is (= [[:reagent :views/probe] [:uix :views/probe]] (grid-cells tree))
+          "each cell is handed the inherited subject"))))
 
 ;; ===========================================================================
 ;; single-render-substrate — the policy, on its own terms

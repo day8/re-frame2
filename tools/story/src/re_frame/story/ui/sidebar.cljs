@@ -708,10 +708,15 @@
                        ;; (rf2-khmon); it lives in shell-state so both
                        ;; this widget AND the `:test` mode pane share one
                        ;; impl without a require cycle.
+                       ;; The run-level `:status` rides with the counts, as
+                       ;; the Tests pane's `store-result!` threads it: a thrown
+                       ;; fx, a tape-floor failure or a `:cannot-run` refusal
+                       ;; the counts alone read as green (rf2-3x7nj.28.1).
                        (let [summary (-> (rf.story.ui.state/aggregate-summary
                                            (:assertions result))
                                          (assoc :elapsed-ms (:elapsed-ms result)
-                                                :ran-at-ms  nil))]
+                                                :ran-at-ms  nil
+                                                :status     (:status result)))]
                          (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run vid summary))
                        nil))
         (rf.story.async/catch* (fn [_]

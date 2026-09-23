@@ -87,36 +87,43 @@
 
 ;; ---- per-story override lookup -------------------------------------------
 
+(defn- override
+  "The `:viewport` override `variant-id` renders at: the nearest body on its
+  `:extends` chain that declares one (the variant, then its ancestors), else
+  its parent story's. That is the plan compiler's `[:world :viewport]` —
+  inherited through `:extends` as world context (spec/017 §`:extends`) —
+  with the story fallback this lookup always had. The chain is walked
+  rather than compiled, to keep plan compiles out of every toolbar render;
+  reading the variant's own body alone framed an `:extends` child at the
+  toolbar selection (rf2-3x7nj.28.2). An unregistered parent or a cycle
+  ends the walk; plan construction refuses both with its own error."
+  [variant-id]
+  (when variant-id
+    (or (loop [vid variant-id seen #{}]
+          (when-let [body (when-not (contains? seen vid)
+                            (rf.story.registrar/handler-meta :variant vid))]
+            (or (:viewport body)
+                (recur (:extends body) (conj seen vid)))))
+        (some->> (rf.story.predicates/parent-story-id variant-id)
+                 (rf.story.registrar/handler-meta :story)
+                 :viewport))))
+
 (defn effective-viewport
   "Resolve the effective viewport preset for the currently-focused
   variant. Pure-ish — reads the registrar + shell-state. Returns the
   preset map `{:label :width :height}` (with nils on `:full`)."
   []
-  (let [shell      @rf.story.ui.state/shell-state-atom
-        variant-id (:selected-variant shell)
-        var-body   (when variant-id
-                     (rf.story.registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
-        story-body (when story-id
-                     (rf.story.registrar/handler-meta :story story-id))
-        override   (or (:viewport var-body)
-                       (:viewport story-body))]
-    (rf.story.viewport/resolve override (:viewport shell))))
+  (let [shell @rf.story.ui.state/shell-state-atom]
+    (rf.story.viewport/resolve (override (:selected-variant shell))
+                               (:viewport shell))))
 
 (defn effective-id
   "Like `effective-viewport` but returns the resolved id (preset keyword
   or `:custom`). Used for `data-*` attributes."
   []
-  (let [shell      @rf.story.ui.state/shell-state-atom
-        variant-id (:selected-variant shell)
-        var-body   (when variant-id
-                     (rf.story.registrar/handler-meta :variant variant-id))
-        story-id   (some-> variant-id rf.story.predicates/parent-story-id)
-        story-body (when story-id
-                     (rf.story.registrar/handler-meta :story story-id))
-        override   (or (:viewport var-body)
-                       (:viewport story-body))]
-    (rf.story.viewport/resolve-id override (:viewport shell))))
+  (let [shell @rf.story.ui.state/shell-state-atom]
+    (rf.story.viewport/resolve-id (override (:selected-variant shell))
+                                  (:viewport shell))))
 
 ;; ---- styling -------------------------------------------------------------
 

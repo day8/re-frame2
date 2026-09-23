@@ -35,7 +35,6 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.story.async :as rf.story.async]
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.loaders :as rf.story.loaders]
             [re-frame.story.registrar :as rf.story.registrar]
@@ -252,21 +251,6 @@
            :aria-hidden "true"}
      text]))
 
-;; ---- variant view resolution --------------------------------------------
-
-(defn- variant-component
-  "Resolve the variant's `:component` to a renderable thing. The
-  variant's body may carry `:component` directly; otherwise we walk up
-  to the parent story and read its `:component` (per `001-Authoring.md` §Registration macros the
-  parent story usually carries the component and variants vary only by
-  args / events)."
-  [variant-id]
-  (let [variant-body (rf.story.registrar/handler-meta :variant variant-id)
-        story-id     (rf.story.args/parent-story-id variant-id)
-        story-body   (when story-id (rf.story.registrar/handler-meta :story story-id))]
-    (or (:component variant-body)
-        (:component story-body))))
-
 ;; ---- view-state subscription overrides ----------------------------------
 ;;
 ;; A variant whose goal is rendering / design exploration MAY author
@@ -414,7 +398,7 @@
 (defonce ^:private canvas-last-run-key
   (atom nil))
 
-;; The settled verdict of the canvas's own run (rf2-mc87a): variant-id ->
+;; The settled verdict of the variant's current run (rf2-mc87a): variant-id ->
 ;; `{:run-key K :generation G :status S}`, written when the one run owner's
 ;; resume of generation G for run-key K settles, and stamped on the canvas
 ;; section as `data-run-status` only while G is still the variant's current
@@ -425,8 +409,31 @@
 ;; does not auto-run. The play-status chip cannot say that: it tracks one
 ;; play's runner state, stays `idle` for a play that never auto-runs, and is
 ;; not rendered at all for a variant with no play. A Reagent atom, so the
-;; section re-renders once when a run settles.
+;; section re-renders once when a run settles. `follow-run!` is its writer.
 (defonce ^:private run-settled (r/atom {}))
+
+(defn- follow-run!
+  "Keep `run-settled` on the run owner's CURRENT run of `variant-id`,
+  however it was started — the canvas's own run, the shell's selection
+  edge, or `rf.story.runtime/rerun!` (the play chip's and failure banner's
+  Re-run, a play row, Run all). Only a run's starter holds its promise, so
+  the canvas hears of every run through `rf.story.runtime/listen-runs!`;
+  reading only its own promise, it lost the stamp after a play-chip Re-run
+  (rf2-iwl02). A freshly prepared generation drops the previous verdict, so
+  the section is unstamped while the run is in flight, even under an
+  identical run-key; a settled one is recorded unless a newer prepare has
+  superseded it."
+  [variant-id {:keys [run-key generation] :as run}]
+  (cond
+    (not (contains? run :result))
+    (swap! run-settled dissoc variant-id)
+
+    (= generation (rf.story.runtime/current-generation variant-id))
+    (swap! run-settled assoc variant-id
+           {:run-key run-key :generation generation :status (:status (:result run))})))
+
+(when rf.story.config/enabled?
+  (rf.story.runtime/listen-runs! ::run-settled follow-run!))
 
 ;; Per-variant first-render sentinel. Once a variant has
 ;; committed its first render, the skeleton never re-appears (a hot-
@@ -497,32 +504,32 @@
        (when (not= key @canvas-last-run-key)
          (reset! canvas-last-run-key key)
          ;; rf2-oovoq: a fresh canvas run invalidates the previous verdict,
-         ;; even under an identical run-key (a return to the same variant),
-         ;; and dropping it re-renders the section without the stamp.
-         (swap! run-settled dissoc variant-id)
+         ;; even under an identical run-key (a return to the same variant) —
+         ;; the prepare announces its fresh generation to `follow-run!`, which
+         ;; drops the verdict and so re-renders the section without the stamp.
          (prepare-for-run-key! variant-id key)
          ;; RESUME the one run owner post-commit. The generation guard makes
          ;; this exactly-once even though the shell also schedules a resume.
          ;; This call always claims: it either dedupes onto the generation the
          ;; shell's selection edge prepared, or — when the shell resumed that
-         ;; one first — prepares a fresh one. So its promise carries the run
-         ;; the canvas renders, and its `:status` is recorded as the settled
-         ;; verdict (`run-settled`), with the generation it settled, unless a
-         ;; newer prepare superseded it. Returns the chained promise, for tests.
-         (let [gen (rf.story.runtime/current-generation variant-id)]
-           (some-> (rf.story.runtime/resume-run! variant-id)
-                   (rf.story.async/then
-                     (fn [result]
-                       (when (= gen (rf.story.runtime/current-generation variant-id))
-                         (swap! run-settled assoc variant-id
-                                {:run-key key :generation gen :status (:status result)}))
-                       result)))))))))
+         ;; one first — prepares a fresh one. Its settlement reaches
+         ;; `run-settled` through `follow-run!`, like every other run of the
+         ;; variant's. Returns the resume's promise, for tests.
+         (rf.story.runtime/resume-run! variant-id))))))
 
 (defn variant-substrate-set
-  "Resolve the variant's effective substrate set. Per `001-Authoring.md` §Registration macros
-  the variant body's `:substrates` wins, otherwise the parent story's
-  `:substrates`, otherwise the shell's host substrate. The canvas uses
-  this to decide single-substrate vs side-by-side rendering.
+  "Resolve a variant's effective substrate set off its COMPILED `plan`. Per
+  `001-Authoring.md` §Registration macros the variant's `:substrates` wins,
+  otherwise the parent story's `:substrates`, otherwise the shell's host
+  substrate. The canvas uses this to decide single-substrate vs side-by-side
+  rendering.
+
+  The declared set is read at `[:world :substrates]`, which the plan compiler
+  folds in exactly that order over the variant's `:extends` chain (rf2-sc5g0),
+  so an `:extends` child renders under the substrates it inherits. Reading the
+  raw variant body missed them, the way it missed an inherited `:component`
+  (rf2-3x7nj.28.2); `resolve-substrate-set` then only supplies the host
+  fallback.
 
   Public for the same reason `run-key`, `render-view`'s caller and
   `safe-decorated-view` are: the workspace cell (`ui/workspace.cljc`)
@@ -531,18 +538,12 @@
   itself the answer to \"declared set or host substrate?\" — it is both,
   in that precedence, with the shell's substrate as the fallback.
 
-  The 2-arity takes that host substrate from the caller rather than
-  dereffing the shell atom — the canvas passes the one its `run-key`
-  already carries, so its render does not subscribe to every shell write
-  (rf2-ohc5)."
-  ([variant-id]
-   (variant-substrate-set variant-id (:substrate @rf.story.ui.state/shell-state-atom)))
-  ([variant-id host-substrate]
-   (let [vb (rf.story.registrar/handler-meta :variant variant-id)
-         sid (rf.story.args/parent-story-id variant-id)
-         sb (when sid (rf.story.registrar/handler-meta :story sid))]
-     (rf.story.ui.multi-substrate/resolve-substrate-set
-       vb sb (or host-substrate :reagent)))))
+  The caller supplies that host substrate rather than this fn dereffing the
+  shell atom — the canvas passes the one its `run-key` already carries, so
+  its render does not subscribe to every shell write (rf2-ohc5)."
+  [plan host-substrate]
+  (rf.story.ui.multi-substrate/resolve-substrate-set
+    (:world plan) nil (or host-substrate :reagent)))
 
 (defn- canvas-inner
   "The inner render fn — reads the variant's app-db-value reactively. Split
@@ -550,7 +551,7 @@
   prepare/resume + tear-down.
 
   The inner render branches on
-  `(count (variant-substrate-set variant-id))`:
+  `(count (variant-substrate-set plan host-substrate))`:
   - 1 substrate → single-pane render
   - >1 substrate → multi-substrate side-by-side grid (`002-Runtime.md` §Substrate hooks).
 
@@ -562,7 +563,6 @@
   its own)."
   [variant-id & [rk]]
   (let [rk             (or rk (run-key @rf.story.ui.state/shell-state-atom variant-id))
-        view-id        (variant-component variant-id)
         variant-body   (rf.story.registrar/handler-meta :variant variant-id)
         ;; The SAME per-run opts the `eff-args` resolve below
         ;; uses, threaded into `resolve-decorators` so the plan it
@@ -576,17 +576,22 @@
                         :cell-overrides (:cell-overrides rk)}
         ;; ONE plan compile per render, and every SCENARIO-shaped read below
         ;; comes off it: the decorator stack, the effective args, the
-        ;; view-state sub-overrides, the events-only classification. The canvas
-        ;; used to compile twice (inside `resolve-decorators`, then inside the
-        ;; sub-override resolver) and answer the args and loader questions from
-        ;; the RAW registered body — so a variant that `:extends` or
-        ;; `:compose`s its args rendered the story default while `run-variant`
-        ;; reported the inherited value (rf2-gwye.7), and one that inherited
-        ;; `:loaders` was misclassified as events-only, suppressing the
-        ;; skeleton for a fixture that does have loading to do (rf2-gwye.5).
+        ;; view-state sub-overrides, the events-only classification, the
+        ;; subject and its substrates. The canvas used to compile twice
+        ;; (inside `resolve-decorators`, then inside the sub-override
+        ;; resolver) and answer the args and loader questions from the RAW
+        ;; registered body — so a variant that `:extends` or `:compose`s its
+        ;; args rendered the story default while `run-variant` reported the
+        ;; inherited value (rf2-gwye.7), and one that inherited `:loaders` was
+        ;; misclassified as events-only, suppressing the skeleton for a
+        ;; fixture that does have loading to do (rf2-gwye.5). The subject and
+        ;; substrates were the last raw reads: an `:extends` child of a
+        ;; variant naming its own `:component` rendered its story's view, or
+        ;; none (rf2-3x7nj.28.2).
         plan           (rf.story.plan/variant-plan
                          variant-id
                          {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+        view-id        (get-in plan [:world :component])
         decorator-pack (rf.story.decorators/resolve-decorator-refs
                          (get-in plan [:world :decorators] []))
         eff-args       (get-in plan [:world :effective-args] {})
@@ -594,7 +599,7 @@
         ;; Resolve the variant's view-state subscription
         ;; overrides (arg-substituted) for the render-path binding below.
         sub-ovr        (resolve-sub-overrides plan eff-args)
-        substrates     (variant-substrate-set variant-id (:substrate rk))
+        substrates     (variant-substrate-set plan (:substrate rk))
         multi?         (and variant-id (> (count substrates) 1))
         ;; Events-only variants take the lifecycle fast-
         ;; path (`mount-ready!` jumps :pre-mount → :ready directly) so
@@ -702,10 +707,14 @@
        ;; failures render inline rather than aborting. The grid still
        ;; renders user views, so it needs the same frame context as the
        ;; single-substrate path; otherwise Reagent subscriptions fall
-       ;; back to the live app/default frame.
+       ;; back to the live app/default frame. It needs the same
+       ;; view-state overrides too: the Provider is a React context, so one
+       ;; scope around the grid covers every cell (rf2-3x7nj.28.6 — without
+       ;; it a pinned design state painted from the real app-db here).
        ^{:key (str "multi-" variant-id)}
        [rf/frame-provider {:frame variant-id}
-        [rf.story.ui.multi-substrate/multi-substrate-grid variant-id]]
+        [sub-overrides-scope sub-ovr
+         [rf.story.ui.multi-substrate/multi-substrate-grid variant-id]]]
 
        :else
        ;; SINGLE-PANE render. The renderer is resolved through the SAME

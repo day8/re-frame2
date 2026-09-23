@@ -747,8 +747,9 @@ does not survive into the view's deferred React render (the view renders
 in its own reaction, after a `binding` would have unwound; empirically
 confirmed under react-dom/server). The render path
 (`re-frame.story.sub-overrides/override-provider`, used by the canvas's
-`sub-overrides-scope` and the host's `render-host-scope`) wraps the
-variant view in that context's Provider; `re-frame.subs/subscribe`
+`sub-overrides-scope` — around the single pane, the side-by-side substrate
+grid and every workspace cell — and the host's `render-host-scope`) wraps
+the variant view in that context's Provider; `re-frame.subs/subscribe`
 consults the resolver published under the `:subs/resolve-sub-override`
 late-bind hook (dev-only, inside `subscribe`'s `interop/debug-enabled?`
 gate — it DCEs in production) and, on an **exact** query-vector HIT (`=`
