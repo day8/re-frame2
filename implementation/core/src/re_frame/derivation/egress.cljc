@@ -290,16 +290,16 @@
        (scoped-resource-key? (second node-key))))
 
 (defn- resource-node?
-  "True when the graph node `node` under `node-key` is a RESOURCE node, the
-  only family whose identity embeds a scoped key. Read off the composer's
-  `:rf/family` stamp, or off a live resource node KEY, so every node whose key
-  `project-resource-node-key` remaps has its fields projected too. Any other
-  family's node is left alone: a live subscription's `:id` and `:output`
-  carry its query vector, which can have the scoped-key shape without being
-  one (rf2-3x7nj.3.5)."
-  [node-key node]
-  (or (= :resources (:rf/family node))
-      (resource-node-key? node-key)))
+  "True when `node-key` names a RESOURCE node, the only family whose identity
+  embeds a scoped key. The composer keys every resource node, static or live,
+  `[:resource <resource-id-or-scoped-key>]`. That is the same family tag
+  `project-resource-node-key` reads, so every node whose key it remaps has its
+  fields projected too. Any other family's node is left alone: a live
+  subscription's `:id` and `:output` carry its query vector, which can have
+  the scoped-key shape without being one (rf2-3x7nj.3.5)."
+  [node-key]
+  (and (vector? node-key)
+       (= :resource (first node-key))))
 
 (defn- project-resource-node-key
   "Project a live resource node KEY `[:resource <scoped-key>]` to
@@ -432,7 +432,7 @@
              ;; the live resource scoped-key identity walk (rf2-k0meap.1) —
              ;; the secrets the value-path walk above cannot reach. Resource
              ;; nodes only (rf2-3x7nj.3.5).
-             (resource-node? node-key node) project-resource-node-identity))]
+             (resource-node? node-key) project-resource-node-identity))]
      (-> graph
          ;; remap node KEYS so a live resource scoped key no longer carries
          ;; raw scope/params in the node id (and the edge endpoints below
