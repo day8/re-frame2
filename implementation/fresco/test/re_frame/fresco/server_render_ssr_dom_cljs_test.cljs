@@ -425,9 +425,33 @@
     (let [{:keys [document]}
           (rf.fresco.server/render (request :title nil :app-element-id nil))]
       (is (str/includes? document "<div id=\"app\">")
-          "the app element default survives an explicit nil")
-      (is (str/includes? document "<title>Fresco SSR</title>")
-          "and so does the title default"))))
+          "the app element default survives an explicit nil"))))
+
+(defn- title-count
+  "How many `<title` openings `document` carries, counted off the bytes."
+  [document]
+  (count (re-seq #"<title" document)))
+
+(deftest a-document-carries-a-title-only-when-the-caller-names-one
+  ;; rf2-veuyo, the class rf2-3x7nj.14.4 ruled for ssr-ring: the module does
+  ;; not know the application's title, so a page whose caller named none
+  ;; ships none rather than the framework's own name in the tab.
+  (testing "no `:title` — the key absent, and the key supplied as nil, which
+            is what a caller with one options map threads through — gives a
+            document with NO `<title>` at all"
+    (doseq [[label req] [["absent"   (request)]
+                         ["nil"      (request :title nil)]]]
+      (let [{:keys [document]} (rf.fresco.server/render req)]
+        (is (zero? (title-count document))
+            (str "title " label ": the document invented a title: " document))
+        (is (str/includes? document "<head><meta charset=\"utf-8\"></head>")
+            (str "title " label ": the head is otherwise the one it was")))))
+  (testing "a named `:title` gives exactly ONE `<title>`, escaped — the
+            positive control, so the zero above is the fix and not a counter
+            that cannot see a title"
+    (let [{:keys [document]} (rf.fresco.server/render (request :title "X & Y"))]
+      (is (= 1 (title-count document)) (str "got: " document))
+      (is (str/includes? document "<title>X &amp; Y</title>")))))
 
 (deftest frame-opts-ride-under-the-modules-id-and-the-wire-keys-ride-the-payload
   (testing "`:frame-opts` merges UNDER the module's :id and
