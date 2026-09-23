@@ -39,9 +39,11 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.privacy.url :as rf.privacy.url]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.nav-fx :as rf.routing.nav-fx]
             [re-frame.routing.plan :as rf.routing.plan]
             [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.resolve :as rf.routing.resolve]
+            [re-frame.routing.strategy :as rf.routing.strategy]
             [re-frame.routing.url :as rf.routing.url]
             [re-frame.trace :as rf.trace]))
 
@@ -203,6 +205,42 @@
       (try
         (rf.routing.registry/route-url {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
         (catch #?(:clj Throwable :cljs :default) _ nil)))))
+
+(defn- current-app-url
+  "The app URL a frame is CURRENTLY at, as the base an app reference resolves
+  against (rf2-3x7nj.12.2): the canonical reconstruction of its route slice
+  (`current-slice->url`); on a `:rf.route/not-found` slice — whose pattern, if
+  it has one, is not where the user is — the requested app URL the slice
+  preserves under `[:params :url]`; and `/` before the frame has any location,
+  or when neither can be rebuilt.
+
+  CANONICAL, deliberately: a relative reference resolves against the
+  reconstruction rather than the spelling the user arrived by, so route
+  behaviour does not depend on how the URL was typed (`/users/42/` rebuilds as
+  `/users/42`, so a bare `7` resolves to `/users/7`)."
+  [current-route]
+  (let [route-id (:route-id current-route)
+        missed   (get-in current-route [:params :url])]
+    (cond
+      (nil? route-id)                   "/"
+      (= :rf.route/not-found route-id)  (if (string? missed) missed "/")
+      :else                             (or (current-slice->url current-route) "/"))))
+
+(defn request-app-url
+  "Reduce a `{:url …}` / `:rf.route/url-requested` reference to the app URL the
+  cascade matches (rf2-3x7nj.12.2) — `rf.routing.url/request-url->app-url`,
+  given the two things it needs from the frame: the navigating frame's current
+  app URL (from `rdb`, that frame's runtime-db), which an app reference
+  resolves against, and the URL OWNER's strategy `:decode`, which an
+  origin-bearing reference is decoded through. The address bar belongs to the
+  owner, so a non-owner frame decodes a browser address the owner's way too;
+  with no owner declared that is the default history strategy."
+  [rdb url]
+  (rf.routing.url/request-url->app-url
+    url
+    (current-app-url (get-in rdb [:rf.runtime/routing :current]))
+    (:decode (rf.routing.strategy/url-strategy-for-frame-id
+               (rf.routing.nav-fx/url-owner-frame-id)))))
 
 (defn server-frame?
   "True iff `frame-id` is an SSR / server frame — its `:config :platform`
@@ -424,7 +462,7 @@
                     {:where 'rf.route/url-requested-handler})
         rdb       (or rdb {})
         external? (rf.routing.url/external-url? url)
-        app-url   (rf.routing.url/request-url->app-url url)]
+        app-url   (request-app-url rdb url)]
     (if external?
       (do
         (rf.trace/emit! :rf.event :rf.route/external-url-requested

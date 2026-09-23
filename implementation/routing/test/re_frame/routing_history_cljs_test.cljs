@@ -202,7 +202,7 @@
             (str "non-string url " (pr-str bad) " classes EXTERNAL"))
         ;; request-url->app-url must NOT canonicalise a non-string (gate is
         ;; external? → returns the value unchanged, never touching js/URL).
-        (is (= bad (rf.routing.url/request-url->app-url bad))
+        (is (= bad (rf.routing.url/request-url->app-url bad "/" identity))
             (str "request-url->app-url leaves non-string " (pr-str bad) " unchanged"))
         ;; End-to-end: the :rf.route/url-requested sink does not push or rewrite.
         (rf/dispatch-sync [:rf.route/url-requested {:url bad}])
@@ -290,13 +290,13 @@
     (register-routes!)
     (let [doc-origin (.-origin (.-location js/globalThis.window))]
       (is (= "/cart?q=1#frag"
-             (rf.routing.url/request-url->app-url (str doc-origin "/cart?q=1#frag")))
+             (rf.routing.url/request-url->app-url (str doc-origin "/cart?q=1#frag") "/" identity))
           "a same-origin ABSOLUTE URL is reduced to pathname+search+hash")
       (is (= "/cart?q=1#frag"
-             (rf.routing.url/request-url->app-url "/cart?q=1#frag"))
+             (rf.routing.url/request-url->app-url "/cart?q=1#frag" "/" identity))
           "an already-relative in-app URL canonicalizes to itself")
       (is (= "https://evil.example/x"
-             (rf.routing.url/request-url->app-url "https://evil.example/x"))
+             (rf.routing.url/request-url->app-url "https://evil.example/x" "/" identity))
           "an EXTERNAL URL is passed through unchanged — the external? gate
            short-circuits the canonicalize (canonicalising it could fabricate
            an in-app-looking path)"))))

@@ -326,7 +326,7 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
 
 ## URL strategies
 
-A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/make-frame {:id :app :url-bound? true :url-strategy rf.routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and the URL-listener install. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR runs none of them — the server takes the request URL via `:rf.route/handle-url-change` and drives no history — but it does honour the pure `:encode`: a server-rendered `route-link` carries the same encoded href the hydrated client renders (`/demos/active` for a `with-base-path` frame, `#/active` for a hash frame).
+A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/make-frame {:id :app :url-bound? true :url-strategy rf.routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and ingress decode — the URL listener, plus a `{:url …}` / `:rf.route/url-requested` reference that carries an origin. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR runs none of them — the server takes the request URL via `:rf.route/handle-url-change` and drives no history — but it does honour the pure `:encode`: a server-rendered `route-link` carries the same encoded href the hydrated client renders (`/demos/active` for a `with-base-path` frame, `#/active` for a hash frame).
 
 ### `history-url-strategy`
 
@@ -337,7 +337,7 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
   ```
 - **Description**: The default URL strategy: HTML5 History, path-form. A frame that declares no `:url-strategy` uses this.
 
-    - `:encode` / `:decode` are identity over the app-relative URL (`:decode` reads `pathname + search + hash`).
+    - `:encode` / `:decode` are identity over the app-relative URL. `:decode` is `(fn [href] path)`, pure, handed the origin-relative browser address (`pathname + search + hash`).
     - `:push!` / `:replace!` drive `pushState` / `replaceState`.
     - `:install-listener!` wires `popstate`.
 
@@ -351,7 +351,7 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
 - **Description**: The hash URL strategy: `#`-prefixed URLs (`#/active`) for no-server-rewrite static hosting and secretary-era v1 migrations. `route-url` still builds path-form `/active`.
 
     - `:encode` maps it to `#/active` at the `route-link` href and the history fxs.
-    - `:decode` strips the leading `#` from `window.location.hash` (an empty hash decodes to `/`).
+    - `:decode` takes the origin-relative browser address and returns the part after its first `#` (a missing or empty fragment decodes to `/`). It is pure; the listener reads `window.location` and hands the address in.
     - `:install-listener!` wires `hashchange`.
 - **Example**:
   ```clojure

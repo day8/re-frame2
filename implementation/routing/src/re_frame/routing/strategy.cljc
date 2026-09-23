@@ -14,7 +14,7 @@
   THE CONTRACT. A strategy is a map with five keys:
 
     {:encode            (fn [path] href)
-     :decode            (fn [] path)
+     :decode            (fn [href] path)
      :push!             (fn [href])
      :replace!          (fn [href])
      :install-listener! (fn [on-change] teardown)}
@@ -22,9 +22,13 @@
   - `:encode` maps a path-form app URL (`/active?q=milk`) to the browser
     href form (`#/active?q=milk` for hash; unchanged for history). Pure and
     host-agnostic.
-  - `:decode` reads the CURRENT browser URL and returns its path-form
-    (`#/active` → `/active`; `pathname+search+hash` → itself for history).
-    It reads `window.location` on CLJS and returns `/` without a browser.
+  - `:decode` is `:encode`'s inverse: it maps an ORIGIN-RELATIVE browser
+    address (`pathname + search + hash`) to its path-form (`#/active` →
+    `/active`; itself for history). Pure and host-agnostic — it reads no
+    `window`. The browser boundary reads `window.location` once
+    (`current-href`) and hands the address in; the `{:url …}` /
+    `:rf.route/url-requested` doors hand in the address of an origin-bearing
+    reference the same way (rf2-3x7nj.12.2), so one decode serves both.
   - `:push!` / `:replace!` drive `window.history` with the ENCODED href
     — `:push!` adds a history entry, `:replace!` overwrites the current
     one. They are RAW window.history legs: `:encode` is the SINGLE
@@ -37,10 +41,10 @@
     listener calls with the DECODED path-form URL on every browser-driven
     change (popstate for history, hashchange for hash). CLJS-only.
 
-  `:encode` / `:decode` are inverses over the app-relative URL: for
-  every path `p`, `(decode)` at a URL the browser reached via
-  `(push! (encode p))` yields `p` back. This round-trip is the property
-  the conformance fixtures pin (both shipped strategies).
+  `:encode` / `:decode` are inverses over the app-relative URL: for every
+  path `p`, `(decode (encode p))` is `p` — a pure law, checkable on both hosts
+  without a browser. This round-trip is the property the conformance fixtures
+  pin (both shipped strategies).
 
   TWO STRATEGIES SHIP, and the line holds at two:
   - `history-url-strategy` (the DEFAULT) — HTML5 History, path-form.
@@ -54,8 +58,8 @@
   address bar: the request URL is fed in path-form via
   `:rf.route/handle-url-change`, the view renders against the slice, and a
   hash never reaches the server — so `:push!`, `:replace!` and
-  `:install-listener!` are CLJS-only and the JVM `:decode` falls back to
-  `/`. The pure `:encode` DOES run on the JVM: `route-link` encodes its
+  `:install-listener!` are CLJS-only. The pure `:encode` and `:decode` DO run
+  on the JVM: `route-link` encodes its
   `<a href>` through the rendering frame's strategy on both hosts, so the
   server shell carries the same href the hydrated client renders (Spec 011's
   structural-equivalence rule; rf2-skr1c). SSR skips the side effects, never
@@ -66,6 +70,25 @@
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]))
+
+;; ---- the browser boundary -------------------------------------------------
+
+(defn current-href
+  "The CURRENT browser address, ORIGIN-RELATIVE: `pathname + search + hash` off
+  `window.location` — the one input every strategy's `:decode` takes. `\"/\"`
+  on the JVM or when no `window.location` is available (SSR / node), which is
+  what the zero-arity decodes answered there before rf2-3x7nj.12.2.
+
+  The only place a strategy's inbound leg meets `window`: the URL-change
+  listeners and the listener's initial sync read the address here and hand it
+  to `:decode`, which is pure."
+  []
+  #?(:cljs
+     (if (and (exists? js/window) (.-location js/window))
+       (let [loc (.-location js/window)]
+         (str (.-pathname loc) (.-search loc) (.-hash loc)))
+       "/")
+     :clj "/"))
 
 ;; ---- history strategy (default) ------------------------------------------
 ;; Path-form. `:encode` / `:decode` are identity over the app-relative URL —
@@ -79,17 +102,11 @@
   path)
 
 (defn history-decode
-  "History strategy `:decode` — read the current browser URL as an
-  app-relative path string `pathname + search + hash`. CLJS-only;
-  returns `\"/\"` on the JVM / when no `window.location` is available
-  (SSR / node)."
-  []
-  #?(:cljs
-     (if (and (exists? js/window) (.-location js/window))
-       (let [loc (.-location js/window)]
-         (str (.-pathname loc) (.-search loc) (.-hash loc)))
-       "/")
-     :clj "/"))
+  "History strategy `:decode` — an origin-relative browser address
+  (`pathname + search + hash`) is already its own path-form URL. Identity, the
+  mirror of `history-encode`; PURE; host-agnostic."
+  [href]
+  href)
 
 #?(:cljs
    (defn history-push!
@@ -114,7 +131,7 @@
      that once at install, under cause `:initial` rather than through this
      `on-change`, so it happens for every strategy uniformly."
      [on-change]
-     (let [handler (fn [_event] (on-change (history-decode)))]
+     (let [handler (fn [_event] (on-change (history-decode (current-href))))]
        (.addEventListener js/window "popstate" handler)
        (fn teardown [] (.removeEventListener js/window "popstate" handler)))))
 
@@ -136,7 +153,7 @@
 
 ;; ---- hash strategy -------------------------------------------------------
 ;; `#`-prefixed. `:encode` maps a path-form URL to `#<path>`; `:decode`
-;; strips the leading `#` off `window.location.hash`. `:push!` sets the
+;; takes the part of the browser address after its first `#`. `:push!` sets the
 ;; hash (via pushState so a history entry is created); `:replace!` swaps
 ;; it with replaceState; `:install-listener!` wires `hashchange`.
 
@@ -152,22 +169,22 @@
     :else                               (str "#" path)))
 
 (defn hash-decode
-  "Hash strategy `:decode` — read `window.location.hash`, strip the
-  leading `#`, and return the path-form URL. An empty hash decodes to
-  `\"/\"` (the root route). CLJS-only; returns `\"/\"` on the JVM / no
-  `window` (SSR)."
-  []
-  #?(:cljs
-     (if (and (exists? js/window) (.-location js/window))
-       (let [raw (.. js/window -location -hash)]
-         (if (or (nil? raw) (= "" raw) (= "#" raw))
-           "/"
-           (let [stripped (subs raw 1)]        ;; drop the leading '#'
-             (if (clojure.string/starts-with? stripped "/")
-               stripped
-               (str "/" stripped)))))
-       "/")
-     :clj "/"))
+  "Hash strategy `:decode` — take the part of an origin-relative browser
+  address after its FIRST `#` (`/#/users/7` → `/users/7`; the pathname and
+  search in front of it, which a base path may occupy, are never read) and
+  return it as the path-form URL, prefixing a `/` when the fragment lacks one.
+  A missing or empty fragment decodes to `\"/\"` (the root route). PURE;
+  host-agnostic — `window.location.hash` is exactly this tail, so the listener
+  decodes the same string it always did."
+  [href]
+  (let [i (if (string? href) (.indexOf ^String href "#") -1)]
+    (if (neg? i)
+      "/"
+      (let [stripped (subs href (inc i))]
+        (cond
+          (= "" stripped)                            "/"
+          (clojure.string/starts-with? stripped "/") stripped
+          :else                                      (str "/" stripped))))))
 
 #?(:cljs
    (defn hash-push!
@@ -199,7 +216,7 @@
      Returns a 0-arg teardown thunk. Like the history variant it does not
      do the initial sync (the caller drives that once)."
      [on-change]
-     (let [handler (fn [_event] (on-change (hash-decode)))]
+     (let [handler (fn [_event] (on-change (hash-decode (current-href))))]
        (.addEventListener js/window "hashchange" handler)
        (fn teardown [] (.removeEventListener js/window "hashchange" handler)))))
 
@@ -214,7 +231,8 @@
 
   `route-url` still builds path-form `/active`; the strategy `:encode`s it
   to `#/active` at the `route-link` href and the history fxs, and `:decode`s
-  `window.location.hash` back to `/active` for the URL-change listener. The
+  the browser address's fragment back to `/active` for the URL-change listener
+  and for an origin-bearing `{:url …}` reference. The
   rest of routing is unchanged. Per Spec 012 §URL strategies. `:push!` /
   `:replace!` / `:install-listener!` are CLJS-only (SSR runs no browser side
   effects); the pure `:encode` still renders the server-side `route-link`
@@ -287,7 +305,7 @@
   This is `with-base-path`'s INGRESS discriminator (rf2-exnw). A base path is a
   component of the PATHNAME, and `:encode` composes it OUTSIDE the address-bar
   form (`/demos#/active`, the only shape a static host can route — rf2-irygd6).
-  So a fragment-form strategy's `:decode` reads `location.hash`, which NEVER
+  So a fragment-form strategy's `:decode` reads only the address's fragment, which NEVER
   carried the base, and its result is ALREADY app-relative; a path-form
   strategy's `:decode` reads the pathname, so its result still carries the base
   and must be stripped. Stripping a fragment-form decode a second time ate the
@@ -371,7 +389,11 @@
                             (fn [decoded] (strip-base-path b decoded)))]
         (merge strategy
                {:encode (fn [path] (str b ((:encode strategy) path)))
-                :decode (fn [] (strip-ingress ((:decode strategy))))}
+                ;; Composed over the INNER decode, with the ingress rule the
+                ;; inner strategy chose above — never re-derived from this
+                ;; wrapper, whose `(encode "/")` is `/base#/` for a hash app
+                ;; and so reads as path-form (rf2-3x7nj.12.2).
+                :decode (fn [href] (strip-ingress ((:decode strategy) href)))}
                ;; :push! / :replace! are deliberately not wrapped:
                ;; `:encode` is the single outbound encoding authority — the nav
                ;; fxs encode once and hand these RAW legs the final base-prefixed
