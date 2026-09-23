@@ -176,7 +176,7 @@
                (let [u (bit-and (long b) 0xff)]
                  (when (< u 0x10) (.append sb \0))
                  (.append sb (Long/toString u 16))))
-             (.toString sb))
+             (str sb))
      :cljs (gcrypt/byteArrayToHex bs)))
 
 (defn- hmac-sha256-hex
