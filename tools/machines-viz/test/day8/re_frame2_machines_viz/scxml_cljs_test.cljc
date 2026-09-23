@@ -30,6 +30,20 @@
     (walk/postwalk (fn [x] (when (string? x) (vswap! acc conj x)) x) m)
     @acc))
 
+(def ^:private scxml-format-marker
+  "rf2-3x7nj.33.5 — the exact format comment `spec->scxml` writes after the
+  prolog and `scxml->spec` requires. Spelled out literally so a change to the
+  marker is a visible format change here too."
+  "<!-- re-frame2 machines-viz SCXML v1 -->")
+
+(defn- marked
+  "rf2-3x7nj.33.5 — `str` for a HAND-WRITTEN input, led by the format marker,
+  so the import assertions below keep running against a marked export
+  augmented with content the importer does not model (a marked file can be
+  hand-edited)."
+  [& parts]
+  (apply str scxml-format-marker "\n" parts))
+
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — small, hand-curated machine definitions per Spec 005
 ;; §Transition table grammar. Mirror the fixtures in
@@ -448,8 +462,15 @@
 
 (deftest scxml->spec-rejects-missing-root
   (testing "input without <scxml> throws :scxml/parse-error"
+    ;; rf2-3x7nj.33.5 — marked, so this still reaches the root check rather
+    ;; than stopping at the format gate (an unmarked input throws too, but
+    ;; with :scxml/unsupported-format).
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (scxml/scxml->spec "<not-scxml/>")))))
+                 (scxml/scxml->spec (marked "<not-scxml/>"))))
+    (is (= :scxml/parse-error
+           (try (scxml/scxml->spec (marked "<not-scxml/>")) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                  (:rf.error/id (ex-data e))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0015 — error ex-data carries NO raw payload (rf2-8nzxib)
@@ -1558,7 +1579,7 @@
 (def onentry-only-scxml
   "The minimal reproduction: a conforming `<state>` whose only child is an
   empty `<onentry/>`."
-  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
+  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
        "<state id='idle'><onentry/></state>"
        "</scxml>"))
 
@@ -1580,7 +1601,7 @@
   root, `<onentry>` with a `<log>` body, `<invoke>` with a `<param>`, and
   `<onexit>` with an `<assign>` — wrapped around otherwise supported states
   and transitions."
-  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='go'>"
+  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='go'>"
        "<datamodel><data id='counter' expr='0'/></datamodel>"
        "<state id='go'>"
        "<onentry><log expr='entering'/></onentry>"
@@ -1616,7 +1637,7 @@
   "An unsupported element that CONTAINS a `<state>`. Skipping only the open
   tag would promote the nested element into the parent's `:states`; the whole
   subtree has to go."
-  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='a'>"
+  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='a'>"
        "<state id='a'>"
        "<onentry><state id='sneaky'/><final id='sneakier'/></onentry>"
        "<transition event='go' target='b'/>"
@@ -1642,7 +1663,7 @@
   (testing "rf2-qy8p — the allowlist keeps <history> and nested compounds; only
             the unsupported families are dropped"
     (let [spec (scxml/scxml->spec
-                 (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='outer'>"
+                 (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='outer'>"
                       "<state id='outer' initial='outer___one'>"
                       "<onentry><log expr='x'/></onentry>"
                       "<history id='outer___hist' type='deep'>"
@@ -1673,7 +1694,7 @@
   "No root `initial` — the machine contract wants a keyword `:initial`.
   Pre-fix this returned `{:states {:a {}}}` silently, contradicting the
   public docstring's stated error boundary."
-  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
+  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
        "<state id='a'/></scxml>"))
 
 (deftest import-throws-invalid-spec-rather-than-returning-a-malformed-definition
@@ -1690,7 +1711,7 @@
   (testing "rf2-qy8p — the import-side invalid-spec ex-data carries only the
             shared value-free summary: no raw XML, no parsed definition"
     (let [secret "patientrecordsecret42"
-          xml    (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
+          xml    (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
                       "<state id='" secret "'/></scxml>")
           d      (try (scxml/scxml->spec xml) nil
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
@@ -1759,7 +1780,7 @@
   document's XML declaration is dropped so the assembled document is
   well-formed."
   [inner-scxml]
-  (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
+  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
        "<state id='idle'>"
        "<transition event='go' target='done'/>"
        "<invoke type='http://www.w3.org/TR/scxml/'><content>"
@@ -1788,7 +1809,7 @@
   (testing "rf2-qy8p — the same holds for a <parallel> nested in an ordinary
             <state> (unsupported by design): <invoke> is not a special case"
     (let [spec (scxml/scxml->spec
-                 (str "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
+                 (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
                       "<state id='idle'>"
                       "<transition event='go' target='done'/>"
                       "<parallel id='nested'>"
@@ -1820,3 +1841,77 @@
            (scxml/scxml->spec
              (inline-invoked-scxml (scxml/spec->scxml idle-loading-success-error))))
         "an invoked flat payload contributes nothing either")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.33.5 — import reads ONLY this library's own marked exports
+;;
+;; Ruling (option B): `scxml->spec` is round-trip-only. The export codec is
+;; injective for our own output but mis-decodes foreign ids (`logged-out` →
+;; `:logged/out`, `step_1a` → a control char) and a W3C space-separated event
+;; list becomes ONE keyword, while `grammar/valid-definition?` still passes —
+;; a confident, well-formed, WRONG machine. So `spec->scxml` writes a fixed
+;; format comment right after the prolog, and `scxml->spec` refuses any
+;; document without exactly that marker, BEFORE any export convention runs.
+
+(def ^:private reviewer-foreign-scxml
+  "The review wave's third-party document, unmarked."
+  (str "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\" version=\"1.0\" initial=\"logged-out\">"
+       "<state id=\"logged-out\"><transition event=\"login-ok\" target=\"step_1a\"/></state>"
+       "<state id=\"step_1a\"><transition event=\"logout session.expired\" target=\"logged-out\"/></state>"
+       "</scxml>"))
+
+(defn- thrown-scxml-id
+  "The `:rf.error/id` a `scxml->spec` call throws, or `::returned` when it
+  returns normally."
+  [input]
+  (try
+    (scxml/scxml->spec input)
+    ::returned
+    (catch #?(:clj Exception :cljs :default) e
+      (:rf.error/id (ex-data e)))))
+
+(deftest import-refuses-an-unmarked-foreign-document
+  (testing "rf2-3x7nj.33.5 — a document spec->scxml did not write throws
+            :scxml/unsupported-format instead of importing silently renamed"
+    (is (= :scxml/unsupported-format (thrown-scxml-id reviewer-foreign-scxml)))
+    (testing "the refusal is value-free: no raw XML and no document id rides the error"
+      (let [e (try (scxml/scxml->spec reviewer-foreign-scxml) nil
+                   (catch #?(:clj Exception :cljs :default) e e))
+            strs (deep-strings (ex-data e))]
+        (is (some? e))
+        (is (= :re-export-from-the-source-definition (:recovery (ex-data e))))
+        (is (not-any? #(str/includes? % "logged-out") strs)
+            "no foreign id leaks into ex-data")
+        (is (not-any? #(str/includes? % "<scxml") strs)
+            "the raw document does not ride the error")))))
+
+(deftest import-accepts-the-same-bytes-once-marked
+  (testing "rf2-3x7nj.33.5 — control on the SAME bytes: prepending the marker is
+            the whole difference between refused and imported"
+    (let [spec (scxml/scxml->spec (str scxml-format-marker "\n" reviewer-foreign-scxml))]
+      (is (map? spec) "the marked document imports")
+      (is (g/valid-definition? spec)))
+    (testing "the marker may follow an XML prolog, with whitespace around it"
+      (is (map? (scxml/scxml->spec
+                  (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n  "
+                       scxml-format-marker "\n\n" reviewer-foreign-scxml)))))))
+
+(deftest import-refuses-a-different-marker-version
+  (testing "rf2-3x7nj.33.5 — only the EXACT marker is accepted; a v2 marker, or the
+            marker anywhere but first, throws the same id"
+    (is (= :scxml/unsupported-format
+           (thrown-scxml-id (str "<!-- re-frame2 machines-viz SCXML v2 -->\n"
+                                 reviewer-foreign-scxml))))
+    (is (= :scxml/unsupported-format
+           (thrown-scxml-id (str "<!-- a comment first -->\n" scxml-format-marker "\n"
+                                 reviewer-foreign-scxml))))))
+
+(deftest export-writes-the-marker-right-after-the-prolog
+  (testing "rf2-3x7nj.33.5 — every export's line after the prolog is the marker,
+            flat and parallel alike, so our own exports keep round-tripping"
+    (doseq [[label machine] [["flat" idle-loading-success-error]
+                             ["parallel" parallel-machine]]]
+      (let [lines (str/split-lines (scxml/spec->scxml machine))]
+        (is (str/starts-with? (first lines) "<?xml ") label)
+        (is (= scxml-format-marker (second lines)) label)
+        (is (= machine (scxml/scxml->spec (scxml/spec->scxml machine))) label)))))

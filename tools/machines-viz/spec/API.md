@@ -2219,22 +2219,44 @@ accessible surface in the meantime.
 
 ## SCXML import / export (v1.1, rf2-6urjd)
 
-SCXML is the W3C standard for statecharts. Round-tripping through
-SCXML lets re-frame2 machines be shared with non-CLJS tooling —
+SCXML is the W3C standard for statecharts. Exporting to SCXML lets
+re-frame2 machines be shared with non-CLJS tooling —
 external workflow systems, Erlang `gen_statem`-derived tools,
 Stately's importers, the xstate-visualizer. Same pure-data posture
 as the Mermaid emitter: a machine definition in, an XML string out;
-and the inverse on the read side.
+and the inverse on the read side, which reads back **only this
+library's own exports**.
 
 ```clojure
 (:require [day8.re-frame2-machines-viz.scxml :as scxml])
 
 (scxml/spec->scxml machine-spec)
-;; => "<?xml version=\"1.0\" ...?>\n<scxml ...>...</scxml>"
+;; => "<?xml version=\"1.0\" ...?>\n<!-- re-frame2 machines-viz SCXML v1 -->\n<scxml ...>...</scxml>"
 
 (scxml/scxml->spec scxml-string)
 ;; => the parsed machine spec
 ```
+
+**Import is round-trip-only (rf2-3x7nj.33.5).** Every `spec->scxml`
+document carries the fixed format comment `<!-- re-frame2 machines-viz
+SCXML v1 -->` on its own line right after the XML prolog, and
+`scxml->spec` refuses any input that does not begin (after an optional
+prolog and whitespace) with exactly that marker, throwing
+`:scxml/unsupported-format` with the recovery
+`:re-export-from-the-source-definition` before any export convention is
+applied. Third-party SCXML is not read because this importer's
+conventions do not mean what W3C SCXML means: its id codec would decode
+`logged-out` to `:logged/out` and `step_1a` to a control character; W3C
+defaults an untyped transition to `external` where re-frame2's default
+is internal; a W3C event descriptor matches by token prefix and may be a
+space-separated list; W3C `target`s are document-wide id references
+rather than this codec's path-derived ids; and `after.*` / `done.state.*`
+events are this library's timer and completion carriers. Each of those
+imported as a confident, valid, *different* machine. The marker is a
+comment rather than an attribute so the export stays schema-clean for
+the external tools it serves; it names a format, not trusted authorship,
+so a marked document is still parsed defensively (see the rf2-qy8p
+hardening under [Not supported](#not-supported-lossy-or-omitted)).
 
 ### Round-trip
 
@@ -2341,9 +2363,9 @@ back.
   unsupported subtree cannot supply the `<parallel>` that decides it.
   W3C SCXML §6.4 makes that reachable from a *conforming* document —
   `<invoke>` may carry a whole nested `<scxml>` inline through
-  `<content>` — and such a payload is ignored exactly like any other
-  unsupported subtree: **never rejected** (it is valid SCXML) and
-  **never adopted**. (Pre-fix the root scan searched every token in the
+  `<content>` — and inside a marked document such a payload is ignored
+  exactly like any other unsupported subtree: **never rejected** (it is
+  valid SCXML) and **never adopted**. (Pre-fix the root scan searched every token in the
   root body for the first open `<parallel>`, so an invoked document's
   topology replaced the importing machine's outright; because the
   substitute is itself well formed, the `grammar/valid-definition?`
@@ -2398,6 +2420,7 @@ sentence, and `ex-message` leads with the sentence and trails the
 | `:rf.error/id` | Meaning |
 |---|---|
 | `:scxml/invalid-spec` | The definition crossing the boundary fails the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. **BOTH directions (rf2-qy8p):** on export it gates the spec handed to `spec->scxml`; on import it is `scxml->spec`'s POSTCONDITION — parser output that cannot be represented as a valid re-frame2 definition throws here rather than being returned, so a successful import always yields a machine every other boundary accepts. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id) — never the raw spec and never the raw XML — see [The value-free definition summary](#the-value-free-definition-summary) for exactly what that may and may not name. |
+| `:scxml/unsupported-format` | `scxml->spec` input does not begin (after an optional XML prolog and whitespace) with exactly the `<!-- re-frame2 machines-viz SCXML v1 -->` format marker `spec->scxml` writes — third-party SCXML, a hand-assembled document, a pre-marker export, or a different marker version (rf2-3x7nj.33.5). Recovery `:re-export-from-the-source-definition`. The ex-data is value-free (an `:input-summary` of type + length, never the raw XML). |
 | `:scxml/parse-error`  | Input XML is malformed or missing the `<scxml>` root. |
 
 ## AI-generate-a-machine (v1.1, rf2-1bncf)
