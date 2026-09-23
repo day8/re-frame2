@@ -973,7 +973,17 @@
       ;; coeffect (a fresh frame's runtime-db is `nil` until first write —
       ;; default it to `{}` so the snapshot lookup / install paths see a map)
       ;; and returns its snapshot write under `:rf.db/runtime`.
-      (let [runtime-db  (or rt {})
+      ;;
+      ;; The elision registry is written only OUT OF BAND, so a machine's
+      ;; runtime-db effect never re-asserts it: `:rf.runtime/elision` is dropped
+      ;; from the coeffect base here, once, for EVERY return. The router then
+      ;; carries the LIVE registry forward (`elision/reconcile-runtime-db-effect`
+      ;; honours an effect-carried registry VERBATIM, so a stale coeffect copy
+      ;; would clobber any claim written live during this handler). Two such
+      ;; live writes exist: the singleton first-boot `lower-at-spawn!` below
+      ;; (rf2-dr0pfi) and the `:final?` auto-destroy's `drop-at-destroy!`
+      ;; (rf2-3x7nj.9.2, whose finalize commit re-installed the dropped claims).
+      (let [runtime-db  (dissoc (or rt {}) :rf.runtime/elision)
             ctx         (prepare-machine-ctx db runtime-db frame cofx mint-policy event machine base-initial)
             ;; THE CHILD-COMPLETION BOUNDARY (Spec 005 §Child completion
             ;; protocol). A child completes by reaching a `:final?` state;
@@ -1041,32 +1051,13 @@
                     ;; case is `:needs-bootstrap?` AND NOT `:existing-snap?` (a
                     ;; spawned actor carries a pre-seeded snapshot ⇒
                     ;; `:existing-snap? true`, already lowered at spawn).
-                    boot? (and (:needs-bootstrap? ctx) (not (:existing-snap? ctx)))
-                    ;; DURABLE-CLAIM guard (rf2-dr0pfi). `lower-at-spawn!` below
-                    ;; writes the singleton's classification claim OUT-OF-BAND
-                    ;; into the LIVE per-frame elision registry
-                    ;; (`swap-elision-slot!`), unioning `:source :machine` in
-                    ;; alongside any other owner. But the boot snapshot
-                    ;; `:rf.db/runtime` effect this handler returns below is built
-                    ;; from the `:rf.db/runtime` COEFFECT — captured BEFORE that
-                    ;; live swap. When an effect PRE-classified this same
-                    ;; snapshot path in a PRIOR event, that coeffect already
-                    ;; carries `[:rf.runtime/elision]` (effect-owner only), so the
-                    ;; returned effect value would INCLUDE a STALE registry.
-                    ;; `elision/reconcile-runtime-db-effect` reads an
-                    ;; effect-carried `:rf.runtime/elision` as an explicit
-                    ;; full-frame install and honours it VERBATIM at commit —
-                    ;; clobbering the machine owner the live swap just added
-                    ;; (benign: the effect owner survives so the path stays
-                    ;; redacted, but the machine is not itself a durable owner,
-                    ;; breaking the multi-owner union contract, rf2-wdm1vg). Drop
-                    ;; the key from the boot-commit base (local + `ctx`) so the
-                    ;; returned effect OMITS `:rf.runtime/elision` and the router
-                    ;; carries the LIVE (post-swap) registry — machine ∪ effect
-                    ;; owners — forward. The elision registry is written only
-                    ;; out-of-band; a machine snapshot commit never re-asserts it.
-                    runtime-db (cond-> runtime-db boot? (dissoc :rf.runtime/elision))
-                    ctx        (cond-> ctx        boot? (assoc :runtime-db runtime-db))]
+                    boot? (and (:needs-bootstrap? ctx) (not (:existing-snap? ctx)))]
+                ;; DURABLE-CLAIM guard (rf2-dr0pfi): the boot commit below omits
+                ;; `:rf.runtime/elision` (dropped at the handler's top), so the
+                ;; claim `lower-at-spawn!` writes LIVE here survives it and unions
+                ;; with any effect owner that pre-classified the same path
+                ;; (the multi-owner union contract, rf2-wdm1vg).
+                ;;
                 ;; Value-independent + idempotent, dropped at destroy / finalize.
                 ;; A spec declaring no classification is a no-op. rf2-i4aj9c — the
                 ;; singleton first-boot classification lowering rides the EXACT
