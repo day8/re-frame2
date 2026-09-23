@@ -137,9 +137,10 @@ the landmark navigator.
 
 ## Test surface
 
-The Playwright spec `tools/story/testbeds/counter_with_stories/
-counter_with_stories.spec.cjs` exercises the primitive end-to-end
-(section 3b): asserts the three chips render, that each click flips
+The feature-load gate `tools/story/test/story_feature_load.cjs`
+(`npm run test:story-feature-load`; nightly in `expensive-tests.yml`,
+PR-time when `story_full_gate` arms) exercises the primitive
+end-to-end: asserts the three chips render, that each click flips
 `aria-selected`, that the matching placeholder renders below the
 strip, that the selection persists to localStorage, and that a
 full page-reload + variant re-select re-hydrates the persisted tab.

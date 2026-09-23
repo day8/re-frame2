@@ -44,8 +44,12 @@ assertion vocabulary). The pane's job is to:
 
 ## Surface
 
-Three companion namespaces (split per rf2-8n2fz — see `pure.cljc`,
-`state.cljs`, `view.cljs` under `src/re_frame/story/ui/test_mode/`):
+The pane's namespaces live under `src/re_frame/story/ui/test_mode/`
+(split per rf2-8n2fz): the three result-reading companions below —
+`pure.cljc`, `state.cljs`, `view.cljs` (+ `view_styles.cljs`) — plus the
+step-debugger trio `stepper_pure.cljc` / `stepper_state.cljs` /
+`stepper_view.cljs` (+ `stepper_styles.cljs`, §Play step-debugger) and
+`visual_a11y_view.cljs` (spec/021 §4):
 
 ```clojure
 (re-frame.story.ui.test-mode.view/test-view variant-id)   ; CLJS Reagent component
@@ -79,7 +83,11 @@ mode-tabs primitive; this spec does not touch the chip strip.
 
 ## Section composition
 
-The pane renders four sections, top-to-bottom:
+The result-reading core of the pane is four sections, top-to-bottom
+(the shipped pane interleaves further sections owned elsewhere: checks,
+the step-debugger and scrubber (§Play step-debugger), schema
+expectations, cannot-run detail, visual / a11y findings, the evidence
+excerpt and the promotion row — spec/021 §1–§4):
 
 | # | Section          | Content                                                                  | Rendered when                                  |
 |---|------------------|--------------------------------------------------------------------------|------------------------------------------------|
@@ -231,8 +239,9 @@ Matches the render-shell chrome (rf2-2uwv contrast palette):
 `#b0b0b0` inactive foreground, `#dcdcdc` body text, `#1e1e1e`
 section background, `#2d2d30` table-header background, monospace
 for table content + variant ids, system-ui for prose. Pass /
-fail are the standard `#4ec9b0` (green) / `#f48771` (red); skip
-is `#9a9a9a`. The pane scrolls inside the `<main>` landmark; the
+fail / skip wear the `theme.status` semantic tokens
+([`016-Design-Tokens.md`](016-Design-Tokens.md) §Status vocabulary),
+never raw hex. The pane scrolls inside the `<main>` landmark; the
 strip sits above it (owned by the mode-tabs primitive).
 
 ## Out of scope at v1
@@ -621,8 +630,8 @@ a one-line hint instructing the user to click Start.
 The runtime substrate's `step-once!` only steps FORWARD. To support
 step-back without modifying the runtime, the local-state layer
 threads the variant frame's epoch history (per
-[spec/006-ReactiveSubstrate.md](../../../spec/006-ReactiveSubstrate.md)
-§Epoch buffer): BEFORE each forward step it captures the current
+[spec/Tool-Pair.md](../../../spec/Tool-Pair.md)
+§Time-travel: epoch snapshots and undo): BEFORE each forward step it captures the current
 `:epoch-id` (the head of `epoch-history`) and pushes it onto an
 `:epoch-stack`. Step-back POPS the stack and `epoch/restore-epoch!`s
 against the new head, then decrements the cursor. Rewind restores

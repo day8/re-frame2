@@ -27,7 +27,7 @@ Story-emitted framework events and panel ids live under the framework's `:rf.*` 
 |---|---|---|
 | `:rf.story/*` | Story-emitted events (`:rf.story/save-current-as-variant`) and built-in decorator ids (`:rf.story/force-fx-stub`). | [005-SOTA-Features.md](005-SOTA-Features.md) |
 | `:rf.story.panel/*` | Story-panel registration ids (`:rf.story.panel/schema-validation`, `:rf.story.panel/layout-debug`). The `panel` segment is the discriminator so a reader scanning a panel id can tell the registry kind. | [003-Render-Shell.md](003-Render-Shell.md) §Panel registration contract |
-| `:rf.story.layout-debug/*` | Built-in layout-debug decorator ids (`:rf.story.layout-debug/measure`, `:rf.story.layout-debug/outline`, `:rf.story.layout-debug/pseudo`). | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout debug |
+| `:rf.story/layout-debug.*` | Built-in layout-debug decorator ids (`:rf.story/layout-debug.measure`, `:rf.story/layout-debug.outline`, `:rf.story/layout-debug.pseudo`) — dotted names under the `:rf.story/*` root (`layout_debug.cljc`), not a sub-namespace. | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout-debug overlay trio |
 | `:rf.story.inline/*` | Anonymous inline-plan frame ids (`:rf.story.inline/plan-1`, `:rf.story.inline/plan-2`, …), minted per-run by `mint-inline-frame-id` for an inline (map-target) plan execution. Never a registered variant id, so an inline frame can neither collide with nor appear alongside a navigable variant. | [017-Testing-Story.md](017-Testing-Story.md) §Inline plan |
 
 Third-party Story extensions MUST NOT register handlers, fx, subs, panels, or decorators under `:rf.story.*`. Library authors choose their own top-level prefix per [framework Conventions §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes).
@@ -108,14 +108,14 @@ Pre-Conventions Story shipped six divergent shapes (`install!`/`remove!`, `insta
 
 ## The `*-id` Var pattern for built-in decorator ids
 
-Story ships a small set of built-in decorator ids (the `:rf.story/force-fx-stub` universal-mock primitive, the three `:rf.story.layout-debug/*` overlays). The keyword IS the API; the Var is a name for the keyword. Story exposes each as a `*-id`-suffixed Var on the public facade:
+Story ships a small set of built-in decorator ids (the `:rf.story/force-fx-stub` universal-mock primitive, the three `:rf.story/layout-debug.*` overlays). The keyword IS the API; the Var is a name for the keyword. Story exposes each as a `*-id`-suffixed Var on the public facade:
 
 | Var | Holds | Spec |
 |---|---|---|
 | `force-fx-stub-id` | `:rf.story/force-fx-stub` | [005-SOTA-Features.md](005-SOTA-Features.md) §`force-fx-stub` |
-| `layout-debug-measure-id` | `:rf.story.layout-debug/measure` | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout debug |
-| `layout-debug-outline-id` | `:rf.story.layout-debug/outline` | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout debug |
-| `layout-debug-pseudo-id` | `:rf.story.layout-debug/pseudo` | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout debug |
+| `layout-debug-measure-id` | `:rf.story/layout-debug.measure` | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout-debug overlay trio |
+| `layout-debug-outline-id` | `:rf.story/layout-debug.outline` | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout-debug overlay trio |
+| `layout-debug-pseudo-id` | `:rf.story/layout-debug.pseudo` | [005-SOTA-Features.md](005-SOTA-Features.md) §Layout-debug overlay trio |
 
 The `-id` suffix is load-bearing — it signals "this is a registered id, not the registration itself or its handler." Authors writing decorator references in variant bodies use the Var (`story/force-fx-stub-id`) rather than the verbose keyword path. Third-party panel authors whose decorator ids are short MAY skip the `-id` suffix; the convention is for Story's own built-ins where the keyword path is verbose enough to be worth aliasing.
 
@@ -127,7 +127,7 @@ Per [016-Design-Tokens.md](016-Design-Tokens.md), chrome consumers consume **des
 - **No raw hex literals (`#xxxxxx`).** Chrome consumes `(:token-name re-frame.story.theme.colors/tokens)`. The rule is enforced as a ban under rf2-i3i5j AC#3.
 - **No raw `transition` literals.** Chrome consumes `(:row re-frame.story.theme.motion/transitions)` (or any pre-composed transition). The rule is enforced as a ban under rf2-3lt89 follow-on sweep.
 
-The bans are in the linter / CI rules, not just doc'd — see [016-Design-Tokens.md](016-Design-Tokens.md) §Token contract. Third-party Story panel authors honour the same contract: panels that ship in user repos use the same token namespaces so light / dark / future themes apply uniformly.
+The bans are enforced at review, not by a linter or CI gate (none exists) — see [016-Design-Tokens.md](016-Design-Tokens.md) §Zero-raw contract; rf2-x7h5b tracks the call sites that currently breach it. Third-party Story panel authors honour the same contract: panels that ship in user repos use the same token namespaces so light / dark / future themes apply uniformly.
 
 ## Privacy — `:sensitive` / `:large` classification
 

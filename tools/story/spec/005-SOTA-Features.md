@@ -3,7 +3,7 @@
 > The `force-fx-stub` headline (one primitive replaces the
 > Storybook addon parade); the layout-debug overlay trio; a11y
 > axe-core panel; multi-substrate side-by-side rendering; the Xray
-> epoch panel embed contract (stub); the v1.1 deferrals (perf ribbon,
+> epoch panel embed contract; the v1.1 deferrals (perf ribbon,
 > design tokens); production elision under `:advanced`
 > (`re-frame.story.config/enabled?` sentinel pattern). The contract Stage 6
 > implements + the production hygiene rules that apply across stages.
@@ -260,31 +260,30 @@ see [`013-Static-Build.md`](013-Static-Build.md)) carry the axe-core
 opt-in prompt into the static site too, so a visitor running an a11y
 scan there sees the same consent dialog before any CDN load.
 
-### Xray epoch panel embed (stub + contract)
+### Xray epoch panel embed (per-panel mount)
 
-Story registers Xray's existing epoch / time-travel panel as a story
-panel (Xray is the structural successor to re-frame-10x, per
+Story embeds Xray's epoch panel (Xray is the structural successor to
+re-frame-10x, per
 [`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md)
-Lock #1):
+Lock #1) through the RHS per-panel mount catalogue in
+`re-frame.story.ui.xray-embed` — NOT through `reg-story-panel`. The
+single private embed descriptor there (rf2-jf87oq) lists the six chip
+panels (`:epoch` default, `:app-db`, `:views`, `:trace`, `:machines`,
+`:routing`) plus the non-chip `:event-spine` band, each bound to its
+`day8.re-frame2-xray.panels/mount-<panel>!` fn; see
+[`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane and
+§The contract — `panels/mount-<panel>!`. (A
+`(reg-story-panel :rf.story/xray-epoch …)` form survives only as a
+test-fixture stub in `story_test.clj` / `story_mcp_boundary_test.clj`;
+nothing in `src/` registers it.)
 
-```clojure
-(story/reg-story-panel :rf.story/xray-epoch
-  {:doc       "Xray's epoch buffer for the active variant."
-   :title     "Epochs (Xray)"
-   :placement :bottom
-   :render    :day8.re-frame2-xray.panels.time-travel/Panel})
-```
+The panels are consumed from `day8/re-frame2-xray` (per the
+`tools/xray/` line in [`tools/README.md`](../../README.md)). Story owns
+the *integration*; Xray stays its own artefact.
 
-The view is consumed from `day8/re-frame2-xray` (per the
-`tools/xray/` alpha-phase line in
-[`tools/README.md`](../../README.md)). Story's panel is the
-**adapter**; Xray stays its own artefact, on its own release cadence.
-
-Story's `:rf.story/xray-epoch` registration ships with v1 and the
-panel always activates: `day8/re-frame2-xray` is a declared Story
-dependency (rf2-r8trk), so it is on the classpath by construction and
-there is no absent-Xray path for the sidebar entry to hide behind. The
-Xray artefact owns the actual view; Story owns the *integration*. See
+The embed ships with v1 and always activates: `day8/re-frame2-xray` is
+a declared Story dependency (rf2-r8trk), so it is on the classpath by
+construction and there is no absent-Xray path to hide behind. See
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §xray-embed and
 §xray-is-a-declared-dependency.
 
@@ -451,9 +450,9 @@ The seven sub-systems and their public boundaries:
 | Sub-system | Lives in | Public surface | Audience |
 |---|---|---|---|
 | Trace-listener install + capture loop | `re-frame.story.recorder` | `install-trace-listener!` / `remove-trace-listener!` / `trace-listener` callback + `record-event!` (called by the listener). Filter chain per `recordable-event?`. | `chrome-shell` (one process-wide install at shell mount); `mcp-tool` (drives `record-event!` directly to bypass the trace bus). |
-| Recorder atom + state machine | `re-frame.story.recorder` | `start-recording!` / `stop-recording!` / `toggle!` / `clear!` / `recording?` / `current-state`. Holds `{:recording? :variant-id :events :started-ms}`. | `user-app` (facade re-exports); `mcp-tool`. |
+| Recorder atom + state machine | `re-frame.story.recorder` | `start-recording!` / `stop-recording!` / `toggle!` / `clear!` / `recording?` / `current-state`. Holds `{:recording? :variant-id :events :cofx :entries :started-ms}`. | `user-app` (facade re-exports); `mcp-tool`. |
 | Mid-recording assertion picker | `re-frame.story.recorder` | `assertion-vocabulary` (the seven canonical `:rf.assert/*` ids + payload field specs); `make-assertion` (pure: build the event vector); `append-assertion` (pure: state → state); `insert-assertion!` (impure: write through the atom). | `chrome-shell` (the picker modal); `mcp-tool` (write-time assertion authoring without the modal). |
-| DOM-capture entries | `re-frame.story.recorder.dom-capture` (CLJS-only) | `install!` / `remove!` (capture-phase listener pair); `record-dom-event!` (write through the atom with `:dom/click` / `:dom/type` / `:dom/submit` shapes); `dom-event?` / `dom-event-kinds` (pure predicates). | `chrome-shell` (paired with the trace-listener install at mount). |
+| DOM-capture entries | `re-frame.story.recorder.dom-capture` (CLJS-only) | `install!` / `remove!` (capture-phase listener pair); `record-dom-click!` / `record-dom-type!` / `record-dom-submit!` (write the `:dom/click` / `:dom/type` / `:dom/submit` shapes through the recorder's `record-dom-event!`); the pure predicates `dom-event?` / `dom-event-kinds` live in `re-frame.story.recorder`. | `chrome-shell` (paired with the trace-listener install at mount). |
 | Review-dialog | `re-frame.story.recorder` + `re-frame.story.review-dialog` | `open-dialog` / `close-dialog` / `initial-dialog-state`. State-only — the rendering lives in `re-frame.story.ui.recorder-export-dialog`. | `chrome-shell` (the modal that opens on stop). |
 | `:script` snippet codegen | `re-frame.story.recorder` | `gen-play-snippet` (pure: events + opts → EDN string). Re-exported on the facade as `story/gen-play-snippet`. Emits `(reg-variant ... :script {:script [[:dispatch-sync <ev>] ...]})` — the PUBLIC `:script` slot per rf2-7mj4z; each event wrapped as `[:dispatch-sync <ev>]` per rf2-0wrud. | `user-app` (the copy-and-paste form); `mcp-tool` (Pair drives it via `eval-cljs` in the attached CLJS runtime). |
 | Rich DOM-aware `:script` export | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The DOM-capture-aware translator that maps `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps + auto-assert tail; `render-variant-form` emits the public `:script` slot (rf2-7mj4z). The translator entry `recording->script-body` IS re-exported on the facade as `story/recording->script-body` (the runtime counterpart to `gen-play-snippet`); the render-to-EDN fns (`render-script-body` / `render-variant-form`) stay sub-namespace-only. | `chrome-shell`; `mcp-tool` (Pair drives it via `eval-cljs` in the attached CLJS runtime — the headless story-mcp jar has no recorder tool). |
@@ -463,7 +462,7 @@ Three architectural observations follow from the map:
 1. **The recorder atom is the single point of coupling.** The trace-
    listener, the DOM-capture layer, the assertion picker, and the
    review-dialog all write to the same `{:recording? :variant-id
-   :events :started-ms}` map. Sub-systems that don't need atom access
+   :events :cofx :entries :started-ms}` map. Sub-systems that don't need atom access
    (`gen-play-snippet`, `recordable-event?`, `make-assertion`,
    `assertion-vocabulary`) are pure data → data; CLJ-testable on the
    JVM without a process-wide install.
@@ -488,8 +487,7 @@ Three architectural observations follow from the map:
    capture (rf2-d5u89).
 
 The sub-system map is **not a refactor target** — each sub-system is
-small (the recorder ns is ~825 lines total; the `play-export` family
-adds ~750 lines across four files), and the atom-as-coupling-point
+small, and the atom-as-coupling-point
 is intentional (the recorder is a single piece of UX, not five
 independent features). The map exists so consumers know which
 sub-system to `:require` for a specific contract.
@@ -607,7 +605,7 @@ Storybook commodity alternatives live in
 | Motion contract — six duration tokens + five easing curves, a staggered shell-mount entrance (0 / 60 / 120 / 180ms), a 180ms overlay fade, an 80ms chip-press rebound, and a `prefers-reduced-motion` clamp to `0.01ms`; motion-as-language. The tab fade, the diff-flash and the `--motion-scale` variable this row used to name were never built (rf2-zxsd7) | F6 / rf2-1smrl | Stage 4 |
 | Gradient mesh + grain backdrop — anti-flat-chrome composition | F7 / rf2-4kqvw | Stage 4 |
 | Sidebar glyph rhythm — 5 SVG glyphs (story=◆, variant=●, workspace=▦, chevron, external-link); amber-diamond per-row; amber-active row border | F8 / rf2-ck4x5 | Stage 4 polish |
-| 5-cluster toolbar — MODES \| DATA \| VIEW \| DEBUG \| REC with token hairlines + small-caps cluster labels + accent-amber-deep active-chip border | F9 / rf2-sbluk | Stage 4 polish |
+| 6-cluster toolbar — MODES \| DATA \| VIEW \| DEBUG \| SHARE \| REC (SHARE added by rf2-ba86n.16) with token hairlines + small-caps cluster labels + accent-amber-deep active-chip border | F9 / rf2-sbluk | Stage 4 polish |
 | Xray-in-Story per-panel embed — Xray's RHS panels (`:app-db`, `:epoch`, `:trace`, `:machines`, `:views`, `:routing` — post rf2-5gl5r `:epoch` supersedes the retired `:event-detail`; rf2-gbz39 dropped `:issues` with the Xray Issues tab) mounted under Story's chrome | F1+F2+F3 | Stage 6 |
 | Phase 3 chrome surfaces — density knob, command palette, settings modal, polish sweep | rf2-38pb9 cluster | Stage 6 polish |
 
@@ -633,8 +631,8 @@ Deferred to first follow-up release. Per Phase 2 §5.2 #1.
 
 Style-Dictionary-shaped tokens emitted by upstream (re-com or host
 design system) surfaced as a `reg-story-panel`. Iff upstream emits
-tokens. Per Phase 2 §5.2 #5. Stage 6 ships the panel shell;
-activation is conditional on token emission upstream.
+tokens. Per Phase 2 §5.2 #5. No panel shell ships; the whole feature
+stays deferred pending token emission upstream.
 
 ### Per-variant autodocs panel polish
 
@@ -755,8 +753,9 @@ into Xray's slot by `re-frame.story.xray-preset/propagate-project-root!`:
 
 - The propagator fires from two seams: (1) `story/configure!` after
   `set-project-root!` lands (the common case — Xray's preload runs
-  before the testbed `run` fn), and (2) `xray-preset/ensure-xray-
-  mounted!` as defense-in-depth (lazy-load / hot-reload edge).
+  before the testbed `run` fn), and (2) `xray-preset/wire-cross-host!`
+  on every variant selection as defense-in-depth (lazy-load /
+  hot-reload edge).
 - One-way (`story → xray`). Hosts that want Xray pointed at a
   different on-disk root than Story call `xray-config/configure!`
   directly AFTER `story/configure!` to override the bridge.
@@ -887,8 +886,8 @@ phase-2 SOTA adds that are cheap.
 | 5. Three-level args + auto-derived controls from Spec 010 schemas | Stages 2, 4 |
 | 6. `force-fx-stub` — universal-fx mocking primitive (replaces the Storybook addon parade; see §`force-fx-stub`) | Stage 2 |
 | 7. Six-domino trace panel per variant via `register-listener!` | Stage 6 |
-| 8. Xray epoch panel embedded as `reg-story-panel` | Stage 6 |
-| 9. Story portability — `run-variant` returns `{:frame :app-db :assertions :elapsed-ms}` | Stage 3 |
+| 8. Xray epoch panel embedded via the RHS per-panel mount catalogue (`ui/xray_embed`) | Stage 6 |
+| 9. Story portability — `run-variant` returns the unified run-result (`:status` verdict plus `:frame` / `:app-db` / `:assertions` / `:elapsed-ms` / `:snapshot` …) | Stage 3 |
 | 10. EDN-first variant artefact (no `:render` fn-slot, round-trippable) | Stage 2 |
 | 11. Inclusion tags (seven canonical + `!`-prefix removal) | Stage 2 |
 | 12. Workspace grid + transit-shareable layouts | Stage 4 |
@@ -897,7 +896,7 @@ phase-2 SOTA adds that are cheap.
 | `:variants-grid` workspace layout | Stage 4 |
 | Per-variant share URL (address-bar surface; retired QR popover) | Stage 6 |
 | Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 |
-| Xray epoch panel embed (stub + contract) | Stage 6 |
+| Xray epoch panel embed (per-panel mount) | Stage 6 |
 | Test Codegen — record canvas dispatches as `:script` (rf2-5fc15) | Stage 6 |
 
 ## v1.1 ship list (first follow-up)

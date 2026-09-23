@@ -182,7 +182,7 @@ dead-code-eliminate cleanly" bugs.
 
 **Implication.** Stage 2 macros expand to one form in dev mode (the
 registration call) and to `nil` in production. Compile-time flag is
-`goog-define :rf.story/enabled?` (default `true`; downstream apps
+`goog-define re-frame.story.config/enabled?` (default `true`; downstream apps
 override to `false` for prod builds). See
 [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production elision.
 
@@ -302,7 +302,7 @@ decision once reagent-slim hits GA; until then Reagent.
 ### §public-ns-root — `re-frame.story` for user-facing API
 
 All public `reg-*` macros and the `run-variant` family live under
-`re-frame.story`. Internal namespaces live under `tools.story.*` (see
+`re-frame.story`. Internal namespaces live under `re-frame.story.*` (see
 [`003-Render-Shell.md`](003-Render-Shell.md) §Namespace layout). This
 matches the convention from `re-frame.adapter.reagent`,
 `re-frame.ssr`, etc.

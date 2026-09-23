@@ -30,7 +30,7 @@ recreates the frame; these are distinct lifecycle operations.
 
 ### Image composition + the Story runtime image (EP-0026)
 
-Under [EP-0026 §Default Image](../../../spec/002-Frames.md) every frame created
+Under [EP-0026 §Default Image](../../../docs/EP/EP-0026-image-api-simplification.md) every frame created
 with `rf/make-frame` ALWAYS carries a resolved image generation: a PRESENT
 `:images` resolves the selected generation; an ABSENT `:images` resolves the
 **default image** — the implicit selector over the WHOLE registration source
@@ -43,7 +43,7 @@ resolution](../../../docs/EP/EP-0023-image-loaded-frames.md)).
 
 So `allocate!` ALWAYS composes the variant frame's `:images` vector
 (`frames/compose-variant-images`), in IMAGE ORDER — **the later image wins**
-([EP-0026 §Layered Resolution](../../../spec/002-Frames.md)):
+([EP-0026 §Layered Resolution](../../../docs/EP/EP-0026-image-api-simplification.md)):
 
 ```
 [<story-images…> <variant-images…> network-fixture-image? runtime-image]
@@ -259,7 +259,9 @@ Strict order, per spec/007:
    entry in `:plays`) through the rich-DSL runner. `:dispatch` /
    `:dispatch-sync` steps fire their event vectors into the variant's
    frame, draining to completion between steps:
-   - `:rf.assert/*` events ride the `:dispatch-sync` rail; the
+   - `:rf.assert/*` events ride the `:dispatch-sync` rail internally
+     (the runner's headless implementation — authors write
+     `[:assert [:rf.assert/…]]`, spec/017 §Script step grammar); the
      play-runner bridges them into the step result so the registered
      assertion handlers record into `:rf.story/assertions` (no throw —
      see [`004-Assertions.md`](004-Assertions.md)).
@@ -299,7 +301,9 @@ The override forms are:
 - **a vector of event vectors** — true when every listed event is
   already on the frame's dispatched-events tape.
 - **a function** — called with the frame's app-db; its return value is
-  the result.
+  the result. Inline `story/run` plans only: the registered body schema
+  (`re-frame.story.schemas/Variant`) accepts a keyword or a vector of
+  event vectors, so a fn is rejected at `reg-variant`.
 
 A falsy result is not a retry and not a wait. It is the
 **Never-complete** failure mode (see
@@ -330,7 +334,7 @@ Phase 1 can fail in exactly three named ways. Each case is captured
 deterministically — the runtime records an assertion into
 `:rf.story/assertions`, parks the lifecycle machine, and the canvas
 projects the failure into the variant pane (per
-[`003-Render-Shell.md`](003-Render-Shell.md) §Canvas + skeleton). The
+[`014-Chrome-Features.md`](014-Chrome-Features.md) §Loading skeleton). The
 play sequence never runs; `(run-variant)` resolves with
 `assertions-passing?` false and the assertion vector populated.
 
@@ -522,8 +526,8 @@ the only per-phase distinction.
 `:assertions` slot carries the record. `:app-db` reflects whatever
 state the frame held at the failure boundary (loader phase may have
 written some intermediate state before throwing; the runtime does not
-roll back). Consumers querying `passed?` aggregate over `:assertions`;
-any `:rf.error/*` record drops the aggregate to false.
+roll back). `assertions-passing?` reads the run verdict `:status`, not an
+assertion fold; any `:rf.error/*` record yields `:fail`.
 
 ### Loader teardown contract
 
@@ -537,7 +541,7 @@ Without an explicit teardown path, those resources leak past variant
 destroy: the user clicks the next sidebar entry and the previous
 variant's websocket keeps dispatching events (which now land into a
 torn-down frame and may either no-op or surface as
-`:rf.error/dispatched-into-destroyed-frame` warnings).
+`:rf.error/frame-destroyed` warnings).
 
 **Three recommended patterns**, in preferred order:
 
@@ -793,7 +797,7 @@ the hash includes:
   [017 §Strict composition](017-Testing-Story.md#strict-composition) folds
   them into the variant's world; a variant composing no such input keeps
   the identity it had (rf2-pt0d1)
-- The same render-input slots, minus `:script` / `:plays`, of each
+- The same render-input slots, minus `:script` / `:plays` / `:images`, of each
   registered `:extends` ancestor, nearest first, because
   [017 §`:extends`](017-Testing-Story.md#extends--inherits-context-never-behaviour)
   passes an ancestor's world down and never its behaviour; a variant whose
@@ -802,7 +806,7 @@ the hash includes:
   `re-frame.story.identity/story-body-slice`)
 - Parent story decorators
 - Registered schema digest of `:component` (per
-  [spec/011 §`:rf/schema-digest`](../../../spec/011-SSR.md))
+  [spec/011 §`:rf.ssr/check-version` and `:rf.ssr/check-schema-digest`](../../../spec/011-SSR.md))
 - Active substrate (when computing per-substrate identity)
 - Active mode (when computing per-mode identity)
 
@@ -824,7 +828,8 @@ baselines.
 ```clojure
 (run-variant variant-id)
 (run-variant variant-id {:active-modes [:Mode.app/dark] :substrate :reagent})
-;; => Promise (CLJS) / CompletableFuture (JVM) resolving to:
+;; => Promise (CLJS) / CompletableFuture (JVM) resolving to
+;;    (abridged — the full shape is `run-result-schema`, 017 §Run result):
 ;;    {:status          :pass ; :pass | :fail | :cannot-run | :error
 ;;     :frame           <variant-id>
 ;;     :lifecycle       :ready ; mount state, not the verdict
@@ -943,7 +948,8 @@ auditability.
 - **Mode × Variant × Substrate snapshot-identity matrix.** Three
   options: nested hash (substrate is leaf); composite key
   (`[variant-id mode-id substrate]`); or substrate as a separate axis
-  with its own hash slot. Stage 3 picks.
+  with its own hash slot. PICKED — one hash keyed by `:active-modes` +
+  `:substrate`; see §Snapshot-identity computation.
 - **Hot-reload semantics for `reg-decorator` re-registration.** If a
   `:hiccup` decorator's `:wrap` closure changes, do all variants using
   it re-render automatically? Reagent's reactive graph handles this
@@ -953,4 +959,7 @@ auditability.
 - **`:rf.assert/effect-emitted` semantics under `force-fx-stub`.** If a
   variant stubs `:http` and then asserts
   `:rf.assert/effect-emitted :http`, does the assertion pass? The fx
-  *is* emitted; the stub just intercepts. Stage 5 clarifies.
+  *is* emitted; the stub just intercepts. CLARIFIED — a stubbed fx counts
+  as emitted via the per-frame stub-call log; see
+  [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/effect-emitted`
+  payload shape.

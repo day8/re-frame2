@@ -46,7 +46,7 @@ re-export rule is:
 
 **Tier.** Every surface on this facade is `tooling` in the repo-wide
 taxonomy ([spec/API.md §Tier taxonomy](../../../spec/API.md#tier-taxonomy)),
-and the api-manifest carries all 121 `re-frame.story` rows at that tier
+and the api-manifest carries all 120 `re-frame.story` rows at that tier
 with a facade-placement justification apiece. That is the settled
 outcome of the retrospective facade sweep (rf2-i6kh): Story is a tooling
 **product**, so per
@@ -59,7 +59,7 @@ determinism and golden families to `tooling`, and moved the one surface
 with no user workflow (`match-schema-expectations`) off the facade to
 the sub-namespace bullet above.
 
-**121, not 116 — the count moved for a reason worth stating.** The
+**121 at the sweep, not 116 — the count moved for a reason worth stating.** The
 sweep's first pass classified the 116 exports the JVM manifest generator
 can `ns-publics`, and `re-frame.story` is a split-host `.cljc`: its
 `#?(:cljs …)` arm publishes five more facade fns
@@ -70,6 +70,9 @@ manifest rows with the same four fields as every other facade row, and
 the CLJS enumeration probe holds `re-frame.story` **fully-rowed** in
 both directions — so a sixth CLJS-only export cannot arrive here
 unclassified, and none of the five can be renamed or removed silently.
+Two rows have moved since, which is why the tally above reads 120:
+`execute-play!` was retired (rf2-tb75) and `unreg-global-decorator!`
+became `clear-global-decorator` (rf2-kuky.71).
 
 The split mirrors `re-frame.core`'s practice: the facade carries the
 ergonomic surface; sub-namespace requires are the discoverability
@@ -124,6 +127,9 @@ All under `re-frame.story`.
 | `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id opts)` / `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL (retired QR popover). The no-base forms return a query fragment without a leading `?`. |
 | `resolve-args` | `(resolve-args variant-id)` / `(resolve-args variant-id opts)` | Five-layer args resolution, whose variant layer is the `:extends`/`:compose`-resolved one (routes through `re-frame.story.plan/effective-args`, so it equals a run's `:effective-args`); opts use `:active-modes` and `:cell-overrides`, not `:mode` / `:overrides`. |
 | `resolve-decorators` | `(resolve-decorators variant-id)` / `(resolve-decorators variant-id opts)` | The compiled decorator stack; accepts the same run-arg layers. See [`002-Runtime.md`](002-Runtime.md). |
+| `variant-frames` | `(variant-frames)` | Every registered variant frame id. [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation |
+| `variant-frame?` | `(variant-frame? frame-id)` | True iff `frame-id` is a variant frame. [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation |
+| `lifecycle-state` | `(lifecycle-state variant-id)` | The loader lifecycle's current discrete state for the variant's frame — `:pre-mount` / `:mounting` / `:loading` / `:ready` / `:error` (`:pre-mount` before the first run). [`002-Runtime.md`](002-Runtime.md) §Four-phase lifecycle |
 
 ### Execution verbs — `run` / `is` / `explain`
 
@@ -199,7 +205,18 @@ runner or artifact models.
 | `registered?` | `(registered? kind id)` | Boolean. |
 | `list-tags` | `(list-tags)` | All registered tags (canonical + project). |
 | `list-modes` | `(list-modes)` | All registered modes. |
+| `variants-by-story` | `(variants-by-story)` | `{story-id #{variant-id ...}}` index built in one pass over the variant side-table; a story with no variants maps to an empty set. |
+| `all-kinds-with-counts` | `(all-kinds-with-counts)` | `{kind → count}` over every Story kind — dev-tooling overlay. |
+| `tags-by-axis` | `(tags-by-axis axis-kw)` | Registered tag ids whose body's `:axis` is `axis-kw` — the sidebar's facet rows. [`001-Authoring.md`](001-Authoring.md) §`:axis` — facet grouping. |
+| `tags-without-axis` | `(tags-without-axis)` | Registered tag ids carrying no `:axis` (the trailing un-grouped facet row). |
+| `tags-default-excluded` | `(tags-default-excluded)` | Registered tag ids whose body's `:default-filter` is `:exclude` — pre-excluded by the sidebar at boot (e.g. `:internal` / `:experimental`). |
+| `tag->axis-index` | `(tag->axis-index)` | `{tag-id → axis-kw}` across every registered tag in one pass; axis-less tags map to `:re-frame.story.registrar/no-axis`. |
 | `canonical-tags` | `canonical-tags` | The seven canonical tags as a set. |
+| `canonical-axes` | `canonical-axes` | The canonical facet axes — `:status` / `:role` / `:team` / `:feature` + `:state`. [`001-Authoring.md`](001-Authoring.md) §`:axis` — facet grouping. |
+| `canonical-status-values` | `canonical-status-values` | The recommended `:status` axis vocabulary. |
+| `canonical-role-values` | `canonical-role-values` | The recommended `:role` axis vocabulary. |
+| `canonical-state-values` | `canonical-state-values` | The canonical `:state` axis vocabulary — `#{:empty :small :medium :large :special}`. |
+| `canonical-state-tags` | `canonical-state-tags` | The canonical `:state/*` faceted tags registered at Story load. |
 | `canonical-assertion-ids` | `(canonical-assertion-ids)` | The eight canonical `:rf.assert/*` ids — the seven dispatched as `reg-event` plus the tape-evaluated `:rf.assert/schema-error` (see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/schema-error`). |
 | `known-assertion-ids` | `(known-assertion-ids)` | The FULL assertion-id vocabulary the plan compiler accepts — the eight canonical ids PLUS the richer-runner families (DOM `:rf.assert/dom-*`, visual / a11y oracles, reactive-count assertions). The SAME set `assertion-id-known?` validates authored atoms against; `canonical-assertion-ids` is its dispatched subset. Exposed for tooling (story-mcp `list-assertions`). |
 | `registered-substrates` | `(registered-substrates)` | CLJS-only. The substrate set as registered via `register-substrate!`. |
@@ -273,6 +290,20 @@ declarative bulk-set form for the same vector; `reg-global-decorator`
 is the register-and-opt-in-in-one-call form. `clear-all!` clears the
 global vector so stale ref-by-id entries don't bleed across tests.
 
+## Built-in decorator ids (`*-id` Vars)
+
+The registered decorator ids for Story's built-in decorators, re-exported
+on `re-frame.story` so a variant's `:decorators` slot names them by Var
+rather than by bare keyword (see [`Conventions.md`](Conventions.md)
+§The `*-id` Var pattern for built-in decorator ids).
+
+| Var | Use | Spec |
+|---|---|---|
+| `force-fx-stub-id` | `{:decorators [[story/force-fx-stub-id :http {:status :pending}]]}` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub` |
+| `layout-debug-measure-id` | `{:decorators [[story/layout-debug-measure-id]]}` — Storybook-style layout measure overlay | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Layout-debug overlay trio |
+| `layout-debug-outline-id` | `{:decorators [[story/layout-debug-outline-id]]}` — Pesticide-style coloured outlines on every descendant | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Layout-debug overlay trio |
+| `layout-debug-pseudo-id` | `{:decorators [[story/layout-debug-pseudo-id #{:hover}]]}` — pseudo-state forcing; the ref-arg is a set from `#{:hover :focus :active :visited}`, default `#{:hover}` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Layout-debug overlay trio |
+
 ## Variant `:script` slot (rf2-0wrud)
 
 `:script` is the public phase-4 play surface (spec/017
@@ -287,7 +318,8 @@ authoring contract.
 |--------------------------------------|------------------------------------------------------------|
 | `[:dispatch event-vec]`              | `rf/dispatch` (async) into the variant's frame             |
 | `[:dispatch-sync event-vec]`         | `rf/dispatch-sync` (synchronous) into the variant's frame  |
-| `[:wait ms]`                         | Sleep N ms                                                 |
+| `[:wait ms]`                         | Sleep N ms — the explicit determinism opt-out              |
+| `[:wait-until predicate-spec]`       | Deterministic settle-on-condition (queue / state predicate); preferred over `[:wait ms]` — spec/017 §Script step grammar |
 | `[:flush-presence]`                  | Advance the presence clock to quiescence — every retained (`:unmounting`) child reaches its terminal removal (spec/017 §Presence-bearing variants) |
 | `[:flush-presence ms]`               | Advance the presence clock by N ms — only the exits that come due fire, so a script can observe a child still retained |
 | `[:assert assertion-atom]`           | Evaluate a canonical `[:rf.assert/…]` atom at this point — the primary assertion form (see [Canonical assertion events](#canonical-assertion-events--the-one-assertion-vocabulary)) |
@@ -298,6 +330,7 @@ authoring contract.
 | `[:assert-dom selector :text txt]`   | **Sugar** → folds to `[:assert [:rf.assert/dom-text selector txt]]` |
 | `[:click selector]`                  | Synthetic click event at selector                          |
 | `[:type selector text]`              | Synthetic input event at selector with `text`              |
+| `[:focus selector]`                  | Synthetic focus event at selector                          |
 
 The `:assert-db` / `:assert-dom` steps are ergonomic **sugar** the plan
 compiler folds onto the canonical `:rf.assert/*` atom before the run
@@ -490,7 +523,9 @@ contracts.
 | `re-frame.story.theme.typography` | `sans-stack`, `mono-stack`, `display-stack`, `type-scale`, `weights`, `inject-font-faces!` | IBM Plex Sans + IBM Plex Mono stacks plus the type-scale / weights maps; `inject-font-faces!` injects `local()`-only `@font-face` rules at shell mount. See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Typography. |
 | `re-frame.story.theme.colors` | `tokens` | Semantic colour map (`:bg-1` / `:bg-2` / `:bg-3` / `:bg-canvas` / `:bg-overlay` / `:text-primary` / `:text-secondary` / `:text-tertiary` / `:accent-amber` / `:accent-amber-soft` / `:accent-amber-deep` / `:border-subtle` / `:danger` / `:danger-bg` / `:tag-*-bg` / `:tag-*-fg` / …). See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour. |
 | `re-frame.story.theme.motion` | `timing`, `easing`, `transitions` | Duration / easing maps plus pre-composed `transitions` for chrome surfaces. Reduced-motion is honoured by the `prefers-reduced-motion` clamp inside the injected `motion-css`, not by a CSS variable — the `--motion-scale` variable this row used to name was never built (rf2-zxsd7). See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Motion. |
-| `re-frame.story.theme.depth` | `shadows` | Elevation shadow scale (`:elev-1` / `:elev-2` / `:elev-3` / …). See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Depth. |
+| `re-frame.story.theme.depth` | `shadows`, `backdrops`, `grain-css` | Elevation shadow scale (`:elev-1` / `:elev-2` / `:elev-3` / …), the backdrop tokens and the grain-overlay stylesheet. See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Depth. |
+| `re-frame.story.theme.status` | `order`, `descriptors`, `descriptor`, `fg`, `bg`, `glyph`, `label`, `chip-style`, `rollup` | The single-source status vocabulary: the canonical priority `order`, per-status `descriptor` maps and their individual channels, the inline chip `:style` constructor, and `rollup` (the most-attention-demanding status in a seq). See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Status vocabulary. |
+| `re-frame.story.theme.space` | `scale`, `pad`, `gap`, `radius` | Spacing rhythm (`{:px-0 … :px-8}`), the `pad` / `gap` accessors and the functional `radius` map (`:none` / `:xs` / `:sm` / `:md` / `:pill`). See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Spacing + radius rhythm. |
 | `re-frame.story.theme.glyphs` | `story-glyph`, `variant-glyph`, `workspace-glyph`, `chevron-right`, `external-link` | Inline-SVG glyph fns for the three sidebar row types plus utility glyphs. Each fn accepts an optional pixel size; SVG draws via `currentColor` so CSS controls colour. See [`016-Design-Tokens.md`](016-Design-Tokens.md) §Iconography. |
 
 ### Token contract
@@ -529,8 +564,8 @@ The **Audience** column names who's expected to call each surface
 
 | Surface | Where it lives | Kind | Audience | Purpose |
 |---|---|---|---|---|
-| `xray-embed-panel` | `re-frame.story.ui.xray-embed` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Xray-host Reagent component. Renders the chip-row picker plus the Xray panel-host `<div>` that one of `panels/mount-<panel>!` mounts into. Renders an italic "Select a variant to inspect via Xray." placeholder when no variant is focused; there is no absent-Xray state, because `day8/re-frame2-xray` is a declared Story dependency (rf2-r8trk). See [`003-Render-Shell.md`](003-Render-Shell.md) §Xray per-panel embed. |
-| `mount-fn-for` | `re-frame.story.ui.xray-embed` | Pure dispatch fn | `chrome-shell` | Pure dispatch: `(mount-fn-for panel-id)` returns the Xray `mount-<panel>!` fn for `panel-id` (one of `:epoch` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing`; rf2-5gl5r retired `:event-detail` in favour of `:epoch`; rf2-gbz39 dropped `:issues` with the Xray Issues tab), or nil for an unknown id. Compile-time symbol resolution via a `case` dispatch — no runtime namespace walk. See [`003-Render-Shell.md`](003-Render-Shell.md) §The contract — `panels/mount-<panel>!`. |
+| `xray-embed-panel` | `re-frame.story.ui.xray-embed` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Xray-host Reagent component. Renders the chip-row picker plus the Xray panel-host `<div>` that one of `panels/mount-<panel>!` mounts into. Renders an italic "Select a variant to inspect via Xray." placeholder when no variant is focused; there is no absent-Xray state, because `day8/re-frame2-xray` is a declared Story dependency (rf2-r8trk). See [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane. |
+| `mount-fn-for` | `re-frame.story.ui.xray-embed` | Pure dispatch fn | `chrome-shell` | Pure dispatch: `(mount-fn-for panel-id)` returns the Xray `mount-<panel>!` fn for `panel-id` (the six chip panels `:epoch` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing`, plus the non-chip `:event-spine` L2 band, rf2-9k43e; rf2-5gl5r retired `:event-detail` in favour of `:epoch`; rf2-gbz39 dropped `:issues` with the Xray Issues tab), or nil for an unknown id. A lookup into the `mount-fns` map derived from the namespace's single private embed descriptor (rf2-jf87oq) — compile-time symbol resolution, no runtime namespace walk. See [`003-Render-Shell.md`](003-Render-Shell.md) §The contract — `panels/mount-<panel>!`. |
 | `popout-full-shell!` | `re-frame.story.ui.xray-embed` | User-callable lifecycle | `user-app` | Pop out the full Xray 4-layer shell into a second window via `day8.re-frame2-xray.mount/popout!`. The popout symbol is always on the compile classpath (`day8/re-frame2-xray` is a declared Story dependency — rf2-r8trk); the only gate is Story's own `config/enabled?` elision posture. |
 | `xray-preset/wire-cross-host!` | `re-frame.story.xray-preset` | Internal bridge | `chrome-shell` | Bridges-only host-wiring helper. Called by the shell on every variant selection; threads through Xray's host-installation hooks (project-root propagation, keybinding installation) but does NOT mount Xray — the embed's panel-host owns the per-panel mount. See [`003-Render-Shell.md`](003-Render-Shell.md) §`wire-cross-host!` — bridges-only, no mount. |
 | `xray-preset/propagate-project-root!` | `re-frame.story.xray-preset` | Internal bridge | `chrome-shell` | Bridges Story's `:rf.story/project-root` from `configure!` into Xray's slot so Xray-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). |
@@ -578,6 +613,7 @@ and the fragment survive. The full authoritative hydration contract is
 |---|---|
 | `re-frame.story.config/enabled?` | CLJS `goog-define`, default `true`. Production app builds explicitly set `:closure-defines {re-frame.story.config/enabled? false}`; `:advanced` alone does not disable Story. Static playground builds deliberately keep it enabled. See [`005-SOTA-Features.md`](005-SOTA-Features.md). |
 | `configure!` | `(configure! {:rf.story/global-args {...} :rf.story/global-decorators [[<dec-id> & ref-args] ...] :rf.story/editor :vscode :rf.story/project-root "..." :rf.story/egress-profile :rf.egress/local-redacted})` — set global config at boot. Every key lives under `:rf.story/*` per the `:rf.<tool>/*` convention (spec/Conventions §Reserved namespaces). `:rf.story/global-decorators` replaces the global-decorators ref vector (rf2-9qpk3 — Storybook `preview.ts` `decorators: [...]` parity); each entry is `[decorator-id & ref-args]`, the same shape a `:decorators` slot takes, and the decorator bodies must already be registered via `reg-decorator` (or `reg-global-decorator`). The resolved per-variant stack is `(concat globals story variant)` with the earliest entry the outermost wrap; `nil` / `[]` clears it. See [Global decorators](#global-decorators-reg-global-decorator--rf2-835ey). `:rf.story/project-root` is bridged into Xray's slot via `re-frame.story.xray-preset/propagate-project-root!` so Xray-as-RHS source-coord chips share the same on-disk root (rf2-r1uod; symmetric to shop's rf2-6jyf6). `:rf.story/egress-profile` is Story's on-box dev-UI egress profile per EP-0015 (frame-owned egress policy, rf2-3t26eh) — one of the six ruled `:rf.egress/*` profiles; in practice `:rf.egress/local-redacted` (the default — suppress sensitive display, fail-closed) or `:rf.egress/local-raw` (the trusted-local opt-in). EP-0015 issue 7 retired the process-global `:rf.privacy/show-sensitive?` boolean toggle in favour of this named-boundary choice: there is no single on/off knob, only "which boundary is this?". Story's value-bearing surfaces project through the centralized `re-frame.core/project-egress` walker under this profile. An unknown profile raises `:rf.error/unknown-egress-profile`. The off-box wire-egress equivalents (`:rf.egress/off-box-tool` / `--allow-sensitive-reads` for MCP) are owned by `tools/story-mcp/`. |
+| `static-mode?` | `(static-mode?)` — true iff Story is running in static-export mode, i.e. the bundle was built by the `story:build` invocation with `:closure-defines {re-frame.story.config/static-mode? true}`. See [`013-Static-Build.md`](013-Static-Build.md) §Static-mode runtime semantics. |
 
 ## Privacy
 

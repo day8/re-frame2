@@ -287,8 +287,9 @@ The script:
 3. Spawns `http-server` over the output directory on port 8040.
 4. Drives headless Chromium against `http://127.0.0.1:8040/` and
    verifies:
-   - The Story shell mounted (the placeholder "Select a variant or
-     workspace from the sidebar" text is rendered).
+   - The Story shell mounted (the `[data-test="story-canvas-empty"]`
+     placeholder is visible — the attribute, not its prose, is the
+     contract).
    - The three landmarks (`<nav>` / `<main>` / `<aside>`) are present
      and reachable by role.
    - The chrome-level toolbar (`[data-test="story-toolbar"]`) is
@@ -298,6 +299,8 @@ The script:
    - Clicking a variant in the sidebar updates the canvas with the
      selected variant's title — proves the registry survived
      `:advanced` compilation and dispatch / subscription paths work.
+   - No uncaught `pageerror` fired during the run — any one fails the
+     smoke (rf2-mwx08).
 5. Tears the server down.
 
 A single PASS / FAIL line is logged; non-zero exit on smoke failure.
@@ -329,7 +332,7 @@ their `staticwebapp.config.json` under Azure, etc.).
 
 | Surface | Status |
 |---|---|
-| Story registrations (the four counter variants, two workspaces, three modes, one decorator, one panel) | bundled |
+| Story registrations (every `counter_with_stories` registration — stories, variants, workspaces, modes, decorators, tags, panels; `stories.cljs` is the roster) | bundled |
 | The seven canonical `:rf.assert/*` event handlers | bundled |
 | The canonical force-fx-stub decorator | bundled |
 | The layout-debug overlay trio | bundled |

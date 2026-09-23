@@ -535,19 +535,19 @@ Required commands (per-command status; rows link to the owning spec):
 | search story/variant | CURRENT/TARGET | this spec §7.1 |
 | switch mode tab | CURRENT | [`007-Mode-Tabs.md`](007-Mode-Tabs.md) |
 | run/re-run active variant | CURRENT/TARGET | `021` §1 |
-| run with richer runner | TARGET/BLOCKED | `021` §2 |
+| run with richer runner | TARGET — the runner-selection substrate (`requirements/select-runner`) ships; the pane shows the required runner but offers no picker | `021` §2 |
 | save current state as variant where representable | CURRENT/TARGET | `019` §3 |
-| promote current run artifact/failure to variant where available | BLOCKED | `021` §3 |
+| promote current run artifact/failure to variant where available | CURRENT | `021` §3 |
 | focus sidebar/canvas/controls/inspector | TARGET | this spec §7 |
 | open full Xray shell | CURRENT | `020` §2 |
-| focus Xray panel/beat/path | TARGET | `020` §2.1 |
+| focus Xray panel/beat/path | CURRENT/TARGET — the evidence-spine caller ships; canvas / assertion callers remain TARGET | `020` §2.1 |
 | open source for variant/view/event/assertion | TARGET | this spec §8 |
-| copy share URL | CURRENT/TARGET — ships freely with a reproducibility label, not gated on a redaction seam | `022` §3 |
+| copy share URL | CURRENT — ships freely with a reproducibility label, not gated on a redaction seam | `022` §3 |
 | copy inline plan | TARGET | `022` §3 |
-| copy run artifact | BLOCKED | `021` §3 |
-| toggle failed-only result rows | TARGET | `021` §1 |
-| jump previous/next narrative beat | BLOCKED | `020` §3 |
-| open explain panel | TARGET, over CURRENT explain data | `020` §4 |
+| copy run artifact | TARGET — the artifact substrate (`make-run-artifact`) ships; no copy affordance in the Test pane yet | `021` §3 |
+| toggle failed-only result rows | CURRENT | `021` §1 |
+| jump previous/next narrative beat | TARGET — the two-level narrative and evidence spine ship; the jump command itself is unbuilt | `020` §3 |
+| open explain panel | CURRENT | `020` §4 |
 
 The command palette MUST operate over structured registry/run data, not
 screen-text scraping.
@@ -744,8 +744,9 @@ regions should be structural bands or panes, not nested decorative cards.
   layout stacks them near the Inspector; they are not an Xray panel and
   not diagnostic evidence.
 - **Inspector.** Understanding and diagnosing the selected state. Few
-  top-level sections: Explain, Evidence, Xray, and possibly Share when
-  egress work lands. The visual boundary MUST make Story-owned vs
+  top-level sections: Explain, Evidence, Xray. Share ships as a toolbar
+  chip (`ui/share` `share-chip`, rf2-ba86n.16), not as an Inspector
+  section. The visual boundary MUST make Story-owned vs
   Xray-owned interiors clear without feeling stitched together.
 - **Toolbar.** Compact, mostly icon-led where icons are standard; text
   buttons for clear destructive or authoring commands (Save Variant,
