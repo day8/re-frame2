@@ -1799,6 +1799,7 @@
     :cell-overrides  {arg-key → value}
     :substrate       active substrate"
   ([variant-id]                (rf.story.share/variant-share-url variant-id))
+  ([variant-id opts]           (rf.story.share/variant-share-url variant-id opts))
   ([variant-id base-url opts]  (rf.story.share/variant-share-url variant-id base-url opts)))
 
 #?(:cljs
