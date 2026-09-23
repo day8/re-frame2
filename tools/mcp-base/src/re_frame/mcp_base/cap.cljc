@@ -110,9 +110,12 @@
     "Build a fresh result of the consumer's native shape carrying
     `marker` as its sole content payload. `marker` is the
     `{:rf.mcp/overflow {...}}` map built by
-    `rf.mcp-base.overflow/overflow-payload`. `original-result` is provided for
-    implementations that need to preserve sibling slots (e.g.
-    `:isError` flags); the default-shape consumer ignores it. The
+    `rf.mcp-base.overflow/overflow-payload`. `original-result` is the
+    result being replaced. Implementations MUST carry its `:isError`
+    flag across: overflow of a success stays non-error, and overflow of
+    a FAILED call keeps `isError: true` — otherwise the marker reads
+    exactly like an over-cap success and invites a re-call that repeats
+    the failed side effect (rf2-3x7nj.35.3). The
     returned result MUST itself be under any reasonable cap — the
     marker is a small fixed-shape payload, so this falls out
     naturally."))
@@ -328,16 +331,22 @@
       (> chars (* cap byte-cap-multiplier))))
 
 (defn reported-count
-  "The `:token-count` reported in the overflow marker: the char count
-  when the secondary char gate tripped (so the agent sees an actionable
-  number for the payload that escaped the token heuristic), else the
-  token sum. Pure companion to `over-cap?` — unit-tested directly in
-  isolation AND reached through the live `apply-cap` path by a content
-  vector of many sub-4-char strings."
+  "The `:token-count` reported in the overflow marker — always in TOKEN
+  units: the token sum when the primary token gate tripped, else
+  `(quot chars 4)`. The second arm is the payload that escaped the token
+  heuristic (many sub-4-char slots floor its per-string estimate toward
+  0), so the agent still sees an actionable, non-zero number; the char
+  gate implies `chars > cap * 8`, so it reports more than `2 * cap`. The
+  selector keys on the TOKEN gate, not the char gate: a single big
+  payload trips both once it is about 2x over budget, and reporting the
+  raw char count there would overstate it ~4x (rf2-3x7nj.35.2). Pure
+  companion to `over-cap?` — unit-tested directly in isolation AND
+  reached through the live `apply-cap` path by a content vector of many
+  sub-4-char strings."
   [tokens chars cap]
-  (if (> chars (* cap byte-cap-multiplier))
-    chars
-    tokens))
+  (if (> tokens cap)
+    tokens
+    (quot chars 4)))
 
 ;; ---------------------------------------------------------------------------
 ;; apply-cap — the wire-boundary enforcement entry point.

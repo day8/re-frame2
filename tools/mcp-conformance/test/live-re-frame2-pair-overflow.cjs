@@ -125,7 +125,8 @@ const DEFAULT_MAX_TOKENS = 5000;
 // 6,250 token-estimate ⇒ 1.25× over cap. Safe for both directions
 // (large enough to trip, not so large that an unrelated overflow
 // path kicks in first).
-const FORM_OVER_BUDGET = '(apply str (repeat 25000 "x"))';
+const PAYLOAD_CHARS = 25000;
+const FORM_OVER_BUDGET = '(apply str (repeat ' + PAYLOAD_CHARS + ' "x"))';
 
 // Pre-flight SKIP: route through the runner's shared skip helper so we
 // don't spawn a child or install a watchdog. Same posture as the sibling
@@ -308,6 +309,30 @@ runWithWatchdog(
         ', :token-count=' +
         body['token-count'],
     );
+
+    // 6b. :token-count is in TOKEN units (rf2-3x7nj.35.2). The shared
+    // cap reports the raw CHARACTER sum only on the char gate
+    // (chars > cap * 8), and before the fix it did so even when the token
+    // gate had tripped too — which is this payload's path, since the
+    // 25,000-char string rides both result slots. A token-unit count sits
+    // at or above the one-copy estimate and at or below the char ceiling;
+    // a character count can only land above that ceiling.
+    const minTokens = Math.floor(PAYLOAD_CHARS / 4);
+    const charCeiling = DEFAULT_MAX_TOKENS * 8;
+    if (body['token-count'] < minTokens || body['token-count'] > charCeiling) {
+      throw new Error(
+        ':token-count MUST be a token estimate in [' +
+          minTokens +
+          ', ' +
+          charCeiling +
+          '] for a ' +
+          PAYLOAD_CHARS +
+          '-char payload; got ' +
+          body['token-count'] +
+          ' (above the ceiling means the marker reported CHARACTERS).',
+      );
+    }
+    console.log('OK   :token-count is in token units (' + body['token-count'] + ')');
 
     // 7. Belt-and-braces: the wire response itself must fit under
     // the cap. This is the recursion-safety property pinned by

@@ -339,29 +339,34 @@
     (is (false? (rf.mcp-base.cap/over-cap? 50 (dec byte-cap) cap-tokens))
         "chars < cap*8 and tokens under cap ⇒ no trip")))
 
-(deftest reported-count-selects-chars-when-char-gate-tripped
-  ;; The `reported = (if (> chars byte-cap) chars tokens)` selector,
-  ;; pinned at the boundary from ONE computed `byte-cap` so the three
-  ;; cases sit either side of the same number. Both arms are live —
-  ;; `apply-cap-many-short-strings-trips-char-gate` reaches the chars
+(deftest reported-count-is-always-in-token-units
+  ;; The `reported = (if (> tokens cap) tokens (quot chars 4))` selector,
+  ;; pinned either side of the TOKEN gate — the arm it keys on
+  ;; (rf2-3x7nj.35.2). Both arms are live —
+  ;; `apply-cap-many-short-strings-trips-char-gate` reaches the chars/4
   ;; arm through the real pipeline.
   (let [cap-tokens 100
         byte-cap   (* cap-tokens rf.mcp-base.cap/byte-cap-multiplier)] ;; 800
-    (is (= (inc byte-cap) (rf.mcp-base.cap/reported-count 50 (inc byte-cap) cap-tokens))
-        "char gate tripped (chars > byte-cap) ⇒ report the char count")
-    (is (= 50 (rf.mcp-base.cap/reported-count 50 byte-cap cap-tokens))
-        "char gate NOT tripped (chars = byte-cap, not >) ⇒ report tokens")
+    (is (= 150 (rf.mcp-base.cap/reported-count 150 (* 2 byte-cap) cap-tokens))
+        "BOTH gates tripped ⇒ report the token estimate, never the char count")
     (is (= 150 (rf.mcp-base.cap/reported-count 150 (dec byte-cap) cap-tokens))
-        "only the token gate tripped ⇒ report tokens")))
+        "only the token gate tripped ⇒ report the token estimate")
+    (is (= (quot (inc byte-cap) 4)
+           (rf.mcp-base.cap/reported-count 50 (inc byte-cap) cap-tokens))
+        "only the char gate tripped ⇒ report chars / 4, in token units")
+    (is (= (quot (inc byte-cap) 4)
+           (rf.mcp-base.cap/reported-count cap-tokens (inc byte-cap) cap-tokens))
+        "tokens = cap is NOT the token gate (strict >) ⇒ chars / 4")
+    (is (> (rf.mcp-base.cap/reported-count 0 (inc byte-cap) cap-tokens) cap-tokens)
+        "the chars / 4 arm still exceeds the cap it tripped")))
 
 (deftest over-cap?-and-reported-count-agree-with-apply-cap
   ;; Consistency pin: the extracted predicates are exactly what
-  ;; `apply-cap` uses. A token-gated over-budget response reports the
-  ;; token count via `reported-count`, and `apply-cap`'s marker carries
-  ;; the same number. (The char-gate arm IS reachable through the live
-  ;; `apply-cap` path too — see
-  ;; `apply-cap-many-short-strings-trips-char-gate` — but this case is a
-  ;; single big string, so the token gate is the one that trips.)
+  ;; `apply-cap` uses. A single big string about 2x over budget trips
+  ;; BOTH gates (1002 tokens > 500, 4010 chars > 500*8), and the marker
+  ;; must still carry the TOKEN estimate — not the char count, which is
+  ;; what it carried before rf2-3x7nj.35.2. (The char-only arm is reached
+  ;; through the live path by `apply-cap-many-short-strings-trips-char-gate`.)
   (let [big (big-string 4000)        ;; 4000 chars ⇒ 1000 tokens
         r   (ok-text-result {:huge big})
         cap-tokens 500
@@ -369,7 +374,11 @@
         chrs (rf.mcp-base.cap/sum-payload-chars map-io r)
         out  (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap cap-tokens})
         body (get-in out [:structuredContent rf.mcp-base.vocab/overflow-key])]
-    (is (true? (rf.mcp-base.cap/over-cap? toks chrs cap-tokens)))
+    (is (> toks cap-tokens) "precondition: the token gate trips")
+    (is (> chrs (* cap-tokens rf.mcp-base.cap/byte-cap-multiplier))
+        "precondition: the char gate trips as well")
+    (is (= toks (:token-count body))
+        "apply-cap's :token-count is the token estimate, in token units")
     (is (= (rf.mcp-base.cap/reported-count toks chrs cap-tokens) (:token-count body))
         "apply-cap's reported :token-count matches reported-count over the same sums")))
 
@@ -396,8 +405,8 @@
       (is (contains? (:structuredContent out) rf.mcp-base.vocab/overflow-key)
           "live apply-cap replaces the payload via the secondary char gate")
       (is (= :reached (:limit body)))
-      (is (= 9000 (:token-count body))
-          "reported :token-count is the CHAR count — the char-gated arm of reported-count, reached live")
+      (is (= 2250 (:token-count body))
+          "reported :token-count is chars / 4 (9000 / 4) — the char-gated arm of reported-count, reached live, in token units")
       (is (= cap-toks (:cap-tokens body))))))
 
 ;; ---------------------------------------------------------------------------
