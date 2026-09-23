@@ -258,3 +258,43 @@
     (is (some? (snapshot :sce3/child#2)) "child#2 is live")
     (is (= [:rf.machine.spawn/attempt-superseded]
            (mapv #(get-in % [:tags :rf.reply/stale-reason]) (stale-traces))))))
+
+;; ---- :spawn-all control ----------------------------------------------------
+
+(defn- reg-spawn-all-parent!
+  [parent-id child-id]
+  (rf/reg-machine parent-id
+    {:initial :idle
+     :data    {}
+     :states  {:idle    {:on {:start :loading}}
+               :loading {:spawn-all {:children        [{:id :a :machine-id child-id :on-done conj-result}]
+                                     :join            :all
+                                     :on-all-complete [:all/done]}
+                         :on        {:cancel :idle :all/done :loaded}}
+               :loaded  {}}}))
+
+(defn- join-child [parent-id]
+  (get-in (rf.machines.test-support/runtime-db)
+          [:rf.runtime/machines :spawned parent-id [:loading] :children :a]))
+
+(deftest spawn-all-carriers-keep-their-own-fence
+  (testing "control: a :spawn-all child's carrier carries no single-:spawn
+            attempt, so this gate never sees it — with nothing queued it folds
+            and the join resolves"
+    (reg-kick!)
+    (reg-child! :sca0/child)
+    (reg-spawn-all-parent! :sca0/parent :sca0/child)
+    (rf/dispatch-sync [:sca0/parent [:start]])
+    (rf/dispatch-sync [::kick [[(join-child :sca0/parent) [:go]]]])
+    (is (= :loaded (:state (snapshot :sca0/parent))))
+    (is (= ["first"] (get-in (snapshot :sca0/parent) [:data :results])))
+    (is (empty? (stale-traces))))
+  (testing "control: behind a :cancel the :spawn-all carrier is dropped by the
+            join's own exact-attempt fence, as before"
+    (reg-child! :sca1/child)
+    (reg-spawn-all-parent! :sca1/parent :sca1/child)
+    (rf/dispatch-sync [:sca1/parent [:start]])
+    (rf/dispatch-sync [::kick [[(join-child :sca1/parent) [:go]] [:sca1/parent [:cancel]]]])
+    (is (= :idle (:state (snapshot :sca1/parent))))
+    (is (nil? (get-in (snapshot :sca1/parent) [:data :results])))
+    (is (empty? (stale-traces)) "no single-:spawn stale trace for a join carrier")))
