@@ -34,8 +34,9 @@
      (e.g. `api_key`, `access_token`, `auth`). URLs carrying these
      params are redacted **inline** in every `:rf.http/*` trace event
      that carries a `:url` slot, regardless of the request
-     `:sensitive?` flag. Same rationale as the header denylist: the
-     param name itself is the signal.
+     `:sensitive?` flag — as are the same names written as keys of a
+     structured `:params` map (rf2-3x7nj.16.1). Same rationale as the
+     header denylist: the param name itself is the signal.
 
   3. **Per-call `:sensitive?`** — a per-call `:sensitive?` arg on the
      `:rf.http/managed` args map opts in for a specific request (e.g.
@@ -286,16 +287,43 @@
           [payload-after-top-level-url false])]
     [redacted-payload (or top-level-url-redacted? nested-url-redacted?)]))
 
+(defn- redact-denylisted-params
+  "rf2-3x7nj.16.1 — the query-param denylist applied to a structured `:params`
+  map: every value whose key names a denylisted parameter becomes the sentinel.
+  Returns `[params any-redacted?]`.
+
+  `:params` is merged onto `:url` only at attempt time, so a request-side slot
+  can carry the SAME parameter in either spelling. The key is lowered to its
+  wire name exactly as `rf.http.encoding/params->query` lowers it (`name` of a
+  keyword, else `str`), so both spellings get one treatment."
+  [params query-param-policy]
+  (reduce-kv (fn [[redacted hit?] k _]
+               (if (rf.http.url/sensitive-query-param-name?
+                     (if (keyword? k) (name k) (str k)) query-param-policy)
+                 [(assoc redacted k redacted-sentinel) true]
+                 [redacted hit?]))
+             [params false]
+             params))
+
 (defn redact-request-tags-with-flag
   "Like `redact-request-tags` but returns `[tags url-redacted?]` so
   callers (`prepare-emit-tags`) can decide whether to stamp
-  `:sensitive?` without re-walking the URL.
+  `:sensitive?` without re-walking the URL. The flag also counts a
+  denylisted `:params` name (rf2-3x7nj.16.1) — a query parameter is the same
+  signal in either spelling.
 
   `carriers` is the registration-owned carrier extension map
   `{:headers #{..} :query-params #{..}}`, or `nil`."
   ([tags sensitive?] (redact-request-tags-with-flag tags sensitive? nil))
   ([tags sensitive? carriers]
    (let [[tags url-hit?] (redact-url-in tags sensitive? (:query-params carriers))
+         ;; Always-on query-param denylist over the structured `:params` map (a
+         ;; sensitive request redacts the whole map below instead).
+         [tags params-hit?] (if (and (not sensitive?) (map? (:params tags)))
+                              (let [[params hit?] (redact-denylisted-params
+                                                    (:params tags) (:query-params carriers))]
+                                [(cond-> tags hit? (assoc :params params)) hit?])
+                              [tags false])
          tags' (cond-> tags
                  ;; Always-on header redaction (built-in defaults plus extensions).
                  (map? (:headers tags))
@@ -308,7 +336,7 @@
                  ;; Sensitive-request redaction — params (URL query string) too.
                  (and sensitive? (contains? tags :params))
                  (assoc :params redacted-sentinel))]
-     [tags' url-hit?])))
+     [tags' (or url-hit? params-hit?)])))
 
 (defn redact-request-tags
   "Given a tags map about to ride a `:rf.http/*` trace event, redact
@@ -470,7 +498,8 @@
 
   Mirrors the dedicated `:rf.http/*` trace composers (`prepare-emit-tags`):
   the `:request` map rides `redact-request-tags` — denylisted headers +
-  denylisted URL query values ALWAYS; `:body` / `:params` / all query values
+  denylisted query values ALWAYS, in `:url` and in `:params` alike;
+  `:body` / `:params` / all query values
   when the request is sensitive — with the registration's `:carriers`
   extensions applied. EVERY reply-address event vector — the unified
   `:reply-to` and the split `:on-success` / `:on-failure` sugar alike —

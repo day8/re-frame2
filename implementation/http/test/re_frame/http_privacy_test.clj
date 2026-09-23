@@ -358,6 +358,66 @@
       (is (= {:note "plain"} (get-in r [:request :body])))
       (is (= :rf/redacted (get-in r [:request :headers "Cookie"]))))))
 
+;; rf2-3x7nj.16.1 — the query-param denylist is always-on for BOTH spellings of
+;; a query parameter. `:params` is merged onto `:url` only at attempt time, so
+;; the fx-args projection sees it as a structured map; before the fix a
+;; denylisted name there rode the `:rf.fx/handled` / `:rf.event/fx` slots raw
+;; while the identical name in `:url` was redacted. The expected answer is
+;; DERIVED from the producer: merge the params onto the URL exactly as the
+;; transport does (`merge-params`), redact that URL, and read which names the
+;; URL redactor scrubbed — the `:params` projection must scrub the same names.
+(def ^:private denylist-params-fixture
+  {:api_key     "SECRET-P"
+   "Access_Token" "SECRET-S"
+   :user/token  "SECRET-N"
+   :page        2
+   :q           "x"})
+
+(defn- url-redacted-param-names
+  "The wire names the URL redactor scrubs once `params` is merged onto `url`."
+  [url params]
+  (let [redacted (rf.http.url/redact-url (rf.http.encoding/merge-params url params) false)]
+    (into #{} (map second) (re-seq #"[?&]([^?&=#]+)=:rf/redacted" redacted))))
+
+(deftest project-managed-fx-args-redacts-denylisted-params-like-the-url
+  (testing "rf2-3x7nj.16.1 — a non-sensitive request's denylisted :params values
+            redact in the fx-args projection exactly as the same names do once
+            merged into :url; ordinary params ride verbatim"
+    (let [url      "https://api.example.test/x"
+          expected (url-redacted-param-names url denylist-params-fixture)
+          r        (rf.http.privacy/project-managed-fx-args
+                     {:request {:url url :params denylist-params-fixture}})
+          params   (get-in r [:request :params])
+          wire     (fn [k] (if (keyword? k) (name k) (str k)))]
+      (is (= #{"api_key" "Access_Token" "token"} expected)
+          "control: the URL redactor scrubs the three denylisted wire names")
+      (doseq [[k v] denylist-params-fixture]
+        (if (contains? expected (wire k))
+          (is (= :rf/redacted (get params k))
+              (str k " is redacted in :params, as its merged :url spelling is"))
+          (is (= v (get params k))
+              (str k " is not denylisted and rides verbatim"))))
+      (is (= url (get-in r [:request :url])) "the params-free url survives"))))
+
+(deftest prepare-emit-tags-stamps-sensitive-on-params-denylist-hit
+  (testing "rf2-3x7nj.16.1 — a denylisted :params name alone stamps :sensitive?,
+            exactly as a denylisted :url name does; carriers apply to :params"
+    (let [r (rf.http.privacy/prepare-emit-tags
+              {:url "https://api.example.test/x" :params {:api_key "S" :page 2}} false)]
+      (is (= {:api_key :rf/redacted :page 2} (:params r)))
+      (is (true? (:sensitive? r)) "the denylisted name is the signal"))
+    (let [r (rf.http.privacy/prepare-emit-tags
+              {:url "https://api.example.test/x" :params {:page 2}} false)]
+      (is (= {:page 2} (:params r)))
+      (is (not (contains? r :sensitive?)) "no denylisted name, no stamp"))
+    (rf.fx/reg-fx :rf.http/managed
+                  {:carriers {:query-params {:include ["shop_token"] :except ["token"]}}}
+                  rf.http.managed/managed-handler)
+    (let [r (rf.http.privacy/prepare-emit-tags
+              {:url "https://api.example.test/x" :params {:shop_token "S" :token "T"}} false)]
+      (is (= {:shop_token :rf/redacted :token "T"} (:params r))
+          "an :include carrier redacts, an :except default rides verbatim"))))
+
 ;; The cases below are spelled out LITERALLY rather than read from
 ;; `rf.http.encoding/reply-address-keys`, because that roster is the very
 ;; thing under test: `project-managed-fx-args` reduces over it, so a test that
