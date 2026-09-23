@@ -137,8 +137,12 @@
   "Trace operations that signal an in-flight effect being cancelled.
 
     - `:rf.http/aborted-on-actor-destroy` (Spec 014 §Abort on actor destroy)
-    - `:rf.http/aborted` (failure category, when `:reason` is one of
-      the cascade reasons; rarer)
+    - `:rf.http/aborted` (failure category). Every actor-destroy abort
+      emits one of these too: the registry emits the row above, then calls
+      the request's abort-fn with `:actor-destroyed`, and the transport's
+      abort choke emits `:rf.http/aborted` `:reason :actor-destroyed` for
+      the SAME request (rf2-3x7nj.23.4). `gather-related-aborts` folds that
+      echo into its registry row, so one request counts once.
     - `:rf.ws/aborted-on-actor-destroy` (Pattern-WebSocket; defensive —
       not all installs ship this)
     - `:rf.machine.timer/cancelled` (per Spec 005 §after timer
@@ -398,6 +402,24 @@
            (sort-by :time)
            last))))
 
+(defn- actor-destroy-echo?
+  "True iff `ev` is the transport-side `:rf.http/aborted` echo of an
+  `:rf.http/aborted-on-actor-destroy` row in `registry-rows` — the SAME
+  request aborted once, traced twice (rf2-3x7nj.23.4). The echo carries
+  `:reason :actor-destroyed` and the registry row's `:actor-id`; the
+  `:request-id` refines the match when both rows carry one."
+  [registry-rows ev]
+  (and (= :rf.http/aborted (:operation ev))
+       (= :actor-destroyed (get-in ev [:tags :reason]))
+       (let [{:keys [actor-id request-id]} (:tags ev)]
+         (some (fn [reg]
+                 (let [reg-tags (:tags reg)]
+                   (and (= actor-id (:actor-id reg-tags))
+                        (or (nil? request-id)
+                            (nil? (:request-id reg-tags))
+                            (= request-id (:request-id reg-tags))))))
+               registry-rows))))
+
 (defn- gather-related-aborts
   "Pull every abort trace event that should be grouped under the
   anchor. Two paths in order of preference:
@@ -409,6 +431,11 @@
        drain and so carries no `:dispatch-id` link.
 
   Restricted to `frame` when the focus names one (`in-frame?`).
+
+  An `:rf.http/aborted` `:reason :actor-destroyed` row is dropped when the
+  gathered set also holds the `:rf.http/aborted-on-actor-destroy` row it
+  echoes (`actor-destroy-echo?`), so one aborted request is one abort row
+  and counts once toward its teardown's `:inflight-count`.
 
   Sorted oldest-first by `:time`."
   [trace-buffer anchor frame]
@@ -456,8 +483,11 @@
                                          {:seen (if k (conj seen k) seen)
                                           :acc  (conj acc ev)})))
                                    {:seen #{} :acc []})
-                           :acc)]
+                           :acc)
+        registry-rows (filter #(= :rf.http/aborted-on-actor-destroy (:operation %))
+                              unique)]
     (->> unique
+         (remove #(actor-destroy-echo? registry-rows %))
          (sort-by (fn [ev] [(or (:time ev) 0) (or (:id ev) 0)])))))
 
 (defn- gather-related-teardowns

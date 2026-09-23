@@ -104,6 +104,40 @@
                  dispatch-id (assoc :rf.trace/dispatch-id dispatch-id)
                  frame       (assoc :frame frame))})
 
+(defn- http-aborted-ev
+  "A producer-shaped `:rf.http/aborted` row (rf2-3x7nj.23.4).
+
+  Derived from the producer, not by hand: `re-frame.http.transport`'s
+  `dispatch-aborted!` builds the failure `{:kind :rf.http/aborted :reason
+  <reason> :actor-id …}` through `self-identify` (`:request-id` and the
+  other identity slots), adds `:url`, and emits it with
+  `(rf.trace/emit-error! :rf.http/aborted …)`. `build-event` then stamps
+  `:op-type :error`, merges `:category`, hoists `:recovery`, and stamps the
+  in-scope `:rf.trace/dispatch-id` + `:frame` into `:tags`. On an actor
+  destroy the registry's `abort-on-actor-destroy` emits
+  `:rf.http/aborted-on-actor-destroy` and THEN calls the abort-fn with
+  `:actor-destroyed`, so this row lands beside that one in the same drain."
+  [{:keys [request-id actor-id reason dispatch-id time id frame]
+    :or {request-id  :req-1
+         actor-id    :user-session
+         reason      :actor-destroyed
+         dispatch-id 1
+         time        1021
+         id          301}}]
+  {:id         id
+   :operation  :rf.http/aborted
+   :op-type    :error
+   :time       time
+   :recovery   :no-recovery
+   :tags       (cond-> {:category   :rf.http/aborted
+                        :kind       :rf.http/aborted
+                        :reason     reason
+                        :actor-id   actor-id
+                        :request-id request-id
+                        :url        "/api/foo"}
+                 dispatch-id (assoc :rf.trace/dispatch-id dispatch-id)
+                 frame       (assoc :frame frame))})
+
 (defn- ws-abort-ev
   [{:keys [event actor-id dispatch-id time id]
     :or {event       [:heartbeat]
@@ -279,6 +313,63 @@
       (is (= :http (-> c :effect-aborts first :fx)))
       (is (= :actor-destroyed (-> c :effect-aborts first :cancel-cause)))
       (is (= 20 (:total-elapsed-ms c))))))
+
+;; ---- (2) extract-cascade: one actor-destroy abort, traced twice ---------
+
+(deftest extract-counts-an-actor-destroy-abort-once
+  (testing "rf2-3x7nj.23.4 — destroying an actor with ONE in-flight request
+            emits the registry's :rf.http/aborted-on-actor-destroy AND the
+            transport's :rf.http/aborted :reason :actor-destroyed echo for
+            that same request, in the same drain. The cascade reports ONE
+            aborted effect, not two"
+    (let [actor :rf.http/managed#1
+          buf   [(dispatched-ev [:app/cancel [:cancel]]
+                                {:dispatch-id 3 :time 1000 :id 60})
+                 (http-abort-ev {:request-id :req-1 :actor-id actor
+                                 :dispatch-id 3 :time 1003 :id 64
+                                 :frame :rf/default})
+                 (http-aborted-ev {:request-id :req-1 :actor-id actor
+                                   :dispatch-id 3 :time 1004 :id 65
+                                   :frame :rf/default})
+                 (update (destroy-ev {:machine-id actor :dispatch-id 3
+                                      :time 1005 :id 67 :frame :rf/default})
+                         :tags #(-> % (dissoc :machine-id) (assoc :actor-id actor)))]
+          c     (h/extract-cascade buf {:frame :rf/default})]
+      (is (= 1 (count (:effect-aborts c)))
+          "one request aborted → one abort row")
+      (is (= [64] (mapv :trace-id (:effect-aborts c)))
+          "the registry row stands for the request; its transport echo folds in")
+      (is (= [1] (mapv :inflight-count (:child-teardowns c)))
+          "the teardown counts ONE in-flight fx")
+      (is (= "1 child destroyed · 1 effect aborted · 3ms elapsed"
+             (h/cascade-summary c)))))
+  (testing "controls — only the paired echo is dropped"
+    (let [actor :rf.http/managed#1
+          base  [(destroy-ev {:machine-id actor :dispatch-id 3
+                              :time 1005 :id 67})]]
+      (testing "an echo with no registry row beside it still counts"
+        (is (= 1 (count (:effect-aborts
+                          (h/extract-cascade
+                            (conj base (http-aborted-ev {:actor-id actor
+                                                         :dispatch-id 3
+                                                         :id 65}))))))))
+      (testing "an :rf.http/aborted for another reason is its own abort"
+        (is (= 2 (count (:effect-aborts
+                          (h/extract-cascade
+                            (conj base
+                                  (http-abort-ev {:request-id :req-1 :actor-id actor
+                                                  :dispatch-id 3 :id 64})
+                                  (http-aborted-ev {:request-id :req-2 :actor-id actor
+                                                    :reason :user
+                                                    :dispatch-id 3 :id 66}))))))))
+      (testing "an echo for a DIFFERENT request of the same actor still counts"
+        (is (= 2 (count (:effect-aborts
+                          (h/extract-cascade
+                            (conj base
+                                  (http-abort-ev {:request-id :req-1 :actor-id actor
+                                                  :dispatch-id 3 :id 64})
+                                  (http-aborted-ev {:request-id :req-2 :actor-id actor
+                                                    :dispatch-id 3 :id 66})))))))))))
 
 ;; ---- (2) extract-cascade: dispatch-id projection (rf2-kducz) ----------
 
