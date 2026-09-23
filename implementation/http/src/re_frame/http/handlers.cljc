@@ -21,6 +21,8 @@
   (:require [clojure.string]
             [re-frame.error          :as rf.error]
             [re-frame.frame          :as rf.frame]
+            [re-frame.interop        :as rf.interop]
+            [re-frame.trace          :as rf.trace]
             [re-frame.http.encoding  :as rf.http.encoding]
             [re-frame.http.middleware :as rf.http.middleware]
             [re-frame.http.privacy   :as rf.http.privacy]
@@ -308,6 +310,37 @@
      :attempt           1
      :sensitive?        sensitive?}))
 
+(defn- emit-issued-trace!
+  "Emit the `:rf.http/issued` `:info` row for one fresh issuance (rf2-x8oz5;
+  Managed-Effects §Tracing — issuance/start with `:work/id`, frame and target
+  summary). Runs inside the issuing fx handler, so `trace/build-event` stamps
+  the issuing run's dispatch-id and the row lands in the issuing bundle. Its
+  `:rf.reply/work-id` is the attempt-1 work id every completion row of this
+  issuance carries — the join key between issuance and completion.
+
+  `:url` is the merged request URL and rides through `prepare-emit-tags`, so it
+  is redacted under the request's `:sensitive?` exactly as the retry row's is.
+  `:reply-to` summarises the reply target(s) by EVENT-ID only, never the
+  target vector's args."
+  [{:keys [request request-id frame sensitive?] :as normalised}]
+  (let [reply-to (into {}
+                       (keep (fn [[branch k]]
+                               (let [{:keys [supplied? value]} (get normalised k)]
+                                 (when (and supplied? (vector? value))
+                                   [branch (first value)]))))
+                       [[:on-success :explicit-on-success]
+                        [:on-failure :explicit-on-failure]])]
+    (rf.trace/emit! :info :rf.http/issued
+      (rf.http.privacy/prepare-emit-tags
+        (cond-> {:rf.reply/work-id   (rf.http.reply/work-id normalised)
+                 :rf.reply/work-kind :http
+                 :request-id         request-id
+                 :url                (rf.http.encoding/merge-params (:url request) (:params request))
+                 :method             (or (:method request) :get)
+                 :frame              frame}
+          (seq reply-to) (assoc :reply-to reply-to))
+        (true? sensitive?)))))
+
 (defn managed-handler
   "The public `:rf.http/managed` fx body. `frame-ctx` carries `:frame`
   and (when threaded by the runtime, per the do-fx 5-arity) `:event` —
@@ -444,14 +477,24 @@
         ;; attempt]` is `=`-distinct from the superseded one's (both reset
         ;; their retry `:attempt` to 1; the issuance discriminates them). One
         ;; attempt has one work id (EP-0007 / Managed-Effects §Work-id
-        ;; correlation §184). An anonymous request (nil request-id) never
-        ;; supersedes and stays at issuance 1.
+        ;; correlation §184).
         ;;
         ;; rf2-o8ek — the counter is keyed by (issuing frame, request-id): a
         ;; sibling frame reusing the same raw id runs its own sequence, so
         ;; this frame's first issuance is 1 whatever the sibling has done.
-        issuance     (rf.http.registry/next-issuance! frame-id request-id)
+        ;;
+        ;; rf2-x8oz5 — an anonymous request (nil request-id) never supersedes,
+        ;; but its logical id is the originating event-id, so it is numbered
+        ;; per (frame, event-id) instead: two anonymous requests of one event
+        ;; in one frame carry distinct work ids.
+        issuance     (rf.http.registry/next-issuance! frame-id request-id origin-event)
         normalised   (assoc normalised0 :issuance issuance)]
+    ;; rf2-x8oz5 — the issuance row, emitted BEFORE `supersede!` and
+    ;; `run-attempt!` so it precedes every row this issuance causes (the stale
+    ;; suppression of a superseded predecessor, a synchronous body-prep
+    ;; failure, the fx's own `:rf.fx/handled`).
+    (when rf.interop/debug-enabled?
+      (emit-issued-trace! normalised))
     ;; rf2-azcmd3 — supersession emits the SUPERSEDED attempt's canonical
     ;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope trace
     ;; (Managed-Effects §Stale suppression) carrying carried/current work-id
