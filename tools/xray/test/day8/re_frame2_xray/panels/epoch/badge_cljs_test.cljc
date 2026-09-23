@@ -244,6 +244,13 @@
         "the skipped glyph and the :cancelled middle-dot are distinct")
     (is (string? badge/skipped-hover))))
 
+(deftest overridden-hover-names-the-replacement-test
+  (testing "rf2-3x7nj.22.3 — the ↺ row's hover names the replacement and
+            claims nothing about whether real I/O happened"
+    (is (str/includes? (badge/overridden-hover :http/fake) ":http/fake"))
+    (is (str/includes? (badge/overridden-hover :re-frame.fx/fn-value) "with a function"))
+    (is (not (str/includes? (badge/overridden-hover :http/fake) "for real")))))
+
 (deftest fx-row-status-token-key-test
   (testing "rf2-j630b — :error/:rollback → :error; :overridden → :accent;
             :skipped → :text-tertiary (muted, NEUTRAL); else → :success"

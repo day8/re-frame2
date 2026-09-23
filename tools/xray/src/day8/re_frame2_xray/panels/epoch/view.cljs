@@ -4615,10 +4615,11 @@
   cleanly when no coord was captured (framework-shipped fx with no
   user source, production builds without coords; the synthesised `:db`
   row has no reg-site)."
-  [idx {:keys [fx-id status args value duration-ms attributed-to]} instance]
+  [idx {:keys [fx-id status args value duration-ms attributed-to override-to]} instance]
   (let [db-row?  (= :db fx-id)
         skipped? (= :skipped status)
         noop?    (= :noop status)
+        overridden? (= :overridden status)
         ;; :fx rows carry `:args`; `other` (dropped top-level) rows carry
         ;; `:value` — both render through the same edn-inspector slot.
         payload  (if (some? args) args value)]
@@ -4629,8 +4630,9 @@
            :style fx-row-style}
      [:span {:style (assoc diff-glyph-bold-style
                            :color (badge/fx-row-status-colour status))
-             :title (cond skipped? badge/skipped-hover
-                          noop?    badge/noop-hover)}
+             :title (cond skipped?    badge/skipped-hover
+                          noop?       badge/noop-hover
+                          overridden? (badge/overridden-hover override-to))}
       (badge/fx-row-status-glyph status)]
      [:span {:style fx-row-id-style}
       (fmt/ns-keyword fx-id)
@@ -4642,6 +4644,13 @@
       ;; synthesised :db row, which has no reg-site).
       (coord-chip/coord-chip (fx-coord fx-id)
                              (str "rf-xray-epoch-fx-row-coord-" idx))]
+     ;; rf2-3x7nj.22.3 — a keyword-redirected row is keyed on the id the
+     ;; handler EMITTED; the redirect target rides here as detail.
+     (when (and (some? override-to) (not= :re-frame.fx/fn-value override-to))
+       [:span {:data-testid (str "rf-xray-epoch-fx-row-override-" idx)
+               :style fx-row-attribution-style}
+        [:span {:aria-hidden true} "→"]
+        (fmt/ns-keyword override-to)])
      ;; The :db row's args slot is the '→ app-db' DESTINATION marker, NOT
      ;; the db diff (rf2-j630b). Every other row renders its args through
      ;; the edn-inspector with `:default-expanded-depth 1` (rf2-ef2hy) so

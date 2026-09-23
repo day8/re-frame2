@@ -486,6 +486,16 @@
   "Hover/title text for a `:skipped-on-platform` ledger row (rf2-j630b)."
   "skipped on this platform — gated, didn't run here")
 
+(defn overridden-hover
+  "Hover/title text for an `:overridden` ledger row (rf2-3x7nj.22.3). Names
+  the replacement and claims nothing about real I/O: an override replaces
+  the HANDLER, and a replacement may well delegate to the real one."
+  [override-to]
+  (str "overridden — an :fx-overrides entry replaced this effect's handler"
+       (cond
+         (= :re-frame.fx/fn-value override-to) " with a function"
+         (some? override-to)                   (str ", redirected to " override-to))))
+
 (def noop-glyph
   "The empty-set glyph for a NO-OP `:db` ledger row (rf2-ekq28v) — the
   handler returned an unchanged db (`:rf.event/db-noop`), so the commit

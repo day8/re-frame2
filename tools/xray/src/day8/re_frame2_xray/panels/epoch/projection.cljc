@@ -2221,6 +2221,39 @@
     {:fx-id  :rf.db/runtime
      :status (if (runtime-db-rolled-back? events) :error :ok)}))
 
+(defn- fn-value-overrides
+  "`{<event index> -> <replacement>}` for each `:rf.fx/handled` row a
+  FUNCTION override replaced (rf2-3x7nj.22.3).
+
+  `re-frame.fx` emits `:rf.fx/override-applied` — carrying only
+  `:rf.fx/from` / `:rf.fx/to`, never `:rf.fx/id` — immediately before the
+  override function fires, and `:rf.fx/handled` after it returns. So the
+  pair lies in one window: after the previous fx OUTCOME row, before the
+  handled row, read by POSITION in the epoch's emission-ordered trace
+  events, never by `:time`. The override row's `:rf.fx/from` must name the
+  handled row's `:rf.fx/id`. A keyword redirect needs no pairing — its
+  handled row carries `:rf.fx/from` — and a replacement that THREW leaves
+  no handled row, so its `✗` row is never read as overridden."
+  [events]
+  (loop [evs (map-indexed vector events), pending [], acc {}]
+    (if-let [[i ev] (first evs)]
+      (let [o (op ev)]
+        (cond
+          (= :rf.fx/override-applied o)
+          (recur (rest evs) (conj pending ev) acc)
+
+          (contains? fx-outcome-op->status o)
+          (let [hit (when (and (= :rf.fx/handled o)
+                               (nil? (common/tag-of ev :rf.fx/from)))
+                      (last (filter #(= (common/tag-of ev :rf.fx/id)
+                                        (common/tag-of % :rf.fx/from))
+                                    pending)))]
+            (recur (rest evs) [] (if hit (assoc acc i (common/tag-of hit :rf.fx/to)) acc)))
+
+          :else
+          (recur (rest evs) pending acc)))
+      acc)))
+
 (defn fx-effect-rows
   "The `:fx` sub-step rows — one per entry in the handler's `:fx` vector
   (rf2-kt6js, the user-emitted fx rows formerly carried inline in
@@ -2232,19 +2265,36 @@
 
   Reads the `:rf.fx/*` + fx-error trace ops directly (per-fx success is
   ALREADY RECORDED — see the SIDE EFFECTS step settle-first note); the
-  implicit `:db` commit is NOT here (it has its own `db-effect-row`)."
+  implicit `:db` commit is NOT here (it has its own `db-effect-row`).
+
+  OVERRIDDEN (rf2-3x7nj.22.3). `↺` is read off override PROVENANCE only —
+  a keyword-redirected handled row's `:rf.fx/from`, or a function
+  override's `:rf.fx/override-applied` row paired by `fn-value-overrides`
+  — never off the absence of some other row. An overridden handled row
+  reads `:overridden` and carries `:override-to` (the redirect target, or
+  `:re-frame.fx/fn-value`); a redirected one is keyed on the id the
+  handler EMITTED. The override row itself is provenance, never a row of
+  its own, and a failure row keeps its `✗`: an override never hides one."
   [events]
-  (let [attribution-map (fx-attribution-map events)]
+  (let [attribution-map (fx-attribution-map events)
+        fn-overridden   (fn-value-overrides events)]
     (vec
-      (for [ev events
+      (for [[i ev] (map-indexed vector events)
             :let [o     (op ev)
-                  fx-id (common/tag-of ev :rf.fx/id)]
-            :when (and (or (= "rf.fx" (op-ns ev))
+                  from  (when (= :rf.fx/handled o) (common/tag-of ev :rf.fx/from))
+                  to    (if (some? from)
+                          (common/tag-of ev :rf.fx/id)
+                          (get fn-overridden i))
+                  fx-id (or from (common/tag-of ev :rf.fx/id))]
+            :when (and (not= :rf.fx/override-applied o)
+                       (or (= "rf.fx" (op-ns ev))
                            (contains? #{:rf.error/fx-handler-exception
                                         :rf.error/no-such-fx} o))
                        (some? fx-id))]
         (cond-> {:fx-id       fx-id
-                 :status      (get fx-outcome-op->status o :ok)
+                 :status      (if (some? to)
+                                :overridden
+                                (get fx-outcome-op->status o :ok))
                  :args        (common/tag-of ev :rf.fx/args)
                  ;; rf2-ipaza — substrate stamps the per-fx-handler
                  ;; invocation duration as `:rf.fx/elapsed-ms` on
@@ -2253,6 +2303,8 @@
                  ;; as a fixture-compat fallback for older runtimes.
                  :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
                                   (common/tag-of ev :duration-ms))}
+          (some? to)
+          (assoc :override-to to)
           (get attribution-map fx-id)
           (assoc :attributed-to (get attribution-map fx-id)))))))
 

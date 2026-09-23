@@ -3915,7 +3915,11 @@ present] + [:fx rows, in order]` — there is no fourth `other` tier
   `:cancelled` cascade-row glyph, and the circled-slash, which reads
   error-ish). For ASYNC / deferred fx (`dispatch-later`, `http`, a slow
   fx) the `✓` means **ACTIONED** (the fx handler was invoked ok), not
-  awaited — matching the trace's `:rf.fx/handled` semantics.
+  awaited — matching the trace's `:rf.fx/handled` semantics. `↺` reads
+  off override provenance only (the `:rf.fx/override-applied` row, or a
+  redirect's `:rf.fx/from`), never off a missing row, and a replacement
+  that threw stays `✗`. A keyword-redirected row is listed under the id
+  the handler emitted, with `→ <target>` beside it.
 - **No `other` rows.** A top-level effect key outside the closed set
   `re-frame.events/closed-effect-map-keys` — `:db`, `:rf.db/runtime`,
   `:fx` and the four EP-0025 classification effects (`:sensitive`,
