@@ -67,7 +67,20 @@
         ;; resolves instead of minting the malformed `::rf/default`.
         ;; Same coercion `dispatch` uses.
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        since-id  (wire/arg raw-args :since-id)
+        ;; rf2-3x7nj.32.3 — `:since-id` is typed string on the wire, and
+        ;; the reference runtime's epoch ids are INTEGERS that
+        ;; `epochs-since` finds with `=`. Passed raw, a schema-conforming
+        ;; `"47"` never equals `47`, so every resume-by-id read as a false
+        ;; `:rf.mcp/cursor-stale`. Parse it exactly as `restore-epoch`
+        ;; parses its `epoch-id` (EDN, `args/read-edn-arg`; the value rides
+        ;; quoted below): `"47"` reads as `47`, a keyword or string id
+        ;; still round-trips. A non-string (a JSON number) is already the
+        ;; id; a blank string is the same as absent.
+        since-raw (wire/arg raw-args :since-id)
+        [since-tag since-id] (if (string? since-raw)
+                               (let [r (args/read-edn-arg since-raw ::blank :invalid-since-id)]
+                                 (if (= [:err ::blank] r) [:ok nil] r))
+                               [:ok since-raw])
         ;; The `--allow-sensitive-reads` boot gate
         ;; forces `:include-sensitive false` when OFF (the default), via
         ;; the single intention-naming predicate `raw-state-allowed?`
@@ -101,6 +114,15 @@
     (cond
       (some? key-refusal)
       (js/Promise.resolve (wire/err-text key-refusal))
+
+      (= :err since-tag)
+      (js/Promise.resolve
+        (wire/err-text {:ok?      false
+                        :reason   :invalid-since-id
+                        :since-id since-raw
+                        :hint     (str "since-id is parsed as EDN, like restore-epoch's epoch-id — "
+                                       "pass back the :head-id a previous poll returned, e.g. "
+                                       "\"47\" for the integer id 47.")}))
 
       (= cursor-in ::cursor/malformed)
       (js/Promise.resolve

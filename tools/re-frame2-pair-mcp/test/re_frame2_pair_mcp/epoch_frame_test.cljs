@@ -656,6 +656,46 @@
                          "REGRESSION: the advisory names the resolved frame its count came from, not nil"))
                    (done)))))))
 
+;; ---------------------------------------------------------------------------
+;; `:since-id` arrives as a STRING (rf2-3x7nj.32.3).
+;;
+;; The descriptor types it `string`, and the reference runtime's epoch ids
+;; are integers that `epochs-since` finds with `=`. Passed raw, the
+;; schema-conforming "2" never equals 2, so every resume-by-id came back
+;; as a false `:rf.mcp/cursor-stale` ("your id aged out of the ring") while
+;; the id sat in the ring. The simulator's `epochs-since*` keeps that `=`,
+;; so these fail on the pre-fix tree.
+;; ---------------------------------------------------------------------------
+
+(deftest watch-epochs-string-since-id-resumes-against-integer-ids
+  (async done
+    (stub-runtime! nil {:operation  :watch-epochs
+                        :app-frames [:rf/default]
+                        :pin        nil
+                        :rings      {:rf/default [(epoch 1) (epoch 2) (epoch 3) (epoch 4)]}})
+    (-> (we/watch-epochs-tool nil (tu/args->js {:since-id "2"}))
+        (.then (fn [r]
+                 (let [edn (read-edn r)]
+                   (is (not (err? r))
+                       "REGRESSION: epoch 2 is in the ring — a string id must not read as aged out")
+                   (is (not= :rf.mcp/cursor-stale (:reason edn)))
+                   (is (false? (:id-aged-out? edn)))
+                   (is (= 2 (:count edn)) "the poll resumes after epoch 2: epochs 3 and 4"))
+                 (done))))))
+
+(deftest watch-epochs-unreadable-since-id-is-refused
+  (async done
+    (stub-runtime! nil {:operation  :watch-epochs
+                        :app-frames [:rf/default]
+                        :pin        nil
+                        :rings      {:rf/default [(epoch 1)]}})
+    (-> (we/watch-epochs-tool nil (tu/args->js {:since-id "{:unclosed"}))
+        (.then (fn [r]
+                 (is (err? r))
+                 (is (= :invalid-since-id (:reason (read-edn r)))
+                     "an unreadable id is named as such, not reported as aged out")
+                 (done))))))
+
 (deftest a-genuinely-empty-ring-in-a-resolvable-frame-still-answers
   ;; The complement, and the reason the refusal is scoped to tier 4: an
   ;; honestly quiet frame must still get its honest `:count 0`, not a

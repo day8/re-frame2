@@ -60,7 +60,7 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 Every tool call needs a shadow-cljs build id to route over the nREPL
 socket. The server walks **three sources in precedence order** (rf2-l9ixp;
 impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools/wire.cljs)
-`arg-build`, lines 275-324):
+`arg-build`, lines 275-330):
 
 1. **Explicit `:build` MCP arg on the call.** Operator override always
    wins; no surprise from the cache. The arg is **colon-tolerant**
