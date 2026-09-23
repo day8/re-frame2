@@ -610,6 +610,17 @@
       (is (re-find #"variant=" url))
       (is (re-find #"modes=" url)))))
 
+(deftest variant-share-url-public-export-opts-arity
+  (testing "rf2-0w6q2 — the facade carries the documented (variant-id opts)
+            arm: a no-base query fragment (no leading ?) equal to the
+            underlying share builder's own 2-arity result"
+    (let [opts {:active-modes [:Mode.x/y]}
+          url  (rf.story/variant-share-url :story.foo/bar opts)]
+      (is (= (rf.story.share/variant-share-url :story.foo/bar opts) url))
+      (is (not (str/starts-with? url "?")))
+      (is (re-find #"variant=" url))
+      (is (re-find #"modes=" url)))))
+
 ;; ---- No QR endpoint --------------------------------------------------------
 ;;
 ;; rf2-20w5i (security audit) + rf2-ymnfx Issue B: the per-variant
