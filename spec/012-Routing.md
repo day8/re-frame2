@@ -1258,13 +1258,19 @@ When a `:rf.nav/scroll` effect is emitted, its args carry both the strategy and 
 ```clojure
 (rf/reg-fx :rf.nav/scroll
   {:platforms #{:client}}
-  (fn fx-nav-scroll [_m {:keys [strategy from to saved-pos fragment]}]
+  (fn fx-nav-scroll [{:keys [frame]} {:keys [strategy from to saved-pos fragment]}]
     (case strategy
-      :top      (if-let [el (and fragment (.getElementById js/document fragment))]
-                  (.scrollIntoView el)
-                  (.scrollTo js/window 0 0))
-      :restore  (when saved-pos
-                  (.scrollTo js/window (first saved-pos) (second saved-pos)))
+      ;; The DOM half waits for the commit that installs the new route
+      ;; (§`:rf.nav/scroll` integration, Timing): `after-commit!` runs its
+      ;; thunk through the installed adapter's after-render hook — at once
+      ;; when there is none — and drops it if `frame`'s navigation has moved on.
+      :top      (after-commit! frame
+                  #(if-let [el (and fragment (.getElementById js/document fragment))]
+                     (.scrollIntoView el)
+                     (.scrollTo js/window 0 0)))
+      :restore  (after-commit! frame
+                  #(when saved-pos
+                     (.scrollTo js/window (first saved-pos) (second saved-pos))))
       :preserve nil
       ;; Closed vocabulary — an unrecognised strategy is a caller bug.
       ;; Fanned on BOTH error channels, not the dev trace alone: this branch
@@ -1477,6 +1483,8 @@ The fx's behaviour, when `:fragment` is present:
 | `:top` | Attempt `getElementById(fragment)` and scroll-into-view; on failure, fall back to `window.scrollTo(0,0)`. |
 | `:restore` | Restore saved scroll position; the fragment is ignored (the saved position trumps). |
 | `:preserve` | Do nothing (fragment ignored). |
+
+**Timing.** The fx runs inside the navigating event, before any render, so its DOM half waits for the commit that installs the new route: it runs through the installed adapter's after-render hook ([002 §Drain scheduling](002-Frames.md#drain-scheduling--task-not-microtask)), which is what lets `:top` find a `#fragment` that exists only on the arriving page and `:restore` reach an offset the page being left is too short for (rf2-3x7nj.12.3). A host with no after-render hook applies it immediately. A scroll whose navigation has been superseded by the time it fires — a later commit on the same frame, or the frame torn down — is dropped. The scroll waits for the commit, not for data: content that renders after it, from a resource still loading, is not waited for.
 
 The three enum strategies are the whole vocabulary, and their fragment-handling is locked above — there is no fourth, host-supplied strategy that could interpret `:fragment` differently (see [§Custom scroll strategies](#custom-scroll-strategies)).
 
