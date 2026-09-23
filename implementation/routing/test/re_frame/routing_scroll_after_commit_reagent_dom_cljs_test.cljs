@@ -14,9 +14,12 @@
     2. Back to a page TALLER than the one being left restores the full
        offset, with `history.scrollRestoration` set to \"manual\" so the
        browser's own restore cannot supply it.
-    3. The rf2-pk4i6.7 #3 check, under the browser's default \"auto\": a
-       route declaring `:scroll :top` is at the top after Back, and stays
-       there — the browser's traversal restore does not win the race.
+    3. The rf2-pk4i6.7 #3 check, starting from the browser's default
+       \"auto\": a route declaring `:scroll :top` is at the top after Back,
+       and stays there. The page being left is TALL here, so a traversal
+       restore by the browser would not be clamped — measured at 3000 on the
+       pre-fix handler. Installing the URL listener claims the scroll
+       (\"manual\"), so the browser's restore never runs.
 
   Every reading is taken inside an after-render callback queued behind the
   navigation (or two frames later, for row 3's settle check); nothing flushes
@@ -39,6 +42,7 @@
 (def ^:private list-url "/rf2-scroll-witness/list")
 (def ^:private top-list-url "/rf2-scroll-witness/top-list")
 (def ^:private detail-url "/rf2-scroll-witness/detail")
+(def ^:private tall-detail-url "/rf2-scroll-witness/tall-detail")
 
 (defn- register-back-routes! []
   (rf.routing/reg-route ::list {:doc "A TALL list."} list-url)
@@ -46,11 +50,12 @@
                                     :scroll :top}
                         top-list-url)
   (rf.routing/reg-route ::detail {:doc "A SHORT detail page."} detail-url)
+  (rf.routing/reg-route ::tall-detail {:doc "A TALL detail page."} tall-detail-url)
   nil)
 
 (rf/reg-view* ::back-page
   (fn back-page []
-    (if (#{::list ::top-list} @(rf/subscribe [:rf.route/id]))
+    (if (#{::list ::top-list ::tall-detail} @(rf/subscribe [:rf.route/id]))
       [:div {:style {:height "6000px"}} "list"]
       [:div {:style {:height "100px"}} "detail"])))
 
@@ -94,7 +99,7 @@
   `scrollY` read inside an after-render callback queued from a `popstate`
   listener installed AFTER the frame's own — so it runs behind the scroll the
   frame's listener queued."
-  [{:keys [from-url scroll-restoration]} check done]
+  [{:keys [from-url detail scroll-restoration]} check done]
   (let [frame-id   ::back-frame
         runner-url (.-href js/location)
         prior      (.-scrollRestoration js/window.history)
@@ -113,15 +118,20 @@
                   (str "precondition: the tall page scrolls to " deep-offset
                        " — it reads " (witness/scroll-y)))
               (witness/after-commit
-                #(rf/dispatch-sync [:rf.route/navigate {:to ::detail}] {:frame frame-id})
+                #(rf/dispatch-sync [:rf.route/navigate {:to detail}] {:frame frame-id})
                 (fn [] [(witness/scroll-y) (witness/max-scroll-y)]))))
           (.then
             (fn [[y max-y]]
-              (is (= 0 y) "precondition: forward to the short detail page lands at the top")
-              (is (< max-y deep-offset)
-                  (str "precondition: the detail page can scroll only " max-y "px, so a"
-                       " restore to " deep-offset " made on it would be clamped. Without"
-                       " this the Back row cannot fail"))
+              (is (= 0 y) "precondition: forward to the detail page lands at the top")
+              (if (= ::detail detail)
+                (is (< max-y deep-offset)
+                    (str "precondition: the detail page can scroll only " max-y "px, so a"
+                         " restore to " deep-offset " made on it would be clamped. Without"
+                         " this the Back row cannot fail"))
+                (is (>= max-y deep-offset)
+                    (str "precondition: the detail page can scroll " max-y "px, so a"
+                         " browser restore to " deep-offset " would not be clamped. Without"
+                         " this the #3 row cannot fail")))
               (js/Promise.
                 (fn [resolve]
                   (let [on-pop (fn on-pop [_]
@@ -147,7 +157,7 @@
     (skip! ":node-test has no history or scroll model")
     (async done
       (back-after-deep-scroll!
-        {:from-url list-url :scroll-restoration "manual"}
+        {:from-url list-url :detail ::detail :scroll-restoration "manual"}
         (fn [y]
           (is (= deep-offset y)
               (str "Back restored " y " rather than " deep-offset ". A restore made"
@@ -155,12 +165,12 @@
                    " and the list then renders at the clamped offset")))
         done))))
 
-(deftest a-top-route-stays-at-the-top-after-back-under-auto-restoration
+(deftest a-top-route-stays-at-the-top-after-back-from-a-tall-page
   (if-not (witness/browser?)
     (skip! ":node-test has no history or scroll model")
     (async done
       (back-after-deep-scroll!
-        {:from-url top-list-url :scroll-restoration "auto"}
+        {:from-url top-list-url :detail ::tall-detail :scroll-restoration "auto"}
         (fn [y]
           (testing "rf2-pk4i6.7 #3: the route asks for :top on every arrival"
             (is (= 0 y)

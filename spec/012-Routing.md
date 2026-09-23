@@ -1486,6 +1486,8 @@ The fx's behaviour, when `:fragment` is present:
 
 **Timing.** The fx runs inside the navigating event, before any render, so its DOM half waits for the commit that installs the new route: it runs through the installed adapter's after-render hook ([002 §Drain scheduling](002-Frames.md#drain-scheduling--task-not-microtask)), which is what lets `:top` find a `#fragment` that exists only on the arriving page and `:restore` reach an offset the page being left is too short for (rf2-3x7nj.12.3). A host with no after-render hook applies it immediately. A scroll whose navigation has been superseded by the time it fires — a later commit on the same frame, or the frame torn down — is dropped. The scroll waits for the commit, not for data: content that renders after it, from a resource still loading, is not waited for.
 
+**The runtime owns traversal scroll.** Installing the URL listener sets `history.scrollRestoration` to `"manual"`, so on Back/Forward only `:rf.nav/scroll` moves the page — `:restore` from the runtime's own saved positions, or whatever strategy the route declares. Under the browser's default `"auto"` its own traversal restore raced the runtime, and on a tall page it won: Back to a `:scroll :top` route left the page where it had been (rf2-pk4i6.7).
+
 The three enum strategies are the whole vocabulary, and their fragment-handling is locked above — there is no fourth, host-supplied strategy that could interpret `:fragment` differently (see [§Custom scroll strategies](#custom-scroll-strategies)).
 
 ### Programmatic navigation with fragments
