@@ -991,7 +991,8 @@
                   :rf.trace/dispatch-id id}})
 
 (defn- run-end-trace-ev
-  "A `:rf.event/run-end` trace event carrying a handler `:duration-ms`,
+  "A `:rf.event/run-end` trace event carrying the handler duration under
+  `:rf.event/elapsed-ms`, the key the producer stamps (rf2-3x7nj.22.5),
   bucketed into the cascade's `:handler` slot by `group-by-event`. Used
   to drive the L2 row's trailing `duration` column (rf2-lnod7)."
   [id duration-ms]
@@ -1001,7 +1002,7 @@
    :tags         {:frame                :rf/default
                   :rf.trace/dispatch-id id
                   :rf.trace/phase       :run-end
-                  :duration-ms          duration-ms}})
+                  :rf.event/elapsed-ms  duration-ms}})
 
 (deftest event-list-renders-empty-state-on-cold-start
   (testing "empty cascade list shows the spec/018 §4 empty-state hint"
