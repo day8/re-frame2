@@ -89,11 +89,20 @@
   input under a registered validator, …) yields nil rather than throwing —
   this resolver is a best-effort tooling read (the controls + schema panels
   render gracefully with no schema), not the authoritative compile path
-  that fails registration."
+  that fails registration.
+
+  The schema is the component's `:rf/props`, not a function of the args, so
+  an args-validation veto (`:rf.error/story-view-args-invalid`) does not
+  erase it: the schema that validation used rides on the error and is
+  returned (rf2-3x7nj.28.3). This bare compile sees only the variant arg
+  layer, so a variant leaving a required prop to its story's `:args` — the
+  flagship authoring pattern — fails validation here and still resolves."
   [variant-id]
   (try
     (-> (rf.story.plan/variant-plan variant-id) :world :view-args-schema)
-    (catch #?(:clj Exception :cljs :default) _ nil)))
+    (catch #?(:clj Exception :cljs :default) e
+      (when (= :rf.error/story-view-args-invalid (:rf.error/id (ex-data e)))
+        (:view-args-schema (ex-data e))))))
 
 (defn compiled-view-args-schema
   "Return the view-args (props) schema for a REGISTERED `variant-id`,

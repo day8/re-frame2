@@ -46,7 +46,8 @@
   walk. The shell's `main-pane` only reaches `docs-view` via the
   `(when config/enabled? ...)`-gated mount call, so production builds
   never invoke it — closure DCEs the lot."
-  (:require [re-frame.story.budgets    :as rf.story.budgets]
+  (:require [re-frame.story.args       :as rf.story.args]
+            [re-frame.story.budgets    :as rf.story.budgets]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.plan       :as rf.story.plan]
             [re-frame.story.registrar  :as rf.story.registrar]
@@ -208,10 +209,17 @@
   value). Pure data → data. Docs is a read-only projection — a variant whose
   plan does not compile still renders its header / prose / args; the
   status-and-fidelity surface just degrades to 'plan unavailable' rather than
-  taking the whole pane down."
+  taking the whole pane down.
+
+  Compiles with the ambient arg layers (`rf.story.args/run-arg-layers`: the
+  global and story `:args`) like every other keyword-target reader, so a
+  variant that leaves a required prop to its story compiles here as it does
+  for a run (rf2-3x7nj.28.3). No modes or cell-overrides: Docs shows the
+  variant's declared shape."
   [variant-id]
   (try
-    (rf.story.plan/variant-plan variant-id)
+    (rf.story.plan/variant-plan variant-id
+                                {:run-args (rf.story.args/run-arg-layers variant-id)})
     (catch #?(:clj Exception :cljs :default) _ nil)))
 
 (def fidelity-rungs
