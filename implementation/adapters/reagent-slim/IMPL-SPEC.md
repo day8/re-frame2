@@ -339,6 +339,7 @@ Private lifecycle plumbing (contract-level; names are not API):
 - `validate-class-spec!` — the 7-key cap check that `create-class*` fails fast on.
 - `install-lifecycle-methods!` — translates the supported lifecycle keys onto the React class prototype.
 - `make-render-method` — builds the class's `render`, threading `*current-component*` via `call-with-current-component`.
+- `reap-unless-adopted!` / `drain-unadopted!` / `reap-if-unadopted!` — the provisional-adoption reaper for a render Reaction built while its instance is not mounted (§4.2, rf2-3x7nj.6.3).
 - `argv-should-update?` — the argv-equality `shouldComponentUpdate` gate; `previous-argv-from-props` / `copy-argv-from-props!` / `argv-args` / `form-tag` feed it and `wrap-render`.
 - `sync-error-state!` — error-boundary state propagation for `:component-did-catch` (§6.5).
 - `->react-element` — the class → element step.
@@ -347,7 +348,10 @@ There is no `do-render`, `wrap-funs`, `cancel-cleanup` or `queue-cleanup`.
 Disposal is not a deferred cleanup queue: `install-lifecycle-methods!` ALWAYS
 installs `componentWillUnmount` (whether or not the spec supplies
 `:component-will-unmount`) and it disposes the per-instance render Reaction and
-clears the dirty flag inline — see §3.4.
+clears the dirty flag inline — see §3.4. The one exception is an instance React
+renders but never mounts, which no `componentWillUnmount` will ever reach: its
+render Reaction is reaped one host macrotask after the render that built it
+(§4.2).
 
 ### §2.9 `reagent2.impl.batching` — render scheduler
 
@@ -502,7 +506,9 @@ The microtask boundary is universal across React 19's host platforms (browser, s
 
 ### §4.2 React 19 concurrent rendering — `act`, `flushSync`
 
-The scheduler **does not interfere** with React 19's transition / suspense / concurrent rendering. The mechanism: the rewrite's components consume their reactive state via `useSyncExternalStore`-shaped subscriptions to RAtom / Reaction objects (mirroring the UIx adapter's `use-sub` pattern at `uix.cljs:225+`). When an RAtom changes, the subscriber fires; React's reconciler then schedules its own re-render through normal React channels. The microtask scheduler is the path for **legacy Reagent-shape components** (Form-1/2/3) that don't use `useSyncExternalStore`; those components call `forceUpdate` from inside the microtask.
+The scheduler **does not interfere** with React 19's transition / suspense / concurrent rendering, and not because of a hook. Every `reg-view` and every Form-1/2/3 component is a CLASS that subscribes during render, through its per-instance render Reaction (§4.4 path 1), and re-renders through `forceUpdate` from the microtask drain — an ordinary class update that React schedules through its own channels. Only an `:f>` function component (§7.1) sources reactive state through `useSyncExternalStore`-shaped hooks.
+
+Subscribing during render has one consequence the class path must own: React can render an instance and never commit it — a Suspense boundary suspending on mount, an error boundary catching on mount, a hidden `Activity` — and it calls `componentWillUnmount` only for instances it committed. So a render Reaction built while its instance is not mounted is **provisional** (rf2-3x7nj.6.3). `make-render-method` queues it before running the render body, and one host macrotask later — 4 ms, the React-hook spine's horizon — the reaper disposes it unless `componentDidMount` has adopted the instance. Adoption (`cljsIsMounted`) is set by `componentDidMount` and cleared by `componentWillUnmount`, because React also unmounts a mounted instance when it hides it, may re-render it while hidden, and may delete it without unmounting it again. A reaped instance carries the same reattach marker `componentWillUnmount` leaves (rf2-6b6pex), so a commit that arrives after the horizon re-renders it against current values: losing the race costs one render, never a stale or dead view. Spec 006 §Which lifetime governs a ratom adapter is the contract; `test/re_frame/adapter/reagent_slim_discarded_render_dom_cljs_test.cljs` is the regression.
 
 For test code, `flush-views!` runs the synchronous drain inside React's `act` —
 the React-19-blessed test primitive that drains React's pending work. As
