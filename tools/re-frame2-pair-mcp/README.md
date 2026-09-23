@@ -46,7 +46,7 @@ cljs-eval compile.
 | `replay-epoch` | _(new — no bash equivalent)_ | Strict replay of a retained epoch in ONE call (rf2-ov144, Tool-Pair §Replay): the runtime resolves the raw record in-process and re-drives its event with the recorded `:rf.cofx` under `:strict` (the generator is never consulted; a fact the record lacks fails loud) and both recorded override maps. Only the id crosses the wire. Same frame, no implicit restore, records a new epoch; returns `dispatch`'s consequence shape. `dispatch`'s authority — **not** `--allow-writes`-gated. |
 | `trace-window` | `trace-window.sh`         | Return the epochs that landed in the last N ms. Cursor-paginated (`:limit` / `:cursor`, default limit 50). |
 | `watch-epochs` | `watch-epochs.sh`         | Pull-mode poll for matching epochs added after a given epoch-id. Predicate keys: `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`, `:timing-ms` (number or `">N"` / `">=N"` / `"<N"` / `"<=N"` / `"=N"` — server-side wall-clock filter, rf2-r3azh). Cursor-paginated (`:limit` / `:cursor`, default limit 50). |
-| `tail-build`   | `tail-build.sh`           | Wait for a hot-reload to land by polling a probe form against a **pre-edit `baseline`** (rf2-1f60u). Capture the probe's value with `eval-cljs` BEFORE the edit, edit, then pass the same `probe` plus that value as `baseline`; the first sample that differs from it is success, so a reload that lands *before* the first sample is still recognized. `baseline` is required with `probe` (`:reason :missing-baseline` otherwise) — a post-edit self-baseline cannot tell "already reloaded" from "never changed". With no `probe` the tool is a 300ms `:soft? true` delay only, which is not evidence a reload landed. |
+| `tail-build`   | `tail-build.sh`           | Wait for a hot-reload to land by polling a probe form against a **pre-edit `baseline`** (rf2-1f60u). Capture the probe's value with `eval-cljs` BEFORE the edit, edit, then pass the same `probe` plus that value as `baseline`; the first sample that differs from it is success, so a reload that lands *before* the first sample is still recognized. `baseline` is required with `probe` (`:reason :missing-baseline` otherwise) — a post-edit self-baseline cannot tell "already reloaded" from "never changed". With no `probe` the tool is a 300ms `:soft? true` delay only, which is not evidence a reload landed. The `probe` is evaluated as CLJS, so `--no-eval` refuses it (`:rf.error/eval-cljs-disabled`) and the tool is annotated destructive, not read-only (rf2-3x7nj.32.1). |
 | `snapshot`     | _(new — no bash equivalent)_ | Coarse-grained per-frame state read in one round-trip. Returns a map keyed by frame-id with `:app-db`, `:sub-cache`, `:machines`, `:epochs`, `:traces` slices. Prefer for investigate-X workflows over chaining 5-10 individual reads. The `:app-db` slice defaults to a tree-summary marker (rf2-tygdv); drill down with `path`. |
 | `get-path`     | _(new — no bash equivalent)_ | Read a single value at `path` from a frame's app-db (rf2-tygdv). Minimal targeted-read primitive; server-side `get-in` so only the addressed subtree crosses the wire. Distinguishes a path that points at `nil` from a path that doesn't resolve, and attaches `deepest-valid-prefix` on misses so the agent can re-aim. |
 | `read-sub`     | _(new — no bash equivalent)_ | Validated one-shot subscription read (rf2-3bu3d.7) — the #1 read on any re-frame2 app. Prefer over raw `eval-cljs @(subscribe …)`: the `sub` arg is EDN-parsed and the sub-id validated against the live `:sub` registrar (unknown id → `:reason :unknown-id` with `:nearest`, never a silent nil), and the value is elided / privacy-gated server-side. |
@@ -171,7 +171,7 @@ from (highest precedence first):
 
 | Flag                        | Default | What it does                                                                         |
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
-| `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool. Default is eval-cljs ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
+| `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of arbitrary evaluation: the `eval-cljs` tool AND `tail-build`'s `probe`, which is caller-supplied CLJS evaluated in the runtime (rf2-3x7nj.32.1; `tail-build` with no `probe` evaluates nothing and stays available). Default is eval ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
 | `--allow-sensitive-reads` | OFF | Enables each value-egress tool's documented per-call disclosure knobs; not a blanket raw-payload bypass. See the [canonical launch-gate contract](spec/003-Tool-Catalogue.md#universal-server-launch-flags) and "sensitive-reads gate" below. |
 | `--allow-writes` | OFF | Enables `restore-epoch` and `replace-app-db`; without it both return `:rf.error/writes-disabled` before contacting nREPL. `dispatch` and `replay-epoch` retain their ordinary authority. `--no-eval` separately disables eval, but the combination is not a read-only mode. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
@@ -221,7 +221,11 @@ dev environments where multiple humans share a single MCP process):
 
 With `--no-eval`, calls to `eval-cljs` return the structured error
 `{:ok? false :reason :rf.error/eval-cljs-disabled ...}` without
-touching the nREPL socket.
+touching the nREPL socket. So do `tail-build` calls that supply a
+`probe`: the probe is arbitrary CLJS evaluated in the runtime on every
+poll, the same authority as `eval-cljs` (rf2-3x7nj.32.1). `tail-build`
+with no `probe` is a fixed delay that evaluates nothing, so it stays
+available.
 
 ##### Threat-model rationale (rf2-a0z0h)
 

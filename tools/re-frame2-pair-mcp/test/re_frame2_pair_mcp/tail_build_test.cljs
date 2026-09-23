@@ -13,6 +13,7 @@
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.tail-build :as tail]))
 
 ;; ---------------------------------------------------------------------------
@@ -329,5 +330,70 @@
                    (let [edn (tu/extract-edn result)]
                      (is (= :invalid-numeric-arg (:reason edn)))
                      (is (= "wait-ms" (:arg edn))))))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+          (.then (fn [_] (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; `--no-eval` (rf2-3x7nj.32.1). The probe is arbitrary caller-supplied CLJS
+;; evaluated in the runtime — once, then on every poll — so it is the
+;; eval-cljs authority class and honours the same opt-out. Before the fix
+;; the probe below ran on every poll of a `--no-eval` server (a hostile
+;; `dispatch-sync` fired repeatedly under read-only annotations); now it is
+;; refused with eval-cljs's own envelope before any nREPL round-trip. The
+;; no-probe soft delay evaluates nothing and stays available.
+;; ---------------------------------------------------------------------------
+
+(defn- with-eval-disabled!
+  "Flip the eval gate OFF — the `--no-eval` posture — for the Promise
+  `body-fn` returns, restoring the prior gate state before it settles."
+  [body-fn]
+  (let [prev (eval-cljs/eval-allowed-enabled?)]
+    (eval-cljs/set-eval-allowed! false)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (eval-cljs/set-eval-allowed! prev))))))
+
+(deftest probe-is-refused-under-no-eval
+  (testing "a supplied :probe on a --no-eval server is refused and never evaluated"
+    (async done
+      (let [evals (atom [])
+            orig  nrepl/cljs-eval-value
+            stub  (fn
+                    ([_conn _build-id form-str]
+                     (swap! evals conj form-str)
+                     (js/Promise.resolve 1))
+                    ([_conn _build-id form-str _opts]
+                     (swap! evals conj form-str)
+                     (js/Promise.resolve 1)))]
+        (set! nrepl/cljs-eval-value stub)
+        (-> (with-eval-disabled!
+              (fn []
+                (tail/tail-build-tool
+                  nil (tu/args->js {:probe    "(do (re-frame.core/dispatch-sync [:account/delete]) 1)"
+                                    :baseline "1"
+                                    :wait-ms  300}))))
+            (.then (fn [result]
+                     (is (tu/error? result) "the refusal rides as isError: true")
+                     (let [edn (tu/extract-edn result)]
+                       (is (false? (:ok? edn)))
+                       (is (= :rf.error/eval-cljs-disabled (:reason edn))
+                           "the same operator-gated reason eval-cljs returns under --no-eval")
+                       (is (re-find #"--no-eval" (:hint edn))))
+                     (is (empty? @evals)
+                         "the probe never reached the nREPL eval — not once, not per poll")))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.finally (fn [] (tu/restore-eval! stub orig)))
+            (.then (fn [_] (done))))))))
+
+(deftest no-probe-soft-delay-survives-no-eval
+  (testing "the no-probe soft delay evaluates nothing, so --no-eval leaves it available"
+    (async done
+      (-> (with-eval-disabled!
+            (fn [] (tail/tail-build-tool nil (tu/args->js {}))))
+          (.then (fn [result]
+                   (is (not (tu/error? result)))
+                   (let [edn (tu/extract-edn result)]
+                     (is (true? (:ok? edn)))
+                     (is (true? (:soft? edn))))))
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
           (.then (fn [_] (done)))))))

@@ -114,7 +114,7 @@
 
 (def ^:private idempotent-read-only-annotations
   "Read-only AND idempotent — `snapshot`, `get-path`, `discover-app`,
-  `tail-build`, `list-subscriptions`, `handler-meta`, `list-handlers`
+  `list-subscriptions`, `handler-meta`, `list-handlers`
   return the same answer for the same args + same runtime state.
   (`list-subscriptions` reads the live reactive sub-cache —
   idempotent across same-state calls just like `snapshot :sub-cache`.)"
@@ -131,7 +131,9 @@
    :openWorldHint  false})
 
 (def ^:private destructive-annotations
-  "Annotations for state-mutating tools — `dispatch`, `eval-cljs`.
+  "Annotations for state-mutating tools — `dispatch`, `eval-cljs`, and
+  `tail-build` (its `:probe` is arbitrary CLJS evaluated in the runtime,
+  so it can express any mutation eval-cljs can — rf2-3x7nj.32.1).
   Mutations happen in the browser runtime; agent hosts should gate
   these behind explicit user confirmation by default."
   {:destructiveHint true
@@ -843,6 +845,8 @@
                      "string value keeps its quotes, though the plain str rendering is also accepted). If the probe's "
                      "value cannot change for your edit, pick a source-derived fingerprint that does (e.g. a "
                      "handler-meta hash or :line). "
+                     "The probe is evaluated as CLJS (the eval-cljs authority): under --no-eval a supplied :probe is "
+                     "refused with :rf.error/eval-cljs-disabled; the no-probe soft delay evaluates nothing and stays available. "
                      "Examples: "
                      "1. Default 300ms soft delay (no probe): {} -> {:ok? true :t 312 :soft? true}. "
                      "2. Reload landed before the call: {:probe \"(my.app/build-marker)\" :baseline \"41\"} -> {:ok? true :soft? false :probe-values {:baseline \"41\" :initial 42 :final 42}}. "
@@ -850,7 +854,10 @@
                      "4. Timed out (value never left the baseline): {:probe \"(my.app/build-marker)\" :baseline \"41\" :wait-ms 500} -> {:ok? false :reason :timed-out}. "
                      "5. Probe without baseline: {:probe \"(rand)\"} -> {:ok? false :reason :missing-baseline}.")
    :typicalTokens 100
-   :annotations idempotent-read-only-annotations
+   ;; rf2-3x7nj.32.1 — `:probe` is arbitrary CLJS evaluated in the runtime
+   ;; (repeatedly), so the tool is NOT read-only: the read-only set is the
+   ;; one hosts auto-approve.
+   :annotations destructive-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:probe    {:type "string" :description "CLJS form whose value distinguishes old from new code; evaluate it BEFORE the edit to capture :baseline"}
