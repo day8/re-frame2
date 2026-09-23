@@ -558,7 +558,7 @@
   "Tag slots that carry a VECTOR of per-key DISPOSITION maps (each embedding a
   `:resource/key`): the `:rf.mutation/optimistic-rolled-back` row's
   `:dispositions` and the `:rf.mutation/succeeded` `:patch-summary` `:rollback`
-  slot (the recorded inverse, same `{:resource/key …}` shape)."
+  slot (each committed key's revision facts, same `{:resource/key …}` shape)."
   #{:dispositions :rollback})
 
 (def ^:private nested-map-slot
@@ -1340,16 +1340,24 @@
   "Project one optimistic-rollback disposition row
   `{:resource/key <scoped-key> :restored … :conflict … :on-conflict …}` for
   off-box egress: the scoped key
-  is fail-closed-projected; the boolean disposition facts ride verbatim.
-  Returns `[projected-row sensitive?]`. A non-map row rides unchanged. Pure."
+  is fail-closed-projected; every OTHER slot takes the unknown-slot rule
+  (`project-unknown-slot-value`), so the scalar disposition facts ride verbatim
+  and a map — an entry snapshot, say — tokenizes rather than riding raw
+  (rf2-3x7nj.11.1). Returns `[projected-row sensitive?]`. A non-map row rides
+  unchanged. Pure."
   [row frame-id]
   (if-not (map? row)
     [row false]
-    (let [[projected-key sensitive?]
-          (project-trace-scoped-key (:resource/key row) frame-id)]
-      [(cond-> row
-         (contains? row :resource/key) (assoc :resource/key projected-key))
-       sensitive?])))
+    (reduce-kv
+      (fn [[projected-row sensitive-found?] slot value]
+        (let [[projected-value sensitive?]
+              (if (= :resource/key slot)
+                (project-trace-scoped-key value frame-id)
+                (project-unknown-slot-value value frame-id))]
+          [(assoc projected-row slot projected-value)
+           (or sensitive-found? (boolean sensitive?))]))
+      [{} false]
+      row)))
 
 (defn- project-tags*
   "Core slot-keyed projection of a `tags` map — returns `[tags' sensitive?]`
