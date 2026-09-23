@@ -126,8 +126,9 @@
     (is (false? (rf.mcp-base.cap/over-cap? 5000 6000 5000))))
   (testing "secondary char gate trips in isolation"
     (is (true?  (rf.mcp-base.cap/over-cap? 50 801 100)) "chars > cap*8 trips even with tokens under cap")
-    (is (= 801  (rf.mcp-base.cap/reported-count 50 801 100)) "char-gated ⇒ report chars")
-    (is (= 50   (rf.mcp-base.cap/reported-count 50 700 100)) "token-gated ⇒ report tokens"))
+    (is (= 200  (rf.mcp-base.cap/reported-count 50 801 100)) "char-gated only ⇒ report chars / 4, in token units")
+    (is (= 150  (rf.mcp-base.cap/reported-count 150 700 100)) "token-gated ⇒ report tokens")
+    (is (= 150  (rf.mcp-base.cap/reported-count 150 1601 100)) "both gates ⇒ still the token estimate"))
   (testing "apply-cap emits the overflow marker on a real over-budget payload"
     (let [r   {:content [{:type "text" :text (apply str (repeat 4000 "x"))}]}
           out (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap 500 :hint "narrow scope"})

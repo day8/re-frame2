@@ -159,6 +159,24 @@
     (is (nil? (j/get sc "overflow"))
         "the namespace-truncated \"overflow\" key must NOT appear (the lossy old shape)")))
 
+(deftest apply-cap-over-budget-error-keeps-is-error
+  ;; rf2-3x7nj.35.3 — `apply-cap` wraps an over-budget `:isError` result
+  ;; like any other payload, and the replacement must keep `isError: true`.
+  ;; Without it the marker is byte-for-byte what an over-cap success
+  ;; returns, so the agent cannot tell the call failed.
+  (let [big     (big-string 4000)
+        err     #js {:isError true
+                     :content #js [#js {:type "text" :text (pr-str {:ok? false :huge big})}]}
+        err-out (cap/apply-cap err {:tool "snapshot" :cap 500})
+        ok-out  (cap/apply-cap (ok-text-result {:huge big}) {:tool "snapshot" :cap 500})]
+    (is (contains? (read-edn err-out) :rf.mcp/overflow)
+        "the over-budget failure is replaced by the overflow marker")
+    (is (true? (j/get err-out :isError))
+        "an over-cap failure must not read as an over-cap success")
+    (is (contains? (read-edn ok-out) :rf.mcp/overflow))
+    (is (not (true? (j/get ok-out :isError)))
+        "control: an over-cap success stays non-error")))
+
 (deftest apply-cap-overflow-payload-is-itself-under-cap
   ;; The replacement marker must fit; otherwise we recurse on overflow.
   (let [big (apply str (repeat 8000 "x"))

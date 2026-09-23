@@ -2493,6 +2493,26 @@
         (is (pos? (:token-count body)))
         (is (string? (:hint body)))))))
 
+(deftest cap-keeps-is-error-on-an-over-cap-failure
+  ;; rf2-3x7nj.35.3 — the cap applies to error results too (`invoke-tool`
+  ;; routes them through it on purpose), so an over-cap FAILED call must
+  ;; stay a failure. Without `isError` the marker is byte-for-byte what an
+  ;; over-cap success returns: the agent cannot tell the call failed, and
+  ;; the marker's hint invites a re-call.
+  (testing "control: the same failure uncapped is an isError result"
+    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant" {:variant-id "no.such/variant" :max-tokens 0})]
+      (is (true? (:isError r)))
+      (is (not (overflow-marker? r)))))
+  (testing "over the cap, the failure becomes the overflow marker AND keeps isError"
+    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant" {:variant-id "no.such/variant" :max-tokens 1})]
+      (is (overflow-marker? r))
+      (is (true? (:isError r))
+          "an over-cap failure must not read as an over-cap success")))
+  (testing "an over-cap SUCCESS stays non-error"
+    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})]
+      (is (overflow-marker? r))
+      (is (nil? (:isError r))))))
+
 (deftest cap-zero-disables-the-cap
   (testing "`:max-tokens 0` bypasses the cap; the full payload returns intact"
     (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 0})]

@@ -114,9 +114,13 @@
       (cond-> (mapv :text (:content result))
         (some? (:structuredContent result))
         (conj (rf.story-mcp.tools.result/pr-edn (:structuredContent result)))))
-    (build-overflow-result [_ marker _original]
-      {:content          [{:type "text" :text (rf.story-mcp.tools.result/pr-edn marker)}]
-       :structuredContent marker})))
+    (build-overflow-result [_ marker original]
+      ;; An over-cap FAILED call stays a failure: the error path reaches
+      ;; the cap on purpose (see `invoke-tool`), and a marker without
+      ;; `isError` reads exactly like an over-cap success (rf2-3x7nj.35.3).
+      (cond-> {:content          [{:type "text" :text (rf.story-mcp.tools.result/pr-edn marker)}]
+               :structuredContent marker}
+        (true? (:isError original)) (assoc :isError true)))))
 
 (defn apply-dedup
   "Run structural dedup over the `:structuredContent` slot of `result`,

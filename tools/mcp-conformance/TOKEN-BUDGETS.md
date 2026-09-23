@@ -59,7 +59,9 @@ Both servers build this body through
 server-authored; the key and body shape are cross-server vocabulary.
 The JVM vocabulary suite and the live pair overflow test pin the shape.
 
-Overflow is a successful budget signal, so `isError` remains false. A
+Overflow of a successful call is a budget signal, so `isError` remains
+false. Overflow of a FAILED call keeps `isError: true`, so the agent still
+sees the failure rather than an over-cap success. A
 client should narrow the request using paths, filters, limits, cursors,
 or summary modes. Use `max-tokens 0` only when the full payload is
 deliberately required.

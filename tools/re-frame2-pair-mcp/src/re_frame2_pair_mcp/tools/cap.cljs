@@ -137,12 +137,14 @@
              (cond-> acc
                (and (some? sc) (not (undefined? sc)))
                (conj! (js/JSON.stringify sc))))))))
-    (build-overflow-result [_ marker _original]
+    (build-overflow-result [_ marker original]
       ;; Route through `wire/result` so the overflow marker's
       ;; structuredContent keeps its namespace: a raw `clj->js` would
       ;; truncate the `:rf.mcp/overflow` marker key to `"overflow"`, so
       ;; SDK-friendly hosts reading structuredContent would miss the marker.
-      (wire/result marker false))))
+      ;; The original's `isError` crosses too: an over-cap FAILED call
+      ;; must not read as an over-cap success (rf2-3x7nj.35.3).
+      (wire/result marker (true? (j/get original :isError))))))
 
 (defn sum-payload-tokens
   "Sum `token-estimate` across every wire-bearing slot in the MCP
@@ -182,7 +184,9 @@
   Unlike `cache/apply-cache` — which passes `:isError` through
   untouched so a transient failure can't poison the cache —
   `apply-cap` measures and (if over budget) wraps an `:isError`
-  result in `:rf.mcp/overflow` like any other payload. An error
+  result in `:rf.mcp/overflow` like any other payload — and the
+  replacement keeps `isError: true`, so the failure stays visible
+  (rf2-3x7nj.35.3). An error
   response can itself carry an oversize `:message` blob (e.g. a
   stack trace pretty-printed from a deep CLJS exception) and silent
   over-budget egress would violate the wire-cap contract that

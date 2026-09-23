@@ -26,7 +26,7 @@ The pipeline is a **two-stage** gate that folds both sums in a **single pass** o
 
 1. **Resolve the cap.** `max-tokens` returns `nil` for `0`, the 5000 default for an absent/non-number value, a floored positive integer for an in-range number, or an invalid-arg marker for an out-of-domain number. Consumers reject the marker before calling `apply-cap`.
 2. **Single-pass token + character sum.** One `transduce` folds both `Σ token-estimate` and `Σ (count s)` across all measured payload strings, including a serialized `:structuredContent` slot when present.
-3. **Two-stage over-budget decision** (`over-cap?`): trip when either the token sum exceeds `cap` or the character sum exceeds `cap * byte-cap-multiplier`. The second gate bounds loss from flooring each short payload string independently. `reported-count` uses the character count when that gate trips, otherwise the token estimate.
+3. **Two-stage over-budget decision** (`over-cap?`): trip when either the token sum exceeds `cap` or the character sum exceeds `cap * byte-cap-multiplier`. The second gate bounds loss from flooring each short payload string independently. `reported-count` always reports token units: the token estimate when the token gate trips, otherwise (only the character gate tripped) `quot chars 4`.
 4. **Pass-through or replace.** Under-budget responses pass through unchanged; over-budget responses are replaced with a fresh result carrying the `:rf.mcp/overflow` marker (built via `overflow/overflow-payload`).
 
 ```clojure
@@ -79,7 +79,7 @@ Each consumer reifies `ResultIO` with two methods:
 ```
 
 - `(wire-payload-strings io result)` ⇒ seq of strings — **one for every serialized, payload-bearing slot that rides the wire**, NOT only the `:text` slots. This is the cap's measurement surface: `apply-cap` sums tokens + chars across exactly these strings, so a slot omitted here is a slot the cap cannot see. At minimum that means the `:text`-slot values inside `result`'s content vector (platform accessor `:text` / `j/get :text` lives behind this method), PLUS any duplicated payload slot the envelope also ships (most commonly `:structuredContent` — see the contract below). The method is named `wire-payload-strings`, not `content-texts`, precisely so a new consumer implements the whole wire payload, not just `:content[*].text`.
-- `(build-overflow-result io marker original-result)` ⇒ a fresh result map / object carrying the overflow marker, shaped for the consumer's transport.
+- `(build-overflow-result io marker original-result)` ⇒ a fresh result map / object carrying the overflow marker, shaped for the consumer's transport. It MUST carry `original-result`'s `isError` flag across (see [below](#overflow-and-iserror)).
 
 The cap pipeline calls these two methods; everything else is shared. Adding a third consumer is a single reify, not a code copy.
 
@@ -101,7 +101,7 @@ A consumer that ships ONLY `:content[*].text` (no duplicated slot) surfaces just
          (map #(j/get % :text))))
   (build-overflow-result [_ marker original]
     (j/lit
-      {:isError false
+      {:isError (true? (j/get original :isError))
        :content [{:type "text"
                   :text (pr-str marker)}]})))
 ```
@@ -118,16 +118,22 @@ Both server adapters account for `:structuredContent` whenever a result carries 
       (contains? result :structuredContent)
       (conj (pr-str (:structuredContent result)))))   ; the duplicated wire slot
   (build-overflow-result [_ marker original]
-    {:isError          false
-     :content          [{:type "text" :text (pr-str marker)}]
-     :structuredContent marker}))
+    (cond-> {:content          [{:type "text" :text (pr-str marker)}]
+             :structuredContent marker}
+      (true? (:isError original)) (assoc :isError true))))   ; a failure stays a failure
 ```
 
 Both reifies are ~10 lines each. The cap algorithm is unchanged.
 
-Overflow is a budget/retry signal, not a tool-execution failure: the shipped
-adapters return `isError: false` or omit it. An invalid `max-tokens` argument
-is different and remains an error result. See the
+### Overflow and `isError`
+
+Overflow is a budget/retry signal, not a tool-execution failure in itself:
+overflow of a SUCCESS stays non-error (the shipped adapters omit `isError`).
+But the cap also applies to error results, and overflow of a FAILED call keeps
+`isError: true`. Without it the marker is byte-for-byte what an over-cap
+success returns, so the agent cannot tell the call failed and the marker's
+"re-call with narrower args" hint invites repeating a failed write. An invalid
+`max-tokens` argument is different again and remains an error result. See the
 [cross-MCP budget contract](../../mcp-conformance/TOKEN-BUDGETS.md#overflow).
 
 ## Replacement safety
