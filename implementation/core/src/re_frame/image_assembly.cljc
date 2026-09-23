@@ -43,7 +43,9 @@
          re-frame.image/select-descriptors against the source store's
          all-descriptors) PLUS each image's inline descriptors;
       3. (slice .3 already fails any zero-match :include-ns pattern);
-      4. add the framework STANDARD registrations;
+      4. layer the FRAMEWORK BASE beneath an explicit composition (the loaded
+         framework-owned registrations — `framework-base-descriptor?`) and add
+         the framework STANDARD registrations;
       5. validate collisions, replacements, capabilities, references, kinds;
       6. seal the result into an immutable [kind id] resolver;
       7. give the frame that sealed generation (frame loading is slice .7).
@@ -158,11 +160,16 @@
 ;;
 ;; The standard SET is a runtime registry (an atom) so feature artefacts that
 ;; ship standard registrations (e.g. the `:rf.interceptor/path` standard from
-;; EP-0022, the `:rf.nav/*` standards from routing) can contribute their
+;; EP-0022, the machine runtime's effects and subs) can contribute their
 ;; descriptors at load without this core ns static-requiring them. Assembly
 ;; reads the current set. The standard set starts EMPTY — the structure +
 ;; policy keys are in place; each owning artefact contributes its standard
 ;; descriptors at load via `register-standard!`.
+;;
+;; A standard is an execution INVARIANT, not "anything the framework ships".
+;; The framework's ordinary feature handlers (routing, managed HTTP, Resources,
+;; SSR, `:rf/time-ms`) are not standards; an explicit composition reaches them
+;; through the FRAMEWORK BASE instead (see [[framework-base-descriptor?]]).
 
 (defonce ^{:doc "Framework-standard descriptors, keyed `[kind id]` → descriptor.
   Each descriptor carries `:standard true` and the `:rf.standard/*` policy keys.
@@ -734,6 +741,100 @@
           (rf.source-store/record-descriptor! kind id reconciled)))))
   nil)
 
+;; ---- the FRAMEWORK BASE beneath an explicit composition (rf2-3x7nj.5.2) ----
+;;
+;; An explicit image selects by `:rf.provenance/ns`, and the framework's own
+;; feature handlers register through the fn-alias path (`rf.events/reg-event`,
+;; `rf.fx/reg-fx`, `rf.subs/reg-*`, `rf.registrar/register!`), which records NO
+;; source namespace. So no `:select-ns` could ever reach routing's
+;; `:rf.route/navigate`, managed HTTP's `:rf.http/managed`, Resources'
+;; `:rf/resource`, SSR's `:rf/hydrate` or core's own `:rf/time-ms` — and none of
+;; them is a protected STANDARD, so the standard union did not supply them
+;; either. An explicit-image frame failed its first routing dispatch with
+;; `:rf.error/no-such-handler`, and the user had no remedy: the `:ns` stamp
+;; reaches only their own registrations.
+;;
+;; The base restores EP-0023's model — "your registrations, plus the
+;; framework's" — without widening "standard". For an explicit composition,
+;; assembly layers every loaded framework-owned registration BENEATH the app
+;; images, as ordinary layer order under the reserved pseudo-image id
+;; `:rf/framework`: any later image may shadow a base registration (a test
+;; double, an app override of a replaceable default), and the shadow report
+;; names `:rf/framework` as the loser. Standards stay protected and never enter
+;; the base. The default image is unchanged — it already projects the whole
+;; pool.
+;;
+;; OWNERSHIP IS A CONVENTION, NOT A GUARANTEE. Membership is "no source
+;; namespace, and an id under the reserved `:rf` root" (plus `:route/link`). The
+;; root is framework-reserved (Conventions §Reserved namespaces), and the public
+;; `reg-*` macros always record the calling namespace, so an application
+;; registration never lands there by accident; but an internal fn call can
+;; construct exactly that shape, and such a registration is treated as
+;; framework-owned. We trust the programmer and add no authentication. Keying
+;; on the ID's namespace is NOT `:select-ns` selection (which never looks at
+;; it) — it decides ownership, not selection.
+
+(def framework-base-image-id
+  "The reserved pseudo-image id the FRAMEWORK BASE carries in the shadow report
+  (`:rf.gen/shadows`): a later image that shadows a framework registration is
+  reported as `{:registration [kind id] :image :rf/framework :shadowed-by
+  <image-id>}`. Never an entry of `:rf.gen/images`."
+  :rf/framework)
+
+(def ^:private framework-ids-outside-reserved-root
+  "The ONE framework registration whose public id predates the `:rf`
+  single-root scheme: routing's `:route/link` view (API.md `route-link`,
+  Spec 012 §Linking from views). NOT a list to grow — every new framework
+  registration goes under the reserved `:rf` root."
+  #{[:view :route/link]})
+
+(defn- reserved-root-id?
+  "True when `id` is a keyword under the reserved `:rf` root: namespace exactly
+  `rf`, or beginning `rf.`. A bare `rf` prefix test would also admit `:rfx/*`
+  and `:rf2.*/*`, which are not reserved. Pure."
+  [id]
+  (let [n (when (keyword? id) (namespace id))]
+    (boolean (and n (or (= "rf" n)
+                        (and (> (count n) 3) (= "rf." (subs n 0 3))))))))
+
+(defn framework-base-descriptor?
+  "True when `descriptor` belongs to the FRAMEWORK BASE an explicit composition
+  is layered over: it records NO `:rf.provenance/ns`, is not image-inline, is
+  not a framework STANDARD (`standard-keys`, the standard registry's `[kind id]`
+  set — a standard's own registrar copy is supplied by the protected standard
+  union instead, exactly as the default image drops it), and its id sits under
+  the reserved `:rf` root or is `[:view :route/link]`. Membership is ownership
+  by convention (see the section comment), never `:select-ns` selection. Pure."
+  [standard-keys descriptor]
+  (let [k+id (descriptor-kind+id descriptor)]
+    (and (nil? (:rf.provenance/ns descriptor))
+         (not (:rf.provenance/inline descriptor))
+         (not (contains? standard-keys k+id))
+         (or (reserved-root-id? (:id descriptor))
+             (contains? framework-ids-outside-reserved-root k+id)))))
+
+(defn- retain-base-default-classification
+  "Return the layered `resolver` with the carrier classification of every
+  shadowed framework REPLACEABLE DEFAULT in `base-resolver` unioned into its
+  winner — the rf2-kqxe6.20 rule on the image-override path. A provenanced
+  override already carries the union from registration
+  ([[retain-framework-default-classification]]), so this changes nothing for
+  it; it is what gives an INLINE override (whose metadata never passed through
+  the registrar) the framework's own `:sensitive` / `:large` carriers. Read
+  from the base descriptor in THIS pool, not the live source store.
+  Identity-preserving where nothing changes. Pure."
+  [base-resolver resolver]
+  (reduce-kv
+    (fn [resolver k+id base-d]
+      (let [winner (get resolver k+id)
+            fw     (when (and (not (identical? winner base-d))
+                              (framework-default-descriptor? base-d))
+                     (not-empty (select-keys base-d carrier-classification-keys)))
+            merged (if fw (union-carrier-classification winner fw) winner)]
+        (if (identical? merged winner) resolver (assoc resolver k+id merged))))
+    resolver
+    base-resolver))
+
 ;; ---- the collision validator — THE central \"order never decides\" guarantee
 ;;      (EP-0023 §Image Composition / §Image Validation) ----------------------
 
@@ -934,7 +1035,9 @@
 ;; Images are named by their composition-unique id (check-unique-image-ids!), so
 ;; the two ids name exactly one image each. The standard base is NOT part of app
 ;; layer order and never appears here (an app shadowing a standard fails loud —
-;; check-standard-collision!).
+;; check-standard-collision!). The FRAMEWORK BASE beneath an explicit
+;; composition IS ordinary layer order, so a shadow of one of its registrations
+;; names the reserved pseudo-image `:rf/framework` as the loser.
 
 (defn shadow-report
   "Build the cross-image SHADOW REPORT for an ordered seq of per-image
@@ -1221,8 +1324,11 @@
 
   An EXPLICIT `:select-ns` image is unaffected by EITHER filter — it selects by
   provenance namespace, and the framework's own registrar copies (standard or
-  default) carry no `:rf.provenance/ns`, so they are never glob-selectable
-  anyway."
+  default) carry no `:rf.provenance/ns`, so they are never glob-selectable.
+  They reach an explicit composition another way: the standards through the
+  standard union, and every other framework-owned registration through the
+  FRAMEWORK BASE `assemble*` layers beneath the images
+  ([[framework-base-descriptor?]])."
   [image descriptors]
   (lower-inline-descriptors
     (if (default-image? image)
@@ -1247,12 +1353,13 @@
 (defn- assemble*
   "The PURE assembly pipeline (EP-0026 §Layered Resolution): unique-id check →
   select + resolve PER IMAGE → layer in image order (later wins) over the
-  protected framework-standard base → validate → seal. Returns the sealed
-  generation. `images` is already a normalized vector; `descriptors` is the
-  candidate pool. This is the function the cache wraps — it has no cache
-  awareness, so every cache MISS computes one full generation here (the SSR
-  re-seal the cache exists to avoid). Throws on every fail-loud condition (a
-  throwing input is NOT cached)."
+  FRAMEWORK BASE (explicit compositions only) → validate against the protected
+  framework standards → seal. Returns the sealed generation. `images` is
+  already a normalized vector; `descriptors` is the candidate pool, and the
+  base is built from that SAME pool. This is the function the cache wraps — it
+  has no cache awareness, so every cache MISS computes one full generation here
+  (the SSR re-seal the cache exists to avoid). Throws on every fail-loud
+  condition (a throwing input is NOT cached)."
   [images descriptors]
   ;; (1) Image ids MUST be unique within the composition (EP-0026 §Image Keys).
   (check-unique-image-ids! images)
@@ -1264,8 +1371,17 @@
                               [image (select-and-lower-image image descriptors)])
                             images)
         standard      (standard-descriptors)
+        ;; (2b) The FRAMEWORK BASE (rf2-3x7nj.5.2): for an explicit composition,
+        ;;      the framework-owned registrations in the same pool, layered
+        ;;      beneath every app image. A default-image composition already
+        ;;      projects the whole pool, so it has none.
+        base          (when (not-any? default-image? images)
+                        (let [standard-keys (into #{} (map descriptor-kind+id) standard)]
+                          (not-empty (filterv #(framework-base-descriptor? standard-keys %)
+                                              descriptors))))
         ;; (3) Fail loud on any unsupported descriptor kind before resolving
-        ;;     (selected + standard).
+        ;;     (base + selected + standard).
+        _ (check-supported-kinds! framework-base-image-id base)
         _ (check-supported-kinds! (some :rf.image/id images)
                                   (into (vec (mapcat second per-image)) standard))
         ;; (4) Resolve EACH image to its id-disjoint {[kind id] descriptor} map.
@@ -1276,18 +1392,28 @@
         image-resolvers (mapv (fn [[image ds]]
                                 (resolve-image (:rf.image/id image) ds))
                               per-image)
-        ;; (5) Layer the per-image resolvers in IMAGE ORDER — the later image
-        ;;     wins (the cross-image shadow is reported by rf2-ke7w5j, never
-        ;;     failed). The result is the composed APP resolver.
-        app-resolver  (layer-image-resolvers image-resolvers)
-        ;; (5b) Build the cross-image SHADOW REPORT from the ordered per-image
-        ;;      resolvers (EP-0026 §Shadow Report, rf2-ke7w5j): one flat entry
-        ;;      per shadowed [kind id], naming the loser image + the FINAL winner.
-        ;;      Pairs image ids with their resolvers in :images order.
-        shadows       (shadow-report (map (fn [image resolver]
-                                            [(:rf.image/id image) resolver])
-                                          images
-                                          image-resolvers))
+        base-resolver (when base (resolve-image framework-base-image-id base))
+        ;; The ordered [image-id resolver] layers: the framework base (when
+        ;; any) first, beneath the app images in :images order.
+        layers        (cond->> (mapv (fn [image resolver]
+                                       [(:rf.image/id image) resolver])
+                                     images
+                                     image-resolvers)
+                        base-resolver (into [[framework-base-image-id base-resolver]]))
+        ;; (5) Layer the resolvers in IMAGE ORDER — the later layer wins (the
+        ;;     cross-image shadow is reported by rf2-ke7w5j, never failed). The
+        ;;     result is the composed APP resolver. A framework REPLACEABLE
+        ;;     DEFAULT an image overrode keeps its own carrier classification.
+        app-resolver  (cond->> (layer-image-resolvers (map second layers))
+                        base-resolver (retain-base-default-classification base-resolver))
+        ;; (5b) Build the cross-image SHADOW REPORT from the ordered layers
+        ;;      (EP-0026 §Shadow Report, rf2-ke7w5j): one flat entry per
+        ;;      shadowed [kind id], naming the loser + the FINAL winner. A LONE
+        ;;      anonymous image may legally shadow the base (the ordinary stub
+        ;;      idiom — check-unique-image-ids! exempts a single-image
+        ;;      composition), but it has no id to name, so that shadow is not
+        ;;      reported: every entry names two real ids.
+        shadows       (filterv #(some? (:shadowed-by %)) (shadow-report layers))
         ;; (6) Framework standards are PROTECTED: an app [kind id] colliding with
         ;;     a standard FAILS LOUD (standards are not in app layer order).
         standard-resolver (into {} (map (fn [d] [(descriptor-kind+id d) d])) standard)
@@ -1453,7 +1579,9 @@
     3. add the framework standard registrations + validate unsupported kinds;
     4. LAYER the per-image resolvers in IMAGE ORDER — the later image WINS
        (EP-0026 §Layered Resolution); a cross-image shadow is reported, never
-       failed;
+       failed. An explicit composition is layered over the FRAMEWORK BASE —
+       the loaded framework-owned registrations, reported as `:rf/framework`
+       when an image shadows one (`framework-base-descriptor?`);
     5. protect framework standards: an app descriptor colliding with a standard
        FAILS LOUD (no public `:replace-standard` opt-in);
     6. validate application interceptor references against the sealed resolver;
