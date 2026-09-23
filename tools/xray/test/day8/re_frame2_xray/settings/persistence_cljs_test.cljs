@@ -7,7 +7,9 @@
   - `load-settings-from-storage!` reads persisted values back in
   - `reset-settings!` clears both atom + localStorage
   - Malformed payloads degrade silently to defaults
-  - `configure! :settings` bulk-replace round-trips
+  - `configure! :settings` seeds the live map and NEVER writes storage
+  - The payload is a sparse overlay of explicit overrides, never the
+    resolved map (rf2-3x7nj.27.1)
 
   Drives the in-memory atom + the localStorage shim directly so the
   test stays substrate-independent."
@@ -28,6 +30,18 @@
   way so the round-trip assertions are runtime-independent."
   []
   (#'config/storage-get config/settings-storage-key))
+
+(defn- reload!
+  "Simulate a page reload: discard everything a reload discards — the
+  live settings atom AND the `configure!` seed — and keep only storage.
+  Resetting the atom alone is NOT a reload: the seed survives in
+  process, so a value read back afterwards can come from the seed and
+  say nothing about storage (rf2-3x7nj.27.1)."
+  []
+  (let [payload (storage-payload)]
+    (config/reset-settings!)
+    (when payload
+      (#'config/storage-set! config/settings-storage-key payload))))
 
 ;; ---- defaults ----------------------------------------------------------
 
@@ -161,8 +175,9 @@
   (is (= :light (config/get-setting :theme nil)))
   (is (nil? (:telemetry @config/settings))
       "legacy :telemetry key dropped by per-section merge")
-  (is (some? (storage-payload))
-      "bulk configure round-trips to localStorage"))
+  (is (nil? (storage-payload))
+      "configure! never writes storage — the seed is re-applied on every
+       boot instead (rf2-3x7nj.27.1)"))
 
 (deftest configure-settings-partial-merges-with-defaults
   (config/configure! {:rf.xray/settings {:general {:text-size 11}}})
@@ -204,9 +219,8 @@
             user's persisted value must still win, and the host's seed
             must still supply the keys the user never persisted."
     ;; A PARTIAL persisted payload — the user has only ever changed the
-    ;; text size. Partial payloads are real: an older Xray writes a map
-    ;; without a newer key (`legacy-telemetry-key-is-silently-dropped`
-    ;; above covers the forward-compat half of the same shape).
+    ;; text size. Since rf2-3x7nj.27.1 that is the only shape storage
+    ;; holds: a sparse overlay of the paths the user wrote.
     (#'config/storage-set! config/settings-storage-key
                            (pr-str {:general {:text-size 20}}))
     ;; 1. The preload's load-time block.
@@ -267,20 +281,101 @@
         "the user's persisted 20 survives a second `configure!` call —
          configure!'s 15 does NOT clobber it")))
 
-(deftest configure-settings-fresh-install-still-seeds-storage
-  (testing "rf2-rr2yw3 — on a genuinely fresh install (no persisted
-            payload yet) `configure!`'s posture STILL persists
-            immediately, so it survives a reload even with no further
-            `configure!` call in that later session (spec/015 §606's
-            original 'persists immediately' guarantee, now scoped to
-            the empty-storage case only)"
+(deftest configure-settings-never-writes-storage
+  (testing "rf2-3x7nj.27.1 — `configure!` on a fresh install leaves
+            storage EMPTY. The first-boot write it replaces (rf2-rr2yw3,
+            'so the posture survives a reload with no further configure!
+            call') bought nothing — the documented host re-seeds on every
+            boot — and it persisted the whole resolved map, which then sat
+            above every later seed and froze the host's posture at first
+            boot."
     (config/configure! {:rf.xray/settings {:general {:text-size 17}}})
-    (is (some? (storage-payload))
-        "a fresh install's configure! call still writes through")
-    ;; Reset the in-memory atom only (simulate a reload with no host
-    ;; configure! call this time) and reload from storage.
-    (reset! config/settings config/default-settings)
-    (config/load-settings-from-storage!)
     (is (= 17 (config/get-setting :general :text-size))
-        "the host's posture survives the reload via the fresh-install
-         persist, with no second configure! call needed")))
+        "precondition: the seed is live immediately")
+    (is (nil? (storage-payload))
+        "and nothing reached storage")
+    ;; A REAL reload — atom AND seed discarded — and the host's boot call.
+    (reload!)
+    (config/load-settings-from-storage!)
+    (config/configure! {:rf.xray/settings {:general {:text-size 17}}})
+    (is (= 17 (config/get-setting :general :text-size))
+        "the host's posture is back on the next boot, from its own
+         re-applied seed")))
+
+;; ---- the payload is a sparse overlay of explicit overrides -------------
+;; ---- (rf2-3x7nj.27.1) ---------------------------------------------------
+;;
+;; Before the fix `write-storage!` persisted `(pr-str @settings)` — the
+;; WHOLE resolved map, compiled-in defaults and host seed included — on
+;; every `update-setting!` AND on `configure!`'s first boot. Read back as
+;; the top layer, that made every key behave as user-set: after one panel
+;; drag (or no user action at all), no later host `configure!` value and
+;; no later Xray default reached that browser. Storage now records only
+;; the exact paths a user gesture or an `init!` opt wrote.
+
+(defn- two-boots!
+  "Boot 1: the host configures `{:theme :dark}` and the user performs
+  `gesture!`. Real reload. Boot 2: the host has CHANGED its call to
+  `{:theme :light :general {:density :compact}}`; the preload's load and
+  the host's `configure!` run in `order` — `:load-first` is the
+  `:devtools/preloads` path every shipped host takes, `:configure-first`
+  a host that orders its own preload ahead of Xray's."
+  [gesture! order]
+  (config/configure! {:rf.xray/settings {:theme :dark}})
+  (gesture!)
+  (reload!)
+  (let [boot-2 {:rf.xray/settings {:theme   :light
+                                   :general {:density :compact}}}]
+    (case order
+      :load-first      (do (config/load-settings-from-storage!)
+                           (config/configure! boot-2))
+      :configure-first (do (config/configure! boot-2)
+                           (config/load-settings-from-storage!)))))
+
+(deftest a-later-host-posture-lands-for-every-key-the-user-never-wrote
+  (doseq [order [:load-first :configure-first]]
+    (testing (str "rf2-3x7nj.27.1 — " order ": one panel drag records that
+                   width, and the host's later :light / :compact still land
+                   (the whole-map payload read back :dark / :cosy)")
+      (config/reset-settings!)
+      (two-boots! #(config/update-setting! :general :panel-width-px 700) order)
+      (is (= :light (config/get-setting :theme nil))
+          "the host's new :theme lands — the user never chose a theme")
+      (is (= :compact (config/get-setting :general :density))
+          "the host's new :density lands — the user never chose one")
+      (is (= 700 (config/get-setting :general :panel-width-px))
+          "and the width the user DID drag is kept"))))
+
+(deftest an-override-records-exactly-the-path-written
+  (testing "rf2-3x7nj.27.1 — one write on empty storage stores exactly
+            that one path; a second write adds its own path beside it"
+    (config/update-setting! :general :panel-width-px 700)
+    (is (= {:general {:panel-width-px 700}}
+           (cljs.reader/read-string (storage-payload)))
+        "the payload is exactly the one override, not the resolved map")
+    (config/update-setting! :theme nil :dark)
+    (is (= {:general {:panel-width-px 700} :theme :dark}
+           (cljs.reader/read-string (storage-payload)))
+        "a second override lands beside the first, from the payload in
+         storage")))
+
+(deftest an-explicit-choice-still-beats-a-later-host-posture
+  (doseq [order [:load-first :configure-first]]
+    (testing (str "CONTROL (green before and after the fix) — " order ": a
+                   theme the user CHOSE outranks the host's later :light")
+      (config/reset-settings!)
+      (two-boots! #(config/update-setting! :theme nil :dark) order)
+      (is (= :dark (config/get-setting :theme nil))
+          "the user's own :dark is kept"))))
+
+(deftest a-choice-equal-to-the-default-still-pins
+  (testing "CONTROL (green before and after the fix) — the record is WHAT
+            WAS WRITTEN, not what differs from the base: a user who picks
+            :light, the compiled-in default, keeps it against a later host
+            :dark"
+    (config/update-setting! :theme nil :light)
+    (reload!)
+    (config/load-settings-from-storage!)
+    (config/configure! {:rf.xray/settings {:theme :dark}})
+    (is (= :light (config/get-setting :theme nil))
+        "the explicit :light wins over the host's :dark")))

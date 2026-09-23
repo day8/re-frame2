@@ -160,7 +160,7 @@ Three event handlers drive the lifecycle:
 
 The user's mode choice survives reloads via localStorage under the canonical key **`xray.mode`** (a bare string — `"dynamic"` or `"static"`). A bare string keeps the slot cheap to read + cheap to inspect from browser devtools; modes are an enum, not a structured value. Unknown / malformed values normalise back to `:dynamic` (the conservative default — the existing chrome).
 
-The namespace prefix is `xray.mode` (not `re-frame2.xray.mode.v1`) deliberately — it mirrors the spec-published name from the rf2-o5f5f findings doc, is short, and reads naturally in browser devtools. The settings slot (`re-frame2.xray.settings.v1`) uses the longer versioned form because its shape may evolve; the mode slot is a fixed enum, so versioning would be overkill.
+The namespace prefix is `xray.mode` (not `re-frame2.xray.mode.v1`) deliberately — it mirrors the spec-published name from the rf2-o5f5f findings doc, is short, and reads naturally in browser devtools. The settings slot (`re-frame2.xray.settings.v2`) uses the longer versioned form because its shape may evolve; the mode slot is a fixed enum, so versioning would be overkill.
 
 Sub-surface slots (e.g. Static Machines' selected-id and per-machine sub-mode) ride their own localStorage keys under the `xray.static.*` prefix — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface.
 
@@ -1971,7 +1971,7 @@ rf2-ou3pn + rf2-wknb3 + rf2-pu9sb): **General**, **Keybindings**,
 which body section renders. Defaults: auto-open-on-error OFF,
 panel-position `:right-rail`, theme `:light` (Figma authority;
 toggled by the top-ribbon sun/moon icon), text-size 13 px. Storage
-key `re-frame2.xray.settings.v1` (single nested map, one round-trip
+key `re-frame2.xray.settings.v2` (single nested map, one round-trip
 through `pr-str`). Full per-knob inventory + persistence rationale +
 auto-open-watcher semantics are in
 [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Settings popup

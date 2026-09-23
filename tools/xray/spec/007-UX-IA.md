@@ -1589,7 +1589,7 @@ picker** is the per-machine override.
 
 - **Slot:** `[:general :editor-override]` inside the persisted
   settings map. Persists via the same localStorage round-trip every
-  other operator preference uses (`re-frame2.xray.settings.v1`); no
+  other operator preference uses (`re-frame2.xray.settings.v2`); no
   new storage key.
 - **Default:** `nil` — no override; the host's `:rf.xray/editor`
   default wins.

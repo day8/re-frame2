@@ -205,7 +205,7 @@ The Settings shape (validated by Malli):
 
 Corruption (schema fails) → Xray wipes the slot and writes the default shape, surfacing a one-time toast: "Settings were corrupted and have been reset to defaults."
 
-The settings persist under the localStorage key `re-frame2.xray.settings.v1` (also published as the CLJS constant `day8.re-frame2-xray.config/settings-storage-key`).
+The settings persist under the localStorage key `re-frame2.xray.settings.v2` (also published as the CLJS constant `day8.re-frame2-xray.config/settings-storage-key`).
 
 ## Filters cluster
 

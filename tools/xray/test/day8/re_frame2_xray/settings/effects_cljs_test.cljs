@@ -417,6 +417,26 @@
     (is (= 700 (config/get-setting :general :panel-width-px))
         "and storage still carries it")))
 
+(deftest apply-panel-width-never-persists-an-inherited-width
+  (testing "rf2-3x7nj.27.1 — with NO persisted width, the width being
+            applied is inherited (here the compiled default 560). The
+            clamp fits it to a 600px viewport in the live map, and leaves
+            storage untouched: saving that 540 as an override used to
+            outrank every later host width, even on a wide screen."
+    (is (nil? (#'config/storage-get config/settings-storage-key))
+        "precondition: nothing persisted")
+    (effects/apply-panel-width! config/default-panel-width-px 600)
+    (is (= 540 (config/get-setting :general :panel-width-px))
+        "the live width is fitted to 0.9 × 600")
+    (is (nil? (#'config/storage-get config/settings-storage-key))
+        "and storage is untouched — the clamp manufactured no override")
+    ;; The consequence that matters: a later host width still lands. The
+    ;; node lane has no `js/window`, so `configure!`'s re-apply clamps
+    ;; against the 2000px fallback, where 720 fits.
+    (config/configure! {:rf.xray/settings {:general {:panel-width-px 720}}})
+    (is (= 720 (config/get-setting :general :panel-width-px))
+        "a later host `configure!` width lands")))
+
 (deftest apply-all-clamps-the-persisted-width
   (testing "rf2-y8doi.17 — the repair reaches the boot path, which is
             where it matters: `apply-all!` is what the preload and

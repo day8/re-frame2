@@ -17,6 +17,7 @@
 
   The drag-simulation pattern mirrors `resize_handle_cljs_test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [cljs.reader]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -250,6 +251,37 @@
       (rf/dispatch-sync [:rf.xray/set-event-list-col-width :event-id 999]))
     (is (= before (config/get-setting :general :event-list-col-widths))
         "unknown col-id (`:event-id` — flex; never sized) is a no-op")))
+
+(deftest set-event-list-col-width-persists-only-the-moved-column
+  (testing "rf2-3x7nj.27.1 — a column drag records ONLY that column as an
+            override. The handler used to persist the whole resolved
+            widths map, pinning the two untouched columns at their current
+            width so a later host `configure!` width for one of them never
+            landed."
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-event-list-col-width :source 100]))
+    (is (= {:general {:event-list-col-widths {:source 100}}}
+           (cljs.reader/read-string
+             (#'config/storage-get config/settings-storage-key)))
+        "the payload carries the one moved column and nothing else")
+    (is (= {:source 100 :timestamp 76 :duration 60}
+           (config/get-setting :general :event-list-col-widths))
+        "while the live map still carries all three columns")
+    ;; A real reload (atom AND seed discarded, storage kept), then a host
+    ;; that now configures the timestamp column.
+    (let [payload (#'config/storage-get config/settings-storage-key)]
+      (config/reset-settings!)
+      (#'config/storage-set! config/settings-storage-key payload))
+    (config/load-settings-from-storage!)
+    (config/configure! {:rf.xray/settings
+                        {:general {:event-list-col-widths {:timestamp 100}}}})
+    (is (= 100 (get-in (config/get-setting :general :event-list-col-widths)
+                       [:timestamp]))
+        "the host's timestamp width lands — the user never dragged it")
+    (is (= 100 (get-in (config/get-setting :general :event-list-col-widths)
+                       [:source]))
+        "and the column the user DID drag keeps its width")))
 
 ;; ---- 5. reset --------------------------------------------------
 

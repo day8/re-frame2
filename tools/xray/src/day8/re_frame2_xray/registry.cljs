@@ -706,15 +706,12 @@
     (rf/reg-event :rf.xray/set-event-list-col-width
       {:rf.trace/no-emit? true}
       (fn [{:keys [db]} [_ col-id px]]
-        {:db (if-let [clamped (config/clamp-event-list-col-width col-id px)]
-          (let [persisted (or (config/get-setting :general :event-list-col-widths)
-                              config/event-list-col-default-widths)
-                next-map  (assoc persisted col-id clamped)]
-            ;; Dual-write: the atom (canonical, drives localStorage
-            ;; round-trip via `update-setting!`) and app-db (drives
-            ;; immediate reactive re-render of every header + row).
-            (config/update-setting! :general :event-list-col-widths next-map)
-            (assoc-in db [:settings :general :event-list-col-widths] next-map))
+        ;; Dual-write: the config atom (canonical; its writer persists
+        ;; ONLY the moved column as an override, rf2-3x7nj.27.1) and
+        ;; app-db (drives immediate reactive re-render of every header +
+        ;; row). Both take the full next map.
+        {:db (if-let [next-map (config/update-event-list-col-width! col-id px)]
+          (assoc-in db [:settings :general :event-list-col-widths] next-map)
           ;; Unknown column-id (e.g. `event-id` — flex, never sized):
           ;; no-op. Defensive — the divider views only dispatch for
           ;; the three resizable ids.
