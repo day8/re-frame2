@@ -22,6 +22,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.artifact :as rf.story.artifact]
+            [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.determinism :as rf.story.determinism]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.plan :as rf.story.plan]
@@ -418,6 +419,51 @@
           res (rf.story.artifact/replay-run-artifact a)]
       (is (= :pass (:status res)))
       (is (= 2 (:n (:app-db res))) "the bare dispatch program replayed unchanged"))))
+
+;; ===========================================================================
+;; rf2-3x7nj.31.1 — replay runs EVERY step, not only the dispatches
+;; ===========================================================================
+;;
+;; Replay used to run only the `[:dispatch …]` steps, so an `[:assert …]`
+;; checkpoint never evaluated and a `[:click …]` the headless runner cannot
+;; prove never refused: both read `:pass`, and so did every property and fault
+;; sweep judged by replay. The non-dispatch steps now run through the play
+;; runner's step executor, the one a live run uses.
+
+(defn- replay-program [program]
+  (rf.story.artifact/replay-run-artifact
+    (rf.story.artifact/make-run-artifact {:event-program program})))
+
+(deftest replay-evaluates-assert-checkpoints
+  (rf.story.assertions/install-canonical-assertions!)
+  (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (testing "a FALSE [:assert …] checkpoint fails the replay and is recorded"
+    (let [res (replay-program [[:dispatch [:rep/inc]]
+                               [:assert [:rf.assert/path-equals [:n] 99]]])]
+      (is (= :fail (:status res)))
+      (is (= [[:rf.assert/path-equals false :fail]]
+             (mapv (juxt :assertion :passed? :status) (:assertions res))))
+      (is (= 1 (:n (:app-db res))))))
+  (testing "a TRUE checkpoint passes and is recorded"
+    (let [res (replay-program [[:dispatch [:rep/inc]]
+                               [:assert [:rf.assert/path-equals [:n] 1]]])]
+      (is (= :pass (:status res)))
+      (is (= [[:rf.assert/path-equals true :pass]]
+             (mapv (juxt :assertion :passed? :status) (:assertions res)))))))
+
+(deftest replay-refuses-a-step-the-headless-runner-cannot-prove
+  (testing "a headless [:click …] refuses with :cannot-run rather than reading :pass"
+    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (let [res (replay-program [[:dispatch [:rep/inc]] [:click ".nope"]])]
+      (is (= :cannot-run (:status res)))
+      (is (= [:click ".nope"] (get-in res [:cannot-run :unit]))))))
+
+(deftest replay-fails-a-wait-until-that-never-holds
+  (testing "an unmet [:wait-until …] fails the replay with a step-failed record"
+    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (let [res (replay-program [[:dispatch [:rep/inc]] [:wait-until [:db [:n] 99]]])]
+      (is (= :fail (:status res)))
+      (is (= [:rf.error/story-play-step-failed] (mapv :assertion (:assertions res)))))))
 
 ;; ===========================================================================
 ;; :network route stubs survive replay (rf2-tymyh)

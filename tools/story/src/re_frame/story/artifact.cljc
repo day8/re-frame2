@@ -87,6 +87,7 @@
             [re-frame.story.play.runner           :as rf.story.play.runner]
             [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
             [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]
+            [re-frame.story.result                :as rf.story.result]
             ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
             ;; (reached through its home namespace, not the `re-frame.core`
             ;; façade). CLJS requires it directly; on the JVM it is resolved
@@ -297,12 +298,36 @@
     (cond-> {:rf.cofx/mint-policy :strict}
       (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))))
 
+(defn- replay-step!
+  "Run ONE non-dispatch `step` (at program index `idx`) against the replay
+  frame through the play runner's step executor
+  (`rf.story.play.runner-events/exec-step!`) — the same executor a live run
+  uses (spec/017 §Script step runner), so an `[:assert …]` evaluates and
+  records, a `[:wait-until …]` that never holds fails, and a step the runner
+  cannot prove (`[:click …]` headless) refuses. Returns the runner
+  step-result; a thrown step becomes a step-exception, as in the live
+  runner."
+  [frame-id idx step]
+  (try
+    (rf.story.play.runner-events/exec-step! frame-id idx step)
+    (catch #?(:clj Throwable :cljs :default) e
+      (rf.story.play.runner/step-exception idx step
+                                           #?(:clj (.getMessage ^Throwable e) :cljs (str e))))))
+
 (defn replay-into-frame!
   "Replay an artifact's `:event-program` into the LIVE `frame-id`,
   reapplying `fx-decisions` and settling each `[:dispatch …]` step through
   `settled-boundary`. Returns a vector of per-step settle outcomes (one
   per dispatch step), in program order — `{:status :settled :boundary …}`
   on success, a `cannot-run-refusal` / `{:status :error …}` otherwise.
+
+  Every OTHER step (`[:assert …]`, `[:wait-until …]`, `[:click …]`,
+  `[:type …]`, `[:focus …]`, `[:flush-presence]`, a bare `[:wait ms]`) runs
+  in program order through the play runner's step executor (`replay-step!`,
+  rf2-3x7nj.31.1). Their runner step-results ride the returned vector's
+  `:step-results` metadata slot, which `replay-result` folds into the
+  result's `:assertions` and `:status`. A bare `[:wait ms]` does not sleep
+  (a replay settles synchronously; the determinism gate refuses it).
 
   The returned vector carries an `:attribution` metadata slot: the
   last-committed `:epoch-id` (`rf.story.play.runner-events/last-epoch-id` — a genuine
@@ -320,35 +345,43 @@
 
   This is the IMPURE seam — it dispatches into a live frame. The caller
   owns frame allocation + teardown + the epoch-tape read; `replay-run-
-  artifact` wires those around it. Non-dispatch steps (`:wait` / `:assert-*`)
-  are skipped here: replay reproduces the CAUSAL program (the dispatches),
-  and the captured tape + projected evidence carry the assertion / timing
-  story. `hooks` defaults to the headless flush-hooks; the fx decisions are
-  wrapped onto its `:dispatch!`."
+  artifact` wires those around it. `hooks` defaults to the headless
+  flush-hooks; the fx decisions are wrapped onto its `:dispatch!`. A
+  non-dispatch step runs through the executor's own flush-hooks (the
+  `:settled-boundary-hooks` late-bind seam), exactly as in a live run."
   ([frame-id artifact]
    (replay-into-frame! frame-id artifact rf.story.play.settled-boundary/headless-flush-hooks))
   ([frame-id artifact hooks]
    (let [fx-decisions (:fx-decisions artifact {})
          replay-hooks (replay-flush-hooks hooks fx-decisions)
          boundaries   (volatile! [])
+         step-results (volatile! [])
          outcomes     (into []
-                            (keep (fn [step]
-                                    (when-let [evec (rf.story.play.runner/step-event step)]
-                                      (let [required (rf.story.play.settled-boundary/step-required-boundary step)
-                                            dispatch-opts (step-dispatch-opts step)]
-                                        ;; Snapshot the last-committed
-                                        ;; `:epoch-id` BEFORE the settle — this
-                                        ;; dispatch step owns every record
-                                        ;; whose OWN id is greater (rf2-96qsjr:
-                                        ;; an identity, not a ring-length
-                                        ;; snapshot, so it stays correct
-                                        ;; whatever the ring evicts).
-                                        (vswap! boundaries conj (rf.story.play.runner-events/last-epoch-id frame-id))
-                                        (rf.story.play.settled-boundary/dispatch-and-settle!
-                                          frame-id evec replay-hooks required step
-                                          dispatch-opts)))))
+                            (keep-indexed
+                              (fn [idx step]
+                                (if-let [evec (rf.story.play.runner/step-event step)]
+                                  (let [required (rf.story.play.settled-boundary/step-required-boundary step)
+                                        dispatch-opts (step-dispatch-opts step)]
+                                    ;; Snapshot the last-committed
+                                    ;; `:epoch-id` BEFORE the settle — this
+                                    ;; dispatch step owns every record
+                                    ;; whose OWN id is greater (rf2-96qsjr:
+                                    ;; an identity, not a ring-length
+                                    ;; snapshot, so it stays correct
+                                    ;; whatever the ring evicts).
+                                    (vswap! boundaries conj (rf.story.play.runner-events/last-epoch-id frame-id))
+                                    (rf.story.play.settled-boundary/dispatch-and-settle!
+                                      frame-id evec replay-hooks required step
+                                      dispatch-opts))
+                                  ;; rf2-3x7nj.31.1: every other step runs
+                                  ;; through the play runner's executor.
+                                  ;; Its epochs roll into the preceding
+                                  ;; dispatch step's span, as in a live run.
+                                  (do (vswap! step-results conj (replay-step! frame-id idx step))
+                                      nil))))
                             (:event-program artifact))]
-     (with-meta outcomes {:attribution @boundaries}))))
+     (with-meta outcomes {:attribution  @boundaries
+                          :step-results @step-results}))))
 
 (defn replay-result
   "Build the replay run-result from the captured `epoch-tape`, the
@@ -364,12 +397,25 @@
   `:script` for the two-level narrative is the artifact's
   `:event-program`.
 
+  `:assertions` holds the unified assertion records
+  (`rf.story.result/assertion-records`) of the frame's `:rf.story/assertions`
+  accumulator — what the replayed `[:assert …]` checkpoints (and any
+  dispatched `:rf.assert/*` event) recorded — plus a record for each
+  non-dispatch step that failed without recording one
+  (`rf.story.play.runner/run-state-failures`, e.g. a `[:wait-until …]` that
+  never held), exactly as the unified run result folds them (rf2-3x7nj.31.1).
+  The step results are read off the `outcomes` vector's `:step-results`
+  metadata (`replay-into-frame!`); a hand-built `outcomes` with none
+  contributes none.
+
   `:status` follows the agreement floor (spec/017 §Run-result evidence
-  projection): `:cannot-run` if any step refused; `:error` if any step or
-  the tape errored; `:fail` if the tape shows unconsumed failure evidence;
-  `:pass` otherwise. The status is computed from the PROJECTED evidence and
-  the settle outcomes — never a sibling accumulator — so a replay cannot
-  read green while the tape is red."
+  projection): `:cannot-run` if any step refused (a dispatch the settled
+  boundary refused, or a step the runner could not attempt); `:error` if any
+  step or the tape errored; `:fail` if an assertion or a step failed or the
+  tape shows unconsumed failure evidence; `:pass` otherwise. The status is
+  computed from the PROJECTED evidence, the settle outcomes and the step
+  results, so a replay cannot read green while the tape — or an assertion —
+  is red."
   [{:keys [epoch-tape artifact outcomes frame-id app-db]}]
   (let [evidence-slots (rf.story.play.evidence/project-evidence
                          epoch-tape {:script      (:event-program artifact)
@@ -381,31 +427,47 @@
                                      ;; `outcomes` with no metadata) → EVEN
                                      ;; fallback, unchanged.
                                      :attribution (:attribution (meta outcomes))})
-        refusal        (some (fn [o] (when (= :cannot-run (:status o)) o)) outcomes)
-        errored        (some (fn [o] (when (= :error (:status o)) o)) outcomes)
+        ;; rf2-3x7nj.31.1: the non-dispatch steps' runner results, bridged to
+        ;; the unified result the same way `runtime/record-result-map` does.
+        step-state     {:results (vec (:step-results (meta outcomes)))}
+        records        (rf.story.result/assertion-records
+                         (into (vec (:rf.story/assertions app-db))
+                               (rf.story.play.runner/run-state-failures step-state)))
+        with-status    (fn [st] (fn [r] (when (= st (:status r)) r)))
+        refusal        (or (some (with-status :cannot-run) outcomes)
+                           (first (rf.story.play.runner/run-state-refusals step-state))
+                           (some (with-status :cannot-run) records))
+        errored        (some (with-status :error) outcomes)
+        record-error   (some (with-status :error) records)
         tape-red?      (rf.story.play.evidence/tape-shows-failure? epoch-tape)
         status         (cond
-                         refusal   :cannot-run
-                         errored   :error
-                         tape-red? :fail
-                         :else     :pass)]
+                         refusal                          :cannot-run
+                         (or errored record-error)        :error
+                         (or tape-red?
+                             (some (with-status :fail) records)) :fail
+                         :else                            :pass)]
     (cond-> (merge {:status        status
                     :runner        :headless
                     :frame         frame-id
                     :app-db        app-db
+                    :assertions    records
                     :run-artifact  artifact
                     :replay-steps  outcomes}
                    evidence-slots)
-      refusal (assoc :cannot-run refusal)
-      errored (assoc :error (:error errored)))))
+      refusal      (assoc :cannot-run refusal)
+      errored      (assoc :error (:error errored))
+      (and record-error (not errored)) (assoc :error (:reason record-error)))))
 
 (defn replay-run-artifact
   "Replay a `:rf.test/run-artifact` into a FRESH frame and return a
   run-result (spec/017 §Run artifact and replay). The contract:
 
-  - Replay the dispatch program into a FRESH frame — a unique
+  - Replay the event program into a FRESH frame — a unique
     `:rf.test.replay/*` frame allocated for this replay (or the caller's
-    `:frame`), so the replay never observes a sibling run's app-db.
+    `:frame`), so the replay never observes a sibling run's app-db. Every
+    non-dispatch step runs through the play runner's step executor, so an
+    `[:assert …]` records into the result's `:assertions` and a step the
+    replay runner cannot prove refuses (rf2-3x7nj.31.1).
   - Reapply the fx decisions / overrides — the artifact's `:fx-decisions`
     ride the per-call `:fx-overrides` on every replayed dispatch.
   - Capture a NEW epoch tape — read from `re-frame.core/epoch-history`

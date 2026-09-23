@@ -1208,16 +1208,20 @@
 ;; below Story and runs without the UI).
 
 (defn assert-deterministic
-  "Per spec/017 §Determinism gate — assert `plan-or-artifact` produces the
-  SAME run every time. Replays into N fresh frames (default 2) via
-  `replay-run-artifact` and compares the canonical run-slices through
+  "Per spec/017 §Determinism gate — assert `artifact-or-program` (a
+  `:rf.test/run-artifact` or a `:setup` / `:script` / `:event-program` body)
+  produces the SAME run every time. Replays into N fresh frames (default 2)
+  via `replay-run-artifact` and compares the canonical run-slices through
   `canonicalize`. Returns `:deterministic` (one shared `:run-hash`),
   `:non-deterministic` (with the first `:divergence` + per-run results), or
   `:cannot-run` when the program carries a bare `[:wait ms]` (the explicit
-  determinism opt-out — refused rather than run flakily). `opts` MAY carry
-  `:runs` / `:hooks` / `:frame-config`."
-  ([plan-or-artifact]      (rf.story.determinism/assert-deterministic plan-or-artifact))
-  ([plan-or-artifact opts] (rf.story.determinism/assert-deterministic plan-or-artifact opts)))
+  determinism opt-out — refused rather than run flakily) or the target is a
+  normalized variant plan (`:reason :determinism-plan-target` — to judge a
+  variant, `run` it twice by its id and compare the run-results with
+  `re-frame.story.determinism/compare-runs`). `opts` MAY carry `:runs` /
+  `:hooks` / `:frame-config`."
+  ([artifact-or-program]      (rf.story.determinism/assert-deterministic artifact-or-program))
+  ([artifact-or-program opts] (rf.story.determinism/assert-deterministic artifact-or-program opts)))
 
 ;; ---- run-artifact → variant promotion bridge ----------------------------
 ;;

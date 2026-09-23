@@ -890,7 +890,7 @@ tape):
 
 ```clojure
 (replay-run-artifact   artifact opts)
-(assert-deterministic  plan-or-artifact opts)   ; N fresh runs, compared via canonicalize
+(assert-deterministic  artifact-or-program opts)   ; N fresh runs, compared via canonicalize
 (diff-run-artifacts    baseline current opts)
 ```
 

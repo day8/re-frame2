@@ -24,6 +24,7 @@
             [re-frame.frame     :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            #?(:clj [re-frame.story :as rf.story])
             [re-frame.story.artifact    :as rf.story.artifact]
             [re-frame.story.determinism :as rf.story.determinism]
             [re-frame.story.fingerprint :as rf.story.fingerprint]))
@@ -264,16 +265,42 @@
       (is (= 8 (count (:run-hash res))))
       (is (apply = (:hashes res)) "every replay shares the canonical run-hash"))))
 
-(deftest gate-accepts-a-normalized-plan
-  (testing "a normalized plan (setup ⧺ script) is replayed deterministically"
-    (rf/reg-event :det/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (rf/reg-event :det/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
+(deftest gate-refuses-a-normalized-plan
+  (rf/reg-event :det/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
+  (rf/reg-event :det/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
+  (testing "a normalized plan is REFUSED before any replay — the artifact
+            `->artifact` builds from it is a program projection, not the
+            variant's run (rf2-3x7nj.31.2)"
     (let [plan {:variant/id :story.det/plan
                 :world  {:setup [[:dispatch [:det/seed 10]]]}
                 :script [[:dispatch [:det/bump]]]}
           res  (rf.story.determinism/assert-deterministic plan {:runs 3})]
+      (is (= :cannot-run (:status res)))
+      (is (= :determinism-plan-target (:reason res)))
+      (is (= :story.det/plan (:variant/id res)))
+      (is (re-find #"compare-runs" (:detail res)) "the refusal names the recovery")
+      (is (not (contains? res :hashes)) "refused BEFORE replaying")))
+  (testing "control: the same :setup / :script as a BODY map still replays"
+    (let [res (rf.story.determinism/assert-deterministic
+                {:setup [[:dispatch [:det/seed 10]]] :script [[:dispatch [:det/bump]]]}
+                {:runs 3})]
       (is (= :deterministic (:status res)))
       (is (= 3 (:runs res))))))
+
+;; rf2-3x7nj.31.3 — an fx-error run carries a per-run `:error-trace` pointer
+;; and the raw thrown exception; the gate read a perfectly reproducible
+;; failing program as :non-deterministic.
+(deftest gate-throwing-fx-program-is-deterministic
+  (testing "a program whose fx throws replays :fail twice and the gate reads
+            :deterministic, not :non-deterministic"
+    (rf/reg-fx :det.fx/boom {:platforms #{:client :server}}
+               (fn [_ _] (throw (ex-info "boom" {:k 1}))))
+    (rf/reg-event :det/boom (fn [_ _] {:fx [[:det.fx/boom {}]]}))
+    (let [a   (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:det/boom]]]})
+          res (rf.story.determinism/assert-deterministic a)]
+      (is (= :deterministic (:status res)))
+      (is (= :fail (:status (rf.story.artifact/replay-run-artifact a)))
+          "control: the program genuinely fails — the gate compares two failing runs"))))
 
 (deftest gate-detects-real-semantic-nondeterminism
   (testing "a handler whose result depends on a PROCESS-GLOBAL mutable counter
@@ -340,3 +367,63 @@
         (is (= :deterministic (:status res)))
         (is (= [:stub :stub] @hits)
             "the stub fired on BOTH fresh-frame replays")))))
+
+;; ===========================================================================
+;; rf2-3x7nj.31.2 — a REGISTERED variant: the gate refuses its plan, and the
+;; variant is judged by running it
+;; ===========================================================================
+;;
+;; `:rf.story/force-fx-stub` is installed by the variant's own frame and
+;; never reaches `->artifact`, so replaying the plan's artifact called the
+;; REAL effect — and, with an effect that returns normally, the gate still
+;; read `:deterministic`. JVM-only: `rf.story/run` derefs a CompletableFuture
+;; here (a Promise on CLJS).
+
+#?(:clj
+   (deftest gate-on-a-stubbed-variant-plan-fires-no-real-effect
+     (rf.story/clear-all!)
+     (rf.story/install-canonical-vocabulary!)
+     (try
+       (let [real (atom 0)]
+         ;; A counting fx that RETURNS normally. reg-fx handlers take TWO args —
+         ;; a one-arg handler throws on every call and counts nothing.
+         (rf/reg-fx :det.fx/http {:platforms #{:client :server}}
+                    (fn [_ctx _args] (swap! real inc) nil))
+         (rf/reg-event :det/load (fn [_ _] {:fx [[:det.fx/http {}]]}))
+         (rf.story/reg-variant :story.det/stubbed
+           {:decorators [[:rf.story/force-fx-stub :det.fx/http {:status 200}]]
+            :script     [[:dispatch [:det/load]]]})
+         (testing "control: the variant's own run stubs the effect"
+           (is (= :pass (:status @(rf.story/run :story.det/stubbed))))
+           (is (zero? @real)))
+         (testing "the gate refuses the variant's plan and fires no real effect"
+           (let [res (rf.story.determinism/assert-deterministic
+                       (rf.story/variant-plan :story.det/stubbed))]
+             (is (= :cannot-run (:status res)))
+             (is (= :determinism-plan-target (:reason res)))
+             (is (zero? @real) "the stubbed effect's real handler never ran"))))
+       (finally (rf.story/clear-all!)))))
+
+#?(:clj
+   (deftest a-variant-is-judged-by-running-it-twice
+     (rf.story/clear-all!)
+     (rf.story/install-canonical-vocabulary!)
+     (try
+       (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :count (fnil inc 0))}))
+       (rf.story/reg-variant :story.det/seeded
+         {:db-seed    {:count 10}
+          :script     [[:dispatch [:det/inc]]
+                       [:assert [:rf.assert/path-equals [:count] 11]]]
+          :assertions [[:rf.assert/path-equals [:count] 11]]})
+       (let [r1 @(rf.story/run :story.det/seeded)
+             r2 @(rf.story/run :story.det/seeded)]
+         (testing "each run is the variant's real run — seeded and asserted"
+           (is (= [:pass :pass] [(:status r1) (:status r2)]))
+           (is (= 11 (get-in r1 [:app-db :count])))
+           (is (= 2 (count (:assertions r1))) "assertion records ride the compared slice"))
+         (testing "compare-runs reads two runs of one variant as the same run —
+                   the structural :source / :elapsed-ms strip keeps this
+                   green (rf2-3x7nj.30.4)"
+           (is (:deterministic? (rf.story.determinism/compare-runs [r1 r2])))
+           (is (= (:run-hash r1) (:run-hash r2)))))
+       (finally (rf.story/clear-all!)))))
