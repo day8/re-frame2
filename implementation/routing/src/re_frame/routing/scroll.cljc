@@ -35,8 +35,10 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
             [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.trace :as rf.trace]))
 
 (def scroll-positions-cap
@@ -432,9 +434,60 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
      :reason        unsupported-strategy-reason
      :recovery      :no-scroll}))
 
+#?(:cljs
+   (defn- scroll-dom!
+     "The DOM half of `:rf.nav/scroll` — the only part that touches the page."
+     [strategy saved-pos fragment]
+     (case strategy
+       :top     (if-let [el (and fragment (.getElementById js/document fragment))]
+                  (.scrollIntoView el)
+                  (.scrollTo js/window 0 0))
+       :restore (when (and saved-pos (sequential? saved-pos))
+                  (.scrollTo js/window (first saved-pos) (second saved-pos))))))
+
+#?(:cljs
+   (defn- navigation-identity
+     "What a deferred scroll must still find when it fires: the frame's
+     incarnation (an atom, compared by identity) and the `:nav-token` of the
+     route slice its commit installed."
+     [frame]
+     [(rf.frame/frame-incarnation-token frame)
+      (get-in (rf.frame/frame-runtime-db-value frame)
+              [:rf.runtime/routing :current :nav-token])]))
+
+#?(:cljs
+   (defn- after-commit!
+     "Run `f` once the view substrate has committed the navigation that
+     emitted it (rf2-3x7nj.12.3). The fx runs inside the navigating event,
+     before any render, so a scroll made here would read and move the page
+     being LEFT.
+
+     Through the installed adapter's `:adapter/after-render` hook when there
+     is one — decided by the hook's PRESENCE, never by what it returns, since
+     a hook that has scheduled `f` may answer nil. With no installed adapter
+     publishing the hook, `f` runs at once, as it always did. The routed
+     hook's own fallback drops `f` rather than running it, so a bundle that
+     has loaded an adapter but installed none counts as hookless.
+
+     A deferred `f` is dropped when the navigation it belongs to has been
+     superseded (or its frame torn down) by the time it fires: the scroll
+     is that navigation's, never the page a later one landed on."
+     [frame f]
+     (if-not (and (rf.substrate.adapter/current-adapter)
+                  (rf.late-bind/get-fn-cached :adapter/after-render))
+       (f)
+       (let [nav (navigation-identity frame)]
+         (rf.interop/after-render
+           (fn [] (when (= nav (navigation-identity frame)) (f))))
+         nil))))
+
 (defn scroll-fx-handler
   "`:rf.nav/scroll` fx handler. Registered by the façade so a `:reload`
   re-wires it on a fresh registrar.
+
+  rf2-3x7nj.12.3: `:top` and `:restore` touch the page only after the new
+  route has committed (`after-commit!`); the strategy check and its rejection
+  stay synchronous.
 
   rf2-px26m: the strategy vocabulary is CLOSED. The default branch used
   to return nil, which made every map-form strategy — the shape Spec 012
@@ -457,15 +510,8 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   [{:keys [frame event]} {:keys [strategy saved-pos fragment]}]
   #?(:cljs
      (case strategy
-       :top      (if-let [el (and fragment
-                                  (.getElementById js/document fragment))]
-                   (.scrollIntoView el)
-                   (.scrollTo js/window 0 0))
-       :restore  (when (and saved-pos (sequential? saved-pos))
-                   (.scrollTo js/window
-                              (first saved-pos)
-                              (second saved-pos)))
-       :preserve nil
+       (:top :restore) (after-commit! frame #(scroll-dom! strategy saved-pos fragment))
+       :preserve       nil
        (emit-unsupported-strategy! frame event strategy))
      :clj
      (rf.trace/emit! :rf.fx :rf.fx/skipped-on-platform

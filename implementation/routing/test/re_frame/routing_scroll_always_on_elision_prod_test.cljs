@@ -65,6 +65,7 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.routing.scroll :as rf.routing.scroll]
             [re-frame.test-support :as rf.test-support]
@@ -113,6 +114,20 @@
 (defn- set-scroll! [x y]
   (set! (.-scrollX js/window) x)
   (set! (.-scrollY js/window) y))
+
+(defn- committed!
+  "rf2-3x7nj.12.3: `:rf.nav/scroll` touches the page only after the view
+  substrate commits, through the installed adapter's `:adapter/after-render`.
+  Run `f` with that hook replaced by a queue, then run what it queued — the
+  commit this build has no renderer to make."
+  [f]
+  (let [original (rf.late-bind/get-fn :adapter/after-render)
+        queued   (atom [])]
+    (try
+      (rf.late-bind/set-fn! :adapter/after-render (fn [g] (swap! queued conj g) nil))
+      (f)
+      (run! #(%) @queued)
+      (finally (rf.late-bind/set-fn! :adapter/after-render original)))))
 
 ;; ===========================================================================
 ;; (a) The rejection SURVIVES `:advanced` + `goog.DEBUG=false` with the
@@ -210,12 +225,12 @@
         (let [records (record-always-on-errors!)]
           ;; :top — no fragment element, so it falls back to (0,0).
           (set-scroll! 0 700)
-          (rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame} {:strategy :top})
+          (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame} {:strategy :top}))
           (is (= [0 0] (scroll-xy)) ":top scrolled to the top under prod")
           ;; :restore — drives .scrollTo with the saved position.
           (set-scroll! 0 700)
-          (rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame}
-                                    {:strategy :restore :saved-pos [0 420]})
+          (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame}
+                                                            {:strategy :restore :saved-pos [0 420]}))
           (is (= [0 420] (scroll-xy)) ":restore restored the saved position")
           ;; :preserve — nothing moves, nothing emits.
           (set-scroll! 0 700)

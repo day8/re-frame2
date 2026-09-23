@@ -39,6 +39,7 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.scroll :as rf.routing.scroll]
@@ -120,6 +121,20 @@
 (defn- set-scroll! [x y]
   (set! (.-scrollX js/window) x)
   (set! (.-scrollY js/window) y))
+
+(defn- committed!
+  "rf2-3x7nj.12.3: `:rf.nav/scroll` touches the page only after the view
+  substrate commits, through the installed adapter's `:adapter/after-render`.
+  Run `f` with that hook replaced by a queue, then run what it queued — the
+  commit this build has no renderer to make."
+  [f]
+  (let [original (rf.late-bind/get-fn :adapter/after-render)
+        queued   (atom [])]
+    (try
+      (rf.late-bind/set-fn! :adapter/after-render (fn [g] (swap! queued conj g) nil))
+      (f)
+      (run! #(%) @queued)
+      (finally (rf.late-bind/set-fn! :adapter/after-render original)))))
 
 ;; =========================================================================
 ;; 0. Precondition — the gate is actually installed on this host
@@ -310,7 +325,7 @@
                     {:fx [[:rf.nav/scroll {:strategy  :restore
                                            :saved-pos [0.5 1234.75]}]]}))
     (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:test/restore])
+      (committed! #(rf/dispatch-sync [:test/restore]))
       (is (= [0.5 1234.75] (scroll-xy))
           "the window was scrolled to the fractional saved position")
       (is (empty? (violations @traces))))))
@@ -331,7 +346,7 @@
                             :saved-pos [12 3400.5]
                             :fragment  "section-3"}]]}))
     (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:test/full-scroll])
+      (committed! #(rf/dispatch-sync [:test/full-scroll]))
       (is (= [12 3400.5] (scroll-xy))
           "the full planner args drove the restore")
       (is (empty? (violations @traces))
@@ -348,7 +363,7 @@
                     {:fx [[:rf.nav/scroll {:strategy :top
                                            :fragment "install"}]]}))
     (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:test/top-fragment])
+      (committed! #(rf/dispatch-sync [:test/top-fragment]))
       (is (= [0 0] (scroll-xy))
           "the :top branch ran — args carrying :fragment were not rejected")
       (is (empty? (violations @traces))))))
@@ -495,12 +510,12 @@
     (let [records (record-always-on-errors!)]
       ;; :top — no fragment element in the stub, so it falls back to (0,0).
       (set-scroll! 0 700)
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top})
+      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top}))
       (is (= [0 0] (scroll-xy)) ":top scrolled to the top")
       ;; :restore — drives .scrollTo with the saved position.
       (set-scroll! 0 700)
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
-                                {:strategy :restore :saved-pos [0 420]})
+      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
+                                                        {:strategy :restore :saved-pos [0 420]}))
       (is (= [0 420] (scroll-xy)) ":restore restored the saved position")
       ;; :preserve — the silent documented no-op. Nothing moves, nothing emits.
       (set-scroll! 0 700)
@@ -560,14 +575,14 @@
     ;; :top — no fragment element in the stub, so it falls back to (0,0).
     (set-scroll! 0 700)
     (with-trace-recorder! [traces]
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top})
+      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top}))
       (is (= [0 0] (scroll-xy)) ":top scrolled to the top")
       (is (empty? (unsupported @traces)) ":top emitted no rejection"))
     ;; :restore — drives .scrollTo with the saved position.
     (set-scroll! 0 700)
     (with-trace-recorder! [traces]
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
-                                {:strategy :restore :saved-pos [12 3400.5]})
+      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
+                                                        {:strategy :restore :saved-pos [12 3400.5]}))
       (is (= [12 3400.5] (scroll-xy)) ":restore scrolled to the saved position")
       (is (empty? (unsupported @traces)) ":restore emitted no rejection"))
     ;; :preserve — deliberately does nothing, and that is NOT an error.
