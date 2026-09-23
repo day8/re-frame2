@@ -74,6 +74,7 @@ Notes:
 
 1. Building an image registers nothing and runs nothing. `rf/image` produces a plain data description of "which registrations to select" — inert until a frame composes it.
 2. The selection chooses by **provenance** — *where a registration was written* — not by the keyword namespace of its id. A registration with id `:counter/inc` authored in `docs.quickstart.counter.basic` is selected because of the *file it lives in*, not because the keyword starts with `counter`. This one trips people up, so file it away now.
+3. The framework's own feature handlers come along anyway. Routing, managed HTTP, Resources, SSR and the `:rf/time-ms` coeffect are registered with no source namespace, so no `:select-ns` could pick them; instead every explicit composition sits on a **framework base** of them (the framework's registrations under the reserved `:rf` root, plus the `:route/link` view). A later image can still override any of them, and the shadow report names that base `:rf/framework`.
 
 ??? info "Coming from a bundler's globs?"
 
