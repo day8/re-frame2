@@ -42,8 +42,8 @@ boundary without requiring unused request context to become a new feature.
 - [README.md](README.md) §"What deliberately does NOT live here"
   — the existing list of tool-shaped surfaces that stay consumer-side.
 - [`tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/registry.cljs`](../../re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/registry.cljs)
-  — pair-mcp's 3-arity registry; ns docstring §"Handler arity
-  convention" cross-references this doc.
+  — pair-mcp's 3-arity registry; its ns docstring states the
+  `(fn [conn args extra])` shape and the `ignoring-extra` adapter.
 - [`tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc`](../../story-mcp/src/re_frame/story_mcp/tools/registry.cljc)
   — story-mcp's 1-arity registry; ns docstring cross-references this doc.
 - [`spec/Ownership.md`](../../../spec/Ownership.md) — the row that

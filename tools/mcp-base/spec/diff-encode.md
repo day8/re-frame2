@@ -14,6 +14,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 - The decoder that reconstructs `:db-after` from `:db-before` + the per-section patch lists (flattened in section order).
 - The encoder/decoder validation symmetry (both boundaries Malli-gate; soft-pass when Malli absent; `goog-define`-elidable on CLJS prod).
 - The intra-record self-containedness invariant (each epoch's diff encodes against its OWN `:db-before`, not a sibling's).
+- `diff-encode-epochs` — the slice-level entry point (`[epochs mode]`): applies `diff-encode-db-after` to every record when `mode` is `:diff`, and passes the vector through unchanged when `mode` is `:full` (the opt-in passthrough).
 
 The path-headed **cluster grouping** (the `:sections` projection) is owned by [`section-grouping.md`](section-grouping.md); `diff-encode` consumes it.
 

@@ -43,6 +43,7 @@ Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per
 | `summary-key` | `:rf.mcp/summary` | `{<tree-summary>}` (lazy-summary projection) |
 | `invalid-arg-key` | `:rf.mcp/invalid-arg` | `{:arg <kw> :value <supplied> :hint <str>}` — payload of an `isError: true` result rejecting a malformed per-call arg. See [`cap.md` §Out-of-domain `:max-tokens` is rejected](cap.md#out-of-domain-max-tokens-is-rejected). |
 | `result-key` | `:rf.mcp/result` | `{:rf.mcp/result <tag> …}` — typed evaluation outcome (`:value`, `:nil`, `:eval-error`, or `:unserializable`). See [Tool-Pair §Wire fidelity](../../../spec/Tool-Pair.md). |
+| `source-uri-key` | `:rf.mcp/source-uri` | Sibling key spliced onto a source-coord-bearing map — `{:source-coord {…} :rf.mcp/source-uri "vscode://file/…:42:7"}` — carrying a pre-built editor-jump URI. A wire DECORATION, not a single-key wrapper marker: no schema/fixture in the wire-vocab `canonical-markers` catalogue. Single-server today (re-frame2-pair-mcp's `tools.source-uri/decorate`); reserved cross-MCP under `:rf.mcp/*`. |
 
 ## Marker catalogue (`:rf.size/*`)
 
