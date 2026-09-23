@@ -634,15 +634,30 @@
 ;; file left the ambiguous entry standing for ever, which turned a lost update
 ;; into an account that could never save again, each further attempt adding one
 ;; more ghost to measure the next reply against.
+;;
+;; Both questions above are about the SAVE and the SESSION. The navigation to
+;; the profile is a different outcome with a different owner: a NAVIGATION is
+;; the ROUTE's (TWO QUESTIONS, comments.cljs). Nothing blocks leaving /settings
+;; mid-save, so a reply that lands after the reader walked to an article or the
+;; editor must not drag them to their profile. The session store still happens,
+;; because the session is the account's wherever the reader is; only the
+;; navigate asks whether the committed route is still /settings.
+(defn- settings-route-current?
+  "Is the ACTIVE ROUTE still the settings page? Reads RUNTIME-db, where the
+   route slice lives. The resources twin carries the same predicate."
+  [rt]
+  (= :realworld.user/settings (get-in rt [:rf.runtime/routing :current :route-id])))
+
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
          machine's :data via :store-user (region lands in :correct), store the
          session (durable [:auth :token] + [:auth :user]) so the rest of the
-         app sees the update, and navigate off to the user's profile page —
-         unless the reply cannot be pinned to a single unanswered save, or
-         pins to one that is not the save this form is waiting on (both left
-         strictly alone — a newer account's save is in flight), or the session
-         that issued it is gone (the form resets and none of it happens, since
+         app sees the update, and navigate off to the user's profile page
+         (only while the reader is still on /settings) — unless the reply
+         cannot be pinned to a single unanswered save, or pins to one that
+         is not the save this form is waiting on (both left strictly alone
+         — a newer account's save is in flight), or the session that
+         issued it is gone (the form resets and none of it happens, since
          storing the reply would restore the logged-out user's credentials).
          See SESSION OWNERSHIP above for both questions and for why THIS
          target must stay one-element. The reply rides a map payload
@@ -699,10 +714,14 @@
           {:db (-> db
                    (auth/store-session-db user)
                    (retire-save saved))
-           :fx [[:auth.session/persist {:token (:token user)}]
-                [:dispatch [:settings/form
-                            [:submit-succeeded {:user (dissoc user :token)}]]]
-                [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})))))
+           :fx (cond-> [[:auth.session/persist {:token (:token user)}]
+                        [:dispatch [:settings/form
+                                    [:submit-succeeded {:user (dissoc user :token)}]]]]
+                 ;; The route's question, not the session's: only a reader
+                 ;; still on /settings is taken to the profile (see
+                 ;; `settings-route-current?`).
+                 (settings-route-current? rt)
+                 (conj [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]))})))))
 
 (rf/reg-event :settings/submit-error
   {:doc "Server said no. Folds a readable error message into the machine's

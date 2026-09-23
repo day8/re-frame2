@@ -1710,8 +1710,10 @@
                                                       :realworld-resources.session/persist :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt"
                                               :bio nil :image nil}] {:frame f})
-      ;; Seed the draft from the user, then edit the bio.
-      (rf/dispatch-sync [:settings/load] {:frame f})
+      ;; Open Settings (its route :on-match seeds the draft from the user), then
+      ;; edit the bio. The reader is still on /settings when the reply lands,
+      ;; which is what lets the success navigate (rf2-3x7nj.42.3).
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
       (rf/dispatch-sync [:settings/edit-field :bio "A brand new bio"] {:frame f})
       (rf/dispatch-sync [:settings/submit] {:frame f})
       (is (some? @last-managed-args) "the settings PUT lowered a write")
@@ -1840,7 +1842,9 @@
     (with-new-frame [f (settings-frame!)]
       (let [alice-args (park-a-settings-save! f "alice")]
         (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
-        (rf/dispatch-sync [:settings/load] {:frame f})
+        ;; Back to Settings by the real route, whose :on-match re-seeds the
+        ;; draft slice — and whose presence is what lets the success navigate.
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
         (reply-success! alice-args
                         {:user {:username "alice" :email "a@b.c" :token "alice-jwt-2"
                                 :bio "A brand new bio" :image nil}}
