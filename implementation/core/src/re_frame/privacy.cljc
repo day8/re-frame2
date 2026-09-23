@@ -132,21 +132,26 @@
 
 (defn- redact-path
   [payload path]
-  (let [path (vec path)]
+  (let [path   (vec path)
+        parent (when (seq path) (get-in payload (pop path)))
+        seg    (peek path)]
     (cond
       (empty? path)
       redacted-sentinel
 
-      ;; The parent must be ASSOCIATIVE for `assoc-in` to descend into it,
-      ;; not merely non-nil. A non-nil scalar parent (e.g. payload
-      ;; `{:auth "tok"}` with redact path `[:auth :password]`) would make
-      ;; `assoc-in` recurse into the string and throw ("cannot assoc onto a
-      ;; String"); that throw lands inside a `:before` interceptor and aborts
-      ;; the whole event (classified `:rf.error/interceptor-exception`, no
-      ;; `:db` commit, no `:fx`) — a redaction that silently drops the event.
-      ;; `associative?` treats a non-associative parent as a no-op, matching
-      ;; the missing-leaf no-op posture below.
-      (associative? (get-in payload (butlast path)))
+      ;; The parent must be able to TAKE the leaf segment for `assoc-in` to
+      ;; descend into it, not merely be non-nil or `associative?`. A scalar
+      ;; parent (payload `{:auth "tok"}`, path `[:auth :password]`) throws
+      ;; "cannot assoc onto a String", and so does a VECTOR parent under a
+      ;; non-integer or out-of-range segment (payload `{:cards [{…}]}`, path
+      ;; `[:cards :number]` — "Key must be integer"), even though a vector is
+      ;; `associative?` (rf2-3x7nj.4.4). The overlap paths come from the DB's
+      ;; declarations, not the payload's shape, and the router computes this
+      ;; on every dispatch outside the chain's capture, so a throw here
+      ;; escapes `dispatch-sync` and the event is lost. Anything that cannot
+      ;; take the segment is the same no-op as a missing parent.
+      (or (map? parent)
+          (and (vector? parent) (integer? seg) (< -1 seg (count parent))))
       (assoc-in payload path redacted-sentinel)
 
       :else

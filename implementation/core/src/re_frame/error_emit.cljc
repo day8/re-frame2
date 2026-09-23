@@ -17,7 +17,8 @@
     through [[register-error-listener!]] receives a tight error-record:
 
          {:error        <kw>     ;; e.g. :rf.error/handler-exception
-          :event        <vector> ;; dispatched event vector (elided)
+          :event        <vector> ;; dispatched event vector (registration
+                                 ;; marks + app-db elision applied)
           :event-id     <kw>
           :frame        <kw>
           :time         <millis>
@@ -29,8 +30,13 @@
                                            ;; (no macro capture)
           }
 
-    For off-box observability shippers (Sentry, Honeybadger,
-    Rollbar). The `:source-coord` slot rides the always-on parallel
+    An IMPLEMENTATION-tier registry since rf2-kuky.69 — the framework's
+    own synchronous-window capture sites and tests read it. It is NOT the
+    door for off-box observability shippers (Sentry, Honeybadger,
+    Rollbar): those observe production errors through a frame's
+    `:observability :errors` sink, which delivers a PROJECTED
+    `:rf.observe/error` record (Spec 015). The `:source-coord` slot
+    rides the always-on parallel
     `error-coords-by-id` registry so it survives CLJS `:advanced` +
     `goog.DEBUG=false` builds where public registry-meta carries no
     coord-keys.
@@ -447,6 +453,21 @@
       :else
       (rf.source-coords/error-coords-for :event id))))
 
+(defn- redact-event-by-registration
+  "Apply the dispatched event's REGISTRATION-owned `:sensitive` / `:large` marks
+  through the always-on `:classification/redact-event-by-registration` hook, run
+  inside `frame-id`'s resolution scope (`:live-frame/call-with-frame-resolution`)
+  so an image-local declaration answers for its own record — the same pass
+  `re-frame.projection/redact-event-by-registration` gives the sink route. Both
+  hooks are late-bound; an unbound one is inert (pass-through / ambient scope)."
+  [event frame-id]
+  (if-let [redact (rf.late-bind/get-fn-cached :classification/redact-event-by-registration)]
+    (if-let [with-owner (when (some? frame-id)
+                          (rf.late-bind/get-fn-cached :live-frame/call-with-frame-resolution))]
+      (with-owner frame-id #(redact event))
+      (redact event))
+    event))
+
 ;; ---- emission -------------------------------------------------------------
 
 (defn dispatch-on-error!
@@ -604,10 +625,18 @@
                ;; `nil` into `:rf/redacted` and tell a shipper that a payload
                ;; was withheld where none existed. Redacting nothing protects
                ;; nothing; skip the walk instead.
+               ;;
+               ;; The event REGISTRATION's own `:sensitive` / `:large` marks
+               ;; (EP-0015 — event args are registration-owned) apply FIRST,
+               ;; exactly as on the dev trace (`project-event-tags`) and the
+               ;; sink route (`projection/project-event-slot`); without them
+               ;; this record shipped a declared-sensitive arg RAW while both
+               ;; sibling channels redacted it (rf2-3x7nj.4.5).
                elided-event (if (or raw-identity-event? (nil? event))
                               event
                               (try
-                                (rf.elision/elide-wire-value event {:frame frame-id})
+                                (-> (redact-event-by-registration event frame-id)
+                                    (rf.elision/elide-wire-value {:frame frame-id}))
                                 (catch #?(:clj Throwable :cljs :default) e
                                   (when (rf.trace/continuation-live?)
                                     (throw e)))))
