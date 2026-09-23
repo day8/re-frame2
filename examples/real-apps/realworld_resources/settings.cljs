@@ -179,6 +179,21 @@
 ;; `:settings/submit` alone and retired here as the save settles. Same shape as
 ;; the http twin's, which records it into the submit machine's `:data` at
 ;; `:begin-submit` — a slot route entry likewise never writes.
+;;
+;; The owner check answers "whose SESSION is this?", and that is the right owner
+;; for the session store: the session is the account's, wherever the reader is.
+;; The navigation to the profile is a different outcome with a different owner.
+;; A NAVIGATION is the ROUTE's (TWO QUESTIONS, realworld_http/comments.cljs):
+;; nothing blocks leaving /settings mid-save, so a reply that lands after the
+;; reader walked to an article or the editor must not drag them to their
+;; profile. So the navigate also asks whether the committed route is still
+;; /settings.
+(defn- settings-route-current?
+  "Is the ACTIVE ROUTE still the settings page? Reads RUNTIME-db, where the
+   route slice lives. The http twin carries the same predicate."
+  [rt]
+  (= :realworld.user/settings (get-in rt [:rf.runtime/routing :current :route-id])))
+
 (rf/reg-event :settings/replied
   {:doc "The update-settings completion continuation (the `:reply-to` target). It
          receives the canonical reply map as its final arg, observed AFTER the
@@ -186,14 +201,14 @@
          settled. It answers one question first — is the session that issued this
          save still the one signed in? — and only then, on `:ok`, pushes the saved
          User (the reply `:value`) into the auth slice, clears the instance, and
-         navigates to the user's profile. On
+         navigates to the user's profile if the reader is still on /settings. On
          `:error` there's nothing to do here — the form already shows it off the
          instance state. Clearing the instance also keeps the dispatch
          idempotent. The reply rides a map payload classified :sensitive — the
          RealWorld PUT /user reply carries a fresh User (and therefore a fresh
          token, just like login/register)."
    :sensitive [[:value :user :token]]}
-  (fn [{:keys [db]} [_ {:keys [status value]}]]
+  (fn [{:keys [db] rt :rf.db/runtime} [_ {:keys [status value]}]]
     (cond
       ;; The session this save was issued for is gone — logged out, or a
       ;; different account signed in while the PUT was in flight. Both replies
@@ -220,9 +235,12 @@
         {:db (-> db
                  (auth/store-session-db user)
                  (dissoc :settings-save-owner))
-         :fx [[:realworld-resources.session/persist {:token (:token user)}]
-              [:dispatch [:rf.mutation/clear {:instance settings-instance}]]
-              [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]]})
+         :fx (cond-> [[:realworld-resources.session/persist {:token (:token user)}]
+                      [:dispatch [:rf.mutation/clear {:instance settings-instance}]]]
+               ;; The route's question, not the session's: only a reader still
+               ;; on /settings is taken to the profile.
+               (settings-route-current? rt)
+               (conj [:dispatch [:rf.route/navigate {:to :realworld.profile/show :params {:username (:username user)}}]]))})
 
       ;; `:error` — the form already shows it off the instance state, so there
       ;; is nothing to fold in. The save is settled either way, so retire the

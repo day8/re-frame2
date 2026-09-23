@@ -781,7 +781,9 @@
   "Sign `username` in, open Settings, edit the bio and submit — returning the
    lowered PUT's args, still unanswered. The stub PARKS the request, so the test
    owns the window between submitting and replying, which is the window Logout
-   lives in."
+   lives in. Settings is opened by the REAL route, whose `:on-match` seeds the
+   draft: a success navigates only while the reader is still on /settings
+   (rf2-3x7nj.42.3), so a helper that never entered it would hide that gate."
   [f username]
   (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                           :token "jwt-1"
@@ -789,7 +791,7 @@
                                           :bio nil
                                           :image nil}]
                     {:frame f})
-  (rf/dispatch-sync [:settings/load] {:frame f})
+  (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
   (rf/dispatch-sync [:settings/edit-field :bio "New bio"] {:frame f})
   (reset! parked-managed-args nil)
   (rf/dispatch-sync [:settings/submit] {:frame f})
@@ -869,10 +871,13 @@
    is pressed: clear the session AND scrub the settings snapshot (auth.cljs).
    The two rows above dispatch only the former, which leaves the departed
    save's record standing; the overlapping case needs the real thing, because
-   the record bob's submit overwrites must be the SCRUBBED one."
+   the record bob's submit overwrites must be the SCRUBBED one. It also takes
+   the action's navigation home, so the next account's Settings visit is a
+   fresh route entry whose `:on-match` seeds the draft from THAT account."
   [f]
   (rf/dispatch-sync [:auth/clear-session] {:frame f})
-  (rf/dispatch-sync [:settings/form [:reset]] {:frame f}))
+  (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
+  (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f}))
 
 (defn- settings-overlapping-save-stale-success-test []
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
@@ -987,7 +992,8 @@
   "Sign `owner` in, open Settings, type `claimed` into the USERNAME field and
    submit — returning the lowered PUT's args, still unanswered. The twin of
    `park-a-settings-save!` for the rename case, where the account the save NAMES
-   is not the account that issued it."
+   is not the account that issued it. Opens Settings by the real route, as
+   `park-a-settings-save!` does."
   [f owner claimed]
   (rf/dispatch-sync [:auth/store-session {:email "owner@example.com"
                                           :token "jwt-1"
@@ -995,7 +1001,7 @@
                                           :bio nil
                                           :image nil}]
                     {:frame f})
-  (rf/dispatch-sync [:settings/load] {:frame f})
+  (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
   (rf/dispatch-sync [:settings/edit-field :username claimed] {:frame f})
   (reset! parked-managed-args nil)
   (rf/dispatch-sync [:settings/submit] {:frame f})
@@ -1018,8 +1024,8 @@
           (is (= :submitting (:state snap)) "bob's rename is in flight")
           (is (= {:owner "bob" :username "alice"} (get-in snap [:data :pending]))
               "and the form is waiting on a save that NAMES another account"))
-        (is (nil? (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-            "nothing has navigated yet")
+        (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+            "nothing has navigated yet — the reader is on /settings")
 
         ;; ALICE'S SUCCESS LANDS FIRST. It names `alice` — exactly the account
         ;; bob's form is waiting to hear about — so it passed the merged Q1.
@@ -1043,8 +1049,10 @@
               "and does NOT scrub the name bob is still trying to claim")
           (is (= {:owner "bob" :username "alice"} (get-in snap [:data :pending]))
               "bob's rename is still the save the form is waiting on")
-          (is (nil? (rf/compute-sub [:rf.route/id] db))
-              "and it does NOT navigate to the other account's profile"))
+          (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] db))
+              "and it does NOT navigate to the other account's profile — the
+               reader is still on /settings, so the route gate would have let
+               it through and the refusal is what stopped it"))
 
         ;; BOB'S OWN REJECTION — the occupied username — still settles HIS form.
         (reply-parked-failure! bob-args
