@@ -332,7 +332,8 @@
               (str "Re-run press " (inc press) " passes"))
           (is (= 1 (:n (rf/app-db-value vid)))
               "the play ran once from :setup, not on top of the poked state")
-          #?(:clj (is (= :pass (settled-status p)) "the unified verdict agrees")))))))
+          #?(:clj  (is (= :pass (settled-status p)) "the unified verdict agrees")
+             :cljs (is (some? p) "rerun! hands back the run's promise")))))))
 
 (deftest rerun-reads-only-its-own-tape
   (testing "a tape assertion on Re-run reads THIS run's epochs: the author's
@@ -348,7 +349,8 @@
       (let [p (rerun! vid {:play nil})]
         (is (= :fail (play-status vid nil))
             "Re-run fails too: the author's click belongs to no run of the play")
-        #?(:clj (is (= :fail (settled-status p))))))))
+        #?(:clj  (is (= :fail (settled-status p)))
+           :cljs (is (some? p)))))))
 
 (deftest rerun-runs-the-compiled-play-with-the-run-inputs
   (testing "Re-run takes its play from the compiled plan under the canvas's run
