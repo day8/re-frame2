@@ -58,7 +58,8 @@ The live tests exercise behaviour that requires a connected browser
 runtime: overflow, turn-shaped observation (dispatch consequence,
 `watch-epochs`, `watch-until`, the recorder read-back), sensitive-value
 projection, the universal `isError`/`:ok?` relationship, recordable
-coeffects, and event metadata.
+coeffects, event metadata, and `replace-app-db`'s data-versus-evaluation
+contract.
 
 [`scripts/live-test-inventory.cjs`](scripts/live-test-inventory.cjs) is
 the single owner of the live-test roster. Both `npm test` and the
@@ -92,7 +93,7 @@ The end-to-end workflows use helpers from `test/_runner.cjs`:
 - `assertClassificationRatchet` compares every live descriptor with the
   server classification fixture. The fixture key set must exactly match
   the advertised catalogue.
-- `trackCallCoverage` and `assertCallCoverageRatchet` require every
+- `track` and `assertCallCoverageRatchet` require every
   advertised tool to be SDK-called or named in a reviewed exclusion map
   with a non-empty alternative-coverage rationale. Stale, contradictory,
   and blank exclusions fail.
