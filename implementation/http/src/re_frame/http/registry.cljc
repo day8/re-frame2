@@ -555,9 +555,12 @@
   ;; protects only a supersession's newer live successor, so with two live
   ;; anonymous siblings (1 and 2) the second completing first would drop the
   ;; counter and hand the next request 1 while the first was still live — a
-  ;; live work-id collision. The key space is (frames × event-ids), which is
-  ;; bounded; a destroyed frame's entries are dropped by
-  ;; `abort-in-flight-on-frame-destroyed!`.
+  ;; live work-id collision. For an ordinary event the key space is (frames ×
+  ;; registered event-ids), which is bounded. A request issued from inside a
+  ;; spawned actor is keyed by the actor's ADDRESS (`<prefix>#<n>`, n only
+  ;; rises), which is not, so `abort-on-actor-destroy` drops the address's
+  ;; entry when the actor goes (rf2-3x7nj.16.4); a destroyed frame's entries
+  ;; are dropped by `abort-in-flight-on-frame-destroyed!`.
   (atom {}))
 
 (defn next-issuance!
@@ -574,7 +577,8 @@
   anonymous counter instead, keyed by `(first origin-event)`: the first
   anonymous request of an event in a frame is 1, the next 2, and so on, never
   reset by completion — so two anonymous requests of one event never share a
-  work id."
+  work id. The count restarts only when its owner goes: the frame, or the
+  spawned actor whose address is the event-id (rf2-3x7nj.16.4)."
   ([frame-id request-id] (next-issuance! frame-id request-id nil))
   ([frame-id request-id origin-event]
    (if (nil? request-id)
@@ -598,8 +602,8 @@
   and the counter survives for the live successor. A single-issuance request
   (the leak vector) satisfies `counter == issuance`, so it evicts cleanly on
   completion. A `nil` `request-id` is an anonymous request, whose counter
-  lives in `anonymous-issuance-counters` and is deliberately never evicted
-  (rf2-x8oz5) — no-op.
+  lives in `anonymous-issuance-counters` and is deliberately never evicted on
+  completion (rf2-x8oz5) — no-op.
 
   Called ONLY at the terminal-completion sites (`finalise-success!`,
   `finalise-failure!`, `dispatch-aborted!`), NEVER on the retry-clear or
@@ -939,7 +943,14 @@
                          (true? (:sensitive? handle)))))
         (try
           ((:abort-fn handle) :actor-destroyed)
-          (catch #?(:clj Throwable :cljs :default) _ nil)))))
+          (catch #?(:clj Throwable :cljs :default) _ nil)))
+      ;; rf2-3x7nj.16.4 — an anonymous request issued from inside this actor
+      ;; took its issuance from the counter keyed by the actor's ADDRESS
+      ;; (`<prefix>#<n>`, n only rises), so keeping the entry would leave one
+      ;; per spawn for the frame's lifetime. Every request the address issued is
+      ;; terminal once the aborts above have run, so restarting its count cannot
+      ;; collide, even if the address is later minted again.
+      (swap! anonymous-issuance-counters dissoc [frame-id actor-id])))
    nil))
 
 ;; ---- abort-in-flight-for-frame! (rf2-u5kmf8) ------------------------------
@@ -1090,8 +1101,9 @@
   already-empty indexes yield no handles). Does NOT overload `:epoch-restored`.
   Idempotent; a no-op for a frame with no in-flight managed HTTP. Returns nil.
 
-  rf2-x8oz5 — also drops the destroyed frame's anonymous issuance counters, the
-  one place their otherwise never-evicted entries can go."
+  rf2-x8oz5 — also drops the destroyed frame's anonymous issuance counters. The
+  only other place those entries go is `abort-on-actor-destroy`, which drops a
+  destroyed actor's (rf2-3x7nj.16.4)."
   [frame-id]
   (abort-frame-handles! frame-id :frame-destroyed :suppressed-on-frame-destroy)
   (swap! anonymous-issuance-counters
