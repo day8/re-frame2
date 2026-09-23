@@ -10,6 +10,8 @@
   re-render) lives in `docs_toc_cljs_test.cljs` — this corpus pins the
   pure projection only."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.docs :as rf.story.ui.docs]))
 
 (deftest toc-table-shape
@@ -46,3 +48,31 @@
       (is (= ["docs-args" "docs-decorators" "docs-parameters"
               "docs-evidence" "docs-tags"]
              (mapv :id out))))))
+
+(deftest docs-plan-compiles-a-variant-that-leaves-props-to-its-story
+  (testing "rf2-3x7nj.28.3: the flagship authoring pattern — required props on
+            the story's :args, a variant overriding one — compiles for Docs
+            the way it does for a run, so the status and schema sections show"
+    (rf.story.registrar/clear-all!)
+    (rf.registrar/clear-kind! :view)
+    (try
+      (rf.registrar/register! :view :views/docs-button
+                              {:rf/props   [:map [:label :string]
+                                            [:variant [:enum :primary :danger]]
+                                            [:size [:int {:min 8 :max 64}]]]
+                               :handler-fn (fn [_] nil)})
+      (rf.story.registrar/reg-story* :story.docs.button
+                                     {:component :views/docs-button
+                                      :args      {:label "Go" :variant :primary :size 16}})
+      (rf.story.registrar/reg-variant* :story.docs.button/danger {:args {:variant :danger}})
+      (let [plan (rf.story.ui.docs/variant-plan-quietly :story.docs.button/danger)
+            ids  (set (map :id (rf.story.ui.docs/visible-toc-entries
+                                 :story.docs.button/danger)))]
+        (is (= {:label "Go" :variant :danger :size 16}
+               (get-in plan [:world :effective-args]))
+            "the plan compiled over the story's args with the variant's override")
+        (is (contains? ids "docs-status"))
+        (is (contains? ids "docs-schema")))
+      (finally
+        (rf.story.registrar/clear-all!)
+        (rf.registrar/clear-kind! :view)))))

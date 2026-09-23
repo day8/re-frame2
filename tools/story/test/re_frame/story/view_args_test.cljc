@@ -149,6 +149,36 @@
       ;; agree because they read the same compiled slot.
       (is (= schema (rf.story.view-args/compiled-view-args-schema :story.prod/same))))))
 
+(def ^:private button-props
+  "The 001-Authoring.md flagship button view's props schema."
+  [:map [:label :string] [:variant [:enum :primary :secondary :danger]]
+   [:size [:int {:min 8 :max 64}]] [:disabled? :boolean]])
+
+(deftest compiled-resolver-resolves-a-variant-that-leaves-props-to-its-story
+  (testing "rf2-3x7nj.28.3: the flagship authoring pattern — required props on
+            the story's :args, a variant overriding one — resolves its schema.
+            The schema is the component's :rf/props, so the read does not
+            depend on which layer supplies the args"
+    (reg-view-meta! :views/button {:rf/props button-props})
+    (rf.story.registrar/reg-story* :story.ui.button
+                                   {:component :views/button
+                                    :args      {:label "Go" :variant :primary
+                                                :size 16 :disabled? false}})
+    (rf.story.registrar/reg-variant* :story.ui.button/danger {:args {:variant :danger}})
+    (is (= button-props
+           (rf.story.view-args/compiled-view-args-schema :story.ui.button/danger)))
+    (testing "and args that genuinely miss a required prop on every layer do
+              not erase the schema they were validated against"
+      (rf.story.registrar/reg-story* :story.ui.unlabelled
+                                     {:component :views/button
+                                      :args      {:variant :primary :size 16
+                                                  :disabled? false}})
+      (rf.story.registrar/reg-variant* :story.ui.unlabelled/danger
+                                       {:args {:variant :danger}})
+      (is (= button-props
+             (rf.story.view-args/compiled-view-args-schema
+               :story.ui.unlabelled/danger))))))
+
 (deftest compiled-resolver-unregistered-variant-is-nil
   (testing "an unregistered variant resolves nil (best-effort tooling read —
             no throw)"
