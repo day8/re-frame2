@@ -83,7 +83,8 @@
   HTML escaping (per §8.2): lifted by intent (not require — bundle
   isolation forbids `:require` between artefacts; per rf2-6phn the
   duplication is accepted because HTML5's escape rules are frozen)
-  from `re-frame.ssr/escape-html`.
+  from `re-frame.ssr/escape-html`. A `<script>` / `<style>` string body
+  is the exception: raw text, emitted verbatim (`escape-raw-text`).
 
   Boolean attributes + void tags (per §8.4): lifted similarly from
   `re-frame.ssr/void-elements`. The HTML5 void-tag list is fixed.
@@ -126,6 +127,56 @@
   (-> (str s)
       (str/replace "&" "&amp;")
       (str/replace "\"" "&quot;")))
+
+;; ---------------------------------------------------------------------------
+;; Element-context text rules (rf2-3x7nj.6.2)
+;;
+;; Two text rules depend on the PARENT element, which the context-free
+;; `escape-text` above cannot express. Both are lifted by intent from
+;; `re-frame.ssr.html-helpers` (bundle isolation forbids the `:require`),
+;; which records the same react-dom/server behaviour for the house emitter.
+;; If either roster changes, both copies update.
+;;
+;;   RAW TEXT — `<script>` / `<style>`. The HTML parser does NOT decode
+;;   character references inside these, so entity-escaping their text
+;;   corrupts it: `'Open Sans'` reached the CSS parser as
+;;   `&#39;Open Sans&#39;` and `a && b` reached the JS parser as
+;;   `a &amp;&amp; b`. react-dom emits the text verbatim and rewrites only
+;;   an embedded closing-tag sequence, so the element cannot end early.
+;;
+;;   LEADING LF — `<pre>` / `<listing>` / `<textarea>`. The parser eats one
+;;   LF immediately after these start tags, so react-dom prefixes one
+;;   compensating LF when the element's sole string body begins with one.
+;; ---------------------------------------------------------------------------
+
+(def ^:private raw-text-tags
+  "Elements whose text children are HTML raw text. Lower-case; lockstep
+  with `re-frame.ssr.html-helpers/raw-text-tags`."
+  #{"script" "style"})
+
+(defn- escape-raw-text
+  "The text body of raw-text element `tag-lc` (lower-cased), as react-dom
+  emits it: verbatim, except that an embedded `<script` / `</script` (for
+  `style`, `<style` / `</style`), in any case, has its `s` rewritten to a
+  language-level escape — `\\u0073` / `\\u0053` in JS, `\\73 ` / `\\53 ` in
+  CSS — so the HTML parser never sees a closing tag while the script or
+  stylesheet still reads an `s`. Byte-equal to
+  `re-frame.ssr.html-helpers/escape-raw-text` and react-dom's
+  `scriptReplacer` / `styleReplacer`."
+  [tag-lc s]
+  (case tag-lc
+    "script" (str/replace s #"(</?)([sS])([cC][rR][iI][pP][tT])"
+                          (fn [[_ prefix s-char suffix]]
+                            (str prefix (if (= s-char "s") "\\u0073" "\\u0053") suffix)))
+    "style"  (str/replace s #"(</?)([sS])([tT][yY][lL][eE])"
+                          (fn [[_ prefix s-char suffix]]
+                            (str prefix (if (= s-char "s") "\\73 " "\\53 ") suffix)))
+    s))
+
+(def ^:private newline-eating-tags
+  "Elements whose parser drops one LF immediately after the start tag.
+  Lower-case; lockstep with `re-frame.ssr.html-helpers/newline-eating-tags`."
+  #{"pre" "listing" "textarea"})
 
 ;; ---------------------------------------------------------------------------
 ;; Void tags + boolean attributes (HTML5)
@@ -492,6 +543,93 @@
             (str/lower-case n))))))
 
 ;; ---------------------------------------------------------------------------
+;; Attribute-name and tag-name gates (rf2-3x7nj.6.1)
+;;
+;; Attribute and tag NAMES reach the wire unescaped, so a name built from
+;; data — an app splatting a CMS or JSON attribute map into hiccup, or a
+;; string head — could carry `=`, whitespace or a quote and break out into
+;; a live inline handler: `{"onclick=alert(1) x" "y"}` emitted
+;; `<div onclick=alert(1) x="y">`. Both gates below refuse such a name by
+;; THROWING the id re-frame.ssr throws for the same hazard.
+;;
+;; The grammar is react-dom 19.3.0's OWN predicates, copied by intent
+;; (bundle isolation forbids requiring anything), NOT re-frame.ssr's
+;; narrower `[A-Za-z][A-Za-z0-9_:-]*`. This artefact's one contract is
+;; byte-parity with react-dom, and react-dom renders `x.y`, `_foo` and
+;; `<a_b>`, so the narrower grammar would refuse programmer markup rather
+;; than an attack. Every breakout character is outside both grammars.
+;;
+;; Throw rather than drop: react-dom DROPS an invalid attribute name, but
+;; with a development-build console error. This namespace has no DEBUG
+;; branch (see the ns docstring), so a drop here would be silent and a
+;; splatted attack or a data bug would vanish without trace.
+;; ---------------------------------------------------------------------------
+
+(def ^:private attribute-name-start-chars
+  "react-dom's `ATTRIBUTE_NAME_START_CHAR` class body, verbatim."
+  (str ":A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D"
+       "\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF"
+       "\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD"))
+
+(def ^:private valid-attribute-name-re
+  "react-dom 19.3.0's `VALID_ATTRIBUTE_NAME_REGEX`, built the way react-dom
+  builds it: a start char, then start chars plus `-`, `.`, digits, U+00B7,
+  U+0300-036F and U+203F-2040."
+  (js/RegExp. (str "^[" attribute-name-start-chars "]"
+                   "[" attribute-name-start-chars
+                   "\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$")))
+
+(def ^:private valid-tag-name-re
+  "react-dom 19.3.0's `VALID_TAG_REGEX`, verbatim."
+  #"^[a-zA-Z][a-zA-Z:_\.\-\d]*$")
+
+(defn- checked-attribute-name
+  "The HTML name `attribute-name` produces for hiccup key `k`, or a thrown
+  `:rf.error/ssr-invalid-attribute-name` when react-dom's own predicate
+  refuses that name (rf2-3x7nj.6.1). Called wherever a user-supplied name
+  reaches the wire — the ordinary value path and the boolean path."
+  [k]
+  (let [n (attribute-name k)]
+    (if (.test valid-attribute-name-re n)
+      n
+      (throw (ex-info (str "Attribute name " (pr-str n) " (from hiccup key "
+                           (pr-str k) ") is not a valid HTML attribute name; "
+                           "emitting it would let the key break out of its "
+                           "attribute. Rename the attribute key. "
+                           "[:rf.error/ssr-invalid-attribute-name]")
+                      {:rf.error/id :rf.error/ssr-invalid-attribute-name
+                       :where       'reagent2.dom.server/render-to-static-markup
+                       :reason      (str "An attribute name must be one React "
+                                         "accepts; a name carrying whitespace, "
+                                         "`=`, a quote, `<`, `>` or `/` would "
+                                         "break out of its attribute.")
+                       :recovery    :rename-the-attribute-key
+                       :attribute   k})))))
+
+(defn- check-tag-name!
+  "Throw `:rf.error/invalid-tag-name` unless `tag-str`, parsed from hiccup
+  head `head`, is a string react-dom's own tag predicate accepts
+  (rf2-3x7nj.6.1). The `string?` test is load-bearing: `template/parse-tag`
+  returns a NIL tag for class-before-id shorthand (`:div.a#id`), which
+  rendered as the literal element `<null>`, and `.test` coerces nil to
+  \"null\" and would pass it."
+  [tag-str head]
+  (when-not (and (string? tag-str) (.test valid-tag-name-re tag-str))
+    (throw (ex-info (str "Hiccup head " (pr-str head) " does not name a valid "
+                         "element (parsed tag name " (pr-str tag-str) ")"
+                         (when (nil? tag-str)
+                           "; shorthand must put #id before .class, as in :div#id.a")
+                         ". Use a valid element name. [:rf.error/invalid-tag-name]")
+                    {:rf.error/id :rf.error/invalid-tag-name
+                     :where       'reagent2.dom.server/render-to-static-markup
+                     :reason      (str "A DOM tag name must be one React accepts: "
+                                       "a letter, then letters, digits, `:`, `_`, "
+                                       "`.` or `-`.")
+                     :recovery    :use-a-valid-element-name
+                     :tag-name    tag-str
+                     :source      head}))))
+
+;; ---------------------------------------------------------------------------
 ;; Attribute value serialisation
 ;;
 ;; Per §8.3 / S3-005: every prop-name reaching this layer IS by
@@ -675,13 +813,15 @@
 ;; Curated to match `re-frame.ssr.html-helpers/event-handler-allowlist`
 ;; (lifted by intent, not require — bundle isolation forbids `:require`
 ;; between artefacts; see ns docstring). If HTML5 extends the
-;; event-handler list, both copies update.
+;; event-handler list, both copies update. `oncommand` is the one name
+;; this copy missed when re-frame.ssr gained it (rf2-51tgp; closed here
+;; by rf2-3x7nj.6.1).
 (def ^:private event-handler-allowlist
   #{"onabort" "onafterprint" "onanimationcancel" "onanimationend"
     "onanimationiteration" "onanimationstart" "onauxclick"
     "onbeforeinput" "onbeforematch" "onbeforeprint" "onbeforetoggle"
     "onbeforeunload" "onblur" "oncancel" "oncanplay" "oncanplaythrough"
-    "onchange" "onclick" "onclose" "oncontextlost" "oncontextmenu"
+    "onchange" "onclick" "onclose" "oncommand" "oncontextlost" "oncontextmenu"
     "oncontextrestored" "oncopy" "oncuechange" "oncut" "ondblclick"
     "ondrag" "ondragend" "ondragenter" "ondragleave" "ondragover"
     "ondragstart" "ondrop" "ondurationchange" "onemptied" "onended"
@@ -767,7 +907,7 @@
   preserves React's casing for the case-sensitive SVG members
   (`preserveAlpha`, `autoReverse`, …)."
   [^StringBuffer sb k v]
-  (let [n (attribute-name k)]
+  (let [n (checked-attribute-name k)]
     (case (boolean-attr-class n)
       (:presence :overloaded)
       (when v
@@ -836,7 +976,7 @@
     (emit-boolean-attribute sb k v)
 
     :else
-    (let [n      (attribute-name k)
+    (let [n      (checked-attribute-name k)
           bool-n (str/lower-case n)]
       (if (contains? presence-attributes bool-n)
         ;; Presence attribute with a non-boolean value: emit the
@@ -1004,6 +1144,7 @@
         void?        (contains? template/void-tags tag-str)
         dangerous    (when (map? user-attrs)
                        (:dangerouslySetInnerHTML user-attrs))]
+    (check-tag-name! tag-str head)
     (.append sb "<")
     (.append sb tag-str)
     (emit-attributes sb attrs)
@@ -1021,11 +1162,26 @@
           (.append sb ">"))
 
       :else
-      (do (.append sb ">")
-          (emit-children sb children)
-          (.append sb "</")
-          (.append sb tag-str)
-          (.append sb ">")))))
+      (let [tag-lc (str/lower-case tag-str)]
+        (.append sb ">")
+        (if (and (contains? raw-text-tags tag-lc)
+                 (seq children)
+                 (every? string? children))
+          ;; rf2-3x7nj.6.2 — a script/style string body is raw text:
+          ;; verbatim, with only the closing sequence rewritten.
+          (.append sb (escape-raw-text tag-lc (apply str children)))
+          (do
+            ;; rf2-3x7nj.6.2 — one compensating LF for a sole string body
+            ;; that starts with LF, which the parser would otherwise eat.
+            (when (and (contains? newline-eating-tags tag-lc)
+                       (= 1 (count children))
+                       (string? (first children))
+                       (str/starts-with? (first children) "\n"))
+              (.append sb "\n"))
+            (emit-children sb children)))
+        (.append sb "</")
+        (.append sb tag-str)
+        (.append sb ">")))))
 
 (defn- emit-fragment
   "Emit a `:<>` fragment — children only, no surrounding markup."

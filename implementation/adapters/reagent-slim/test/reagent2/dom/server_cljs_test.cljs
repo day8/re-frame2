@@ -636,3 +636,177 @@
             event-prop filter was added"
     (is (= "<div></div>"
            (server/render-to-static-markup [:div {:key "k" :ref "r"}])))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.6.1: attacker-controlled attribute and tag NAMES
+;;
+;; The threat model is the one re-frame.ssr already accepts: an app splats
+;; an attacker-controlled attribute map into hiccup (a CMS or JSON payload
+;; read with keywordised keys), or builds a string head from data. This
+;; serializer emitted attribute and tag names verbatim, so a key carrying
+;; `=`, whitespace or a quote broke out of the attribute and installed a
+;; live inline handler — on the ordinary value path AND on the boolean
+;; path, which classifies any `data-*` / `aria-*` name as stringifying.
+;;
+;; RULED: THROW, refusing exactly the names react-dom 19.3.0's own
+;; predicates refuse (its attribute-name regex and its tag regex, not
+;; re-frame.ssr's narrower grammar), with the two ids re-frame.ssr already
+;; throws. `oncommand` joins the silent-drop event-handler allowlist.
+;; ---------------------------------------------------------------------------
+
+(defn- render-outcome
+  "Render `hiccup`, returning `{:html s}` on success or `{:error data
+  :message m}` when it throws, so a regression can assert BOTH that no
+  markup escaped and which catalogued error was thrown."
+  [hiccup]
+  (try
+    {:html (server/render-to-static-markup hiccup)}
+    (catch :default e
+      {:error (ex-data e) :message (ex-message e)})))
+
+(def ^:private breakout-name
+  "An attribute name that closes itself and opens a live `onclick`."
+  "onclick=alert(1) x")
+
+(deftest hostile-attribute-name-throws-rf2-3x7nj-6-1
+  (testing "ordinary value path: a keyword key and a string key carrying an
+            attribute breakout both throw, and no markup is produced"
+    (doseq [k [(keyword breakout-name) breakout-name]]
+      (let [{:keys [html error message]} (render-outcome [:div {k "y"} "hi"])]
+        (is (nil? html)
+            (str "no markup may be produced for key " (pr-str k)
+                 "; got " (pr-str html)))
+        (is (= :rf.error/ssr-invalid-attribute-name (:rf.error/id error)))
+        (is (= k (:attribute error)) "the payload names the offending key")
+        (is (= :rename-the-attribute-key (:recovery error)))
+        (is (= 'reagent2.dom.server/render-to-static-markup (:where error)))
+        (is (re-find #"\[:rf\.error/ssr-invalid-attribute-name\]" (str message)))))))
+
+(deftest hostile-boolean-attribute-name-throws-rf2-3x7nj-6-1
+  (testing "boolean value path: a data-*/aria-* prefixed name is classified
+            stringifying and was appended raw — for true AND false"
+    (doseq [[k v] [["data-x onclick=alert(1) x" true]
+                   ["aria-x onclick=alert(1) x" false]]]
+      (let [{:keys [html error]} (render-outcome [:div {k v} "hi"])]
+        (is (nil? html)
+            (str "no markup may be produced for " (pr-str k) " " v
+                 "; got " (pr-str html)))
+        (is (= :rf.error/ssr-invalid-attribute-name (:rf.error/id error)))
+        (is (= k (:attribute error)))))))
+
+(deftest oncommand-is-dropped-rf2-3x7nj-6-1
+  (testing "oncommand is an event-handler attribute (Chromium fires it on a
+            `command` event), so every casing drops silently, like onclick"
+    (doseq [k [:oncommand "ONCOMMAND" :OnCommand]]
+      (is (= "<div></div>"
+             (server/render-to-static-markup [:div {k "alert(1)"}]))
+          (str (pr-str k) " must not reach the markup")))))
+
+(deftest hostile-tag-name-throws-rf2-3x7nj-6-1
+  (testing "a string head built from data cannot smuggle attributes into
+            the start tag"
+    (let [head "img/src=\"x\"/onerror=alert(1)"
+          {:keys [html error message]} (render-outcome [head])]
+      (is (nil? html) (str "no markup may be produced; got " (pr-str html)))
+      (is (= :rf.error/invalid-tag-name (:rf.error/id error)))
+      (is (= head (:tag-name error)))
+      (is (= head (:source error)))
+      (is (= :use-a-valid-element-name (:recovery error)))
+      (is (re-find #"\[:rf\.error/invalid-tag-name\]" (str message)))))
+  (testing "class-before-id shorthand parses to a NIL tag, which rendered as
+            the literal element `<null>`; it now throws the same id"
+    (let [{:keys [html error]} (render-outcome [:div.a#id "x"])]
+      (is (nil? html) (str "no markup may be produced; got " (pr-str html)))
+      (is (= :rf.error/invalid-tag-name (:rf.error/id error)))
+      (is (nil? (:tag-name error)))
+      (is (= :div.a#id (:source error))))))
+
+(deftest valid-names-still-serialise-rf2-3x7nj-6-1
+  (testing "controls: ordinary names render exactly as before"
+    (is (= "<div data-x=\"1\"></div>"
+           (server/render-to-static-markup [:div {:data-x "1"}])))
+    (is (= "<div aria-label=\"close\"></div>"
+           (server/render-to-static-markup [:div {:aria-label "close"}])))
+    (is (= "<svg viewBox=\"0 0 1 1\"></svg>"
+           (server/render-to-static-markup [:svg {:viewBox "0 0 1 1"}])))
+    (is (= "<svg xmlns:xlink=\"http://www.w3.org/1999/xlink\"></svg>"
+           (server/render-to-static-markup
+            [:svg {(keyword "xmlns:xlink") "http://www.w3.org/1999/xlink"}])))
+    (is (= "<div online=\"x\"></div>"
+           (server/render-to-static-markup [:div {:online "x"}])))
+    (is (= "<div data-flag=\"true\"></div>"
+           (server/render-to-static-markup [:div {:data-flag true}]))
+        "the boolean path still emits a valid prefixed name"))
+  (testing "react-dom accepts `x.y` and `_foo`; re-frame.ssr's narrower
+            grammar would refuse both. They PIN the ruled grammar: a gate
+            copying the SSR grammar reds here"
+    (is (= "<div x.y=\"1\"></div>"
+           (server/render-to-static-markup [:div {(keyword "x.y") "1"}])))
+    (is (= "<div _foo=\"1\"></div>"
+           (server/render-to-static-markup [:div {:_foo "1"}]))))
+  (testing "the same payload under a VALID name still serialises, so the
+            throw is about the name and never the value"
+    (is (= "<div title=\"alert(1)\"></div>"
+           (server/render-to-static-markup [:div {:title "alert(1)"}]))))
+  (testing "tag names react-dom accepts still render, including `a_b`,
+            which re-frame.ssr's tag grammar would refuse"
+    (is (= "<my-element></my-element>"
+           (server/render-to-static-markup [:my-element])))
+    (is (= "<font-face></font-face>"
+           (server/render-to-static-markup [:font-face])))
+    (is (= "<a_b></a_b>"
+           (server/render-to-static-markup [:a_b])))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.6.2: element-context text rules
+;;
+;; `<script>` / `<style>` bodies are HTML RAW TEXT: the parser never decodes
+;; character references inside them, so entity-escaping their text corrupts
+;; the CSS / JS (`'Open Sans'` became `&#39;Open Sans&#39;`, `a && b` became
+;; `a &amp;&amp; b`). react-dom emits the text verbatim and rewrites only an
+;; embedded closing-tag sequence. Separately, the parser eats one LF after
+;; `<pre>` / `<listing>` / `<textarea>`, and react-dom prefixes one
+;; compensating LF when the sole string body starts with one.
+;; ---------------------------------------------------------------------------
+
+(deftest raw-text-elements-emit-verbatim-rf2-3x7nj-6-2
+  (testing "a <style> body is CSS, not HTML — quotes and `>` survive"
+    (is (= "<style>body { font-family: 'Open Sans' } td > p { margin: 0 }</style>"
+           (server/render-to-static-markup
+            [:style "body { font-family: 'Open Sans' } td > p { margin: 0 }"]))))
+  (testing "a <script> body is JS — `<` and `&&` survive"
+    (is (= "<script>if (a < b && c) go()</script>"
+           (server/render-to-static-markup [:script "if (a < b && c) go()"]))))
+  (testing "an embedded closing sequence is still neutralised, in any case,
+            by a language-level escape of its `s`"
+    (is (= "<script>x = '</\\u0073cript><b>'</script>"
+           (server/render-to-static-markup [:script "x = '</script><b>'"])))
+    (is (= "<script>a <\\u0053CRIPT b</script>"
+           (server/render-to-static-markup [:script "a <SCRIPT b"])))
+    (is (= "<style>a{}</\\73 tyle><b></style>"
+           (server/render-to-static-markup [:style "a{}</style><b>"])))
+    (is (= "<style></\\53 TYLE></style>"
+           (server/render-to-static-markup [:style "</STYLE>"]))))
+  (testing "controls: RCDATA <title> and ordinary elements still escape"
+    (is (= "<title>a &lt; b</title>"
+           (server/render-to-static-markup [:title "a < b"])))
+    (is (= "<div>td &gt; p &#39;x&#39;</div>"
+           (server/render-to-static-markup [:div "td > p 'x'"])))))
+
+(deftest leading-newline-compensation-rf2-3x7nj-6-2
+  (testing "pre / listing / textarea: a sole string body starting with LF
+            gets one compensating LF, so the authored LF survives parsing"
+    (is (= "<pre>\n\n  indented</pre>"
+           (server/render-to-static-markup [:pre "\n  indented"])))
+    (is (= "<listing>\n\nx</listing>"
+           (server/render-to-static-markup [:listing "\nx"])))
+    (is (= "<textarea>\n\nx</textarea>"
+           (server/render-to-static-markup [:textarea "\nx"]))))
+  (testing "controls: no leading LF, a multi-child body, and an ordinary
+            element are all untouched"
+    (is (= "<pre>x</pre>"
+           (server/render-to-static-markup [:pre "x"])))
+    (is (= "<pre>\n<b>x</b></pre>"
+           (server/render-to-static-markup [:pre "\n" [:b "x"]])))
+    (is (= "<div>\nx</div>"
+           (server/render-to-static-markup [:div "\nx"])))))
