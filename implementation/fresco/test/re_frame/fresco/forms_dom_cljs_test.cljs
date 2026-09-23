@@ -69,6 +69,12 @@
   (fn [_ _] {:db {:todo     {todo {:title committed :title-revision 0}}
                   :showing? true}}))
 
+(rf/reg-event ::seed-untitled
+  {:doc "The same todo before anybody has titled it: `:title` absent, so
+         `::title` reads nil (rf2-3x7nj.7.1)."}
+  (fn [_ _] {:db {:todo     {todo {:title-revision 0}}
+                  :showing? true}}))
+
 (rf/reg-sub ::title (fn [db [_ id]] (get-in db [:todo id :title])))
 (rf/reg-sub ::title-revision (fn [db [_ id]] (get-in db [:todo id :title-revision])))
 (rf/reg-sub ::showing? (fn [db _] (:showing? db)))
@@ -244,6 +250,45 @@
         (is (identical? n js/document.activeElement)
             "and focus is still in the box")
         (finish m done)))))
+
+(deftest an-untitled-todo-is-an-empty-box-on-one-node
+  ;; rf2-3x7nj.7.1. The chapter's example for a todo with no `:title`:
+  ;; the committed value is nil and the module forwards its revision
+  ;; beside it. The box must render, show the committed value — nothing —
+  ;; whenever no draft is live, and keep ONE node while the value it shows
+  ;; moves between nil and text.
+  (async done
+    (if-not (browser?)
+      (do (skip! "an untitled todo's box, on a real node") (done))
+      (let [m (try (rf.fresco.test.mounted/mount! [screen {}]
+                                                  {:initial-events [[::seed-untitled]]})
+                   (catch :default e {:refused (or (:rf.error/id (ex-data e)) (str e))}))]
+        (if (:refused m)
+          (do (is (nil? (:refused m))
+                  "the field rendered rather than refusing its own revision")
+              (done))
+          (let [n (field m)]
+            (is (= "" (.-value n)) "an untitled todo is an empty box")
+            (.focus n)
+            (type-into! m n "   ")
+            (press! m n "Enter")
+            (is (nil? (title-of m)) "the caller refused the blank candidate")
+            (is (= "" (.-value n))
+                "and the box is back to the committed value, which is empty —
+                 not left holding the refused text")
+            (type-into! m n "Buy milk")
+            (press! m n "Escape")
+            (is (= "" (.-value n)) "Escape shows `:value` again: nothing")
+            (type-into! m n "Buy milk")
+            (press! m n "Enter")
+            (is (= "Buy milk" (title-of m)))
+            (is (= "Buy milk" (.-value n)))
+            (is (identical? n (field m))
+                "ONE node throughout, while the value it shows moved between
+                 nil and text four times")
+            (is (identical? n js/document.activeElement)
+                "and the focus never left it")
+            (finish m done)))))))
 
 (deftest escape-reverts-a-still-mounted-field-and-the-late-blur-commits-nothing
   ;; The cancel-then-blur race in its harder arrangement: this field STAYS

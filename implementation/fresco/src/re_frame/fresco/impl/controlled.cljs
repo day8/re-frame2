@@ -192,6 +192,41 @@
     (fn? (unchecked-get js-props "onInput"))  "onInput"
     :else                                     nil))
 
+(def ^:private token-types
+  "The `<input>` types whose `value` is not the text the field shows — a
+  submission token (`checkbox`, `radio`, `hidden`), a button's label
+  (`submit`, `reset`, `button`, `image`) or the platform's file name
+  (`file`): HTML's `default`, `default/on` and `filename` value modes.
+  Every other type, an unknown one included (the platform reads it as
+  `text`), is the `value` mode, where the value IS the field's content."
+  #{"checkbox" "radio" "hidden" "submit" "reset" "button" "image" "file"})
+
+(defn- content-value?
+  "Is this element's `value` the text it shows? A `<textarea>` always; an
+  `<input>` unless its type is one of the `token-types`, folded to lower
+  case for the reason `caret-type?` gives."
+  [tag js-props]
+  (or (identical? "textarea" tag)
+      (let [t (unchecked-get js-props "type")]
+        (not (and (string? t) (contains? token-types (.toLowerCase t)))))))
+
+(defn- empty-when-nil!
+  "A nil `:value` on a field whose value is its content is the EMPTY field,
+  so write `\"\"` over the codec's `null`. React reads `null` as
+  *uncontrolled*, and a field that goes uncontrolled keeps whatever text it
+  last showed: a commit clearing the model to nil would leave the old text
+  in the box, and a revision beside a nil value would have nothing to
+  re-baseline TO — the model would stop being authoritative exactly when
+  it is unset (04-controlled-inputs, guarantee 2). An unwritten `:value`
+  (`undefined`, no slot) is left alone, and a token type keeps the `null`,
+  which React reads as *no attribute*."
+  [tag js-props]
+  (let [v (unchecked-get js-props "value")]
+    (when (and (nil? v)
+               (not (undefined? v))
+               (content-value? tag js-props))
+      (unchecked-set js-props "value" ""))))
+
 (defn- controlled-text-tag?
   "Is this a form control React mirrors a controlled `value` onto: an
   `input` or `textarea` with a non-nil `value`? The `:type` is deliberately
@@ -200,7 +235,11 @@
   under a live field would remount it — losing focus, selection and any
   composition — where the attribute change React performs on a `text` →
   `number` keystroke loses nothing
-  (`controlled-dom-cljs-test/the-element-type-does-not-move-when-the-input-type-does`)."
+  (`controlled-dom-cljs-test/the-element-type-does-not-move-when-the-input-type-does`).
+  A nil `:value` on a text field never reaches it as nil — `empty-when-nil!`
+  has made it `\"\"` — so a model moving between nil and text does not move
+  the type either
+  (`…/the-element-type-does-not-move-when-the-value-moves-between-nil-and-text`)."
   [tag js-props]
   (and (convergeable-tag? tag)
        (some? (unchecked-get js-props "value"))))
@@ -337,6 +376,10 @@
   and deliberately NOT over the value — the stale reading `converge-to!`
   exists to keep out of the write.
 
+  A nil `:value` on a field whose value is its content is first made the
+  empty field (`empty-when-nil!`), so an unset model is controlled, shown
+  empty, and on the same element type as the text that replaces it.
+
   The revision marker (`revision-slot`) is read and deleted on every
   native element, one `unchecked-get`. Present, the element is REFUSED
   with `:rf.error/fresco-revision-not-controlled` unless it is a
@@ -344,12 +387,15 @@
   React's per-commit re-assert off the fresh props the codec mints per
   render. The predicate is type-blind, so state the coverage exactly: a
   `:div`, a `select`, a value-less `<input>` and a checkbox written with
-  `:checked` and no `:value` are refused; a checkbox carrying
-  `value=\"yes\"` is accepted with the revision inert, and an
+  `:checked` and no `:value` are refused; a text field whose `:value` is
+  nil is accepted, being the empty field, and re-baselines to `\"\"`; a
+  checkbox carrying `value=\"yes\"` is accepted with the revision inert, and an
   `<input type=\"number\">` is accepted with caret semantics that do not
   apply. A non-empty `:value` on a file input is left to the platform,
   whose `InvalidStateError` is the report."
   [tag js-props]
+  (when (convergeable-tag? tag)
+    (empty-when-nil! tag js-props))
   (when-not (undefined? (unchecked-get js-props revision-slot))
     (js-delete js-props revision-slot)
     (when-not (controlled-text-tag? tag js-props)
