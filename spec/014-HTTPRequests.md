@@ -165,7 +165,7 @@ The `:request` map carries the wire shape. Keys are minimal and chosen to be hos
 | `:headers` | no | map of string → string (or string → vector of strings for multi-valued) | Headers to send. Names are case-insensitive. An **invalid** header (an empty / control-char name, or a value carrying `\r`/`\n` — the response-splitting guard) is rejected by the host's header builder (JVM `java.net.http` `.header`, CLJS Fetch `Headers.append`). The runtime catches that rejection **per header**, emits one redacted `:rf.warning/http-header-invalid` trace naming the offending header (value omitted — values may carry secrets; URL privacy-composed), omits the bad pair, and proceeds with the remaining valid headers. The throw is handled **inside** the managed path on both hosts — it never escapes as a generic `:rf.error/fx-handler-exception`. |
 | `:params` | no | map | Query-string params. Encoded URL-safely; merged onto `:url`. Per Spec 012 §URL-encoding rules. |
 | `:body` | no | clj coll / string / `FormData` / `Blob` / `ArrayBuffer` / **thunk `(fn body)`** | The request body. See [§Body encoding](#body-encoding). A thunk is invoked at request-send time (after backoff delays elapse), so very-large payloads aren't held in memory between dispatch and send and retries can re-invoke for a fresh handle. |
-| `:request-content-type` | no | `:json` / `:form` / `:text` / explicit MIME / `nil` | Sugar for setting `Content-Type` + serialising `:body`. `:json` runs `pr-str → JSON.stringify` (CLJS) / Cheshire (JVM). `:form` URL-encodes a clj map. |
+| `:request-content-type` | no | `:json` / `:form` / `:text` / explicit MIME / `nil` | Sugar for setting `Content-Type` + serialising `:body`. `:json` encodes per [§Body encoding](#body-encoding), the same bytes on both hosts (`JSON.stringify` on CLJS, Cheshire on the JVM). `:form` URL-encodes a clj map. |
 | `:credentials` | no | `:omit` / `:same-origin` / `:include` | Default: `:same-origin`. CLJS-only; JVM ignores (see [§JVM transport](#jvm-transport--degraded-behaviour-for-cljs-only-options)). |
 | `:mode` | no | `:cors` / `:no-cors` / `:same-origin` / `:navigate` | CLJS-only; Fetch passthrough. JVM ignores. |
 | `:redirect` | no | `:follow` / `:error` / `:manual` | Default: `:follow`. |
@@ -206,12 +206,16 @@ The browser Fetch transport resolves a relative `:url` (e.g. `"/api/items"`) aga
 
 If `:body` is a thunk `(fn body)`, the fx invokes it just before sending (after `:retry :backoff` delays elapse). Each retry re-invokes the thunk to obtain a fresh handle — useful when `:body` is a single-shot stream that can't be replayed. Whatever the thunk returns is then encoded per the rules below.
 
-If `:body` is a Clojure collection AND `:request-content-type` is unset, the fx inspects:
+The fx then encodes the body by `:request-content-type`:
 
-- If `:request-content-type :json` (or detected JSON acceptance via headers) → `JSON.stringify` after `clj->js` with `:keywordize-keys`-aware shape preservation.
-- If `:request-content-type :form` → URL-encoded form body, sets `Content-Type: application/x-www-form-urlencoded`.
-- If `:request-content-type :text` → coerce to string.
-- Otherwise: pass through (the user is supplying a `Blob`/`FormData`/`ArrayBuffer`).
+- `:json` → a JSON body (rule below), sets `Content-Type: application/json`.
+- `:form` → URL-encoded form body, sets `Content-Type: application/x-www-form-urlencoded`.
+- `:text` → coerce to string, sets `Content-Type: text/plain`.
+- An explicit MIME string → coerce to string, sets `Content-Type` to that string.
+- Unset, and `:body` is a Clojure map, sequential collection or set → a JSON body, exactly as `:json`.
+- Unset, and `:body` is anything else → pass through unchanged, with no `Content-Type` (the user is supplying a pre-encoded string, a `Blob`, `FormData` or an `ArrayBuffer`).
+
+**A JSON body is the same bytes on both hosts.** A keyword, whether map key or value, encodes as its colon-less qualified name (`:user/id` → `"user/id"`, `:id` → `"id"`), and a UUID, whether map key or value, as its canonical string. A programmer who wants a bare wire key writes a bare keyword or a string. The rule preserves namespaces; it does not promise a lossless round-trip: keyword and UUID values decode back as strings, and a map holding both `:invoice/id` and `"invoice/id"` names one JSON member twice, which JSON leaves non-interoperable.
 
 Multipart upload: pass `(js/FormData.)` directly as `:body` (or as the return value of a thunk) and let the runtime not set `Content-Type` (the platform sets the boundary).
 
