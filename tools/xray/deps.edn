@@ -61,13 +61,11 @@
          ;; coordinate sat at top-level `:deps` only because
          ;; `day8.re-frame2-xray.mounted-views` was in `src`.
          ;;
-         ;; NOT PUBLISHABLE YET, and the release preflight will say so.
-         ;; `implementation/fresco/deps.edn` carries no `:clein/build`
-         ;; (rf2-hic-008 owns release wiring), so this is the ONE in-repo
-         ;; coordinate `.github/scripts/preflight-xray-package.sh` refuses to
-         ;; find in a published pom. That refusal is correct and is not a
-         ;; mechanical fix; publishing Xray needs Fresco to acquire a
-         ;; coordinate first.
+         ;; PUBLISHED, as of rf2-gra70: `implementation/fresco/deps.edn`
+         ;; carries a `:clein/build` for `day8/re-frame2-fresco`, so
+         ;; `release-xray.yml` rewrites this coordinate like every other
+         ;; in-repo one, and `.github/scripts/preflight-xray-package.sh`
+         ;; expects to find it in the published pom.
          day8/re-frame2-fresco {:local/root "../../implementation/fresco"}
 
          ;; Machine charts are owned by machines-viz and embedded here;

@@ -293,7 +293,7 @@ that the tool could be one-shotted from it.
 | [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app true-inline host + standalone remote-attach. |
 | [`spec/Principles.md`](./spec/Principles.md) | Load-bearing principles (read-only, observation-only, etc.). |
 | [`spec/API.md`](./spec/API.md) | User-facing surface (`init!`, panel mount, configuration keys). |
-| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | The 13 locked decisions: question, options, pick, why. |
+| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | The 17 locked decisions: question, options, pick, why. |
 | [`spec/findings/`](./spec/findings/) | The original research docs that anchor the design. |
 
 ## File layout
