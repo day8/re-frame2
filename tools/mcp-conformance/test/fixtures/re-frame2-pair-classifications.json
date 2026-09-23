@@ -27,7 +27,7 @@
     "restore-epoch": "destructive",
     "set-operating-frame": "neither",
     "snapshot": "read-only",
-    "tail-build": "read-only",
+    "tail-build": "destructive",
     "trace-window": "read-only",
     "watch-epochs": "read-only",
     "watch-until": "read-only"
