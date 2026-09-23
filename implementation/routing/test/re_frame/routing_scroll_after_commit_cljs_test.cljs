@@ -147,6 +147,16 @@
             (is (nil? (flush!)) "the queued scroll ran and did nothing")
             (finally (set! (.-window js/globalThis) w))))))))
 
+;; ---- traversal scroll belongs to the runtime ---------------------------------
+
+(deftest installing-the-url-listener-claims-traversal-scroll
+  (testing "rf2-pk4i6.7 #3: under the browser's default \"auto\" its own
+            traversal restore raced `:rf.nav/scroll` on Back and won. The URL
+            listener's install sets `history.scrollRestoration` to \"manual\""
+    (set! (.-scrollRestoration (.-history js/window)) "auto")
+    (rf/make-frame {:id :rf/default :url-bound? true})
+    (is (= "manual" (.-scrollRestoration (.-history js/window))))))
+
 ;; ---- a superseded navigation ------------------------------------------------
 
 (deftest a-superseded-navigations-scroll-is-dropped

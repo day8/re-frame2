@@ -158,7 +158,12 @@
            (reset! history-listener-atom
                    {:owner    owner-frame-id
                     :strategy url-strategy
-                    :teardown new-teardown})))
+                    :teardown new-teardown}))
+         ;; The runtime owns scroll on traversal (rf2-pk4i6.7 #3, measured in
+         ;; rf2-3x7nj.12.3): under the default "auto" the browser's own
+         ;; restore raced `:rf.nav/scroll` on Back and won.
+         (when-let [h (.-history browser-window)]
+           (set! (.-scrollRestoration h) "manual")))
        ;; Initial sync: hydrate the owner's slice from the current URL so a deep
        ;; link / reload / ownership transfer lands on the right route. Cause
        ;; `:initial` — this is the initial page load, not a Back/Forward.
