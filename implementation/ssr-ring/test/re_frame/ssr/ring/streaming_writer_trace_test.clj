@@ -80,7 +80,7 @@
       (with-trace-recorder! [captured]
         (@#'rf.ssr.ring.streaming/run-streaming-writer!
           pipe-out :no-such-frame
-          {:head-html "" :html-attrs nil :body-attrs nil
+          {:shell-prefix "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
            :shell-html "<div></div>" :continuations []}
           {:root-view [:div]})
         (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
@@ -329,7 +329,7 @@
       (with-redefs [rf.interop/debug-enabled? false]
         (@#'rf.ssr.ring.streaming/run-streaming-writer!
           pipe-out :no-such-frame
-          {:head-html "" :html-attrs nil :body-attrs nil
+          {:shell-prefix "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
            :shell-html "<div></div>" :continuations []}
           {:root-view [:div]}))
       (rf.error-emit/clear-error-listeners!)

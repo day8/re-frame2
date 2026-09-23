@@ -386,7 +386,8 @@
        `:rf.error/ssr-missing-payload-policy` (or
        `:rf.error/ssr-unknown-payload-policy` on an unknown policy).
     3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
-       `:app-element-id` are strings or nil) via
+       `:app-element-id` are strings or nil; `:script-src` may also be
+       `false`) via
        `trust/validate-trusted-shell-opts!` — both shells route these
        into the HTML envelope (`:head` / `:body-end` as raw content
        hooks, `:script-src` / `:app-element-id` as escaped attribute

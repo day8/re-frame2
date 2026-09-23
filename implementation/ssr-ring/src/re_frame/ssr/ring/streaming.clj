@@ -51,7 +51,8 @@
             [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.trace :as rf.trace])
   (:import [java.io PipedInputStream PipedOutputStream OutputStream]
-           [java.nio.charset StandardCharsets]))
+           [java.nio.charset StandardCharsets]
+           [java.util.concurrent TimeoutException]))
 
 (set! *warn-on-reflection* true)
 
@@ -120,18 +121,100 @@
   (.write output-stream (.getBytes chunk StandardCharsets/UTF_8))
   (.flush output-stream))
 
+;; ---- the body pipe and its stall limit (rf2-3x7nj.14.1) ------------------
+;;
+;; A body the host never drains must not pin the writer for ever. Middleware
+;; that drops the response body unread and unclosed (Ring's `wrap-head` does
+;; exactly this for every HEAD) left the writer parked inside the JDK's
+;; `PipedInputStream.awaitSpace` once a page outgrew the pipe: that wait
+;; ends only when the reader reads, closes, or its thread dies, so the
+;; writer thread, the request frame and its side-channel slots lived for the
+;; life of the JVM. The writer therefore never hands the pipe more bytes than
+;; fit, and gives up once the consumer has drained nothing for
+;; `stall-timeout-ms` — aborting through its existing catch/finally.
+
+(def ^:private pipe-capacity
+  "Bytes the body pipe buffers — large enough to absorb the shell chunk in
+  one write so the writer rarely blocks on a slow consumer, small enough
+  that one stuck client doesn't pin a non-trivial chunk of heap."
+  (* 16 1024))
+
+(def ^:private stall-timeout-ms
+  "How long a write may wait on a FULL pipe while the body consumer drains
+  nothing before the writer aborts. Leak prevention for bodies nobody will
+  read, not a slow-client policy: the clock runs only inside a blocked write
+  and restarts on every byte drained. A plain def so a test can
+  `with-redefs` it (a `binding` would not reach the writer thread)."
+  60000)
+
+(defn- pipe-free-bytes ^long [^PipedInputStream pipe-in]
+  ;; A reader-closed pipe reports 0 available, so it reads as all-free and
+  ;; the next write fails fast with the JDK's "Pipe closed".
+  (- (long pipe-capacity) (.available pipe-in)))
+
+(defn- write-within-stall-limit!
+  "Write `len` bytes of `bs` from `off` into the pipe without ever parking
+  inside `PipedOutputStream.write`: each write carries only what the pipe has
+  free. While it is full, wait on the pipe's monitor — at most a second at a
+  time, the JDK's own poll, and a reader that empties the pipe wakes us as
+  before — and throw a `TimeoutException` once no byte has drained for
+  `stall-timeout-ms`."
+  [^PipedOutputStream pipe-out ^PipedInputStream pipe-in ^bytes bs off len]
+  (loop [off (long off) remaining (long len) progress-at (System/nanoTime)]
+    (when (pos? remaining)
+      (let [free (pipe-free-bytes pipe-in)]
+        (if (pos? free)
+          (let [n (min free remaining)]
+            (.write pipe-out bs (int off) (int n))
+            (.flush pipe-out)
+            (recur (+ off n) (- remaining n) (System/nanoTime)))
+          (let [limit-ms   (long stall-timeout-ms)
+                stalled-ms (quot (- (System/nanoTime) progress-at) 1000000)]
+            ;; Capacity is checked before expiry, so a consumer that drained
+            ;; during the last wait is never cut off.
+            (when (>= stalled-ms limit-ms)
+              (throw (TimeoutException.
+                       (str "streamed response body not drained for "
+                            limit-ms " ms; aborting the writer"))))
+            (locking pipe-in
+              (when-not (pos? (pipe-free-bytes pipe-in))
+                (.wait pipe-in (max 1 (min 1000 (- limit-ms stalled-ms))))))
+            (recur off remaining progress-at)))))))
+
+(defn- stall-bounded-sink
+  "The writer's view of the body pipe: an `OutputStream` whose writes go
+  through `write-within-stall-limit!`. Flush and close delegate to the pipe."
+  ^OutputStream [^PipedOutputStream pipe-out ^PipedInputStream pipe-in]
+  (proxy [OutputStream] []
+    (write
+      ([b]
+       (if (bytes? b)
+         (write-within-stall-limit! pipe-out pipe-in b 0 (alength ^bytes b))
+         (write-within-stall-limit! pipe-out pipe-in
+                                    (byte-array [(unchecked-byte b)]) 0 1)))
+      ([b off len]
+       (write-within-stall-limit! pipe-out pipe-in b off len)))
+    (flush [] (.flush pipe-out))
+    (close [] (.close pipe-out))))
+
 (defn render-streaming-shell!
   "Resolve + render the streaming shell on the CALLING (request) thread.
   Returns the pre-rendered pieces the daemon writer needs to drain the
   chunk stream:
 
-    {:head-html     \"…\"                        ;; resolved <head> fragment
-     :html-attrs    {…} or nil                  ;; stamped on <html>
-     :body-attrs    {…} or nil                  ;; stamped on <body>
+    {:shell-prefix  \"…\"                        ;; chunk 1a, <!DOCTYPE>…<div id=app>
      :head-hash     \"…\" or nil                  ;; client-reconstructible head-model hash
      :doc-hash      \"…\" or nil                  ;; BODY-ONLY structural hash
-     :shell-html    \"…\"                        ;; chunk 1 body
+     :shell-html    \"…\"                        ;; chunk 1b body
      :continuations [{:id … :subtree …} …]}     ;; drain queue (FIFO)
+
+  `:shell-prefix` is the finished document prefix — the head fragment and
+  the head model's `<html>` / `<body>` attribute bags already rendered — so
+  a prefix that cannot render (an attribute name `attr-string` refuses, a
+  non-map bag) fails closed HERE, before the response head commits, exactly
+  as the non-streaming handler does, instead of truncating a committed 200
+  on the writer thread (rf2-3x7nj.14.2). The hash markers it carries are
+  gated by `:emit-hash?`.
 
   `:doc-hash` is the body-only structural hash. It
   describes the PRE-drain shell — the exact tree streamed in chunk 1 — and
@@ -144,8 +227,8 @@
   reconstructible head-model hash (`lifecycle/render-head-hash` over
   `resolve-head`'s `:head-model`) — nil when the head is not client-
   reconstructible (explicit `:head` string / degraded resolution). The
-  resolved `head-bag` itself is NOT carried past this fn — `:head-html` /
-  `:html-attrs` / `:body-attrs` / `:head-hash` are the only pieces the
+  resolved `head-bag` itself is NOT carried past this fn — it is folded
+  into `:shell-prefix`, and `:head-hash` is the only other piece of it the
   daemon writer needs (`:head-model` was consumed here, for the hash,
   and does not itself ride the wire).
 
@@ -179,7 +262,7 @@
   closed 5xx is picked up by the handler's post-shell
   `flush-response-result!` re-read, which then diverts to the non-streamed
   projected-error arm (rf2-oytx7j)."
-  [frame-id {:keys [root-view] :as opts}]
+  [frame-id {:keys [root-view emit-hash?] :as opts}]
   ;; Blocking route resources settle before the shell; suspense continuation
   ;; deferral is a separate axis. Absent resource hooks make this a no-op.
   (rf.ssr/drain-blocking-resources! frame-id opts)
@@ -196,10 +279,25 @@
           ;; the head is not client-reconstructible (explicit `:head`
           ;; string / degraded resolution).
           head-hash  (rf.ssr.ring.lifecycle/render-head-hash (:head-model head-bag))
-          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell hiccup)]
-      {:head-html     head-html
-       :html-attrs    html-attrs
-       :body-attrs    body-attrs
+          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell hiccup)
+          ;; Render the prefix here, on the request thread, so a throw takes
+          ;; the caller's projected-error arm (rf2-3x7nj.14.2).
+          shell-prefix
+          (default-streaming-prefix
+            head-html
+            (merge opts
+                   {:html-attrs  html-attrs
+                    :body-attrs  body-attrs
+                    ;; Mark the body tree actually streamed in chunk 1. nil
+                    ;; `doc-hash` (an unresolved root form — rf2-q1b96) omits
+                    ;; the marker as well as the payload key.
+                    :render-hash (when emit-hash? doc-hash)
+                    ;; Wire hash markers share the emit toggle; the payload's
+                    ;; head hash stays unconditional (the head model is
+                    ;; client-reconstructible on every tier, so it is never
+                    ;; degenerate).
+                    :head-hash   (when emit-hash? head-hash)}))]
+      {:shell-prefix  shell-prefix
         ;; Head state is drain-invariant, so the writer reuses this pre-drain
         ;; hash while only the body may be re-hashed after continuations.
        :head-hash     head-hash
@@ -284,34 +382,18 @@
         ;; final-payload build several forms below.
         failed-boundaries (volatile! #{})]
    (try
-    (let [{:keys [emit-hash? version schema-digest payload root-view client-frame-id]} opts
+    (let [{:keys [version schema-digest payload root-view client-frame-id]} opts
           ;; Body and head hashes were computed before the drain. The body may
           ;; be recomputed for final payload state; the head is drain-invariant.
-          {:keys [head-html html-attrs body-attrs
-                   doc-hash head-hash shell-html continuations]} rendered-shell
-          shell-opts (merge opts
-                            {:html-attrs  html-attrs
-                             :body-attrs  body-attrs
-                             ;; Mark the body tree actually streamed in chunk 1.
-                             ;; nil `doc-hash` (an unresolved root form —
-                             ;; rf2-q1b96) omits the marker as well as the
-                             ;; payload key; `default-streaming-prefix` stamps
-                             ;; only from `:render-hash` and never recomputes,
-                             ;; so no `:emit-hash?` gate is needed here.
-                             :render-hash (when emit-hash? doc-hash)
-                             ;; Wire hash markers share the emit toggle; the
-                             ;; payload's head hash stays unconditional (the
-                             ;; head model is client-reconstructible on every
-                             ;; tier, so it is never degenerate).
-                             :head-hash   (when emit-hash? head-hash)})]
+          {:keys [shell-prefix doc-hash head-hash shell-html continuations]} rendered-shell]
       ;; Chunk 1 — shell prefix + shell HTML (with template fallbacks) +
-      ;; the app-root close. Stamp the phase before each write
+      ;; the app-root close. The prefix was rendered on the request thread;
+      ;; this thread only writes it. Stamp the phase before each write
       ;; so the catch arm names the in-flight chunk. `:shell-prefix` is
       ;; already the initial volatile value, set explicitly here for
       ;; symmetry/readability.
       (vreset! writer-position [:shell-prefix nil])
-      (write-chunk! output-stream
-                    (default-streaming-prefix head-html shell-opts))
+      (write-chunk! output-stream shell-prefix)
       ;; Close the app root in chunk 1. Continuation templates, protocol
       ;; scripts, payload, and bootstrap must remain outside the hydrated root.
       (vreset! writer-position [:shell-html nil])
@@ -585,7 +667,10 @@
   The writer runs on a daemon thread: one blocked on `.write` to the
   bounded 16 KiB pipe of a slow-loris client must NOT keep the JVM alive at
   shutdown. Its `finally` tears the frame down (off the response-close path,
-  via the slower destroy).
+  via the slower destroy). A write that finds the pipe full while the body
+  consumer drains nothing for `stall-timeout-ms` (60 s) aborts through the
+  writer's catch/finally, so a body dropped unread (Ring's `wrap-head`)
+  cannot pin the writer, the frame or its slots for ever (rf2-3x7nj.14.1).
 
   `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
   rf2-moftbs); `frame-id` remains the keyword the address-directed materialise,
@@ -596,17 +681,15 @@
         ;; stripped by the shared materialiser.
         ring-response (rf.ssr.ring.pipeline/ssr-response->ring-response
                         post-shell-response "" content-type)
-        ;; 16 KiB pipe buffer — large enough to absorb the shell chunk in one
-        ;; write so the writer rarely blocks on a slow consumer, small enough
-        ;; that one stuck client doesn't pin a non-trivial chunk of heap.
-        pipe-in  (PipedInputStream. (* 16 1024))
+        pipe-in  (PipedInputStream. (int pipe-capacity))
         pipe-out (PipedOutputStream. pipe-in)]
     (doto
       (Thread.
         ^Runnable
         (fn writer-thread []
           (try
-            (run-streaming-writer! pipe-out frame-id rendered-shell opts)
+            (run-streaming-writer! (stall-bounded-sink pipe-out pipe-in)
+                                   frame-id rendered-shell opts)
             (finally
               ;; The writer's own finally closes the pipe; the frame teardown
               ;; happens here so it does NOT block the response close on the
@@ -709,7 +792,10 @@
   request — no framework pool, no framework in-flight cap, by design.
   The model is no-LEAK (every writer's `catch Throwable`/`finally` closes
   the pipe and tears the frame down on every exit path; the live count
-  decays to zero — `concurrency_stress_test` proves it). The in-flight
+  decays to zero — `concurrency_stress_test` proves it). A body nobody
+  drains — dropped unread by middleware such as Ring's `wrap-head` — ends
+  the same way once its blocked write has seen no byte consumed for 60 s,
+  with one always-on `:rf.error/ssr-streaming-writer-failed` record. The in-flight
   CEILING is the HOST server's accept-queue / worker-thread limit
   (Jetty/http-kit/Aleph), NOT a framework cap: operators size that one
   authoritative knob for high streaming concurrency or slow-client

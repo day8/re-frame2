@@ -204,8 +204,8 @@
                       opt`, the `:html-shell` precedent): streaming over a
                       non-local renderer is unsupported.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
-                      to `default-html-shell`. Replace to inject custom
-                      <head>, scripts, JSON-LD, etc.
+                      (absent or nil) to `default-html-shell`. Replace to
+                      inject custom <head>, scripts, JSON-LD, etc.
     :content-type   — successful-body Content-Type override. Omit it to retain
                       the runtime or app header. Projected HTML errors do not
                       inherit this override.
@@ -228,7 +228,8 @@
 
   Trusted shell opts are structurally checked at construction. `:head` and
   `:body-end` are raw content hooks and must not contain untrusted input;
-  `:script-src` and `:app-element-id` are escaped attribute values.
+  `:script-src` and `:app-element-id` are escaped attribute values. Each
+  takes a string, or nil meaning \"use the default\".
 
     :head           — raw HTML inside
                       `<head>...</head>`. Default: route-resolved head
@@ -239,6 +240,8 @@
     :script-src     — escaped client-side
                       bootstrap script URL written `escape-attr`'d into
                       `<script src=\"...\">`. Default: \"/main.js\".
+                      `false` emits no bootstrap script at all (boot from
+                      `:body-end` instead, e.g. a `type=\"module\"` tag).
     :app-element-id — escaped id of the
                       `<div>` wrapping the rendered body, written
                       `escape-attr`'d into `<div id=\"...\">`. Default:
@@ -294,6 +297,9 @@
   ;; Resolve `:on-error` separately so handler-defaults stays orthogonal to
   ;; the caller-or-locked-default precedence.
   (let [opts        (-> (merge handler-defaults raw-opts)
+                        ;; An explicit nil `:html-shell` means "use the
+                        ;; default" too; `merge` alone would let it win.
+                        (update :html-shell #(or % (:html-shell handler-defaults)))
                         (assoc :on-error (rf.ssr.ring.lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error]} opts]
     (fn ring-handler [request]

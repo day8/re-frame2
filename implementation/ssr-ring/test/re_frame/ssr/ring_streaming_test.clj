@@ -1081,6 +1081,76 @@
            not silent"))))
 
 ;; ===========================================================================
+;; rf2-3x7nj.14.2 — the document PREFIX renders on the request thread
+;;
+;; The prefix — the head model's `<html>` / `<body>` attribute bags, the head
+;; fragment, the app-root open — can throw on content: the shared
+;; `attr-string` serialiser refuses an attribute name outside the HTML5
+;; grammar (`:rf.error/ssr-invalid-attribute-name`). It used to render on the
+;; writer thread AFTER the 200 was selected, so the client got a 200 with an
+;; EMPTY body where `ssr-handler` answers the projected 500. It now renders in
+;; the request-thread shell render and takes the same projected-error arm
+;; (Spec 011 §Streaming pre-commit rule).
+;; ===========================================================================
+
+(defn- seed-route-with-html-attrs!
+  "Register a route whose head model carries `html-attrs`, a server init
+  event that makes it the active route, and a small body view."
+  [html-attrs]
+  (rf/reg-head :test.stream/attr-head
+               (fn [_db _route] {:title "T" :html-attrs html-attrs}))
+  (rf/reg-route :test.stream/attr-route
+                {:doc  "Route whose head model carries html-attrs"
+                 :head :test.stream/attr-head} "/attrs")
+  (rf/reg-event :rf.test.stream/seed-attr-route
+    {:platforms #{:server}}
+    (fn [{rt :rf.db/runtime} _]
+      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                {:route-id :test.stream/attr-route})}))
+  (rf/reg-view ^{:rf/id :test/attr-body} attr-body []
+    [:main [:h1 "attr body"]]))
+
+(defn- attr-route-opts []
+  {:initial-events [[:rf.test.stream/seed-attr-route]]
+   :root-view      [(rf/view :test/attr-body)]
+   :payload        :rf.ssr.payload/whole-app-db})
+
+(deftest stream-handler-prefix-throw-fails-closed-like-ssr-handler
+  (testing "rf2-3x7nj.14.2: a head-model attribute name the shell refuses
+            fails closed to the projected 500 on the request thread — the
+            answer ssr-handler gives — not a committed 200 with an empty body"
+    (seed-route-with-html-attrs! {:data-user.id "42"})
+    (let [ssr-response    ((rf.ssr.ring/ssr-handler (attr-route-opts))
+                           {:uri "/attrs" :request-method :get})
+          stream-response ((rf.ssr.ring/stream-handler (attr-route-opts))
+                           {:uri "/attrs" :request-method :get})
+          stream-body     (streamed-body (:body stream-response))]
+      (is (= 500 (:status ssr-response))
+          "ssr-handler answers the projected 500 (the parity reference)")
+      (is (= 500 (:status stream-response))
+          "stream-handler answers the same projected 500 (before the fix: a
+           200 whose body was empty)")
+      (is (not (instance? InputStream (:body stream-response)))
+          "no chunked body was committed — the error page is an ordinary body")
+      (is (str/includes? stream-body "Something went wrong")
+          "the default projected error page ships")
+      (is (empty? (rf.ssr.ring.test-support/await-no-streaming-threads! 5000 10))
+          "no writer thread was spawned"))))
+
+(deftest stream-handler-valid-head-model-attrs-stream-a-200
+  (testing "rf2-3x7nj.14.2 control: a valid attribute name streams a 200
+            whose <html> carries it, rendered on the request thread"
+    (seed-route-with-html-attrs! {:data-user-id "42"})
+    (let [response ((rf.ssr.ring/stream-handler (attr-route-opts))
+                    {:uri "/attrs" :request-method :get})
+          body     (streamed-body (:body response))]
+      (is (= 200 (:status response)))
+      (is (str/includes? body "data-user-id=\"42\"")
+          "the head model's html-attrs reach the streamed <html>")
+      (is (str/includes? body "</body></html>")
+          "the document streams through to its close"))))
+
+;; ===========================================================================
 ;; rf2-h3dg0 — stale Content-Length on the streamed body
 ;;
 ;; `stream-handler` materialises the response head from the accumulator and

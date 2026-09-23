@@ -70,10 +70,11 @@
   head-model hash stamped as `data-rf-head-hash` on `<head>`, omitted
   when nil)."
   [head-html render-hash
-   {:keys [html-attrs body-attrs lang app-element-id head-hash]
-    :or   {app-element-id "app"
-           lang           "en"}}]
-  (let [attr-bag (html-attr-bag html-attrs lang)]
+   {:keys [html-attrs body-attrs lang app-element-id head-hash]}]
+  ;; `or`, not `:or`: `:or` fires only for an ABSENT key, and an explicit nil
+  ;; means "use the default" too (Spec 011 §Trusted shell hook contract).
+  (let [attr-bag       (html-attr-bag html-attrs (or lang "en"))
+        app-element-id (or app-element-id "app")]
     (str "<!DOCTYPE html>"
          "<html" (rf.ssr.html-helpers/attr-string attr-bag) ">"
          "<head"
@@ -93,9 +94,9 @@
          ">")))
 
 (defn document-suffix
-  "Render the shared document suffix: the bootstrap `<script src=…>` (when a
-  `:script-src` is in play), the raw `:body-end` content hook, and the
-  `</body></html>` document close.
+  "Render the shared document suffix: the bootstrap `<script src=…>` (unless
+  `:script-src` is `false`; nil or absent means the default `/main.js`), the
+  raw `:body-end` content hook, and the `</body></html>` document close.
 
   The app-root `</div>` and the hydration-payload `<script>` are NOT
   emitted here — they sit BEFORE the suffix (the non-streaming shell
@@ -103,11 +104,12 @@
   suffix; the streaming writer closes `</div>` at the end of the shell
   chunk and streams the payload after the continuations. `:script-src` is
   escaped as an attribute value; `:body-end` stays raw content."
-  [{:keys [body-end script-src]
-    :or   {script-src "/main.js"}}]
-  (str (when script-src
+  [{:keys [body-end script-src]}]
+  (str (when-not (false? script-src)
          ;; `:script-src` is an attribute value; `:body-end` is raw content.
-         (str "<script src=\"" (rf.ssr.html-helpers/escape-attr script-src) "\"></script>"))
+         (str "<script src=\""
+              (rf.ssr.html-helpers/escape-attr (or script-src "/main.js"))
+              "\"></script>"))
        (or body-end "")
        "</body>"
        "</html>"))
@@ -126,11 +128,12 @@
   this id (or substitute their own bootstrap that reads a custom id).
 
   `<title>` is NOT emitted by the shell — the head fragment is the
-  canonical source per Spec 011 §Head/meta contract.
-  `default-head` rolls the frame's `:doc` into `:title` when a route does
-  not declare `:head`, so a sensible title is always present in the
-  resolved head fragment threaded in as the `:head` opt. Emitting one
-  here would produce two `<title>` tags per document — malformed HTML.
+  canonical source per Spec 011 §Head/meta contract, and emitting one here
+  would produce two `<title>` tags per document — malformed HTML. The
+  document has a `<title>` only when the active route's `:head` supplies
+  one (via `reg-head`), or when the handler's `:head` string opt — which
+  REPLACES the whole resolved head — carries one; with neither, the page
+  ships no `<title>`.
 
   `<html>` / `<body>` attributes — the active head model's
   `:html-attrs` / `:body-attrs` bags (Spec 011 §Head/meta)
@@ -156,7 +159,9 @@
            when nil (the explicit-`:head`-STRING / degraded-head shape).
 
   Trusted-string contract: `:head` and `:body-end` are raw content hooks;
-  `:script-src` and `:app-element-id` are escaped attribute values. Raw hooks
+  `:script-src` and `:app-element-id` are escaped attribute values. A nil
+  value means \"use the default\" for each; `:script-src false` emits no
+  bootstrap `<script src>` at all. Raw hooks
   must never be populated from untrusted input. Construction validates shape,
   not content trust; prefer structured views and head registrations for
   untrusted content."
