@@ -623,3 +623,119 @@
                               (is (= :none (:completion (only-managed swapped [:t/k 1])))
                                   "with its only completion re-labelled, the record has none"))))))))))))
       done)))
+
+;; ===========================================================================
+;; (l) the reply link is the delivery of THIS completion (rf2-2dd4h). A named
+;; id reused after completion puts the IDENTICAL full work id on both
+;; requests' completions AND on both replies, so a completion whose reply
+;; was SILENCED — `:on-failure nil`, or `:reply-to nil` — must not borrow
+;; the next request's delivery. The positive control delivers both.
+;; ===========================================================================
+
+(defn- reused-id-capture
+  "Issue `[:t/l :first]` and complete it with `first-status`, then issue
+  `[:t/l :second]` under the SAME named request id and complete it 200.
+  The first request's reply is addressed by `first-reply` (reply keys
+  merged into its args); the second is always delivered to
+  `[:t/l-done :second]`. Resolves to the capture."
+  [first-reply first-status]
+  (rf/reg-event :t/l-done (fn [_ _] {}))
+  (rf/reg-event :t/l
+    (fn [_ [_ step]]
+      {:fx [[:rf.http/managed (merge {:request    {:url (str "/l/" (name step))}
+                                      :request-id :l}
+                                     (if (= :first step)
+                                       first-reply
+                                       {:reply-to [:t/l-done :second]}))]]}))
+  (with-parked-fetch
+    (fn [release!]
+      (with-capture
+        (fn [traces]
+          (rf/dispatch-sync [:t/l :first])
+          (-> (wait-ms 5)
+              (.then (fn [_] (release! "/l/first" first-status)))
+              (.then (fn [_] (until #(= 1 (count (ops @traces :rf.http/replied))) "l: first replied")))
+              (.then (fn [_] (wait-ms 20)))
+              (.then (fn [_] (rf/dispatch-sync [:t/l :second])))
+              (.then (fn [_] (wait-ms 5)))
+              (.then (fn [_] (release! "/l/second" 200)))
+              (.then (fn [_] (until #(= 2 (count (ops @traces :rf.http/replied))) "l: second replied")))
+              (.then (fn [_] (until #(some (fn [b] (= [:t/l-done :second] (vec (take 2 (:event b)))))
+                                           (bundles @traces))
+                                    "l: second reply delivered")))
+              (.then (fn [_] (wait-ms 20)))
+              (.then (fn [_] @traces))))))))
+
+(defn- deliveries
+  "The `:t/l-done` reply bundles the runtime actually ran, by step, as the
+  link a record should carry — read off the event vectors, independently
+  of the helper."
+  [buffer]
+  (into {} (for [b     (bundles buffer)
+                 :let  [ev (:event b)]
+                 :when (and (vector? ev) (= :t/l-done (first ev)))]
+             [(second ev) {:dispatch-id (:dispatch-id b) :frame (:frame b)}])))
+
+(defn- the-full-work-id-was-reused [buffer]
+  (testing "PRECONDITION — the producer reused the FULL work id, so it alone cannot separate the two"
+    (is (= [[:rf.work/http :l 1 1] [:rf.work/http :l 1 1]]
+           (mapv #(get-in % [:tags :rf.reply/work-id]) (ops buffer :rf.http/replied))))))
+
+(deftest l1-a-silenced-failure-does-not-borrow-the-reused-ids-later-reply
+  (async done
+    (finish
+      (-> (reused-id-capture {:on-success [:t/l-done :first] :on-failure nil} 500)
+          (.then
+            (fn [buffer]
+              (let [r1        (only-managed buffer [:t/l :first])
+                    r2        (only-managed buffer [:t/l :second])
+                    delivered (deliveries buffer)]
+                (the-full-work-id-was-reused buffer)
+                (testing "PRECONDITION — only the second request's reply was delivered"
+                  (is (= #{:second} (set (keys delivered)))))
+                (is (= :error (:status r1)))
+                (is (= 500 (:http-status r1)))
+                (is (nil? (:reply-link r1))
+                    "the silenced 500 delivered nothing, so it links to nothing")
+                (is (= :ok (:status r2)))
+                (is (= (:second delivered) (:reply-link r2))
+                    "the successor links to its own delivery")))))
+      done)))
+
+(deftest l2-a-whole-reply-silenced-completion-does-not-borrow-the-later-reply
+  (async done
+    (finish
+      (-> (reused-id-capture {:reply-to nil} 200)
+          (.then
+            (fn [buffer]
+              (let [r1        (only-managed buffer [:t/l :first])
+                    r2        (only-managed buffer [:t/l :second])
+                    delivered (deliveries buffer)]
+                (the-full-work-id-was-reused buffer)
+                (testing "PRECONDITION — only the second request's reply was delivered"
+                  (is (= #{:second} (set (keys delivered)))))
+                (is (= :ok (:status r1)))
+                (is (nil? (:reply-link r1))
+                    "an OK completion under `:reply-to nil` delivered nothing either")
+                (is (= :ok (:status r2)))
+                (is (= (:second delivered) (:reply-link r2)))))))
+      done)))
+
+(deftest l3-control-when-both-deliver-each-links-to-its-own-reply
+  (async done
+    (finish
+      (-> (reused-id-capture {:reply-to [:t/l-done :first]} 500)
+          (.then
+            (fn [buffer]
+              (let [r1        (only-managed buffer [:t/l :first])
+                    r2        (only-managed buffer [:t/l :second])
+                    delivered (deliveries buffer)]
+                (the-full-work-id-was-reused buffer)
+                (testing "PRECONDITION — both replies were delivered"
+                  (is (= #{:first :second} (set (keys delivered)))))
+                (is (= :error (:status r1)))
+                (is (= (:first delivered) (:reply-link r1)))
+                (is (= :ok (:status r2)))
+                (is (= (:second delivered) (:reply-link r2)))
+                (is (not= (:reply-link r1) (:reply-link r2)))))))
+      done)))
