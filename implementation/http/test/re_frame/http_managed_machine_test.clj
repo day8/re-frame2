@@ -24,12 +24,14 @@
    2. Parent :spawn + failure → parent transitions via :failed.
    3. Parent destroys child mid-flight → request aborts (rf2-wvkn).
    4. Composes with :after — wall-clock timeout cancels in-flight.
+   6. A spawn loop leaves no anonymous issuance counters (rf2-3x7nj.16.4).
 
   Tests run on JVM through the plain-atom substrate; the CLJS path
   uses the same wrapper registration via Fetch."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -323,4 +325,51 @@
           {:timeout-ms 5000 :label "fx-form reply landed on :rf/default"})
         (is (= {:ok true} (:result (rf/app-db-value :rf/default)))
             "the fx-form `:rf.http/managed` continues to dispatch back the standard reply envelope")
+        (finally (stop-server! srv))))))
+
+;; ---- (6) rf2-3x7nj.16.4 — a spawn loop leaves no issuance counters -------
+
+(defn- live-wrapper-addresses []
+  (->> (keys (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                     [:rf.runtime/machines :snapshots]))
+       (filter #(and (keyword? %) (= "rf.http" (namespace %))
+                     (.startsWith ^String (name %) "managed#")))))
+
+(deftest spawn-loop-leaves-no-anonymous-issuance-counters
+  (testing "rf2-3x7nj.16.4 — each spawn of the :rf.http/managed wrapper issues
+            one anonymous request under a fresh actor address, so the per-(frame,
+            event-id) counter keyed by that address must go when the actor is
+            destroyed; otherwise a long-lived frame keeps one entry per spawn"
+    (let [cycles 5
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf.http.registry/reset-issuance-counters-for-test!)
+        (rf/reg-machine :app/poller
+          {:initial :idle
+           :states
+           {:idle     {:on {:go :fetching}}
+            :fetching {:spawn {:machine-id :rf.http/managed
+                               :data       {:request {:url    (str "http://127.0.0.1:" port "/poll")
+                                                      :method :get}
+                                            :decode  :json}}
+                       :on    {:succeeded :idle
+                               :failed    :idle}}}})
+        (dotimes [_ cycles]
+          (rf/dispatch-sync [:app/poller [:go]])
+          (await-condition! #(and (= :idle (:state (snapshot :app/poller)))
+                                  (empty? (live-wrapper-addresses))
+                                  (empty? (rf.http.managed/actor-in-flight-snapshot)))))
+        ;; The destroy cascade that drops the counter runs on the event thread;
+        ;; give its tail a bounded moment rather than racing it.
+        (try (rf.test-support/poll-until
+               #(zero? (rf.http.registry/anonymous-issuance-counter-count))
+               {:timeout-ms 1000 :interval-ms 10 :label "anonymous counters drained"})
+             (catch clojure.lang.ExceptionInfo _ nil))
+        (is (zero? (rf.http.registry/anonymous-issuance-counter-count))
+            (str cycles " completed spawns left "
+                 (rf.http.registry/anonymous-issuance-counter-count)
+                 " anonymous issuance counters behind"))
         (finally (stop-server! srv))))))
