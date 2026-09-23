@@ -74,7 +74,7 @@ clojure -Tnew create \
 
 | Arg | Required | Meaning | Default |
 |---|---|---|---|
-| `:substrate` | no | One of `:reagent` `:uix`. Selects the view library the emitted `deps.edn` / `core.cljs` / `views.cljs` target. | `:reagent` |
+| `:substrate` | no | One of `:reagent` `:uix`. Selects the view library the emitted `deps.edn` / `core.cljs` / `views.cljs` / `stories.cljs` target. | `:reagent` |
 
 `:substrate` accepts only a keyword (or omission, which defaults
 to `:reagent`). Anything else — string, symbol, number, … — throws
@@ -139,7 +139,7 @@ Next steps:
   cd my-app
   npm install
   npx shadow-cljs watch app
-Then open http://localhost:8280
+Then open http://localhost:8280, and http://localhost:8280/#/stories for Story
 Until day8/re-frame2 is published, point its coordinates in deps.edn at a checkout with :local/root before the first watch.
 ```
 

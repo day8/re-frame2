@@ -40,8 +40,8 @@ Every variant emits a working counter. The counter:
 
 - Is the same shape developers read about in [the Guide introduction
   — a tiny counter application](../../../docs/core/introduction.md).
-- Matches the per-substrate `examples/<substrate>/counter*/`
-  reference apps.
+- Matches the per-substrate reference apps — `examples/core/counter/`
+  (Reagent) and `examples/substrates/uix/counter/` (UIx).
 - Uses the smallest amount of re-frame2 surface that demonstrates
   the full cycle: an init event, an action event, a sub, a view
   that dispatches.
@@ -117,11 +117,12 @@ for the historical record.
 
 ## P5 — Pins in lockstep with the reference implementation
 
-`:rf2-version`, `:shadow-version`, and `:react-version` are defined
-in one place — the entry ns — and bumped in lockstep with the
-repo-root `VERSION`, `implementation/package.json` and the re-frame2
-release cadence. The view-library and Clojure pins in the per-substrate
-`deps.edn` resources track the adapter and core `deps.edn` files under
+`:rf2-version`, `:shadow-version`, `:react-version`, `:xyflow-version`
+and `:elkjs-version` are defined in one place — the entry ns — and
+bumped in lockstep with the repo-root `VERSION`,
+`implementation/package.json` and the re-frame2 release cadence. The
+view-library and Clojure pins in the per-substrate `deps.edn` resources
+track the adapter and core `deps.edn` files under
 `implementation/` the same way.
 
 The point: what the template emits should match what the reference

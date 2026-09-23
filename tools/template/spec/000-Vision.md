@@ -38,9 +38,9 @@ replace the counter with their first feature. See
 
 The template has **one selector**: `:substrate`, `:reagent` by default or
 `:uix`. Both values emit the same manifest; the substrate swaps
-`deps.edn`, `core.cljs` and `views.cljs`, because that choice changes
-authored source and adapter wiring. Nothing else is a choice at scaffold
-time.
+`deps.edn`, `core.cljs`, `views.cljs` and `stories.cljs`, because that
+choice changes authored source and adapter wiring. Nothing else is a
+choice at scaffold time.
 
 ## Lineage
 
@@ -85,7 +85,7 @@ and recognises the shape. That continuity is deliberate.
   its 2026-09-14 amendment.
 - **Substrate-agnostic shell, substrate-specific views.** Events,
   subs, the build config and the host page are shared; only the entry
-  point, the view and the substrate's coordinates differ.
+  point, the view, the story and the substrate's coordinates differ.
 - **Counter as canonical example.** The generated counter is the
   same shape the developer reads about in [the Guide —
   app-db](../../../docs/core/app-db.md). What the template emits is what
