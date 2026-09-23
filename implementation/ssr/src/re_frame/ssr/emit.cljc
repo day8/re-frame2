@@ -43,6 +43,10 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            ;; rf2-3x7nj.13.1 — `dom-attr-aliases`, react-dom's prop →
+            ;; attribute table, is read by the hiccup attribute conversion
+            ;; below. `ui-tree` requires nothing from this ns, so no cycle.
+            [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
             #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])))
 
 ;; ---- shared HTML helpers --------------------------------------------------
@@ -281,6 +285,305 @@
                  (assoc merged-attrs attr-name attr-value)))
              attrs
              root-attrs))
+
+;; ---- the hydrating adapter's prop conversion (rf2-3x7nj.13.1) -------------
+;;
+;; The markup these two hiccup body walkers paint is hydrated by a Reagent-tier
+;; adapter (stock Reagent or reagent-slim), and what that client paints is
+;; NOT the author's attribute map verbatim: the adapter converts each prop
+;; first — a keyword name through Reagent's kebab → camel rule, a keyword
+;; value through `name`, a class collection joined — and react-dom then writes
+;; the DOM attribute for the prop (`htmlFor` → `for`, `tabIndex` → `tabindex`).
+;; These walkers used to write the author's names and values verbatim, so
+;; `[:input {:read-only true}]` served an editable `<input read-only>`,
+;; `[:button {:type :button}]` served `type=":button"` (an invalid type, which
+;; the browser reads as SUBMIT) and a class vector served its EDN print.
+;; React neither patches nor reports an attribute-only divergence at
+;; hydration, and the render-tree hash is taken over the tree, not the HTML,
+;; so nothing caught any of it (Spec 011 §The render-tree → HTML emitter).
+;;
+;; So both walkers now convert the way the client does, through ONE function
+;; (`dom-element-props`) so they cannot drift:
+;;
+;;   1. CLASS, on the author's attrs: a `:className` folds into `:class`, and
+;;      the class value is joined the Reagent way (`class-names`).
+;;   2. The tag shorthand class joins first (`merge-class-attrs`), then the
+;;      root attrs (`merge-root-attrs`) — both on KEYWORD keys, before names
+;;      are converted, so the root-attrs `contains?` precedence still compares
+;;      like with like.
+;;   3. NAMES and VALUES (`convert-dom-attrs`): on an ordinary element a
+;;      keyword or symbol name takes Reagent's rule and then react-dom's alias
+;;      table (`re-frame.ssr.ui-tree/dom-attr-aliases`); a string name takes
+;;      the alias table only (Reagent hands a string key to React unchanged).
+;;      A hyphenated (custom-element) tag keeps its author names verbatim — the
+;;      two supported adapters already disagree there, and web components
+;;      conventionally read kebab attributes. A keyword or symbol VALUE is
+;;      written with `name` on every DOM tag.
+;;   4. The form-control special forms react-dom/server applies
+;;      (`form-control-props`, rf2-slr59).
+;;
+;; `attr-string` is untouched and still judges what it is handed — stripping,
+;; the boolean class and the attribute-name grammar all read the CONVERTED
+;; name, which is the name that reaches the browser. That is load-bearing, not
+;; incidental: `{:onc-lick "alert(1)"}` converts to `oncLick`, which the HTML
+;; parser reads as `onclick`, and it is stripped only because the strip reads
+;; the converted name. The head emitter and the Ring host shell attribute bags
+;; call `attr-string` directly and stay verbatim — no adapter re-renders them.
+
+(defn- class-names
+  "Reagent's `class-names`, shared by both supported adapters. A collection
+  keeps its TRUTHY members (nil and false drop), a keyword or symbol member
+  through `name`, joined with a space — nil when none survive, which omits
+  the attribute. A keyword or symbol scalar goes through `name`; anything else
+  is returned unchanged. The 2-arity joins two such values, as the adapters do
+  when a `:className` rides beside a `:class`."
+  ([class-value]
+   (cond
+     (coll? class-value)
+     (let [classes (keep (fn [member]
+                           (when member
+                             (if (or (keyword? member) (symbol? member))
+                               (name member)
+                               member)))
+                         class-value)]
+       (when (seq classes)
+         (clojure.string/join " " classes)))
+
+     (or (keyword? class-value) (symbol? class-value))
+     (name class-value)
+
+     :else
+     class-value))
+  ([class-value extra-class-value]
+   (let [parts (keep (fn [part] (when part (class-names part)))
+                     [class-value extra-class-value])]
+     (when (seq parts)
+       (clojure.string/join " " parts)))))
+
+(defn- normalise-class-attrs
+  "Step 1 of the conversion, on the AUTHOR's attrs — reagent-slim's
+  `collapse-class-keys` plus `class-names`. A `:className` folds into
+  `:class` (joined with it when both are present), and the `:class` value is
+  normalised by `class-names`."
+  [user-attrs]
+  (let [folded (if (contains? user-attrs :className)
+                 (-> user-attrs
+                     (assoc :class (class-names (:class user-attrs)
+                                                (:className user-attrs)))
+                     (dissoc :className))
+                 user-attrs)]
+    (if (contains? folded :class)
+      (assoc folded :class (class-names (:class folded)))
+      folded)))
+
+(def ^:private reagent-prop-name-seeds
+  "The three names Reagent's prop-name cache is seeded with, because its
+  mechanical rule gets them wrong."
+  {"class" "className" "for" "htmlFor" "charset" "charSet"})
+
+(defn- capitalise-prop-segment
+  "Reagent's `capitalize`: a one-character segment upper-cases whole."
+  [segment]
+  (if (< (count segment) 2)
+    (clojure.string/upper-case segment)
+    (str (clojure.string/upper-case (subs segment 0 1)) (subs segment 1))))
+
+(defn- reagent-prop-name
+  "The React prop name a Reagent-tier adapter hands React for the keyword
+  name `name-str` — stock Reagent's `dash-to-prop-name` behind its seeded
+  cache, which reagent-slim copies: split on `-`; a `data` or `aria` first
+  segment keeps the name verbatim; otherwise the first segment plus each later
+  one capitalised (`read-only` → `readOnly`, `foo-bar` → `fooBar`)."
+  [name-str]
+  (or (get reagent-prop-name-seeds name-str)
+      (let [[start & more] (clojure.string/split name-str #"-")]
+        (if (contains? #{"aria" "data"} start)
+          name-str
+          (apply str start (map capitalise-prop-segment more))))))
+
+(defn- dom-attr-key
+  "The attribute name the hydrating client paints for the author key
+  `attr-key`. See the section comment above for the rule."
+  [custom-element? attr-key]
+  (cond
+    (string? attr-key)
+    (if custom-element?
+      attr-key
+      (get rf.ssr.ui-tree/dom-attr-aliases attr-key attr-key))
+
+    (or (keyword? attr-key) (symbol? attr-key))
+    (if custom-element?
+      (name attr-key)
+      (let [prop-name (reagent-prop-name (name attr-key))]
+        (get rf.ssr.ui-tree/dom-attr-aliases prop-name prop-name)))
+
+    ;; Not a name at all — left for `attr-string`, which refuses it exactly
+    ;; as it did before this conversion existed.
+    :else
+    attr-key))
+
+(defn convert-dom-attrs
+  "Convert a DOM element's merged attribute map the way the Reagent-tier
+  client adapter plus react-dom does: every key becomes the attribute NAME the
+  client paints (a string), and a keyword or symbol VALUE is written with
+  `name`. `tag-name` is the element's parsed tag; a hyphenated (custom-element)
+  tag keeps its author names verbatim. See the section comment above
+  (rf2-3x7nj.13.1)."
+  [tag-name attrs]
+  (let [custom-element? (clojure.string/includes? tag-name "-")]
+    (reduce-kv (fn [converted attr-key attr-value]
+                 (assoc converted
+                        (dom-attr-key custom-element? attr-key)
+                        (if (or (keyword? attr-value) (symbol? attr-value))
+                          (name attr-value)
+                          attr-value)))
+               {}
+               attrs)))
+
+;; ---- form-control special forms (rf2-slr59) --------------------------------
+;;
+;; react-dom/server does not write four form-control props as attributes, and
+;; these walkers did, so the first paint showed the wrong control state until
+;; hydration repaired it — which is all a slow-JS, no-JS or crawler visitor
+;; ever sees. Each form below is what react-dom 19.3.0's server renderer does
+;; with the prop (`pushStartInstance`'s `input` / `textarea` / `select` /
+;; `option` arms and `pushAttribute`), keyed on the CONVERTED name, since that
+;; is the React prop name:
+;;
+;;   - `defaultValue` / `defaultChecked` on an `<input>` write `value` /
+;;     `checked` when the controlled prop is absent;
+;;   - `value` (else `defaultValue`) on a `<textarea>` is its TEXT BODY. When
+;;     it is present an authored child is ignored, which is what the client
+;;     paints (react-dom's client takes the value and never reads the child);
+;;   - `value` (else `defaultValue`) on a `<select>` never writes an
+;;     attribute; it marks `selected` on each descendant `<option>` whose
+;;     value — its `value` prop, else its text — it names (a collection names
+;;     several, for `multiple`). While a select carries one, an option's own
+;;     `:selected` is ignored, as react-dom ignores it;
+;;   - on any other element both default props are dropped.
+;;
+;; The select's value reaches its options through `*select-value*`, bound
+;; around the select's children the way react-dom carries it in its format
+;; context, so options produced by a `for`, a fragment or a component are
+;; marked exactly like literal ones.
+
+(def ^:dynamic *select-value*
+  "The value of the `<select>` whose children are being emitted, or nil.
+  Bound by `with-select-value`; read when an `<option>` is emitted."
+  nil)
+
+(defn- attr-value-text
+  "JavaScript's `\"\" + v` for a converted attribute value — the string
+  react-dom compares when it matches an option against its select."
+  [v]
+  (cond
+    (string? v)                    v
+    (number? v)                    (rf.ssr.hash/canonical-number v)
+    (or (keyword? v) (symbol? v))  (name v)
+    :else                          (str v)))
+
+(defn- option-label
+  "react-dom's `flattenOptionChildren`: an option's text children
+  concatenated, seqs spliced and nil / boolean children skipped. nil when a
+  child is an element, whose text react-dom could not infer either."
+  [children]
+  (loop [pending (seq children)
+         label   ""]
+    (if-let [[child & more] pending]
+      (cond
+        (or (nil? child) (boolean? child))
+        (recur more label)
+
+        (or (string? child) (number? child) (keyword? child) (symbol? child))
+        (recur more (str label (attr-value-text child)))
+
+        (and (sequential? child) (not (vector? child)))
+        (recur (seq (concat child more)) label)
+
+        :else
+        nil)
+      label)))
+
+(defn- option-selected?
+  [select-value option-attrs children]
+  (let [option-value (if (some? (get option-attrs "value"))
+                       (attr-value-text (get option-attrs "value"))
+                       (option-label children))]
+    (and (some? option-value)
+         (if (or (sequential? select-value) (set? select-value))
+           (boolean (some #(= option-value (attr-value-text %)) select-value))
+           (= option-value (attr-value-text select-value))))))
+
+(defn- promote-default
+  "`default-prop` stands in for `prop` when `prop` is absent or nil, as
+  react-dom/server's `<input>` arm does; `default-prop` itself never writes."
+  [attrs prop default-prop]
+  (if (contains? attrs default-prop)
+    (let [default-value (get attrs default-prop)
+          attrs         (dissoc attrs default-prop)]
+      (if (and (nil? (get attrs prop)) (some? default-value))
+        (assoc attrs prop default-value)
+        attrs))
+    attrs))
+
+(defn- form-control-props
+  "Apply the form-control special forms to a CONVERTED attribute map (see the
+  section comment above). -> `{:attrs … :text … :select …}`, where `:text` is a
+  textarea's text body and `:select` a select's value for its options."
+  [normalised-tag-name attrs children]
+  (let [controlled (fn [] (let [v (get attrs "value")]
+                            (if (some? v) v (get attrs "defaultValue"))))
+        drop-defaults #(dissoc % "defaultValue" "defaultChecked")]
+    (case normalised-tag-name
+      "input"
+      {:attrs (-> attrs
+                  (promote-default "value" "defaultValue")
+                  (promote-default "checked" "defaultChecked"))}
+
+      "textarea"
+      {:attrs (drop-defaults (dissoc attrs "value"))
+       :text  (some-> (controlled) attr-value-text)}
+
+      "select"
+      {:attrs  (drop-defaults (dissoc attrs "value"))
+       :select (controlled)}
+
+      "option"
+      {:attrs (let [attrs (drop-defaults attrs)]
+                (if (some? *select-value*)
+                  (cond-> (dissoc attrs "selected")
+                    (option-selected? *select-value* attrs children)
+                    (assoc "selected" true))
+                  attrs))}
+
+      {:attrs (drop-defaults attrs)})))
+
+(defn dom-element-props
+  "Everything both hiccup body walkers need to open a DOM element, computed
+  once here so the two cannot drift (rf2-3x7nj.13.1, rf2-slr59). Joins the
+  class (the author's, normalised, after the tag shorthand's), merges
+  `root-attrs` (nil on the streaming walker), converts names and values the
+  way the hydrating client does, then applies the form-control special forms
+  on an ordinary element. -> `{:attrs <string-keyed map for attr-string>
+  :text <a textarea's text body, or nil> :select <a select's value for its
+  options, or nil>}`."
+  [tag-name normalised-tag-name tag-attrs user-attrs root-attrs children]
+  (let [merged    (merge-class-attrs tag-attrs (normalise-class-attrs user-attrs))
+        merged    (if root-attrs (merge-root-attrs merged root-attrs) merged)
+        converted (convert-dom-attrs tag-name merged)]
+    (if (clojure.string/includes? tag-name "-")
+      {:attrs converted}
+      (form-control-props normalised-tag-name converted children))))
+
+(defn with-select-value
+  "Call `emit-children-fn` with `*select-value*` bound for a `<select>`'s
+  children. Every select rebinds it — to nil when it has no value — so an
+  outer select never reaches the options of an inner one."
+  [normalised-tag-name select-value emit-children-fn]
+  (if (= "select" normalised-tag-name)
+    (binding [*select-value* select-value]
+      (emit-children-fn))
+    (emit-children-fn)))
 
 (defn reserved-rf-head?
   "True when `head` is a keyword in the framework-reserved `:rf/*` scheme
@@ -806,10 +1109,6 @@
                (if (map? (second el))
                  [(second el) (drop 2 el)]
                  [{} (rest el)])
-               merged-attrs (merge-class-attrs tag-attrs user-attrs)
-               attrs        (if root-attrs
-                              (merge-root-attrs merged-attrs root-attrs)
-                              merged-attrs)
                ;; rf2-hzttr finding 3 — void + raw-text classification
                ;; must be CASE-INSENSITIVE. `validate-tag-name!` admits
                ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
@@ -819,6 +1118,12 @@
                ;; for classification while preserving the author's emitted
                ;; case.
                normalised-tag-name (clojure.string/lower-case tag-name)
+               ;; rf2-3x7nj.13.1 / rf2-slr59 — class join, root attrs, the
+               ;; client's name/value conversion and the form-control special
+               ;; forms, shared with the streaming walker.
+               {attrs :attrs text :text select-value :select}
+               (dom-element-props tag-name normalised-tag-name tag-attrs
+                                  user-attrs root-attrs children)
                void?        (contains? void-elements (keyword normalised-tag-name))
                raw-text?    (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
            (cond
@@ -837,6 +1142,15 @@
                   (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                         (clojure.string/join children))
                   "</" tag-name ">")
+             ;; rf2-slr59 — a `<textarea>`'s `:value` (else `:default-value`)
+             ;; is its text body, as react-dom/server writes it, with the same
+             ;; rf2-s7l5 leading-LF compensation a string child gets.
+             (some? text)
+             (str "<" tag-name (attr-string attrs) ">"
+                  (rf.ssr.html-helpers/leading-newline-compensation
+                    normalised-tag-name text)
+                  (rf.ssr.html-helpers/escape-html text)
+                  "</" tag-name ">")
              ;; rf2-s7l5 — a `<pre>`/`<listing>`/`<textarea>` whose body is a
              ;; SINGLE string beginning with LF gets the one compensating LF
              ;; react-dom/server 19.2 emits, because the HTML parser eats the
@@ -852,7 +1166,8 @@
                   (rf.ssr.html-helpers/leading-newline-compensation
                     normalised-tag-name
                     (rf.ssr.html-helpers/sole-string-child children))
-                  (emit-children children)
+                  (with-select-value normalised-tag-name select-value
+                    #(emit-children children))
                   "</" tag-name ">")))
 
          ;; Callable component head — a plain fn OR a Var reference

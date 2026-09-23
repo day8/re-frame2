@@ -376,12 +376,17 @@
         [user-attrs children] (if (map? (second element))
                                 [(second element) (drop 2 element)]
                                 [{} (rest element)])
-        merged-attrs          (rf.ssr.emit/merge-class-attrs tag-attrs user-attrs)
         ;; Void + raw-text classification are case-insensitive, mirroring
         ;; the non-streaming emitter. A `[:BR]` admitted by
         ;; `validate-tag-name!` must be recognised as void here too, or the
         ;; shell walker emits a `<BR></BR>` open+close pair.
         normalised-tag-name   (clojure.string/lower-case tag-name)
+        ;; rf2-3x7nj.13.1 / rf2-slr59 — the SAME class join, name/value
+        ;; conversion and form-control special forms as the non-streaming
+        ;; emitter, through its one shared function. No root attrs here.
+        {merged-attrs :attrs text :text select-value :select}
+        (rf.ssr.emit/dom-element-props tag-name normalised-tag-name tag-attrs
+                                       user-attrs nil children)
         void?                 (contains? rf.ssr.emit/void-elements
                                          (keyword normalised-tag-name))
         raw-text?             (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
@@ -398,6 +403,14 @@
            (rf.ssr.html-helpers/escape-raw-text normalised-tag-name
                                  (clojure.string/join children))
            "</" tag-name ">")
+      ;; rf2-slr59 — mirror the non-streaming emitter: a `<textarea>`'s
+      ;; `:value` (else `:default-value`) is its text body.
+      (some? text)
+      (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">"
+           (rf.ssr.html-helpers/leading-newline-compensation
+             normalised-tag-name text)
+           (rf.ssr.html-helpers/escape-html text)
+           "</" tag-name ">")
       ;; rf2-s7l5 — mirror the non-streaming emitter's leading-LF
       ;; compensation for `<pre>`/`<listing>`/`<textarea>` with a SINGLE
       ;; string body, so progressive shell/continuation markup preserves an
@@ -409,7 +422,8 @@
            (rf.ssr.html-helpers/leading-newline-compensation
              normalised-tag-name
              (rf.ssr.html-helpers/sole-string-child children))
-           (walk-children children continuation-accumulator)
+           (rf.ssr.emit/with-select-value normalised-tag-name select-value
+             #(walk-children children continuation-accumulator))
            "</" tag-name ">"))))
 
 (defn- suspense-attrs? [boundary-attrs]

@@ -876,9 +876,11 @@
 
   Names are matched hyphen-collapsed and lowercased, so `:content-editable`
   and `:contentEditable` classify alike. Only the CLASS is decided here — the
-  emitted attribute NAME is each caller's business (the hiccup emitter writes
-  author names verbatim; `re-frame.ssr.ui-tree` maps them through the React
-  prop vocabulary)."
+  emitted attribute NAME is each caller's business (the two hiccup body
+  walkers convert author names the way the hydrating Reagent-tier adapter
+  does before calling `attr-string`, rf2-3x7nj.13.1; the head emitter and the
+  Ring host shell pass theirs verbatim; `re-frame.ssr.ui-tree` maps them
+  through the React prop vocabulary)."
   [attribute-name]
   (let [collapsed (str/lower-case (str/replace attribute-name "-" ""))]
     (cond

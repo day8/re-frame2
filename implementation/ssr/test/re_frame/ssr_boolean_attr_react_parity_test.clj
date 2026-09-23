@@ -455,16 +455,30 @@
 (def ^:private reserved-props
   #{"children"})
 
+;; rf2-slr59 — THE SAME FALSIFIED MODEL, A SECOND TIME. react-dom's
+;; `pushAttribute` drops `defaultValue` and `defaultChecked` on every element
+;; (they are form-control props, honoured only by the `<input>` / `<textarea>`
+;; / `<select>` arms), and these two rows record exactly that: `<div></div>`
+;; at all six values. The hiccup emitters used to write `defaultValue="0"`,
+;; the generic arm below expected it, and the test was green against a row
+;; saying otherwise. The emitters now drop both props off a form control, as
+;; react-dom does, and `reserved-prop-row-carries-no-attribute` asserts the
+;; premise against the fixture for these names too.
+(def ^:private form-default-props
+  #{"defaultValue" "defaultChecked"})
+
 (defn- expected-hiccup-markup-for-value
   "The `<div>` markup the hiccup emitters must produce for a NON-boolean
   `value`. For the presence class the expectation is react-dom's OWN verdict
   on the same value — read off the row rather than restated — re-spelled in
-  this grammar's bare presence form. For a RESERVED prop (rf2-dgyi) react-dom
-  writes no attribute at any value and this emitter strips the prop, so the
-  expectation is the bare element. Every other class keeps the value."
+  this grammar's bare presence form. For a RESERVED prop (rf2-dgyi) or a
+  form-control default prop (rf2-slr59) react-dom writes no attribute at any
+  value and this emitter drops the prop, so the expectation is the bare
+  element. Every other class keeps the value."
   [klass attribute {:keys [field serialised]} row]
   (cond
-    (contains? reserved-props attribute)
+    (or (contains? reserved-props attribute)
+        (contains? form-default-props attribute))
     "<div></div>"
 
     (= :presence klass)
@@ -480,8 +494,9 @@
             from the FIXTURE rather than asserted in a comment: react-dom
             writes no `children=` attribute at ANY of the six probe values.
             If a future react-dom ever did, this exception would be wrong and
-            this row is what says so"
-    (doseq [attribute reserved-props
+            this row is what says so. rf2-slr59 — the same premise for the two
+            form-control default props"
+    (doseq [attribute (concat reserved-props form-default-props)
             row       (rows)
             :when     (= attribute (:attribute row))
             field     [:true-markup :false-markup :string-markup
@@ -493,7 +508,7 @@
     (testing "and the exception is not vacuous — the name really is in the
               corpus, so a probe that stopped emitting the row would fail
               here rather than silently exercising nothing"
-      (doseq [attribute reserved-props]
+      (doseq [attribute (concat reserved-props form-default-props)]
         (is (some #(= attribute (:attribute %)) (rows))
             (str attribute " is absent from the react-dom evidence"))))))
 
