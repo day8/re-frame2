@@ -54,7 +54,12 @@
       successor registers) → same: one aborted reply, ZERO re-issue, no phantom
       `:retried`. This is the second transition gap the audit named.
    3. rf2-ous9e5 unit: `clear-in-flight!` (2-arg) is identity-conditional —
-      a completing OLD attempt does NOT evict a same-id SUCCESSOR's handle."
+      a completing OLD attempt does NOT evict a same-id SUCCESSOR's handle.
+   5. rf2-3x7nj.16.3: a same-id SUCCESSOR issued inside either handoff window
+      keeps the request-id slot. Each handoff decided to proceed before the
+      supersede landed, so its unconditional publication overwrote the
+      successor's slot and its own abort re-check then emptied it, leaving the
+      successor live, unabortable and unsuperseded."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
@@ -66,6 +71,7 @@
             [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
+           [java.util.concurrent CountDownLatch Executors TimeUnit]
            [java.util.concurrent.atomic AtomicInteger]))
 
 (use-fixtures :each
@@ -258,3 +264,103 @@
         (is (some #(identical? % h-b) v) "H_B still actor-indexed")
         (is (not (some #(identical? % h-a) v)) "H_A dropped from the actor index by identity")))
     (rf.http.registry/clear-all-in-flight!)))
+
+;; ---- (5) rf2-3x7nj.16.3 — a successor issued inside a handoff window -------
+;;
+;; R1 gets a 500 and hands off into its retry. At `inject-point` — squarely
+;; inside a handoff, on R1's own thread — the interleaving hook issues the
+;; same-id successor R2 through the real fx body, exactly as the event thread
+;; would: `supersede!` aborts R1 (reply suppressed) and R2 registers and goes on
+;; the wire, where the server parks it. R1's handoff then resumes. It decided to
+;; proceed before the supersede landed, so it must now leave R2's slot alone.
+
+(defn- start-500-then-parked-server!
+  "Hit 1 answers 500; every later hit parks on `release`, then answers 200."
+  [^CountDownLatch release]
+  (let [hits   (AtomicInteger. 0)
+        server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext server "/"
+                    (reify HttpHandler
+                      (handle [_ ex]
+                        (let [^HttpExchange ex ex
+                              n  (.incrementAndGet hits)
+                              _  (when (> n 1) (.await release 30 TimeUnit/SECONDS))
+                              bs (.getBytes (if (= 1 n) "boom" "{}") "UTF-8")]
+                          (try
+                            (-> ex .getResponseHeaders (.set "Content-Type" "application/json"))
+                            (.sendResponseHeaders ex (if (= 1 n) 500 200) (long (count bs)))
+                            (with-open [os (.getResponseBody ex)]
+                              (.write os bs))
+                            (catch Throwable _ nil))))))
+    ;; one thread per exchange, so the parked successor blocks nothing else
+    (.setExecutor server (Executors/newCachedThreadPool))
+    (.start server)
+    {:server server
+     :port   (.getPort (.getAddress server))
+     :hits   hits}))
+
+(defn- run-successor-in-window-case!
+  [inject-point]
+  (let [release (CountDownLatch. 1)
+        {:keys [^AtomicInteger hits] :as srv} (start-500-then-parked-server! release)
+        replies (atom [])
+        fired?  (atom false)
+        hook-done (CountDownLatch. 1)
+        args    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
+                 :decode     :json
+                 :retry      {:on           #{:rf.http/http-5xx}
+                              :max-attempts 3
+                              :backoff      {:base-ms 50 :factor 1 :max-ms 50}}
+                 :request-id :race
+                 :on-failure [:reply/recorder]
+                 :on-success [:reply/recorder]}]
+    (try
+      (rf/reg-event :reply/recorder
+        (fn [_ [_ p]]
+          (swap! replies conj [(:status p) (get-in p [:error :reason]) (:rf.reply/work-id p)])
+          {}))
+      (rf/reg-event :issue (fn [_ _] {:fx [[:rf.http/managed args]]}))
+      (rf/reg-event :abort (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
+      (rf.http.transport/set-test-interleave-hook!
+        (fn [point ctx]
+          (when (and (= point inject-point)
+                     (= 1 (:issuance ctx))
+                     (compare-and-set! fired? false true))
+            (rf.http.managed/managed-handler {:frame :rf/default :event [:issue]} args)
+            (.countDown hook-done))))
+      (rf/dispatch-sync [:issue])
+      (is (.await hook-done 5 TimeUnit/SECONDS) "the successor was issued inside the window")
+      (await-condition! #(= 2 (.get hits)))
+      ;; R1's handoff resumes on its own thread the instant the hook returns and
+      ;; finishes in microseconds; this bound only lets it get there.
+      (Thread/sleep 300)
+      (is (= 2 (:issuance (get (rf.http.registry/in-flight-snapshot :rf/default) :race)))
+          "the successor R2 still holds the request-id slot after R1's handoff")
+      (rf/dispatch-sync [:abort])
+      (await-condition! #(seq @replies))
+      (.countDown release)
+      ;; the ABSENCE of a late success reply has no positive signal to poll on
+      (Thread/sleep 400)
+      (is (= [[:cancelled :user [:rf.work/http :race 2 1]]] @replies)
+          "managed-abort reached R2 — one cancellation, and no success after it")
+      (is (= 2 (.get hits)) "R1 was never re-issued")
+      (is (empty? (rf.http.registry/in-flight-snapshot)) "the request-id registry is clean")
+      (finally
+        (.countDown release)
+        (rf.http.transport/set-test-interleave-hook! nil)
+        ;; On a red run R2 is unregistered, so the reset fixture cannot abort
+        ;; it: let it answer here rather than into the next test's recorder.
+        (Thread/sleep 300)
+        (stop-server! srv)))))
+
+(deftest successor-issued-at-backoff-registration-keeps-its-slot
+  (testing "rf2-3x7nj.16.3 — live-fetch → backoff handoff: a same-id successor
+            issued as the backoff is about to register keeps the slot, so
+            managed-abort reaches it"
+    (run-successor-in-window-case! :backoff/before-register)))
+
+(deftest successor-issued-at-timer-fire-handoff-keeps-its-slot
+  (testing "rf2-3x7nj.16.3 — backoff timer → attempt N+1 handoff: a same-id
+            successor issued after the timer won `fired?` keeps the slot, so
+            managed-abort reaches it"
+    (run-successor-in-window-case! :retry/before-attempt)))

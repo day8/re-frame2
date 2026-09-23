@@ -228,14 +228,40 @@
   `:actor-id` stamps. That could not be a reconcile: a missed abort leaves
   publication nothing to observe. The two halves compose — aborting a midpoint
   handle drops its request slot, so the reconcile below then retracts the actor
-  slot publication is about to write, and the destroy leaves no ghost either."
-  [request-id actor-id handle]
+  slot publication is about to write, and the destroy leaves no ghost either.
+
+  rf2-3x7nj.16.3 — THE RETRY HANDOFFS TAKE THE REQUEST-ID SLOT ONLY FROM THEIR
+  PREDECESSOR. The 4-arity names `prev-handle`, the phase being handed off from
+  (the live fetch a backoff replaces, or the backoff an attempt N+1 replaces),
+  and publishes to `in-flight` only while the slot still holds it. A handoff
+  decides to proceed before it registers, so a same-id re-issue can land in
+  between: `supersede!` clears the old slot and the successor registers. An
+  unconditional `assoc` then overwrote the successor, and the handoff's own
+  abort re-check cleared its handle by identity — leaving the slot EMPTY while
+  the successor was on the wire, beyond `:rf.http/managed-abort`, the next
+  supersession and the frame sweeps (JVM only; CLJS callbacks never
+  interleave with an event). When the slot no longer holds `prev-handle`, a
+  successor or an abort already owns the id, so the handle is not published
+  there, and the caller's re-check of the shared abort cell finishes the
+  cancelled predecessor as before. The actor / anonymous publication and the
+  reconcile are unchanged; the reconcile retracts an actor slot the request
+  index did not take. A nil `prev-handle` claims the slot unconditionally, as
+  the 3-arity does (a first attempt has no predecessor)."
+  ([request-id actor-id handle]
+   (record-in-flight! request-id actor-id handle nil))
+  ([request-id actor-id handle prev-handle]
   (let [frame-id       (:frame handle)
         stamped-handle (cond-> handle
                          request-id (assoc :request-id request-id)
                          actor-id   (assoc :actor-id actor-id))]
     (when request-id
-      (swap! in-flight assoc (scoped-key frame-id request-id) stamped-handle))
+      (let [k (scoped-key frame-id request-id)]
+        (swap! in-flight
+               (fn [request-index]
+                 (if (or (nil? prev-handle)
+                         (identical? prev-handle (get request-index k)))
+                   (assoc request-index k stamped-handle)
+                   request-index)))))
     (when actor-id
       (swap! actor-in-flight update (scoped-key frame-id actor-id)
              (fnil conj []) stamped-handle))
@@ -248,7 +274,7 @@
       (when-not (identical? (get @in-flight (scoped-key frame-id request-id))
                             stamped-handle)
         (remove-from-actor-index! stamped-handle)))
-    stamped-handle))
+    stamped-handle)))
 
 (defn clear-in-flight-in-frame!
   "Clear `frame-id`'s handle for `request-id` from both indexes — the
