@@ -12,15 +12,20 @@
        carries the issuing run's `:rf.trace/dispatch-id` and PRECEDES every
        row the issuance causes (the `:rf.fx/handled` row for the same fx, a
        synchronous body-prep failure, the stale-suppression of a superseded
-       predecessor). Its `:rf.reply/work-id` is the same work-id every
-       completion row of that attempt carries, which is the exact join key a
-       tool needs to pair an issuance with its completion.
+       predecessor). Its `:rf.reply/work-id` is the ATTEMPT-1 work-id; a
+       completion row carries the attempt that completed, so a tool pairs an
+       issuance with its completion on the three-element issuance PREFIX
+       `[:rf.work/http logical-id issuance]`, never on full equality
+       (rf2-ojn0y).
     2. ANONYMOUS NUMBERING — a request with no `:request-id` takes its
        issuance number from a per-(frame, originating event-id) counter that
        is NEVER evicted, so two anonymous requests of one event in one frame
-       carry distinct work-ids (`[:rf.work/http ev 1 1]`, `[:rf.work/http ev 2
-       1]`) however their completions interleave. Named requests are
-       unchanged: the per-(frame, request-id) counter with its conditional
+       carry distinct work-ids (`[:rf.work/http [:rf.http/anonymous ev] 1 1]`,
+       `[:rf.work/http [:rf.http/anonymous ev] 2 1]`) however their completions
+       interleave. The anonymous logical-id is TAGGED (rf2-5g0bt) so it can
+       never equal a named request's `:request-id` — the two counters are
+       independent, so untagged they would collide at the same number.
+       Named requests are unchanged: the per-(frame, request-id) counter with its conditional
        eviction (rf2-k47b3d)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -129,7 +134,7 @@
                   "the target summary names the reply event-id(s), never the event's args")
               (is (= 1 (count replied)))
               (is (= (subvec (work-id row) 0 3) (subvec (work-id (first replied)) 0 3))
-                  "the issued row joins its completion row on the work-id"))))
+                  "the issued row joins its completion row on the issuance prefix"))))
         )
       (finally (stop-server! srv)))))
 
@@ -205,17 +210,17 @@
           (.countDown ^CountDownLatch (latches "/a"))
           (is (await-latch! got-a))
           (let [issued (rows traces :rf.http/issued)]
-            (is (= [[:rf.work/http :anon/go 1 1] [:rf.work/http :anon/go 2 1]]
+            (is (= [[:rf.work/http [:rf.http/anonymous :anon/go] 1 1] [:rf.work/http [:rf.http/anonymous :anon/go] 2 1]]
                    (mapv work-id issued))
                 "each anonymous issuance of one event-id in one frame takes the next number")
             (is (nil? (get-in (first issued) [:tags :request-id])))
             (is (not= (dispatch-id (first issued)) (dispatch-id (second issued)))
                 "each issued row lands in its own issuing run"))
-          (is (= {"/a" [:rf.work/http :anon/go 1 1]
-                  "/b" [:rf.work/http :anon/go 2 1]}
+          (is (= {"/a" [:rf.work/http [:rf.http/anonymous :anon/go] 1 1]
+                  "/b" [:rf.work/http [:rf.http/anonymous :anon/go] 2 1]}
                  @replies)
               "each completion carries its own issuance, whatever the completion order")
-          (is (= #{[:rf.work/http :anon/go 1 1] [:rf.work/http :anon/go 2 1]}
+          (is (= #{[:rf.work/http [:rf.http/anonymous :anon/go] 1 1] [:rf.work/http [:rf.http/anonymous :anon/go] 2 1]}
                  (set (map work-id (rows traces :rf.http/replied))))
               "the two completion rows are distinguishable by work-id")))
       (finally
@@ -264,11 +269,120 @@
                 [h1 h2 :as handled] (managed-handled traces)]
             (is (= 2 (count issued)))
             (is (= 2 (count handled)))
-            (is (= [[:rf.work/http :pair/go 1 1] [:rf.work/http :pair/go 2 1]] (mapv work-id issued)))
+            (is (= [[:rf.work/http [:rf.http/anonymous :pair/go] 1 1] [:rf.work/http [:rf.http/anonymous :pair/go] 2 1]] (mapv work-id issued)))
             (is (< (:id i1) (:id h1) (:id i2) (:id h2))
                 "issued(k) precedes handled(k), and pair k precedes pair k+1")
             (is (apply = (map dispatch-id [i1 h1 i2 h2])) "all four rows are in the one issuing run"))))
       (finally (stop-server! srv)))))
+
+;; ===========================================================================
+;; G10 — rf2-5g0bt: a NAMED request whose `:request-id` equals an ANONYMOUS
+;; request's originating event-id, the two overlapping and completing in
+;; REVERSE order. The named `[frame request-id]` and anonymous `[frame
+;; event-id]` counters are independent, so both issuances are number 1; the
+;; work-id stays exact only because the anonymous logical-id is TAGGED
+;; `[:rf.http/anonymous event-id]`. Untagged, both read
+;; `[:rf.work/http :audit/go 1 1]` and a join by issuance prefix attributes
+;; the late anonymous completion to the named issuance.
+;; ===========================================================================
+
+(deftest mixed-named-and-anonymous-requests-carry-distinct-work-ids
+  (let [latches {"/a" (CountDownLatch. 1) "/b" (CountDownLatch. 1)}
+        got-a   (CountDownLatch. 1)
+        got-b   (CountDownLatch. 1)
+        replies (atom {})
+        srv     (start-server! latches)]
+    (try
+      (with-traces
+        (fn [traces]
+          (rf/reg-event :audit/done
+            (fn [_ [_ path reply]]
+              (swap! replies assoc path (:rf.reply/work-id reply))
+              (.countDown ^CountDownLatch (if (= "/a" path) got-a got-b))
+              {}))
+          (rf/reg-event :audit/go
+            (fn [_ [_ path request-id]]
+              {:fx [[:rf.http/managed (cond-> {:request  {:url (url srv path)}
+                                               :decode   :json
+                                               :reply-to [:audit/done path]}
+                                        request-id (assoc :request-id request-id))]]}))
+          ;; /a anonymous (logical identity: its event-id :audit/go), held;
+          ;; /b NAMED with the very same value as its :request-id.
+          (rf/dispatch-sync [:audit/go "/a" nil])
+          (rf/dispatch-sync [:audit/go "/b" :audit/go])
+          ;; the named /b completes FIRST, then the anonymous /a
+          (.countDown ^CountDownLatch (latches "/b"))
+          (is (await-latch! got-b))
+          (.countDown ^CountDownLatch (latches "/a"))
+          (is (await-latch! got-a))
+          (let [[anon named :as issued] (rows traces :rf.http/issued)
+                replied                 (rows traces :rf.http/replied)
+                prefix                  #(subvec % 0 3)]
+            (is (= 2 (count issued)) "control: two issuances, one issued row each")
+            (is (= 2 (count replied)) "control: both requests completed")
+            (is (distinct? (work-id anon) (work-id named))
+                "a named request-id equal to an anonymous event-id does not collide")
+            (is (= [:rf.work/http [:rf.http/anonymous :audit/go] 1 1] (work-id anon))
+                "the anonymous logical-id is tagged with its kind")
+            (is (= [:rf.work/http :audit/go 1 1] (work-id named))
+                "a named request keeps its caller-chosen request-id, untagged")
+            (is (= {"/a" (work-id anon) "/b" (work-id named)} @replies)
+                "each delivered reply carries its OWN issuance's work-id, whatever the completion order")
+            (is (= (set (map (comp prefix work-id) issued))
+                   (set (map (comp prefix work-id) replied)))
+                "every completion joins exactly one issuance on the three-element prefix"))))
+      (finally
+        (doseq [l (vals latches)] (.countDown ^CountDownLatch l))
+        (stop-server! srv)))))
+
+;; ===========================================================================
+;; G11 — rf2-ojn0y: a retried request. The issued row carries the ATTEMPT-1
+;; work-id; the completion carries its own attempt. They join on the
+;; three-element issuance PREFIX, never on full work-id equality.
+;; ===========================================================================
+
+(deftest retried-request-joins-its-issued-row-on-the-issuance-prefix
+  (let [hits   (atom 0)
+        done   (CountDownLatch. 1)
+        server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.setHandler (.createContext server "/")
+      (reify HttpHandler
+        (handle [_ ex]
+          (let [^HttpExchange ex ex
+                first-hit?       (= 1 (swap! hits inc))
+                bytes            (.getBytes "{\"v\":1}" "UTF-8")]
+            (-> ex .getResponseHeaders (.set "Content-Type" "application/json"))
+            (.sendResponseHeaders ex (if first-hit? 503 200) (long (count bytes)))
+            (with-open [os (.getResponseBody ex)] (.write os bytes))))))
+    (.start server)
+    (try
+      (with-traces
+        (fn [traces]
+          (rf/reg-event :retry/done (fn [_ _] (.countDown done) {}))
+          (rf/reg-event :retry/go
+            (fn [_ _]
+              {:fx [[:rf.http/managed
+                     {:request    {:url (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/r")}
+                      :request-id :retry/one
+                      :decode     :json
+                      :retry      {:on           #{:rf.http/http-5xx}
+                                   :max-attempts 2
+                                   :backoff      {:base-ms 1 :factor 1 :max-ms 1}}
+                      :reply-to   [:retry/done]}]]}))
+          (rf/dispatch-sync [:retry/go])
+          (is (await-latch! done))
+          (let [issued  (rows traces :rf.http/issued)
+                replied (rows traces :rf.http/replied)
+                i-wid   (work-id (first issued))
+                r-wid   (work-id (first replied))]
+            (is (= 2 @hits) "control: the server really saw two attempts")
+            (is (= 1 (count issued)) "one issuance, one issued row, however many attempts")
+            (is (= 1 (count replied)))
+            (is (= [:rf.work/http :retry/one 1 1] i-wid) "the issued row carries the attempt-1 work-id")
+            (is (= [:rf.work/http :retry/one 1 2] r-wid) "the completion carries its own attempt")
+            (is (= (subvec i-wid 0 3) (subvec r-wid 0 3))
+                "issuance and completion join on the three-element issuance prefix"))))
+      (finally (.stop server 0)))))
 
 ;; ===========================================================================
 ;; G7 — a synchronous body-prep failure: the issued row precedes it.
