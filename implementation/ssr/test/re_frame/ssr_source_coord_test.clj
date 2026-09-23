@@ -245,6 +245,32 @@
         (is (= 1 (count (re-seq #"data-rf-view=" html)))
             (str "exactly one annotated element; got: " (pr-str html)))))))
 
+(deftest interop-head-roots-are-returned-untouched
+  (testing "rf2-3x7nj.3.2 — Reagent's `:r>` (raw createElement) and `:f>`
+            (function component) interop heads carry the COMPONENT at
+            position 1, the slot a DOM root's attrs map is spliced into.
+            The walk must pass them through untouched, like `:>` and
+            `:<>`: splicing there displaced the component, so `:r>` handed
+            React a map as the element type and `:f>` rendered the map
+            instead of the user's fn."
+    ;; Posture-independent: this drives `annotate-root` directly, which is
+    ;; not itself gated on `interop/debug-enabled?` (only `wrap-handler-fn`
+    ;; is), so every assertion here means the same thing in both postures.
+    ;; The JVM emitter cannot render these heads, so there is no HTML arm.
+    (let [comp-fn  (fn [& _] nil)
+          annotate #(rf.views.jvm-source-coord-annotation/annotate-root
+                      :ssr-coord-test/interop "ssr-coord-test:interop:1:1"
+                      ":ssr-coord-test/interop" %)]
+      (doseq [out [[:f> comp-fn "arg"]
+                   [:r> comp-fn {:a 1} [:child]]
+                   [:> comp-fn {:a 1}]]]
+        (is (identical? out (annotate out))
+            (str (first out) " root must come back untouched, component still at position 1")))
+      ;; Control: a DOM-tag root IS annotated by the same call.
+      (is (= [:div {:data-rf2-source-coord "ssr-coord-test:interop:1:1"
+                    :data-rf-view          ":ssr-coord-test/interop"} "hi"]
+             (annotate [:div "hi"]))))))
+
 ;; ---------------------------------------------------------------------------
 ;; The streaming shell walker inherits annotation through the handler-fn
 ;; ---------------------------------------------------------------------------
