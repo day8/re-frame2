@@ -1513,10 +1513,15 @@
             ;; used to re-scan the WHOLE buffer on every trace row; they now
             ;; share one pass over the rows this panel can actually use. Each
             ;; projection keeps its own filter, so this is a cost change only.
-            ;; The reply-envelope reads stay on the raw buffer: they are
-            ;; deliberately CROSS-FAMILY (http / route / machine / timer), so
-            ;; a resource-family filter would silently narrow them.
+            ;; The reply-envelope reads stay off the resource-family filter:
+            ;; they are deliberately CROSS-FAMILY (http / route / machine /
+            ;; timer), so that filter would silently narrow them. They ARE
+            ;; restricted to the observed FRAME (rf2-3x7nj.23.3): the buffer
+            ;; merges every frame's ring, a work-id is frame-local, and the
+            ;; ledger they join is the observed frame's, so another frame's
+            ;; same-id arc labelled this frame's running work.
             family-rows   (h/resource-projection-rows trace-buffer)
+            frame-buffer  (reply/trace-buffer-for-frame trace-buffer observed-frame)
             ;; rf2-9zix0u — thread the on-box egress-fn so a frame-`:sensitive`
             ;; resource payload redacts to `[redacted]` on the on-box render
             ;; path (screen-share safe), structurally matching the off-box MCP
@@ -1545,9 +1550,9 @@
          ;; HTTP / route / machine / timer families write their own ledger
          ;; rows + emit their reply-envelope trace ops, these surfaces pick
          ;; them up with no panel change (one vocabulary, many families).
-         :live-work     (reply/live-work ledger trace-buffer)
-         :stale-races   (reply/races-by-work-id trace-buffer)
-         :stale-tally   (reply/stale-tally-by-kind trace-buffer)
+         :live-work     (reply/live-work ledger frame-buffer)
+         :stale-races   (reply/races-by-work-id frame-buffer)
+         :stale-tally   (reply/stale-tally-by-kind frame-buffer)
          :route-graph   (let [current (h/routing-current routing-slice)]
                           (h/project-route-graph
                             routes-map
