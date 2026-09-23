@@ -35,8 +35,11 @@
   (`splint/error`, `splint/parsing-error`, `splint/unknown-error` —
   Splint's own operational failures, e.g. a file it could not parse).
   Style/lint warnings print to the log for triage but never fail the
-  gate. Without the flag the shim is a pass-through to Splint's normal
-  exit code.
+  gate. A run that never reached linting — an unreadable multi-value
+  `.splint.edn`, an unknown or misplaced option, no paths — has no
+  diagnostics to count, so the flag keeps Splint's own failure exit for
+  it instead of reporting a green gate that checked nothing. Without the
+  flag the shim is a pass-through to Splint's normal exit code.
 
   Invoked via the `:splint` alias in implementation/deps.edn."
   (:require
@@ -78,14 +81,22 @@
         ;; `--fail-on-errors` is our flag, not Splint's — strip it
         ;; before delegating so Splint's CLI parser does not reject it.
         splint-args (vec (remove #(= "--fail-on-errors" %) args))
-        {:keys [exit diagnostics]} (runner/run splint-args)
+        {:keys [exit diagnostics] :as result} (runner/run splint-args)
         error-count (if (seq diagnostics)
                       (count (filter #(contains? error-rule-names (:rule-name %))
                                      diagnostics))
-                      0)]
+                      0)
+        ;; Every run that linted returns `:diagnostics` (possibly empty).
+        ;; Splint's early returns — a multi-value `.splint.edn`, a bad
+        ;; argv, an empty path list — carry none: they checked nothing, so
+        ;; their failure exit must survive the gate (rf2-3x7nj.21.1).
+        never-linted? (not (contains? result :diagnostics))]
     (System/exit
      (cond
        ;; In error-gate mode, fail only on error-class diagnostics;
        ;; warnings stay informational (kondo `--fail-level error` shape).
-       fail-on-errors? (if (pos? error-count) 1 0)
+       fail-on-errors? (if (or (pos? error-count)
+                               (and never-linted? (pos? (or exit 0))))
+                         1
+                         0)
        :else (or exit 0)))))
