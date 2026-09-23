@@ -712,3 +712,23 @@
       (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger)))
       (is (= [] (filterv #{"useRef"} hooks)))
       (is (= 1 (count (filterv #{"useState"} hooks)))))))
+
+(deftest an-untitled-todo-renders-an-empty-field
+  ;; rf2-3x7nj.7.1 — the chapter's own call site for a todo with no
+  ;; `:title` yet: `:todo/title` reads nil, the revision defaults to `0`,
+  ;; and the module forwards that revision beside the nil it shows. Read
+  ;; through the REAL body and the real codec under `renderToString`, so
+  ;; the element judged is the one the module emits rather than a
+  ;; hand-written stand-in for it.
+  (let [out (try (server-render! [rf.fresco.forms/buffered-field
+                                  {:control     control
+                                   :value       nil
+                                   ::rf.fresco/revision 0
+                                   :on-commit   [::title-committed 7]
+                                   :placeholder "What needs doing?"}])
+                 (catch :default e {:refused (or (:rf.error/id (ex-data e)) (str e))}))]
+    (is (nil? (:refused out))
+        "the field rendered — a nil committed value beside the revision the
+         module always forwards is the empty field, not a refusal")
+    (is (some? (re-find #"<input[^>]*value=\"\"" (str (:html out))))
+        (str "and the input carries the empty value, controlled: " (:html out)))))

@@ -383,8 +383,6 @@
               [:div {:re-frame.fresco/revision "r" :value "x" :on-input noop-input}]]
              ["a value-less <input>"
               [:input {:re-frame.fresco/revision "r" :on-input noop-input}]]
-             ["an <input> with a nil :value, which is the same statement"
-              [:input {:re-frame.fresco/revision "r" :value nil :on-input noop-input}]]
              ["a value-less checkbox, written the idiomatic way"
               [:input {:type :checkbox :checked true
                        :re-frame.fresco/revision "r" :on-input noop-input}]]
@@ -395,7 +393,8 @@
           what)))
   (testing "and the coverage is stated honestly rather than overstated.
            `controlled-text-tag?` is deliberately TYPE-BLIND — tag plus a
-           non-nil emitted `value` — so these are ACCEPTED and the revision
+           non-nil EMITTED `value`, where a nil `:value` on a text field
+           emits as `\"\"` (the row below) — so these are ACCEPTED and the revision
            is simply inert on them. 'A checkbox is refused' is the wrong
            sentence; 'a value-less checkbox is refused' is the right one."
     (doseq [[what hiccup]
@@ -406,6 +405,38 @@
               [:input {:type :number :value "1"
                        :re-frame.fresco/revision "r" :on-input noop-input}]]]]
       (is (nil? (errors-of #(rf.fresco.impl.codec/as-element hiccup))) what))))
+
+(deftest a-revision-beside-a-nil-value-re-baselines-to-the-empty-field
+  (testing "rf2-3x7nj.7.1. A nil `:value` on a text field is an UNSET model,
+           not an absent one — the committed value of a todo with no title
+           yet, which is exactly what `forms/buffered-field` hands its
+           `<input>` beside the revision it always forwards. The codec makes
+           it the empty field, so the element is accepted and the revision
+           has something to re-baseline TO"
+    (is (nil? (errors-of #(rf.fresco.impl.codec/as-element (field :input nil "r"))))
+        "an <input>")
+    (is (nil? (errors-of #(rf.fresco.impl.codec/as-element (field :textarea nil "r"))))
+        "a <textarea>")
+    (if-not (browser?)
+      (skip! "the re-baseline needs a real commit")
+      (let [c    (container!)
+            root (react-dom-client/createRoot c)]
+        (try
+          (render! root (walled :input nil "rev-1"))
+          (let [n (node c)]
+            (is (= "" (.-value n)) "the unset model shows the empty field")
+            (drift! n "a draft")
+            (render! root (walled :input nil "rev-1"))
+            (is (= "a draft" (.-value n))
+                "the control: an equal revision bails at the wall and resets
+                 nothing")
+            (render! root (walled :input nil "rev-2"))
+            (is (= "" (.-value n))
+                "a bumped revision re-baselined the field to its model, which
+                 is empty — rather than leaving the draft in a box React had
+                 read as uncontrolled")
+            (is (identical? n (node c)) "on the node it already had"))
+          (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — NEVER A DOM ATTRIBUTE

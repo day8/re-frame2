@@ -35,7 +35,9 @@
   to a stated skip under `:node-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
-            [re-frame.fresco.impl.controlled :as rf.fresco.impl.controlled]))
+            [re-frame.fresco.impl.controlled :as rf.fresco.impl.controlled]
+            ["react-dom" :as react-dom]
+            ["react-dom/client" :as react-dom-client]))
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))
@@ -330,6 +332,70 @@
           "while an uncontrolled input is still emitted as the bare tag —
            the shadow has no controlled value to hold"))))
 
+(deftest the-element-type-does-not-move-when-the-value-moves-between-nil-and-text
+  (testing "the same law on the VALUE axis (rf2-3x7nj.7.1). An unset model
+           reads nil — a draft nobody has typed, an entity with no title
+           yet — and the first keystroke moves it to text; a commit that
+           clears the draft moves it back. Both moves must keep the element
+           type, or React replaces the node under the user's caret"
+    (let [f   (fn [_e])
+          typ (fn [tag v] (.-type (rf.fresco.impl.codec/as-element
+                                   [tag {:value v :on-input f}])))]
+      (is (identical? (typ :input nil) (typ :input "a")))
+      (is (identical? (typ :textarea nil) (typ :textarea "a")))
+      (is (identical? (typ :input nil) (typ :input "")))))
+  (testing "because nil is the EMPTY field wherever the value is the
+           field's content, so the element carries `\"\"` and React reads
+           it as controlled. A type whose value is a token or a label keeps
+           React's reading of nil — no attribute — and an unwritten
+           `:value` stays unwritten"
+    (let [value-of (fn [hiccup] (slot (rf.fresco.impl.codec/as-element hiccup) "value"))]
+      (is (= "" (value-of [:input {:value nil :on-input (fn [_e])}])))
+      (is (= "" (value-of [:textarea {:value nil :on-input (fn [_e])}])))
+      (is (= "" (value-of [:input {:type "number" :value nil}]))
+          "a content type with no caret is still content")
+      (is (nil? (value-of [:input {:type "checkbox" :value nil}])))
+      (is (nil? (value-of [:input {:type "SUBMIT" :value nil}]))
+          "a shouted type is folded here as it is for the caret")
+      (is (undefined? (value-of [:input {:on-input (fn [_e])}]))))))
+
+(deftest a-field-whose-model-moves-between-nil-and-text-keeps-its-node-and-focus
+  (testing "the row above read on a live React root, where a changed
+           element type is a REMOUNT: the focused `<input>` deleted and a
+           fresh, unfocused one mounted in its place. And the second half
+           the element type alone cannot answer — a model cleared to nil
+           must clear the box, where a field React had read as uncontrolled
+           would keep the text it last showed"
+    (if-not (browser?)
+      (skip! "a remount and a focus need a real React commit")
+      (let [c       (js/document.createElement "div")
+            _       (.appendChild js/document.body c)
+            root    (react-dom-client/createRoot c)
+            render! (fn [v]
+                      (react-dom/flushSync
+                       #(.render root (rf.fresco.impl.codec/as-element
+                                       [:input {:id "f" :value v :on-input (fn [_e])}]))))
+            node    #(.querySelector c "#f")]
+        (try
+          (render! nil)
+          (let [n (node)]
+            (.focus n)
+            (is (= "" (.-value n)) "an unset model shows the empty field")
+            (render! "a")
+            (is (identical? n (node)) "the first keystroke's model kept the node")
+            (is (identical? n js/document.activeElement) "and the focus")
+            (is (= "a" (.-value n)))
+            (render! "abc")
+            (render! nil)
+            (is (identical? n (node)) "a commit clearing the model kept the node")
+            (is (identical? n js/document.activeElement) "and the focus")
+            (is (= "" (.-value n))
+                "and the box shows the model — empty — rather than the text
+                 it last showed"))
+          (finally
+            (react-dom/flushSync #(.unmount root))
+            (.remove c)))))))
+
 (deftest the-tag-an-emitted-element-renders-is-readable-without-knowing-this-namespace
   (testing "a controlled field's element type is the shadow's component,
            so an element-tree reader asks for the TAG rather than the
@@ -360,8 +426,9 @@
       (is (identical? f (emitted [:input {:on-input f}]))
           "no `:value` — the element is uncontrolled, and React writes no
            record for it")
-      (is (identical? f (emitted [:input {:value nil :on-input f}]))
-          "a nil `:value` is the same statement")
+      (is (not (identical? f (emitted [:input {:value nil :on-input f}])))
+          "while a nil `:value` is NOT that statement: an unset model is
+           the EMPTY field, controlled and wrapped like any other value")
       (is (identical? f (emitted [:input {:value "x" :default-value "seed"
                                           :on-input f}]))
           "a `:default-value` of the author's — React honours it over the
