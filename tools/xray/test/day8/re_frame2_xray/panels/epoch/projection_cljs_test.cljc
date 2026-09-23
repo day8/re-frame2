@@ -2685,18 +2685,84 @@
   (testing "rf2-j630b — each :fx row carries a per-effect status:
             :ok ran / :error threw / :overridden / :skipped on-platform.
             Per-fx success is ALREADY RECORDED on the trace stream."
+    ;; The override is in the PRODUCER's shape (rf2-3x7nj.22.3): override-
+    ;; applied carries only `:rf.fx/from` / `:rf.fx/to`, never `:rf.fx/id`,
+    ;; and the replacement's own `:rf.fx/handled` follows it. This fixture
+    ;; used to put `:rf.fx/id` on the override row, which the producer never
+    ;; does — so it passed while no real trace could ever paint `↺`.
     (let [s  (proj/side-effects-step
                [(fx-handled-ev :http/post {} 1.0)
-                (ev :rf.fx :rf.fx/override-applied {:rf.fx/id :metrics})
+                (teb/fx-override-applied-ev :metrics :re-frame.fx/fn-value)
+                (fx-handled-ev :metrics {} 0.2)
                 (ev :warning :rf.fx/skipped-on-platform {:rf.fx/id :clipboard})
                 (ev :error :rf.error/fx-handler-exception {:rf.fx/id :bad-fx})])
           by (into {} (map (juxt :fx-id :status) (:rows s)))]
-      (is (= 4 (count (:rows s))))
+      (is (= 4 (count (:rows s))) "the override row is provenance, never a row of its own")
       (is (= :ok         (:http/post by)) ":rf.fx/handled → :ok")
-      (is (= :overridden (:metrics   by)) ":rf.fx/override-applied → :overridden")
+      (is (= :overridden (:metrics   by)) "an overridden :rf.fx/handled → :overridden")
       (is (= :skipped    (:clipboard by)) ":rf.fx/skipped-on-platform → :skipped")
       (is (= :error      (:bad-fx    by)) "fx-handler-exception → :error")
       (is (= 1 (:threw s)) "threw count = the one fx that threw"))))
+
+;; ---- `↺` overridden, off override PROVENANCE only (rf2-3x7nj.22.3) -------
+;;
+;; Every fixture is the producer's shape, as a real `:fx-overrides` dispatch
+;; emits it (captured from the runtime): a function override emits
+;; `:rf.fx/override-applied {:rf.fx/from X :rf.fx/to :re-frame.fx/fn-value}`
+;; just before the function fires, then `:rf.fx/handled {:rf.fx/id X}`; a
+;; keyword redirect emits `{:rf.fx/from X :rf.fx/to Y}`, then
+;; `:rf.fx/handled {:rf.fx/id Y :rf.fx/from X}`.
+
+(deftest side-effects-overridden-fx-reads-overridden-test
+  (testing "REGRESSION — a function override paints ↺ on the emitted id, and
+            names the replacement; it used to read ✓ like the real handler"
+    (let [rows (proj/fx-effect-rows
+                 [(teb/fx-override-applied-ev :http/post :re-frame.fx/fn-value)
+                  (fx-handled-ev :http/post {:url "/x"} 0.1)])]
+      (is (= [{:fx-id :http/post :status :overridden :override-to :re-frame.fx/fn-value}]
+             (mapv #(select-keys % [:fx-id :status :override-to]) rows)))
+      (is (= "↺" (badge/fx-row-status-glyph (:status (first rows)))))))
+  (testing "REGRESSION — a keyword redirect is keyed on the id the handler
+            EMITTED, the target as detail; it used to read `✓ <target>`, the
+            emitted id gone from the ledger"
+    (let [rows (proj/fx-effect-rows
+                 [(teb/fx-override-applied-ev :http/post :http/fake)
+                  (fx-handled-ev :http/fake {:url "/x"} 0.1 :http/post)])]
+      (is (= [{:fx-id :http/post :status :overridden :override-to :http/fake}]
+             (mapv #(select-keys % [:fx-id :status :override-to]) rows)))))
+  (testing "a function override that delegated to the real handler is still
+            overridden — rows the replacement emitted in between do not break
+            the pairing"
+    (let [rows (proj/fx-effect-rows
+                 [(teb/fx-override-applied-ev :rf.http/managed :re-frame.fx/fn-value)
+                  (teb/http-issued-ev :app/load "/api/load")
+                  (fx-handled-ev :rf.http/managed {} 1)])]
+      (is (= [:overridden] (mapv :status rows))))))
+
+(deftest side-effects-override-never-hides-a-failure-test
+  (testing "a replacement that THREW reads ✗, not ↺ — its failure row stays a
+            failure and trips the badge"
+    (let [s (proj/side-effects-step
+              [(teb/fx-override-applied-ev :http/post :re-frame.fx/fn-value)
+               (ev :error :rf.error/fx-handler-exception {:rf.fx/id :http/post})])]
+      (is (= [:error] (mapv :status (:rows s))))
+      (is (= :error (proj/side-effects-badge-status (:rows s)))))))
+
+(deftest side-effects-override-controls-test
+  (testing "CONTROL — an unoverridden handled row still reads ✓, with no
+            replacement: absence of an override row is never read as one"
+    (is (= [{:fx-id :http/post :status :ok}]
+           (mapv #(select-keys % [:fx-id :status :override-to])
+                 (proj/fx-effect-rows [(fx-handled-ev :http/post {} 0.1)])))))
+  (testing "CONTROL — an override of a DIFFERENT fx does not mark this one,
+            and a later handled row for the overridden id outside the window
+            is not marked either"
+    (is (= [:ok :ok]
+           (mapv :status
+                 (proj/fx-effect-rows
+                   [(teb/fx-override-applied-ev :app/other :re-frame.fx/fn-value)
+                    (fx-handled-ev :http/post {} 0.1)
+                    (fx-handled-ev :app/other {} 0.1)]))))))
 
 (deftest side-effects-badge-and-of-rows-test
   (testing "rf2-j630b — the badge is the AND of the present rows: cross
