@@ -184,7 +184,7 @@
     (register-routes!)
     (doseq [p ["/" "/active" "/completed"]]
       (.pushState js/globalThis.window.history nil "" (rf.routing.strategy/hash-encode p))
-      (is (= p (rf.routing.strategy/hash-decode))
+      (is (= p (rf.routing.strategy/hash-decode (rf.routing.strategy/current-href)))
           (str "round-trip through window.location.hash recovers " (pr-str p))))))
 
 ;; ==========================================================================
@@ -348,7 +348,7 @@
           "the replaced URL is not double-hashed"))
     ;; (d) inbound decode returns the app-relative path-form.
     (let [strat (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
-      (is (= "/completed" ((:decode strat)))
+      (is (= "/completed" ((:decode strat) (rf.routing.strategy/current-href)))
           "decode of the live /demos#/completed address bar is app-relative /completed"))))
 
 (deftest history-base-links-and-address-bar-agree-irygd6-cljs
@@ -375,7 +375,7 @@
       (is (= "/demos/completed" (current-url *history-state*))
           "the replaced entry is base-prefixed, agreeing with :encode"))
     (let [strat (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
-      (is (= "/completed" ((:decode strat)))
+      (is (= "/completed" ((:decode strat) (rf.routing.strategy/current-href)))
           "decode strips the base — app-relative /completed"))))
 
 ;; ==========================================================================
@@ -421,12 +421,12 @@
                ["/demos#/demos"             "/demos"]
                ["/demos#/demos/item?q=milk" "/demos/item?q=milk"]]]
         (.pushState js/globalThis.window.history nil "" href)
-        (is (= app-path ((:decode strat)))
+        (is (= app-path ((:decode strat) (rf.routing.strategy/current-href)))
             (str "decode of " href " is the app-relative " app-path))
         ;; (c) the round-trip law: encode(decode) reproduces the address bar.
-        (is (= href ((:encode strat) ((:decode strat))))
+        (is (= href ((:encode strat) ((:decode strat) (rf.routing.strategy/current-href))))
             (str "encode∘decode round-trips " href))
-        (is (not (double-hash? ((:encode strat) ((:decode strat)))))
+        (is (not (double-hash? ((:encode strat) ((:decode strat) (rf.routing.strategy/current-href)))))
             "the round-tripped href is not double-hashed")))))
 
 (deftest hash-base-install-listener!-preserves-colliding-prefix-exnw-cljs
@@ -475,7 +475,7 @@
                ["/demos/demos/item?q=milk#frag"  "/demos/item?q=milk#frag"]
                ["/demos"                         "/"]]]
         (.pushState js/globalThis.window.history nil "" href)
-        (is (= app-path ((:decode strat)))
+        (is (= app-path ((:decode strat) (rf.routing.strategy/current-href)))
             (str "decode of " href " strips the base to " app-path))))))
 
 (deftest history-base-mount-root-before-query-or-fragment-cljs-rf2-gwye-29
@@ -503,7 +503,7 @@
                ["nested path (control)"        "/app/active"           "/active"]
                ["sibling + query (control)"    "/application?tab=all"  "/application?tab=all"]]]
         (.pushState js/globalThis.window.history nil "" href)
-        (is (= app-path ((:decode strat)))
+        (is (= app-path ((:decode strat) (rf.routing.strategy/current-href)))
             (str case-name ": decode of " href " is " app-path)))
       (.pushState js/globalThis.window.history nil "" "/app/active")
       (.dispatchEvent js/globalThis.window #js {:type "popstate"})
@@ -593,3 +593,203 @@
       (finally
         (rf.late-bind/set-fn! :routing/preflight-frame-config!
                            rf.routing.strategy/preflight-frame-config!)))))
+
+;; ==========================================================================
+;; 8. rf2-3x7nj.12.2 — `{:url …}` and `:rf.route/url-requested` speak the
+;;    APP-RELATIVE space, under every strategy
+;; ==========================================================================
+;;
+;; A reference with no origin (`?tab=2`, `#section`, `7`) is an APP reference:
+;; it resolves against the navigating frame's current app URL. A reference with
+;; an origin is a BROWSER ADDRESS: the URL owner's `:decode` reduces it. Both
+;; doors used to resolve every reference against `window.location.href` and
+;; decode nothing, which is right only for history-without-a-base — under a
+;; base path `?tab=2` doubled the base and missed, and under a hash strategy
+;; `#section` and `?tab=2` landed on the home route. Each row below runs BOTH
+;; doors.
+
+(defn- register-user-routes! []
+  (rf/reg-route :u/home {} "/")
+  (rf/reg-route :u/user {} "/users/:id")
+  (rf/reg-route :rf.route/not-found {} "/_404"))
+
+(defn- slice-of [frame-id]
+  (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
+          [:rf.runtime/routing :current]))
+
+(def ^:private both-doors
+  "The two doors a caller hands a URL string to."
+  [[:navigate      (fn [frame-id url]
+                     (rf/dispatch-sync [:rf.route/navigate {:url url}] {:frame frame-id}))]
+   [:url-requested (fn [frame-id url]
+                     (rf/dispatch-sync [:rf.route/url-requested {:url url}] {:frame frame-id}))]])
+
+(defn- own-url-at!
+  "Put the browser on `href`, then declare `:rf/default` the URL owner (under
+  `strategy`, when one is given) — its initial sync reads that address."
+  [href strategy]
+  (.pushState js/globalThis.window.history nil "" href)
+  (rf/make-frame (cond-> {:id :rf/default :url-bound? true}
+                   strategy (assoc :url-strategy strategy))))
+
+(defn- to-user! [frame-id id]
+  (rf/dispatch-sync [:rf.route/navigate {:to :u/user :params {:id id}}] {:frame frame-id}))
+
+(defn- doc-origin [] (.-origin (.-location js/globalThis.window)))
+
+(deftest a-query-reference-keeps-the-route-under-a-base-path-cljs
+  (testing "rf2-3x7nj.12.2: under (with-base-path history \"/app\") on user 42,
+            `?tab=2` commits user 42 with the query and pushes the base ONCE —
+            not not-found at /app/app/users/42?tab=2"
+    (register-user-routes!)
+    (own-url-at! "/app/users/42" (rf.routing.strategy/with-base-path
+                                   rf.routing.strategy/history-url-strategy "/app"))
+    (is (= :u/user (:route-id (slice-of :rf/default)))
+        "precondition: the initial sync stripped the base")
+    (doseq [[door go!] both-doors]
+      (to-user! :rf/default "42")
+      (go! :rf/default "?tab=2")
+      (let [s (slice-of :rf/default)]
+        (is (= :u/user (:route-id s)) (str door ": the user route, not not-found"))
+        (is (= {:id "42"} (:params s)) (str door ": the same user"))
+        (is (= {"tab" "2"} (:query s)) (str door ": carrying the query"))
+        (is (= "/app/users/42?tab=2" (current-url *history-state*))
+            (str door ": the address bar carries the base once"))))))
+
+(deftest a-fragment-reference-is-a-fragment-change-under-hash-cljs
+  (testing "rf2-3x7nj.12.2: under hash-url-strategy on user 42, `#section` is a
+            fragment-only change on user 42 — not the home route with fragment
+            \"section\""
+    (register-user-routes!)
+    (own-url-at! "/#/users/42" rf.routing.strategy/hash-url-strategy)
+    (is (= :u/user (:route-id (slice-of :rf/default))) "precondition: on user 42")
+    (doseq [[door go!] both-doors]
+      (to-user! :rf/default "42")
+      (go! :rf/default "#section")
+      (let [s (slice-of :rf/default)]
+        (is (= :u/user (:route-id s)) (str door ": still the user route"))
+        (is (= {:id "42"} (:params s)) (str door ": still user 42"))
+        (is (= "section" (:fragment s)) (str door ": the fragment moved"))
+        (is (= "#/users/42#section" (current-url *history-state*))
+            (str door ": the app URL's fragment rides inside the hash route"))))))
+
+(deftest a-fragment-reference-under-hash-plus-base-cljs
+  (testing "rf2-3x7nj.12.2: under (with-base-path hash \"/app\"), `#section`
+            pushes /app#/users/42#section — not /app#/app#section"
+    (register-user-routes!)
+    (own-url-at! "/app#/users/42" (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/hash-url-strategy "/app"))
+    (is (= :u/user (:route-id (slice-of :rf/default))) "precondition: on user 42")
+    (doseq [[door go!] both-doors]
+      (to-user! :rf/default "42")
+      (go! :rf/default "#section")
+      (is (= :u/user (:route-id (slice-of :rf/default))) (str door ": still user 42"))
+      (is (= "/app#/users/42#section" (current-url *history-state*))
+          (str door ": the base once, outside the fragment")))))
+
+(deftest an-origin-bearing-reference-is-decoded-by-the-owner-cljs
+  (testing "rf2-3x7nj.12.2: an absolute same-origin URL is a BROWSER address,
+            decoded by the URL owner's strategy"
+    (register-user-routes!)
+    (testing "history + /app: the base is stripped"
+      (own-url-at! "/app/users/42" (rf.routing.strategy/with-base-path
+                                     rf.routing.strategy/history-url-strategy "/app"))
+      (doseq [[door go!] both-doors]
+        (to-user! :rf/default "42")
+        (go! :rf/default (str (doc-origin) "/app/users/7"))
+        (is (= :u/user (:route-id (slice-of :rf/default))) (str door ": the user route"))
+        (is (= {:id "7"} (:params (slice-of :rf/default))) (str door ": user 7"))
+        (is (= "/app/users/7" (current-url *history-state*))
+            (str door ": the address bar carries the base once"))))))
+
+(deftest an-origin-bearing-reference-under-hash-cljs
+  (testing "rf2-3x7nj.12.2: under hash, https://host/#/users/7 is user 7 — not
+            the home route with fragment \"/users/7\""
+    (register-user-routes!)
+    (own-url-at! "/#/users/42" rf.routing.strategy/hash-url-strategy)
+    (doseq [[door go!] both-doors]
+      (to-user! :rf/default "42")
+      (go! :rf/default (str (doc-origin) "/#/users/7"))
+      (let [s (slice-of :rf/default)]
+        (is (= :u/user (:route-id s)) (str door ": the user route"))
+        (is (= {:id "7"} (:params s)) (str door ": user 7"))
+        (is (nil? (:fragment s)) (str door ": no fragment smuggled in"))))))
+
+(deftest a-custom-strategy-decodes-with-its-own-decode-cljs
+  (testing "rf2-3x7nj.12.2: the contract is uniform — an origin-bearing
+            reference goes through WHATEVER `:decode` the owner declares"
+    (let [bang {:encode (fn [path] (str "#!" path))
+                :decode (fn [href]
+                          (let [i (.indexOf href "#!")
+                                p (when-not (neg? i) (subs href (+ i 2)))]
+                            (if (seq p) p "/")))}]
+      (register-user-routes!)
+      (own-url-at! "/#!/users/42" (merge rf.routing.strategy/hash-url-strategy bang))
+      (is (= :u/user (:route-id (slice-of :rf/default)))
+          "precondition: the initial sync decoded the #! address")
+      (doseq [[door go!] both-doors]
+        (to-user! :rf/default "42")
+        (go! :rf/default (str (doc-origin) "/#!/users/7"))
+        (is (= {:id "7"} (:params (slice-of :rf/default)))
+            (str door ": the owner's own :decode read the address"))
+        (is (= "#!/users/7" (current-url *history-state*))
+            (str door ": and its own :encode wrote it back"))))))
+
+(deftest an-app-reference-resolves-against-the-navigating-frame-cljs
+  (testing "rf2-3x7nj.12.2: a frame that is not the URL owner resolves `?tab=2`
+            against ITS route, never the host page's address bar"
+    (register-user-routes!)
+    (own-url-at! "/users/42" nil)
+    (rf/make-frame {:id :u/story})
+    (doseq [[door go!] both-doors]
+      (to-user! :u/story "5")
+      (go! :u/story "?tab=2")
+      (let [s (slice-of :u/story)]
+        (is (= {:id "5"} (:params s)) (str door ": the story frame's own user"))
+        (is (= {"tab" "2"} (:query s)) (str door ": with the query")))
+      (is (= :u/user (:route-id (slice-of :rf/default))))
+      (is (= {:id "42"} (:params (slice-of :rf/default)))
+          (str door ": the URL owner is untouched")))))
+
+(deftest app-reference-bases-cljs
+  (register-user-routes!)
+  (testing "rf2-3x7nj.12.2: on a NOT-FOUND slice the base is the requested app
+            URL the slice preserves, which the not-found pattern is not"
+    (own-url-at! "/missing/page?old=1" nil)
+    (is (= :rf.route/not-found (:route-id (slice-of :rf/default))) "precondition")
+    (doseq [[door go!] both-doors]
+      (rf/dispatch-sync [:rf.route/navigate {:url "/missing/page?old=1"}] {:frame :rf/default})
+      (go! :rf/default "?tab=2")
+      (is (= :rf.route/not-found (:route-id (slice-of :rf/default))))
+      (is (= "/missing/page?tab=2" (:url (:params (slice-of :rf/default))))
+          (str door ": the query replaced the missed URL's query, on the missed path"))))
+  (testing "rf2-3x7nj.12.2: a frame with NO location resolves against `/`"
+    (doseq [[door go!] both-doors]
+      (let [frame-id (keyword "u" (str "fresh-" (name door)))]
+        (rf/make-frame {:id frame-id})
+        (go! frame-id "?tab=2")
+        (is (= :u/home (:route-id (slice-of frame-id))) (str door ": the root route"))
+        (is (= {"tab" "2"} (:query (slice-of frame-id))) (str door ": with the query")))))
+  (testing "rf2-3x7nj.12.2: a bare relative segment resolves against the
+            frame's CANONICAL location, so `7` from user 42 is user 7"
+    (doseq [[door go!] both-doors]
+      (to-user! :rf/default "42")
+      (go! :rf/default "7")
+      (is (= {:id "7"} (:params (slice-of :rf/default))) (str door ": user 7")))))
+
+(deftest a-rooted-reference-is-the-same-app-path-under-every-strategy-cljs
+  (testing "rf2-3x7nj.12.2 CONTROL: `/users/7` already meant the app path under
+            every strategy — the one row that worked everywhere, and still does"
+    (register-user-routes!)
+    (doseq [[label strategy] [["history"        rf.routing.strategy/history-url-strategy]
+                              ["history + /app" (rf.routing.strategy/with-base-path
+                                                  rf.routing.strategy/history-url-strategy "/app")]
+                              ["hash"           rf.routing.strategy/hash-url-strategy]
+                              ["hash + /app"    (rf.routing.strategy/with-base-path
+                                                  rf.routing.strategy/hash-url-strategy "/app")]]]
+      (own-url-at! "/" strategy)
+      (doseq [[door go!] both-doors]
+        (to-user! :rf/default "42")
+        (go! :rf/default "/users/7")
+        (is (= {:id "7"} (:params (slice-of :rf/default)))
+            (str label " / " door ": /users/7 is user 7"))))))

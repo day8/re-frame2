@@ -303,18 +303,22 @@
                 ;;     fragment may itself be the decode-fail site) and the
                 ;;     matched fragment otherwise.
                 ;;
-                ;; rf2-fzbj.12: the ACCEPTED reference is first resolved to the
-                ;; location the browser will actually reach — the same
-                ;; `request-url->app-url` the link door runs. Matched raw, a
-                ;; same-origin absolute URL, a protocol-relative one, a
-                ;; dot-segment path or a pure `?query` / `#fragment` missed and
-                ;; committed not-found while the pushed URL displayed a valid
+                ;; rf2-fzbj.12: the ACCEPTED reference is first reduced to the app
+                ;; URL it names — the same `request-app-url` the link door runs.
+                ;; Matched raw, a same-origin absolute URL, a protocol-relative
+                ;; one, a dot-segment path or a pure `?query` / `#fragment`
+                ;; missed and committed not-found while the pushed URL displayed
+                ;; a valid route. rf2-3x7nj.12.2: the reduction is APP-RELATIVE —
+                ;; a reference without an origin resolves against THIS frame's
+                ;; current app URL, one with an origin is a browser address
+                ;; decoded by the URL owner's strategy — so a base path or a hash
+                ;; strategy no longer doubles the base or lands on the wrong
                 ;; route. That ONE effective URL feeds the match, the unmatched
                 ;; fallback params, the guards and history; the plan's `:source`
                 ;; keeps the caller's string as provenance. On the JVM / with no
                 ;; window the helper is identity (the fail-closed policy).
                 (some? url-target)
-                (let [app-url (rf.routing.url/request-url->app-url url-target)
+                (let [app-url (rf.routing.decisions/request-app-url rdb url-target)
                       {:keys [match matched? malformed? throw-reason target]}
                       (rf.routing.resolve/url-resolution app-url)]
                   {:route-id         (or (:route-id match) :rf.route/not-found)

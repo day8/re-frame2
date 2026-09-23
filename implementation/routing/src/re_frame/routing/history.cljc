@@ -77,11 +77,12 @@
   installation step.
 
   This is the PATH-FORM projection of a HISTORY-strategy app's URL (it is
-  `history-url-strategy`'s `:decode`). A hash app decodes differently —
-  the lifecycle listener uses the URL owner's strategy `:decode`; this
-  function specifically exposes the history strategy's projection."
+  `history-url-strategy`'s `:decode` of the current browser address). A hash
+  app decodes differently — the lifecycle listener uses the URL owner's
+  strategy `:decode`; this function specifically exposes the history
+  strategy's projection."
   []
-  (rf.routing.strategy/history-decode))
+  (rf.routing.strategy/history-decode (rf.routing.strategy/current-href)))
 
 #?(:cljs
    (defonce ^:private history-listener-atom
@@ -161,7 +162,9 @@
        ;; Initial sync: hydrate the owner's slice from the current URL so a deep
        ;; link / reload / ownership transfer lands on the right route. Cause
        ;; `:initial` — this is the initial page load, not a Back/Forward.
-       (dispatch-to-owner! :initial (decode-url))
+       ;; `:decode` is pure (rf2-3x7nj.12.2): the browser address is read here,
+       ;; at the boundary, and handed in.
+       (dispatch-to-owner! :initial (decode-url (rf.routing.strategy/current-href)))
        nil)))
 
 #?(:cljs

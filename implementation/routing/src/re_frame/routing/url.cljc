@@ -501,19 +501,52 @@
      ;; JVM / SSR: no browser origin — fail closed (rf2-3bv8o).
      (not (safe-in-app-url? url))))
 
+#?(:cljs
+   (def ^:private app-reference-origin
+     "The synthetic origin an app reference is resolved under. It names no real
+     host — `.invalid` is reserved (RFC 2606) — so a resolution that comes back
+     under any OTHER origin is one whose reference carried an origin of its own."
+     "http://app.invalid"))
+
 (defn request-url->app-url
-  "Normalise an in-app `url` to its origin-relative form
-  (`pathname + search + hash`) on CLJS when a browser Location is
-  available and the URL is not external; otherwise return `url`
-  unchanged. Callers must have already confirmed the URL is in-app via
-  `external-url?` — this only canonicalises, it does NOT gate."
-  [url]
+  "Reduce an accepted `{:url …}` / `:rf.route/url-requested` reference to the
+  APP-RELATIVE path-form URL the rest of the cascade speaks (rf2-3x7nj.12.2).
+  Callers must already have confirmed the reference is in-app via
+  `external-url?` — this only canonicalises, it does NOT gate.
+
+  The rule has two halves, decided by whether the reference carries an ORIGIN
+  (a scheme, or a `//authority`):
+
+    - NO origin — a rooted `/x`, a `?query`, a `#fragment`, dot-segments or a
+      bare relative segment — is an APP reference. It resolves against
+      `current-app-url`, the navigating frame's own current app URL, so `?tab=2`
+      keeps that frame's route and `#section` is a fragment change on it. A
+      frame that is not the URL owner (a story, a devcard, a test frame)
+      resolves against ITS route, never the host page's address bar.
+    - An origin — a same-origin absolute or protocol-relative URL, a host
+      anchor's resolved `.href` — is a BROWSER ADDRESS. Its origin-relative
+      address is handed to `decode`, the URL owner's strategy `:decode`, which
+      strips a base path and unwraps a `#/…` fragment exactly as the browser
+      listener does.
+
+  Under the default history strategy with no base path the two agree with the
+  address-bar reading this used to take (`window.location.href` as the base,
+  no decode) — which is the only configuration that reading was right for:
+  under `with-base-path` or `hash-url-strategy` `?tab=2` matched a doubled base
+  or a different route. On the JVM, and on CLJS without a browser `Location`,
+  the reference is returned unchanged (the fail-closed lexical gate already
+  classes origin-bearing and bare-relative references as external there)."
+  [url current-app-url decode]
   #?(:cljs
      (try
        (if (and (exists? js/window) (.-location js/window)
                 (not (external-url? url)))
-         (let [parsed (js/URL. url (.-href (.-location js/window)))]
-           (str (.-pathname parsed) (.-search parsed) (.-hash parsed)))
+         (let [resolved (js/URL. url (js/URL. (str app-reference-origin (or current-app-url "/"))))]
+           (if (= app-reference-origin (.-origin resolved))
+             (str (.-pathname resolved) (.-search resolved) (.-hash resolved))
+             (let [parsed  (js/URL. url (.-href (.-location js/window)))
+                   address (str (.-pathname parsed) (.-search parsed) (.-hash parsed))]
+               (if decode (decode address) address))))
          url)
        (catch :default _ url))
      :clj

@@ -41,6 +41,8 @@ Spec changes are tracked under [`spec/`](spec/) and referenced from each entry b
 
 ### Changed
 
+- **Routing: a `:url-strategy`'s `:decode` takes the address it decodes.** It was `(fn [] path)`, reading `window.location`; it is now `(fn [href] path)`, pure on both hosts and the exact inverse of `:encode`. A custom strategy's `:decode` must take one argument — a zero-arity ClojureScript fn silently ignores the address, so it still serves the URL listener but decodes the current location for an origin-bearing `{:url …}` / `:rf.route/url-requested` reference. The two URL-string doors now speak the app-relative space under every strategy: no origin, an app path resolved against the navigating frame's route; an origin, a browser address decoded by the URL owner's strategy. See [Spec 012 §App references and browser addresses](spec/012-Routing.md#app-references-and-browser-addresses).
+
 ### Removed
 
 ### Fixed

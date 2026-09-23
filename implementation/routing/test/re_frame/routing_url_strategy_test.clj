@@ -328,10 +328,11 @@
       (is (= "/realworld/" ((:encode wrapped) "/")))
       ;; :decode strips the base off whatever the wrapped strategy decodes —
       ;; simulate that by composing over a fixed decode via a custom strategy.
+      ;; rf2-3x7nj.12.2: `:decode` takes the browser address it decodes.
       (let [fake-decode (rf.routing.strategy/with-base-path
                           {:encode identity :decode (constantly "/realworld/active")}
                           "/realworld")]
-        (is (= "/active" ((:decode fake-decode))))))))
+        (is (= "/active" ((:decode fake-decode) "/realworld/active")))))))
 
 (deftest with-base-path-normalizes-the-base
   (testing "a base with no leading slash gets one; a trailing slash is stripped"
@@ -385,7 +386,41 @@
     (let [wrapped (rf.routing.strategy/with-base-path
                     {:encode identity :decode (constantly "/app?tab=all#section")}
                     "/app")]
-      (is (= "/?tab=all#section" ((:decode wrapped)))))))
+      (is (= "/?tab=all#section" ((:decode wrapped) "/app?tab=all#section"))))))
+
+;; ---- rf2-3x7nj.12.2: `:decode` is PURE, the exact inverse of `:encode` ------
+;;
+;; `:decode` used to read `window.location` and so could not run here at all —
+;; the round-trip law above had to be checked against a hand-written model. It
+;; now takes the origin-relative browser address, so the law is checked against
+;; the SHIPPED strategies themselves, base-path forms included, on the JVM.
+
+(deftest decode-inverts-encode-for-every-shipped-form
+  (testing "(decode (encode p)) = p — history, hash, and both based forms"
+    (let [strategies {"history"        rf.routing.strategy/history-url-strategy
+                      "hash"           rf.routing.strategy/hash-url-strategy
+                      "history + /app" (rf.routing.strategy/with-base-path
+                                         rf.routing.strategy/history-url-strategy "/app")
+                      "hash + /app"    (rf.routing.strategy/with-base-path
+                                         rf.routing.strategy/hash-url-strategy "/app")}
+          paths      ["/" "/users/42" "/users/42?tab=2" "/users/42#section"
+                      "/users/42?tab=2#section" "/app/item"]]
+      (doseq [[label {:keys [encode decode]}] strategies
+              p paths]
+        (is (= p (decode (encode p)))
+            (str label ": decode∘encode round-trips " p)))))
+  (testing "the based hash form takes its ingress rule from the INNER strategy —
+            the fragment never carried the base, so an app route whose first
+            segment equals the base is not stripped a second time"
+    (let [{:keys [encode decode]} (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/hash-url-strategy "/app")]
+      (is (= "/app#/app/item" (encode "/app/item")))
+      (is (= "/app/item" (decode "/app#/app/item")))))
+  (testing "hash :decode reads only what follows the first `#`"
+    (is (= "/" (rf.routing.strategy/hash-decode "/")))
+    (is (= "/" (rf.routing.strategy/hash-decode "/#")))
+    (is (= "/active" (rf.routing.strategy/hash-decode "/#active")))
+    (is (= "/users/7#section" (rf.routing.strategy/hash-decode "/app#/users/7#section")))))
 
 (deftest with-base-path-blank-base-is-a-no-op
   (testing "a blank/nil base returns the wrapped strategy UNCHANGED — no
