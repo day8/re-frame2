@@ -68,10 +68,17 @@
 
   The closed set the two projections below share, so they cannot drift on
   what counts as data. Everything outside it that is not a collection is a
-  live object the JSON encoder cannot write."
+  live object the JSON encoder cannot write.
+
+  An instant means one the encoder CAN write: a `java.util.Date` on the
+  JVM, not anything `inst?` accepts. `inst?` is also true of a
+  `java.time.Instant`, which Cheshire cannot encode, so admitting it
+  turned a whole result into a `-32603` server fault (rf2-3x7nj.34.1).
+  Mirrors core's `re-frame.recordable/inst-leaf?`."
   [v]
   (or (nil? v) (boolean? v) (number? v) (string? v)
-      (keyword? v) (symbol? v) (char? v) (uuid? v) (inst? v)))
+      (keyword? v) (symbol? v) (char? v) (uuid? v)
+      #?(:clj (instance? java.util.Date v) :cljs (inst? v))))
 
 (defn- wire-safe-value
   "Project any value into the EDN value space, which is the shape the JSON
