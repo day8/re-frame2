@@ -421,6 +421,42 @@
         (is (nil? (find-by-testid tree "rf-xray-resources-stale-races-caption"))
             "no stale-races section when no arc was suppressed")))))
 
+(deftest live-work-joins-the-observed-frames-rows-only
+  (testing "rf2-3x7nj.23.3 — Xray's buffer merges every frame's ring and a
+            resource work-id is frame-LOCAL, so another frame that loaded
+            the same resource at the same generation carries the SAME
+            work-id. The composite hands the reply-envelope reads the
+            observed frame's rows, so the other frame's completion does not
+            label the observed frame's still-running work"
+    (setup-xray-frame!)
+    (rf/make-frame {:id ::observed})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-target-frame ::observed] {:frame :rf/xray})
+      (seed-overrides!)
+      (rf/dispatch-sync
+        [:rf.xray/sync-trace-buffer
+         [{:id 80 :op-type :rf.resource :operation :rf.resource/work-started
+           :tags {:work/id ep0011-live-work-id :work/kind :resource
+                  :rf.frame/id ::observed}}
+          {:id 81 :op-type :rf.resource :operation :rf.resource/work-started
+           :tags {:work/id ep0011-live-work-id :work/kind :resource
+                  :rf.frame/id ::other}}
+          {:id 82 :op-type :rf.resource :operation :rf.resource/succeeded
+           :tags {:work/id ep0011-live-work-id :work/kind :resource
+                  :rf.frame/id ::other :rf.reply/status :ok}}]]
+        {:frame :rf/xray})
+      (is (= ::observed @(rf/subscribe [:rf.xray/observed-frame]))
+          "PRECONDITION: Xray is observing ::observed")
+      (let [phase (find-by-testid
+                    (panel-tree)
+                    (str "rf-xray-resources-live-work-row-"
+                         (hash ep0011-live-work-id) "-phase"))]
+        (is (some? phase) "the running row rendered its joined phase")
+        (is (re-find #"issued" (node-text phase))
+            "the observed frame's own latest phase")
+        (is (not (re-find #"completed" (node-text phase)))
+            "not the other frame's completion")))))
+
 ;; ---- (3b) EP-0019 optimistic mutation lifecycle render ------------------
 
 (def ep0019-buffer

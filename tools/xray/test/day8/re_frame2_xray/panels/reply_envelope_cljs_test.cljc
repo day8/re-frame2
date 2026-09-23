@@ -988,6 +988,80 @@
       (is (= :cancel-requested (:phase (get idx [:rf.work/resource :k 2])))))))
 
 ;; ---------------------------------------------------------------------------
+;; (8b) frame scoping — a work-id is frame-LOCAL (rf2-3x7nj.23.3).
+;; ---------------------------------------------------------------------------
+
+(def ^:private shared-work-id
+  "The work-id BOTH frames mint when each loads the same globally-scoped
+  resource at its first generation: `resource-work-id` is
+  `[:rf.work/resource <scoped-key> <generation>]`, carrying no frame."
+  [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "x"}] 1])
+
+(defn- resource-row
+  "A resource trace row in the runtime's tag shape — the EP-0002 carried
+  frame stamp `:rf.frame/id` beside the `:rf.reply/*` work identity."
+  ([id op frame] (resource-row id op frame nil))
+  ([id op frame extra]
+   {:id id :operation op :time (* 10 id)
+    :tags (merge {:rf.frame/id        frame
+                  :rf.reply/work-id   shared-work-id
+                  :rf.reply/work-kind :resource}
+                 extra)}))
+
+(def ^:private two-frame-buffer
+  "Xray's merged buffer: frame :app/a issued W and is still waiting, while
+  frame :app/b issued the SAME W and it completed."
+  [(resource-row 1 :rf.resource/work-started :app/a)
+   (resource-row 2 :rf.resource/work-started :app/b)
+   (resource-row 3 :rf.resource/succeeded :app/b {:rf.reply/status :ok})])
+
+(def ^:private ledger-a
+  "Frame :app/a's work ledger: W still running."
+  {"opaque-a" {:work/id shared-work-id :work/kind :resource :work/frame :app/a
+               :generation 1 :status :running :owners #{} :causes []}})
+
+(deftest reply-reads-scope-to-one-frame
+  (testing "NON-VACUITY: the two frames' rows really do collide on W —
+            joined over the merged buffer, :app/b's completion is W's
+            latest phase"
+    (is (= :completed
+           (:latest-phase (first (re/live-work ledger-a two-frame-buffer))))))
+  (testing "rf2-3x7nj.23.3 — live-work over :app/a's rows labels :app/a's
+            running work with :app/a's OWN latest phase"
+    (let [row (first (re/live-work ledger-a
+                                   (re/trace-buffer-for-frame two-frame-buffer :app/a)))]
+      (is (= :running (:status row)))
+      (is (= :issued (:latest-phase row)))
+      (is (= :rf.resource/work-started (:latest-op row)))))
+  (testing "races-by-work-id holds one frame's arc — its phases and its
+            terminal status, not a merge of both frames'"
+    (let [buf (conj two-frame-buffer
+                    (resource-row 4 :rf.resource/stale-suppressed :app/a
+                                  {:rf.reply/status :stale}))
+          arc (get (re/races-by-work-id (re/trace-buffer-for-frame buf :app/a))
+                   shared-work-id)]
+      (is (= #{:app/a} (into #{} (map :frame) (:rows arc))))
+      (is (= #{:issued :stale-suppressed} (:phases arc)))
+      (is (= :stale (:terminal-status arc)))))
+  (testing "the stale tally counts one frame's suppressions"
+    (let [buf (conj two-frame-buffer
+                    (resource-row 4 :rf.resource/stale-suppressed :app/b
+                                  {:rf.reply/status :stale}))]
+      (is (= {} (re/stale-tally-by-kind (re/trace-buffer-for-frame buf :app/a))))
+      (is (= {:resource 1}
+             (re/stale-tally-by-kind (re/trace-buffer-for-frame buf :app/b))))))
+  (testing "nil escapes — no frame named keeps every row, and a row carrying
+            no frame is unattributable rather than foreign"
+    (is (= two-frame-buffer (re/trace-buffer-for-frame two-frame-buffer nil)))
+    (let [frameless (update (resource-row 5 :rf.resource/work-started nil)
+                            :tags dissoc :rf.frame/id)]
+      (is (= [frameless] (re/trace-buffer-for-frame [frameless] :app/a))))
+    (let [http-row {:id 6 :operation :rf.http/stale-suppressed
+                    :tags {:frame :app/b :rf.reply/work-id [:rf.work/http :r 1 1]}}]
+      (is (= [] (re/trace-buffer-for-frame [http-row] :app/a))
+          "the canonical raw-event [:tags :frame] spelling is read too"))))
+
+;; ---------------------------------------------------------------------------
 ;; live? predicate — the non-terminal ledger statuses.
 ;; ---------------------------------------------------------------------------
 

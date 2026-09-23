@@ -725,6 +725,13 @@ races") above — silent-by-default so a settled app surfaces neither.
 "What is still running?" is the live (non-terminal) work-ledger rows
 joined to the latest reply-envelope trace phase per `:work/id`; the
 stale-races view groups every cross-family work/reply row by `:work/id`.
+All three read the trace buffer restricted to the **observed frame's** rows
+(`reply_envelope/trace-buffer-for-frame`; a row carrying no frame is kept as
+unattributable): the buffer merges every host frame's ring while a work-id
+is frame-local — two frames loading the same resource at the same
+generation mint the same work-id — so an unscoped join labelled one
+frame's running work with another frame's outcome (rf2-3x7nj.23.3). The
+scope is by frame only; the reads stay cross-family.
 The live-work join keys on the canonical `:work/id` **vector** carried on
 the ledger record (`reply_envelope/ledger-row` reads `(:work/id record)`,
 falling back to the opaque CEDN-1 byte map key only for legacy records),

@@ -563,6 +563,36 @@
 (defn- trace-op [ev] (or (:operation ev) (:op ev)))
 (defn- trace-tags [ev] (or (:tags ev) {}))
 
+(defn- event-frame
+  "The frame a managed-async trace row is attributed to — the `:frame`
+  `work-event-row` stamps (see the frame-spelling note there): the EP-0002
+  carried stamp `:rf.frame/id`, else the canonical raw-event `[:tags :frame]`."
+  [ev]
+  (or (:rf.frame/id (trace-tags ev)) (rf.trace/trace-event-frame ev)))
+
+(defn trace-buffer-for-frame
+  "Restrict `trace-buffer` to the rows attributable to `frame`
+  (rf2-3x7nj.23.3).
+
+  Xray's trace buffer merges every host frame's ring, but a `:work/id` is
+  frame-LOCAL: a resource work-id is `[:rf.work/resource <scoped-key>
+  <generation>]` with a per-frame generation, so two frames loading the
+  same resource at the same generation mint the SAME work-id. Every join
+  below keys on the work-id alone, so a caller answering for one frame
+  hands them this buffer, or another frame's outcome labels its work.
+
+  Two nil escapes, as `cancellation-cascade-helpers/in-frame?` has: a nil
+  `frame` names no frame and returns the buffer unchanged, and a row
+  carrying no frame is unattributable rather than foreign, so it stays.
+  Scoping by FRAME leaves the reads cross-FAMILY. Pure."
+  [trace-buffer frame]
+  (if (nil? frame)
+    trace-buffer
+    (filterv (fn [ev]
+               (let [f (event-frame ev)]
+                 (or (nil? f) (= frame f))))
+             (or trace-buffer []))))
+
 (defn work-event-row
   "Project ONE managed-async trace event (any family) into a uniform
   work/reply row — the SAME shape regardless of which family emitted it
@@ -655,7 +685,7 @@
                  ;; no emit site produces it) and a top-level `:frame` on the
                  ;; raw event (raw events carry frame ONLY under `:tags`) — are
                  ;; gone.
-                 :frame        (or (:rf.frame/id tags) (rf.trace/trace-event-frame ev))
+                 :frame        (event-frame ev)
                  ;; rf2-waawic — tolerate the additive `:rf.reply/work-status`
                  ;; production key so machine / resource / mutation rows do not
                  ;; lose their work status.
@@ -897,7 +927,9 @@
 
   Answers the operator's \"what is the app waiting on, and why\" across every
   family with ONE join. `ledger` is the frame's work-ledger map (read off the
-  runtime-db at `ledger-key`); `trace-buffer` supplies the latest phase. Pure.
+  runtime-db at `ledger-key`); `trace-buffer` supplies the latest phase, and
+  must be THAT frame's rows (`trace-buffer-for-frame`), since the work-id it
+  joins on is frame-local. Pure.
 
   The single-arity form (ledger only) returns the live rows without the trace
   join (the ledger row's own `:status` is the live fact; the trace phase is
