@@ -261,7 +261,7 @@ The selector/source-link requirement is met per tier (CURRENT, rf2-ffu8t):
   `:target` (`axe-finding`) — the SAME selectors the a11y panel's overlay
   decorates — and threads them onto the finding as `:selector` (the primary
   link) + `:targets` (every node selector). The result UI
-  (`re-frame.story.ui.test-mode.visual_a11y_view`) renders the selector as
+  (`re-frame.story.ui.test-mode.visual-a11y-view`) renders the selector as
   the finding's locus/source link.
 - **structural `:rf.assert/a11y-structural` (the `:hiccup` tier)** has NO
   real source coordinate to surface, and the UI does not fabricate one. The

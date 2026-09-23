@@ -42,8 +42,9 @@ sections only.
 
 The toolbar renders as a horizontal strip **above** the three-pane
 layout, between the (future) chrome header and the sidebar / canvas /
-inspector row. Per rf2-v58dm the strip composes **five distinct
-affordance clusters** separated by token-driven hairlines — each
+inspector row. Per rf2-v58dm (plus the SHARE cluster, rf2-ba86n.16)
+the strip composes **six distinct affordance clusters** separated by
+token-driven hairlines — each
 with a small-caps cluster label so users scan groups rather than
 chips:
 
@@ -59,7 +60,7 @@ chips:
 └──────────┴───────────────────────────────────┴─────────────────────────────────────┘
 ```
 
-The 5-cluster vocabulary (MODES / DATA / VIEW / DEBUG / REC) is the
+The six-cluster vocabulary (MODES / DATA / VIEW / DEBUG / SHARE / REC) is the
 normative structural contract for the strip and lives in
 [`016-Design-Tokens.md`](016-Design-Tokens.md) §Toolbar 5-cluster
 structure. This doc describes the **MODES** cluster substrate
@@ -101,7 +102,7 @@ trail in their own ungrouped sub-section. v1.1 may add an explicit
 `:order` slot on `reg-mode` if that ordering proves wrong; for v1
 alphabetic-by-id is the lock.
 
-Cluster-level ordering (MODES → DATA → VIEW → DEBUG → REC) is
+Cluster-level ordering (MODES → DATA → VIEW → DEBUG → SHARE → REC) is
 **structural, not alphabetic** — MODES anchors the left edge
 (variable width, registry-driven), the chrome-fixed clusters follow
 right-aligned via a spacer slot. See
@@ -187,7 +188,8 @@ parallels question — `theme` / `viewport` / `locale` are
 
 ### Chip visual contract
 
-Each chip is a `<button role="button">`. The chip palette consumes
+Each chip is a `<button>` (implicit button role) carrying `aria-pressed`
+and a `title` (rf2-vxpq1). The chip palette consumes
 the canonical token vocabulary from
 [`016-Design-Tokens.md`](016-Design-Tokens.md) §Colour:
 
@@ -271,12 +273,12 @@ That makes the toolbar a **read/write surface against a slot that
 seven render paths already read**:
 
 - `canvas/canvas` — passes `:active-modes` to `run-variant`.
-- `multi_substrate/render` — same.
+- `multi_substrate/render-decorated-view` — same.
 - `workspace/workspace-view` — same.
 - `docs/docs-view` — uses `:active-modes` for the args-resolved view.
 - `test_mode/view/test-view` — same.
 - `controls/args-editor` — same (resolves args for display).
-- `share/build-share-url` — encodes `:active-modes` into the URL.
+- `share/build-params` / `variant-share-url` — encode `:active-modes` into the URL.
 
 No reroute needed. The impl bead deletes the controls-panel
 `mode-picker` and points its previous toggle path at the toolbar's
@@ -378,8 +380,8 @@ Three callers need to read the active mode-set:
    in [`API.md`](API.md) update.
 
 3. **Reactive view code** — a Reagent view can subscribe via a
-   pre-registered subscription (Stage 6 picks this up; spec'd here as
-   a forward contract):
+   pre-registered subscription (shipped — `re-frame.story.ui.cofx`
+   registers both `:story/active-modes` and `:story/active-args`):
 
    ```clojure
    @(rf/subscribe [:story/active-modes])
@@ -402,9 +404,11 @@ views).
 
 ## Test surface
 
-The Playwright spec
-`tools/story/testbeds/counter_with_stories/counter_with_stories.spec.cjs`
-gains a `section 5: toolbar` block exercising:
+The feature-load gate `tools/story/test/story_feature_load.cjs`
+(`npm run test:story-feature-load`) plus the CLJS suites
+`ui/toolbar_cljs_test.cljc`, `ui/toolbar_persistence_dom_cljs_test.cljs`,
+`ui/toolbar_storage_dom_cljs_test.cljs` and
+`panels_e2e/toolbar_clusters_e2e_cljs_test.cljs` exercise:
 
 - The strip renders above the three-pane layout.
 - All registered modes from `stories.cljs` appear as chips
@@ -426,7 +430,7 @@ Selectors:
 
 - The strip: `[data-test="story-toolbar"]`
 - Each cluster: `[data-test="story-toolbar-cluster"][data-cluster="<name>"]`
-  where `<name>` is one of `modes` / `data` / `view` / `debug` / `rec`
+  where `<name>` is one of `modes` / `data` / `view` / `debug` / `share` / `rec`
   (per rf2-v58dm — see [`016-Design-Tokens.md`](016-Design-Tokens.md)
   §Toolbar 5-cluster §Test surface).
 - Each MODES chip: `[data-toolbar-mode="<mode-id>"]`
@@ -501,8 +505,8 @@ The toolbar's contract guarantees:
    is mounted.
 2. Every registered `:mode` appears as a chip in alphabetic order
    (within its `:axis` group, if any) inside the **MODES** cluster.
-3. The strip composes **five clusters** (MODES / DATA / VIEW /
-   DEBUG / REC) separated by token-driven hairlines per
+3. The strip composes **six clusters** (MODES / DATA / VIEW /
+   DEBUG / SHARE / REC) separated by token-driven hairlines per
    [`016-Design-Tokens.md`](016-Design-Tokens.md) §Toolbar
    5-cluster structure. Cluster identity is stable across renders;
    chips never migrate between clusters.

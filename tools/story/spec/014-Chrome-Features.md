@@ -19,7 +19,7 @@ one-shot implementer doesn't infer an unwritten contract.
 
 The chrome-identity tokens these features compose against
 (typography / colour / motion / backdrop / glyphs / toolbar
-5-cluster) are normalised separately in
+clusters) are normalised separately in
 [`016-Design-Tokens.md`](016-Design-Tokens.md). This doc captures
 **chrome features** (panels, overlays, badges, palette); 016
 captures the **design tokens** every feature consumes.
@@ -135,8 +135,8 @@ regressions before the Reagent layer.
 - [`spec/010-Schemas.md`](../../../spec/010-Schemas.md) — the
   validation timing the panel filters against and the
   `:rf.error/schema-validation-failure` emission contract.
-- [`006-MCP-Surface.md`](./006-MCP-Surface.md) §Schema validation —
-  the inventory diagram line this section makes substantive.
+- [`006-MCP-Surface.md`](./006-MCP-Surface.md) §Architecture — the
+  `schema validation` inventory-diagram line this section makes substantive.
 - [`tools/xray/spec/005-Schema-Timeline.md`](../../xray/spec/005-Schema-Timeline.md)
   — Xray's temporal surface for the same emission stream (the two
   panels share the same trace events but render different views).
@@ -151,13 +151,13 @@ regressions before the Reagent layer.
 A row of small colour-coded pills rendered inline to the right of
 each variant id in the sidebar tree. The badge row makes the
 inclusion-tag vocabulary
-([`001-Authoring.md`](./001-Authoring.md) §Inclusion tags) visible at
+([`001-Authoring.md`](./001-Authoring.md) §`(reg-tag id metadata)`) visible at
 a glance — a `:test` variant and a `:docs` variant are
 distinguishable without expanding the row.
 
 ### Vocabulary (the seven canonical tags)
 
-Per [`001-Authoring.md`](./001-Authoring.md) §Inclusion tags + the
+Per [`001-Authoring.md`](./001-Authoring.md) §`(reg-tag id metadata)` + the
 `tag->badge-style-key` map in `sidebar.cljs`:
 
 | Tag | Style key |
@@ -202,7 +202,7 @@ adapter renders.
 
 ### Cross-references
 
-- [`001-Authoring.md`](./001-Authoring.md) §Inclusion tags — the
+- [`001-Authoring.md`](./001-Authoring.md) §`(reg-tag id metadata)` — the
   vocabulary the badge palette mirrors.
 - [`005-SOTA-Features.md`](./005-SOTA-Features.md) §Sidebar tag-as-
   badge affordance — the SOTA inventory entry this section makes
@@ -258,8 +258,8 @@ welcome popup is ephemeral UI, not playground state.
 
 ### Static-build suppression
 
-Per [`013-Static-Build.md`](./013-Static-Build.md) §Suppressed
-chrome, the auto-open branch is gated on `(not static-mode?)`. The
+Per [`013-Static-Build.md`](./013-Static-Build.md) §Static-mode
+runtime semantics, the auto-open branch is gated on `(not static-mode?)`. The
 overlay is for live-playground onboarding; static-export builds
 serve a stable artefact a static-doc reader doesn't need to be
 on-boarded to.
@@ -287,8 +287,8 @@ for.
 
 ### Cross-references
 
-- [`013-Static-Build.md`](./013-Static-Build.md) §Suppressed chrome —
-  the static-mode gate.
+- [`013-Static-Build.md`](./013-Static-Build.md) §Static-mode runtime
+  semantics / §What gets stripped — the static-mode gate.
 - [`003-Render-Shell.md`](./003-Render-Shell.md) — the shell chrome
   the `?` help-button lives in.
 
@@ -306,7 +306,7 @@ A floating overlay opened by **Cmd-K / Ctrl-K** that searches every
 registered Story entity and routes the selected entry to canvas,
 workspace, or toolbar. Closes on `Escape`, scrim click, or selection.
 
-### Searched kinds (the five canonical entry shapes)
+### Searched kinds (the six canonical entry shapes)
 
 Per `command_palette.cljc/searchable-kinds`:
 
@@ -327,7 +327,7 @@ subscribe to live registry mutations within a single open session.
 Each registry entry projects to a row of the shape:
 
 ```clojure
-{:kind        :variant|:workspace|:story|:mode|:decorator
+{:kind        :command|:variant|:workspace|:story|:mode|:decorator
  :kind-label  "Variant"|"Workspace"|...           ;; from kind-labels
  :id          <kw|...>                            ;; the registry key
  :id-label    <string>                            ;; (str id) for keywords, (pr-str) otherwise
@@ -344,7 +344,7 @@ The projection lives in `entries`; downstream sort/score uses
 `match-score` splits the (lower-cased, trimmed) query on whitespace
 and scores each token via `token-score`. A match requires *every*
 token to score; the row's total is the sum plus a small kind-bias
-(`:variant 8 :workspace 7 :story 6 :mode 5 :decorator 4`).
+(`:command 9 :variant 8 :workspace 7 :story 6 :mode 5 :decorator 4`).
 Per-token weights (highest wins):
 
 | Match kind | Score |
@@ -394,8 +394,8 @@ shortcut survives focused inputs. Production builds with
   row.
 
 The `[data-test=story-command-palette-result]` selector is the
-contract row 105 of [`015-Test-Coverage.md`](./015-Test-Coverage.md)
-binds against.
+contract the Command palette row of
+[`015-Test-Coverage.md`](./015-Test-Coverage.md) binds against.
 
 ### Pure / impure split (CLJC discipline)
 
@@ -411,9 +411,11 @@ Reagent layer.
 
 - **Recently-selected / pinned entries.** No history weighting in
   the scorer; every open starts from a cold registry snapshot.
-- **Custom action verbs.** The palette navigates / activates; it
-  does not host arbitrary commands (e.g. "Run all tests"). Toolbar
-  / chrome buttons keep that surface.
+- **Arbitrary action verbs.** The palette hosts exactly the three
+  registered `:command` entries in `command_palette.cljc/commands` —
+  `:explain`, `:save-current-as-variant`, `:author-expectations`
+  (spec/018 §9) — and does not grow ad-hoc commands (e.g. "Run all
+  tests"); toolbar / chrome buttons keep that surface.
 - **Multi-kind faceting.** No UI to scope the search to one kind
   (`/variant foo`, etc.) — token-AND on the `kind` name covers the
   common case (`variant counter` matches variant rows that include
@@ -423,7 +425,7 @@ Reagent layer.
 
 ### Cross-references
 
-- [`015-Test-Coverage.md`](./015-Test-Coverage.md) row 105 — the
+- [`015-Test-Coverage.md`](./015-Test-Coverage.md) Command palette row — the
   test-corpus contract this section makes substantive.
 - [`010-Toolbar.md`](./010-Toolbar.md) — the mode-toggle entry-point
   the `:mode` kind reuses.
@@ -644,8 +646,8 @@ none` so it never intercepts hits on the underlying canvas content.
 
 - [`015-Test-Coverage.md`](./015-Test-Coverage.md) §Viewport-px
   indicator chip row.
-- [`010-Toolbar.md`](010-Toolbar.md) §Viewport cluster — the upstream
-  registration that the chip reads.
+- [`016-Design-Tokens.md`](016-Design-Tokens.md) §Cluster vocabulary
+  (the VIEW cluster) — the upstream registration that the chip reads.
 
 ### Docs-mode table of contents (rf2-8c7tk)
 
@@ -656,7 +658,8 @@ none` so it never intercepts hits on the underlying canvas content.
 > ≥1200px) since the RHS is already present.
 
 A sticky right-edge nav pane that lists the docs-mode sections
-(prose / args / decorators / parameters / tags) and scroll-syncs the
+(status / prose / args / view-arg schema / decorators / parameters /
+evidence / tags — the spec/022 additions included) and scroll-syncs the
 active entry via `IntersectionObserver`. Self-elides on viewports
 below 1024px.
 
@@ -664,8 +667,9 @@ below 1024px.
 
 `docs-toc-entries` is the canonical entry table — a vector of maps
 `{:id :label :level :conditional?}`. `visible-toc-entries` is pure
-data → data: prune entries that don't apply to the variant (the
-prose section is the only conditional one — dropped when
+data → data: prune entries that don't apply to the variant (three
+entries are conditional — status, prose and view-arg schema — each
+dropped when its section projects empty, e.g. prose when
 `(prose-for-variant variant-id)` returns empty). The variant's `<h1>`
 header is intentionally NOT in the TOC list — it sits beside that h1
 and would self-reference.

@@ -4,7 +4,7 @@
 > instead.** The CLJS-unit recipe is the recommended end-user
 > testing path — sub-millisecond per case, no browser, no
 > Playwright. Per the project's testing direction, Wave 1–4
-> migration moved 81% of Story's Playwright assertions to CLJS-unit
+> migration moved 85% of Story's Playwright assertions to CLJS-unit
 > tests. Reach for THIS recipe only when a browser-only surface is
 > genuinely required (real-pointer events, viewport sizing, file-
 > upload dialogs, multi-tab flows, visual-regression pixel diffs).
@@ -23,8 +23,8 @@ This recipe is for a re-frame2 app that already mounts the Story
 shell via `re-frame.story/mount-shell!` and now wants to add a
 Playwright e2e probe of their own variants. The recipe covers:
 
-- Wiring Playwright to a shadow-cljs `npm run watch` (or a static
-  `story:build` output) URL.
+- Wiring Playwright to a shadow-cljs `npm run dev -- :examples/<build>`
+  (or a static `story:build` output) URL.
 - Navigating to a variant via its share-URL query parameter.
 - Waiting for the canvas to mount and Story's chrome to settle.
 - Asserting against a `[data-test=...]` selector in the variant's
@@ -52,7 +52,8 @@ on-ramp.
   versions have a different `page.evaluate` signature but the
   shape is unchanged.
 - A served Story shell. Three common shapes:
-  - `npm run watch` (shadow-cljs dev server) — fast iteration.
+  - `npm run dev -- :examples/<build>` (the shadow-cljs dev server via
+    `implementation/scripts/dev-testbed.cjs`) — fast iteration.
   - `npm run story:build` + a static file server — closer to
     production. See [`013-Static-Build.md`](013-Static-Build.md).
   - A deployed `story:build` artefact on GitHub Pages / Netlify /
@@ -124,7 +125,8 @@ Story resolves the variant from the `variant=` query parameter. A host
 application may mount the shell at a route such as `#/stories`; that
 fragment belongs to the host, not Story's variant selector. Set `BASE_URL`
 to that complete host page (or a direct static shell). For example:
-`http://localhost:8080/counter-with-stories/?variant=story.counter%2Floaded#/stories`.
+`http://localhost:8042/?variant=story.counter%2Floaded#/stories` (the
+`:examples/counter-with-stories` dev-http port).
 The share builder preserves the fragment and writes params before it.
 
 ### Landmark waits

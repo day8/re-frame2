@@ -164,11 +164,16 @@ The Xray embed MUST preserve the locked Story panel list:
 (rf2-gbz39 — `:issues` was removed from the panel list alongside the
 Xray Issues tab per Mike's Option (c) ruling; issues surface inline in
 the Epoch panel + the L2 event-row pink-wash + the always-on issues
-ribbon signal.)
+ribbon signal.) Beside those six chip panels the embed also hosts the
+non-chip `:event-spine` L2 band (rf2-9k43e; owned by
+[`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane),
+which mounts alongside the chip-selected panel and never appears in
+the picker.
 
 The embed MUST:
 
-- mount one Xray panel at a time;
+- mount one chip panel at a time (the `:event-spine` band is a
+  separate persistent host);
 - expose a chip-row picker;
 - expose pop-out to the full Xray shell;
 - keep Xray keybindings from swallowing Story command-palette keys;

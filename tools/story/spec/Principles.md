@@ -68,8 +68,9 @@ they do not substitute for checking a consumer's disabled-registration build.
 ## No new framework registries
 
 Story owns **no new framework primitives.** Every registry it uses
-(`:story`, `:variant`, `:workspace`, `:story-panel`, `:tag`, `:mode`,
-`:decorator`) registers via the existing `reg-*` machinery, which the
+(`:story`, `:variant`, `:fragment`, `:check`, `:workspace`,
+`:story-panel`, `:tag`, `:mode`, `:decorator`) registers via the
+existing `reg-*` machinery, which the
 framework's [spec/001](../../../spec/001-Registration.md) describes.
 
 This satisfies the
@@ -86,22 +87,24 @@ panel, embedded Xray panel) is built with Reagent at v1, sourced from
 [`003-Render-Shell.md`](003-Render-Shell.md) §UI shell substrate; the
 short version is:
 
-- Reagent is stable; reagent-slim is still landing.
+- Reagent is stable; reagent-slim ships as `day8/reagent-slim`, and the
+  shell stays on stock Reagent by decision.
 - Dogfood-neutrality — the UI exercises the same primitives stories
   exercise.
-- Cheap to revisit at Stage 8 once reagent-slim hits GA / first
-  published artefact — the same trigger gating the Story
+- Cheap to revisit at Stage 8 — migrating the shell onto reagent-slim
+  is an option, not a trigger; the same posture as the Story
   substrate-enum addition (see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
   §inline-substrate-failures) and the template's fourth substrate
   choice.
 
-## re-com-scoped surface
+## Reagent-native chrome, no widget library
 
-The story tool's chrome is built with re-com primitives where they
-exist (boxes, splitters, dropdowns) rather than rolling bespoke
-widgets. This keeps the surface area small, the styling consistent,
-and the design-token integration trivial when the design-token panel
-lands at v1.1.
+The story tool's chrome is plain Reagent over the
+[`016-Design-Tokens.md`](016-Design-Tokens.md) token namespaces —
+`tools/story/deps.edn` declares no widget library (no re-com) and no
+chrome namespace requires one. This keeps the surface area small and
+the styling consistent through one token vocabulary rather than a
+second component library's.
 
 ## EDN round-trip = AI input
 

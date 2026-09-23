@@ -356,9 +356,10 @@ a variant plan or curated Story variant (§Promotion).
 Authors override effects through a **first-class `:fx-overrides`** slot
 on the variant/fragment body, normalized to
 `[:world :frame :fx-overrides]`. The shipping
-`[:rf.story/force-fx-stub …]` decorator becomes sugar that the plan
-compiler **lowers into `:fx-overrides`**. `:decorators` is reserved for
-view wrapping (theme/provider/chrome). This makes the conflict model
+`[:rf.story/force-fx-stub …]` decorator is NOT lowered by the plan
+compiler: it stays a registered decorator whose frame-setup stamps the
+same frame `:fx-overrides` slot (`re-frame.story.fx-stubs`). Other
+`:decorators` are view wrapping (theme/provider/chrome). This makes the conflict model
 (§Merge rules) target the surface authors actually type.
 
 ### The interceptor-override surface
@@ -878,8 +879,8 @@ the existing framework drain and a flush-hook seam over it.
   it (unknown boundaries fail closed). `step-required-boundary` maps a
   script step to the minimum boundary it needs (`[:dispatch …]` →
   `:headless`; `[:click …]` / `[:type …]` / `[:assert-dom …]` → `:dom`).
-- `drain-sync!` — the headless `settled-boundary`: `dispatch-sync*`
-  (= `router/dispatch-sync!`) projected under the boundary name. This is
+- `drain-sync!` — the headless `settled-boundary`:
+  `re-frame.router/dispatch-sync!` projected under the boundary name. This is
   the existing run-to-fixed-point drain (Spec 002 §dispatch-sync), not a
   reimplementation.
 - **flush-hooks** — the adapter-aware caller supplies a hooks map:
@@ -949,7 +950,7 @@ the existing framework drain and a flush-hook seam over it.
   MOUNT the auto-run outruns (leading sync-class steps run inside the
   canvas's post-commit hook, while the canvas has committed its loading
   skeleton and the variant's own markup is not yet in the document).
-  Note the dispatch case is not "nothing drains the queue": `dispatch-sync*`
+  Note the dispatch case is not "nothing drains the queue": `re-frame.router/dispatch-sync!`
   pushes its seed at the FRONT of the queue and drains, so an assertion
   dispatched at the next step jumps AHEAD of the still-queued event and
   reads app-db before it lands. Draining harder cannot fix an ordering
@@ -966,7 +967,7 @@ the existing framework drain and a flush-hook seam over it.
   proceed onto a stale read. `:rf.assert/dom-hidden` is deliberately
   exempt from the node precondition, an absent node being its pass
   condition. The mechanism is CLJS-only by construction: the JVM runner
-  has no event loop to yield to, `dispatch-sync*` has already drained by
+  has no event loop to yield to, `re-frame.router/dispatch-sync!` has already drained by
   the time any step observes the queue, and no DOM is available — so
   every precondition reads as met and the headless path is unchanged.
 
@@ -990,7 +991,7 @@ the existing framework drain and a flush-hook seam over it.
   over-budget flush once it returns; it does not preempt a single flush fn
   that hangs forever (that is the caller's own thread/timeout box). With no
   `:timeout-ms` the flush phase is unbounded (the headless default's only
-  flush is the synchronous `dispatch-sync*` drain, which cannot time out).
+  flush is the synchronous `re-frame.router/dispatch-sync!` drain, which cannot time out).
 
 The play runner's `[:dispatch …]` step (`re-frame.story.play.runner-events/
 exec-dispatch!`) routes through `dispatch-and-settle!`, so in headless it
@@ -1050,7 +1051,7 @@ on caller.
   a `[:dispatch [:assert …]]`.
 - **`[:dispatch event-vector]`** dispatches the event and settles to
   `settled-boundary` (the §Concrete contract surface
-  `dispatch-and-settle!`). In `:headless` this is the `dispatch-sync*`
+  `dispatch-and-settle!`). In `:headless` this is the `re-frame.router/dispatch-sync!`
   run-to-fixed-point drain, so the event has committed by the time the
   step returns; a richer runner adds reactive / DOM flushes through its
   flush-hooks.
@@ -1098,9 +1099,10 @@ on caller.
     a no-DOM headless runner records `:cannot-run`.
   - **Tape-evaluated assertions** carry NO reg-event handler — they are
     minted by the result boundary against the epoch tape, NOT dispatched.
-    This is the schema-error declaration (§Schema rule), the causal /
-    cascade family (§Causal and cascade assertions), and the browser-tier
-    oracle family (§Visual, a11y, and browser checks). An in-script
+    This is the schema-error declaration (§Schema rule) and the causal /
+    cascade family (§Causal and cascade assertions); the browser-tier
+    oracle family has its own inline executor (§Visual, a11y, and browser
+    checks) and is NOT tape-evaluated. An in-script
     checkpoint for one of these records a no-op step (the result boundary
     owns the verdict); dispatching it would mint a spurious
     `:rf.error/no-such-handler` trace AND skip the real tape evaluation.
@@ -1281,11 +1283,11 @@ checkpoints use, so they evaluate by the SAME family rules
 - **DOM-family atoms** are evaluated by the DOM executor (`:cannot-run`
   under a headless runner).
 - **Tape-evaluated atoms** (`:rf.assert/schema-error`, the causal / cascade
-  family, the browser-tier oracle family) are NOT dispatched here — they are
-  minted by the result boundary against the epoch tape (§Schema rule,
-  §Causal and cascade assertions, §Visual, a11y, and browser checks), so the
-  terminal auto-run records a no-op for them and does NOT double-process the
-  verdict.
+  family) are NOT dispatched here — they are minted by the result boundary
+  against the epoch tape (§Schema rule, §Causal and cascade assertions), so
+  the terminal auto-run records a no-op for them and does NOT double-process
+  the verdict. The browser-tier oracle family routes to its own inline
+  executor instead (§Visual, a11y, and browser checks).
 
 This applies equally to **registered variants** and **inline plans** — both
 source their terminal atoms from the compiled plan's `[:expect :assertions]`
@@ -1583,10 +1585,10 @@ assertion family `:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
 seven below plus an ad-hoc synthetic `:rf.assert/dom` record the runtime
 minted). Each folded DOM id rides the `:dom` capability token via the
 requirement registry (§Runner requirements), so a folded `:assert-dom`
-step keeps the exact runner requirement the raw step had. The DOM runner
-that *evaluates* these ids lands later; until then a headless run that
-reaches one refuses with `:cannot-run` (the `:dom` gate), never a silent
-pass.
+step keeps the exact runner requirement the raw step had. The DOM executor
+(`re-frame.story.play.dom`, driven by `runner-events/exec-assert-dom-atom!`)
+evaluates these ids; a headless run that reaches one refuses with
+`:cannot-run` (the `:dom` gate), never a silent pass.
 
 **The seven shipping ids are preserved.** The fold collapses *authoring
 sugar* onto existing atoms; it does not retire any of the seven shipping
@@ -1926,8 +1928,10 @@ Refusal shape:
 {:status :cannot-run
  :required-runner  #{:pixels}
  :available-runner #{:app-db :effects}
- :reason :assertion-requires-browser
- :assertion [:rf.assert/visual-snapshot ...]}
+ :missing          #{:pixels}
+ :reason           :runner-lacks-capability
+ :runner           :headless
+ :unit             [:rf.assert/visual-snapshot ...]}
 ```
 
 `:cannot-run` is a distinct **third** status (not pass, fail, or skip).
@@ -2629,8 +2633,9 @@ beyond determinism/diff are wired.
 The primitive lives in `re-frame.story.fingerprint` (NOT
 `re-frame.story.canonical`, the vocabulary installer). The former
 `re-frame.story.identity` `canonical-form` / `content-hash` hashing is
-folded into it; `re-frame.story.identity` now re-exports those two vars
-from the fingerprint ns, so there is exactly one canonical path.
+folded into it; `re-frame.story.identity` now delegates to
+`fingerprint/content-hash` and exposes only `snapshot-tuple` /
+`snapshot-identity`, so there is exactly one canonical path.
 
 The public surface, all routed through one projection + one hash:
 
@@ -2902,7 +2907,8 @@ well-formed here?". Authors MAY express an invariant as:
 ### `with-invariants` — the live sentinel
 
 ```clojure
-(test/with-invariants [invariant-spec …] body…)
+;; [re-frame.story.invariants :as invariants] — sub-namespace, not on the facade
+(invariants/with-invariants [invariant-spec …] body…)
 ```
 
 `with-invariants` registers ONE epoch listener (via
@@ -2935,7 +2941,7 @@ on the way out regardless.
 ### `first-bad-epoch` — the pure post-hoc utility
 
 ```clojure
-(test/first-bad-epoch epoch-tape invariant)
+(invariants/first-bad-epoch epoch-tape invariant)
 ```
 
 `first-bad-epoch` is **pure** — a retained epoch tape and an invariant
@@ -3359,8 +3365,9 @@ Replay MUST:
   matches each request and synthesises the recorded reply. Without this a
   replayed `:network` request would fail-closed on "no stub matched"
   (rf2-tymyh). The install routes through `re-frame.http.test-support`
-  (Spec 014 §Testing) and raises `:rf.error/http-artefact-missing` if that
-  namespace is absent — the same opt-in a live `:network` run requires.
+  (Spec 014 §Testing); the http artefact rides Story's main `:deps`, so the
+  namespace is always present (the JVM resolves it lazily via
+  `requiring-resolve`).
 - **Capture a NEW epoch tape** — read from `re-frame.core/epoch-history`
   after the program settles, NOT the artifact's captured tape. The replay
   proves what the program does NOW.
@@ -3386,7 +3393,7 @@ accumulator, so a replay cannot read green while the tape is red.
 
 The replay result is **stable + canonicalizable** (§Canonicalization): it
 feeds cleanly through `canonicalize` / `run-hash`, so the determinism gate
-(`test/assert-deterministic`) and semantic diff (`test/diff-run-artifacts`)
+(`story/assert-deterministic`) and semantic diff (`story/diff-run-artifacts`)
 build directly on it. Construction and result projection are pure, so the
 artifact schema + the result shape are exercised under `clojure -M:test`
 with no runtime; the headless replay path settles synchronously to a fixed
@@ -3452,8 +3459,8 @@ that STILL fails, until no single-step removal keeps the failure. The
 `:shrink-path` records the ordered sequence of KEPT reductions, so a consumer
 sees how the minimal failing case was reached. Shrinking reuses the SAME
 replay path as the original run, so a shrunk artifact replays identically; a
-`:max-replays` cap bounds the search (a partial shrink is still a smaller,
-valid artifact).
+positional `max-replays` cap (default 200) bounds the search (a partial
+shrink is still a smaller, valid artifact).
 
 ### Fault lattice sweep
 
@@ -3488,13 +3495,13 @@ produce the **same run every time**? It is the first consumer of
 `canonicalize` (§Canonicalization) beyond snapshot identity, and it builds
 directly on run-artifact replay (§Run artifact and replay). The base ships
 in the `re-frame.story.determinism` namespace and is re-exported as
-`test/assert-deterministic` (the testing-substrate surface owned by
-[`spec/008-Testing.md`](../../../spec/008-Testing.md) — the tool lives
-**below** Story and runs without the Story UI).
+`story/assert-deterministic` on the `re-frame.story` facade (the
+testing-substrate surface [`spec/008-Testing.md`](../../../spec/008-Testing.md)
+documents — the tool lives **below** Story's UI and runs without it).
 
 ```clojure
-(test/assert-deterministic plan-or-artifact)
-(test/assert-deterministic plan-or-artifact opts)
+(story/assert-deterministic plan-or-artifact)
+(story/assert-deterministic plan-or-artifact opts)
 ;; -> {:status :deterministic     :run-hash <hash> :runs N :hashes [...]}
 ;;  | {:status :non-deterministic :divergence {…}  :runs N :hashes [...] :results [...]}
 ;;  | {:status :cannot-run        :reason :determinism-wall-clock-wait :wait-steps [...]}
@@ -3523,7 +3530,7 @@ discriminator; canonical equality of the slice is the authority, so a hash
 collision can never report a false `:deterministic`. A `:non-deterministic`
 result names the FIRST run whose canonical slice differs from run 0, with
 both run-hashes, and returns the per-run results for a downstream semantic
-diff (`test/diff-run-artifacts`).
+diff (`story/diff-run-artifacts`).
 
 ### Canonicalization MUST strip / normalize the per-run stamps
 
@@ -3626,13 +3633,13 @@ It is the readable companion to a `:non-deterministic` divergence and to any
 before/after comparison (a regression baseline vs HEAD, a fix's before/after,
 a property-shrunk failure vs its neighbour). It ships in the
 `re-frame.story.diff` namespace and is re-exported as
-`test/diff-run-artifacts` (the testing-substrate surface owned by
-[`spec/008-Testing.md`](../../../spec/008-Testing.md) — the tool lives
-**below** Story and runs without the Story UI).
+`story/diff-run-artifacts` on the `re-frame.story` facade (the
+testing-substrate surface [`spec/008-Testing.md`](../../../spec/008-Testing.md)
+documents — the tool lives **below** Story's UI and runs without it).
 
 ```clojure
-(test/diff-run-artifacts baseline current)
-(test/diff-run-artifacts baseline current opts)
+(story/diff-run-artifacts baseline current)
+(story/diff-run-artifacts baseline current opts)
 ;; -> {:same? true}
 ;;  | {:same? false :facets #{facet …} <facet> <readable-delta> …}
 ```
@@ -4049,8 +4056,8 @@ P1 is complete when:
 - [`009-Test-Mode.md`](009-Test-Mode.md) — the in-canvas test runner pane
   that must adopt the unified run-result shape.
 - [`spec/007-Stories.md`](../../../spec/007-Stories.md) — the framework's
-  normative Story contract; §Setup, script, and assertions (the canonical
-  vocabulary) points here.
+  normative Story contract; §Play functions (the canonical vocabulary)
+  points here.
 - [`spec/008-Testing.md`](../../../spec/008-Testing.md) — the general
   testing substrate that owns the inline-plan execution surface and the
   evidence tools.

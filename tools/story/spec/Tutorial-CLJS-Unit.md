@@ -30,7 +30,7 @@ code.
 
 Per the project's testing direction
 ([`feedback_xray_story_cljs_unit_tests_not_playwright`](https://github.com/day8/re-frame2)),
-Wave 1–4 migration moved 81% of Story's Playwright assertions to
+Wave 1–4 migration moved 85% of Story's Playwright assertions to
 CLJS-unit tests. **New end-user tests default to CLJS-unit, not
 Playwright.** Headless tests cover state and event behavior; they do not
 replace browser layout, real input, or pixel checks. Runtime depends on
@@ -187,8 +187,10 @@ exercising the failure paths assert against the canonical keys per
 | Shape | `:assertion` value | Other keys | When |
 |---|---|---|---|
 | Loader incomplete | `:rf.error/loader-incomplete` | `:phase :phase-1-loaders`, `:predicate` | `:loaders-complete-when` never returns truthy |
-| Loader rejected | `:rf.error/exception` | `:phase :phase-1-loaders`, `:event`, `:cause` | A loader event throws |
-| Schema mismatch | `:rf.error/schema-fail` | `:path`, `:expected`, `:actual` | Args don't conform to the registered schema |
+| Loader rejected | `:rf.error/exception` | `:phase :phase-1-loaders`, `:event`, `:error` | A loader event throws |
+| Invalid view args | `:rf.error/story-view-args-invalid` | the failing arg key, the Malli schema path and the source variant (plan construction fails, so the run resolves `:error` rather than recording an assertion) | Resolved args don't conform to the view's registered props schema |
+| Invalid `:db-seed` | `:rf.error/story-db-seed-invalid` | `:violations` (`{:path :value :explain}` per violation), `:reason` | The seeded app-db slice fails its schema |
+| Schema violation during the run | (trace op `:rf.error/schema-validation-failure`, projected into `:schema-violations`) | — | A registered schema is violated during play; fails the run through the evidence floor unless declared via `:rf.assert/schema-error` |
 | Failed assertion | the original `:rf.assert/*` keyword | `:passed? false`, `:path`, `:expected`, `:actual` | An `:rf.assert/*` event in `:script` failed |
 
 ```clojure

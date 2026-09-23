@@ -142,7 +142,7 @@ The five-layer precedence diagram, in strict later-wins order:
 2. story args       ← :args on the parent (reg-story)                        — story default
 3. mode args        ← active :mode's :args (reg-mode)                        — saved tuple
 4. variant args     ← :args on the variant (reg-variant)                     — per-scenario
-5. cell-overrides   ← controls-panel edits at runtime (:story/set-arg)       — live edit
+5. cell-overrides   ← controls-panel edits at runtime (`:cell-overrides` to resolve-args / run / render-variant) — live edit
                      ↓
               effective args (deep-merge, vectors replaced)
                      ↓
@@ -356,6 +356,12 @@ Metadata keys:
  :modes      #{<mode-id> ...}      ; saved-tuple modes (see reg-mode below)
  :substrates #{:reagent :uix ...}  ; default substrate set for variants
  :platforms  #{:server :client}    ; SSR opt-in per spec/007 §:platforms
+ :xray-panel <panel-kw>            ; default Xray panel for the RHS embed (rf2-v1ach)
+ :xray       {...}                 ; Xray preset — see §Xray preset slot
+ :viewport   <viewport-id>         ; story-level viewport default
+ :background <background-id>       ; story-level canvas background default
+ :images     [(rf/image {...}) ...] ; story-level images — see §Behaviour-variant images
+ :dispatch-console? <bool>         ; show the dispatch console for this story
  :variants   {<variant-name> <variant-body>}}  ; Form B (sugar) — see Combined form
 ```
 
@@ -404,6 +410,16 @@ no fn-slots):
                          :focus   {...}}}
 ```
 
+That listing is the authoring core, not the closed set: the schema
+(`re-frame.story.schemas/Variant`, `{:closed true}`) also declares the
+composition and world slots `:compose`, `:plays`, `:checks`,
+`:assertions`, `:network`, `:sub-overrides`, `:db-seed`, `:fx-overrides`,
+`:interceptor-overrides`, `:frame-binding`, `:run-artifact`, `:origin`,
+`:mcp-bound` (owned by [`017-Testing-Story.md`](017-Testing-Story.md)),
+the render slots `:component`, `:viewport`, `:background`,
+`:dispatch-console?`, and the privacy slots `:sensitive` / `:large`
+([`Conventions.md`](Conventions.md) §Privacy).
+
 ### `:images` — behaviour-variant images (EP-0023)
 
 `:images` is the variant's **behaviour-variant** surface, per
@@ -441,7 +457,7 @@ mutation between runs). The runtime composes `:images` into `rf/make-frame`
 at frame allocation (the variant frame carries the resolved, sealed image
 generation); the framework's `call-with-frame-resolution` routes every
 `{:frame variant-id}` dispatch through that generation
-([spec/002 Dispatch resolution chain](../../../spec/002-Frames.md) / EP-0023
+([spec/002 §Frame target resolution](../../../spec/002-Frames.md) / EP-0023
 §Frame-derived live registration resolution). The runtime ALSO composes a
 canonical **Story runtime image** LAST into every variant frame's `:images`
 so the Story machinery (lifecycle machine, `:rf.assert/*` handlers, fx-stub
@@ -510,7 +526,9 @@ Authors compose post-render behaviour as a sequence of TAGGED steps:
 |---------------------------------------|----------------------------------------------------------|
 | `[:dispatch event-vec]`               | `rf/dispatch` (async) into the variant's frame           |
 | `[:dispatch-sync event-vec]`          | `rf/dispatch-sync` (synchronous) into the variant's frame |
-| `[:wait ms]`                          | Sleep N ms (`setTimeout` CLJS / `Thread/sleep` JVM)       |
+| `[:wait ms]`                          | Sleep N ms (`setTimeout` CLJS / `Thread/sleep` JVM) — the explicit determinism opt-out |
+| `[:wait-until predicate-spec]`        | Deterministic settle-on-condition (queue / state predicate); preferred over `[:wait ms]` — spec/017 §Script step grammar |
+| `[:flush-presence]` / `[:flush-presence ms]` | Advance the presence clock to quiescence / by N ms (spec/017 §Presence-bearing variants) |
 | `[:assert assertion-atom]`            | Evaluate a canonical `[:rf.assert/…]` atom here — the primary assertion form |
 | `[:assert-db path value]`             | **Sugar** → folds to `[:assert [:rf.assert/path-equals path value]]` |
 | `[:assert-db path :pred fn-or-sym]`   | **Sugar** → folds to `[:assert [:rf.assert/path-matches path [:fn …]]]` (fn preferred under advanced CLJS) |
@@ -519,6 +537,11 @@ Authors compose post-render behaviour as a sequence of TAGGED steps:
 | `[:assert-dom selector :text txt]`    | **Sugar** → folds to `[:assert [:rf.assert/dom-text selector txt]]` |
 | `[:click selector]`                   | Synthetic click event at selector                         |
 | `[:type selector text]`               | Synthetic `input` event at selector with `text`           |
+| `[:focus selector]`                   | Synthetic focus event at selector                         |
+
+`[:dispatch …]` is the settled author step; `[:dispatch-sync …]` is the
+low-level synchronous escape, not the normal authoring form (spec/017
+§Script step grammar).
 
 **`:rf.assert/*` is the ONE assertion vocabulary** (rf2-5o6yd). The
 `:assert-db` / `:assert-dom` steps are ergonomic SUGAR the plan compiler
@@ -530,8 +553,9 @@ the ONE assertion vocabulary for the fold table + author guidance.
 The seven **dispatched** `:rf.assert/*` assertion events (per
 [`004-Assertions.md`](004-Assertions.md); the eighth canonical id
 `:rf.assert/schema-error` is tape-evaluated, not dispatched) ride the
-`:dispatch-sync`
-rail: `[:dispatch-sync [:rf.assert/path-equals [:n] 3]]`. The
+`:dispatch-sync` rail internally — the runner's headless implementation
+of an `[:assert [:rf.assert/path-equals [:n] 3]]` checkpoint, never an
+authoring form. The
 assertion handler runs synchronously and records into
 `:rf.story/assertions` on the variant's frame — identical semantics
 to what the legacy `:play` slot delivered.
@@ -545,9 +569,10 @@ Two body shapes are accepted:
 
 The runner's `coerce-script` also tolerates bare event vectors at the
 script level — `[[:counter/inc] ...]` lifts each entry to
-`[:dispatch <event-vec>]`. Prefer explicit `:dispatch-sync` wrapping
-when porting code that depended on the legacy `:play` slot's
-drain-to-completion ordering.
+`[:dispatch <event-vec>]`. Prefer explicit `[:dispatch …]` wrapping
+when porting code from the legacy `:play` slot — each step settles to
+the boundary before the next runs, so the old drain-to-completion
+ordering is preserved without `:dispatch-sync`.
 
 The `:rf/variant` schema (in
 [`spec/Spec-Schemas.md`](../../../spec/Spec-Schemas.md)) enforces the
@@ -947,9 +972,10 @@ both in the same variant body.
 ;;                                                  variant-level wins
 ```
 
-For collisions on `:hiccup` decorator ids the registry is keyed by
-id, so two decorators with the same id raise `:rf.error/decorator-id-collision`
-at registration — id collisions are an authoring bug, not a
+The registry is keyed by id, so re-registering a `:hiccup` decorator
+under the same id REPLACES the body (hot-reload semantics — see
+[`002-Runtime.md`](002-Runtime.md) §Open items); there is no collision
+error, and reusing an id by accident is an authoring bug, not a
 composition rule.
 
 ### `(reg-story-panel id metadata)`
@@ -965,9 +991,12 @@ Body:
  :title        "Display name"
  :placement    :right | :left | :bottom | :top | :modal
  :render       <view-id>                            ; registered :view that renders the panel
- :for          #{<context-id>}                     ; optional — restrict to specific story-tool contexts
- :enabled-when (optional)}                          ; optional registry-predicate fn
+ :for          #{<context-id>}}                    ; optional — restrict to specific story-tool contexts
 ```
+
+The body schema is closed (`re-frame.story.schemas/StoryPanel`): any
+other key — an `:enabled-when` predicate, say — rejects with
+`:rf.error/story-panel-shape` at registration.
 
 Per [spec/007 §Story-tool extension hook](../../../spec/007-Stories.md).
 The render shell reads `(story/registrations :story-panel)` and lays them out.
@@ -1287,7 +1316,7 @@ Worked examples illustrating every aspect of the authoring grammar.
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]))
 
-;; The view is registered under a keyword id (per spec/004 §reg-view).
+;; The view is registered under a keyword id (per spec/002 §Resolution — `reg-view` is the boundary).
 (rf/reg-view ^{:rf/id :app.ui/button} button [args]
   [:button.btn (:label args)])
 
@@ -1566,14 +1595,14 @@ the [`feedback_file_spec_beads_for_implementation_findings`](../../../AGENTS.md)
 discipline, every registration captures `{:file <s> :line <n>}` at
 macro-expansion time. Story propagates this through:
 
-- Variant registry: `(:source (get-variant id)) => {:file ... :line ...}`.
+- Variant registry: `(:source (story/handler-meta :variant id)) => {:file ... :line ...}`.
 - `:assertions` list: each assertion entry carries `:source`.
-- The story tool's "Open in editor" affordance (v1.1) reads `:source`.
+- The story tool's "Open in editor" affordance (shipped, rf2-evgf5) reads `:source`.
 
 Stage 2's `reg-story*` / `reg-variant*` macros stamp `:source` from
-`&form`'s `:line` / `:file` meta into the registry entry. The
-play-runner copies the `:source` of each `:script` step into the
-corresponding `:assertions` record.
+`&form`'s `:line` / `:file` meta into the registry entry. Each
+`:assertions` record carries the variant registration's `:source`
+(steps are data and carry no coordinate of their own).
 
 ## Schema-derivation pipeline
 

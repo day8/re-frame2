@@ -246,8 +246,9 @@ The MCP server depends on transport machinery (stdio adapter,
 JSON-RPC framing, asynchronous-handler runtime) that the vast
 majority of Story consumers never load. Splitting at the jar boundary
 keeps the Story core lean and lets the MCP surface evolve on its own
-cadence. The pattern mirrors `tools/machines-viz/` vs.
-`tools/machines-viz-mcp/` (per [`tools/README.md`](../../README.md)).
+cadence. The pattern is the one [`tools/README.md`](../../README.md)
+plans for `tools/machines-viz/` vs. the spec-only
+`tools/machines-viz-mcp/` (no such directory has landed on disk yet).
 
 See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §separate-mcp-jar
 for the full reasoning.
@@ -283,9 +284,10 @@ Summary as it pertains to the MCP surface:
 The MCP jar consumes neither the panel host nor the view ids
 directly; it consumes the registry data. But the same contract is
 what allows the *MCP* to expose new panels to Story-the-tool via
-agent action: an agent calls `register-variant` *plus*
-`register-story-panel` (when the write surface is open) to ship a
-panel.
+agent action: today an agent calls `register-variant`; a
+`register-story-panel` write tool would be the same contract's
+extension for shipping a panel, and is NOT in the 19-tool registry
+(no such tool ships).
 
 ## What ships in the MCP jar vs. Story core
 
@@ -324,8 +326,12 @@ responses back over stdio. Zero agent-specific logic lives in
 
 ## Independent cadence
 
-Story and the MCP jar ship at **independent cadence** per
-[`tools/README.md`](../../README.md). The MCP jar carries its own
+The tools tier ships at a cadence independent of the framework's per
+[`tools/README.md`](../../README.md); Story and the MCP jar themselves
+ship as ONE set on the `story-v*` tag (rf2-4u3t1 —
+[`release-story.yml`](../../../.github/workflows/release-story.yml)
+publishes mcp-base, Story and story-mcp together so the pair cannot
+skew). The MCP jar carries its own
 `re-frame.story-mcp.config/stage = :mcp` sentinel; Story's own
 loaded-surface marker was removed (rf2-mobwk) — a single-value
 sentinel carried no discriminator information.

@@ -49,8 +49,9 @@ frame. Story sits on top of
 the test-runner ingress for stories used as tests.
 
 Story owns **no new framework primitives.** Every registry it uses
-(`:story`, `:variant`, `:workspace`, `:story-panel`, `:tag`, `:mode`,
-`:decorator`) registers via existing `reg-*` machinery. This is
+(`:story`, `:variant`, `:fragment`, `:check`, `:workspace`,
+`:story-panel`, `:tag`, `:mode`, `:decorator`) registers via existing
+`reg-*` machinery. This is
 required by the
 [downstream-EPs-consume-foundation](../../../AGENTS.md) discipline.
 
@@ -117,8 +118,9 @@ before they meet the token contracts.
   every state side-by-side; flip between substrates (Reagent, UIx)
   when the view is substrate-portable.
 - **Test fixtures.** A `:test`-tagged variant *is* a complete component
-  test; `(run-variant id)` returns
-  `{:frame :app-db :assertions :elapsed-ms}` —
+  test; `(run-variant id)` returns the unified run-result — the
+  `:status` verdict plus `:frame` / `:app-db` / `:assertions` /
+  `:elapsed-ms` / `:snapshot` … (017 §Run result) —
   exactly what a `deftest` needs. The `:test` mode pane drives play
   sequences interactively with a Storybook-class **play step-debugger**
   (step / pause / rewind / step-back / breakpoint) — the canvas

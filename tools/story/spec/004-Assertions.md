@@ -41,7 +41,13 @@ canonical id ships and rounds the canonical set out to **eight**:
 `re-frame.story.assertions/canonical-assertion-ids` is therefore a set
 of **eight** — the dispatched seven plus `:rf.assert/schema-error`.
 story-mcp's `list-assertions` surfaces it as the 8th canonical
-assertion. There is deliberately no `:rf.assert/no-schema-errors`: a
+assertion (its `:canonical` vector carries ten entries — these eight
+plus the tape-evaluated causal pair `:rf.assert/caused` /
+`:rf.assert/no-cascade-rerender`; the causal, DOM and browser-tier
+families are recognised through `known-assertion-ids` and specced in
+[`017-Testing-Story.md`](017-Testing-Story.md) §Causal and cascade
+assertions / §Visual, a11y, and browser checks). There is deliberately
+no `:rf.assert/no-schema-errors`: a
 schema-clean run is the knob-free runner FLOOR, refined by this
 expectation rather than asserted as an opt-in.
 
@@ -129,10 +135,10 @@ The only assertion whose payload carries an **optional second slot**.
 Both shapes are legal:
 
 - **`[fx-id]`** — the assertion **passes** iff `fx-id` was emitted at
-  least once during play (the variant's frame accumulates emitted
-  fx-ids into its per-frame `:emitted-fx` slot; see
-  [`002-Runtime.md`](002-Runtime.md) §`:rf.assert/effect-emitted`
-  under `force-fx-stub`).
+  least once during play (emitted fx-ids are projected from the epoch
+  tape's `:effects` rows plus the per-frame stub-call log —
+  `re-frame.story.assertions/emitted-fx`; see §`force-fx-stub`
+  interaction below).
 - **`[fx-id pred]`** — the assertion **passes** iff `fx-id` was
   emitted **and** `(pred fx-id)` returns a truthy value. `pred` is a
   unary fn whose single argument is the fx-id keyword that was
@@ -140,9 +146,9 @@ Both shapes are legal:
   assertion records as failing rather than propagating.
 
 The optional `pred` slot is deliberately a unary fn over the fx-id
-keyword, not over the fx-args map. The play-runner's emitted-fx
-accumulator tracks **which fx-ids fired**, not the per-call fx-args
-payload — preserving arg-level granularity would require a parallel
+keyword, not over the fx-args map. The tape-grounded projection
+(`assertions/emitted-fx`) tracks **which fx-ids fired**, not the per-call
+fx-args payload — preserving arg-level granularity would require a parallel
 accumulator on the trace bus and was rejected as out of scope for v1
 (see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §record-not-throw
 for the same set-not-list trade-off the assertion family takes).
@@ -157,14 +163,18 @@ through.
 The runtime's phase 4 (per [`002-Runtime.md`](002-Runtime.md)
 §Four-phase lifecycle) drives the variant's `:script` (or each
 entry in `:plays`) through the rich-DSL runner. Author event sequences
-by wrapping each entry in `[:dispatch-sync <event-vec>]` — the legacy
-`:play` event-vector slot was removed (rf2-0wrud); see
-[`001-Authoring.md`](001-Authoring.md) §`:script`. For each step:
+by wrapping each entry in `[:dispatch <event-vec>]` (the settled author
+step; `[:dispatch-sync …]` is the low-level synchronous escape — spec/017
+§Script step grammar) — the legacy `:play` event-vector slot was removed
+(rf2-0wrud); see [`001-Authoring.md`](001-Authoring.md) §`:script`. For
+each step:
 
 1. `:dispatch` / `:dispatch-sync` steps fire their event vector into
    the variant's frame.
 2. Drain to completion between steps.
-3. **`:rf.assert/*` events ride the `:dispatch-sync` rail.** Per
+3. **`:rf.assert/*` events ride the `:dispatch-sync` rail internally**
+   (the runner's headless implementation — authors write
+   `[:assert [:rf.assert/…]]`). Per
    rf2-yn825 the play-runner bridges a `[:dispatch-sync [:rf.assert/* …]]`
    step into the step result: the registered assertion handler records
    its result map into `:rf.story/assertions` on the variant frame, and
@@ -196,10 +206,10 @@ still counts as **emitted** for the purposes of
 pipeline; the stub intercepts the *handler*, not the emission). A
 variant that stubs `:http` and asserts
 `:rf.assert/effect-emitted :http` therefore passes both the stub and
-the assertion in a single play sequence. The variant's
-`:emitted-fx` slot records the emission per
-[`002-Runtime.md`](002-Runtime.md) §`:rf.assert/effect-emitted`
-under `force-fx-stub`.
+the assertion in a single play sequence. The per-frame stub-call log
+(`re-frame.story.frames/stub-call-log`, read through the
+`:stub-observed-fx-ids` late-bind hook) records the emission under the
+ORIGINAL fx id, so `assertions/emitted-fx` sees it.
 
 ## Canvas assertion-strip (structured rows)
 
@@ -251,7 +261,7 @@ the row seq does not warn.
 ## Privacy
 
 An assertion record is a value-bearing **observation surface** — it
-serialises into the `:test`-mode pane, MCP `read-assertions`, and JSON-log
+serialises into the `:test`-mode pane, MCP `read-failures` (which reads `story/read-assertions`), and JSON-log
 egress, all of which spec/015 lists as boundaries projection must guard. So
 **no slot of the record may carry a raw secret for a sensitive path** — not
 `:actual`, and (rf2-006y9b) not `:expected`, `:payload`, or `:reason`. The
@@ -342,7 +352,7 @@ Stage 5 ships the `story/assertions-passing?` predicate as the canonical
 - **Bare `:assertions` vector → the vacuous-green fold.** For a bare
   vector, it returns true iff every record has `:passed? true` (an empty
   vector is vacuously passing — the
-  [spec/007 §Story-as-test duality](../../../implementation/...) contract:
+  [spec/007 §Story-as-test duality](../../../spec/007-Stories.md) contract:
   a variant with no `:script` still "passes").
 
 The result map's `:assertions` slot carries EVERY assertion outcome — both

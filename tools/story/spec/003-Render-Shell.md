@@ -11,7 +11,7 @@ See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the `:dev` / `:docs` /
 `:test` mode-tabs primitive that sits at the top of the canvas pane
 (rf2-9hc8). See [`016-Design-Tokens.md`](016-Design-Tokens.md) for the
 chrome-identity token contracts (typography / colour / motion /
-backdrop / glyphs / toolbar 5-cluster) the shell composes.
+backdrop / glyphs / toolbar clusters) the shell composes.
 
 See [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) for the
 Story-UI product contract that composes this shell into the target
@@ -26,7 +26,7 @@ remains owned here).
 Story's own UI shell (sidebar, control panel, embedded Xray inspector,
 dispatch console, etc.) renders using **Reagent** at v1, sourced from
 `implementation/adapters/reagent/`. The UI shell namespaces live under
-`tools.story.ui.*`.
+`re-frame.story.ui.*`.
 
 ### Rationale
 
@@ -34,10 +34,10 @@ dispatch console, etc.) renders using **Reagent** at v1, sourced from
   exercises the same re-frame primitives Story stories exercise; using
   a substrate the rest of the codebase already validates avoids a
   self-hosting bias.
-- **reagent-slim is still landing.** The slim rewrite is in active
-  implementation. Story should not block on it; once reagent-slim is
-  GA / first published artefact Story can migrate (Stage 8 may
-  revisit) — the same trigger gating the substrate-enum addition (see
+- **reagent-slim ships (`day8/reagent-slim`), and the shell stays on
+  stock Reagent by decision.** Story does not block on the slim
+  adapter; migrating the shell onto it is a Stage 8 option, not a
+  trigger — the same posture as the substrate-enum addition (see
   [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §inline-substrate-failures)
   and the template's fourth substrate choice.
 - **The UI shell is itself one app's worth of views; substrate
@@ -51,8 +51,8 @@ The `tools/story/deps.edn` declares `reagent/reagent` (Maven coord)
 and `day8/re-frame2-reagent` (the adapter, via `:local/root`).
 Together these load Reagent v2 (per `feedback_target_reagent_v2`) in
 the dev tool's runtime. In a `:advanced` build of the host app, Story
-DCEs entirely (see [`005-SOTA-Features.md`](005-SOTA-Features.md) §DCE
-contract) so neither dep reaches production.
+DCEs entirely (see [`005-SOTA-Features.md`](005-SOTA-Features.md)
+§Production elision under `:advanced`) so neither dep reaches production.
 
 ## Chrome identity — design tokens
 
@@ -97,7 +97,7 @@ token vocabulary the shell consumes:
   scale + canvas-frame accent edge.
 - §Iconography — the five SVG glyphs the sidebar consumes (see
   §Sidebar glyph rhythm below).
-- §Toolbar 5-cluster — the MODES / DATA / VIEW / DEBUG / REC
+- §Toolbar cluster structure — the MODES / DATA / VIEW / DEBUG / SHARE / REC
   cluster contract (the canonical toolbar surface spec lives in
   [`010-Toolbar.md`](010-Toolbar.md)).
 
@@ -354,7 +354,11 @@ and a "Save layout as `:Workspace.x/y`" affordance are a recorded
 
 ## Right-hand pane (rf2-sgdd3 · rewritten per rf2-v1ach)
 
-The RHS stacks four regions vertically:
+The RHS stacks six regions vertically — the Xray embed, the Explain
+panel and Evidence spine (both Story-owned; see
+[`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+§3–§4), Controls, the Dispatch console, and any registered `:right`
+story panels. The three numbered below are the ones this page owns:
 
 1. **Xray — per-panel embed** (rf2-v1ach). Story's RHS hosts ONE
    Xray panel at a time, picked by the user via a chip-row above
@@ -372,8 +376,8 @@ The RHS stacks four regions vertically:
    The region renders four things:
 
    - **Chip-row picker.** A horizontal strip of chips
-     `[Event] [App-db] [Views] [Trace] [Machines] [Routing] [Issues]`
-     wearing the seven Xray panel ids in the canonical
+     `[Epoch] [App-db] [Views] [Trace] [Machines] [Routing]`
+     wearing the six Xray chip-panel ids in the canonical
      debugging-frequency order. The active chip carries the warm
      amber accent; clicking a chip swaps which panel mounts below
      and the user's click is sticky for the session (it overrides
@@ -443,9 +447,9 @@ The RHS stacks four regions vertically:
    variant's frame (Story-unique, opt-in per variant via
    `:dispatch-console?`).
 
-4. **Play status / viewport / backgrounds** — Story-unique chrome
-   chips for the active variant's `:script` status, viewport
-   sizing, and background framing.
+(The play-status, viewport and background chips this list once placed
+here live in the toolbar's DATA / VIEW clusters — see
+[`010-Toolbar.md`](010-Toolbar.md).)
 
 The shell's `:panel-visibility` map drives Stage-6 registered
 `reg-story-panel` panels (a11y, schema-validation, layout-debug)
@@ -462,11 +466,14 @@ custom inspectors) key against this same shape.
 
 ### The contract — `panels/mount-<panel>!`
 
-Xray exposes seven per-panel mount fns under the
+Story embeds six of Xray's per-panel mount fns (plus the non-chip
+`mount-event-spine!` band) from the
 [`day8.re-frame2-xray.panels`](../../xray/src/day8/re_frame2_xray/panels.cljs)
-namespace (locked in
+namespace — Xray's own inventory is its `panel-enum` (locked in
+[`tools/xray/spec/007-UX-IA.md`](../../xray/spec/007-UX-IA.md)
+§Mountable panel contract / §The mount-fn contract, with
 [`tools/xray/spec/008-Embedding-Contract.md`](../../xray/spec/008-Embedding-Contract.md)
-§Per-panel mount API and
+owning the full-shell / state-isolation half) and
 [`tools/xray/spec/007-UX-IA.md`](../../xray/spec/007-UX-IA.md)
 §Mountable panel contract):
 
@@ -474,7 +481,7 @@ namespace (locked in
 |-----------------|-----------------------------------------------------------|---------------------------------------------------|
 | `:epoch`        | `(mount-epoch-panel!        mount-point opts) → unmount`  | Numbered computational timeline for the focused epoch (rf2-5gl5r supersedes `:event-detail`) |
 | `:app-db`       | `(mount-app-db-diff!        mount-point opts) → unmount`  | Structural diff of app-db across the cascade      |
-| `:views`        | `(mount-views!              mount-point opts) → unmount`  | Per-view sub-invalidation surface                 |
+| `:views`        | `(mount-reactive-panel!     mount-point opts) → unmount`  | Per-view sub-invalidation surface                 |
 | `:trace`        | `(mount-trace!              mount-point opts) → unmount`  | Trace-buffer feed for the focused cascade         |
 | `:machines`     | `(mount-machine-inspector!  mount-point opts) → unmount`  | State-machine chart + arcs/rings/cluster overlays |
 | `:routing`      | `(mount-routing!            mount-point opts) → unmount`  | Registered routes + simulate-URL surface          |
@@ -529,10 +536,13 @@ trips against the active panel's `mount-<panel>!`:
 | `:component-will-unmount`  | call the stashed unmount fn; clear the ref.                                                 |
 | `:reagent-render`          | render `<div data-rf-xray-panel-host=<panel-id> ref=... />` — stable across re-renders.    |
 
-The component is keyed on `<variant-id>::<panel-id>` in the parent
-hiccup so a variant or panel change forces a fresh React mount
-(belt-and-braces — the lifecycle handlers cover it, but the key
-guarantees no state leaks across Xray-internal bugs).
+The host is deliberately NOT keyed on the panel id (rf2-4l7t2): one
+persistent host class stays alive across panel swaps, and
+`:component-did-update` drives the internal unmount/mount round-trip
+after the parent's commit — each swap mounts the new Xray root into a
+fresh child `<div>` and releases the prior root on a microtask, which is
+what keeps React 18+ from refusing a synchronous root unmount inside the
+outer Reagent render cascade.
 
 `mount-fn-for` does a compile-time symbol → fn lookup against the
 canonical six panel ids (e.g. `:epoch` → `day8.re-frame2-xray.
@@ -551,9 +561,10 @@ A user click on a chip in the picker:
 2. Re-renders `xray-embed-panel` (the atom is a Reagent ratom).
 3. `effective-panel` resolves the new panel-id (user override
    wins over story/variant `:xray-panel` slot).
-4. The parent hiccup's React key changes — `panel-host-component`
-   remounts cleanly; the previous panel's unmount fn fires; the
-   new panel's mount fn fires.
+4. `panel-host-component`'s `:component-did-update` sees the new
+   panel-id (no React key change — rf2-4l7t2): the previous panel's
+   unmount fn fires on a microtask; the new panel's mount fn fires
+   into a fresh child node.
 
 The user's chip click is sticky for the session — it overrides any
 declared `:xray-panel` until the user picks a different chip or
@@ -638,7 +649,7 @@ maintains its own trace history through its own preload-time
 are independent listeners on the framework trace bus.
 
 The six-domino cascade projection (`re-frame.trace.projection/
-group-cascades`) used to power Story's retired trace panel; it now
+group-by-event` + `domino-bucket`) used to power Story's retired trace panel; it now
 lives in framework code and is consumed by Xray's Trace tab. Per
 Phase 1 §4.3 this is the debugging UX no JS tool can match.
 
@@ -693,68 +704,45 @@ surface re-uses this contract.
 
 ## Source-coord stamping flow (UI side)
 
-The story tool's "Open in editor" affordance (v1.1) reads `:source`
-off the variant registry record. The play-runner copies the `:source`
-of each `:script` step into the corresponding `:assertions` record
+The story tool's "Open in editor" affordance (shipped, rf2-evgf5) reads `:source`
+off the variant registry record. Each `:assertions` record carries the
+variant registration's `:source` (steps are data and carry no coordinate)
 so failure cards link back to source.
 
 ## Namespace layout
+
+Everything lives under `re-frame.story.*` (there is no `tools.story.*`
+root). Abridged — `git ls-files -- tools/story/src` is the roster:
 
 ```
 tools/story/
 ├── deps.edn
 ├── README.md
 ├── spec/                                        ; this folder
-├── src/
-│   ├── re_frame/
-│   │   └── story.cljs                           ; public ns — reg-* macros + run-variant
-│   │   └── story.clj                            ; macro impl (the dev/prod expand split)
-│   └── tools/
-│       └── story/
-│           ├── impl/                            ; private — what the macros call
-│           │   ├── reg.cljs                     ; reg-story*, reg-variant*, etc.
-│           │   ├── schema.cljs                  ; :rf/variant Malli schema
-│           │   └── extends.cljs                 ; :extends resolution
-│           ├── registry.cljs                    ; side-table; query helpers
-│           ├── runtime/
-│           │   ├── frame.cljs                   ; per-variant frame allocation
-│           │   ├── args.cljs                    ; effective-args resolution
-│           │   ├── decorators.cljs              ; composition order
-│           │   ├── loaders.cljs                 ; 4-phase lifecycle
-│           │   ├── play.cljs                    ; play-runner + assertion recorder
-│           │   ├── snapshot-id.cljs             ; content-hash
-│           │   └── source-coord.cljs            ; source-stamp pipe
-│           ├── render/
-│           │   ├── shell.cljs                   ; sidebar / canvas / panels
-│           │   ├── variants_grid.cljs           ; :variants-grid layout
-│           │   ├── controls.cljs                ; auto-derived controls
-│           │   ├── multi_substrate.cljs         ; side-by-side substrate panes
-│           │   └── time_travel.cljs             ; (retired rf2-sgdd3 — Xray L1 ribbon + L2 list)
-│           ├── panels/
-│           │   ├── trace_buffer.cljs            ; per-variant trace ring buffer (schema-validation consumer)
-│           │   ├── a11y.cljs                    ; axe-core integration — VARIANT scope
-│           │   ├── chrome_a11y.cljs             ; axe-core integration — CHROME scope (rf2-18t6p)
-│           │   ├── perf.cljs                    ; live ribbon (v1.1)
-│           │   ├── layout_debug.cljs            ; measure / outline / pseudo
-│           │   ├── design_tokens.cljs           ; v1.1, conditional
-│           │   └── docs.cljs                    ; autodocs from :doc + schemas
-│           ├── share/
-│           │   └── transit.cljs                 ; workspace transit export
-│           ├── workspace/
-│           │   ├── grid.cljs
-│           │   ├── prose.cljs
-│           │   └── transit.cljs
-│           └── ui/
-│               ├── widgets.cljs                 ; controls widgets
-│               ├── theme.cljs
-│               └── routing.cljs                 ; story-tool URL surface
-└── test/
-    └── tools/
-        └── story/
-            └── ...
+├── src/re_frame/
+│   ├── story.cljc                               ; public facade — reg-* macros, run/is/explain, run-variant …
+│   └── story/
+│       ├── macros.clj                           ; macro expanders (the dev/prod expand split)
+│       ├── registrar.cljc  schemas.cljc  query.cljc  tags.cljc   ; registry + closed body schemas
+│       ├── plan.cljc  requirements.cljc  result.cljc  verdict.cljc ; plan compiler, runner selection, run result
+│       ├── frames.cljc  lifecycle.cljc  loaders.cljc  runtime.cljc ; per-variant frames + four-phase lifecycle
+│       ├── args.cljc  decorators.cljc  fx_stubs.cljc  network.cljc ; args resolution, decorators, fx stubs, :network
+│       ├── assertions.cljc  invariants.cljc  predicates.cljc     ; :rf.assert/* vocabulary + sentinels
+│       ├── play.cljc  play/                     ; script runner (runner, runner_events, dom, browser, presence …)
+│       ├── fingerprint.cljc  identity.cljc  canonical.cljc  determinism.cljc  diff.cljc  golden.cljc
+│       ├── artifact.cljc  promotion.cljc  generate.cljc  generate/  ; run artifacts, promotion, generated runs
+│       ├── recorder.cljc  recorder/            ; recorder + dom_capture, play_export, selector
+│       ├── share.cljc  egress.cljc  config.cljc  layout_debug.cljc  xray_preset.cljc
+│       ├── theme/                               ; colors, depth, glyphs, motion, space, status, typography
+│       └── ui/                                  ; shell, sidebar, canvas, toolbar, controls, docs, panels,
+│           ├── state/                           ;   xray_embed, evidence_spine, explain_panel, keybindings,
+│           ├── shell/                           ;   command_palette, share, url_state, a11y, chrome_a11y …
+│           └── test_mode/                       ; Test pane: view, state, stepper_*, visual_a11y_view
+├── testbeds/                                    ; counter_with_stories, login_form, fresco_counter
+└── test/re_frame/                               ; JVM + CLJS suites (story_*_test.clj, story/**/*_cljs_test)
 ```
 
 The macro-emitting layer is `re-frame.story` (the user-facing ns); all
-internal implementation lives under `tools.story.*`. Public ns names
+internal implementation lives under `re-frame.story.*`. Public ns names
 match the convention from `re-frame.adapter.reagent` /
 `re-frame.ssr`.

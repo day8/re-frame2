@@ -628,15 +628,15 @@ ring cannot-run · neutral ring pending).
 - [`003-Render-Shell.md`](003-Render-Shell.md) — the sidebar surface
   this glyph rhythm lives in.
 
-## §Toolbar 5-cluster structure (rf2-v58dm)
+## §Toolbar cluster structure (rf2-v58dm + rf2-ba86n.16)
 
 > Shipped: [`ui/toolbar.cljs`](../src/re_frame/story/ui/toolbar.cljs).
 > Phase 2 — rf2-v58dm §F9. Replaces the v1 single-strip described in
-> [`010-Toolbar.md`](010-Toolbar.md) §Placement-and-rendering.
+> [`010-Toolbar.md`](010-Toolbar.md) §Placement in the shell chrome.
 
 ### Lock
 
-The toolbar reads as **5 distinct affordance clusters** separated by
+The toolbar reads as **6 distinct affordance clusters** separated by
 token-driven vertical hairlines, each labelled with a small-caps
 cluster name:
 
@@ -663,6 +663,7 @@ users scan groups rather than chips.
 | **DATA**  | Dispatch console chip (rf2-q9kv5) · Play-script status chip (rf2-8i2a9) — variant-scoped affordances    | `Data`   |
 | **VIEW**  | Viewport switcher chip (rf2-zll4h) · Backgrounds switcher chip                                          | `View`   |
 | **DEBUG** | Element inspector chip (rf2-h0jc0) — React-Devtools-style pick mode                                    | `Debug`  |
+| **SHARE** | `share/share-chip` (rf2-ba86n.16) — opens the Share & export dialog (spec/022 §3)                       | `Share`  |
 | **REC**   | Test Codegen REC chip (rf2-5fc15) · `[reset]` (resets active modes)                                    | `Rec`    |
 
 The MODES cluster is **registry-driven** (variable width — every
@@ -707,6 +708,7 @@ Within a cluster, ordering rules are:
   (Storybook addon-viewport + addon-backgrounds parity per
   rf2-zll4h).
 - **DEBUG** — Element inspector chip only at v1.
+- **SHARE** — the `share-chip` only (opens the Share & export dialog).
 - **REC** — REC chip first, then `[reset]` (the latter conditional
   on `(seq active-modes)`).
 
@@ -715,7 +717,7 @@ Within a cluster, ordering rules are:
 The toolbar's `<header role="toolbar">` carries `data-test=
 "story-toolbar"`. Each cluster carries `data-test=
 "story-toolbar-cluster"` + `data-cluster="<name>"` where `<name>`
-is `modes` / `data` / `view` / `debug` / `rec`. Test corpora can
+is `modes` / `data` / `view` / `debug` / `share` / `rec`. Test corpora can
 locate a cluster without walking the chip tree:
 
 ```
@@ -728,14 +730,14 @@ locate a cluster without walking the chip tree:
 
 - [`010-Toolbar.md`](010-Toolbar.md) — the canonical toolbar surface
   spec. §Placement and §Selection semantics now read against the
-  5-cluster shape; the per-cluster vocabulary lives in this section.
+  six-cluster shape; the per-cluster vocabulary lives in this section.
 - [`014-Chrome-Features.md`](014-Chrome-Features.md) §Command palette
   — the orthogonal Cmd-K palette that searches the same registry
   the MODES cluster exposes.
 
 ## Composition — how the chrome consumes the tokens
 
-The shell composes the six token domains in one pass at
+The shell composes the seven token domains in one pass at
 `(mount-shell!)`:
 
 ```clojure
@@ -765,7 +767,7 @@ grid's cell body) so a subject renders as on a plain page (rf2-w72ij).
 
 ## Zero-raw contract (consolidated)
 
-The six token namespaces are the **single source of truth** for the
+The seven token namespaces are the **single source of truth** for the
 chrome's identity-bearing values. The contract:
 
 - **No `font-family` strings outside `theme.typography`** (rf2-2rwdc AC#5).
@@ -783,14 +785,14 @@ inflate visibly if a regression sneaked in a hard-coded value.
 
 ## Production elision
 
-Per [`005-SOTA-Features.md`](005-SOTA-Features.md) §DCE contract
-the entire chrome is dead-code-eliminated under `:advanced`. The
+Per [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production elision
+under `:advanced` the entire chrome is dead-code-eliminated. The
 token namespaces are pure data — they compile to small constant
 maps — and the injector functions self-elide via
 `re-frame.story.config/enabled?` so:
 
 - A production build of the host app pays **zero bytes** for the
-  six token namespaces.
+  seven token namespaces.
 - A static-export build (`story:build` per
   [`013-Static-Build.md`](013-Static-Build.md)) DOES emit the
   chrome — `enabled?` stays true in static mode — and the

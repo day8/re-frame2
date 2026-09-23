@@ -343,12 +343,16 @@ Otherwise skip. This was the rf2-k9ekz sister bead — **now landed** (CLOSED, P
 ## §Open questions
 
 > **RESOLVED BY EXECUTION.** The migration has landed — the residual
-> `spec.cjs` surface is now exactly the three adapter smokes
-> (`implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs`) plus
+> `spec.cjs` surface is now exactly the two adapter smokes
+> (`implementation/adapters/{reagent,uix}/testbed/spec.cjs`; the helix
+> adapter this block once named no longer exists in the tree), the
+> Fresco testbed smoke (`implementation/fresco/testbed/spec.cjs`) and
 > the cross-cutting framework testbed (`testbeds/tenant_switcher/spec.cjs`);
 > the bulk of the (A)-class assertions moved to CLJS unit tests. The
 > questions below are retained for provenance with their resolutions
-> inline.
+> inline. (Later still, the `tools/xray/testbeds/parallel_frames` and
+> `perf_counter` directories this document describes as staying in-tree
+> were removed; the waves' own records above are left as written.)
 
 1. ~~**`performance_cljs_test.cljs` coverage parity?**~~ **RESOLVED —
    perf_counter dropped.** There is no `perf_counter` testbed or

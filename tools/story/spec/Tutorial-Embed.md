@@ -107,9 +107,9 @@ function embedUrl(baseShareUrl) {
   return u.toString();
 }
 
-const shareUrl = "https://myproject.day8.com.au/stories/?variant=%3Astory.counter%2Fat-five";
+const shareUrl = "https://myproject.day8.com.au/stories/?variant=story.counter%2Fat-five";
 const iframeSrc = embedUrl(shareUrl);
-// => "https://myproject.day8.com.au/stories/?variant=%3Astory.counter%2Fat-five&embed=1"
+// => "https://myproject.day8.com.au/stories/?variant=story.counter%2Fat-five&embed=1"
 ```
 
 The flag is read once by `embed-flag-from-current-url` at shell
@@ -124,7 +124,7 @@ Drop the embed URL into an `<iframe>` in your docs site:
 
 ```html
 <iframe
-  src="https://myproject.day8.com.au/stories/?variant=%3Astory.counter%2Fat-five&embed=1"
+  src="https://myproject.day8.com.au/stories/?variant=story.counter%2Fat-five&embed=1"
   title="Counter at five — Story variant"
   loading="lazy"
   width="100%"
