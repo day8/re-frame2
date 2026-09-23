@@ -625,7 +625,7 @@ The `:panel-width-px` slot (rf2-x8h9y) drives the
 `:right-rail` panel's horizontal width. The Xray drag handle (per
 [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance))
 writes through to this slot on drag-end; the slot persists via the
-existing `re-frame2.xray.settings.v1` localStorage key so width survives
+existing `re-frame2.xray.settings.v2` localStorage key so width survives
 reloads. Default `560`. Ignored in `:popout` (window owns size) and
 `:fullscreen` (viewport owns size) positions.
 
@@ -637,7 +637,7 @@ reloads. Default `560`. Ignored in `:popout` (window owns size) and
 
 | Value | Meaning |
 |---|---|
-| Map | Deep-merge over `default-settings`, section by section AND recursively within each section (rf2-8j3gyt — a partial nested override, e.g. `{:general {:event-list-col-widths {:source 100}}}`, keeps its untouched sibling keys at their default rather than dropping them). Seeds the live settings map immediately. Persists to the localStorage key `re-frame2.xray.settings.v1` ONLY when that slot is still empty (a genuinely fresh install) — see the merge-order reconciliation below (rf2-rr2yw3). |
+| Map | Deep-merge over `default-settings`, section by section AND recursively within each section (rf2-8j3gyt — a partial nested override, e.g. `{:general {:event-list-col-widths {:source 100}}}`, keeps its untouched sibling keys at their default rather than dropping them). Seeds the live settings map immediately. Never persists: `configure!` writes nothing to localStorage, and the seed is re-applied on every boot, so it lands for every key the user holds no explicit override for — see the merge-order reconciliation below (rf2-rr2yw3, rf2-3x7nj.27.1). |
 | (absent) | Leave the live settings map untouched. |
 
 The popup's per-knob event surface (`:rf.xray/settings-update`) is
@@ -657,13 +657,27 @@ position, etc.).
 > defaults < configure! overrides < persisted Settings overrides`
 > order is authoritative. The rule here is now singular: `configure!`
 > ALWAYS seeds the live map (so a host's posture is visible even with
-> no storage-backed load ever running — tests, harnesses), but only
-> PERSISTS it when localStorage is still empty. `load-settings-from-
-> storage!` deep-merges whatever IS in localStorage over
-> `default-settings` seeded with the `configure!` map, so a returning
-> user's persisted values always win for the keys they've touched,
-> while a fresh key the host newly configures still lands for everyone
-> else.
+> no storage-backed load ever running — tests, harnesses), and NEVER
+> persists it. `load-settings-from-storage!` deep-merges whatever IS in
+> localStorage over `default-settings` seeded with the `configure!`
+> map, so a returning user's persisted values always win for the keys
+> they've touched, while a fresh key the host newly configures still
+> lands for everyone else.
+>
+> **Storage holds explicit overrides only (rf2-3x7nj.27.1).** That last
+> promise needs the payload to name only the keys the user touched, and
+> for a while it did not: every write stored the WHOLE resolved map —
+> compiled-in defaults and the host seed included — and `configure!`
+> also wrote it on a fresh install, "so the posture survives a reload".
+> Read back as the top layer, that made every key behave as user-set:
+> after one panel drag, or no user action at all, no later host
+> `configure!` value and no later Xray default reached that browser.
+> The payload is now a sparse map of the exact paths a user gesture or
+> an `init!` opt wrote; `configure!` writes nothing, since the
+> documented host re-seeds on every boot; the boot width clamp never
+> turns an inherited width into an override; and a column drag records
+> only the column it moved. The storage key moved to `.v2` so every
+> whole-map `.v1` payload is ignored rather than read as an overlay.
 >
 > **Order-independent since rf2-y8doi.17.** Seeding alone was not
 > enough: the live atom was still reset to defaults-plus-seed with the
@@ -881,7 +895,7 @@ ownership rule below locks the contract for pre-alpha and forward.
 |---|---|---|---|
 | `(xray-config/configure! {…})` | Static boot config — defaults, feature flags, host-environment wiring (editor target, project root, layout-host selector, auto-open, keybinding enabled, filter seed, …). | Host-code-mutable at boot; immutable from the user's perspective. | Process-global atoms; one set of values per host load. |
 | `(xray/init! opts)` | Manual installation hook, alternative to `:preloads`; opening/mounting is a separate verb. Loads the user's persisted Settings and applies them FIRST (rf2-y8doi.17), in the same position the preload's boot block does, then installs. Accepted options are `:target-frame`, `:theme`, `:density`, and `:buffer-depths {:epoch N}`. The Settings options address `:theme`, `[:general :density]`, and `[:general :epoch-history]`; target selection addresses Xray frame state. Aspirational AI/sidebar/launcher/keybinding-map slots are not accepted by either this hook or the shipped Settings map. Idempotent installation. | Host-code-driven; once-per-load. | Installation plus explicit option writes, not a new independent Settings instance. |
-| Persisted Settings (`localStorage` slot `re-frame2.xray.settings.v1`) | User-mutable overrides in the four slots `:general`, `:theme`, `:diff`, `:buffer`, as enumerated in [§`:rf.xray/settings`](#rfxraysettings). The popup and ribbon/resize controls write this map. Target selection and the separate `xray.mode` preference do not live in it. | User-mutable; round-trips through localStorage. | Survives reload until cleared; unreadable payloads fall back in memory. |
+| Persisted Settings (`localStorage` slot `re-frame2.xray.settings.v2`) | Explicit overrides only, in the four slots `:general`, `:theme`, `:diff`, `:buffer`, as enumerated in [§`:rf.xray/settings`](#rfxraysettings): a sparse map of the exact paths written by user gestures (the popup, the ribbon/resize controls) and by `init!` opts — never the resolved settings map (rf2-3x7nj.27.1). Target selection and the separate `xray.mode` preference do not live in it. | User-mutable; round-trips through localStorage. | Survives reload until cleared; unreadable payloads fall back in memory. |
 
 **Merge order (lowest precedence first):**
 
@@ -903,10 +917,12 @@ hardcoded defaults  <  configure! overrides  <  persisted Settings overrides
    included, and the merge order still holds (see the Implementation
    note below).
 3. The persisted Settings shape, loaded from localStorage on boot,
-   then overlays whichever keys the user has previously mutated. A
-   user toggling `:theme :light` once continues to see Light on
-   every subsequent reload regardless of what the host wrote via
-   `configure!`. **BOTH install routes perform this load** — the
+   then overlays whichever keys the user has previously mutated. The
+   payload holds exactly those keys — a sparse overlay of the paths
+   written (rf2-3x7nj.27.1) — so every other key keeps following steps
+   1 and 2 as they change. A user toggling `:theme :light` once
+   continues to see Light on every subsequent reload regardless of
+   what the host wrote via `configure!`. **BOTH install routes perform this load** — the
    preload's boot block, and `init!` itself (rf2-y8doi.17; before
    that fix `init!` never loaded them, so a manually-installed host
    saw compiled-in defaults however much the user had saved).
@@ -927,8 +943,10 @@ behaviour, which broke this exact order), and step 3 by
 `(merge-known-sections default-settings @configured-settings-seed)`.
 rf2-y8doi.17 completed it: `configure!` recomputes the live map through
 the same resolution, so whichever of the two runs first, the result is
-the order above. See `:rf.xray/settings` above for the full
-reconciliation.
+the order above. rf2-3x7nj.27.1 fixed the write side: `update-setting!`
+adds the one path it was given to the payload already in storage and
+stores that, never the live map; `configure!` writes nothing. See
+`:rf.xray/settings` above for the full reconciliation.
 
 **Consequence.** A key like `:theme` legally appears on all three
 surfaces — that is by design, not by accident. The host's
@@ -1057,7 +1075,7 @@ All forthcoming keys follow the `:rf.xray/*` convention.
 - `(xray-config/factory-reset!)` — wipe every Xray localStorage key +
   reset the in-memory atoms. NOT SHIPPED: what exists today is
   `config/reset-settings!`, which resets the settings atom, clears the
-  `configure!` seed and removes the ONE `re-frame2.xray.settings.v1`
+  `configure!` seed and removes the ONE `re-frame2.xray.settings.v2`
   slot. The red-button UI is dropped — factory-reset stays code-only
   per [`007-UX-IA.md`](./007-UX-IA.md) §Settings popup, "Dropped from
   earlier drafts" — so this entry is the wider CLI escape hatch for
@@ -1066,7 +1084,7 @@ All forthcoming keys follow the `:rf.xray/*` convention.
 
   Whatever ships has to enumerate **two key families**, because Xray's
   localStorage keys carry no single prefix: the versioned
-  `re-frame2.xray.<name>.v1` slots (Settings, the frame pin, palette
+  `re-frame2.xray.<name>.vN` slots (Settings, the frame pin, palette
   recents, event-list column widths) and the bare, unversioned
   `xray.<name>` slots (mode, the muted-event-id set, the Static-mode
   machine slots, the machine-canvas collapse map). The

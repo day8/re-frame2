@@ -1035,8 +1035,15 @@
 (def settings-storage-key
   "localStorage key the settings round-trip uses. Versioned so a future
   schema change can ignore stale payloads without colliding with the
-  old shape."
-  "re-frame2.xray.settings.v1")
+  old shape.
+
+  `.v2` since rf2-3x7nj.27.1: the payload became a SPARSE overlay of
+  explicit overrides, where `.v1` held the whole resolved map. A `.v1`
+  payload read as an overlay would still pin every key it carries, so
+  it is ignored rather than migrated — a one-time reset of saved Xray
+  preferences. The orphaned `.v1` slot is inert; nothing reads or
+  removes it."
+  "re-frame2.xray.settings.v2")
 
 (def default-settings
   "Default settings map — the shape `configure! :settings` / the
@@ -1368,17 +1375,18 @@
          configure! overrides < persisted Settings overrides` merge
          order (spec/015-Configuration.md §`configure!` vs `init!` vs
          persisted Settings). `configure!` also applies the seed to
-         the live atom immediately for a synchronous read, but — per
-         rf2-rr2yw3 — does not unconditionally persist it, so a host
-         that calls `configure!` on every boot can no longer clobber a
-         user's already-persisted Settings-popup mutations."}
+         the live atom immediately for a synchronous read, but never
+         persists it (rf2-3x7nj.27.1): the seed is re-applied on every
+         boot, so it lands for every key the user holds no explicit
+         override for, and can never clobber one the user does."}
   configured-settings-seed
   (atom nil))
 
 (defn get-settings
-  "Return the current full settings map. Mostly useful for tests +
-  for the bulk persistence write. UI consumers read individual slots
-  via `get-setting`."
+  "Return the current full settings map. Mostly useful for tests and
+  for `apply-all!`. UI consumers read individual slots via
+  `get-setting`. Never the thing persisted — storage holds only the
+  explicit overrides (`update-setting!`)."
   []
   @settings)
 
@@ -1459,18 +1467,6 @@
        (swap! memory-storage dissoc k))))
 
 #?(:cljs
-   (defn- write-storage!
-     "Round-trip the current settings map into the storage shim. Wraps
-     access in a try/catch — quota errors, private-mode refusals, etc.
-     degrade silently (the setting still applies in memory; reload will
-     reset to defaults). Stored as pr-str so re-frame keywords round-
-     trip without bespoke encoding."
-     []
-     (try
-       (storage-set! settings-storage-key (pr-str @settings))
-       (catch :default _ nil))))
-
-#?(:cljs
    (defn- persisted-settings
      "The persisted Settings payload as a map, or nil when there is
      none, it is unreadable, or it does not parse to a map. The READ
@@ -1483,6 +1479,42 @@
          (let [parsed (cljs.reader/read-string raw)]
            (when (map? parsed) parsed)))
        (catch :default _ nil))))
+
+#?(:cljs
+   (defn- write-override!
+     "Record ONE explicit override in the persisted Settings payload:
+     `value` assoc'd at `path` onto the payload ALREADY IN STORAGE, and
+     nothing else. The payload is a sparse overlay of the exact paths a
+     user gesture or an `init!` opt wrote — never the resolved live map
+     (rf2-3x7nj.27.1). That map carries the compiled-in defaults and the
+     `configure!` seed as well, and read back as the TOP layer it made
+     every key behave as user-set: after one panel drag, no later host
+     `configure!` value and no later Xray default reached that browser.
+
+     Starts from storage rather than from an in-memory copy, so the
+     write stays order-independent with `configure!` and
+     `load-settings-from-storage!` (rf2-y8doi.17). `assoc-in` REPLACES
+     the value at `path` — what `:editor-override`'s keyword-or-
+     `{:custom …}` values need — and a leaf path (one event-list column)
+     records that leaf alone. Quota errors, private-mode refusals and a
+     corrupt payload degrade silently: the setting still applies in
+     memory. Stored as `pr-str` so keywords round-trip."
+     [path value]
+     (try
+       (storage-set! settings-storage-key
+                     (pr-str (assoc-in (or (persisted-settings) {}) path value)))
+       (catch :default _ nil))))
+
+#?(:cljs
+   (defn persisted-override?
+     "True when the persisted Settings payload carries an explicit
+     override at `path`, e.g. `[:general :panel-width-px]`. The boot
+     width clamp asks this so that it repairs an override the user wrote
+     but never manufactures one out of an inherited default or host
+     value (rf2-3x7nj.27.1). A nil value counts as absent, as it does in
+     the merge."
+     [path]
+     (some? (get-in (persisted-settings) path))))
 
 (defn- resolve-settings
   "Compute the live settings map from all three layers, lowest
@@ -1523,11 +1555,13 @@
      persisted localStorage payload deep-merged OVER
      `(merge-known-sections default-settings @configured-settings-seed)`.
      A host's `configure!` call sets the boot-time default for any key
-     the user hasn't already persisted a value for; a value the user HAS
-     persisted (any prior Settings-popup edit) always wins over what the
-     host configures on a later boot. Idempotent — safe to call more
-     than once. Failures degrade silently to the defaults+configure!
-     base.
+     the user holds no explicit override for; an override the user HAS
+     written (a Settings-popup edit, a resize drag) always wins over
+     what the host configures on a later boot. The payload holds only
+     those overrides (rf2-3x7nj.27.1), so every other key follows the
+     host and the compiled-in defaults as they change. Idempotent —
+     safe to call more than once. Failures degrade silently to the
+     defaults+configure! base.
 
      Called from the preload's side-effect block on CLJS startup, and
      from `core/init!` for hosts that install manually rather than via
@@ -1585,32 +1619,81 @@
         (tap> {:tag ::settings-applier-failed :error e}))))
   nil)
 
+(defn- setting-path
+  "The path `[section key]` names in the settings map. `:theme` is the
+  special case: the modal addresses it as `[:theme nil <kw>]` because
+  the slot is a flat keyword, not a nested map, and `assoc-in` on a
+  `nil` key would write a nested `{nil <kw>}`."
+  [section key]
+  (if (and (= section :theme) (nil? key))
+    [:theme]
+    [section key]))
+
+(defn- reject-unknown-setting
+  "Log the rejection of an unknown `[section key]` write as a tap> so
+  tests can assert it. Returns nil."
+  [section key]
+  (tap> {:tag     ::reject-unknown-setting
+         :section section
+         :key     key})
+  nil)
+
 (defn update-setting!
-  "Write `value` into the settings slot at `[section key]`. CLJS calls
-  also round-trip the whole map through localStorage so the change
-  survives reload. `:theme` is the special case — the modal addresses
-  it as `[:theme nil <kw>]` because the slot is a flat keyword, not a
-  nested map; `assoc-in` on a `nil` key is unsafe, so we special-case.
+  "Write `value` into the settings slot at `[section key]`, and on CLJS
+  record it as an explicit override in localStorage so the change
+  survives reload. Storage gains exactly that one path
+  (rf2-3x7nj.27.1); every key nobody wrote keeps following the host's
+  `configure!` seed and the compiled-in defaults.
+
+  This is the writer for a user's choice — a Settings-popup edit, a
+  resize drag, an `init!` opt. A value Xray DERIVES goes through
+  `update-live-setting!` instead, so it never becomes an override.
 
   Unknown `[section key]` paths are a no-op (and log a tap> so tests
   can assert the rejection)."
   [section key value]
-  (cond
-    (not (valid-section-key? section key))
-    (do (tap> {:tag    ::reject-unknown-setting
-               :section section
-               :key     key})
-        nil)
+  (if (valid-section-key? section key)
+    (let [path (setting-path section key)]
+      (swap! settings assoc-in path value)
+      #?(:cljs (write-override! path value))
+      nil)
+    (reject-unknown-setting section key)))
 
-    (and (= section :theme) (nil? key))
-    (do (swap! settings assoc :theme value)
-        #?(:cljs (write-storage!))
+(defn update-live-setting!
+  "Write `value` into the LIVE settings map at `[section key]` and
+  nowhere else: nothing reaches localStorage. For a value Xray derives
+  rather than one the user chose — the boot width clamp fitting an
+  inherited width to a narrow viewport — which must never be recorded
+  as an override, or a later host `configure!` value could not land
+  (rf2-3x7nj.27.1). Same `[:theme nil <kw>]` addressing and the same
+  unknown-path rejection as `update-setting!`."
+  [section key value]
+  (if (valid-section-key? section key)
+    (do (swap! settings assoc-in (setting-path section key) value)
         nil)
+    (reject-unknown-setting section key)))
 
-    :else
-    (do (swap! settings assoc-in [section key] value)
-        #?(:cljs (write-storage!))
-        nil)))
+(defn update-event-list-col-width!
+  "Write ONE event-list column's width, clamped through
+  `clamp-event-list-col-width`. Returns the full next widths map — the
+  current map with that one column replaced — for the caller's app-db
+  slot, or nil, writing nothing, for a column id that is not resizable.
+
+  The live map takes the full next map, which is what every reader
+  expects. The persisted overlay records ONLY
+  `[:general :event-list-col-widths col-id]` (rf2-3x7nj.27.1): recording
+  the whole map would pin the untouched columns at their current width,
+  so a later host `configure!` width for one of them could never land.
+  Nothing deep-merges on write, so `update-setting!` keeps its replace
+  semantics for every other key."
+  [col-id px]
+  (when-let [clamped (clamp-event-list-col-width col-id px)]
+    (let [next-map (assoc (or (get-setting :general :event-list-col-widths)
+                              event-list-col-default-widths)
+                          col-id clamped)]
+      (swap! settings assoc-in [:general :event-list-col-widths] next-map)
+      #?(:cljs (write-override! [:general :event-list-col-widths col-id] clamped))
+      next-map)))
 
 (defn reset-settings!
   "Reset the in-memory settings map to `default-settings`, clear the
@@ -1797,12 +1880,13 @@
     `{:rf.xray/settings <map>}` — host-supplied Settings-popup
        DEFAULTS. Shape mirrors `default-settings`; deep-merges (per
        nested section, recursively) over the compiled-in defaults.
-       Sets the boot-time posture for any key the user hasn't already
-       persisted a value for — a value the user HAS persisted (any
-       prior Settings-popup edit) always wins on a later boot, per the
+       Sets the boot-time posture for any key the user holds no explicit
+       override for — an override the user HAS written (a Settings-popup
+       edit, a resize drag) always wins on a later boot, per the
        `hardcoded defaults < configure! overrides < persisted Settings
        overrides` order (rf2-rr2yw3 / spec/015-Configuration.md
-       §`configure!` vs `init!` vs persisted Settings). The
+       §`configure!` vs `init!` vs persisted Settings). Never written to
+       storage (rf2-3x7nj.27.1): re-applied on every boot instead. The
        popup's event surface (`:rf.xray/settings-update`) is the
        normal per-knob write path; this key is the bulk-set escape
        hatch (e.g. host wants to ship its own default theme).
@@ -1895,11 +1979,15 @@
   ;; documented pattern) — permanently clobbered a user's already-
   ;; persisted Settings-popup mutations, violating the documented
   ;; `defaults < configure! < persisted` merge order. The raw map now
-  ;; seeds `configured-settings-seed`, and the write is GUARDED on the
-  ;; storage slot being genuinely empty — a fresh install still
-  ;; persists the host's posture (so it survives a reload even absent
-  ;; another `configure!` call), but a returning user's real payload is
-  ;; never overwritten.
+  ;; seeds `configured-settings-seed`.
+  ;;
+  ;; rf2-3x7nj.27.1: and it NEVER writes storage. A write guarded on an
+  ;; empty slot survived rf2-rr2yw3 "so a fresh install's posture
+  ;; survives a reload", but the host re-seeds on every boot, so that
+  ;; bought nothing — and it persisted the whole resolved map, which then
+  ;; sat ABOVE every later seed, freezing the host's posture at first
+  ;; boot. Storage holds only the user's explicit overrides now; the seed
+  ;; lands, every boot, for every key the user never wrote.
   ;;
   ;; rf2-y8doi.17: the SECOND half of that fix. Seeding alone was not
   ;; enough, because the live atom was still `reset!` to
@@ -1920,9 +2008,6 @@
     (when (map? settings-opt)
       (reset! configured-settings-seed settings-opt)
       (reset! day8.re-frame2-xray.config/settings (resolve-settings))
-      #?(:cljs
-         (when-not (storage-get settings-storage-key)
-           (write-storage!)))
       ;; The recomputed map has to reach the DOM / substrate as well:
       ;; on the preload path `apply-all!` ran before this call, against
       ;; the pre-`configure!` map, so without this a host's configured

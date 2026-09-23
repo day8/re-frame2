@@ -684,12 +684,16 @@ preferences, is [015 §`:rf.xray/settings`](015-Configuration.md#rfxraysettings)
 
 ### Persistence
 
-- **Storage key:** `re-frame2.xray.settings.v1` (versioned so future
+- **Storage key:** `re-frame2.xray.settings.v2` (versioned so future
   schema changes can ignore stale payloads without colliding with the
   old shape).
 - **One nested map, not one atom per knob** — the round-trip is a
-  single `pr-str` of the whole settings shape; serialisation drift
-  between knobs is structurally impossible. Loaded from localStorage
+  single `pr-str` of one map; serialisation drift between knobs is
+  structurally impossible. That map holds the user's EXPLICIT
+  OVERRIDES only — the exact paths a user gesture or an `init!` opt
+  wrote, never the resolved settings shape (rf2-3x7nj.27.1) — so every
+  key the user never touched keeps following the host's `configure!`
+  seed and the compiled-in defaults. Loaded from localStorage
   at preload time via `config/load-settings-from-storage!`; applied to
   the live shell before first paint via
   `settings/effects/apply-all!`.
@@ -761,8 +765,10 @@ watcher never actually saw transition.
 
 ### Bulk configure! escape hatch
 
-`(xray-config/configure! {:rf.xray/settings <map>})` bulk-replaces the
-whole settings map. Shape mirrors the defaults table above. The
+`(xray-config/configure! {:rf.xray/settings <map>})` seeds the host's
+defaults, which land for every key the user holds no explicit override
+for; it never writes storage, and is re-applied on every boot
+(rf2-3x7nj.27.1). Shape mirrors the defaults table above. The
 popup's per-knob event surface is the normal write path; this key
 is for hosts that want to ship a non-default starting posture (e.g.
 a corporate fork that wants light theme as the factory default).

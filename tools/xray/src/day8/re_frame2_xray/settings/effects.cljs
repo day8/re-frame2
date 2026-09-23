@@ -456,6 +456,14 @@
   It is guarded on the value actually moving, so the drag path — which
   clamps before it calls here — triggers no second storage round-trip.
 
+  It repairs only a width the user WROTE (rf2-3x7nj.27.1). When storage
+  carries no `:panel-width-px` override, the width being applied is
+  inherited — the default or a host `configure!` value — and the clamp
+  fits the live map and the CSS var alone, through
+  `config/update-live-setting!`. Persisting it would turn the default
+  560 in a 600px viewport into a stored 540 that outranks every later
+  host width, even on a wide screen.
+
   The clamp and the write-back sit OUTSIDE the `<html>` guard: the
   persisted payload is worth repairing whether or not this runtime has
   a document (and the node lane, which has none, is where the
@@ -468,8 +476,14 @@
      ;; Converge the persisted payload. Guarded on a real numeric input
      ;; that actually moved, so a nil (no persisted value) writes
      ;; nothing and an already-in-range value costs no storage write.
+     ;; Only an EXPLICIT persisted width is repaired in storage; an
+     ;; inherited one (the default, a host `configure!` width) is fitted
+     ;; in the live map alone, so the clamp never manufactures an
+     ;; override that would block a later host width (rf2-3x7nj.27.1).
      (when (and (number? px) (not= (long px) clamped))
-       (config/update-setting! :general :panel-width-px clamped))
+       (if (config/persisted-override? [:general :panel-width-px])
+         (config/update-setting! :general :panel-width-px clamped)
+         (config/update-live-setting! :general :panel-width-px clamped)))
      (when-let [html (html-root-element)]
        (if (= clamped default)
          ;; Default value — clear any prior inline write so the

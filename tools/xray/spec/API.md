@@ -910,7 +910,7 @@ render never leaves the box.
 
 ## Settings keys
 
-Settings persist as one EDN map under `re-frame2.xray.settings.v1`.
+Settings persist as one EDN map under `re-frame2.xray.settings.v2`.
 The canonical shape and defaults live at
 [`015-Configuration.md` §`:rf.xray/settings`](./015-Configuration.md#rfxraysettings);
 the popup, storage and reset behaviour live at
