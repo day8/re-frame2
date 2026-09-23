@@ -65,9 +65,16 @@
 
   JVM-portable (`.cljc`) so the projection + redaction contracts are pinned
   by the JVM test corpus without a CLJS runtime."
-  (:require [re-frame.elision :as rf.elision]
+  (:require #?@(:cljs [[goog.crypt :as gcrypt]
+                       [goog.crypt.Hmac]
+                       [goog.crypt.Sha256]])
+            [re-frame.elision :as rf.elision]
             [re-frame.identity :as rf.identity]
-            [re-frame.privacy :as rf.privacy]))
+            [re-frame.privacy :as rf.privacy])
+  #?(:clj (:import [java.nio.charset StandardCharsets]
+                   [java.security SecureRandom]
+                   [javax.crypto Mac]
+                   [javax.crypto.spec SecretKeySpec])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -101,11 +108,12 @@
 ;;
 ;; A value-path walk is structurally blind to identity-embedded secrets, so
 ;; egress must project the scoped-key's secret-bearing components into STABLE
-;; OPAQUE HANDLES: the same scoped key always maps to the same projected key
-;; (graph CONNECTIVITY survives — a redacted param is still an edge), but the
-;; raw scope/params never cross the wire. We mint the handle from the core
-;; CEDN-1 identity primitive (`rf.identity/canonical-bytes`) so it is
-;; deterministic for a given value; a value outside the CEDN-1 domain (or any
+;; OPAQUE HANDLES: within one runtime the same scoped key always maps to the
+;; same projected key (graph CONNECTIVITY survives — a redacted param is still
+;; an edge), but the raw scope/params never cross the wire. We mint the handle
+;; as a keyed digest of the core CEDN-1 identity token
+;; (`rf.identity/canonical-bytes`) so it is deterministic for a given value
+;; within that runtime (rf2-3x7nj.3.4); a value outside the CEDN-1 domain (or any
 ;; error) FAILS CLOSED to the `:rf/redacted` sentinel rather than risk
 ;; shipping a host-stringified secret. The middle `resource-id` (a
 ;; registration keyword, never sensitive) is PRESERVED so a tool still sees
@@ -146,29 +154,89 @@
            (= 2 (count v))
            (= :rf.resource/opaque (nth v 0)))))
 
+;; The handle digest (rf2-3x7nj.3.4): HMAC-SHA-256 over the UTF-8 bytes of the
+;; value's CEDN-1 token, under a private random key minted once per runtime,
+;; rendered as the full 64-char lowercase hex digest. A 32-bit `hash` of the
+;; token (the previous minting) collided — `{:q "Aa"}` and `{:q "BB"}` merged
+;; into one node — and gave up a low-entropy param to enumeration. The UTF-8 /
+;; hex idiom is `re-frame.schemas.digest`'s, copied rather than required so
+;; core takes no dependency on the schemas artefact.
+
+(defn- utf8-bytes
+  "Encode a string as UTF-8 bytes."
+  [s]
+  #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
+     :cljs (gcrypt/stringToUtf8ByteArray s)))
+
+(defn- bytes->hex
+  "Lowercase hex encoding of a byte sequence."
+  [bs]
+  #?(:clj  (let [sb (StringBuilder.)]
+             (doseq [b bs]
+               (let [u (bit-and (long b) 0xff)]
+                 (when (< u 0x10) (.append sb \0))
+                 (.append sb (Long/toString u 16))))
+             (.toString sb))
+     :cljs (gcrypt/byteArrayToHex bs)))
+
+(defn- hmac-sha256-hex
+  "The 64-char lowercase hex HMAC-SHA-256 of `s`'s UTF-8 bytes under
+  `key-bytes` — a host byte array (`byte[]` on the JVM, an array of 0-255
+  integers on CLJS)."
+  [key-bytes s]
+  #?(:clj  (let [mac (Mac/getInstance "HmacSHA256")]
+             (.init mac (SecretKeySpec. ^bytes key-bytes "HmacSHA256"))
+             (bytes->hex (.doFinal mac ^bytes (utf8-bytes s))))
+     :cljs (bytes->hex (.getHmac (goog.crypt.Hmac. (goog.crypt.Sha256.) key-bytes)
+                                 (utf8-bytes s)))))
+
+(def ^:private handle-key
+  "The private 32-byte handle key: cryptographically random, minted once per
+  runtime on first use (a `delay`, so loading this ns has no side effect), and
+  never exposed. There is deliberately no fallback key: a runtime without a
+  secure random source throws here, and `opaque-handle` fails closed to
+  `:rf/redacted` rather than mint handles under a predictable key."
+  (delay
+    #?(:clj  (let [k (byte-array 32)]
+               (.nextBytes (SecureRandom.) k)
+               k)
+       :cljs (let [k (js/Uint8Array. 32)]
+               (.getRandomValues js/crypto k)
+               (js/Array.from k)))))
+
 (defn- opaque-handle
   "A STABLE, ONE-WAY opaque handle for one secret-bearing scoped-key
-  component. Deterministic from the value (same value ⇒ same handle, so
-  graph connectivity survives) but IRREVERSIBLE — it is a HASH of the value's
-  CEDN-1 canonical token, NOT the token itself (the token PRESERVES the raw
-  value, which would defeat redaction). FAILS CLOSED to the `:rf/redacted`
-  sentinel for any value outside the CEDN-1 identity domain or on any error
-  (never host-stringify a secret onto the wire). IDEMPOTENT: an already-
-  projected `[:rf.resource/opaque …]` handle / `:rf/redacted` sentinel is
-  returned UNCHANGED (hashing it again would mint a fresh, DIFFERENT handle
-  and silently change the projected identity on a second egress pass)."
+  component: `[:rf.resource/opaque <hex>]`, where `<hex>` is the full 64-char
+  HMAC-SHA-256 of the value's CEDN-1 canonical token under the private
+  per-runtime `handle-key` — never the token itself, which PRESERVES the raw
+  value and would defeat redaction.
+
+  STABLE WITHIN ONE RUNTIME: equal values get equal handles, so graph
+  connectivity survives (and equality between values stays visible). A
+  restart or a page load mints a new key and changes every handle, so handles
+  cannot be compared across processes.
+
+  ONE-WAY IN A BOUNDED SENSE: it protects against someone who receives an
+  exported snapshot but has neither the runtime key nor a live projection
+  oracle. It does NOT protect against the trusted programmer, against anyone
+  with local evaluation access, or against what the graph topology itself
+  reveals.
+
+  FAILS CLOSED to the `:rf/redacted` sentinel for any value outside the
+  CEDN-1 identity domain or on any error, a missing secure random source
+  included (never host-stringify a secret onto the wire). IDEMPOTENT: an
+  already-projected `[:rf.resource/opaque …]` handle / `:rf/redacted`
+  sentinel is returned UNCHANGED (digesting it again would mint a fresh,
+  DIFFERENT handle and silently change the projected identity on a second
+  egress pass)."
   [v]
   (if (already-projected? v)
     v
     (try
       ;; `canonical-bytes` is the deterministic CEDN-1 token (stable for a
-      ;; given value, cross-spelling-invariant); `hash` makes it one-way so the
-      ;; raw scope/params cannot be read back off the wire. Render unsigned hex
-      ;; so the handle is a compact, non-reversible, value-stable token.
-      (let [token  (rf.identity/canonical-bytes v)
-            digest #?(:clj  (Integer/toHexString (hash token))
-                      :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
-        [:rf.resource/opaque digest])
+      ;; given value, cross-spelling-invariant); the keyed digest makes it
+      ;; one-way, and its full width keeps distinct values from merging.
+      [:rf.resource/opaque (hmac-sha256-hex @handle-key (rf.identity/canonical-bytes v))]
       (catch #?(:clj Throwable :cljs :default) _
         rf.privacy/redacted-sentinel))))
 
@@ -363,7 +431,8 @@
   SAME work-id). The `elide-wire-value` value-path walk is structurally
   BLIND to these identity-embedded secrets. So this projection ALSO replaces
   each scoped key's secret-bearing scope + params with STABLE OPAQUE HANDLES
-  (`rf.identity/canonical-bytes`-derived, fail-closed to `:rf/redacted` outside
+  (a keyed digest of the `rf.identity/canonical-bytes` token, stable within one
+  runtime — see `opaque-handle`; fail-closed to `:rf/redacted` outside
   the CEDN-1 domain), preserving the registration `resource-id` so a tool
   still sees WHICH resource the node is. The SAME projection is applied to
   the `:nodes` keys AND every edge endpoint that names a resource node, so
