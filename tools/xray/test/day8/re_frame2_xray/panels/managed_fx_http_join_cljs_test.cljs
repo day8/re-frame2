@@ -403,7 +403,7 @@
 ;; that separates them (the abort fires before the re-issue's issued row).
 ;; ===========================================================================
 
-(deftest e-explicit-abort-beside-a-same-id-reissue-resolves-by-work-id
+(deftest e-explicit-abort-beside-a-same-id-reissue-resolves-by-position
   (async done
     (rf/reg-event :t/done (fn [_ _] {}))
     (rf/reg-event :t/e1
