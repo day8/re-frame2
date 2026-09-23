@@ -41,7 +41,11 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+            [re-frame2-pair-mcp.tools.list-subscriptions :as list-subs]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.read-sub :as read-sub]
+            [re-frame2-pair-mcp.tools.record :as record]
+            [re-frame2-pair-mcp.tools.watch-until :as watch-until]))
 
 ;; ---------------------------------------------------------------------------
 ;; The app: a doc row whose `:body` is declared `:large` and whose `:token`
@@ -231,5 +235,76 @@
                  (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw"))
                  (is (= secret (get-in edn [:value :token]))
                      "positive control: the simulator returns a secret when allowed, so the redactions above are real")))
+        (.catch fail!)
+        (.then (fn [_] (done))))))
+
+;; ---------------------------------------------------------------------------
+;; The other four tools that take `elision` — a form-level pin each.
+;; get-path, snapshot and dispatch-dry-run are pinned above and in
+;; conformance_test / dispatch_dry_run_test; without this block, re-gating
+;; read-sub, list-subscriptions, record or watch-until went unnoticed.
+;; ---------------------------------------------------------------------------
+
+(def ^:private canned-any
+  "One reply every one of the four tools accepts as a success."
+  {:ok? true :held? true :sample {0 :done} :t 1
+   :recording-id "rec-rf2-ealv5" :query-v [:x] :frame :rf/default
+   :value 1 :subs []})
+
+(defn- emitted-forms!
+  "Run `call` against a stub runtime; resolves to every non-prelude form
+  the tool sent."
+  [call]
+  (let [forms (atom [])
+        respond (fn [form]
+                  (cond
+                    (re-find #"__re_frame2_pair_runtime" form) (js/Promise.resolve true)
+                    (re-find #"configure-raw-state!" form)     (js/Promise.resolve nil)
+                    :else (do (swap! forms conj form)
+                              (js/Promise.resolve canned-any))))]
+    (set! nrepl/cljs-eval-value
+          (fn
+            ([_c _b form] (respond form))
+            ([_c _b form _o] (respond form))))
+    (-> (call (fresh-conn))
+        (.then (fn [_] @forms)))))
+
+(def ^:private elision-tools
+  [["read-sub"           read-sub/read-sub-tool
+    {:sub "[:x]"}]
+   ["list-subscriptions" list-subs/list-subscriptions-tool
+    {:include-values true}]
+   ["record"             record/record-tool
+    {:signals "[{:app-db [:docs]}]"}]
+   ["watch-until"        watch-until/watch-until-tool
+    {:signals "[{:app-db [:docs]}]" :pred #js {:signal 0 :equals 1}}]])
+
+(defn- overlay? [form] (str/includes? form ":rf.egress/include-large? true"))
+(defn- names-tool-profile? [form]
+  (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool"))
+
+(deftest default-launch-every-elision-tool-honours-elision-false
+  (async done
+    (is (false? (raw-state/raw-state-allowed?)) "precondition: a DEFAULT launch")
+    (-> (reduce
+          (fn [p [tool-name tool-fn args]]
+            (-> p
+                (.then (fn [_]
+                         (emitted-forms! #(tool-fn % (tu/args->js (assoc args :elision true))))))
+                (.then (fn [forms]
+                         ;; control, taken from the target: the egress form IS
+                         ;; captured, and without the override it has no overlay
+                         (is (some names-tool-profile? forms)
+                             (str tool-name ": control: the egress form was captured"))
+                         (is (not-any? overlay? forms)
+                             (str tool-name ": control: elision true emits no overlay"))
+                         (emitted-forms! #(tool-fn % (tu/args->js (assoc args :elision false))))))
+                (.then (fn [forms]
+                         (is (some overlay? forms)
+                             (str tool-name ": elision false overlays include-large? on a default launch"))
+                         (is (not-any? #(str/includes? % ":rf.egress/local-raw") forms)
+                             (str tool-name ": the size override never names local-raw"))))))
+          (js/Promise.resolve nil)
+          elision-tools)
         (.catch fail!)
         (.then (fn [_] (done))))))
