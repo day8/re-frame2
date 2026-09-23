@@ -303,8 +303,9 @@
                                          :on-success [:search/loaded]})]
                   :other   [(http-aborted-ev :search :user)]}
           rec    (first (h/event-bundle->managed-fx-records bundle))]
-      (is (= :error (:status rec))
-          "a same-attempt cancellation still reddens")
+      (is (= :cancelled (:status rec))
+          "a same-attempt cancellation is kept — and reads CANCELLED, its own
+           closed reply status, no longer folded into ERROR (rf2-6ooch)")
       (is (= :user (:cancel-cause rec))))))
 
 (deftest anonymous-http-record-ignores-a-strangers-cancellation
@@ -625,8 +626,10 @@
   "The panel's closed status set. `:issued` joined it with rf2-y8doi.18 and is
   HTTP-only today: 'the fx handler returned and the transport was entered;
   nothing later is visible in this bundle'. It is a NEW status rather than `:ok`
-  relabelled, so `(= status :ok)` can never again mean 'completed' by accident."
-  [:issued :ok :error :in-flight :overridden :skipped :stub])
+  relabelled, so `(= status :ok)` can never again mean 'completed' by accident.
+  `:cancelled` and `:stale` joined with rf2-6ooch: the framework's closed reply
+  statuses an HTTP record reads once its completion is joined."
+  [:issued :ok :error :cancelled :stale :in-flight :overridden :skipped :stub])
 
 (deftest format-status-label-covers-taxonomy
   (doseq [s panel-status-taxonomy]

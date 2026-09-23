@@ -393,8 +393,12 @@
    ;; the mutation phase order, phase 2: the managed request is issued under
    ;; runtime-owned reply addressing).
    :rf.mutation/started                    :issued
-   ;; HTTP issues the request through the `:rf.http/managed` fx (`.2`, landed);
-   ;; the canonical completion is `:rf.http/replied` (see :completed below).
+   ;; HTTP emits `:rf.http/issued` from inside the `:rf.http/managed` fx
+   ;; handler (rf2-x8oz5), carrying the attempt-1 `:rf.reply/work-id`; the
+   ;; canonical completion is `:rf.http/replied` (see :completed below). The
+   ;; suffix heuristic would classify it too — it is listed so the table,
+   ;; not a substring match, is the record of what HTTP emits.
+   :rf.http/issued                         :issued
    ;; Machines (`.4`) + routing (`.5`) issuance ops are forward-looking; the
    ;; suffix heuristic classifies them until those PRs land their literals.
    :rf.machine.timer/scheduled             :issued

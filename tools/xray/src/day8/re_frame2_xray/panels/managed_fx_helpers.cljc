@@ -21,20 +21,24 @@
                                             ;; body (or surface-specific
                                             ;; equivalent)
        :wire            <wire-timing-map>   ;; nil when the surface
-                                            ;; doesn't emit timing;
-                                            ;; ALWAYS nil for :http
+                                            ;; doesn't emit timing; for
+                                            ;; :http the `:issued ->
+                                            ;; :elapsed` pair, and only
+                                            ;; once the completion joined
        :res             <response-payload>  ;; nil when in-flight or
                                             ;; the surface has no
-                                            ;; reply-shape; ALWAYS nil
-                                            ;; for :http
+                                            ;; reply-shape; for :http the
+                                            ;; joined terminal row's
+                                            ;; elided summary
        :handler         <handler-event-vec> ;; the CONFIGURED reply
                                             ;; target (:reply-to, else
                                             ;; the :on-success/:on-done/
                                             ;; :on-failure sugar) — what
                                             ;; the caller wrote, not an
                                             ;; observed delivery
-       :status          :issued | :ok | :error | :in-flight
-                                | :overridden | :skipped | :stub
+       :status          :issued | :ok | :error | :cancelled | :stale
+                                | :in-flight | :overridden | :skipped
+                                | :stub
        :phase           :issued | :sent | :received | :completed
                                 | :failed | :aborted  ;; nil for :http
        :correlation-id  <id-or-nil>         ;; request-id, machine
@@ -51,9 +55,15 @@
                                             ;; feed is wired today), as
                                             ;; distinct from [] = measured
                                             ;; and nothing changed
-       :origin-event-id <int-or-nil>}       ;; trace-event :id of the
+       :origin-event-id <int-or-nil>        ;; trace-event :id of the
                                             ;; `:rf.fx/handled` emit —
                                             ;; the cross-link anchor
+       ;; HTTP only (rf2-6ooch — the cross-buffer completion join):
+       :completion      :joined | :none | nil ;; see `http-adapter`
+       :attempts        <int-or-nil>        ;; the terminal row's attempt
+       :reply-link      {:dispatch-id :frame} | nil} ;; the delivered
+                                            ;; reply's bundle, when it
+                                            ;; is in the capture
 
   Pure data → data. JVM-runnable so the test suite can drive the
   projection without booting a CLJS runtime.
@@ -83,15 +93,17 @@
 
   ## What's NOT addressed (yet)
 
-  Wire-timing is only natively emitted by `:rf.http/managed` today —
-  the other surfaces default `:wire` to nil and the panel renders a
-  `n/a` placeholder. The retry-attempt timeline (F.3) lives under
-  `:rf.http/retry-attempt` traces and is folded into the HTTP record's
-  `:phase` / `:duration-ms` summary. Per-attempt drill-down is a
-  follow-on bead."
+  No surface natively emits per-phase wire timing today. The non-HTTP
+  surfaces synthesise an `:issued -> :elapsed` pair from their in-bundle
+  rows, and HTTP draws the same pair once its completion has joined
+  (elapsed includes any retry backoff). The retry-attempt timeline (F.3)
+  lives under `:rf.http/retry-attempt` traces, which carry no work id and
+  are not joined; the HTTP record reads its attempt count off the
+  terminal row. Per-attempt drill-down is a follow-on bead."
   (:require [clojure.string :as str]
             [day8.re-frame2-xray.panels.common-helpers :as common]
-            [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-h]))
+            [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-h]
+            [day8.re-frame2-xray.panels.reply-envelope :as re]))
 
 ;; ---- surface taxonomy ---------------------------------------------------
 
@@ -125,6 +137,8 @@
   {:issued     :text-secondary          ; neutral — a statement about the request going out, not about its outcome
    :ok         :green
    :error      :red
+   :cancelled  :magenta                  ; intentionally cancelled — not a failure, so not red (rf2-6ooch)
+   :stale      :text-tertiary            ; completed after its correlation went obsolete; nothing delivered
    :in-flight  :info                     ; fixed cool blue — distinct from the accent-coloured :overridden/:stub
    :overridden :accent
    :skipped    :text-tertiary
@@ -135,6 +149,8 @@
   {:issued     "◦"   ;; ◦ — deliberately not ✓: nothing here says the request succeeded
    :ok         "✓"   ;; ✓
    :error      "✗"   ;; ✗
+   :cancelled  "◌"   ;; ◌
+   :stale      "⊘"   ;; ⊘
    :in-flight  "⧖"   ;; ⧖
    :overridden "◑"   ;; ◑
    :skipped    "○"   ;; ○
@@ -219,8 +235,9 @@
 ;; ---- surface-event collectors ------------------------------------------
 
 (def http-trace-operations
-  "Trace operations the HTTP surface really emits, kept under their real
-  names so the deferred cross-buffer join (rf2-6ooch) has them.
+  "Trace operations the HTTP surface really emits, as they can appear IN
+  THE ISSUING BUNDLE. The request's outcome is read off the whole trace
+  buffer instead — see `http-terminal-index` (rf2-6ooch).
 
   IN THE ISSUING EVENT-BUNDLE THIS FILTER IS ALL BUT EMPTY, AND THAT IS
   THE RUNTIME'S SHAPE RATHER THAN A GAP. `re-frame.trace/emit!` and
@@ -279,8 +296,9 @@
   only route to a `:res` / `:http-status` / wire timing, so reading them
   produced a record that said `OK · completed` with every outcome field
   nil, for a request that may well have failed. Do not restore them; the
-  runtime's completion op is `:rf.http/replied`, and it is out of reach
-  from here by construction."
+  runtime's completion op is `:rf.http/replied`, it is out of reach from
+  the issuing bundle by construction, and the cross-buffer join reads it
+  where it actually lands."
   #{:rf.http/retry-attempt
     :rf.http/aborted-on-actor-destroy
     :rf.http/aborted
@@ -569,9 +587,11 @@
   (let [status        (fx-event->status fx-ev)
         cancel-cause  (surface-events->cancel-cause surface-events)
         failure       (surface-events->failure surface-events)
-        ;; Cancel cause overrides the basic status to :aborted-shape.
+        ;; A cancellation is its own closed reply status (Managed-Effects
+        ;; §Status taxonomy), not a failure — it no longer folds into
+        ;; `:error` (rf2-6ooch).
         terminal-status (cond
-                          cancel-cause :error
+                          cancel-cause :cancelled
                           failure      :error
                           :else        status)
         args         (fx-args-of fx-ev)]
@@ -658,18 +678,212 @@
         ;; this bundle's own HTTP effects could have produced.
         (and (not cancel?) (boolean sole-http-fx?))))))
 
+;; ---- the cross-buffer completion join (rf2-6ooch) ----------------------
+;;
+;; Every HTTP row after issuance lands OUTSIDE the issuing bundle (see
+;; `http-trace-operations`), so the record's outcome can only be read off
+;; the WHOLE trace buffer. The framework already names the attempt:
+;; `:rf.http/issued` (emitted inside the issuing fx handler, so it rides
+;; the issuing bundle's `:other`) carries the attempt-1 work id
+;; `[:rf.work/http logical-id issuance 1]`, and every terminal row carries
+;; the work id of the attempt that COMPLETED. After a retry the two differ
+;; in the fourth (attempt) slot, so the join is on the frame plus the
+;; three-element ISSUANCE PREFIX, never on full work-id equality
+;; (rf2-ojn0y). An anonymous request's logical id is the tagged
+;; `[:rf.http/anonymous event-id]` (rf2-5g0bt), numbered per (frame,
+;; event-id) and never reset, so the prefix is exact for it too.
+;;
+;; A named id IS legitimately reused (`[x 1 1]` again once the first
+;; attempt completed and its counter was evicted), so "the latest row by
+;; time" would hand an earlier record a later request's outcome. The rule
+;; is POSITIONAL instead: the first terminal row whose trace `:id` is
+;; greater than the record's own issued row. Trace ids are monotonic
+;; (`re-frame.trace/next-event-id`), which is also why nothing here reads
+;; `:time` to ORDER rows — two rows routinely share a millisecond.
+
+(def ^:private http-canonical-terminal-ops
+  "The canonical completion rows. `:rf.http/aborted` and the failure-kind
+  rows are ALSO `:completed` in the reply-envelope op table, but they
+  precede the canonical row for the same attempt, and an abort fired by a
+  supersession lands at the SUPERSEDED attempt's id inside the
+  SUPERSEDER's bundle (rf2-n3sx9) — so the canonical row takes
+  precedence whenever both are present."
+  #{:rf.http/replied :rf.http/stale-suppressed})
+
+(defn- issuance-prefix
+  "The three-element issuance prefix of an HTTP work id, or nil for
+  anything that is not one."
+  [wid]
+  (when (and (vector? wid)
+             (= :rf.work/http (first wid))
+             (<= 3 (count wid)))
+    (subvec wid 0 3)))
+
+(defn- terminal-work-id
+  "The work id a terminal row speaks for. A stale-suppression row carries
+  TWO — `:rf.reply/carried` (the attempt suppressed) and
+  `:rf.reply/current` (the attempt that superseded it) — and it is the
+  CARRIED attempt's outcome, so that is the id read; `:current` is never
+  read, or the superseder's record would take its predecessor's stale row."
+  [ev]
+  (let [tags (:tags ev)]
+    (if (= :rf.http/stale-suppressed (:operation ev))
+      (or (get-in tags [:rf.reply/carried :work/id])
+          (re/work-id-of tags))
+      (re/work-id-of tags))))
+
+(defn- terminal-row-frame
+  "HTTP completion rows stamp the carried frame as `:rf.frame/id` (the
+  reply summary); the stale-suppression rows stamp the bare `:frame`."
+  [ev]
+  (let [tags (:tags ev)]
+    (or (:rf.frame/id tags) (:frame tags))))
+
+(defn http-terminal-index
+  "Index a trace buffer's HTTP terminal rows ONCE, for every record the
+  composite projects on this recompute:
+  `{[frame issuance-prefix] -> [rows sorted by :id]}`.
+
+  Pre-filtered to reply-envelope ops (`reply-envelope/phase-of`) at the
+  `:completed` or `:stale-suppressed` phase whose work id is an HTTP one
+  — so a resource row, a nonsense op, or a row with no frame never enters
+  it. Work ids are frame-local (Managed-Effects §Work-id correlation), so
+  the frame is part of the key. Pure."
+  [trace-buffer]
+  (let [grouped (reduce
+                  (fn [m ev]
+                    (if (contains? #{:completed :stale-suppressed}
+                                   (re/phase-of (:operation ev)))
+                      (let [prefix (issuance-prefix (terminal-work-id ev))
+                            frame  (terminal-row-frame ev)]
+                        (if (and prefix (some? frame))
+                          (update m [frame prefix] (fnil conj []) ev)
+                          m))
+                      m))
+                  {}
+                  (or trace-buffer []))]
+    (reduce-kv (fn [m k rows] (assoc m k (vec (sort-by :id rows)))) {} grouped)))
+
+(defn http-reply-index
+  "Index the DELIVERED HTTP replies: `{[frame work-id] -> {:dispatch-id
+  :frame}}` over the event-bundles whose run was dispatched by the HTTP
+  transport (`:source :http`) and whose event vector carries a reply map
+  with an HTTP `:rf.reply/work-id` — the same reading of reply maps off
+  event args the `:http-correlation` matcher makes (rf2-st7j0).
+
+  `:source :http` is required, not decorative: an app handler that
+  forwards the reply map to another event carries the same work id, and
+  that forwarded event is not the delivery. Pure."
+  [event-bundles]
+  (reduce
+    (fn [m {:keys [frame dispatch-id dispatched event]}]
+      (let [source (or (:source dispatched) (get-in dispatched [:tags :source]))
+            reply  (when (vector? event)
+                     (some (fn [a] (when (and (re/reply-map? a)
+                                              (issuance-prefix (re/work-id-of a)))
+                                     a))
+                           (rest event)))]
+        (if (and (= :http source) reply)
+          (assoc m [frame (re/work-id-of reply)] {:dispatch-id dispatch-id :frame frame})
+          m)))
+    {}
+    (or event-bundles [])))
+
+(defn http-join-context
+  "The per-recompute join context the walker threads to every HTTP
+  record: the terminal-row index over the trace buffer and the delivered
+  reply index over the event-bundles. Built ONCE per recompute — never
+  one buffer scan per record, since the composite recomputes on every
+  trace tick."
+  [trace-buffer event-bundles]
+  {:terminal-index (http-terminal-index trace-buffer)
+   :reply-index    (http-reply-index event-bundles)})
+
+(defn- issued-key
+  "The join key an `:rf.http/issued` row names: its frame plus the
+  issuance prefix of its attempt-1 work id."
+  [issued]
+  (let [prefix (issuance-prefix (get-in issued [:tags :rf.reply/work-id]))
+        frame  (get-in issued [:tags :frame])]
+    (when (and prefix (some? frame))
+      [frame prefix])))
+
+(defn- terminal-row-for
+  "The terminal row for one issuance: among the index rows under `key`
+  whose trace `:id` is greater than the issued row's, the FIRST canonical
+  row, else the first row of any terminal kind."
+  [terminal-index key issued-id]
+  (let [after (filterv #(> (:id %) issued-id) (get terminal-index key))]
+    (or (some #(when (contains? http-canonical-terminal-ops (:operation %)) %) after)
+        (first after))))
+
+(defn- joined-fields
+  "Project a joined terminal row onto the record's outcome fields.
+
+  Status is the closed reply status `reply-envelope/work-event-row`
+  projects (`:ok :error :cancelled :stale`). ELAPSED is the terminal row's
+  trace `:time` minus the issued row's — one clock, stamped on every row
+  by `re-frame.trace` — and it includes any retry backoff, which is why
+  it is labelled elapsed rather than a round-trip. `:completed-at` is
+  epoch milliseconds on a different clock and is never subtracted from
+  trace time. RESPONSE is whatever summary the row carries: the elision
+  walker's output is the ceiling, and under `:sensitive?` it is the
+  `:rf/redacted` sentinel."
+  [issued terminal reply-index]
+  (let [tags    (:tags terminal)
+        row     (re/work-event-row terminal)
+        status  (or (:status row)
+                    (if (= :rf.http/aborted (:operation terminal)) :cancelled :error))
+        wid     (terminal-work-id terminal)
+        t0      (:time issued)
+        t1      (:time terminal)
+        elapsed (when (and (number? t0) (number? t1) (<= t0 t1)) (- t1 t0))
+        attempt (or (:attempt tags)
+                    (when (and (vector? wid) (< 3 (count wid))) (nth wid 3)))
+        error   (:error tags)
+        http-code (case status
+                  :ok    (get-in tags [:meta :status])
+                  :error (when (map? error) (:status error))
+                  nil)]
+    {:status       status
+     :completion   :joined
+     :terminal-op  (:operation terminal)
+     :duration-ms  elapsed
+     :wire         (when elapsed
+                     {:phases   [[:issued 0] [:elapsed elapsed]]
+                      :total-ms elapsed})
+     :attempts     attempt
+     :http-status  (when (number? http-code) http-code)
+     :res          (case status
+                     :ok                 (:value tags)
+                     (:error :cancelled) error
+                     nil)
+     :failure      (when (and (= :error status) (map? error))
+                     {:kind    (:kind error)
+                      :tags    error
+                      :message (or (:message error) (:reason error))})
+     :cancel-cause (case status
+                     :cancelled (or (:rf.reply/cancel-reason tags)
+                                    (when (map? error) (:reason error)))
+                     :stale     (:rf.reply/stale-reason tags)
+                     nil)
+     ;; A stale outcome was never delivered; every other status was, so
+     ;; its reply-dispatch bundle is the link — when it is still in the
+     ;; capture.
+     :reply-link   (when (contains? #{:ok :error :cancelled} status)
+                     (get reply-index [(terminal-row-frame terminal) wid]))}))
+
 (defn http-adapter
-  "HTTP surface adapter — the record is narrowed to ISSUANCE.
+  "HTTP surface adapter — the ISSUING bundle says `:issued`; the WHOLE
+  trace buffer says how the request ended.
 
   What one drain can see about a managed HTTP request is that the fx
   handler returned and the transport was entered: `:rf.fx/handled` is
   emitted AFTER the handler returns true, so the row means the request
   went out, and nothing after that point reaches this bundle (see
-  `http-trace-operations`). The record therefore says `:issued` and
-  leaves `:phase` / `:wire` / `:res` / `:duration-ms` / `:http-status`
-  nil BY CONSTRUCTION rather than pending — there is no later event that
-  could fill them in, so a UI that renders them would be rendering a
-  promise, not a measurement.
+  `http-trace-operations`). Read from the bundle alone, the record says
+  `:issued` and leaves `:wire` / `:res` / `:duration-ms` / `:http-status`
+  nil.
 
   `:issued` is a NEW status rather than `:ok` relabelled, so
   `(= status :ok)` can never again mean 'completed' by accident. It is
@@ -677,41 +891,63 @@
   other four surfaces DO get their end events in-bundle, so `:ok` keeps
   its meaning for them.
 
-  The outcomes this bundle CAN witness about THIS attempt are the ones
-  that run inside the fx handler's own stack: a synchronous
-  request-body-prep failure, and — on CLJS — an already-aborted external
-  `:abort-signal` firing this handle's own abort-fn during
-  `run-attempt!`. Both are attributed per `http-row-for-this-record?` and
-  redden the record to `:error` through `common-record`.
+  THE JOIN (rf2-6ooch). When the walker pairs this record with its own
+  `:rf.http/issued` row (`opts` `:issued`) and threads a
+  `:terminal-index`, the record takes its outcome from the first terminal
+  row after that issued row under the same frame and issuance prefix —
+  see `joined-fields`. `:completion` then says which case it is:
+  `:joined`; `:none` when the issued row is present and no terminal row
+  is in the capture (the buffer cannot tell pending from aged-out, so the
+  panel never says 'in flight'); nil when there is no issued row at all
+  (a capture from before the row existed, an overridden or skipped
+  effect, or an issued row aged out of the ring), which stays an
+  unattributed `:issued`.
 
-  What that predicate must NOT let through is the `:rf.http/aborted` this
-  issuance fired at the attempt it SUPERSEDED, which shares this record's
-  `:request-id` and lands in this same bundle (rf2-n3sx9), or a
-  cancellation an unrelated same-drain effect fired at a stranger's
-  request.
+  In-bundle attribution. With an issued row, a same-bundle HTTP row
+  belongs to this record exactly when its work id shares the record's
+  issuance prefix — which separates an explicit
+  `[:rf.http/managed-abort :x]` beside a same-id re-issue (the abort
+  names the OLD attempt's id) from an already-aborted `:abort-signal`
+  firing at THIS attempt, two cases the request-id alone could not tell
+  apart (rf2-n3sx9's residue). Without one, attribution falls back to
+  `http-row-for-this-record?`.
 
-  `opts` carries `:sole-http-fx?` — whether this is the bundle's only HTTP
-  effect, which the walker knows and the adapter cannot. The 2-arity
-  assumes it is, which is both the common case and what a direct
-  single-record caller means."
+  `opts` also carries `:sole-http-fx?` — whether this is the bundle's
+  only HTTP effect, which the walker knows and the adapter cannot. The
+  2-arity assumes it is, and joins nothing."
   ([fx-ev event-bundle-other]
    (http-adapter fx-ev event-bundle-other {:sole-http-fx? true}))
-  ([fx-ev event-bundle-other {:keys [sole-http-fx?] :or {sole-http-fx? true}}]
+  ([fx-ev event-bundle-other {:keys [sole-http-fx? issued terminal-index reply-index]
+                              :or   {sole-http-fx? true}}]
    (let [args           (fx-args-of fx-ev)
          request-id     (when (map? args) (:request-id args))
-         surface-events (filterv #(http-row-for-this-record? request-id sole-http-fx? %)
-                                 (surface-events-for event-bundle-other :http))
+         key            (when issued (issued-key issued))
+         own-row?       (if key
+                          (fn [ev]
+                            (let [tags (:tags ev)]
+                              (= (second key)
+                                 (issuance-prefix (or (:work/id tags)
+                                                      (:rf.reply/work-id tags))))))
+                          #(http-row-for-this-record? request-id sole-http-fx? %))
+         surface-events (filterv own-row? (surface-events-for event-bundle-other :http))
          request        (when (map? args) (:request args))
-         rec            (common-record :http fx-ev surface-events)]
-     (assoc rec
-            :req         request
-            ;; Nil by construction, not "not yet" — see the docstring.
-            :wire        nil
-            :res         nil
-            :phase       nil
-            :duration-ms nil
-            :http-status nil
-            :status      (if (= :ok (:status rec)) :issued (:status rec))))))
+         rec            (common-record :http fx-ev surface-events)
+         base           (assoc rec
+                               :req         request
+                               :wire        nil
+                               :res         nil
+                               :phase       nil
+                               :duration-ms nil
+                               :http-status nil
+                               :attempts    nil
+                               :reply-link  nil
+                               :completion  nil
+                               :status      (if (= :ok (:status rec)) :issued (:status rec)))]
+     (if (and key (some? terminal-index))
+       (if-let [terminal (terminal-row-for terminal-index key (:id issued))]
+         (merge base (joined-fields issued terminal reply-index))
+         (assoc base :completion :none))
+       base))))
 
 (defn websocket-adapter
   "WebSocket surface adapter. The `:fx-args` carries connection-config
@@ -787,6 +1023,32 @@
 
 ;; ---- event-bundle walker ----------------------------------------------------
 
+(defn- pair-issued-rows
+  "Pair each HTTP effect row with the bundle's `:rf.http/issued` row it
+  caused: `{<fx-row :id> -> <issued row>}`.
+
+  Paired by POSITION over the monotonic trace `:id`, never by `:time`: the
+  issued row is emitted inside the fx handler and `re-frame.fx` emits
+  `:rf.fx/handled` after the handler returns, so an effect's issued row
+  lies strictly between the PREVIOUS HTTP effect row and its own. Reading
+  the window rather than zipping ordinals keeps an HTTP effect that
+  issued nothing — an overridden or skipped effect, a
+  `:rf.http/managed-abort`, a capture from before the issued row existed —
+  from shifting every later pairing by one. An effect with no issued row
+  in its window pairs to nothing and stays an unjoined `:issued`."
+  [http-fx other]
+  (let [issued (sort-by :id (filterv #(= :rf.http/issued (:operation %)) (or other [])))
+        fx     (sort-by :id http-fx)]
+    (loop [fx fx, lo nil, acc {}]
+      (if-let [f (first fx)]
+        (let [hi  (:id f)
+              hit (when (number? hi)
+                    (last (filter #(let [i (:id %)]
+                                     (and (number? i) (< i hi) (or (nil? lo) (> i lo))))
+                                  issued)))]
+          (recur (rest fx) hi (if hit (assoc acc hi hit) acc)))
+        acc))))
+
 (defn event-bundle->managed-fx-records
   "Walk an event-bundle record (per `re-frame.trace.projection/group-by-event`)
   and project one managed-fx record per `:rf.fx/handled` (or
@@ -797,32 +1059,45 @@
   carries the surface-specific projection of `req` / `wire` / `res` /
   `handler` / `status` / `phase` / `correlation-id` / `cancel-cause`.
 
+  When `join-context` is supplied (`http-join-context` — built ONCE per
+  recompute over the whole trace buffer and the event-bundles) each HTTP
+  record is paired with its own `:rf.http/issued` row
+  (`pair-issued-rows`) and takes its outcome from the cross-buffer join;
+  without it an HTTP record says only `:issued` (rf2-6ooch).
+
   When `paths-by-dispatch-id` is supplied the record's `:paths-touched`
   is filled with the app-db diff paths that changed during this
   event-bundle. NO CALLER SUPPLIES IT TODAY — the composite sub in
-  `panels/managed_fx_subs` calls the 1-arity — so `:paths-touched` is
+  `panels/managed_fx_subs` passes nil — so `:paths-touched` is
   normally nil, meaning UNTRACKED rather than measured-and-empty. The two
   must stay distinguishable: the panel used to read the empty vector as
   evidence and warn, on every single successful record, that the author's
   handler had failed to write app-db."
   ([event-bundle]
-   (event-bundle->managed-fx-records event-bundle nil))
-  ([{:keys [effects other dispatch-id] :as _event-bundle} paths-by-dispatch-id]
+   (event-bundle->managed-fx-records event-bundle nil nil))
+  ([event-bundle paths-by-dispatch-id]
+   (event-bundle->managed-fx-records event-bundle paths-by-dispatch-id nil))
+  ([{:keys [effects other dispatch-id] :as _event-bundle} paths-by-dispatch-id join-context]
    (let [fx-events     (filterv managed-fx-effect? (or effects []))
          path-touched  (when paths-by-dispatch-id
                          (vec (get paths-by-dispatch-id dispatch-id [])))
+         http-fx       (filterv #(= :http (classify-fx-id (fx-id-of %))) fx-events)
          ;; Whether an HTTP failure row in this bundle can be attributed
          ;; to a record that carries no `:request-id` is a fact about the
          ;; BUNDLE, so only this walker can answer it.
-         http-fx-count (count (filterv #(= :http (classify-fx-id (fx-id-of %)))
-                                       fx-events))]
+         http-fx-count (count http-fx)
+         issued->fx    (pair-issued-rows http-fx other)]
      (vec
        (for [fx-ev fx-events
              :let  [surface (classify-fx-id (fx-id-of fx-ev))
                     adapter (get surface->adapter surface)]
              :when adapter]
          (-> (if (= surface :http)
-               (http-adapter fx-ev other {:sole-http-fx? (= 1 http-fx-count)})
+               (http-adapter fx-ev other
+                             (merge {:sole-http-fx? (= 1 http-fx-count)
+                                     :issued        (get issued->fx (:id fx-ev))}
+                                    (select-keys join-context
+                                                 [:terminal-index :reply-index])))
                (adapter fx-ev other))
              (assoc :paths-touched path-touched)))))))
 
@@ -835,6 +1110,8 @@
     :issued     "ISSUED"
     :ok         "OK"
     :error      "ERROR"
+    :cancelled  "CANCELLED"
+    :stale      "STALE"
     :in-flight  "IN-FLIGHT"
     :overridden "OVERRIDDEN"
     :skipped    "SKIPPED"

@@ -25,21 +25,20 @@
   state is the caller's; it is held per `[record-key section-id]` pair so
   one record's REQUEST opens independently of its siblings'.
 
-  ## No cross-link from the reply target
+  ## The reply link is an OBSERVATION; the reply target is not
 
   The panel's REPLY TARGET row shows the event vector the CALLER
-  CONFIGURED for the reply. It is configuration, not an observation:
-  nothing here watches a reply being delivered, and for HTTP the reply
-  arrives as its own later dispatch, in its own event-bundle, with its
-  own id.
+  CONFIGURED for the reply. It is configuration, not an observation.
 
-  The row used to carry a focus button, removed with rf2-y8doi.18. It
-  dispatched the spine's `:rf.xray/focus-event` with the ISSUING record's
-  own `:dispatch-id` and `:frame` — the event-bundle already in focus —
-  so it advertised a pivot to where the response landed and re-focused
-  the panel the operator was already looking at. Records still carry
-  `:origin-event-id` and `:dispatch-id`; no panel-local focus event was
-  ever registered here, and none is now."
+  An HTTP record whose completion joined (rf2-6ooch) also carries a
+  `:reply-link` — the `:source :http` bundle that delivered the reply,
+  found by the reply map's `:rf.reply/work-id` — and the template's
+  `→ reply ↗` dispatches the spine's `:rf.xray/focus-event` with THAT
+  bundle's dispatch-id and frame. The button removed with rf2-y8doi.18
+  targeted the same event but passed the ISSUING record's own
+  dispatch-id, so it re-focused the bundle already in focus; the reply
+  link names a different bundle by construction. No panel-local focus
+  event is registered here."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
             [day8.re-frame2-xray.spine :as spine]))
@@ -56,9 +55,17 @@
   ;; Composite sub — produces the records vector for the focused
   ;; event-bundle. Re-derives on every spine flip / event-bundle-list change /
   ;; focus move.
+  ;;
+  ;; rf2-6ooch — the TRACE BUFFER is an input too, exactly as the Resources
+  ;; composite takes it: an HTTP record's outcome is emitted outside the
+  ;; issuing bundle (a transport callback, or another run's drain), so the
+  ;; completion join reads the whole buffer. The join context is built ONCE
+  ;; per recompute — one pass over the buffer for the terminal rows, one
+  ;; over the event-bundles for the delivered replies — and only when the
+  ;; focused bundle exists, never one scan per record.
   (rf/reg-sub :rf.xray/managed-fx-for-focused-event
-    {:inputs [[:rf.xray/event-bundles] [:rf.xray/focus]]}
-    (fn [[event-bundles focus] _query]
+    {:inputs [[:rf.xray/event-bundles] [:rf.xray/focus] [:rf.xray/trace-buffer]]}
+    (fn [[event-bundles focus trace-buffer] _query]
       ;; rf2-bz7flo — resolve the focused event-bundle frame-strictly. Dispatch
       ;; ids are unique only within a frame, so keying by dispatch-id alone
       ;; could surface managed-fx rows from a foreign frame's same-id event-bundle
@@ -69,7 +76,9 @@
         {:dispatch-id dispatch-id
          :frame       (:frame focus)
          :records     (if event-bundle
-                        (h/event-bundle->managed-fx-records event-bundle)
+                        (h/event-bundle->managed-fx-records
+                          event-bundle nil
+                          (h/http-join-context trace-buffer event-bundles))
                         [])})))
 
   ;; ---- section disclosure ----------------------------------------------
@@ -108,7 +117,8 @@
   nil)
 
 ;; The REPLY TARGET row carries no `:on-click` at all since rf2-y8doi.18
-;; (managed_fx_template.cljs). When it did, it dispatched the spine's
+;; (managed_fx_template.cljs); the `→ reply ↗` link beside a joined HTTP
+;; status (rf2-6ooch) is the panel's one cross-link. When the row had one, it dispatched the spine's
 ;; canonical `:rf.xray/focus-event` directly — 'focus this event' reads
 ;; as the panel-side concept and IS the spine focus write, so no
 ;; panel-local duplicate was registered: one id, one write path
