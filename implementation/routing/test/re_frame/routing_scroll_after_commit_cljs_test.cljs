@@ -134,6 +134,19 @@
           (flush!)
           (is (= [] @calls)))))))
 
+(deftest a-deferred-scroll-on-a-pageless-host-does-nothing
+  (testing "rf2-3x7nj.12.3: deferred, the DOM half runs outside the fx's error
+            isolation — a throw there escapes into the adapter's render queue —
+            so a client host with no `window` must not throw from it"
+    (with-queued-after-render
+      (fn [flush!]
+        (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top})
+        (let [w (.-window js/globalThis)]
+          (js-delete js/globalThis "window")
+          (try
+            (is (nil? (flush!)) "the queued scroll ran and did nothing")
+            (finally (set! (.-window js/globalThis) w))))))))
+
 ;; ---- a superseded navigation ------------------------------------------------
 
 (deftest a-superseded-navigations-scroll-is-dropped
