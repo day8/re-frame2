@@ -20,6 +20,10 @@ The migration story for React-19-removed Reagent surfaces (`reagent.dom/render`,
 
 `dom-node` is the one that catches bridge adopters out: the pinned stock floor (Reagent `2.0.1`) has **already** deleted `reagent.dom/dom-node`, so a v1 call site — historically written `(rdom/dom-node this)` against `[reagent.dom :as rdom]`, never `reagent.core/dom-node`, which never existed — fails to compile on the bridge, not only on slim. Sweep it before the first build, on either target.
 
+## Known limitation — a render React discards keeps its subscriptions
+
+Reagent builds each component's render reaction inside `render` and disposes it only from `componentWillUnmount`, which React calls only for an instance it committed. So on this adapter a view rendered in a pass React throws away before committing keeps its subscriptions for the life of the page, and every change to one of them force-updates the never-mounted instance, which React's development build reports as a "hasn't mounted yet" state-update warning. Such passes include a Suspense boundary suspending on first mount (React 19 also pre-renders the suspended subtree), an error boundary catching on mount, and a hidden `Activity` that is never shown. Reagent 2.0.1 exposes no commit signal an adapter could use to release them. `reagent-slim` and UIx do not have this leak, so prefer one of them where those patterns matter. See [Spec 006 §Which lifetime governs a ratom adapter](../../../spec/006-ReactiveSubstrate.md#which-lifetime-governs-a-ratom-adapter).
+
 ## Imperative escape hatch — when you need a DOM lifecycle
 
 Most views are pure render functions — Form-1 with `reg-view` covers the canonical case. A small fraction of views genuinely need to own a piece of host DOM lifecycle:
