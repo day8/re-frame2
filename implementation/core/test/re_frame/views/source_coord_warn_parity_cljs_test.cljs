@@ -110,3 +110,32 @@
             the predicate did not drop the original trigger)"
     (is (= 1 (reagent-warned? [(fn [] [:div]) "child"]))
         "Reagent walk still warns on a fn-headed vector")))
+
+;; ---- interop heads (rf2-3x7nj.3.2) ----------------------------------------
+
+(deftest interop-head-roots-pass-through-the-reagent-walk
+  (testing "Reagent's `:r>` (raw createElement) and `:f>` (function
+            component) heads carry the COMPONENT at position 1, the slot a
+            DOM root's attrs map is spliced into. Treated as DOM tags, the
+            walk displaced the component: `:r>` handed React a CLJS map as
+            the element type (\"Element type is invalid\") and `:f>` rendered
+            the map instead of the user's fn — dev builds only. Like `:>`
+            and `:<>`, they must come back untouched with the one-shot
+            non-DOM-root warning."
+    (let [comp-fn (fn [] [:div])]
+      (doseq [out [[:f> comp-fn "arg"]
+                   [:r> comp-fn #js {} [:child]]
+                   [:> comp-fn {:a 1}]]]
+        (rf.views.warn-once/clear-warned-non-dom-roots!)
+        (let [before (warn-count)
+              result (rf.views.source-coord-annotation/inject-source-coord-attr
+                       :rf.test/view "rf.test:view:1:1" out)]
+          (is (identical? out result)
+              (str (first out) " root must come back untouched, component still at position 1"))
+          (is (= 1 (- (warn-count) before))
+              (str (first out) " root takes the documented non-DOM-root warning")))))
+    (testing "control: a DOM-tag root IS annotated by the same call"
+      (is (= [:div {:data-rf2-source-coord "rf.test:view:1:1"
+                    :data-rf-view          ":rf.test/view"} "hi"]
+             (rf.views.source-coord-annotation/inject-source-coord-attr
+               :rf.test/view "rf.test:view:1:1" [:div "hi"]))))))
