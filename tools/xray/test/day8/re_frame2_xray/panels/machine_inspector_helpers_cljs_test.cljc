@@ -32,8 +32,16 @@
     9. **format-* helpers**      — display formatters."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            #?(:clj  [re-frame.test-support :as rf.test-support
+                      :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support
+                      :refer-macros [with-trace-recorder!]])
             [clojure.string :as str]
-            [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]))
+            [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
+            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; ---- (1) transition-event? ---------------------------------------------
 
@@ -411,6 +419,79 @@
     (is (= 1 (count records)))
     (is (= (get definitions :auth/login)
            (-> records first :definition)))))
+
+;; ---- a SPAWNED actor's definition (rf2-3x7nj.23.2) ----------------------
+
+(def ^:private spawn-parent-id :xray-spawned-def/parent)
+(def ^:private spawn-child-type :xray-spawned-def/child)
+
+(defn- with-real-runtime
+  "Run `f` against a freshly reset plain-atom runtime. Only the
+  producer-derived row below drives the machines runtime; everything else
+  in this file is pure data, so the reset wraps that row alone rather than
+  riding a file-wide `:each` fixture."
+  [f]
+  ((rf.test-support/make-reset-runtime-fixture
+     {:adapter rf.substrate.plain-atom/adapter})
+   f))
+
+(defn- store-definitions
+  "The `{machine-id spec}` map for `ids`, built the way the panel's
+  `machine-definitions-value` builds it: each REGISTERED id's `:rf/machine`
+  spec off the source store."
+  [ids]
+  (into {}
+        (keep (fn [id]
+                (let [m (rf/handler-meta {:source :store :kind :event :id id})]
+                  (when (:rf/machine? m) [id (:rf/machine m)]))))
+        ids))
+
+(deftest project-focused-event-attaches-definition-for-a-spawned-actor
+  (testing "rf2-3x7nj.23.2 — a SPAWNED actor transitions under its
+            `<type>#<n>` instance address, which no key of the registered-id
+            definitions map names. The record resolves the definition
+            through the TYPE its snapshot carries at `:rf/machine-type`, so
+            the focused-event chart can render. Producer-derived: the
+            machines runtime spawns the actor and emits the transition"
+    (with-real-runtime
+      (fn []
+        (rf/reg-machine spawn-child-type
+          {:initial :idle
+           :states  {:idle {:on {:go :busy}}
+                     :busy {}}})
+        (rf/reg-machine spawn-parent-id
+          {:initial :idle
+           :states  {:idle    {:on {:start :running}}
+                     :running {:spawn {:machine-id spawn-child-type}}}})
+        (rf/dispatch-sync [spawn-parent-id [:start]])
+        (let [snapshots (get-in (rf.frame/frame-runtime-db-value :rf/default)
+                                [:rf.runtime/machines :snapshots])
+              actor     (some (fn [[id snap]]
+                                (when (= spawn-child-type (:rf/machine-type snap)) id))
+                              snapshots)
+              defs      (store-definitions [spawn-parent-id spawn-child-type])]
+          (is (some? actor) "PRECONDITION: the parent spawned a child actor")
+          (is (not (contains? defs actor))
+              "PRECONDITION: the actor's address is not a registered id")
+          (with-trace-recorder! [traces]
+            (rf/dispatch-sync [actor [:go]])
+            (let [rec (->> (h/project-focused-event-transitions @traces defs)
+                           (filter #(= actor (:machine-id %)))
+                           first)]
+              (is (= [:idle :busy] [(:from-state rec) (:to-state rec)])
+                  "PRECONDITION: the spawned actor's transition was captured")
+              (is (some? (:definition rec))
+                  "the spawned actor's record carries a definition")
+              (is (= (get defs spawn-child-type) (:definition rec))
+                  "and it is the registered TYPE's spec")))))))
+  (testing "an inline-`:definition` spawn stamps the spec map itself as its
+            type, and that map is the definition"
+    (let [inline {:initial :idle
+                  :states  {:idle {:on {:go :busy}} :busy {}}}
+          ev     (assoc-in (t-event 1 :xray-spawned-def/inline#1 :idle :busy [:go])
+                           [:tags :after :rf/machine-type] inline)]
+      (is (= inline (-> (h/project-focused-event-transitions [ev] {})
+                        first :definition))))))
 
 (deftest project-focused-event-drops-records-without-machine-id
   (testing "a malformed trace lacking :machine-id is dropped rather
