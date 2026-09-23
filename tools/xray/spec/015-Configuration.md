@@ -549,7 +549,7 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
 `default-settings` block in `config.cljc`:
 
 ```clojure
-{:general   {:text-size               13          ; px; slider range 10–18
+{:general   {:text-size               13          ; px; host-set — the popup slider was removed 2026-05-27
              :panel-position          :right-rail ; :right-rail | :fullscreen; pop-out has its own launch button
              :panel-width-px          560         ; number; clamped [320, 0.9 × viewport-width-px]
              :events-list-height-px   200         ; L2/L3 resize seam
@@ -752,7 +752,7 @@ end-to-end wiring covered by `filters/error_override_wiring_cljs_test.cljs`.
 ### Static mode availability
 
 Static mode is unconditionally available. The mode **dropdown** mounts at
-chrome-ribbon-left (`data-testid="rf-xray-mode-pill"` — the testid keeps
+chrome-ribbon-right (`data-testid="rf-xray-mode-pill"` — the testid keeps
 its historical name; the widget is now a compact `<select>` per
 rf2-4vp5j), `Cmd-Shift-M` / `Ctrl-Shift-M` toggles between Dynamic and
 Static surfaces via `:rf.xray/toggle-mode`, and the active mode hydrates

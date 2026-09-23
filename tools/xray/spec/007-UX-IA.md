@@ -132,7 +132,7 @@ The four layers, top to bottom:
    `panel-registry/reg-l4-tab!` `:order` fixes (the Figma export fixed the
    first six; the cohesive-sub-domain tabs were appended after), updated post
    rf2-5gl5r + rf2-gbz39 (Issues tab removed per Option (c)) + EP-0016 /
-   EP-0014 / EP-0013 (Resources / Graph / Frames added) + rf2-hic-023
+   EP-0014 / EP-0023 (Resources / Graph / Frames added) + rf2-hic-023
    (Fresco added):
    **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
    Frames · Fresco**. Letter mnemonics: `e` `a` `v` `t` `m` `r` `s` `g` `u`
@@ -207,7 +207,7 @@ panel's outer edge (left edge when docked `:right-rail`; the default per
   touch-drag does not pan the page)
 - Clamp width to `[320px, 90vw]`
 - Persist to the Settings slot `[:general :panel-width-px]` at runtime
-  via the `:rf.xray/settings-update` event (a host boot default can
+  via the `:rf.xray/set-panel-width-px` event (a host boot default can
   bulk-set the same slot with the one-arg map `configure!`,
   `{:rf.xray/settings {:general {:panel-width-px <px>}}}`; see
   [`015-Configuration.md`](./015-Configuration.md))
@@ -291,7 +291,7 @@ bar** is a draggable resize affordance. The seam SHALL:
   the documented L2 minimum; 70% leaves a 30% sliver for L1 chrome +
   L3 tab bar + L4 detail panel
 - Persist to the Settings slot `[:general :events-list-height-px]` at
-  runtime via the `:rf.xray/settings-update` event (round-trips through
+  runtime via the `:rf.xray/set-events-list-height-px` event (round-trips through
   localStorage with the rest of the Settings map; a host boot default
   can bulk-set the same slot with the one-arg map `configure!`,
   `{:rf.xray/settings {:general {:events-list-height-px <px>}}}`; see
@@ -874,7 +874,7 @@ build, which selects `cljs-test$`):
 
 - **I1** — `tools/xray/test/day8/re_frame2_xray/frame_switcher_cljs_test.cljs`
   (`internal-frames-includes-xray-and-pair` ·
-  `distinct-frames-excludes-internal-frames-by-default`).
+  `distinct-frames-excludes-internal-frames-unconditionally`).
 - **I3 / I4** — `tools/xray/test/day8/re_frame2_xray/panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs`,
   backed by `self_noise_cljs_test.cljc`. **Failure blocks merge.**
 
@@ -893,10 +893,11 @@ cover the rhythm need; the third had no observed demand).
 | Setting | L2 row height | L4 vertical rhythm | Body type |
 |---|---|---|---|
 | **Compact** | 22px | tighter | -1px |
-| **Cosy** (default) | 28px | (baseline) | (baseline) |
+| **Cosy** (default) | 22px | (baseline) | (baseline) |
 
-What does *not* change between densities: icon weights, border radii,
-animation durations, accent colours. **No Settings control ships** —
+What does *not* change between densities: the L2 row height (22px at
+both since rf2-htik0 — density drives `--rf-xray-font-size` only), icon
+weights, border radii, animation durations, accent colours. **No Settings control ships** —
 the Density radio was removed from Settings → General on 2026-05-27;
 the `:general :density` slot and the `:rf.xray/density` sub survive
 and drive the plumbing, and a host sets the value through
@@ -955,8 +956,8 @@ shell on the next style flush without a re-render.
 Multipliers are catalogued in
 `tools/xray/src/day8/re_frame2_xray/theme/tokens.cljc`
 (`type-scale-multipliers`) as pure data so the JVM test surface can
-assert the relationship without parsing CSS. Below 10px: refused
-(the `:micro` token sits at the floor).
+assert the relationship without parsing CSS. No floor is enforced —
+`density->px` resolves only the density keywords (unknown → `:cosy`).
 
 #### Host override + density coupling
 
@@ -965,8 +966,10 @@ Hosts override the knob via a `:root` stylesheet rule —
 surface ~1.08× without a code change. The default `13px` is also
 published as the host-readable knob (`API.md` §CSS variables).
 
-The Settings → General **Density** radio is the in-shell consumer
-of the same var (rf2-i40us). The mapping lives in
+The `:general :density` slot — set through `configure!` or the
+palette's `cycle-density` verb; the Settings → General radio was
+removed 2026-05-27 — is the in-shell consumer of the same var
+(rf2-i40us). The mapping lives in
 `settings/effects.cljs §density->font-size-px`:
 
 | Density | `--rf-xray-font-size` value | Notes |
@@ -988,16 +991,23 @@ density keywords (e.g. a persisted `:comfy` payload from before the
 v1 radio drop) coerce to `:cosy` — mirroring the `:rf.xray/density`
 sub's normalisation.
 
-This var is **distinct** from `--rf-xray-text-size`, the Settings
-→ General Text-size slider's user-knob (rf2-9poxq, predates
-rf2-n8i2c). Two CSS vars, two knobs, one shell — see
+This var is **distinct** from `--rf-xray-text-size`, the user-knob
+the Settings → General Text-size slider once wrote (rf2-9poxq,
+predates rf2-n8i2c; the slider was removed 2026-05-27 and the var
+survives). Two CSS vars, one shell — see
 [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) §Settings
-popup for the disambiguation. The density radio writes
-`--rf-xray-font-size`; the text-size slider writes
-`--rf-xray-text-size`. Hosts that want a single density knob
-target `--rf-xray-font-size` and leave the slider's var alone.
+popup for the disambiguation. Density writes `--rf-xray-font-size`;
+hosts that want a single density knob target it and leave
+`--rf-xray-text-size` alone.
 
 ## Long-keyword treatment
+
+**Status: not built.** No `keyword_render` helper exists, the `⎘`
+copy affordance was retired 2026-09-04 (rf2-6r9j.24), and the
+`:rf.xray/long-keyword-threshold` sub (slot default 24) has no renderer
+reading it. What ships on the L2 rows is CSS `text-overflow: ellipsis`
+plus a `title` tooltip (`shell.cljs`). The treatment below is the
+design target.
 
 Smart middle-elide + namespace fade + click-to-copy:
 
@@ -1009,7 +1019,7 @@ AFTER:   :some.namespace…/blah-blah-blah  ⎘                     (with hover-
          (keep first ns segment; elide middle; keep keyword name)
 ```
 
-Algorithm: when event-id exceeds N chars (compact 28; cosy 36; the
+Algorithm: when event-id exceeds N chars (slot default 24; the
 Settings control for the threshold was removed 2026-05-27 — the
 `:general :long-keyword-threshold` slot survives and is set through
 `configure!`), elide
@@ -1017,9 +1027,8 @@ the middle of the NAMESPACE only. Keep first ns segment and the
 keyword name (after `/`) intact. Un-namespaced keywords fall back to
 tail-elide.
 
-Helper lives in
-`tools/xray/src/day8/re_frame2_xray/theme/keyword_render.cljs`.
-Every long-keyword consumer reads from it: event-list rows, tab strip
+Intended helper: `theme/keyword_render.cljs` (not built).
+Every long-keyword consumer would read from it: event-list rows, tab strip
 empty-state placeholder, ribbon filter pills, Cmd-K palette recents,
 classification rendering.
 
@@ -1154,7 +1163,7 @@ Figma export carries a **single accent identity** (App's active tab + every pane
 colour. Surfaces stay neutral so the blue accent pops.
 
 Domain colour still does load-bearing work **inside** each panel where it is semantic — `error`
-red in Issues, machine `green`, route `yellow`, the op-family colour-bands in Trace (§021 §5.2) —
+red on the inline Epoch exception block + the L2 issue-row wash, machine `green`, route `yellow`, the op-family colour-bands in Trace (§021 §5.2) —
 but the **header stripe** is the single accent. (The per-panel header icons that once appeared in
 this list are retired: §021 §14.1 deleted the `<h1>` elements they lived in, and rf2-qm2rt deleted
 the unread `theme/tokens/panel-icon` map behind them.)
@@ -1177,11 +1186,16 @@ telegraphs the operation at a glance.
 
 | Op | Glyph | Tone | Token |
 |---|---|---|---|
-| Added | `+` | green | `success` |
-| Removed | `-` | red | `error` |
-| Modified | `~` | amber | `warning` |
-| Children (recursive descent) | `◴` | accent | `accent` (GitHub blue) |
+| Added | `+` | green | `diff-gutter` |
+| Removed | `-` | red | `diff-gutter` |
+| Modified | `~` | amber | `diff-gutter` |
+| Children (recursive descent) | `◴` | cyan-teal | `diff-gutter` |
 | Same (rendered for context) | (space) | tertiary | `:text-tertiary` |
+
+The gutter glyph itself paints `diff-gutter` (a reserved cyan-teal) for
+every active op (`edn_inspector.cljs` `op-gutter-colour`); the per-op
+tone above rides the row's `diff-added-` / `diff-removed-` /
+`diff-modified-stripe` and `-wash` tokens.
 
 The gutter is a single shared idiom across the App-db diff, the
 sub-output diff, and any nested `:before` diff consumer. The
@@ -1195,17 +1209,16 @@ without any colour.
 
 | Token | Pixels | Used for |
 |---|---|---|
-| `space-0` | 0 | Collapsed |
-| `space-1` | 4 | Badge-to-text gap |
-| `space-2` | 8 | Default inline gap, button padding |
-| `space-3` | 12 | Section spacing |
-| `space-4` | 16 | Panel padding |
-| `space-5` | 24 | Between sections |
-| `space-6` | 32 | Panel-level separators |
-| `space-8` | 48 | Rare; modal margins |
+| `:gap-0` | 0 | Adjacent inline glyphs |
+| `:gap-1` | 4 | Tight inline gap (icon → label inside a chip) |
+| `:gap-2` | 8 | Between sibling rows in dense tables |
+| `:gap-3` | 12 | Between major sections inside a panel |
+| `:gap-4` | 16 | Panel inner padding |
+| `:gap-5` | 20 | Between distinct cards / canvases |
+| `:gap-6` | 24 | Between zones inside a panel |
 
-Border-radius: `radius-sm` 4px (buttons, chips); `radius-md` 8px
-(panels, popovers); `radius-lg` 12px (modals).
+(`theme/tokens.cljc` `spacing`, per [021](021-Dynamic-Panel-Designs.md)
+§17.1.1.) Border-radius carries no token; call sites write literal px.
 
 ## Iconography
 
@@ -1224,7 +1237,7 @@ Animation communicates, not decorates. Three durations:
 | Tier | Range | Used for |
 |---|---|---|
 | **Quick** | 100ms | Hover, focus rings |
-| **Standard** | 200–250ms | Tab switches, scrubber drag-snap, popover open/close |
+| **Standard** | 180–250ms | Tab switches (the 180ms cross-fade), scrubber drag-snap, popover open/close |
 | **Slow** | 400–600ms | *Nothing occupies this tier.* The diff flash, the error pulse and the 320ms slide-in that used to name it were never built (rf2-025zs) |
 
 Specific motions:
@@ -1446,10 +1459,9 @@ frame**, written by `:rf.xray.edn-inspector/toggle-node` /
 the Chrome console (formatters API); its output is not in-page hiccup.
 Hand-built renderer matching the aesthetic using Xray's theme tokens.
 
-**Keywords are the single coloured type — the single `accent`**
-(GitHub blue), per [022-Design-Tokens](022-Design-Tokens.md) §Visual
-encoding + the §021 §10.1 minimal-coloring lock; other scalars
-(strings / numbers / booleans / nil) render in `text-primary` mono,
+**Scalar colouring follows [022-Design-Tokens](022-Design-Tokens.md)
+§Syntax highlighting** (One Dark / One Light, rf2-79ojx): keyword
+magenta · string green · number orange · boolean gold · nil grey;
 unchanged values in `dim`. Punctuation + meta render in
 `text-tertiary` / `text-secondary` to recede.
 
@@ -1558,7 +1570,7 @@ panel may inline its own URI assembly.
 
 ### Configuration
 
-- The user picks the editor via the **Settings** popup (`,`) → View.
+- The user picks the editor via the **Settings** popup (`,`) → General.
   Stored under the `:rf.xray/editor` config key.
 - The boot-time entry is `(xray-config/configure! {:rf.xray/editor …})` per
   [`015-Configuration.md`](./015-Configuration.md) §`:rf.xray/editor`.
@@ -1781,7 +1793,7 @@ in order:
 | `:always` | Force reduced motion ON regardless of OS pref. |
 | `:never` | Force reduced motion OFF regardless of OS pref. |
 
-The override writes to a Xray-owned class on the shell root that
+The override writes a Xray-owned class onto `<html>` that
 takes precedence over the OS media query, so the user can opt OUT
 of system-level reduce-motion when developing motion-heavy
 surfaces (the inverse use case is more common: developers on
@@ -1953,28 +1965,28 @@ v1.0 host-facing embed contract is the **full-shell** embed per
 > Adding / removing / renaming a panel starts with a one-line edit to
 > the enum; this table follows. See the `panel-enum` ns docstring.
 
-The Xray panel-surface inventory totals **15 surfaces** across five
-tiers — **13 are independently mountable** via a `mount-<panel>!` fn
-(the panel-enum set), and **2 are internal sub-components** that render
-under their owning panel and expose no standalone mount fn. The split:
+The Xray panel-surface inventory totals **13 surfaces** across five
+tiers — **12 are independently mountable** via a `mount-<panel>!` fn
+(the panel-enum set), and **1 is an internal sub-component** that renders
+under its owning panel and exposes no standalone mount fn. The split:
 
 - **Tier 1 — L3 tab panels (7):** one per L3 detail-panel tab.
 - **Spine — embeddable event spine (1):** the L2 event list mounted
   standalone (`008-Embedding-Contract.md` §Embeddable event spine).
-- **Tier 2 — overlay / popup surfaces (3):** modal-light surfaces
+- **Tier 2 — overlay / popup surfaces (2):** modal-light surfaces
   the shell composes at its root.
 - **Tier 3 — inline content surface (1):** the managed-fx
   wire-boundary diff template embedded in the Epoch panel's
-  "EFFECTS HANDLERS RAN" section.
+  "EFFECT HANDLERS" section.
 - **Full shell — master entry (1):** `mount-shell!`, the full 4-layer
   chrome that composes every panel above.
-- **Tier 4 — internal sub-components (2):** auxiliary inspectors
-  geometry-coupled to `machine-inspector/Panel` (after-rings
-  overlay, sim side-rail) — NOT in the panel-enum set.
+- **Tier 4 — internal sub-component (1):** the after-rings overlay,
+  geometry-coupled to `machine-inspector/Panel` — NOT in the
+  panel-enum set.
 
-The 7 + 1 + 3 + 1 + 1 mountable surfaces sum to the **13** entries of
-`panel-enum`; adding Tier 4's 2 internal sub-components reaches the
-**15-surface** total. Modal overlays managed by the shell (Settings
+The 7 + 1 + 2 + 1 + 1 mountable surfaces sum to the **12** entries of
+`panel-enum`; adding Tier 4's 1 internal sub-component reaches the
+**13-surface** total. Modal overlays managed by the shell (Settings
 dialog, command palette, the filter edit-popup, the mute manager, the
 EDN-inspector popup, the cancellation-cascade popover) are NOT counted
 here — they are shell chrome, not panel content. (The share modal that
@@ -2045,22 +2057,21 @@ shell at any element.
 |---|---|---|
 | Full 4-layer shell | `shell/shell-view` | `mount-shell!` |
 
-**Tier 4 — internal sub-components:** auxiliary inspectors that
-depend on `machine-inspector/Panel`'s positioned graph for their
-geometry — overlays anchor on chart node centres, side-rails run
-along the chart edge.
+**Tier 4 — internal sub-component:** an auxiliary inspector that
+depends on `machine-inspector/Panel`'s positioned graph for its
+geometry — the overlay anchors on chart node centres.
 
 | Sub-component | View |
 |---|---|
 | After-rings overlay | `machine-after-rings/AfterRingsOverlay` |
-| Sim side-rail       | `static.machines.sim/SimRail` |
 
-These render under `machine-inspector/Panel` and are NOT exposed as
-standalone mount fns. Mounting a ring overlay without a chart
-underneath is geometrically meaningless; they remain reachable via
+It renders under `machine-inspector/Panel` and is NOT exposed as a
+standalone mount fn. Mounting a ring overlay without a chart
+underneath is geometrically meaningless; it remains reachable via
 `mount-machine-inspector!`. (Per rf2-y9xmf the prior arc / cluster /
 scrubber sub-components were collapsed into the Dynamic panel; the
-remaining sub-component surface is the two listed above.)
+Sim side-rail `static.machines.sim/SimRail` belongs to the Static
+Machines Sim body, not to this panel.)
 
 ### The mount-fn contract
 
@@ -2113,12 +2124,13 @@ history + spine focus:
 
 | Panel | Reads (subs) | Writes (dispatches) |
 |---|---|---|
-| **epoch-panel**    | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` · `:rf.xray.epoch/set-db-diff-mode` |
+| **epoch-panel**    | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` |
 | **app-db-diff**    | `:rf.xray/app-db-state` (← `:rf.xray/app-db-current+diff`; rf2-p53m2 — the `:rf.xray/app-db-diff` composite was pruned) | `:rf.xray.edn-inspector/zoom-to` (the shared EDN widget's double-click / Enter zoom) |
 | **views**          | `:rf.xray/reactive-data` | `:rf.xray/reactive-toggle-unchanged` |
-| **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/select-dispatch-id` · `:rf.xray/open-in-editor` |
+| **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
 | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-event` |
 | **routing**        | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
+| **resources**      | `:rf.xray/resources-tab-data` (composite over `:rf.xray/registered-resources` · `:rf.xray/resource-entries` · `:rf.xray/resource-work-ledger` · the route registry · the trace buffer) | (read-only — no dispatch; observing pins no resource) |
 | **cancellation-cascade** | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |
 | **managed-fx**     | `:rf.xray/managed-fx-for-focused-event` | `:rf.xray/focus-event` |
 
@@ -2232,7 +2244,7 @@ The user reads Static at a glance via stacked chrome signals. The
 catalogue below is retained as written; where the mechanism an entry
 names was removed, the entry says so.
 
-1. **Mode dropdown** at chrome-ribbon-left — a compact `<select>`
+1. **Mode dropdown** at chrome-ribbon-right — a compact `<select>`
    (`Dynamic ▾` / `Static ▾`), rf2-4vp5j (replaced the old 160px
    two-segment radio pill — too dominant for an occasional-use control).
    Lives in both modes (it's the toggle, not the indicator). Cmd-Shift-M
@@ -2314,7 +2326,7 @@ bare `defn` is not enough.)
 ### Availability
 
 Static mode is unconditionally available. The surface composer reads
-`:rf.xray/mode`, the mode dropdown mounts at chrome-ribbon-left in every
+`:rf.xray/mode`, the mode dropdown mounts at chrome-ribbon-right in every
 host, and the Cmd-Shift-M / Ctrl-Shift-M chord drives the toggle. Per
 rf2-8l3uk the prior `:rf.xray/static-mode?` opt-in feature gate was
 removed (pre-alpha posture — back-compat shims are out of scope; if

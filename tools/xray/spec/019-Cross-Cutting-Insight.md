@@ -193,8 +193,8 @@ this section catalogues the bug classes the Machine surfaces address.)
 #### M.1 — "My machine is stuck. Why won't it transition?"
 
 **Bug class:** Guard rejection (silent). An event fires, the chosen `:on`
-entry's guard returns `false`, the snapshot doesn't move. The `:rf.machine.transition/suppressed`
-trace is the only signal, and it's buried in the firehose.
+entry's guard returns `false`, the snapshot doesn't move. The `:rf.machine/guard-evaluated`
+trace (`:outcome :fail`) is the only signal, and it's buried in the firehose.
 
 **Example bug:** You dispatched `:auth/cancel` on machine `:checkout` in
 state `:authing`, expected a transition to `:idle`, nothing happened. The
@@ -368,8 +368,7 @@ still in-flight when you arrived at `:route/checkout`. Its result landed
 see "stale clobber" in your UI but can't tell which nav was the late one.
 
 **Insight Xray provides:** The **nav-token timeline** — a horizontal
-swimlane visualisation pinned at the top of the Trace tab (or as the `r`-key
-popover from any tab):
+swimlane visualisation pinned at the top of the Trace tab:
 
 ```
 nav-1 │█████░░░░░░░░░░░░│░░░░ → suppressed (carried nav-1; current nav-2)
@@ -399,7 +398,7 @@ none of its `:on-match` events (EP-0037 R1 — `:on-match` runs only after a
 valid plan); an event handler threw silently.
 
 **Insight Xray provides:** When the focused cascade is a routing cascade,
-the Epoch panel's "EFFECTS HANDLERS RAN" section adds a dedicated **`:on-match`
+the Epoch panel's "EFFECT HANDLERS" section adds a dedicated **`:on-match`
 dispatch chain** sub-section showing the fire-and-forget loader events and
 their drain durations. `:on-match` is fire-and-forget (EP-0037 R1): a
 throwing event surfaces as an ordinary Spec 009 `:rf.error/handler-exception`
@@ -418,7 +417,7 @@ stops the later loaders nor changes route readiness:
 Managed page-read readiness (`:transition` / `:error`) is the resource
 projection, surfaced separately from this fire-and-forget chain.
 
-**Affordance:** Epoch panel — `:on-match` chain inline in "EFFECTS HANDLERS RAN" (R-C4). <!-- TODO(rf2-yylmr): future-design — the chain's record-panel embed point under the Epoch panel needs an explicit micro-spec when implementation lands. -->
+**Affordance:** Epoch panel — `:on-match` chain inline in "EFFECT HANDLERS" (R-C4). <!-- TODO(rf2-yylmr): future-design — the chain's record-panel embed point under the Epoch panel needs an explicit micro-spec when implementation lands. -->
 
 #### R.3 — "The route matched but the wrong one."
 
@@ -573,7 +572,7 @@ response come back? Was the `:on-success` handler invoked? Did the handler
 write the right slice?
 
 **Insight Xray provides:** The **wire-boundary diff** in the Epoch panel's
-"EFFECTS HANDLERS RAN" section — drawn here at its full design extent; the
+"EFFECT HANDLERS" section — drawn here at its full design extent; the
 status note under the panel says which parts ship today:
 
 ```
@@ -652,7 +651,7 @@ accumulator's evolution.
 For flows: same shape but inputs/outputs.
 
 **Affordance:** Epoch panel — wire-boundary diff template embedded in
-"EFFECTS HANDLERS RAN" (F-C2). The hero managed-effects feature. The
+"EFFECT HANDLERS" (F-C2). The hero managed-effects feature. The
 single biggest "I get re-frame2 now" win for new authors. Implements
 the `Managed-Effects.md` eight-property contract as visible UI.
 <!-- TODO(rf2-yylmr): future-design — the wire-boundary record-panel
@@ -737,7 +736,7 @@ outcome.
   Total elapsed: 712ms · Backoff sum: 700ms
 ```
 
-**Affordance:** Epoch panel — retry timeline under the fx row in "EFFECTS HANDLERS RAN" (F-C3).
+**Affordance:** Epoch panel — retry timeline under the fx row in "EFFECT HANDLERS" (F-C3).
 
 #### F.4 — "A flow's `:output` threw and the cascade halted; what didn't run?"
 
@@ -887,7 +886,8 @@ Each is a small PR (<300 LoC); each lights up a meaningful workflow.
 ### Phase 2 — `:after` timer rings + Hydration first surface (3 PRs)
 
 5. **M-C2 — `:after` timer countdown rings.** Big visual addition to
-   Machines tab. Animated ring around state nodes.
+   Machines tab. Animated ring around state nodes. **Shipped**
+   (`panels/machine_after_rings.cljs`).
 6. **S-C3 — Hydration diff in App-db tab.** Pre-hydrate vs post-hydrate
    sticky watch.
 7. **S-C4 + S-C5 + S-C6 — SSR inspectors** (payload policy verdict +
@@ -896,11 +896,12 @@ Each is a small PR (<300 LoC); each lights up a meaningful workflow.
 ### Phase 3 — Hero features (3 PRs)
 
 8. **F-C2 — Wire-boundary diff.** The hero managed-effects feature. One
-   template per surface (HTTP / WS / invoke / server / flow).
+   template per surface (HTTP / WS / invoke / server / flow). **Partial**
+   — see the status note under §2.4's panel.
 9. **S-C2 — Hydration mismatch bisector.** The hero SSR feature. Needs
    canonical-EDN bisector + sub-attribution at hydration time.
 10. **M-C3 — Cancellation cascade visualiser.** The hero machine feature.
-    Needs cascade-grouping projection.
+    **Shipped** (`panels/cancellation_cascade*`).
 
 ### Phase 4 — Cross-cutting + ambitious (3 PRs)
 

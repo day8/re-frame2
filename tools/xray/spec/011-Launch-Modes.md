@@ -184,8 +184,9 @@ flag.
 
 ### Inline-style cascade contract
 
-Where a future pointer-capture implementation does write to
-`--rf-xray-inline-width` from JS, the **write surface is constrained**.
+The resize handle's write to `--rf-xray-inline-width` from JS
+(`settings/effects.cljs` `apply-panel-width!`) has a **constrained write
+surface**.
 Xray MUST NOT assert default values as inline styles on `<html>` (or
 on the layout host element). Inline declarations beat author-normal
 selectors in the CSS cascade — a default written inline would silently
@@ -437,7 +438,8 @@ RESET it (rf2-n4p5it).** `popout!` calls `mount/ensure-xray-frame!`
 with no arg — the SAME default `frame-id` the inline shell already
 seeded. `ensure-xray-frame!` gates its first-mount hook fan-out (trace-
 buffer seed, `:target-frame` + `:epoch-history` seed, transient-filter
-reset, column-width hydrate, mode hydrate, auto-open-watcher install)
+reset, configured-filter seed, column-width hydrate, mode hydrate,
+static-machines hydrate, auto-open-watcher install)
 behind a `seeded-frame-ids` run-once guard keyed on `frame-id`: the
 FIRST call for a frame-id runs every hook; every subsequent call for
 that SAME frame-id is a no-op on the hook side (the frame
@@ -846,7 +848,7 @@ manual verbs. The column-0 census now reads **0**. The eleven
 `install!`-relocated registrations remain where `rf2-y8doi.16` put them.
 
 What still runs at namespace load in such a bundle is Xray's own
-furniture: nine writes to Xray-private `defonce` atoms — `mount.cljs`'s
+furniture: ten writes to Xray-private `defonce` atoms — `mount.cljs`'s
 seven `register-first-mount-hook!` forms, `keybinding.cljs`'s popout
 installer and its `add-watch`, and `settings/effects.cljs`'s settings
 applier. None of them touches the host's registrar, which is why the
@@ -1274,10 +1276,10 @@ Clojure eval) commands that drive Xray's panel through the existing
 
 Those are real exports of that namespace, which is deliberately small.
 `target-frame` is the zero-arity READER of the current target and
-`set-target-frame!` the setter; panel, epoch, event-bundle and app-db
+`set-target-frame!` the setter; panel, epoch and event-bundle
 focus all arrive through the single data-shaped `focus!` command map
 rather than through a verb per surface (`{:frame :panel :epoch-id
-:dispatch-id :path}`, every field optional, panel ids validated
+:dispatch-id}`, every field optional, panel ids validated
 against `valid-focus-panels`).
 
 The agent uses the same primitives Xray's chrome uses. No curated

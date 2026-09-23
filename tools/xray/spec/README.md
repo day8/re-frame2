@@ -22,8 +22,8 @@ Xray. The numbers have not been reused — there is nothing to hunt for.
   Dynamic inventory (the Issues tab was removed per rf2-gbz39 Option (c)).
 - [018-Event-Spine.md](018-Event-Spine.md) — the architectural core:
   the 4-layer chrome (ribbon · event list · tab bar · detail panel), the
-  spine sub `:rf.xray/focus`, the 10-tab Dynamic inventory, the popover
-  invocation contract, the data-classification rendering contract. Reading
+  spine sub `:rf.xray/focus`, the 10-tab Dynamic inventory, the
+  data-classification rendering contract. Reading
   order: read this after 000-Vision, then per-tab specs.
 - [019-Cross-Cutting-Insight.md](019-Cross-Cutting-Insight.md) — the
   5 idioms × 4 areas matrix. How Xray accommodates SSR, Machines,
@@ -43,9 +43,10 @@ Xray. The numbers have not been reused — there is nothing to hunt for.
   cascade + `:after` rings). Cross-cutting Xray surfaces:
   `:after`-timer countdown rings, `:spawn-all` join inspector,
   cancellation-cascade visualiser, per-instance "why am I stuck" trace.
-  UC1 Sim + UC2 Mode A/B/C dynamic-instance UI preserved as Static
-  re-host reference below the §STATIC RE-HOST REFERENCE divider
-  (rf2-r4nao — landed). ELK+SVG primitive Xray-internal. The bug
+  UC1 Sim landed as the Static Machines Sim sub-mode (§Sim re-host
+  reference, rf2-r4nao); UC2 Mode A/B/C is kept as historical design.
+  The chart primitive is the xyflow + elkjs `MachineChart` owned by
+  `tools/machines-viz/`. The bug
   catalogue at the bottom (M.1–M.10) is the per-feature motivation.
 - [004-App-DB-Diff.md](004-App-DB-Diff.md) — sectioned app-db inspector
   with inline focused-epoch diff. Future: branch-aware diff (for Story
@@ -83,7 +84,7 @@ Xray. The numbers have not been reused — there is nothing to hunt for.
   ownership and naming reference, principal live seams, historical
   removals, and the exact-set executable membership contract.
 - [015-Configuration.md](015-Configuration.md) — `configure!`
-  entry-point contract, its ten shipped keys and complete Settings shape;
+  entry-point contract, its nine shipped keys and complete Settings shape;
   separately labelled future keys
   (auto-hide filters, theme, retained-epochs, keybindings, factory-reset,
   ns-aliases and so on).

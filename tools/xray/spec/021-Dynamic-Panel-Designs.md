@@ -72,7 +72,7 @@ Xray's chrome is two zones, one purpose each:
 ┌──────────────────────────────────────────────────────────────────────┐
 │  L1 ribbon · L2 epoch timeline                ← MOVING BETWEEN epochs│
 ├──────────────────────────────────────────────────────────────────────┤
-│  L4 panels (7 lenses on the focused epoch)    ← DEPTH INTO one epoch │
+│  L4 panels (10 lenses on the focused epoch)   ← DEPTH INTO one epoch │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,7 +85,7 @@ issue wash. The per-row activity badges (`⚠ ◆ 🌐 ⚡ ⏲`) and the
 dispatch-origin prefix glyph were RETIRED under rf2-pjjwh and the helpers
 that computed them deleted under rf2-65qlf; §17.1.5 keeps the palette as a
 record only. **Bottom** is
-seven L4 panels each answering "what happened in this epoch?" through its
+ten L4 panels each answering "what happened in this epoch?" through its
 own lens. **No third axis. No cross-epoch L4 panels.**
 
 ### §1.1 The epoch — eight steps, two perspectives
@@ -135,7 +135,7 @@ shared `panels.shared.focus-resolver` — which classifies the focus status
 looks up the record. The cascade↔epoch correlation is backed by the
 `:dispatch-id` slot on the epoch record: a cascade (L2 row) maps to its
 settling epoch, and `focus.epoch-id` is the canonical key the
-Views / Trace / App-DB Diff / Issues panels all scope by. This is what
+Views / Trace / App-DB Diff panels all scope by. This is what
 keeps Views + Trace showing the SAME event's data (rf2-rly4a fixed a
 regression where they could drift apart).
 
@@ -163,15 +163,17 @@ buffer — never derived on inspection by replay. This is a runtime
 substrate concern (`re-frame.core` + per-tool `mcp-base`), not a Xray
 panel-design concern; Xray reads what the substrate retains.
 
-Per-epoch buffer eviction surfaces as **"Epoch evicted from buffer —
-increase `:epoch-history` to retain more"** placeholder text in any panel
-the operator scrubs onto for an evicted row (see §10.3 below).
+Per-epoch buffer eviction surfaces as each panel's own evicted-epoch
+placeholder (e.g. **"The selected epoch was evicted from the history
+buffer. Pick a more recent event."**) for an evicted row (see §10.7 below).
 
 ### §1.5 Dispatch origin — the universal classifier
 
-Every epoch carries a dispatch origin tag (per A.5 super-prompt):
-`:user` `:router` `:websocket` `:http` `:ssr` `:fx-emit` `:timer`
-`:test-harness` `:tool` `:internal`. The Epoch panel (§9.1) surfaces
+Every epoch carries a dispatch origin tag — `re-frame.router`'s closed
+`:source` enum (`:ui :frame-init :machine-spawn :machine-action :always
+:after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration
+:test :tool :websocket :repl :unknown :other`; the shipped per-kind
+enrichment is §9.1.6.3). The Epoch panel (§9.1) surfaces
 this prominently on the DISPATCH step; the L2 timeline surfaces it as
 a short prefix on each row. There is no such thing as a context-less
 epoch.
@@ -505,6 +507,12 @@ downward chevrons):
      `reg-view :name` slot (fallback: var name) + `[code]` chip +
      hover-highlight on the rendered view's root DOM node
 
+**Retired with the three-list table (historical).** The shipped ids are
+`rf-xray-reactive-{empty,graph-empty,pipeline-empty}` and
+`rf-xray-reactive-unchanged-row-<slug>`, and the hover highlight is the
+`rf-xray-view-highlight` class (`reactive_panel_view.cljs`); the two
+paragraphs below record the retired table's contract.
+
 **testids.** The table carries `rf-xray-reactive-subs-table`; each
 row is `rf-xray-reactive-sub-row-<slug>` and its code chip
 `rf-xray-reactive-sub-code-<slug>` (slug = sub-id with non-alnum
@@ -663,7 +671,8 @@ for tool-frame internal events):
 
 If a future bead surfaces a strong case for a peer Subs panel (e.g. perf
 profiler view), it lives behind a sub-tab inside Reactive — not a
-ninth L4 tab. The L4 set is locked at 8.
+new L4 tab. The L4 set is the registered Dynamic roster
+(`panel-registry/tab-ids-for-mode :dynamic`; ten today).
 
 ### §3.4 Unchanged subs (B.10 sub-decision)
 
@@ -986,7 +995,9 @@ An absent or empty reserved area renders **nothing** — no section, no placehol
 suite's "no placeholder card for empty reserved area" test). Only APP STATE always renders.
 The reserved areas are exactly `:rf/machines`, `:rf/spawned`, `:rf/route`,
 `:rf/pending-navigation` and `:rf/elision` (`reserved-area-order`); there is no `SYSTEM-IDS`
-area. Each section renders as its own inspector card (rf2-63ie5) — rf2-jcdvo dropped the
+area. The `:rf/*` names are section LABELS: since EP-0001 the reserved areas are read off the
+frame's runtime-db partition (`app_db_diff_helpers/runtime-areas` → `[:rf.runtime/machines
+:snapshots]`, `[:rf.runtime/routing :current]`, …), while APP STATE reads the app-db partition. Each section renders as its own inspector card (rf2-63ie5) — rf2-jcdvo dropped the
 inter-section hairline. The mode-accent stripe sits at the panel's left edge.
 
 ```
@@ -1179,8 +1190,8 @@ not the default line. Lines-per-screen target ~30-60.
 The Trace panel is **scoped to the focused epoch's `:trace-events`** —
 the per-frame settling epoch record's raw trace slice, resolved via the
 shared `panels.shared.focus-resolver` against `:rf.xray/focus` (its
-`:epoch-id`) + `:rf.xray/epoch-history`, exactly as Issues / App-DB Diff
-resolve theirs. This folds the COMPLETE domino trail for one event: both
+`:epoch-id`) + `:rf.xray/epoch-history`, exactly as App-DB Diff
+resolves theirs. This folds the COMPLETE domino trail for one event: both
 the synchronous event-side rows (dispatch-id N) AND the async reactive
 rows (`:rf.sub/run` / `:rf.view/render`, nil dispatch-id) that fire
 post-cascade for that settling. (The prior shape scoped the global trace
@@ -2189,7 +2200,7 @@ source code resolves for named handlers (off the co-located entry's
 `:source-code <slot>` — rf2-se70xj; before it, an inline action's body
 fell through to the bare compiled fn and rendered `#object[Function]`,
 while its `:source-coords` click-to-source still worked off the enclosing
-node). Source-key dispatch (`projection/cascade-row-source-key`) returns
+node). Source-key dispatch (`format/cascade-row-source-key`) returns
 the spec-path tuple the view's `named-element-key` discriminator routes
 between the two lookup families; the view's `cascade-row-source-form`
 then resolves the SOURCE:
@@ -2903,7 +2914,7 @@ event payload is unchanged either way.
 #### §9.1.6.2 Shared `coord-chip` component (rf2-xjgdk audit L2 · `panels/shared/coord_chip.cljs`)
 
 The HANDLER verb-link is the panel's primary source affordance, but
-other Epoch surfaces (and the Event-detail panel) still ride an
+other Epoch surfaces (and, before rf2-5gl5r deleted it, the Event-detail panel) ride an
 **icon-only chip** — a `<button>` carrying just the `external-link`
 glyph, no inline label. rf2-xjgdk extracted the previously-duplicated
 private chip from `panels/epoch/view.cljs` + `panels/event_detail.cljs`
@@ -3201,7 +3212,8 @@ edn-inspector widget with `:zoomable? true` (rf2-h71e0) and
 naturally with the §10 widget's contract. The initial landing of
 the panel renders default-visible content for every step (the
 cascade's punch is its always-visible rhythm); per-row drill-down
-state lives on the `:rf.xray/epoch-panel-expanded-rows` set via the
+state lives on the `:epoch-panel-expanded-rows` app-db slot (sub
+`:rf.xray.epoch/expanded-rows`) via the
 `:rf.xray.epoch/toggle-row-expand` event, ready for the follow-on
 rich-expansion pass.
 
@@ -3253,7 +3265,7 @@ and silently rendered empty rows. The binding inventory:
 |------|-----------------|----------------|
 | `:dispatch` | `:rf.event/dispatched` | `:rf.event/v` (event vector — rf2-93a7s), `:source` (closed set per rf2-hxj0d + rf2-ejtpd + rf2-c3990; substrate-internal values drive the §9.1.6.3 per-kind enrichment), `:rf.trace/call-site`, `:rf.trace/parent-dispatch-id` (rf2-5qp4g — fx-dispatch parent-epoch link), `:rf.event/source-detail` (rf2-5qp4g — optional per-source-kind detail map; `:dispatch-later` rides `{:ms <delay>}` so the renderer surfaces the original scheduled delay) |
 | `:coeffect` | `:rf.cofx/run` (preferred) or `:rf.event/run-end` `:rf.event/coeffects` (fallback) | `:rf.cofx/id`, `:rf.cofx/value` (rf2-sepqgg — the supplier's PRODUCED value, redacted by the cofx's marks; egresses into `:coeffects`), `:rf.cofx/arg` (rf2-sepqgg — the per-call REQUIREMENT ARG, present only for a parameterized `[id arg]` requirement; surfaces on the row as `:input`), `:rf.cofx/elapsed-ms` (rf2-w2r4p aligned the per-cofx duration read against the substrate's canonical name + threaded `:duration-ms` through the `cofx-steps` flattening) — SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered (rf2-cq0ch). The row's `:value` reads the run-end egress (the authoritative `:coeffects` slot), falling back to the run-op's `:rf.cofx/value` when no run-end fired; since rf2-sepqgg the two surfaces AGREE. **Projection splits each surviving cofx into its own numbered step** (rf2-s1jw4 · pair-debug 2026-05-26): `cofx-steps` is a `mapv` over `cofx-rows` producing `{:step :coeffect :badge :COEFFECT :id <kw> :value <produced> :duration-ms <ms>}` (with `:input <requirement-arg>` when a parameterized requirement rode) per entry, spliced into the steps vec before HANDLER. |
-| `:handler` duration | `:rf.event/run-end` | `:rf.event/elapsed-ms` (rf2-slnce aligned the per-handler duration read against the substrate's canonical name — see `re-frame.router/emit-run-end-trace`) |
+| `:handler` duration | `:rf.event/run-end` | `:rf.event/elapsed-ms` (rf2-slnce aligned the per-handler duration read against the substrate's canonical name — see `re-frame.router/emit-pipeline-trailers!`) |
 | `:handler` source | `(rf/handler-meta {:source :store :kind :event :id id})` | `:rf.handler/source` (rf2-66wis · NOT a trace read — registrar meta). The `{:file :line}` coord on the same meta drives the HANDLER verb-as-link affordance (§9.1.6.1 · rf2-ehd8v + pair-debug 2026-05-26). **EVENT handlers only:** a MACHINE handler renders NO HANDLER source block (rf2-4yrr6 — `handler-source-block` returns nil for `:reg-machine`). The machine CASCADE below is the content; the defmachine / reg-machine value stays reachable via the HANDLER verb link (rf2-ge6uj) + the per-element machine-def source-links (rf2-iwy0c). Dumping the whole machine spec via `edn/inspect` under the HANDLER step was noise, and the machine case does NOT fall through to the `<source not yet captured>` placeholder (that slot is for event handlers whose source the substrate didn't stamp). |
 | `:handler` machine cascade (rf2-u69j7) | `:rf.machine/guard-evaluated` · `:rf.machine/action-ran` · `:rf.machine/transition` · `:rf.machine.microstep/transition` (rf2-bvwv4q — a parent-owned parallel `:always` round, keyed on the `:region` tag) · `:rf.machine.timer/cancelled` (closed set: `machine-cascade-trace-ops`) | guard rows read `:guard-id`, `:outcome` (closed set `:pass / :fail / :threw` — rf2-82a0u); action rows read `:action-id`, `:phase` (closed set `:exit / :transition / :entry / :always / :after-action / :initial-entry / :destroy-exit` — rf2-82a0u), `:outcome` (rich map; `:fx` + `:data` hoisted onto the row), `:input`, `:exception`; transition rows read `:actor-id` (the live actor INSTANCE — rf2-ws5thu / rf2-yyvtk5, `:machine-id` fallback for legacy fixtures), `:event`, `:before`, `:after`, `:microsteps` (state vectors hoisted off `:before`/`:after`); timer rows read `:actor-id`, `:state`, `:delay`, `:reason` (closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede / :on-frame-destroy` — rf2-82a0u) — and, for a `:delay-source :sub` timer, the canonical subscription identity `:rf.sub/id` + `:rf.sub/query-v` (rf2-1b6uh5, not the bare `:sub-id`). The guard / action rows likewise read the live actor under `:actor-id` (rf2-yyvtk5). Source-coord lookup reads `(rf/handler-meta {:source :store :kind :event :id id}) → :rf/machine`, then the co-located entry `:source-coords` for a named `[:actions <id>] ｜ [:guards <id>]` key, or the `:source-coords` on the nearest enclosing `:states`-tree map node for a reference-site `[:states ...]` key (rf2-vqja2). |
 | `:flow` | `:rf.flow/computed` (NOT `:rf.flow/recomputed` — rf2-yhgk8 aligned the read against `re-frame.flows`'s canonical emit) | `:flow-id`, `:path`, `:before`, `:result` (the view-side `:after` slot maps to the substrate's `:result`), `:elapsed-ms` |
@@ -3616,7 +3628,7 @@ mis-render):
 | `:rf.error/machine-action-exception` (rf2-e7yhv) | HANDLER | step-level. A machine action threw during a transition; the machine handler IS an event handler so its cascade renders under HANDLER. The card adds a single collapsed machine-attribution line — `action <id> threw an exception` (rf2-4yrr6, replacing the earlier `in machine <id> (action <id>) threw on unhandled event <ev> … fired by the :* wildcard …` run-on that repeated `:*`/`wildcard`/`unhandled`/`action` and re-stated the event right above the verbatim message). The machine is obvious from cascade context; the triggering event + `:where` ride the ex-data; the user's message renders verbatim below; `:data-via-wildcard` still rides the line so consumers can distinguish a `:*` WILDCARD throw (`:rf/via-wildcard?` on the trace's `:transition` slot, stamped by `transition/match-on-clause`) from a named-transition throw. The event row goes pink (the trace is op-type `:error`), the inverse of the benign `:no-op` row above |
 
 The error MESSAGE rides `[:tags :exception-message]` ONLY (handler / fx
-throws — `re-frame.router/emit-handler-exception!` stamps the
+throws — `re-frame.router/emit-pipeline-exception!` stamps the
 exception's `.getMessage`). rf2-oqi0c **DROPPED** the `[:tags :reason]`
 fallback: `:reason` is the terse CATEGORY boilerplate ("Event handler
 threw." / "…interceptor threw.") already conveyed by the card's position
@@ -3860,7 +3872,9 @@ present] + [:fx rows, in order]` — there is no fourth `other` tier
 (rf2-m2ye2; see below):
 
 - **`:db` row** (FIRST, when present) — the handler's app-db write (the
-  `:db` effect). `✓` on a successful commit; `✗` when the post-commit
+  `:db` effect). `✓` on a successful commit; `∅` when the handler
+  returned the db unchanged (`:rf.event/db-noop` — nothing committed,
+  rf2-ekq28v); `✗` when the post-commit
   app-db schema check rejected the write and the cascade rolled back —
   the `:where :app-db` violation reason box attaches to the `:db` row via
   `attach-to-fx-db-row`. Its **args slot is the `→ app-db` DESTINATION
@@ -3986,8 +4000,8 @@ action's outcome `:fx` slot carries `:attributed-to {:action-id …,
 
 **Args rendering (rf2-ef2hy)** — each `:fx` row's args mount the shared
 edn-inspector widget with `:default-expanded-depth 1`
-(scan-then-drill); `:zoomable?` opens the popup overlay for a complex
-map (the `:db` row's slot is the `→ app-db` destination marker, not an
+(scan-then-drill); `:zoomable? true` enables zoom-into-node
+(§10.0.11; the `:db` row's slot is the `→ app-db` destination marker, not an
 edn-inspector). Sibling: the HANDLER step's `:fx` section (rf2-p2zy0)
 uses depth 16 (full-expand) — HANDLER reads INTENT, SIDE EFFECTS reads
 EXECUTION.
@@ -4134,8 +4148,8 @@ data axis.
 
 The renderer is **ONE canonical component used everywhere data appears**
 — App-db's huge nested map, the Epoch panel's COEFFECT step rows + FX
-step rows, the View panel's sub values, Trace ops' expanded payloads,
-Issues `ex-data`. Operator learns one interaction pattern; applies it
+step rows, the View panel's sub values, Trace ops' expanded payloads.
+Operator learns one interaction pattern; applies it
 everywhere.
 
 ### §10.0 First-class edn-inspector widget (rf2-oqa60 phase 1)
@@ -4243,7 +4257,8 @@ the same panel each receive a distinct `mount-id`, so their
 expansion state is independent.
 
 `mini` is the one-line inline overload (D2=a per rf2-sndui — folds
-sentinel routing in; the legacy `inspect-inline` is dropped):
+sentinel routing in; the legacy `views.edn-widget/inspect-inline`
+survives for the Trace db-diff rows and Static Routes):
 
 ```clj
 [mini value]              ;; default max-len 80
@@ -4906,8 +4921,6 @@ level inspector mounts that benefit from labelling:
 - **App-DB** — counter-app db / machine-app db / routes (three labels).
 - **Handler/Event** — event vector / db-before / db-after / fx /
   coeffects (per-slot labels).
-- **Issues** — ex-data inspector (when present alongside other
-  inspectors in the same panel).
 - **Routes** — per top-level slot.
 
 **Where NOT to opt in** — the inspector is already nested in a
@@ -5411,8 +5424,9 @@ operator's expansion state lives in one app-db slot
 component instance so two mounts in the same panel are isolated.
 
 Phase 1 wires the App-DB panel through the new widget directly; the
-remaining surfaces (Trace, Sub, Machine, Issues) reach through the
-legacy `views.edn-widget` facade for now, which delegates to
+remaining surfaces (Trace's db-diff rows, Static Routes) reach through the
+legacy `views.edn-widget` facade (`inspect` / `inspect-inline` /
+`code-block`), which delegates to
 the new widget. Phases 2-4 migrate each surface to call
 `[edn-inspector …]` directly. Phase 5 (rf2-q3dzw) **completes** the
 subsumption: diff is now an opt-in mode on the same widget
@@ -5422,16 +5436,14 @@ whole `browse + diff + mini` contract as one source of truth.
 
 ### §10.7 Evicted-epoch placeholder
 
-When the operator scrubs onto an epoch evicted from the buffer, every
-edn-inspector in every panel renders the same placeholder:
-
-```
-┌─ epoch #12 ──────────────────────────────────────────────────────────┐
-│  Epoch evicted from buffer.                                          │
-│  Increase :epoch-history to retain more.                             │
-│  Settings → Buffer → Epoch history.                                  │
-└──────────────────────────────────────────────────────────────────────┘
-```
+When the operator scrubs onto an epoch evicted from the buffer, each
+panel renders its own focus-resolver `:epoch-evicted` copy rather than
+one shared placeholder — the Epoch panel's "The selected epoch was
+evicted from the history buffer. Pick a more recent event."
+(`panels/epoch/view.cljs`), the Trace panel's "This epoch has been
+evicted from the history buffer." (`panels/trace.cljs`). The retention
+knob is Settings → General → Epoch history (`:general :epoch-history`,
+default 50).
 
 The ribbon's ◀ / ▶ / ⏭ nav keeps working — the operator can scrub past
 evicted epochs without losing the rest of the spine. (Written when the
@@ -5472,7 +5484,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 |---|---|
 | Cascade attribution capture | **Focused-event-only** (cheaper). All epochs in buffer carry the bones (which subs ran, which views re-rendered); only the focused epoch needs the full chain attribution payload. Substrate hot-path: emit lightweight rows on every epoch; emit fattened cause-chain rows only when `:rf.xray/focused-dispatch-id` matches. |
 | Bounded per-epoch capture | Cap at **50 subs + 100 views per epoch**. The substrate enforces at capture time; the panel shows `+N more` overflow indicator (existing component, `panels/overflow_indicator.cljc`). |
-| Buffer retention | Substrate-owned. Xray documents the operator surface as **Settings → Buffer → Epoch history** (current ~100; configurable). |
+| Buffer retention | Substrate-owned. Xray documents the operator surface as **Settings → General → Epoch history** (default 50; range 5–200). |
 | Evicted-epoch UX | Per §10.7 — placeholder string in every panel. |
 | Sub skip op | **Landed** — the substrate emits `:rf.sub/skip` on a memo hit (`re-frame.subs.memo/emit-sub-skip!`); it rides `:trace-events` and feeds the §3.4 "unchanged subs" disclosure via `:subs-skipped` (rf2-ty5r5o). No new op needed. |
 
@@ -5665,9 +5677,11 @@ real beads after approving this doc.
   captured aggregate.
 
 - **rf2-?????** — *Xray: settings — `:epoch-history` knob + "Show
-  unchanged subs" toggle.* Buffer → Epoch history slider (relocated
-  from General per rf2-pu9sb; slot stays `:general :epoch-history`);
-  View → Show unchanged subs in cascade toggle (default OFF per §3.4).
+  unchanged subs" toggle.* **Landed, both in General**: the Epoch
+  history slider (rf2-pu9sb moved it to Buffer; relocated back to General
+  2026-05-27; slot `:general :epoch-history`) and the Show-unchanged-subs
+  pin (`:general :show-unchanged-subs?`, default OFF per §3.4); there is
+  no View tab.
 
 ### Doc-only beads
 
@@ -5720,7 +5734,7 @@ h1/h2 face.
 
 ## §15 What's deliberately NOT in this design
 
-- **No 4th L4 panel.** The 7-panel set is the contract; sub-layer
+- **No extra L4 panel for sub-layers.** The registered Dynamic set (ten today) is the contract; sub-layer
   surfaces inline in Reactive + App-db (§3.3).
 - **No cross-epoch L4 views.** Per §1.2. Aggregate signals live on L2
   badges only.
@@ -5955,22 +5969,23 @@ swapped.
 | **Error** | Red banner at top of panel (`:red-deep` background, `:white` text, `:gap-2` padding); panel content greys out below at 0.5 opacity | E.g. "Trace bus disconnected — reload to reconnect." Distinct from `Issues` panel content (which IS the panel's purpose, not an error) |
 
 **Focus-ring spec (binding):**
-- Color: `#FBBF24` (the global focus-visible amber from
-  `theme/global_styles` lines 467-469)
+- Color: the mode accent (`var(--rf-xray-accent)`; the global
+  `*:focus-visible` rule in `theme/global_styles.cljs`, rf2-y8doi.24 —
+  the hardcoded `#FBBF24` amber is retired)
 - Width: 2px
 - Offset: 2px (per the documented high-contrast hit threshold)
 - HCM remap: `Highlight` (per the `@media (forced-colors: active)`
-  block at lines 519-528 of `theme/global_styles.cljs`)
+  block in `theme/global_styles.cljs`)
 - NEVER suppress `:focus-visible` — palette / search inputs that need
   to suppress the default UA outline MUST re-enable the Xray
-  focus-visible outline (per the existing convention at lines 454-460)
+  focus-visible outline (per the existing convention in `theme/global_styles.cljs`)
 
 **Animation timings (binding):**
 
 | Animation | Duration | Easing |
 |---|---|---|
 | Interaction feedback (hover, focus, press) | **≤ 200ms** (typical 120-180ms) | `ease-out` |
-| Panel switch / tab transition | ≤ 400ms — currently 180ms cross-fade (`theme/motion :fade-duration-ms`) | `ease-in-out` |
+| Panel switch / tab transition | ≤ 400ms — currently 180ms cross-fade (`theme/tokens` `motion` `:fade-duration-ms`) | `ease-in-out` |
 | xyflow edge "fired this epoch" animation | xyflow built-in (≈ 1s loop) | xyflow default |
 
 All durations multiply through `var(--rf-xray-motion-scale, 1)` so
