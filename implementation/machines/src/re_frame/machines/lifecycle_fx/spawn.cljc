@@ -34,6 +34,11 @@
             ;; `re-frame.machines` aggregator requires it), so the edge is
             ;; acyclic.
             [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
+            ;; rf2-3x7nj.9.6 — an inline `:definition` is materialised through
+            ;; the SAME `handler-meta-for` the lazy resolver uses, at spawn
+            ;; time. Only the `re-frame.machines` aggregator requires this ns,
+            ;; so the edge is acyclic.
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -117,6 +122,22 @@
     (and (:machine-id args)
          (not (:definition args))
          (nil? (resolve-spawn-machine args)))))
+
+(defn- inline-definition-error
+  "The throw an inline `:definition` would raise when the lazy resolver first
+  materialises its handler, or nil for a valid definition / a `:machine-id`
+  spawn (rf2-3x7nj.9.6). Validation used to happen only there, per dispatch,
+  where the router's resolver catch-all swallowed it: the actor installed as a
+  zombie (snapshot present, `:rf/bootstrap-pending?` forever) and every event
+  to it read `:rf.error/no-such-handler`. Asking the SAME `handler-meta-for`
+  at spawn time lets the spawn reject fail-closed, before anything installs,
+  with the validator's own typed error."
+  [args]
+  (when-let [definition (:definition args)]
+    (try
+      (rf.machines.lifecycle-fx.registration/handler-meta-for definition)
+      nil
+      (catch #?(:clj Throwable :cljs :default) e e))))
 
 (defn- reject-unregistered-spawn!
   "Emit the always-on `:rf.error/machine-spawn-unregistered-type` and reject
@@ -872,7 +893,16 @@
       (reject-unregistered-spawn! frame-id (:machine-id args))
 
       :else
-      (spawn-fx* frame-id envelope args))))
+      ;; Step 0c — rf2-3x7nj.9.6: an invalid inline `:definition` rejects
+      ;; before anything installs, THROWING the validator's own typed error so
+      ;; the fx runner surfaces it (`:rf.error/fx-handler-exception`, carrying
+      ;; the exception). A prepared `:spawn-all` child was already validated by
+      ;; its invoke's preflight.
+      (let [definition-error (when-not (spawn-all-prepared? frame-id args)
+                               (inline-definition-error args))]
+        (if definition-error
+          (throw definition-error)
+          (spawn-fx* frame-id envelope args))))))
 
 ;; ---- generated-address collision (rf2-1sip) --------------------------------
 
@@ -1469,7 +1499,8 @@
 
     {:args <spawn-args> :spawned-id <id> :spec <stamped-spec> :snap <initial-snap>
      :type-spec <raw-resolved-definition>
-     :unregistered? <bool> :schema-reject? <bool> :rejected? <bool>}
+     :unregistered? <bool> :definition-error <throwable-or-nil>
+     :schema-reject? <bool> :rejected? <bool>}
 
   The child is resolved ONCE — `resolve-spawn-machine` below — and BOTH
   derivatives are retained: `:spec`, the framework-stamped spec the install
@@ -1518,18 +1549,23 @@
                                     (some? (:machine-id args))
                                     (nil? (:definition args))
                                     (nil? spec)))
-        snap       (when spec
+        ;; rf2-3x7nj.9.6 — an invalid inline `:definition` is the FOURTH
+        ;; admission condition. Decided before the snapshot is built, so a
+        ;; malformed definition reaches no builder and no application validator.
+        definition-error (when spawned-id (inline-definition-error args))
+        snap       (when (and spec (nil? definition-error))
                      (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true}))
-        schema-reject? (boolean (and spec (some? spawned-id)
+        schema-reject? (boolean (and snap (some? spawned-id)
                                      (spawn-rejected? spec spawned-id snap continue?)))]
-    {:args           args
-     :spawned-id     spawned-id
-     :spec           spec
-     :snap           snap
-     :type-spec      type-spec
-     :unregistered?  unregistered?
-     :schema-reject? schema-reject?
-     :rejected?      (or unregistered? schema-reject?)}))
+    {:args             args
+     :spawned-id       spawned-id
+     :spec             spec
+     :snap             snap
+     :type-spec        type-spec
+     :unregistered?    unregistered?
+     :definition-error definition-error
+     :schema-reject?   schema-reject?
+     :rejected?        (or unregistered? (some? definition-error) schema-reject?)}))
 
 (defn- spawn-all-address-collisions
   "Detect `:spawn-all` children whose RESOLVED actor addresses ALIAS
@@ -1836,8 +1872,10 @@
           (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?))
       (let [prepared       (mapv #(prepare-spawn-all-child % join-state continue?) child-args)
             unregistered   (mapv :args (filterv :unregistered? prepared))
-            schema-invalid (filterv :schema-reject? prepared)]
-        (if (or (seq unregistered) (seq schema-invalid))
+            schema-invalid (filterv :schema-reject? prepared)
+            ;; rf2-3x7nj.9.6 — invalid inline `:definition`s.
+            bad-defs       (keep :definition-error prepared)]
+        (if (or (seq unregistered) (seq schema-invalid) (seq bad-defs))
           ;; Fail-closed: reject the join so the never-running spec-less child
           ;; cannot hang the `:all` join forever. Emit EXACTLY one reject per
           ;; offending child (structural-only tags, per the privacy contract) —
@@ -1878,11 +1916,18 @@
           ;; token so a same-id B stays byte-identical (no A-derived sentinel lands
           ;; on B). Under a live owner with no destroyer this is the historical
           ;; behaviour: one reject per unregistered child, one sentinel seeded.
+          ;;
+          ;; rf2-3x7nj.9.6 — an invalid inline `:definition` rejects the invoke
+          ;; the same way; once the sentinel is seeded (so every sibling
+          ;; suppresses), the first definition's typed error is THROWN, exactly
+          ;; as a single `:spawn` throws it, for the fx runner to surface.
           (do (loop [remaining unregistered]
                 (when (and (seq remaining) (continue?))
                   (reject-unregistered-spawn! frame-id (:machine-id (first remaining)))
                   (recur (rest remaining))))
-              (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?))
+              (seed-reject-sentinel! frame-id owner-token parent-id invoke-id continue?)
+              (when-let [e (first bad-defs)]
+                (throw e)))
           ;; The all-valid fast path. `join-state` already carries the opaque
           ;; per-attempt token (rf2-nvxehu) minted above: one LIVE seed = one join
           ;; ATTEMPT, and the token rides both the join state and each child's
