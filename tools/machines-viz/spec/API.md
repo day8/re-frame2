@@ -16,10 +16,11 @@ the **share-URL encoding**, and Xray 003 owns the **panel chrome**.
 {:deps {day8/re-frame2-machines-viz {:mvn/version "..."}}}
 ```
 
-For Xray users: pulled transitively via `day8/re-frame2-xray`.
-For Story users with a machine panel: pulled transitively via
-`day8/re-frame2-story`. Direct dependents (a custom dev shell that
-wants a chart without the rest of Xray) declare it themselves.
+For Xray users: pulled transitively via `day8/re-frame2-xray`. Story
+has no machine panel of its own and declares no dependency on this jar
+— its `[Machines]` chip reaches the chart through the Xray embed.
+Direct dependents (a custom dev shell that wants a chart without the
+rest of Xray) declare it themselves.
 
 ## `MachineChart` component
 
@@ -148,8 +149,9 @@ mints a `region__<region-id>` node-id for it, tags each region state
 with `:region` + `:parent-id`, and flags the result `:parallel? true`.
 `chart.projection/xyflow-graph` projects the container as a
 `type: "parallel-region"` xyflow node (rendered by
-`chart.nodes.parallel-region-node` with a distinct dashed boundary +
-header label whose colour rotates per region index) and assigns each
+`chart.nodes.parallel-region-node` with a dashed neutral boundary +
+header label, the same for every region — the per-region colour
+rotation was removed, rf2-az6e2) and assigns each
 state a `parentId`/`:extent "parent"` so xyflow's sub-flow mechanic
 nests the states inside the zone (rf2-xh1lm — xyflow v12 reads
 `parentId`, NOT the pre-v12 `parentNode`, which is silently ignored);
@@ -189,11 +191,12 @@ BOTH region containers (above) AND compound containers receive a
 from elk's measured `{:x :y :width :height}` position entry. Container
 renderers (`parallel-region-node`, `compound-node`) fill their box with
 `width:100% height:100%`, so the projector MUST hand xyflow the box elk
-measured — otherwise xyflow falls back to
-`compound-node-min-{width,height}` (220×120, the renderer's minimum DOM
-size), and substates whose parent-relative coordinates elk computed
-against the FULL measured extent overflow the smaller fallback and
-visually escape the container. Leaf (non-container) state nodes carry
+measured — otherwise the container has no box of its own (the painted
+div carries no CSS `min-*`, rf2-44v8lq;
+`projection/compound-node-min-{width,height}`, 260×150, is only the
+ELK seed floor), and substates whose parent-relative coordinates elk
+computed against the FULL measured extent overflow it and visually
+escape the container. Leaf (non-container) state nodes carry
 NO `:style`; xyflow sizes them from the rendered DOM
 (`state-node-min-{width,height}`).
 
@@ -217,7 +220,9 @@ Stately use):
    leaf + event-node seeds at its floor. Nodes mount at content size.
 2. **Measure.** xyflow measures each rendered node and populates
    `node.measured {width height}`. The chart reads them back off the
-   captured ReactFlowInstance (`fit-state :instance`, via `getNodes`)
+   captured ReactFlowInstance (`fit-state :instance`, via
+   `getInternalNode` — in xyflow v12 the measured box lives on the
+   INTERNAL node, not on the `getNodes()` objects, rf2-6v4ci5)
    through the `read-measured-dims` seam, driven by xyflow's
    `:onNodesChange` (a `dimensions` `NodeChange`) and the `:onInit`
    fast-commit branch.
@@ -575,11 +580,11 @@ knows xstate/Stately reads in 30 seconds (per the bead's §Shift 4):
 
 | Glyph | Variant | Source |
 |---|---|---|
-| `↳`   | initial-marker | `chart.nodes/initial-marker` (paired with the filled-dot source) |
+| hooked arrow + small triangle head | initial-marker — one fixed node-local glyph with the filled dot (rf2-i9d2ob) | `chart.nodes/initial-marker` |
 | `⌚ <ms>ms` | `:after`-delay event-node | `chart.layout/event-segment` |
 | `∞`   | `:always` event-node | `chart.layout/event-segment` |
-| `+ <name>` | action pill (entry / exit / transition) | `chart.nodes/action-pill` + `chart.nodes.event-node` |
-| `[name]` | guard chip | `chart.nodes.event-node` |
+| `⚡ <name>` | action chip (entry / exit / transition) | `chart.nodes/action-row` + `chart.nodes.event-node` |
+| `IF <name>` | guard chip | `chart.nodes.event-node` |
 | filled dot | initial-marker source | `chart.nodes/initial-marker` |
 | `◆ root` pill | machine-root chip — the SINGLE source of a machine-level (top-level `:on`) fallback (rf2-vcnvj) | `chart.nodes/machine-root-node` (type `"machine-root"`, node-id `chart.layout/machine-root-id`) |
 | named frame box | root-container frame (rf2-q129z8) — the Stately-style NAMED box wrapping the whole machine; its header carries the machine name + Context band | `chart.nodes/root-container-node` (type `"root-container"`, node-id `chart.layout/root-container-id`) |
@@ -952,11 +957,12 @@ For the supplied `:definition`, the chart shows:
   rf2-so5b0 retirement of the visible row was reverted by rf2-a2b55
   on a paradigm-matched look at Stately's graph view, which paints
   the row.)
-- **Entry / exit actions render as `+ <name>` (entry) / `- <name>`
-  (exit) pills (rf2-a2b55).** Declared `:entry` / `:exit` state
-  actions surface as action pills BELOW the tag row inside the state
-  box (Stately graph view `Entry actions` convention; replaces the
-  prior `entry / <name>` text rows from rf2-ee38b.21). Each pill
+- **Entry / exit actions render as captioned `⚡ <name>` action chips
+  (rf2-a2b55; rf2-vcnvj).** Declared `:entry` / `:exit` state actions
+  surface as subdued action chips BELOW the tag row inside the state
+  box, under a quiet title-case "Entry actions" / "Exit actions"
+  caption (Stately graph view convention; replaces the prior
+  `entry / <name>` text rows from rf2-ee38b.21). Each chip
   carries an `rf-mv-chart-state-entry` / `rf-mv-chart-state-exit`
   testid + the action name on a `data-entry` / `data-exit` attr.
 - **`:after` countdown rings (overlay, host-fed).** When the host
