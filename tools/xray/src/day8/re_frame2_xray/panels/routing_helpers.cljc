@@ -750,6 +750,31 @@
            distinct
            vec))))
 
+(defn- navigation-params
+  "The params the focused navigation committed, from whichever slice IS that
+  navigation — or nil (rf2-3x7nj.23.1). The route trace names no params
+  (`:rf.route.nav-token/allocated` carries `{:route-id :nav-token :frame}`),
+  but every committed slice carries its `:nav-token`, so whether a slice is
+  the focused navigation's is decidable:
+
+    - the LIVE slice when it carries the focused `token` (the focused
+      navigation is still the current one);
+    - else the focused epoch's own post-state slice, when it carries `token`
+      AND names the live slice's route. The caller projected it for on-box
+      render under the observed frame's classification, which is the LIVE
+      route's (activation replaces the route-sourced declarations), so it
+      is only right for the live route's params;
+    - else nil — no params, rather than the present's."
+  [token current-slice focused-slice]
+  (when (some? token)
+    (cond
+      (= token (:nav-token current-slice))
+      (:params current-slice)
+
+      (and (= token (:nav-token focused-slice))
+           (= (:route-id focused-slice) (:route-id current-slice)))
+      (:params focused-slice))))
+
 (defn epoch-routing-activity
   "Derive a `{:phase :events :match}` map describing what the focused
   event-bundle did to the route system this epoch. Returns nil when the
@@ -761,25 +786,34 @@
   per the trace-event mix.
   `:events` is the event-bundle's event-vector list (root + downstream
   dispatches), useful for the spec §7.2 'Events' row.
-  `:match` is the matched params map when phase is `:on-match` —
-  read off the framework's slice after the navigate handler wrote it.
+  `:match` is the params the focused navigation committed when phase is
+  `:on-match`, read off the slice that IS that navigation — the live
+  `current-slice`, or the focused epoch's post-state `focused-slice` — and
+  nil when neither is (see `navigation-params`). Never the params of a
+  LATER navigation (rf2-3x7nj.23.1).
 
   The view layer renders this alongside the topology overlay; both
   read off the same focused-event-bundle so they stay in sync."
-  [event-bundle current-slice]
-  (when event-bundle
-    (let [trace-evs (event-bundle-trace-events event-bundle)
-          phase    (some (fn [[op phase-kw]]
-                           (when (some #(and (map? %)
-                                             (= op (:operation %)))
-                                       trace-evs)
-                             phase-kw))
-                         routing-phase-ops)]
-      (when phase
-        {:phase  phase
-         :events (event-bundle-event-vectors event-bundle)
-         :match  (when (= :on-match phase)
-                   (:params current-slice))}))))
+  ([event-bundle current-slice]
+   (epoch-routing-activity event-bundle current-slice nil))
+  ([event-bundle current-slice focused-slice]
+   (when event-bundle
+     (let [trace-evs (event-bundle-trace-events event-bundle)
+           phase    (some (fn [[op phase-kw]]
+                            (when (some #(and (map? %)
+                                              (= op (:operation %)))
+                                        trace-evs)
+                              phase-kw))
+                          routing-phase-ops)]
+       (when phase
+         {:phase  phase
+          :events (event-bundle-event-vectors event-bundle)
+          :match  (when (= :on-match phase)
+                    (navigation-params
+                      (some-> (nav-token-allocated-in-event-bundle event-bundle)
+                              :tags :nav-token)
+                      current-slice
+                      focused-slice))})))))
 
 ;; ---- topology-plus-overlay composite (rf2-3kjlo) -----------------------
 
@@ -806,26 +840,33 @@
   origin, `:here` for the current route when no navigation happened
   this epoch). The view paints the topology unconditionally so the
   operator's mental map of the registered routes stays stable across
-  epoch focus changes."
-  [routes-map current-slice focused-event-bundle]
-  (let [topology       (project-topology routes-map)
-        silent?        (empty? topology)
-        nav            (from-to-from-event-bundle focused-event-bundle)
-        marker-input   (assoc nav :current-id (:route-id current-slice))
-        decorated      (mapv (fn [{:keys [row] :as entry}]
-                               (let [marked-row (first
-                                                  (assign-markers
-                                                    [row]
-                                                    marker-input))]
-                                 (assoc entry
-                                        :row    marked-row
-                                        :marker (:marker marked-row))))
-                             topology)
-        activity       (epoch-routing-activity focused-event-bundle current-slice)]
-    {:silent?    silent?
-     :topology   decorated
-     :current    current-slice
-     :from-id    (:from-id nav)
-     :to-id      (:to-id nav)
-     :navigated? (:navigated? nav)
-     :activity   activity}))
+  epoch focus changes.
+
+  `focused-slice` is the focused epoch's post-state route slice, projected
+  for on-box render; it only ever supplies the navigation's params (see
+  `epoch-routing-activity`)."
+  ([routes-map current-slice focused-event-bundle]
+   (project-topology-data routes-map current-slice focused-event-bundle nil))
+  ([routes-map current-slice focused-event-bundle focused-slice]
+   (let [topology       (project-topology routes-map)
+         silent?        (empty? topology)
+         nav            (from-to-from-event-bundle focused-event-bundle)
+         marker-input   (assoc nav :current-id (:route-id current-slice))
+         decorated      (mapv (fn [{:keys [row] :as entry}]
+                                (let [marked-row (first
+                                                   (assign-markers
+                                                     [row]
+                                                     marker-input))]
+                                  (assoc entry
+                                         :row    marked-row
+                                         :marker (:marker marked-row))))
+                              topology)
+         activity       (epoch-routing-activity focused-event-bundle current-slice
+                                                focused-slice)]
+     {:silent?    silent?
+      :topology   decorated
+      :current    current-slice
+      :from-id    (:from-id nav)
+      :to-id      (:to-id nav)
+      :navigated? (:navigated? nav)
+      :activity   activity})))

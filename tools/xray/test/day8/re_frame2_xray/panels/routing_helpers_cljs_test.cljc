@@ -40,7 +40,11 @@
             [re-frame.frame :as rf.frame]
             [re-frame.routing]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support]
+            #?(:clj  [re-frame.test-support :as rf.test-support
+                      :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support
+                      :refer-macros [with-trace-recorder!]])
+            [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.panels.routing-helpers :as h]))
 
 (use-fixtures :each
@@ -845,12 +849,14 @@
   (testing "nav-token-allocated emit → phase :on-match + match params"
     (let [c (cascade 7 [:rf.route/navigate {:to :route/confirm}]
               :other [(nav-allocated-trace :route/confirm "nav-1")])
-          activity (h/epoch-routing-activity c {:route-id :route/confirm
-                                                :params {:order-id "x"}})]
+          activity (h/epoch-routing-activity c {:route-id  :route/confirm
+                                                :params    {:order-id "x"}
+                                                :nav-token "nav-1"})]
       (is (some? activity))
       (is (= :on-match (:phase activity)))
       (is (= {:order-id "x"} (:match activity))
-          "match surfaces the slice's params when phase is :on-match"))))
+          "match surfaces the slice's params when phase is :on-match and
+           the slice IS that navigation (its nav-token)"))))
 
 (deftest epoch-routing-activity-events-test
   (testing "events list carries root event vector + downstream dispatches"
@@ -884,6 +890,55 @@
           c (cascade 1 [:foo] :other [frag-ev])
           activity (h/epoch-routing-activity c {:route-id :route/cart})]
       (is (= :fragment-changed (:phase activity))))))
+
+;; ---- a HISTORICAL navigation's params (rf2-3x7nj.23.1) ------------------
+
+(def ^:private hist-route-id
+  "Route ids this row alone registers (see `nav-route-id`)."
+  :routing-helpers-test/hist-article)
+(def ^:private hist-other-route-id :routing-helpers-test/hist-other)
+
+(defn- navigate-capturing!
+  "Navigate for real and return `[bundle slice]`: the navigation's
+  event-bundle, projected from its captured trace by the framework's own
+  `group-by-event`, and the slice it committed — the focused epoch
+  record's `:frame-state-after` route slice for that navigation."
+  [route-id params]
+  (with-trace-recorder! [traces]
+    (rf/dispatch-sync [:rf.route/navigate {:to route-id :params params}])
+    [(->> (rf.trace.projection/group-by-event @traces)
+          (filter h/nav-token-allocated-in-event-bundle)
+          first)
+     (get-in (rf.frame/frame-runtime-db-value :rf/default)
+             [:rf.runtime/routing :current])]))
+
+(deftest epoch-routing-activity-reads-a-historical-navigations-own-params
+  (testing "rf2-3x7nj.23.1 — focused on an EARLIER navigation, :match is
+            that navigation's params, never the live route's. Producer-
+            derived: two real navigations, bundles projected by
+            `group-by-event`"
+    (rf/reg-route hist-route-id {} "/hist-articles/:id")
+    (rf/reg-route hist-other-route-id {} "/hist-other")
+    (let [[bundle-1 after-1] (navigate-capturing! hist-route-id {:id "1"})
+          [bundle-3 live]    (navigate-capturing! hist-route-id {:id "3"})]
+      (is (some? bundle-1) "PRECONDITION: the first navigation's bundle")
+      (is (= {:id "1"} (:params after-1)) "PRECONDITION: E1 committed {:id \"1\"}")
+      (is (= {:id "3"} (:params live)) "PRECONDITION: the live slice is E2's")
+      (is (not= (:nav-token after-1) (:nav-token live))
+          "PRECONDITION: two navigations, two nav-tokens")
+      (testing "the live slice is the focused navigation → its params"
+        (is (= {:id "3"} (:match (h/epoch-routing-activity bundle-3 live)))))
+      (testing "the live slice is a LATER navigation → never its params"
+        (is (nil? (:match (h/epoch-routing-activity bundle-1 live)))
+            "with no post-state slice to read, no params rather than {:id \"3\"}"))
+      (testing "the focused epoch's post-state slice supplies its own params"
+        (is (= {:id "1"} (:match (h/epoch-routing-activity bundle-1 live after-1)))))
+      (testing "but only while the live route is the same route — the on-box
+                projection classifies under the LIVE route's declarations"
+        (let [[_ live-other] (navigate-capturing! hist-other-route-id {})]
+          (is (= hist-other-route-id (:route-id live-other))
+              "PRECONDITION: the app has since left the route")
+          (is (nil? (:match (h/epoch-routing-activity bundle-1 live-other after-1)))))))))
 
 ;; ---- project-topology-data composite (rf2-3kjlo) ------------------------
 
@@ -928,8 +983,9 @@
     (let [c (nav-cascade 42 [:rf.route/navigate {:to :route/confirm}]
                          :route/confirm nil "nav-9")
           data (h/project-topology-data parented-routes
-                                        {:route-id :route/confirm
-                                         :params {:x 1}}
+                                        {:route-id  :route/confirm
+                                         :params    {:x 1}
+                                         :nav-token "nav-9"}
                                         c)
           marker-by-id (into {}
                              (map (juxt #(-> % :row :route-id) :marker))
