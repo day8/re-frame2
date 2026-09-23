@@ -148,7 +148,15 @@
   trigger). Queued through `dispatch-carrier!`, so like `dispatch-spawn-done!`
   it inherits the finishing event's run propagation and keeps
   `:source :machine-spawn`. That makes it the declarative twin of the
-  `[:fx [[:dispatch …]]]` escape hatch, which inherits the same way."
-  [frame-id parent-id invoke-id error]
-  (dispatch-carrier! frame-id
-                     [parent-id [rf.machines.transition/spawn-error-event-id invoke-id error]]))
+  `[:fx [[:dispatch …]]]` escape hatch, which inherits the same way.
+
+  rf2-3x7nj.8.2 — `attempt` is the failing child's `:rf/invoke-attempt`. When
+  present it rides as a FOURTH element, after the public `(nth ev 2)` error
+  payload, so the parent's boundary can drop a carrier from a superseded or
+  exited spawn attempt (`transition/spawn-carrier-stale-reason`)."
+  ([frame-id parent-id invoke-id error]
+   (dispatch-spawn-error! frame-id parent-id invoke-id error nil))
+  ([frame-id parent-id invoke-id error attempt]
+   (dispatch-carrier! frame-id
+                      [parent-id (cond-> [rf.machines.transition/spawn-error-event-id invoke-id error]
+                                   (some? attempt) (conj attempt))])))

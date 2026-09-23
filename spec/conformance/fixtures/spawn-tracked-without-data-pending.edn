@@ -74,13 +74,16 @@
    ;; level alongside `:data`.
    :expect-next-snapshot {:state            :authenticating
                           :data             {:rf/spawned {[:authenticating] :http/post#1}}
-                          :rf/spawn-counter {:http/post 1}}
+                          :rf/spawn-counter {:http/post 1}
+                          ;; rf2-3x7nj.9.3 — the entry's spawn attempt token.
+                          :rf/spawn-attempts {[:authenticating] 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :id-prefix     :http/post
                                               :data          {:url "/api/login"}
                                               :rf/spawned-id :http/post#1
                                               :rf/parent-id  :rf/transition-pure
-                                              :rf/invoke-id  [:authenticating]}]]}
+                                              :rf/invoke-id  [:authenticating]
+                                              :rf/invoke-attempt 1}]]}
 
   ;; ---- (2) Destroy fx emission ----------------------------------------
   ;;

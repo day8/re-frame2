@@ -303,14 +303,17 @@
   and, for declarative-`:spawn` spawns, its parent's address +
   invoke-id. `join-child` (a `:spawn-all` child's private join-membership
   record — see `join-child-record`) rides under `:rf/join-child` when
-  present."
-  [spec spawned-id parent-id invoke-id join-child]
+  present. `invoke-attempt` (a declarative single `:spawn`'s attempt token,
+  rf2-3x7nj.9.3) rides under `:rf/invoke-attempt` when present; the child's
+  completion carriers hand it back to the parent's currency gate."
+  [spec spawned-id parent-id invoke-id join-child invoke-attempt]
   (when spec
     (let [base-data (or (:data spec) {})
           data'     (cond-> (assoc base-data :rf/self-id spawned-id)
                       parent-id  (assoc :rf/parent-id parent-id)
                       invoke-id  (assoc :rf/invoke-id invoke-id)
-                      join-child (assoc :rf/join-child join-child))]
+                      join-child (assoc :rf/join-child join-child)
+                      invoke-attempt (assoc :rf/invoke-attempt invoke-attempt))]
       (assoc spec :data data'))))
 
 (defn- join-child-record-from-state
@@ -394,7 +397,8 @@
     (stamp-framework-data spec' spawned-id
                           (:rf/parent-id args)
                           (:rf/invoke-id args)
-                          join-child)))
+                          join-child
+                          (:rf/invoke-attempt args))))
 
 (defn- candidate-spawn-spec
   "The fully framework-stamped machine spec a spawn of `args` WOULD install:

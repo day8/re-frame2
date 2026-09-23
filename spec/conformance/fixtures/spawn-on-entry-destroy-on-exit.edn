@@ -90,7 +90,9 @@
    :expect-next-snapshot {:state             :authenticating
                           :data              {:credentials {:user "alice" :pass "secret"}
                                               :rf/spawned  {[:authenticating] :http/post#1}}
-                          :rf/spawn-counter  {:http/post 1}}
+                          :rf/spawn-counter  {:http/post 1}
+                          ;; rf2-3x7nj.9.3 — the entry's spawn attempt token.
+                          :rf/spawn-attempts {[:authenticating] 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :data          {:url "/api/login"
                                                               :body {:user "alice" :pass "secret"}}
@@ -98,7 +100,8 @@
                                               :id-prefix     :http/post
                                               :rf/spawned-id :http/post#1
                                               :rf/parent-id  :rf/transition-pure
-                                              :rf/invoke-id   [:authenticating]}]]}
+                                              :rf/invoke-id   [:authenticating]
+                                              :rf/invoke-attempt 1}]]}
 
   ;; ---- (3) Exiting :authenticating: destroy fx is emitted with the
   ;;          recorded child id from the parent's :data.

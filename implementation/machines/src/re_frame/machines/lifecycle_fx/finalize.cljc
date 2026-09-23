@@ -145,11 +145,18 @@
   the child actor and inherits that envelope's run propagation (Spec 002 §Run
   propagation, rf2-ix8fd). It keeps `:source :machine-spawn` so the Epoch panel
   attributes it to the spawn lifecycle. No-op when the `:router/dispatch!` hook
-  is absent (pure-fn / conformance callers)."
-  [frame-id parent-id invoke-id completion]
-  (rf.machines.lifecycle-fx.spawn-error/dispatch-carrier!
-    frame-id
-    [parent-id [rf.machines.transition/spawn-done-event-id invoke-id completion]]))
+  is absent (pure-fn / conformance callers).
+
+  rf2-3x7nj.9.3 — `attempt` is a single-`:spawn` child's `:rf/invoke-attempt`.
+  When present it rides as a FOURTH element, leaving `<completion>` unchanged,
+  so the parent's boundary folds `:on-done` only for the CURRENT attempt."
+  ([frame-id parent-id invoke-id completion]
+   (dispatch-spawn-done! frame-id parent-id invoke-id completion nil))
+  ([frame-id parent-id invoke-id completion attempt]
+   (rf.machines.lifecycle-fx.spawn-error/dispatch-carrier!
+     frame-id
+     [parent-id (cond-> [rf.machines.transition/spawn-done-event-id invoke-id completion]
+                  (some? attempt) (conj attempt))])))
 
 ;; ---- final-state resolution -----------------------------------------------
 
@@ -807,10 +814,15 @@
           ;; the arm bypasses the guard, and guarding the arm is not sufficient
           ;; on its own while the classification still calls the finish
           ;; `:error` rather than `:stale` — both halves are the one fix.
+          ;;
+          ;; rf2-3x7nj.9.3 / .8.2 — a single-`:spawn` child also hands back its
+          ;; `:rf/invoke-attempt` on EITHER carrier, so the parent delivers it
+          ;; only while that spawn attempt is still current.
           (when-not stale-spawn?
             (cond
               on-error?
-              (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result)
+              (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
+                frame-id parent-id invoke-id result (:rf/invoke-attempt child-data))
 
               parent-id
               (when-let [target-invoke-id (or invoke-id (:invoke-id join-child))]
@@ -822,7 +834,8 @@
                     join-child (merge (select-keys join-child
                                                    [:parent-id :invoke-id :child-id
                                                     :spawned-id :attempt
-                                                    :work-generation]))))))))
+                                                    :work-generation])))
+                  (:rf/invoke-attempt child-data))))))
         ;; Publish the teardown runtime-db + fx ONLY if the exact owner survived
         ;; the WHOLE tail (rf2-hloj0g). If any post-`emit-destroyed!` callback
         ;; published same-id B, return the inert outcome — the A-derived
