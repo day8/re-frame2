@@ -338,6 +338,37 @@
       (is (= a b)))))
 
 ;; ---------------------------------------------------------------------------
+;; Element-context text rules (rf2-3x7nj.6.2)
+;;
+;; react-dom emits a `<script>` / `<style>` string body verbatim (raw text,
+;; which the HTML parser never entity-decodes) with only an embedded
+;; closing-tag sequence rewritten, and prefixes one compensating LF to a
+;; `<pre>` whose sole string body starts with LF. This corpus had no
+;; raw-text element and no leading-LF body, which is why the serializer's
+;; entity-escaping of both went unnoticed.
+;; ---------------------------------------------------------------------------
+
+(deftest parity-raw-text-elements-rf2-3x7nj-6-2
+  (testing "script/style string bodies match react-dom byte for byte"
+    (doseq [hiccup [[:style "body { font-family: 'Open Sans' } td > p { margin: 0 }"]
+                    [:script "if (a < b && c) go()"]
+                    [:script "x = '</script><b>'"]
+                    [:style "a{}</STYLE><b>"]]]
+      (let [[a b] (=parity hiccup)]
+        (is (= a b) (str "reagent-slim diverges from react-dom for "
+                         (pr-str hiccup)))))))
+
+(deftest parity-leading-newline-rf2-3x7nj-6-2
+  (testing "a <pre> sole string body starting with LF gets one compensating
+            LF; the controls (no LF, multi-child body) get none"
+    (doseq [hiccup [[:pre "\n  indented"]
+                    [:pre "x"]
+                    [:pre "\n" [:b "x"]]]]
+      (let [[a b] (=parity hiccup)]
+        (is (= a b) (str "reagent-slim diverges from react-dom for "
+                         (pr-str hiccup)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Compound: nested hiccup with attrs + classes
 ;; ---------------------------------------------------------------------------
 
