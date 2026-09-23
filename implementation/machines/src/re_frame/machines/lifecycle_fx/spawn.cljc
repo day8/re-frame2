@@ -574,7 +574,21 @@
                          ;; Gated on the same `spec` as the snapshot assoc: the
                          ;; order tracks exactly the actors that have snapshots.
                          spec      (rf.machines.spawn-order/record-in-runtime-db spawned-id)
-                         track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)))
+                         track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)
+                         ;; rf2-3x7nj.9.4 — write the parent's `:rf/spawned`
+                         ;; mirror beside the registry slot it mirrors: the
+                         ;; teardown projection clears the two TOGETHER, so the
+                         ;; install writes them together. The reducer bound the
+                         ;; mirror already, but a macrostep that exits and
+                         ;; re-enters the spawning state drains the old child's
+                         ;; destroy FIRST, and that clear took the successor's
+                         ;; freshly bound mirror with it. A value no-op otherwise.
+                         (and track?
+                              (contains? (get-in rt-after-alloc (rf.machines.paths/snapshot-path))
+                                         parent-id))
+                         (assoc-in (conj (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
+                                         invoke-id)
+                                   spawned-id)))
           written    (if owner-token
                        (rf.frame/swap-runtime-db-exact! frame-id owner-token install-fn)
                        (rf.frame/swap-runtime-db! frame-id install-fn))]
@@ -789,7 +803,8 @@
       §Spec-spec keys.
    3. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:spawn`
       desugar), bind the spawned id at
-      `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
+      `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` and at the
+      parent's `[:data :rf/spawned <invoke-id>]` mirror of that slot.
    4. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]`. When `:start` is absent,
       the runtime dispatches a synthetic `[<spawned-id>
@@ -1572,12 +1587,27 @@
   stays byte-identical. Without an owner (a conformance / pure-fn caller with no
   router event owner), fall back to the historical bare-id write; that path has
   no incarnation to lose, symmetric with `continue?`'s `(constantly true)`.
-  Returns the new runtime-db slice, or nil on owner loss."
-  [frame-id owner-token parent-id invoke-id value]
-  (let [swap-fn #(assoc-in % (rf.machines.paths/spawned-path parent-id invoke-id) value)]
-    (if owner-token
-      (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
-      (rf.frame/swap-runtime-db! frame-id swap-fn))))
+  Returns the new runtime-db slice, or nil on owner loss.
+
+  `mirror`, when supplied (the live-join accept path), is written in the SAME
+  swap at the parent's `[:data :rf/spawned <invoke-id>]` — the children map the
+  slot's `:children` mirrors (rf2-3x7nj.9.4). The exit-cascade clear removes
+  slot and mirror together, so the seed writes them together: a macrostep that
+  exits and re-enters the `:spawn-all` state drains the old batch's clear FIRST,
+  taking the successor batch's freshly bound mirror with it."
+  ([frame-id owner-token parent-id invoke-id value]
+   (write-spawned-slot! frame-id owner-token parent-id invoke-id value nil))
+  ([frame-id owner-token parent-id invoke-id value mirror]
+   (let [swap-fn (fn [rt]
+                   (cond-> (assoc-in rt (rf.machines.paths/spawned-path parent-id invoke-id) value)
+                     (and (some? mirror)
+                          (contains? (get-in rt (rf.machines.paths/snapshot-path)) parent-id))
+                     (assoc-in (conj (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
+                                     invoke-id)
+                               mirror)))]
+     (if owner-token
+       (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
+       (rf.frame/swap-runtime-db! frame-id swap-fn)))))
 
 (defn- seed-reject-sentinel!
   "Seed the childless `spawn-all-reject-sentinel` at the invoke's join slot,
@@ -1890,7 +1920,8 @@
                                             (comp (filter :spawned-id)
                                                   (map (juxt :spawned-id
                                                              #(select-keys % [:spec :snap :type-spec]))))
-                                            prepared))))
+                                            prepared))
+                               children))
                   (rf.trace/emit! :rf.machine :rf.machine.spawn-all/started
                                {;; The parent's live actor INSTANCE address;
                                 ;; `:invoke-id` is the declarative invocation path.
