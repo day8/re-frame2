@@ -190,3 +190,94 @@
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= 11 (:d (rf.machines.test-support/machine-data :lifecycle/descent-gen)))
           "the initial-descent :entry action read the GENERATED fact at birth"))))
+
+;; ===========================================================================
+;; D. rf2-s2bda — a SYNTHETIC slot's target :entry is ensured like an :on's
+;; ===========================================================================
+;;
+;; `:spawn :on-error`, a compound `:on-done`, a state `:after` and a parallel
+;; root `:on` / `:after` each select from a slot the `:on` walk never visits.
+;; Their helpers ensured the target's `:always` closure but not its `:entry`,
+;; so a named `:entry` action declaring `:rf.cofx/requires` read nil when it
+;; was reached through one of them, and its value when reached through `:on`.
+
+(def ^:private capture-token
+  {:rf.cofx/requires [:audit/token]
+   :fn (fn [{:keys [data] cofx :rf.cofx}]
+         {:data (assoc data :token (:audit/token cofx))})})
+
+(deftest spawn-on-error-target-entry-reads-generated-fact
+  (rf/reg-cofx :audit/token {:recordable? true} (fn [] 42))
+  (rf/reg-machine :audit/child {:initial :a :states {:a {}}})
+  (rf/reg-machine :audit/parent
+    {:initial :working
+     :data    {}
+     :actions {:capture capture-token}
+     :states  {:working {:spawn {:machine-id :audit/child :on-error :errored}}
+               :errored {:entry :capture}}})
+  (testing "CASE: the spawn failure reaches :errored through :spawn :on-error"
+    (rf/dispatch-sync [:audit/parent [:rf.machine/start]])
+    (rf/dispatch-sync [:audit/parent [:rf.machine.spawn/error [:working] {:boom true}]])
+    (is (= :errored (rf.machines.test-support/machine-state :audit/parent)))
+    (is (= 42 (:token (rf.machines.test-support/machine-data :audit/parent)))
+        "the :entry action read the GENERATED fact, not nil"))
+  (testing "CONTROL: an ordinary :on reaches the same :errored and the same :entry"
+    (rf/reg-machine :audit/parent-on
+      {:initial :working
+       :data    {}
+       :actions {:capture capture-token}
+       :states  {:working {:spawn {:machine-id :audit/child :on-error :errored}
+                           :on    {:go :errored}}
+                 :errored {:entry :capture}}})
+    (rf/dispatch-sync [:audit/parent-on [:rf.machine/start]])
+    (rf/dispatch-sync [:audit/parent-on [:go]])
+    (is (= :errored (rf.machines.test-support/machine-state :audit/parent-on)))
+    (is (= 42 (:token (rf.machines.test-support/machine-data :audit/parent-on))))))
+
+(deftest every-synthetic-slot-ensures-its-target-entry
+  (rf/reg-cofx :audit/token {:recordable? true} (fn [] 42))
+  (let [ensured? (fn [m snap ev]
+                   (contains? (set (map :id (rf.machines.cofx-attach/ensure-set-for
+                                              (rf.machines.cofx-attach/index-ensure-sets m)
+                                              snap ev)))
+                              :audit/token))
+        region-b {:initial :x :states {:x {}}}]
+    (testing ":spawn :on-error into a compound — the :initial descent's :entry"
+      (is (ensured? {:initial :working :actions {:capture capture-token}
+                     :states  {:working {:spawn {:machine-id :x/c :on-error :errored}}
+                               :errored {:initial :inner :states {:inner {:entry :capture}}}}}
+                    {:state :working :data {}}
+                    [:rf.machine.spawn/error [:working] {:boom 1}])))
+    (testing "a compound's :on-done"
+      (is (ensured? {:initial :flow :actions {:capture capture-token}
+                     :states  {:flow  {:initial :s1 :on-done :after
+                                       :states  {:s1 {} :fin {:final? true}}}
+                               :after {:entry :capture}}}
+                    {:state [:flow :fin] :data {}}
+                    [:rf.machine/done [:flow]])))
+    (testing "a state :after"
+      (is (ensured? {:initial :waiting :actions {:capture capture-token}
+                     :states  {:waiting {:after {5000 :late}} :late {:entry :capture}}}
+                    {:state :waiting :data {}}
+                    [:rf.machine.timer/after-elapsed 5000 1 [:waiting]])))
+    (testing "a parallel root :on"
+      (is (ensured? {:type    :parallel :actions {:capture capture-token}
+                     :on      {:go {:target [:a :done]}}
+                     :regions {:a {:initial :idle :states {:idle {} :done {:entry :capture}}}
+                               :b region-b}}
+                    {:state {:a :idle :b :x} :data {}}
+                    [:go])))
+    (testing "a parallel root :after"
+      (is (ensured? {:type    :parallel :actions {:capture capture-token}
+                     :after   {1000 {:target [:a :done]}}
+                     :regions {:a {:initial :idle :states {:idle {} :done {:entry :capture}}}
+                               :b region-b}}
+                    {:state {:a :idle :b :x} :data {}}
+                    [:rf.machine.timer/after-elapsed 1000 1 []])))
+    (testing "CONTROL: a region's ordinary :on to the same target"
+      (is (ensured? {:type    :parallel :actions {:capture capture-token}
+                     :regions {:a {:initial :idle
+                                   :states  {:idle {:on {:go :done}} :done {:entry :capture}}}
+                               :b region-b}}
+                    {:state {:a :idle :b :x} :data {}}
+                    [:go])))))

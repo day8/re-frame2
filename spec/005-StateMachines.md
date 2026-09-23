@@ -2822,7 +2822,7 @@ address the same way and destroys the old one explicitly with
 | key | purpose | required? |
 |---|---|---|
 | `:machine-id` *or* `:definition` | which machine to instantiate (registered id, or inline spec map) | one of these |
-| `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional; defaults to `:machine-id` |
+| `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional with `:machine-id` (defaults to it); REQUIRED with `:definition` unless `:fixed-actor-id` is given |
 | `:data` | initial data for the new machine (overrides definition's default) | optional |
 | `:start` | event vector dispatched to the new actor immediately after spawn | optional |
 | `:fixed-actor-id` | explicit actor-address input instead of gensym — the child installs at exactly this id | optional |
@@ -2999,7 +2999,7 @@ The map under `:spawn` accepts the following keys:
 |---|---|---|
 | `:machine-id` *or* `:definition` | which machine to spawn (registered id, or inline transition table) | exactly one of these |
 | `:data` | initial data for the child — literal map or `(fn [{:keys [snapshot event]}] data)` (unified context-map) | optional |
-| `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional; defaults to `:machine-id` |
+| `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional with `:machine-id` (defaults to it); REQUIRED with `:definition` unless `:fixed-actor-id` is given |
 | `:on-done` | `(fn [{:keys [data result]}] new-data)` — fires when the child enters a (non-error) `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil` if no `:output-key` declared) — see [§Final states](#final-states-final--on-done--output-key). Returns the parent's new `:data` map. | optional |
 | `:on-error` | an `:on`-shaped **transition** spec `{:target :guard :action}` (or keyword / vector-path target, or guarded candidate vector) — fires when the spawned child **FAILS**: it reaches a designated error `:final?` leaf (`:error? true`), or one of its actions throws an uncaught exception. The parent moves to the transition's `:target` (resolved at the `:spawn`-bearing state's own level — a keyword target is a sibling), running its `:guard` / `:action`. The error payload rides on the transition's `:event` (the child's `:output-key` slot for the error-leaf trigger, or the exception envelope for the action-exception trigger). re-frame2's spelling of XState v5 `invoke onError` — control flow, not just observability. See [§`:on-error`](#on-error--child-failure-control-flow). | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |

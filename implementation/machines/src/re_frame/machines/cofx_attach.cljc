@@ -544,8 +544,8 @@
   compound (or parallel-region) node whose `:final?` child completed. The node's
   `:on-done` value is one-or-more candidate maps (mirroring
   `transition/pick-done-transition` step 1); each candidate's `:guard` /
-  `:action` named-entry diet — and the `:always` closure reachable from its
-  resolved `:target` (via `add-always!`) — joins the ensure-set, so an
+  `:action` named-entry diet — and the `:entry` + `:always` diet of its
+  resolved `:target` (via `add-target!`) — joins the ensure-set, so an
   `:on-done` guard/action declaring `:rf.cofx/requires` has its facts ensured
   before the done transition is selected. No-op when the event is not a done
   signal, the node-path does not resolve, or the node declares no `:on-done`.
@@ -554,7 +554,7 @@
   nil. A region's done-raise carries a region-name head, so strip it iff it
   names THIS region (a foreign head declines), exactly as
   `transition/pick-done-transition` does."
-  [by-entry states event region add! add-always!]
+  [by-entry states event region add! add-target!]
   (when (and (vector? event) (= done-event-id (first event)))
     (let [raw-path  (second event)
           done-path (cond
@@ -568,7 +568,7 @@
               (add! (entry-diet by-entry :guards  (:guard cand)))
               (add! (entry-diet by-entry :actions (:action cand)))
               (when-let [tgt (resolve-target-path done-path (:target cand))]
-                (add-always! tgt)))))))))
+                (add-target! tgt)))))))))
 
 ;; The synthetic single-`:spawn` failure event id
 ;; (`transition/spawn-error-event-id`), inlined for the same cycle-free reason
@@ -579,11 +579,11 @@
   "Add (into `add!`) the `:spawn :on-error` guard/action diets of the
   `:spawn`-bearing node a raised `[:rf.machine.spawn/error <invoke-id> <err>]`
   names — a slot separate from `:on` that `transition/pick-spawn-error-
-  transition` selects first — plus the `:always` closure from each candidate's
-  target. `region` strips / declines a region-name head exactly as
+  transition` selects first — plus each candidate target's `:entry` +
+  `:always` diet. `region` strips / declines a region-name head exactly as
   `on-done-diet-for-event` does. No-op when the event is not a spawn-error
   signal, the invoke-id does not resolve, or the node declares no `:on-error`."
-  [by-entry states event region add! add-always!]
+  [by-entry states event region add! add-target!]
   (when (and (vector? event) (= spawn-error-event-id (first event)))
     (let [raw-id    (second event)
           invoke-id (cond
@@ -597,12 +597,12 @@
               (add! (entry-diet by-entry :guards  (:guard cand)))
               (add! (entry-diet by-entry :actions (:action cand)))
               (when-let [tgt (resolve-target-path invoke-id (:target cand))]
-                (add-always! tgt)))))))))
+                (add-target! tgt)))))))))
 
 (defn- after-diet-for-event
   "Add (into `add!`) the guard/action diet of a per-state (or per-region)
-  `:after`-TABLE transition the synthetic timer event fires, plus the `:always`
-  closure reachable from each candidate's target. `event` is
+  `:after`-TABLE transition the synthetic timer event fires, plus each
+  candidate target's `:entry` + `:always` diet. `event` is
   `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`; the runtime
   routes it to the SCHEDULING node at `decl-path` and selects the `:after`
   entry at `delay-key` (`transition/pick-after-transition`) — a slot separate
@@ -622,7 +622,7 @@
   parallel-root clause is. No-op when the event is not an after-elapsed timer,
   the decl-path does not resolve, or the node declares no `:after` at
   `delay-key`."
-  [by-entry states event region add! add-always!]
+  [by-entry states event region add! add-target!]
   (when (and (vector? event) (= after-elapsed-event-id (first event)))
     (let [[_ delay-key _epoch raw-decl-path] event
           decl-path (cond
@@ -639,7 +639,7 @@
               (add! (entry-diet by-entry :guards  (:guard cand)))
               (add! (entry-diet by-entry :actions (:action cand)))
               (when-let [tgt (resolve-target-path decl-path (:target cand))]
-                (add-always! tgt)))))))))
+                (add-target! tgt)))))))))
 
 (declare initial-path-for-scope)
 
@@ -683,13 +683,21 @@
         acc      (volatile! [])
         seen-ids (volatile! #{})
         add!     (dedup-adder seen-ids acc)
-        add-always! (fn [tgt] (add! (always-diet-for-state by-entry states tgt)))
         ;; Accumulate a lifecycle (`:entry`/`:exit`) slot's named-action diet
         ;; along a path into a transient, then add! it deduped.
         add-lifecycle! (fn [scope p slot]
                          (let [diet (transient [])]
                            (lifecycle-diet-along-path by-entry scope p slot diet)
-                           (add! (persistent! diet))))]
+                           (add! (persistent! diet))))
+        ;; Everything arriving at a candidate's resolved target runs: the
+        ;; `:entry` of every node entered descending the target's `:initial`
+        ;; chain, then the `:always` closure it settles into. ONE closure for
+        ;; the `:on` walk and every synthetic slot (`:on-done`, `:spawn
+        ;; :on-error`, `:after`), so none of them can ensure the `:always`
+        ;; half and forget the `:entry` half (rf2-s2bda).
+        add-target! (fn [tgt]
+                      (add-lifecycle! states (initial-descent-path states tgt) :entry)
+                      (add! (always-diet-for-state by-entry states tgt)))]
     ;; (a) candidate transitions for this event type, leaf→root. We do NOT
     ;; stop at the first match — the ensure-set is STATIC (every candidate
     ;; the selection COULD touch must have its guard-consumed facts ensured
@@ -721,12 +729,12 @@
           ;; compound target cascades into its initial leaf. The active-state
           ;; `:exit` diet is added once below (it is candidate-independent).
           ;; A ROOT `:same-state` re-descends the root's own `:initial`.
+          ;; (b) the :always closure reachable from this candidate's target
+          ;; rides the same `add-target!`.
           (when-let [tgt (if (and (empty? prefix) (= :same-state (:target cand)))
                            (initial-path-for-scope states (:initial root))
                            (resolve-target-path prefix (:target cand)))]
-            (add-lifecycle! states (initial-descent-path states tgt) :entry)
-            ;; (b) :always closure reachable from this candidate's target.
-            (add! (always-diet-for-state by-entry states tgt))))))
+            (add-target! tgt)))))
     ;; (c, exit) any fired candidate exits some suffix of the active state
     ;; path; over-approximate soundly by ensuring the `:exit` diet
     ;; of every active node leaf→root (an un-fired exit is a harmless no-op —
@@ -743,18 +751,18 @@
     ;; transition (a separate slot from `:on`); add its guard/action diet + the
     ;; `:always` closure reachable from its target so an `:on-done` callback's
     ;; `:rf.cofx/requires` is ensured before the done transition is selected.
-    (on-done-diet-for-event by-entry states event region add! add-always!)
+    (on-done-diet-for-event by-entry states event region add! add-target!)
     ;; (d') a raised single-`:spawn` failure (`[:rf.machine.spawn/error
     ;; <invoke-id> <err>]`) selects the spawning node's `:spawn :on-error`
     ;; first — a slot separate from `:on`, like `:on-done`.
-    (spawn-error-diet-for-event by-entry states event region add! add-always!)
+    (spawn-error-diet-for-event by-entry states event region add! add-target!)
     ;; (e) the synthetic `:after` timer signal
     ;; (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`) fires the
     ;; scheduling node's `:after`-table transition at decl-path/delay-key — a
     ;; slot separate from `:on`. Add its candidates' guard/action diet + the
     ;; `:always` closure from each target, mirroring `parallel-root-diet`'s
     ;; root-`:after` clause.
-    (after-diet-for-event by-entry states event region add! add-always!)
+    (after-diet-for-event by-entry states event region add! add-target!)
     @acc))
 
 (defn- root-target-always-diet
@@ -766,8 +774,10 @@
   so the moved region's settled `:always` cascade (Spec 005 §Root parallel
   `:on` — \"a moved region then settles its own `:always`\") contributes its
   guard/action requires to the ensure-set exactly as `ensure-set-in-scope`'s
-  (b) clause does for a flat target. A non-region-qualified / malformed target
-  (rejected at registration) contributes nothing here."
+  (b) clause does for a flat target — as does the `:entry` diet of every node
+  the moved region enters descending that target's `:initial` chain
+  (rf2-s2bda). A non-region-qualified / malformed target (rejected at
+  registration) contributes nothing here."
   [by-entry machine target add!]
   (let [add-region-target!
         (fn [t]
@@ -776,6 +786,9 @@
                   rpath  (vec (rest t))
                   scope  (get-in machine [:regions region :states])]
               (when (and scope (seq rpath))
+                (let [diet (transient [])]
+                  (lifecycle-diet-along-path by-entry scope (initial-descent-path scope rpath) :entry diet)
+                  (add! (persistent! diet)))
                 (add! (always-diet-for-state by-entry scope rpath))))))]
     (cond
       ;; multiple region-qualified targets — a vector of target-vectors.
