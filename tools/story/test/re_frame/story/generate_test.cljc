@@ -21,6 +21,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.artifact  :as rf.story.artifact]
+            [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.generate  :as rf.story.generate]
             [re-frame.story.generate.test-check :as rf.story.generate.test-check]
             [re-frame.story.promotion :as rf.story.promotion]
@@ -143,6 +144,28 @@
       (is (= (:seed res) (:seed (:artifact res)))
           "the artifact carries the falsifying seed")
       (is (= :fail (:status (:result res)))))))
+
+;; rf2-3x7nj.31.1 — a generated program is tagged steps (spec/017 §Generated
+;; runs), so the natural way to state a property is an `[:assert …]`
+;; checkpoint. Replay used to drop it, so a FALSE property read `:pass` over
+;; every seed.
+(deftest check-property-falsifies-on-a-false-assert-checkpoint
+  (rf.story.assertions/install-canonical-assertions!)
+  (rf/reg-event :gen/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (let [holds    [[:dispatch [:gen/inc]] [:assert [:rf.assert/path-equals [:n] 1]]]
+        violated [[:dispatch [:gen/inc]] [:assert [:rf.assert/path-equals [:n] 99]]]]
+    (testing "a property whose checkpoint holds passes"
+      (is (= :pass (:status (rf.story.generate/check-property!
+                              (fn [_seed] holds) {:seed 1 :num-tests 3 :shrink? false})))))
+    (testing "a property whose checkpoint is false is FALSIFIED"
+      (let [res (rf.story.generate/check-property!
+                  (fn [_seed] violated) {:seed 1 :num-tests 3 :shrink? false})]
+        (is (= :fail (:status res)))
+        (is (= [[:rf.assert/path-equals false]]
+               (mapv (juxt :assertion :passed?) (:assertions (:result res)))))))
+    (testing "the fault sweep names the cell whose run fails the checkpoint"
+      (is (= [:no-fault]
+             (:failing (rf.story.generate/sweep-faults! violated {:no-fault {}} {})))))))
 
 (deftest check-property-shrinks-toward-a-minimal-failing-program
   (testing "shrinking drops irrelevant steps, keeping the minimal failing case"

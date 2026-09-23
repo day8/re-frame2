@@ -7,11 +7,12 @@
 
   - strip `:rf.story/*` accumulator keys from app-db;
   - project away the volatile record fields
-    `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id
-      :plan-hash :run-hash}` (reconciling the shipping `:variant-id`
-    spelling first; the authoritative `rf.story.fingerprint/volatile-fields` set also carries
+    `{:dispatch-id :source-coord :variant/id :plan-hash :run-hash}`
+    (reconciling the shipping `:variant-id` spelling first; the
+    authoritative `rf.story.fingerprint/volatile-fields` set also carries
     the per-run epoch / trace stamps `:epoch-id :trace-id :committed-at
-    :schema-digest`);
+    :schema-digest`), and `:source` / `:elapsed-ms` / `:runner` on the
+    carriers that stamp them;
   - impose a total per-slot ordering;
   - enumerate the `:plan-hash` input fields;
   - compute `:run-hash` over the canonical epoch slice;
@@ -125,10 +126,71 @@
       (doseq [k rf.story.fingerprint/volatile-fields]
         (is (not (contains? projected k))
             (str k " must be stripped from the projection")))
-      (is (not (contains? (get-in projected [:assertions 0]) :source)))
-      (is (not (contains? (get-in projected [:assertions 0]) :elapsed-ms)))
       (is (not (contains? (get-in projected [:effects 0]) :dispatch-id)))
-      (is (not (contains? (get-in projected [:epoch-tape 0]) :source-coord))))))
+      (is (not (contains? (get-in projected [:epoch-tape 0]) :source-coord)))))
+  (testing ":source / :elapsed-ms / :runner are stripped STRUCTURALLY, on the
+            carriers that stamp them (rf2-3x7nj.30.4)"
+    (let [stripped (rf.story.fingerprint/project
+                     (rf.story.fingerprint/strip-run-stamps base-run))]
+      (is (not (contains? stripped :elapsed-ms)) "run-result top level")
+      (is (not (contains? stripped :runner)) "run-result top level")
+      (is (not (contains? (get-in stripped [:assertions 0]) :source)) "assertion record")
+      (is (not (contains? (get-in stripped [:assertions 0]) :elapsed-ms)) "assertion record"))))
+
+;; rf2-3x7nj.30.4 — `:source`, `:elapsed-ms` and `:runner` are ordinary domain
+;; keys (a feed's source, a stopwatch, a race). A recursive strip made every
+;; consumer of `canonicalize` blind to app-db and args data under them.
+(deftest app-data-under-run-stamp-keys-is-semantic
+  (testing "an app-db change under :source / :elapsed-ms / :runner perturbs
+            the canonical value and the run-hash, like any other key"
+    (let [run (fn [db] {:status :pass :app-db db :epoch-tape [] :assertions []
+                        :checks [] :effects [] :schema-violations [] :warnings []})]
+      (doseq [[a b] [[{:src "rss"}                  {:src "atom"}] ; control
+                     [{:feed {:source "rss"}}       {:feed {:source "atom"}}]
+                     [{:timer {:elapsed-ms 1000}}   {:timer {:elapsed-ms 9999}}]
+                     [{:race {:runner "alice"}}     {:race {:runner "bob"}}]]]
+        (is (not= (rf.story.fingerprint/canonicalize (run a))
+                  (rf.story.fingerprint/canonicalize (run b)))
+            (str (pr-str a) " vs " (pr-str b) " must perturb the canonical value"))
+        (is (not= (rf.story.fingerprint/run-hash (run a))
+                  (rf.story.fingerprint/run-hash (run b)))
+            (str (pr-str a) " vs " (pr-str b) " must perturb the run-hash")))))
+  (testing "a variant's args / db-seed under :source perturb the plan-hash"
+    (is (not= (rf.story.fingerprint/plan-hash {:world {:args {:src "a"}}})
+              (rf.story.fingerprint/plan-hash {:world {:args {:src "b"}}}))
+        "control")
+    (is (not= (rf.story.fingerprint/plan-hash {:world {:args {:source "a"}}})
+              (rf.story.fingerprint/plan-hash {:world {:args {:source "b"}}})))
+    (is (not= (rf.story.fingerprint/plan-hash {:world {:db-seed {:feed {:source "a"}}}})
+              (rf.story.fingerprint/plan-hash {:world {:db-seed {:feed {:source "b"}}}})))))
+
+;; rf2-3x7nj.31.3 — an fx-error run carries a per-run `:error-trace` pointer and
+;; the raw thrown exception, which compares by identity.
+(deftest fx-error-stamps-canonicalize-equal
+  (let [run (fn [trace-id]
+              {:status :fail :app-db {}
+               :effects [{:fx-id :app.fx/boom :args {} :outcome :error
+                          :error-trace trace-id :epoch-id 3}]
+               :epoch-tape [{:epoch-id 3 :outcome :ok :db-after {}
+                             :effects [{:fx-id :app.fx/boom :args {} :outcome :error
+                                        :error-trace trace-id}]
+                             :trace-events [{:operation :rf.error/fx-handler-exception
+                                             :op-type :error :id trace-id
+                                             :tags {:exception (ex-info "boom" {:k 1})}}]}]})]
+    (testing "two replays of one failing fx differ only in :error-trace and the
+              exception object's identity — they canonicalize = and hash equal"
+      (is (= (rf.story.fingerprint/canonicalize (run 76))
+             (rf.story.fingerprint/canonicalize (run 98))))
+      (is (= (rf.story.fingerprint/run-hash (run 76))
+             (rf.story.fingerprint/run-hash (run 98)))))
+    (testing "the exception's message and data still count"
+      (is (not= (rf.story.fingerprint/canonicalize (run 76))
+                (rf.story.fingerprint/canonicalize
+                  (assoc-in (run 76) [:epoch-tape 0 :trace-events 0 :tags :exception]
+                            (ex-info "boom" {:k 2}))))))
+    (testing ":error-trace is stripped only on an effect row, not in app data"
+      (is (not= (rf.story.fingerprint/canonicalize {:status :pass :app-db {:error-trace 1}})
+                (rf.story.fingerprint/canonicalize {:status :pass :app-db {:error-trace 2}}))))))
 
 (deftest project-reconciles-variant-id-spelling
   (testing "legacy :variant-id is rewritten to :variant/id, then stripped"

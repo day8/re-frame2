@@ -40,11 +40,14 @@
 
   - strip `:rf.story/*` accumulator keys from any app-db it projects;
   - project away the volatile record fields
-    `{:elapsed-ms :dispatch-id :source :source-coord :runner :variant/id
-      :plan-hash :run-hash}` (and the shipping `:variant-id` spelling,
-    reconciled to `:variant/id` first; the authoritative set
-    `volatile-fields` also carries the per-run epoch / trace stamps —
-    `:epoch-id :trace-id :committed-at :schema-digest`);
+    `{:dispatch-id :source-coord :variant/id :plan-hash :run-hash}` at any
+    depth (and the shipping `:variant-id` spelling, reconciled to
+    `:variant/id` first; the authoritative set `volatile-fields` also
+    carries the per-run epoch / trace stamps —
+    `:epoch-id :trace-id :committed-at :schema-digest`), and
+    `:source` / `:elapsed-ms` / `:runner` only on the carriers that stamp
+    them (`strip-run-stamps`), since they are ordinary app-db keys too;
+  - project a thrown exception to data (kind, message, `ex-data`, cause);
   - impose a total per-slot ordering — effects keep emission order,
     sub-runs are topo-then-id, epochs are dispatch order, trace events
     keep emission order;
@@ -131,12 +134,16 @@
   epoch record also carries (`:id`, `:time`, `:frame`) are NOT in this set
   — stripping them globally would erase semantic app-db data; they are
   stripped STRUCTURALLY (only on their carrier maps) by `strip-run-stamps`.
+  So are `:source`, `:elapsed-ms` and `:runner` (`run-stamp-keys`): they
+  are ordinary domain keys too (a feed's source, a stopwatch, a race), so a
+  recursive strip would blind every consumer to app-db and args data under
+  them (rf2-3x7nj.30.4).
 
   This strip applies on the `canonicalize` / `canonical-hash`
   (= determinism / diff / `:run-hash`) path ONLY — the strip-free
   `content-hash` (snapshot identity) is untouched, so snapshot-identity
   baselines stay byte-stable (§Snapshot-identity migration path)."
-  #{:elapsed-ms :dispatch-id :source :source-coord :runner
+  #{:dispatch-id :source-coord
     :variant/id :plan-hash :run-hash
     :epoch-id :trace-id :committed-at :schema-digest})
 
@@ -173,6 +180,27 @@
             (cond-> (not (contains? m canonical)) (assoc canonical v))))
       m)))
 
+(defn- throwable?
+  "True iff `x` is a host exception object. Pure data → data."
+  [x]
+  #?(:clj  (instance? Throwable x)
+     :cljs (or (instance? ExceptionInfo x) (instance? js/Error x))))
+
+(defn- throwable->data
+  "Project a thrown exception to plain data: its kind, `ex-message`,
+  `ex-data` and (recursively) `ex-cause` (rf2-3x7nj.31.3). Pure data → data.
+
+  The object itself compares by IDENTITY, so two replays that throw the same
+  error would never canonicalize `=`. The kind is `\"ex-info\"` for an
+  `ex-info` on both hosts, else the host's class / error name."
+  [e]
+  (cond-> {:rf/throwable (if (instance? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e)
+                           "ex-info"
+                           #?(:clj (.getName (class e)) :cljs (or (.-name e) "Error")))
+           :message      (ex-message e)}
+    (some? (ex-data e))  (assoc :data (ex-data e))
+    (some? (ex-cause e)) (assoc :cause (throwable->data (ex-cause e)))))
+
 (defn project
   "Recursively strip volatile + accumulator keys and reconcile key
   spellings across a Story value. This is the deterministic *content*
@@ -185,11 +213,17 @@
   - drop every key in `volatile-fields`;
   - drop every `:rf.story/*` accumulator key.
 
+  A thrown exception (an fx-error trace event's `:exception` tag) is
+  projected to data (`throwable->data`) and then projected like any map.
+
   This single rule set is why a run-result, an epoch beat, and a snapshot
   tuple all canonicalise consistently — the projection does not need to
   know which shape it was handed."
   [x]
   (cond
+    (throwable? x)
+    (project (throwable->data x))
+
     (map? x)
     (let [m (reconcile-variant-id x)]
       (persistent!
@@ -371,11 +405,49 @@
            (contains? m :db-after)
            (contains? m :trace-events))))
 
+(defn- effect-row?
+  "True iff `m` is an effect row — an epoch record's `:effects` entry or its
+  run-result projection: a map carrying `:fx-id` and `:outcome`. Pure data →
+  data."
+  [m]
+  (and (map? m) (contains? m :fx-id) (contains? m :outcome)))
+
+(def ^:private run-stamp-keys
+  "The per-run stamps that are ALSO ordinary domain keys — `:source`,
+  `:elapsed-ms`, `:runner` (a feed's source, a stopwatch, a race) — so they
+  are stripped only on the carriers that stamp them (`run-stamp-carrier?`),
+  never at any depth (rf2-3x7nj.30.4)."
+  #{:source :elapsed-ms :runner})
+
+(defn- run-stamp-carrier?
+  "True iff `m` is a map Story or the framework stamps `run-stamp-keys` onto:
+
+  - a run-result — `:status` + `:app-db` (its `:elapsed-ms` / `:runner`);
+  - an assertion record — `:assertion` + `:passed?` / `:status` (its
+    `:elapsed-ms` and its `:source` coordinate);
+  - a trace event (its handler `:source`);
+  - a normalized plan or its `:explain` map — both carry `:source-chain` (the
+    variant's `:source` coordinate);
+  - a run artifact — `:artifact/kind :rf.test/run-artifact` (its `:source`
+    provenance).
+
+  Pure data → data."
+  [m]
+  (and (map? m)
+       (or (and (contains? m :status) (contains? m :app-db))
+           (and (contains? m :assertion)
+                (or (contains? m :passed?) (contains? m :status)))
+           (trace-event? m)
+           (contains? m :source-chain)
+           (= :rf.test/run-artifact (:artifact/kind m)))))
+
 (defn strip-run-stamps
-  "Strip the per-run stamps that ride a trace event (`:id`, `:time`) or an
+  "Strip the per-run stamps that ride a trace event (`:id`, `:time`), an
   epoch record (`:frame`, plus the volatile `:rf/time-ms` in its top-level
-  `:rf.cofx` replay token) — the common-key stamps `project` cannot strip
-  globally without erasing app-db data. Recursive
+  `:rf.cofx` replay token), an effect row (`:error-trace`, a pointer into the
+  process-global trace-id counter) and the `run-stamp-carrier?` maps
+  (`:source` / `:elapsed-ms` / `:runner`) — the common-key stamps `project`
+  cannot strip globally without erasing app-db data. Recursive
   across maps, vectors, sets, and seqs, so it reaches trace events nested in an
   epoch record's `:trace-events` and epoch records nested in a run-result's
   `:epoch-tape`. Pure data → data; idempotent.
@@ -394,7 +466,13 @@
               ;; the same class `strip-trace-tags` strips off the
               ;; trace-event `:tags` carrier; without it the `:epoch-tape`
               ;; slice false-drifts on a fresh-frame replay.
-              (epoch-record? x) (-> (dissoc :frame) strip-cofx-stamps))]
+              (epoch-record? x) (-> (dissoc :frame) strip-cofx-stamps)
+              ;; rf2-3x7nj.31.3: an fx-error row points at its error trace
+              ;; event by that event's process-global `:id`.
+              (effect-row? x) (dissoc :error-trace)
+              ;; rf2-3x7nj.30.4: `:source` / `:elapsed-ms` / `:runner` only
+              ;; where Story or the framework stamped them.
+              (run-stamp-carrier? x) (#(apply dissoc % run-stamp-keys)))]
       (persistent!
         (reduce-kv (fn [acc k v] (assoc! acc k (strip-run-stamps v)))
                    (transient {})
@@ -825,9 +903,10 @@
   effect, assertion, …) perturbs the canonical value.
 
   Projection composes two strips before ordering: the recursive reserved-key
-  strip (`project` — volatile + `:rf.story/*` accumulator keys) and the
-  structural per-run-stamp strip (`strip-run-stamps` — `:id` / `:time` /
-  `:frame` only on their trace-event / epoch-record carriers).
+  strip (`project` — volatile + `:rf.story/*` accumulator keys, and a thrown
+  exception projected to data) and the structural per-run-stamp strip
+  (`strip-run-stamps` — `:id` / `:time` / `:frame` / `:error-trace` /
+  `:source` / `:elapsed-ms` / `:runner` only on their carrier maps).
   Together they erase every per-run stamp a fresh-frame replay writes, so
   two semantically-equal runs canonicalize `=` (the determinism gate's
   `test/assert-deterministic` is exactly this equality over N replays)."
@@ -965,7 +1044,7 @@
 
   Two equivalent runs that differ only in volatile fields (wall-clock
   elapsed, generated dispatch ids, runner kind, …) hash equal because
-  `canonicalize` projects those away recursively, including inside the
-  `:epoch-tape` beats."
+  `canonicalize` projects those away, including inside the `:epoch-tape`
+  beats."
   [result]
   (canonical-hash (select-keys result run-hash-input-keys)))

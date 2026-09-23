@@ -1,7 +1,15 @@
 (ns re-frame.story.determinism
   "The determinism gate — `assert-deterministic` (NewTestStory rf2-5x1wt.8,
   spec/017-Testing-Story.md §Determinism gate). It answers ONE question:
-  does this plan / artifact produce the SAME run every time?
+  does this artifact / event program produce the SAME run every time?
+
+  A normalized variant PLAN is refused with `:cannot-run :reason
+  :determinism-plan-target` (rf2-3x7nj.31.2): an artifact built from a plan
+  is a program projection that drops the plan's decorator stubs, `:db-seed`,
+  frame-setup, loaders, terminal expectations and extra plays, so replaying
+  it judges a run the variant never makes. A variant's determinism is judged
+  by running it twice (`re-frame.story/run` on its id) and comparing the two
+  run-results with `compare-runs`.
 
   ## What determinism means here
 
@@ -50,7 +58,8 @@
   ## Pure / JVM-testable
 
   This ns splits the PURE verdict logic (`wait-steps`, `has-wall-clock-wait?`,
-  `cannot-run-wait-refusal`, `compare-runs`) from the impure REPLAY driver
+  `cannot-run-wait-refusal`, `plan-target?`, `plan-target-refusal`,
+  `compare-runs`) from the impure REPLAY driver
   (`assert-deterministic`, which calls `.7`'s `replay-run-artifact` N times
   into fresh frames). The pure half runs under `clojure -M:test` with no
   runtime; the replay half settles synchronously to a fixed point via the
@@ -64,23 +73,26 @@
 ;; ===========================================================================
 
 (defn ->artifact
-  "Coerce a determinism-gate `target` into a replayable `:rf.test/run-artifact`.
-  Pure data → data.
+  "Coerce `target` into a `:rf.test/run-artifact`. Pure data → data.
 
   `target` is one of:
 
   - a `:rf.test/run-artifact` map — used verbatim (it already carries the
     `:event-program` + `:fx-decisions`);
-  - a normalized variant plan (a map with `:world` / `:script`) — its
-    `[:world :setup]` ⧺ `:script` fold into the artifact `:event-program`
-    (the same setup-first fold `make-run-artifact` applies), its
-    `[:world :frame :fx-overrides]` become the artifact `:fx-decisions`,
-    and its `[:world :network]` per-route reply map becomes the artifact
-    `:network` slot (so replay re-installs the managed-request stubs the
-    `:fx-decisions` redirect points at — rf2-tymyh, spec/017 §The network
-    surface). Without the `:network` route map a replayed `:network`
-    variant would fail-closed on every request (the redirect survives but
-    the route stubs do not);
+  - a normalized variant plan (a map with `:world` / `:script`) — a PROGRAM
+    PROJECTION, the promotion API route (spec/017 §Promotion): its
+    `[:world :setup]` ⧺ primary `:script` fold into the artifact
+    `:event-program` (the same setup-first fold `make-run-artifact`
+    applies), its `[:world :frame :fx-overrides]` become the artifact
+    `:fx-decisions`, its `[:world :network]` per-route reply map becomes the
+    artifact `:network` slot (so replay re-installs the managed-request stubs
+    the `:fx-decisions` redirect points at — rf2-tymyh, spec/017 §The network
+    surface), and it gets a `:source`. It is NOT a reproduction of the
+    variant's run: decorator stubs (`:rf.story/force-fx-stub`), `:db-seed`,
+    frame-setup decorators, loaders, interceptor overrides, the plan's
+    `:expect` (terminal `:assertions` / `:checks`) and every play in
+    `[:world :scripts]` after the primary one are not carried. That is why
+    the determinism gate and the golden family refuse a plan (rf2-3x7nj.31.2);
   - any other map carrying `:setup` / `:script` / `:event-program` — folded
     by `make-run-artifact` directly.
 
@@ -143,6 +155,44 @@
                 "bare [:wait ms] step — wall-clock waits are the explicit "
                 "determinism opt-out (use [:wait-until pred] for a "
                 "deterministic, queue/state-based settle).")})
+
+;; ===========================================================================
+;; THE PLAN-TARGET REFUSAL  (pure — rf2-3x7nj.31.2)
+;; ===========================================================================
+
+(defn plan-target?
+  "True iff `x` is a normalized variant plan — a map carrying `:world` that is
+  not a run artifact. Pure data → data."
+  [x]
+  (and (map? x)
+       (contains? x :world)
+       (not (rf.story.artifact/run-artifact? x))))
+
+(defn plan-target-refusal
+  "Build the `:cannot-run` refusal for a normalized variant `plan` handed to
+  the gate (spec §Determinism gate, rf2-3x7nj.31.2). Pure data → data.
+
+  The gate replays an artifact, and `->artifact` of a plan is a program
+  projection, not the variant's run: it drops the decorator stubs, the
+  `:db-seed`, frame-setup, loaders, the terminal `:assertions` / `:checks`
+  and any extra plays. Judging it would judge a run the variant never makes —
+  a `:rf.story/force-fx-stub` variant replays its REAL effect — so the gate
+  refuses and names the route that judges the variant itself."
+  [plan]
+  (cond-> {:status :cannot-run
+           :reason :determinism-plan-target
+           :detail (str "re-frame2-story: assert-deterministic refuses a "
+                        "normalized variant plan. The gate judges a run "
+                        "artifact or an event program, and a variant's run "
+                        "depends on world an artifact does not carry "
+                        "(decorator stubs such as :rf.story/force-fx-stub, "
+                        ":db-seed, frame-setup, loaders, terminal "
+                        ":assertions / :checks, extra plays). To ask whether a "
+                        "VARIANT is deterministic, run it twice with "
+                        "re-frame.story/run on its id (not on its compiled "
+                        "plan) and compare the two run-results with "
+                        "re-frame.story.determinism/compare-runs.")}
+    (some? (:variant/id plan)) (assoc :variant/id (:variant/id plan))))
 
 ;; ===========================================================================
 ;; COMPARE N RUNS  (pure)
@@ -215,14 +265,16 @@
   2)
 
 (defn assert-deterministic
-  "Assert that `plan-or-artifact` produces the SAME run every time — the
+  "Assert that `artifact-or-program` produces the SAME run every time — the
   determinism gate (spec §Determinism gate). Replays the event program into
   N FRESH frames via `re-frame.story.artifact/replay-run-artifact` and
   compares the runs through `re-frame.story.fingerprint/canonicalize`.
 
-  `plan-or-artifact` is a `:rf.test/run-artifact`, a normalized variant
-  plan, or a `:setup`/`:script`/`:event-program` body — coerced by
-  `->artifact`.
+  `artifact-or-program` is a `:rf.test/run-artifact` or a
+  `:setup`/`:script`/`:event-program` body — coerced by `->artifact`. A
+  normalized variant plan is REFUSED (`plan-target-refusal`): to judge a
+  variant, run it twice by its id and compare the run-results with
+  `compare-runs`.
 
   `opts` (all optional):
 
@@ -234,6 +286,9 @@
 
   Returns one of three statuses (never a flaky verdict):
 
+  - `{:status :cannot-run :reason :determinism-plan-target …}` — the target
+    is a normalized variant plan (rf2-3x7nj.31.2). Pure pre-flight: no
+    replay runs, so no effect fires.
   - `{:status :cannot-run :reason :determinism-wall-clock-wait …}` — the
     program contains a bare `[:wait ms]`; the gate REFUSES rather than run
     it flakily. This is computed BEFORE any replay (pure pre-flight).
@@ -247,13 +302,21 @@
   Each replay runs into its OWN fresh `:rf.test.replay/*` frame (torn down
   before return), so the gate observes no cross-run app-db leak — the same
   isolation `replay-run-artifact` already guarantees."
-  ([plan-or-artifact] (assert-deterministic plan-or-artifact nil))
-  ([plan-or-artifact {:keys [runs hooks frame-config] :as _opts}]
-   (let [art (->artifact plan-or-artifact)
+  ([artifact-or-program] (assert-deterministic artifact-or-program nil))
+  ([artifact-or-program {:keys [runs hooks frame-config] :as _opts}]
+   (let [art (when-not (plan-target? artifact-or-program)
+               (->artifact artifact-or-program))
          n   (max 2 (or runs default-runs))]
-     (if (has-wall-clock-wait? art)
+     (cond
+       ;; Pure pre-flight refusal — a plan's artifact is not its run.
+       (nil? art)
+       (plan-target-refusal artifact-or-program)
+
        ;; Pure pre-flight refusal — never replay a wall-clock plan.
+       (has-wall-clock-wait? art)
        (cannot-run-wait-refusal art)
+
+       :else
        (let [replay-opts (cond-> {}
                            hooks        (assoc :hooks hooks)
                            frame-config (assoc :frame-config frame-config))

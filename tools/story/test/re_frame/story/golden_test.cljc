@@ -25,15 +25,16 @@
             [re-frame.frame     :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            #?(:clj [re-frame.story :as rf.story])
             [re-frame.story.artifact    :as rf.story.artifact]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.golden      :as rf.story.golden]))
 
 ;; ===========================================================================
 ;; This ns is the rf2-5x1wt.32 golden-slice coverage, extended by:
-;;   • rf2-vvub1 — the §Capture path FAILS CLOSED: a normalized plan is now
-;;     coerced + replayed (not silently frozen as a near-empty golden), and
-;;     an unrecognized target is REJECTED with :rf.error/golden-bad-target;
+;;   • rf2-vvub1 — the §Capture path FAILS CLOSED: an unrecognized target is
+;;     REJECTED with :rf.error/golden-bad-target (and, since rf2-3x7nj.31.2,
+;;     so is a normalized plan, whose artifact is not the variant's run);
 ;;   • rf2-9fd9c — golden-match? + compare-golden share ONE GREEN/RED
 ;;     authority (no inline-drift) and canonicalize the run ONCE per call.
 ;; ===========================================================================
@@ -341,10 +342,11 @@
 ;; ===========================================================================
 
 (deftest capture-golden-rejects-bad-target
-  (testing "a target that is neither a run-result (no :status), a
-            run-artifact, nor a normalized plan (no :world) is REJECTED with
-            :rf.error/golden-bad-target — NOT silently frozen into a
-            near-empty golden (the rf2-vvub1 silent-wrong path, closed)"
+  (testing "a target that is neither a run-result (no :status) nor a
+            run-artifact is REJECTED with :rf.error/golden-bad-target — NOT
+            silently frozen into a near-empty golden (the rf2-vvub1
+            silent-wrong path, closed). A normalized plan is rejected too:
+            see capture-golden-refuses-a-normalized-plan"
     (doseq [bad [{:some :map :no :status-world-or-kind}
                  {:event-program [[:dispatch [:x]]]} ; missing :artifact/kind ⇒ not a run-artifact
                  42
@@ -419,40 +421,76 @@
              (get-in r [:diff :app-db :changed]))))))
 
 ;; ===========================================================================
-;; HEADLESS: rf2-vvub1 — a normalized PLAN capture path actually replays
+;; HEADLESS: rf2-3x7nj.31.2 — a normalized PLAN is refused, never replayed
 ;; ===========================================================================
+;;
+;; An artifact built from a plan (`determinism/->artifact`) drops the plan's
+;; decorator stubs, `:db-seed`, frame-setup, loaders, terminal expectations
+;; and extra plays, so replaying it froze a run the variant never makes. A
+;; variant's golden is captured from the run-result of running the variant.
 
-(deftest capture-golden-from-plan-replays-not-frozen
-  (testing "a normalized plan (a map with :world) is FOLDED to a replayable
-            artifact + replayed into a fresh frame — its behavioural slice
-            reflects the REAL run (a non-empty :app-db / :status), NOT a
-            silently-frozen near-empty plan map (the rf2-vvub1 bug)"
-    (rf/reg-event :golden/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (rf/reg-event :golden/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
+(deftest capture-golden-refuses-a-normalized-plan
+  (let [dispatched (atom 0)]
+    (rf/reg-event :golden/seed (fn [{:keys [db]} [_ v]] (swap! dispatched inc) {:db (assoc db :v v)}))
     (let [plan {:variant/id :story.golden/plan
                 :world  {:setup [[:dispatch [:golden/seed 10]]]}
-                :script [[:dispatch [:golden/bump]]]}
-          g    (rf.story.golden/capture-golden plan {:keep-run-result true})]
-      (is (rf.story.golden/golden? g))
-      ;; The frozen slice must be the REPLAYED run-result, not the plan map:
-      ;; a real run carries a :status and a non-empty :app-db. A silently-
-      ;; frozen plan would freeze {:v nil}/no :status and read near-empty.
-      (is (= {:v 11} (:app-db (:run-result g)))
-          "the plan was replayed (seed 10 then bump ⇒ 11), not frozen as data")
-      (is (= :pass (:status (:run-result g)))
-          "the frozen slice carries the run's :status — proving it is a run-result")
-      ;; And the golden re-matches a re-replay of the SAME plan (fresh-frame
-      ;; volatile drift causes no false mismatch).
-      (is (true? (rf.story.golden/golden-match? g plan))
-          "the same plan replayed again matches the captured golden")
-      (is (true? (:match? (rf.story.golden/compare-golden g plan))))))
+                :script [[:dispatch [:golden/seed 11]]]}
+          g    (rf.story.golden/make-golden (run-result {:app-db {:v 11}}))]
+      (testing "capture, match and compare all throw :rf.error/golden-bad-target"
+        (doseq [[label f] [["capture-golden" #(rf.story.golden/capture-golden plan)]
+                           ["golden-match?"  #(rf.story.golden/golden-match? g plan)]
+                           ["compare-golden" #(rf.story.golden/compare-golden g plan)]]]
+          (let [e (try (f) nil
+                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
+            (is (= :rf.error/golden-bad-target (:rf.error/id (ex-data e)))
+                (str label " must refuse a plan"))
+            (is (re-find #"re-frame.story/run" (str (:reason (ex-data e))))
+                (str label "'s refusal names the recovery")))))
+      (testing "the plan was never replayed"
+        (is (zero? @dispatched))))))
 
-  (testing "a golden captured from a plan does NOT match a divergent plan"
-    (rf/reg-event :golden/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (let [plan-a {:variant/id :story.golden/a :world {} :script [[:dispatch [:golden/seed 1]]]}
-          plan-b {:variant/id :story.golden/b :world {} :script [[:dispatch [:golden/seed 2]]]}
-          g      (rf.story.golden/capture-golden plan-a {:keep-run-result true})
-          r      (rf.story.golden/compare-golden g plan-b)]
-      (is (false? (rf.story.golden/golden-match? g plan-b)))
-      (is (false? (:match? r)))
-      (is (contains? (:facets (:diff r)) :app-db)))))
+;; rf2-3x7nj.31.3 — a failing fx run carries a per-run `:error-trace` pointer
+;; and the raw thrown exception, so a golden never matched the very artifact
+;; it was captured from.
+(deftest golden-of-a-failing-artifact-matches-its-own-replay
+  (testing "a golden captured from an artifact whose fx throws matches a
+            re-replay of that artifact"
+    (rf/reg-fx :golden.fx/boom {:platforms #{:client :server}}
+               (fn [_ _] (throw (ex-info "boom" {:k 1}))))
+    (rf/reg-event :golden/boom (fn [_ _] {:fx [[:golden.fx/boom {}]]}))
+    (let [art (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:golden/boom]]]})
+          g   (rf.story.golden/capture-golden art {:keep-run-result true})]
+      (is (= :fail (:status (:run-result g))) "control: the captured run genuinely fails")
+      (is (true? (rf.story.golden/golden-match? g art)))
+      (is (true? (:match? (rf.story.golden/compare-golden g art)))))))
+
+;; rf2-3x7nj.31.2 — a REGISTERED stubbed variant: no real effect fires through
+;; capture, match or compare, and the variant's golden is captured from its
+;; run-result. JVM-only: `rf.story/run` derefs a CompletableFuture here.
+#?(:clj
+   (deftest golden-of-a-stubbed-variant-fires-no-real-effect
+     (rf.story/clear-all!)
+     (rf.story/install-canonical-vocabulary!)
+     (try
+       (let [real (atom 0)]
+         ;; A counting fx that RETURNS normally, with the two-arg reg-fx shape.
+         (rf/reg-fx :golden.fx/http {:platforms #{:client :server}}
+                    (fn [_ctx _args] (swap! real inc) nil))
+         (rf/reg-event :golden/load (fn [_ _] {:fx [[:golden.fx/http {}]]}))
+         (rf.story/reg-variant :story.golden/stubbed
+           {:decorators [[:rf.story/force-fx-stub :golden.fx/http {:status 200}]]
+            :script     [[:dispatch [:golden/load]]]})
+         (let [plan (rf.story/variant-plan :story.golden/stubbed)
+               r1   @(rf.story/run :story.golden/stubbed)
+               r2   @(rf.story/run :story.golden/stubbed)
+               g    (rf.story.golden/capture-golden r1)]
+           (testing "the recovery: a golden of one run-result matches a second run"
+             (is (= :pass (:status r1)))
+             (is (true? (rf.story.golden/golden-match? g r2))))
+           (testing "capture / match / compare refuse the plan"
+             (is (thrown? clojure.lang.ExceptionInfo (rf.story.golden/capture-golden plan)))
+             (is (thrown? clojure.lang.ExceptionInfo (rf.story.golden/golden-match? g plan)))
+             (is (thrown? clojure.lang.ExceptionInfo (rf.story.golden/compare-golden g plan))))
+           (testing "no real effect fired anywhere"
+             (is (zero? @real)))))
+       (finally (rf.story/clear-all!)))))

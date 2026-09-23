@@ -54,9 +54,9 @@
   ## Capture / compare contract
 
   - `capture-golden` — freeze a run-result (or a `:rf.test/run-artifact`,
-    or a normalized plan, via `->run-result`) into a `:rf.test/golden`
-    slice. Pure when handed a run-result; impure (replays into a fresh
-    frame) when handed an artifact / plan.
+    via `->run-result`) into a `:rf.test/golden` slice. Pure when handed a
+    run-result; impure (replays into a fresh frame) when handed an
+    artifact. A normalized variant plan is refused (rf2-3x7nj.31.2).
   - `golden-match?` — true iff a new run canonicalizes `=` to the golden's
     frozen slice. The fast path first confirms the golden's frozen
     `:slice-keys` still match the current `run-hash-input-keys` (a
@@ -75,18 +75,14 @@
   `slice-keys-current?`, `golden-match?`, `compare-golden`) are pure data →
   data: a run-result in,
   a golden / verdict out — so they run under `clojure -M:test` with no
-  runtime. The only impurity is `->run-result`, which (for an artifact /
-  plan input) replays into a fresh frame via `.7`'s `replay-run-artifact`.
+  runtime. The only impurity is `->run-result`, which (for an artifact
+  input) replays into a fresh frame via `.7`'s `replay-run-artifact`.
 
   This ns is bundle-isolated tooling; it `:require`s ONLY the pure
-  fingerprint / diff / determinism modules + the artifact replay seam
-  (which itself uses the late-bound `rf/epoch-history` facade), so it
-  introduces NO hard `:require` of a test-only dep into the production
-  Story path. The determinism dependency is the pure `->artifact` plan
-  coercion (no runtime), reused so the plan capture path folds a plan to a
-  replayable artifact through the SAME seam the determinism gate uses."
+  fingerprint / diff modules + the artifact replay seam (which itself uses
+  the late-bound `rf/epoch-history` facade), so it introduces NO hard
+  `:require` of a test-only dep into the production Story path."
   (:require [re-frame.story.artifact    :as rf.story.artifact]
-            [re-frame.story.determinism :as rf.story.determinism]
             [re-frame.story.diff        :as rf.story.diff]
             [re-frame.story.fingerprint :as rf.story.fingerprint]))
 
@@ -179,7 +175,7 @@
          (contains? x :canonical))))
 
 ;; ===========================================================================
-;; CAPTURE  (run-result → golden; artifact / plan → fresh-frame replay)
+;; CAPTURE  (run-result → golden; artifact → fresh-frame replay)
 ;; ===========================================================================
 
 (defn- ->run-result
@@ -189,30 +185,46 @@
   - a `:rf.test/run-artifact` — replayed into a FRESH frame via
     `re-frame.story.artifact/replay-run-artifact` (the IMPURE path),
     threading `opts` (`:frame` / `:hooks` / `:frame-config`);
-  - a normalized plan (a map carrying `:world`) — folded to a replayable
-    artifact via the determinism gate's pure `re-frame.story.determinism/
-    ->artifact` (the SAME `[:world :setup]` ⧺ `:script` fold the gate uses),
-    then replayed into a FRESH frame, also IMPURE;
   - a run-result (a map carrying `:status`) — used directly, the PURE path
     (`clojure -M:test`, no runtime).
 
-  Replaying an artifact / plan means a golden frozen from one captures
-  exactly the FRESH-frame run the determinism gate + semantic diff would
-  produce — so capture-from-artifact, capture-from-plan, and
-  capture-from-result agree.
+  Replaying an artifact means a golden frozen from one captures exactly the
+  FRESH-frame run the determinism gate + semantic diff would produce — so
+  capture-from-artifact and capture-from-result agree.
 
-  Any other input (a map that is neither a run-artifact, a plan, nor a
-  run-result, or a non-map) is REJECTED with `:rf.error/golden-bad-target`
-  rather than silently frozen — a golden captured from garbage is worse
-  than a loud failure, because it freezes a near-empty baseline that then
-  reports false GREEN forever (the silent-wrong path this guard closes)."
+  A normalized variant plan (a map carrying `:world`) is REJECTED with
+  `:rf.error/golden-bad-target` (rf2-3x7nj.31.2): an artifact built from a
+  plan drops its decorator stubs, `:db-seed`, frame-setup, loaders,
+  terminal expectations and extra plays, so replaying it would freeze a run
+  the variant never makes. The plan check sits ahead of the `:status` check
+  so a plan is never mistaken for a run-result.
+
+  Any other input (a map that is neither a run-artifact nor a run-result,
+  or a non-map) is REJECTED with `:rf.error/golden-bad-target` rather than
+  silently frozen — a golden captured from garbage is worse than a loud
+  failure, because it freezes a near-empty baseline that then reports false
+  GREEN forever (the silent-wrong path this guard closes)."
   [target opts]
   (cond
     (rf.story.artifact/run-artifact? target)
     (rf.story.artifact/replay-run-artifact target opts)
 
     (and (map? target) (contains? target :world))
-    (rf.story.artifact/replay-run-artifact (rf.story.determinism/->artifact target) opts)
+    (throw (ex-info ":rf.error/golden-bad-target"
+                    {:rf.error/id :rf.error/golden-bad-target
+                     :where    'rf.story/capture-golden
+                     :recovery :fix-target
+                     :reason   (str "re-frame2-story: capture/compare-golden "
+                                    "refuses a normalized variant plan — an "
+                                    "artifact built from a plan does not carry "
+                                    "its decorator stubs, :db-seed, frame-setup, "
+                                    "loaders, terminal expectations or extra "
+                                    "plays, so it is not the variant's run. "
+                                    "Capture from the run-result of "
+                                    "re-frame.story/run on the variant's id "
+                                    "(not on its compiled plan), and compare "
+                                    "against another such run-result")
+                     :target   target}))
 
     (and (map? target) (contains? target :status))
     target
@@ -223,10 +235,9 @@
                      :where    'rf.story/capture-golden
                      :recovery :fix-target
                      :reason   (str "re-frame2-story: capture/compare-golden "
-                                    "target is not a run-result (no :status), a "
-                                    ":rf.test/run-artifact, nor a normalized plan "
-                                    "(no :world) — refusing to freeze a golden "
-                                    "from an unrecognized input")
+                                    "target is neither a run-result (no :status) "
+                                    "nor a :rf.test/run-artifact — refusing to "
+                                    "freeze a golden from an unrecognized input")
                      :target   target}))))
 
 (defn capture-golden
@@ -239,16 +250,13 @@
     directly, the PURE path (`clojure -M:test` with no runtime);
   - a `:rf.test/run-artifact` — REPLAYED into a fresh frame via
     `replay-run-artifact` to obtain a run-result first (the impure path);
-    so a golden frozen from an artifact captures the fresh-frame run;
-  - a normalized variant plan (a map carrying `:world`) — folded to a
-    replayable artifact via the determinism gate's pure `->artifact`, then
-    replayed like an artifact (the impure path), so a golden frozen from a
-    plan captures the same fresh-frame run the determinism gate + diff
-    would produce.
+    so a golden frozen from an artifact captures the fresh-frame run.
 
-  Any other input is REJECTED with `:rf.error/golden-bad-target` (see
-  `->run-result`) — capture FAILS CLOSED rather than freezing a garbage
-  golden from an unrecognized shape.
+  A normalized variant plan is REJECTED with `:rf.error/golden-bad-target`
+  (rf2-3x7nj.31.2) — capture a variant from the run-result of
+  `re-frame.story/run` on its id. Any other input is rejected the same way
+  (see `->run-result`) — capture FAILS CLOSED rather than freezing a
+  garbage golden from an unrecognized shape.
 
   `opts` (all optional):
 
@@ -346,10 +354,10 @@
   assertion verdict, schema failure, trace spine), which perturbs the
   canonical value.
 
-  `run` MAY be a run-result (pure), a `:rf.test/run-artifact`, or a
-  normalized plan (the latter two replayed into a fresh frame first — pass
-  `opts` for `:frame` / `:hooks` / `:frame-config`); any other shape is
-  rejected (see `->run-result`)."
+  `run` MAY be a run-result (pure) or a `:rf.test/run-artifact` (replayed
+  into a fresh frame first — pass `opts` for `:frame` / `:hooks` /
+  `:frame-config`); a normalized plan or any other shape is rejected (see
+  `->run-result`)."
   ([golden run] (golden-match? golden run nil))
   ([golden run opts]
    (matches? golden (canonical+hash (->run-result run opts)))))

@@ -89,6 +89,27 @@
               (rf.story.fingerprint/canonicalize {:status :pass :app-db {:id 2 :time 20 :frame :r}}))
         "semantic app-db data on common keys survives canonicalization")))
 
+(deftest fx-error-stamps-canonicalize-equal-on-cljs
+  (testing "rf2-3x7nj.31.3: a thrown error is projected to data on CLJS, so two
+            replays of one failing fx canonicalize = (the :error-trace pointer
+            is stripped on the effect row)"
+    (let [run (fn [trace-id err]
+                {:status :fail :app-db {}
+                 :effects [{:fx-id :app.fx/boom :args {} :outcome :error
+                            :error-trace trace-id}]
+                 :epoch-tape [{:epoch-id 3 :outcome :ok :db-after {}
+                               :trace-events [{:operation :rf.error/fx-handler-exception
+                                               :op-type :error :id trace-id
+                                               :tags {:exception err}}]}]})]
+      (is (= (rf.story.fingerprint/canonicalize (run 76 (ex-info "boom" {:k 1})))
+             (rf.story.fingerprint/canonicalize (run 98 (ex-info "boom" {:k 1})))))
+      (is (= (rf.story.fingerprint/canonicalize (run 76 (js/Error. "boom")))
+             (rf.story.fingerprint/canonicalize (run 98 (js/Error. "boom"))))
+          "a plain js/Error takes the same projection")
+      (is (not= (rf.story.fingerprint/canonicalize (run 76 (ex-info "boom" {:k 1})))
+                (rf.story.fingerprint/canonicalize (run 76 (ex-info "boom" {:k 2}))))
+          "the error's data still counts"))))
+
 (deftest collection-types-do-not-collide-on-cljs
   (testing "map / set / vector type tags keep the kinds distinct on CLJS
             (rf2-lvrqa) — host-portable structural tagging"
