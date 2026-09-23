@@ -43,6 +43,7 @@ Unreached upstream surface (`map-from-seq`, `contains-compressed-elements?`, `pa
 - `empty-payload?` — the no-win short-circuit predicate (nil / empty / scalar, checked BEFORE `de-dupe-eq`).
 - `no-substitutions?` — the post-`de-dupe-eq` one-entry-root-only-cache detector (a non-empty collection with no repeated subtrees).
 - `dedup-value` — the encode + cross-MCP wrap.
+- `wire=` — the wire equivalence below (`=` refined by collection kind); [`diff-encode.md`](diff-encode.md) decides "unchanged" by it too.
 
 `dedup` does NOT own:
 

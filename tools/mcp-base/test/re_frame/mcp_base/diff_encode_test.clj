@@ -146,6 +146,59 @@
   (is (= [] (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 2 3]} []))))
 
 ;; ---------------------------------------------------------------------------
+;; Collection KIND is a change (rf2-3x7nj.35.1). `(= [1 2] '(1 2))`, so a
+;; bare-`=` no-change test emitted NO patch for a vector turned into a seq
+;; with the same elements, and the decoder rebuilt the OLD kind. `=`
+;; erases kind in these assertions too, so each one checks the kind itself.
+;; ---------------------------------------------------------------------------
+
+(deftest diff-encode-reports-a-vector-turned-seq-with-equal-elements
+  (let [before {:items [{:id 1} {:id 2}] :n 1}
+        ;; Producer-derived: the classic re-frame regression — `sort-by`
+        ;; over an already-sorted vector hands back a SEQ of the same items.
+        after  (update before :items #(sort-by :id %))
+        enc    (rf.mcp-base.diff-encode/diff-encode-db-after
+                 {:db-before before :db-after after})
+        dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after enc))]
+    (is (= before after) "precondition: `=` cannot see the change")
+    (is (not (vector? (:items after))) "precondition: app-db now holds a seq")
+    (is (seq (get-in enc [:db-after :sections]))
+        "the kind change ships as a patch, not as a no-op diff")
+    (is (not (vector? (:items dec)))
+        "the decoded :db-after carries the seq app-db really holds")
+    (is (= (pr-str after) (pr-str dec))
+        "and prints exactly as full mode would")))
+
+(deftest collect-patches-lands-a-nested-kind-change-on-its-own-slot
+  (let [a       {:rows [{:tags [:a :b]} {:tags [:c]}] :n 1}
+        b       {:rows [{:tags (list :a :b)} {:tags [:c]}] :n 1}
+        patches (rf.mcp-base.diff-encode/collect-patches a b [])]
+    (is (= [[:rows 0 :tags]] (mapv first patches))
+        "one patch, on the slot whose kind changed — not the whole of :rows")
+    (is (list? (nth (first patches) 2)) "carrying the new kind")
+    (is (list? (get-in (rf.mcp-base.diff-encode/apply-patches a patches) [:rows 0 :tags])))))
+
+(deftest diff-encode-reports-a-map-key-respelled-in-another-kind
+  (let [before {:by-pair {[1 2] :x} :n 1}
+        after  {:by-pair {(list 1 2) :x} :n 1}
+        enc    (rf.mcp-base.diff-encode/diff-encode-db-after
+                 {:db-before before :db-after after})
+        dec    (:db-after (rf.mcp-base.diff-encode/decode-db-after enc))]
+    (is (= before after) "precondition: `=` cannot see the change")
+    (is (list? (key (first (:by-pair dec))))
+        "the decoded key is the list app-db holds, not the old vector")
+    (is (= (pr-str after) (pr-str dec)))))
+
+(deftest collect-patches-real-change-in-a-kind-changed-slot-still-patches
+  ;; Control: a genuine value change in the same slot was always a patch,
+  ;; so the instrument above can see one.
+  (let [a       {:items [{:id 1} {:id 2}]}
+        b       {:items (list {:id 2} {:id 1})}
+        patches (rf.mcp-base.diff-encode/collect-patches a b [])]
+    (is (= [[:items]] (mapv first patches)))
+    (is (list? (nth (first patches) 2)))))
+
+;; ---------------------------------------------------------------------------
 ;; apply-patches — round-trips collect-patches.
 ;; ---------------------------------------------------------------------------
 

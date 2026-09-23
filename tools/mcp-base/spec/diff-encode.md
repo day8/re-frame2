@@ -66,6 +66,8 @@ This preserves the token-budget premise for the dominant in-place-update app-db 
 
 A vector length change is emitted as one whole-vector replacement. Numeric `:assoc` only overwrites an existing index (or index 0 on a newly vivified vector), and `:dissoc` is a no-op against vector parents; there is no splice grammar. Same-length vectors may diff by index. Other sequential types are whole-leaf replacements.
 
+"Unchanged" means dedup's `wire=` — `=` refined by collection kind — not bare `=`, because `(= [1 2] '(1 2))` while the EDN on the wire keeps them apart. A vector turned into a seq with the same elements (`sort-by`, `filter`, `map` over an already-ordered vector) is therefore a whole-leaf `:assoc` of the new value, and a map key respelled in another kind is a `:dissoc` then `:assoc` under the new key, so the decoded `:db-after` carries the kind app-db really holds (rf2-3x7nj.35.1).
+
 ## Why patches, not `clojure.data/diff`
 
 `clojure.data/diff`'s parallel-vector sparse form (with `nil` placeholders meaning "common at this position") loses information once you only carry one half plus the original — you can't tell `nil` (the leaf value `nil`) apart from `nil` (the no-change sentinel). Path-keyed patches are unambiguous for any value the runtime can produce: a changed vector element rides under a numeric **index** path (`[[:items 0 :qty] :assoc 2]`), which carries the position explicitly and never relies on a positional `nil` sentinel.
