@@ -172,6 +172,19 @@
              (set asserts))
           ":who is unchanged → no assertion; :n changed + :extra new → two assertions"))))
 
+(deftest auto-assert-never-asserts-story-bookkeeping
+  (testing "rf2-3x7nj.29.2: Story's own run bookkeeping (:rf.story/* keys) is
+            never app behaviour, so neither branch asserts on it"
+    (let [record {:assertion :rf.assert/path-equals :passed? true :dispatch-id 5}
+          seed   {:rf.story/lifecycle :loading :rf.story/assertions [] :n 0}
+          final  {:rf.story/lifecycle :ready :rf.story/assertions [record] :n 1}]
+      (is (= [[:assert-db [:n] 1]]
+             (rf.story.recorder.play-export/auto-assert-steps final {:seed-db seed}))
+          "seeded: the changed :rf.story/* keys are not asserted, the changed :n is")
+      (is (= [[:assert-db [:n] 1]]
+             (rf.story.recorder.play-export/auto-assert-steps final {}))
+          "no seed: the :rf.story/* keys are not among the asserted top-level keys"))))
+
 (deftest auto-assert-cap-respected
   (testing "the max-auto-assertions cap limits the trailing block"
     (let [final-db (into {} (map (fn [i] [(keyword (str "k" i)) i])) (range 20))

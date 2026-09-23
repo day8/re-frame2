@@ -346,6 +346,16 @@
   (when (map-like? final-db)
     (for [[k _] final-db] [k])))
 
+(defn- story-bookkeeping-path?
+  "True iff `path`'s top-level key is Story's own run bookkeeping
+  (`:rf.story/lifecycle`, `:rf.story/assertions`, any `:rf.story.*/…`) —
+  never app behaviour, so never an auto-assertion (rf2-3x7nj.29.2)."
+  [[k]]
+  (let [ns-str (when (keyword? k) (namespace k))]
+    (boolean (and ns-str
+                  (or (= "rf.story" ns-str)
+                      (str/starts-with? ns-str "rf.story."))))))
+
 (defn auto-assert-steps
   "Derive a vector of `[:assert-db <path> <expected>]` steps from a
   final app-db snapshot. `opts`:
@@ -356,13 +366,15 @@
     :max-auto-assertions  cap on the number of generated steps
                           (default 5).
 
-  Steps are emitted in the order the keys appear in `final-db`.
+  Steps are emitted in the order the keys appear in `final-db`. Story's
+  own `:rf.story/*` bookkeeping keys are skipped in both branches.
   Returns `[]` when `final-db` isn't map-like."
   [final-db {:keys [seed-db max-auto-assertions]
              :or   {max-auto-assertions default-max-auto-assertions}}]
   (let [paths (or (and seed-db (changed-top-paths seed-db final-db))
                   (top-paths final-db))]
     (->> paths
+         (remove story-bookkeeping-path?)
          (take max-auto-assertions)
          (mapv (fn [p] [:assert-db p (get-in final-db p)])))))
 
