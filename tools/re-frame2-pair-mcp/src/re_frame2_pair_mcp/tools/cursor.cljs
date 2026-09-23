@@ -104,6 +104,7 @@
   the cursor shape (add fields, switch keys) without a wire-protocol
   break."
   (:require [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def default-limit
@@ -140,6 +141,22 @@
   [v]
   (and (map? v) (some? (:after-id v))))
 
+(defn- decodable-payload?
+  "`valid-payload?` plus the one slot a caller-supplied cursor could use
+  to put CODE into an eval form: `:frame` is printed into the frame
+  resolution `(current-frame <frame>)`, so a decoded cursor's frame must
+  be nil or a keyword with id grammar (`args/->id-keyword`) — a list,
+  symbol or other value is `::malformed` (rf2-3x7nj.32.2). The cursor's
+  other caller-controlled slots are EDN data and ride QUOTED into the
+  forms that consume them (`:after-id`, `:pred`), per the provenance
+  rule in `eval-form`. Checked on DECODE only: encode sees the frame the
+  runtime resolved, which is not the caller's to shape."
+  [v]
+  (and (valid-payload? v)
+       (let [f (:frame v)]
+         (or (nil? f)
+             (and (keyword? f) (some? (args/->id-keyword f)))))))
+
 (defn encode-cursor
   "Encode a cursor payload as an opaque base64 string. Returns nil on a
   nil/empty payload or one with no `:after-id` — pagination is over.
@@ -161,7 +178,7 @@
   to this ns's `::malformed` so existing call-sites
   (`(= cursor-in ::cursor/malformed)`) keep matching."
   [s]
-  (let [decoded (rf.mcp-base.cursor/decode-cursor s valid-payload?)]
+  (let [decoded (rf.mcp-base.cursor/decode-cursor s decodable-payload?)]
     (if (rf.mcp-base.cursor/malformed? decoded)
       ::malformed
       decoded)))

@@ -9,8 +9,8 @@
   Build-id resolution lives here too — `default-build-id` reads
   `SHADOW_CLJS_BUILD_ID` from `process.env`, falling back to `:app`."
   (:require [applied-science.js-interop :as j]
-            [re-frame.mcp-base.args :as rf.mcp-base.args]
-            [re-frame.mcp-base.envelope :as rf.mcp-base.envelope]))
+            [re-frame.mcp-base.envelope :as rf.mcp-base.envelope]
+            [re-frame2-pair-mcp.tools.args :as tool-args]))
 
 ;; ---------------------------------------------------------------------------
 ;; Config — build id.
@@ -292,16 +292,22 @@
   on a successful health check) is never forced to cache a build that
   turned out unusable.
 
-  The explicit `:build` arg is coerced via
-  `re-frame.mcp-base.args/fresh-keyword`, which strips a
-  leading colon: `\"examples/step-deck\"` and `\":examples/step-deck\"`
-  resolve identically. A bare `keyword` on the colon form would mint the
-  malformed `::examples/step-deck` (`cljs-eval` then renders it
-  `\"::examples/step-deck\"` and probes a build that doesn't exist) — the
-  failed-round-trip footgun the human-facing hint's colon form invited.
-  `fresh-keyword` is the right primitive here: the build-id is a
-  runtime-bounded read path resolving against shadow's finite running-
-  build registry, so the per-id intern cost is capped.
+  The explicit `:build` arg is coerced via `tool-args/->id-keyword`
+  (`re-frame.mcp-base.args/fresh-keyword-checked` under the id grammar),
+  which strips a leading colon: `\"examples/step-deck\"` and
+  `\":examples/step-deck\"` resolve identically. A bare `keyword` on the
+  colon form would mint the malformed `::examples/step-deck` (`cljs-eval`
+  then renders it `\"::examples/step-deck\"` and probes a build that
+  doesn't exist) — the failed-round-trip footgun the human-facing hint's
+  colon form invited.
+
+  The grammar is the security half (rf2-3x7nj.32.2): the build id is
+  spliced with `str` into the JVM form `nrepl/cljs-eval` sends, so a
+  keyword minted from `\"app (do (evil)) #_\"` would print as live
+  Clojure and run on the shadow JVM. A string without keyword grammar
+  mints nothing here; the `invoke` chokepoint refuses it with
+  `:rf.mcp/invalid-arg` before any tool runs, and `nrepl/cljs-eval`
+  refuses a build id that does not print as one keyword.
 
   The resolved id is finally mapped through the conn's `:build-alias`
   forgiving-resolution cache: when the requested id named a
@@ -318,7 +324,7 @@
   build-id cache tests."
   ([args] (arg-build nil args))
   ([conn args]
-   (->> (or (rf.mcp-base.args/fresh-keyword (arg args :build))
+   (->> (or (tool-args/->id-keyword (arg args :build))
             (conn-resolved-build-id conn)
             (default-build-id))
         (canonicalize-via-alias conn))))
@@ -331,7 +337,7 @@
   the INPUT to `probe/canonicalize-build!`, which the pipeline's first
   step runs to populate the alias. Returns a keyword."
   [conn args]
-  (or (rf.mcp-base.args/fresh-keyword (arg args :build))
+  (or (tool-args/->id-keyword (arg args :build))
       (conn-resolved-build-id conn)
       (default-build-id)))
 
@@ -351,7 +357,7 @@
 
   Returns the conn unchanged for threading convenience."
   [conn args]
-  (when-let [explicit (rf.mcp-base.args/fresh-keyword (arg args :build))]
+  (when-let [explicit (tool-args/->id-keyword (arg args :build))]
     (mark-resolved-build-id! conn explicit))
   conn)
 

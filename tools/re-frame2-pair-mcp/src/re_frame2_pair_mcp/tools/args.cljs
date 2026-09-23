@@ -21,7 +21,8 @@
   (:require [applied-science.js-interop :as j]
             [cljs.reader]
             [clojure.string :as str]
-            [re-frame.mcp-base.args :as rf.mcp-base.args]))
+            [re-frame.mcp-base.args :as rf.mcp-base.args]
+            [re-frame.mcp-base.cap :as rf.mcp-base.cap]))
 
 (def valid-slices
   #{:app-db :sub-cache :machines :epochs :traces})
@@ -100,21 +101,105 @@
                   (j/get args (name k)))]
     (rf.mcp-base.args/parse-boolean raw default)))
 
+;; ---------------------------------------------------------------------------
+;; Caller-supplied ids → keywords (rf2-3x7nj.32.2).
+;;
+;; Every id a caller names — a `:build`, a `:frame`, a view id, an fx /
+;; interceptor id, a key of an object argument — is minted into a keyword
+;; that a tool then PRINTS into generated source: `str` into the JVM form
+;; `(shadow.cljs.devtools.api/cljs-eval <build> ...)`, `pr-str` into the
+;; browser form `(re-frame2-pair.runtime/current-frame <frame>)`. A keyword
+;; prints as `:` plus its name UNESCAPED, so one minted from
+;; `\"app (do (evil)) #_\"` prints as live code rather than a literal — and
+;; runs, on the JVM or in the page, past `--no-eval`, under read-only
+;; annotations. Quoting does not help: `(quote <printed kw>)` breaks out
+;; the same way, because the damage is done by the PRINT.
+;;
+;; So an id is minted only when its string has keyword GRAMMAR — an
+;; optional namespace and a name, each drawn from the ordinary keyword
+;; character set below, which contains no whitespace, delimiter, quote,
+;; comment, dispatch or reader-macro character, so the printed keyword is
+;; always exactly one token. Shadow build ids and frame / view / fx ids are
+;; ordinary keywords, so real ids pass unchanged.
+;; ---------------------------------------------------------------------------
+
+(def ^:private id-segment-re
+  "One namespace or name segment of a caller-supplied id keyword."
+  #"^[A-Za-z0-9*+!_?<>=.-]+$")
+
+(defn id-shape-ok?
+  "The id grammar, as the `shape-ok?` predicate
+  `re-frame.mcp-base.args/fresh-keyword-checked` takes: `[ns-part
+  name-part]` (either may be nil for a bare name) is admissible iff the
+  name — and the namespace, when present — is a non-empty run of
+  `[A-Za-z0-9*+!_?<>=.-]`."
+  [[ns-part name-part]]
+  (boolean
+    (and (string? name-part)
+         (re-matches id-segment-re name-part)
+         (or (nil? ns-part)
+             (and (string? ns-part) (re-matches id-segment-re ns-part))))))
+
+(defn ->id-keyword
+  "Coerce a caller-supplied id (string or keyword) into a keyword ONLY when
+  it satisfies [[id-shape-ok?]]; nil otherwise (and for nil / blank /
+  non-string input). Colon-tolerant: `\"rf/default\"` and `\":rf/default\"`
+  both mint `:rf/default`. Routes through
+  `re-frame.mcp-base.args/fresh-keyword-checked`, so a rejected string
+  never becomes a keyword at all."
+  [x]
+  (rf.mcp-base.args/fresh-keyword-checked x id-shape-ok?))
+
+(defn invalid-id-keyword
+  "The first keyword anywhere in `x` — a map key or value, at any depth —
+  that fails [[id-shape-ok?]], or nil when there is none. The check for
+  argument objects converted with `js->clj :keywordize-keys true`, which
+  mints a keyword from every object key the caller sent."
+  [x]
+  (cond
+    (keyword? x) (when-not (id-shape-ok? [(namespace x) (name x)]) x)
+    (map? x)     (some (fn [[k v]] (or (invalid-id-keyword k) (invalid-id-keyword v))) x)
+    (coll? x)    (some invalid-id-keyword x)
+    :else        nil))
+
+(def ^:private invalid-id-hint
+  (str "a caller-supplied id — a build, a frame, a view / fx / interceptor id, "
+       "or a key of an object argument — must be an optional namespace and a "
+       "name, each made only of A-Z a-z 0-9 and * + ! _ ? < > = . - "
+       "(e.g. \"app\", \":examples/step-deck\", \":rf/default\"). Anything "
+       "else would print into the evaluated source as code, so it is refused."))
+
+(defn invalid-id-arg
+  "The structured `{:rf.mcp/invalid-arg {:arg :value :hint}}` refusal for a
+  caller-supplied id that fails the id grammar — the same marker the
+  `invoke` chokepoint returns for a malformed `:max-tokens`. `arg` is the
+  offending argument's keyword, `value` the rejected id (for an object
+  argument, the offending key)."
+  [arg value]
+  (rf.mcp-base.cap/invalid-arg-marker arg value invalid-id-hint))
+
+(defn invalid-key-refusal
+  "[[invalid-id-arg]] for the object argument `arg` when its converted
+  value `x` carries a keyword failing the id grammar (naming the offending
+  key), else nil."
+  [arg x]
+  (when-let [k (invalid-id-keyword x)]
+    (invalid-id-arg arg (subs (str k) 1))))
+
 (defn ->frame-keyword
   "Coerce a frame-id string into a keyword. Accepts both bare names
    (`\"rf/default\"`) and EDN-shaped strings (`\":rf/default\"`) — strips
    a leading colon when present so callers can pass either form.
 
-   Delegates to `re-frame.mcp-base.args/fresh-keyword` so
-   the slice-key / frame-key coercion is single-sourced across the
-   re-frame2-pair-mcp wire surface — same helper underpins both
-   `parse-frames-arg` and the per-slice-mode key coercion in
-   `parse-modes-arg`. On CLJS keywords are not interned in the JVM
-   never-shrinking-table sense, so the intern-DoS concern that gates
-   `fresh-keyword` on the JVM side doesn't apply here; the call is
-   straight string-to-keyword coercion."
+   Delegates to [[->id-keyword]] so the frame-key / slice-key coercion
+   is single-sourced across the re-frame2-pair-mcp wire surface — same
+   helper underpins both `parse-frames-arg` and the per-slice-mode key
+   coercion in `parse-modes-arg`. A string without keyword grammar
+   yields nil rather than a keyword that would print as code
+   (rf2-3x7nj.32.2); the `invoke` chokepoint refuses such a `:frame` /
+   `:frames` with `:rf.mcp/invalid-arg` before any tool runs."
   [x]
-  (rf.mcp-base.args/fresh-keyword x))
+  (->id-keyword x))
 
 (defn parse-fx-overrides
   "Coerce the `fx-overrides` MCP arg (a JSON object) into the CLJS map
@@ -176,12 +261,26 @@
           (fn [acc k v]
             (if (= :err (first acc))
               acc
-              (let [fx-key  (rf.mcp-base.args/fresh-keyword k)
+              (let [;; rf2-3x7nj.32.2 — both halves are caller strings that
+                    ;; get PRINTED into the dispatch form, so each is minted
+                    ;; only with keyword grammar (`->id-keyword`); a failing
+                    ;; key or target is refused rather than printed as code.
+                    fx-key  (->id-keyword k)
                     coerced (cond
                               (nil? v)     nil
-                              (and (string? v) (str/starts-with? v ":")) (rf.mcp-base.args/fresh-keyword v)
+                              (and (string? v) (str/starts-with? v ":"))
+                              (or (->id-keyword v) ::reject)
                               :else        ::reject)]
                 (cond
+                  (nil? fx-key)
+                  [:err {:ok?    false
+                         :reason :rf.error/invalid-fx-overrides
+                         :key    k
+                         :hint   (str "fx-overrides key " (pr-str k) " is not an fx id — it must "
+                                      "be a keyword id such as \":http\" (an optional namespace "
+                                      "and a name, each made only of A-Z a-z 0-9 and "
+                                      "* + ! _ ? < > = . -).")}]
+
                   (= ::reject coerced)
                   [:err {:ok?    false
                          :reason :rf.error/invalid-fx-overrides
@@ -238,7 +337,9 @@
         ::invalid))
 
     :else
-    (let [kw (rf.mcp-base.args/fresh-keyword s)]
+    ;; rf2-3x7nj.32.2 — minted only with keyword grammar, so the id can't
+    ;; print into the dispatch form as code.
+    (let [kw (->id-keyword s)]
       (if (keyword? kw) kw ::invalid))))
 
 (defn parse-interceptor-overrides

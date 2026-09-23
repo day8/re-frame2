@@ -146,7 +146,14 @@
         incl?      (if (raw-state/raw-state-allowed?)
                      (args/parse-bool-arg raw-args :include-sensitive)
                      false)
-        egress-opts (elision/egress-opts-edn (not elision?) incl?)]
+        egress-opts (elision/egress-opts-edn (not elision?) incl?)
+        ;; rf2-3x7nj.32.2 — a JSON-object `signals` / `pred` has its keys
+        ;; minted into keywords (`js->clj :keywordize-keys`), and those are
+        ;; PRINTED into the poll form; quoting cannot contain a keyword
+        ;; that prints as code, so a key without keyword grammar is
+        ;; refused.
+        key-refusal (or (args/invalid-key-refusal :signals signals)
+                        (args/invalid-key-refusal :pred pred))]
     (cond
       ;; A bad `:timeout-ms` is a caller error worth telling the agent
       ;; about, not a value to silently paper over with the default.
@@ -154,6 +161,9 @@
       ;; `:timeout-ms` validation.
       (= :err (first timeout-r))
       (js/Promise.resolve (wire/err-text (second timeout-r)))
+
+      (some? key-refusal)
+      (js/Promise.resolve (wire/err-text key-refusal))
 
       (or (nil? signals) (empty? signals))
       (js/Promise.resolve

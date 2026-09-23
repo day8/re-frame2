@@ -129,7 +129,12 @@
             slice-src (ef/emit
                    (ef/rt-let
                      ['hist      (ef/rt-raw (str "(vec " (ef/emit history-call) ")"))
-                      'after-id  after-id
+                      ;; The cursor is caller-supplied EDN, so its
+                      ;; `:after-id` rides QUOTED — a list, symbol, or
+                      ;; emitter-shaped vector in a crafted cursor is data,
+                      ;; never source (rf2-3x7nj.32.2; the provenance rule
+                      ;; in `eval-form`).
+                      'after-id  (when (some? after-id) (ef/rt-quote after-id))
                       'aged-out? (ef/rt-raw
                                    "(and after-id (not-any? #(= after-id (:epoch-id %)) hist))")
                       'sliced    (ef/rt-raw

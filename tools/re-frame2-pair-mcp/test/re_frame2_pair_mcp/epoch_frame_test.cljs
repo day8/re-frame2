@@ -148,17 +148,21 @@
 
 (defn- since-id-of
   "The `:since-id` / cursor `:after-id` the form asked `epochs-since`
-  for, as it appears in the emitted source (`nil` when absent)."
+  for, as it appears in the emitted source (`nil` when absent). A
+  present id rides quoted — `(quote 7)` — because it is caller data
+  (rf2-3x7nj.32.2), so the optional `(quote ` prefix is skipped."
   [form]
-  (read-token (second (re-find #"epochs-since\s+(\"[^\"]*\"|\S+?)[\s)]" form))))
+  (read-token (second (re-find #"epochs-since\s+(?:\(quote\s+)?(\"[^\"]*\"|[^\s()]+)" form))))
 
 (defn- after-id-of
   "`trace-window`'s cursor watermark, read off the `after-id` LET
-  BINDING the tool emits (`(let [hist … after-id 7 …] …)`). The later
-  textual uses of the name are expressions (`(and after-id …)`), which
-  the literal alternation cannot match, so the binding is the only hit."
+  BINDING the tool emits (`(let [hist … after-id (quote 7) …] …)` — the
+  cursor's id is caller data, so it rides quoted, rf2-3x7nj.32.2). The
+  later textual uses of the name are expressions (`(and after-id …)`),
+  which the literal alternation cannot match, so the binding is the only
+  hit."
   [form]
-  (read-token (second (re-find #"\bafter-id (nil|\d+|\"[^\"]*\")" form))))
+  (read-token (second (re-find #"\bafter-id (?:\(quote )?(nil|\d+|\"[^\"]*\")" form))))
 
 (defn- limit-of
   "The page size the form asked for — the `(take N …)` both tools write

@@ -105,11 +105,20 @@
      :runtime-count    <int>
      :heartbeat-age-ms <ms or nil>}
 
-  `build-id` is rendered as its keyword literal. Every access is
+  `build-id` is rendered as its keyword literal via
+  `nrepl/build-id-literal`, which refuses (nil → this fn throws, and the
+  caller's `try` degrades to nil) an id that would not print as a single
+  keyword: this form is evaluated as Clojure on the shadow JVM, so a
+  multi-token id would run as code (rf2-3x7nj.32.2). Every access is
   `try`-guarded; a missing worker / old shadow / unexpected shape
   collapses to nil so the caller degrades cleanly."
   [build-id]
-  (let [bid (if (keyword? build-id) (str build-id) (str ":" (name (or build-id :app))))]
+  (let [bid (or (nrepl/build-id-literal build-id)
+                (throw (ex-info (str "Refusing the freshness read for build id " (pr-str build-id)
+                                     ": it does not print as a single keyword."
+                                     " [" :rf.error/pair-mcp-malformed-build-id "]")
+                                {:rf.error/id :rf.error/pair-mcp-malformed-build-id
+                                 :build       (pr-str build-id)})))]
     (str
       "(try"
       "  (let [sup (:supervisor (shadow.cljs.devtools.server.runtime/get-instance!))"
