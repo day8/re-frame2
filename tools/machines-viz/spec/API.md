@@ -2150,7 +2150,14 @@ hosts that already hold a mounted chart.
 The emitter is **static-topology only**:
 
 - States render as Mermaid nodes; compound `:states` render as
-  `state X { ... }` blocks with their own `[*] --> initial`.
+  `state X { ... }` blocks with their own `[*] --> initial`. Every state
+  is **declared inside its parent block** — a leaf as
+  `state "<name>" as <id>`, a compound as `state "<name>" as <id> { … }`,
+  a parallel region inside the synthetic parallel root — so Mermaid,
+  which scopes a state to the block it is first mentioned in, draws it
+  there, and labels it with its **name** (`ns/name` when namespaced).
+  The id is the internal injective escape (`logged_2din__paying`) and
+  never shows (rf2-3x7nj.33.2).
 - Event transitions render as `from --> to : event` edges. `:*`
   wildcard edges render with `*` as the label. Multiple-candidate
   vectors render every target-bearing guarded branch.

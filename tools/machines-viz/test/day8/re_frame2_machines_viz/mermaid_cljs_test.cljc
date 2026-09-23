@@ -8,6 +8,10 @@
   (:require [clojure.test  :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.walk :as walk]
+            ;; rf2-3x7nj.33.2 — the SHARED node-id codec (the same escape
+            ;; every emitter mints), to derive expected Mermaid ids from a
+            ;; definition rather than from the emitter under test.
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.mermaid :as m]))
 
 (defn- deep-strings
@@ -177,7 +181,8 @@
 (deftest emit-renders-compound-state-block
   (testing "compound states render as `state X { ... }` with inner [*] --> initial"
     (let [out (m/emit compound-machine)]
-      (is (str/includes? out "state authenticated {"))
+      ;; rf2-3x7nj.33.2 — the block carries the state's name as its label.
+      (is (str/includes? out "state \"authenticated\" as authenticated {"))
       (is (str/includes? out "[*] --> authenticated__browsing"))
       (is (str/includes? out "}")))))
 
@@ -375,11 +380,12 @@
     (let [out (m/emit parallel-region-machine)]
       ;; rf2-mnp93.6 — the reserved parallel-root segment hex-escapes too.
       (is (str/includes? out "[*] --> rf_2emachines_2dviz_2emermaid_2fparallel_2droot"))
-      (is (str/includes? out "state rf_2emachines_2dviz_2emermaid_2fparallel_2droot {"))
-      (is (str/includes? out "state data {"))
+      ;; rf2-3x7nj.33.2 — root and region blocks carry readable labels.
+      (is (str/includes? out "state \"parallel root\" as rf_2emachines_2dviz_2emermaid_2fparallel_2droot {"))
+      (is (str/includes? out "state \"data\" as data {"))
       (is (str/includes? out "[*] --> data__nothing"))
       (is (str/includes? out "data__nothing --> data__loading : fetch"))
-      (is (str/includes? out "state form {"))
+      (is (str/includes? out "state \"form\" as form {"))
       (is (str/includes? out "[*] --> form__neutral"))
       (is (str/includes? out "form__neutral --> form__correct : submit"))
       (is (str/includes? out "form__correct --> [*]"))
@@ -941,3 +947,103 @@
       ;; the bead's negative regression: NO retired/foreign cofx vocabulary
       (is (not (str/includes? out "rf.world/inputs")))
       (is (not (str/includes? out "inject-cofx"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.33.2 — every state is DECLARED, labelled with its name, inside
+;; its parent block
+;;
+;; Mermaid `stateDiagram-v2` scopes a state to the block it is FIRST
+;; mentioned in, and labels it with its id unless an alias declares a label.
+;; Pre-fix the emitter declared only compound blocks, so every box read as a
+;; hex-escaped id (`logged_2din`) and every non-initial substate was first
+;; mentioned by a root-level edge line — drawn OUTSIDE its compound / region.
+;; The expectations below are derived from the DEFINITION (its state tree and
+;; the shared node-id codec), not from the emitter's output.
+
+(defn- line-ids
+  "The Mermaid ids a single (trimmed) body line mentions, in order. Note
+  bodies are free text and never reach here."
+  [t]
+  (cond
+    (or (= "" t) (= "}" t) (= "--" t)
+        (str/starts-with? t "%%") (str/starts-with? t "stateDiagram"))
+    []
+    (str/starts-with? t "state ")
+    [(second (or (re-find #"^state \"[^\"]*\" as ([A-Za-z0-9_]+)" t)
+                 (re-find #"^state ([A-Za-z0-9_]+)" t)))]
+    (str/starts-with? t "note ")
+    [(second (re-find #"^note \w+ of ([A-Za-z0-9_]+)" t))]
+    (str/includes? t "-->")
+    (->> (str/split (first (str/split t #" : " 2)) #"-->")
+         (map str/trim)
+         (remove #(= "[*]" %)))
+    :else []))
+
+(defn- first-mention-scopes
+  "Map every Mermaid id in `body` to the composite block open at its FIRST
+  mention (`nil` = the diagram root) — Mermaid's scoping rule."
+  [body]
+  (loop [lines (map str/trim (str/split-lines body)) stack [] in-note? false seen {}]
+    (if-let [t (first lines)]
+      (cond
+        in-note?                        (recur (rest lines) stack (not= "end note" t) seen)
+        (str/starts-with? t "note ")    (recur (rest lines) stack true
+                                               (reduce #(if (contains? %1 %2) %1 (assoc %1 %2 (peek stack)))
+                                                       seen (line-ids t)))
+        :else
+        (let [seen' (reduce #(if (contains? %1 %2) %1 (assoc %1 %2 (peek stack)))
+                            seen (line-ids t))
+              stack' (cond (and (str/starts-with? t "state ") (str/ends-with? t "{"))
+                           (conj stack (first (line-ids t)))
+                           (= "}" t) (pop stack)
+                           :else stack)]
+          (recur (rest lines) stack' false seen')))
+      seen)))
+
+(defn- expected-declarations
+  "`[id label parent-id]` for every state of `definition`, from its own tree:
+  the id via the shared node-id codec, the label the state's `ns/name`, the
+  parent the enclosing compound / region (or the synthetic parallel root)."
+  [definition]
+  (letfn [(walk [states parent-path parent-id]
+            (mapcat (fn [[k node]]
+                      (let [path (conj parent-path k)
+                            id   (layout/node-id path)]
+                        (cons [id (m/keyword-label k) parent-id]
+                              (walk (:states node) path id))))
+                    states))]
+    (if (= :parallel (:type definition))
+      (let [root-id "rf_2emachines_2dviz_2emermaid_2fparallel_2droot"]
+        (mapcat (fn [[r region]]
+                  (let [rid (layout/node-id [r])]
+                    (cons [rid (m/keyword-label r) root-id]
+                          (walk (:states region) [r] rid))))
+                (:regions definition)))
+      (walk (:states definition) [] nil))))
+
+(def logged-in-machine
+  "The review wave's reproduction."
+  {:initial :logged-out
+   :states  {:logged-out {:on {:login :logged-in}}
+             :logged-in  {:initial :browsing
+                          :states  {:browsing {:on {:checkout :paying}}
+                                    :paying   {:on {:paid :browsing}}}
+                          :on      {:logout :logged-out}}}})
+
+(deftest emit-declares-every-state-labelled-inside-its-parent
+  (testing "rf2-3x7nj.33.2 — each state gets `state \"<name>\" as <id>` and is
+            first mentioned inside its parent's block"
+    (doseq [[label definition] [["compound" logged-in-machine]
+                                ["parallel" parallel-region-machine]
+                                ["namespaced" namespaced-ids-machine]
+                                ["nested" duplicate-nested-leaves-machine]]]
+      (let [out    (m/emit definition {:fenced? false :header-comment? false})
+            scopes (first-mention-scopes out)]
+        (doseq [[id state-label parent] (expected-declarations definition)]
+          (is (re-find (re-pattern (str "(?m)^\\s*state \"" state-label "\" as " id "( \\{)?$")) out)
+              (str label ": " id " is declared with its name as the label"))
+          (is (= parent (get scopes id ::never-mentioned))
+              (str label ": " id " is first mentioned inside "
+                   (or parent "the root"))))))
+    (testing "control: the scope reader sees a root-level first mention as root"
+      (is (= {"a" nil "b" nil} (first-mention-scopes "stateDiagram-v2\n  a --> b : go"))))))
