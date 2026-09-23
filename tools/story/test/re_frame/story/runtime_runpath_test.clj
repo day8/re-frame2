@@ -338,3 +338,98 @@
       (is (= {} (:app-db result))
           "a plan-construction failure allocates no frame, so :app-db is the
            frame-free empty-result default ({}) — never the prior frame's db"))))
+
+;; ===========================================================================
+;; rf2-3x7nj.30.1 — a play step that fails WITHOUT recording an assertion
+;; reaches the unified verdict. A `[:wait-until …]` that never holds marks the
+;; play's run-state `:fail` and writes nothing to `:rf.story/assertions`, so
+;; the unified result used to read `:pass` over it (vacuously, with zero
+;; assertions) while the chip read FAIL.
+;; ===========================================================================
+
+(defn- step-failed-records [result]
+  (filterv #(= :rf.error/story-play-step-failed (:assertion %)) (:assertions result)))
+
+(deftest failed-wait-until-fails-the-unified-result
+  (testing "a wait-until that never holds reads :fail on the unified result,
+            carried by an :rf.error/story-play-step-failed record"
+    (rf.story/reg-variant :story.step-fail/wait-until
+      {:script [[:dispatch [:rp/set-value 1]]
+                [:wait-until [:db [:value] 99]]]})
+    (let [result (run-target :story.step-fail/wait-until)
+          [rec]  (step-failed-records result)]
+      (is (= :fail (:status result)) "the run fails, as the play's run-state does")
+      (is (= [:wait-until [:db [:value] 99]] (first (:payload rec)))
+          "the record names the step that failed")
+      (is (= :fail (:status rec)))))
+  (testing "control — an assertion that fails is counted ONCE, from its own record"
+    (rf.story/reg-variant :story.step-fail/assert
+      {:script [[:dispatch [:rp/set-value 1]]
+                [:assert [:rf.assert/path-equals [:value] 99]]]})
+    (let [result (run-target :story.step-fail/assert)]
+      (is (= :fail (:status result)))
+      (is (= [:rf.assert/path-equals] (mapv :assertion (:assertions result)))
+          "no step-failed record duplicates the assertion's own"))))
+
+(deftest every-executed-play-reaches-the-unified-result
+  (testing "a failure in an EARLIER auto-play is not dropped because a later
+            one passed — the fold reads every executed play, not the last"
+    (rf.story/reg-variant :story.step-fail/two-plays
+      {:plays [{:name      "waits"
+                :auto-run? true
+                :script    [[:wait-until [:db [:value] 99]]]}
+               {:name      "passes"
+                :auto-run? true
+                :script    [[:dispatch [:rp/set-value 1]]
+                            [:assert [:rf.assert/path-equals [:value] 1]]]}]})
+    (let [result (run-target :story.step-fail/two-plays)]
+      (is (= :fail (:status result)))
+      (is (= 1 (count (step-failed-records result)))))))
+
+;; ===========================================================================
+;; rf2-3x7nj.30.6 — a decorator ref that does not resolve REFUSES the run
+;; before any phase runs. The spec's old bare `[:force-fx-stub …]` spelling
+;; names no registered decorator, so the stub never installed, the real
+;; effect fired, and the run still read :pass.
+;; ===========================================================================
+
+(def ^:private real-calls (atom 0))
+
+(defn- reg-real-effect! []
+  (reset! real-calls 0)
+  (rf/reg-fx :rp/http-get (fn [_ _] (swap! real-calls inc)))
+  (rf/reg-event :rp/fetch (fn [{:keys [db]} _]
+                            {:db (assoc db :status :pending)
+                             :fx [[:rp/http-get {:url "/x"}]]})))
+
+(deftest unresolved-decorator-refuses-the-run-before-any-effect
+  (testing "an unregistered decorator id reads :error and the effect it was
+            meant to stub never fires"
+    (reg-real-effect!)
+    (rf.story/reg-variant :story.decor/bare-stub
+      {:decorators [[:force-fx-stub :rp/http-get {}]]
+       :setup      [[:rp/fetch]]
+       :script     [[:dispatch [:rp/fetch]]]})
+    (let [result (run-target :story.decor/bare-stub)
+          rec    (first (filter #(= :rf.error/story-decorator-unresolved (:assertion %))
+                                (:assertions result)))]
+      (is (= :error (:status result)))
+      (is (zero? @real-calls) "neither :setup nor the script ran — no real call went out")
+      (is (= [:rf.error/decorator-unknown] (mapv :rf.error (:decorator-errors rec)))
+          "the refusal record names the resolution error")))
+  (testing "the same refusal on an inline plan, whose frame is never allocated"
+    (reg-real-effect!)
+    (let [result (run-target {:variant/id :probe/inline-bare-stub
+                              :decorators [[:force-fx-stub :rp/http-get {}]]
+                              :setup      [[:rp/fetch]]})]
+      (is (= :error (:status result)))
+      (is (zero? @real-calls))
+      (is (= [:rf.error/story-decorator-unresolved] (mapv :assertion (:assertions result))))))
+  (testing "control — the registered stub installs, so the run passes with no real call"
+    (reg-real-effect!)
+    (rf.story/reg-variant :story.decor/canonical-stub
+      {:decorators [[:rf.story/force-fx-stub :rp/http-get {}]]
+       :setup      [[:rp/fetch]]})
+    (let [result (run-target :story.decor/canonical-stub)]
+      (is (= :pass (:status result)))
+      (is (zero? @real-calls)))))

@@ -126,7 +126,7 @@
          / `runtime/run-phase-4!`) accumulates boundaries across several
          play-keys on ONE frame (`:clear-boundaries? false`); the per-`[frame
          play-key]` run-token guard (`current-state-for-play`) does NOT block
-         a CONCURRENT `run!` / `re-run!` / `run-play!` for a DIFFERENT
+         a CONCURRENT `run!` / `run-play!` for a DIFFERENT
          play-key on the SAME frame — that concurrent call's default
          `:clear-boundaries? true` used to wipe this ONE shared frame-id
          bucket out from under the in-flight sequence. Keying by the pair
@@ -513,7 +513,11 @@
   `:rf.story/assertions` since `prev` (typically because the
   dispatched event was a `:rf.assert/*` whose reg-event handler
   recorded a `:passed? false` record), surface them as a step-fail.
-  Otherwise step-skip (no assertion contribution to pass/fail)."
+  Otherwise step-skip (no assertion contribution to pass/fail).
+
+  The step-fail is marked `:recorded?` — its record is already on the
+  accumulator, so the unified result must not count it a second time
+  (`rf.story.play.runner/run-state-failures`, rf2-3x7nj.30.1)."
   [frame-id prev idx step]
   (let [failed (failed-since frame-id prev)]
     (if (seq failed)
@@ -523,9 +527,10 @@
                          " failed (expected " (pr-str (:expected rec))
                          ", actual " (pr-str (:actual rec)) ")"))]
         (rf.story.play.runner/step-fail idx step
-                          {:expected (:expected rec)
-                           :actual   (:actual rec)
-                           :message  msg}))
+                          {:expected  (:expected rec)
+                           :actual    (:actual rec)
+                           :message   msg
+                           :recorded? true}))
       (rf.story.play.runner/step-skip idx step))))
 
 (defn- boundary-result->step
@@ -685,7 +690,10 @@
                                                           (str "no DOM — cannot prove "
                                                                (pr-str atom-v)))})
       (:passed? result)  (rf.story.play.runner/step-pass idx step)
-      :else              (rf.story.play.runner/step-fail idx step result))))
+      ;; Recorded on the slot just above — `:recorded?` keeps the unified
+      ;; result from counting it twice (rf2-3x7nj.30.1).
+      :else              (rf.story.play.runner/step-fail idx step
+                                           (assoc result :recorded? true)))))
 
 (defn- exec-click!
   [_frame-id idx step]
@@ -858,9 +866,10 @@
                                           (str "cannot run " (pr-str atom-v)))})
       (:passed? result) (rf.story.play.runner/step-pass idx step)
       :else             (rf.story.play.runner/step-fail idx step
-                                          {:expected (:expected result)
-                                           :actual   (:actual result)
-                                           :message  (:reason result)}))))
+                                          {:expected  (:expected result)
+                                           :actual    (:actual result)
+                                           :message   (:reason result)
+                                           :recorded? true}))))
 
 (defn- tape-evaluated-assertion?
   "True iff the assertion atom `atom-v` (`[:rf.assert/id & args]`) is
@@ -971,11 +980,13 @@
                 (nil? rec)            (rf.story.play.runner/step-skip idx step)
                 (false? (:passed? rec))
                 (rf.story.play.runner/step-fail idx step
-                                  {:expected (:expected rec)
-                                   :actual   (:actual rec)
-                                   :message  (or (:reason rec)
-                                                 (str (:assertion rec) " "
-                                                      (pr-str (:payload rec)) " failed"))})
+                                  {:expected  (:expected rec)
+                                   :actual    (:actual rec)
+                                   :message   (or (:reason rec)
+                                                  (str (:assertion rec) " "
+                                                       (pr-str (:payload rec)) " failed"))
+                                   ;; `rec` IS the accumulator record (rf2-3x7nj.30.1).
+                                   :recorded? true})
                 :else                 (rf.story.play.runner/step-pass idx step))))))))
 
 (defn- frame-router-state
@@ -1891,6 +1902,12 @@
   run-state, walks every step in order, records results, and resolves
   `done-cb` with the terminal run-state.
 
+  Drives the variant frame AS IT STANDS: app-db, the stub-call log and the
+  run's epoch baseline are NOT reset, so this is the engine a run owner
+  drives, not a fresh run. The author-facing fresh run is the one run
+  owner's `runtime/resume-run!` with a play selection (`runtime/rerun!`,
+  rf2-3x7nj.30.3).
+
   Returns the initial run-state (NOT a promise) so synchronous callers
   can immediately observe `:status :running` + `:total`. CLJS callers
   that need a promise can wrap with `js/Promise.` themselves;
@@ -1980,25 +1997,15 @@
      (run-loop! variant-id pk token done-cb)
      started)))
 
-(defn re-run!
-  "Re-run the play script for `variant-id`. Convenience wrapper around
-  `run!` — distinct fn name so the toolbar's `[Re-run]` button has a
-  one-call API.
-
-  With no explicit `play-key`, re-runs the currently active play (set by
-  the dropdown). For single-script variants the active play is nil, so
-  this re-runs the single script."
-  ([variant-id]
-   (re-run! variant-id nil))
-  ([variant-id done-cb]
-   (let [pk (active-play-key variant-id)]
-     (run! variant-id pk nil done-cb))))
-
 (defn run-play!
   "Run the play identified by `play-key` (a play's `:name`) for
   `variant-id` (multi-play). Passing nil picks the default
   play (first entry for multi-play, the single script for
-  `:script`)."
+  `:script`).
+
+  Drives the frame AS IT STANDS, like `run!`. The author-facing 'Run play'
+  is a FRESH run through the one run owner — `runtime/rerun!`
+  (rf2-3x7nj.30.3)."
   ([variant-id play-key]
    (run-play! variant-id play-key nil))
   ([variant-id play-key done-cb]
@@ -2086,7 +2093,8 @@
   (multi-play). Calls `done-cb` with a vector of per-play
   terminal states once every play has completed. Returns nil.
 
-  No-op when the variant carries no plays."
+  No-op when the variant carries no plays. Drives the frame AS IT STANDS;
+  the author-facing 'Run all' is `runtime/rerun!` with `{:play :all}`."
   ([variant-id]
    (run-all-plays! variant-id nil))
   ([variant-id done-cb]

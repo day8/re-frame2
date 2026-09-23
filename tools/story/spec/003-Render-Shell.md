@@ -258,6 +258,22 @@ reads the successor frame; the successor's resume owns the one
 execution. The inner per-play run-token still guards play-key
 isolation; it is not the outer lifecycle owner.
 
+**Every author-triggered run is fresh, through the same owner.** The play
+chip's and the PLAY FAIL banner's Re-run, a play-dropdown row, the
+dropdown's Run all, the recorder export's "replay in this story" and the CI
+`runPlay` hook are each `runtime/rerun!`: an in-place PREPARE with the run
+opts the owner was last prepared with — the canvas's current Controls
+overrides, modes and substrate, under its own run-key, so the canvas sees
+no key change and does not run again — then RESUME with an explicit play
+selection. A selected play is taken from the compiled plan's
+`[:world :scripts]`, whether or not it auto-runs. A single play starts from
+`:setup` (a play that relies on its predecessor fails when run alone —
+chaining is what Run all is for); Run all prepares once and runs every play
+in order. The reset clears every play's previous verdict, so the other
+dropdown rows read IDLE after a single-play run. Nothing re-drives the live
+frame: a correct variant never grades against the previous run's app-db,
+and a tape assertion never reads the previous run's epochs.
+
 The headless `run-variant` (Test mode / MCP / sidebar Run-all) composes
 prepare + resume in one call — one generation claimed and immediately
 resumed — so it runs the full four-phase lifecycle exactly once with no

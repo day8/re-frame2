@@ -112,9 +112,13 @@ once, phase 2 dispatches the plan's `[:world :setup]`, and phase 4
 drives the plan's `[:world :scripts]` (the named plays, `:plays`
 preserved). The readers that are not plan-routed — snapshot identity
 (`re-frame.story.identity`), the workspace/canvas readers, the
-recorder, and the play-runner's `variant-body->plays` (consulted by
-the live-canvas auto-run + step-debugger paths) — read the canonical
-keys directly. Through the plan-routed lifecycle a composed `:compose`
+recorder, and the play-runner's `variant-body->plays` (which feeds only
+the play chip's play LISTING and the CI enumeration, `ci-runner/ci-rows`)
+— read the canonical keys directly. Every EXECUTED play comes from the
+compiled plan's `[:world :scripts]`: the canvas's auto-plays, the chip's
+Re-run / Run play / Run all, the recorder export's replay and the CI
+`runPlay` hook (all through the one run owner, `runtime/resume-run!`), and
+the step-debugger's stepped program alike. Through the plan-routed lifecycle a composed `:compose`
 fragment's `:setup` is executed in phase 2.
 
 ### Four-bucket authoring model
@@ -361,6 +365,14 @@ compiler: it stays a registered decorator whose frame-setup stamps the
 same frame `:fx-overrides` slot (`re-frame.story.fx-stubs`). Other
 `:decorators` are view wrapping (theme/provider/chrome). This makes the conflict model
 (§Merge rules) target the surface authors actually type.
+
+A decorator ref that does not resolve — an id naming no registered
+decorator, a malformed ref, an unknown `:kind` — REFUSES the run before
+any loader, `:setup` step or script executes, because a stub that never
+installed must not let the real effect it names fire; the run resolves
+`:error` with an `:rf.error/story-decorator-unresolved` record carrying the
+resolution errors, as an unknown composed fragment's run resolves `:error`
+before any phase runs.
 
 ### The interceptor-override surface
 
@@ -2387,9 +2399,15 @@ play runner's per-step `run-state` machine, and `replay-result`'s tape-
 projected shape. They are now folded onto the ONE shape, derived — wherever
 the tape carries the evidence — from `evidence/project-evidence` (the single
 tape projection; there is **no parallel accumulator**). The judgement slots
-(`:assertions` / `:checks`) fold the `:rf.story/assertions` accumulator (the
-ONE non-tape input — an assertion verdict is the one fact the tape does not
-carry); every evidential slot is a `.4` projection.
+(`:assertions` / `:checks`) fold the `:rf.story/assertions` accumulator and
+the executed plays' failed steps that recorded no assertion there — a
+`[:wait-until …]` that never held, a `[:click …]` / `[:type …]` /
+`[:focus …]` that matched no node, a step whose preconditions never
+settled, each an `:rf.error/story-play-step-failed` record (`:fail`, or
+`:error` for a step exception) — so the unified result and the play's
+run-state can never disagree (the non-tape inputs: an assertion verdict and
+a step outcome are the facts the tape does not carry); every evidential slot
+is a `.4` projection.
 
 **The three record shapes carry a unified `:status`.** Each assertion record
 and check record carries `:status ∈ #{:pass :fail :cannot-run :error}`
@@ -2422,9 +2440,10 @@ silent pass); a zero-assertion clean run is `:pass` (vacuously green).
 `:assert-dom` → the canonical `[:assert assertion-atom]` checkpoint) is
 applied at script-resolution time. The `run-variant` lifecycle drives the
 **plan's `[:world :scripts]`** (folded by the compiler's `normalize-scripts`,
-rf2-5x1wt.22); the live-canvas auto-run + step-debugger paths fold at their
-own resolution sites (`runner-events/variant-plays` / `variant-play-script`
-/ `play/variant-play-steps` all run `assertions/fold-script`). Either way
+rf2-5x1wt.22), and so do the live canvas, the play chip and the
+step-debugger (§Public vocabulary); a hand-built spec handed straight to
+the engine (`runner-events/run!`) has each raw `:assert-db` / `:assert-dom`
+step folded inline by the step executor. Either way
 the runtime drives the ONE assertion atom in its checkpoint position —
 there is **no synthetic `:rf.assert/db` / `:rf.assert/dom` rail**. A folded
 `:assert-db` dispatches the real

@@ -384,6 +384,57 @@
       (is (= {:status :cannot-run :unit step :reason :runner-cannot-attempt-step} r)
           "no :message slot when the step-result carried none"))))
 
+;; ---- run-state-failures projection (rf2-3x7nj.30.1) ------------------------
+
+(deftest run-state-failures-projects-the-steps-no-record-carries
+  (testing "run-state-failures projects every genuine step failure that
+            recorded no assertion — :error for an exception, :fail otherwise —
+            and excludes refusals and failures bridged from a record"
+    (let [wait-step   [:wait-until [:db [:n] 99]]
+          click-step  [:click "[data-test=save]"]
+          exc-step    [:dispatch-sync [:boom]]
+          skip-step   [:assert-dom "[data-test=x]" :visible]
+          rec-step    [:assert [:rf.assert/path-equals [:n] 99]]
+          pass-step   [:dispatch [:a]]
+          state (-> {:script [wait-step click-step exc-step skip-step rec-step pass-step]}
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0)
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 0 wait-step {:expected [:db [:n] 99]
+                                                                   :message  "wait-until never became true"}))
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 1 click-step {:message "click failed — no node matched"}))
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-exception 2 exc-step "boom"))
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 3 skip-step {:skipped? true :message "no DOM"}))
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 4 rec-step {:expected 99 :actual 1 :recorded? true}))
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-pass 5 pass-step)))
+          failures (rf.story.play.runner/run-state-failures state)]
+      (is (= [{:assertion :rf.error/story-play-step-failed :status :fail :passed? false
+               :payload [wait-step] :reason "wait-until never became true"
+               :expected [:db [:n] 99]}
+              {:assertion :rf.error/story-play-step-failed :status :fail :passed? false
+               :payload [click-step] :reason "click failed — no node matched"}
+              {:assertion :rf.error/story-play-step-failed :status :error :passed? false
+               :payload [exc-step] :reason "boom"}]
+             failures)
+          "the wait-until, the no-match click and the exception, in step order;
+           the refusal and the recorded assertion failure are not repeated"))))
+
+(deftest run-state-failures-empty-for-a-clean-run
+  (testing "a run whose steps all passed projects no failure"
+    (let [step  [:assert-db [:k] 1]
+          state (-> {:script [step]}
+                    rf.story.play.runner/parse-spec
+                    rf.story.play.runner/initial-state
+                    (rf.story.play.runner/start 0)
+                    (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 step)))]
+      (is (= [] (rf.story.play.runner/run-state-failures state))))))
+
 (deftest done-pred
   (let [empty-state (rf.story.play.runner/initial-state {:script []})
         with-steps  (rf.story.play.runner/initial-state {:script [[:wait 1]]})]

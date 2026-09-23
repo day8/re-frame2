@@ -3,8 +3,8 @@
   flow. Owns the side-effecty entry points the export dialog UI
   reaches for:
 
-  - **Replay the generated script in-place** — dispatch the just-
-    -exported `:script` through the runner so the user can
+  - **Replay the generated script fresh** — run the just-exported
+    `:script` on the variant reset to its declared start, so the user can
     verify the export is valid before pasting it into source.
   - **Capture the live app-db snapshot** — read the variant frame's
     db at export time. Used by the auto-assert option to derive
@@ -15,9 +15,8 @@
 
   The translator itself (`re-frame.story.recorder.play-export`) stays
   pure. This namespace is the thin impure shell — it depends on
-  `re-frame.core` (for `app-db-value`) and the
-  runner-events ns (for `run!`), neither of which the translator
-  should pull in.
+  `re-frame.core` (for `app-db-value`) and the runtime's one run owner
+  (for `rerun!`), neither of which the translator should pull in.
 
   ## Pure / impure split
 
@@ -32,9 +31,11 @@
   reachable (it's pure data → data) but the side-effecty seams
   collapse."
   (:require [re-frame.core                        :as rf]
+            [re-frame.story.async                 :as rf.story.async]
             [re-frame.story.config                :as rf.story.config]
             [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
-            [re-frame.story.recorder.play-export  :as rf.story.recorder.play-export]))
+            [re-frame.story.recorder.play-export  :as rf.story.recorder.play-export]
+            [re-frame.story.runtime               :as rf.story.runtime]))
 
 ;; ---------------------------------------------------------------------------
 ;; Impure: app-db-value snapshot
@@ -54,20 +55,24 @@
 ;;
 ;; The dialog's 'replay in this story' button feeds the generated
 ;; spec into the runner so the user can verify it without leaving
-;; the recorder loop. The runner drives an asynchronous loop; the
-;; optional `done-cb` is invoked with the terminal run-state once
-;; every step has completed (synchronous on JVM, async on CLJS).
+;; the recorder loop. The run is asynchronous; the optional `done-cb`
+;; is invoked with the terminal run-state once it settles
+;; (synchronous on JVM, async on CLJS).
 ;; ---------------------------------------------------------------------------
 
 (defn replay-script!
-  "Drive `spec` (a `:script` map per `runner/parse-spec`) against
-  `frame-id` via `rf.story.play.runner-events/run!`. Returns the initial run-state
-  (status `:running`, step-idx 0). `done-cb` fires with the terminal
-  run-state.
+  "Replay `spec` (a `:script` map per `runner/parse-spec`) as a FRESH run
+  of `frame-id`'s variant (rf2-3x7nj.29.4): the one run owner resets the
+  frame in place to its declared start — `:setup` state, the run's epoch
+  baseline re-stamped — and runs `spec`'s concrete steps
+  (`rf.story.runtime/rerun!` with `{:spec spec}`). That is what the pasted
+  form does when it runs as a variant, so the verdict is the pasted form's,
+  never one graded against the recording's end state.
 
-  Idempotent against concurrent runs — `run!` resets the per-frame
-  run-state slot on every entry (cancels the previous run's
-  callback).
+  `done-cb` fires once with the replay's terminal run-state (keyed by the
+  spec's `:name`), or `{:status s}` carrying the run's unified status when
+  the run settled before the play could start (a refused or superseded
+  run). Returns the run's promise of the unified result.
 
   No-op (returns nil) when production elision is active or
   `frame-id` is nil."
@@ -75,9 +80,14 @@
    (replay-script! frame-id spec nil))
   ([frame-id spec done-cb]
    (when (and rf.story.config/enabled? frame-id spec)
-     ;; The 4-arity multi-play form: the play-key is the hand-built
-     ;; spec's :name (nil for an unnamed script).
-     (rf.story.play.runner-events/run! frame-id (:name spec) spec done-cb))))
+     (some-> (rf.story.runtime/rerun! frame-id {:spec spec})
+             (rf.story.async/then
+               (fn [result]
+                 (when done-cb
+                   (done-cb (or (rf.story.play.runner-events/current-state-for-play
+                                  frame-id (:name spec))
+                                {:status (:status result)})))
+                 result))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: export from a recorder snapshot

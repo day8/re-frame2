@@ -617,6 +617,45 @@
                        (:message r) (assoc :message (:message r))))))
         (:results state)))
 
+(defn run-state-failures
+  "The GENUINE step failures carried by a settled run-`state` that no
+  `:rf.story/assertions` record carries, as raw assertion records the
+  unified result folds beside the accumulator (rf2-3x7nj.30.1). Pure data →
+  data. The companion of `run-state-refusals`: together they are the
+  bridge from the run-state's step outcomes to the unified `:status`, so the
+  two cannot disagree.
+
+  A failed step that recorded no assertion is otherwise invisible to the
+  unified verdict: a `[:wait-until …]` that never held, a `[:click …]` /
+  `[:type …]` / `[:focus …]` that matched no node, a step whose
+  preconditions never settled, a step exception. Each projects to
+
+      {:assertion :rf.error/story-play-step-failed
+       :status    :error   ; a step exception
+                  :fail    ; any other failure
+       :passed?   false
+       :payload   [<step>]
+       :reason    <the step-result's :message>}   ; + :expected / :actual
+
+  Excluded, so nothing counts twice: a refusal (`run-state-refusals`
+  carries it), and a failure the executor bridged from an assertion record
+  already on the accumulator — marked `:recorded?` by `runner-events`."
+  [state]
+  (into []
+        (comp (filter (fn [r] (and (false? (:passed? r))
+                                   (not (cannot-run-step? r))
+                                   (not (:recorded? r)))))
+              (map (fn [r]
+                     (cond-> {:assertion :rf.error/story-play-step-failed
+                              :status    (if (:exception r) :error :fail)
+                              :passed?   false
+                              :payload   [(:step r)]
+                              :reason    (or (:message r)
+                                             (str "play step " (:idx r) " failed"))}
+                       (contains? r :expected) (assoc :expected (:expected r))
+                       (contains? r :actual)   (assoc :actual (:actual r))))))
+        (:results state)))
+
 (defn done?
   "True iff every step in `:script` has been processed."
   [{:keys [step-idx total]}]

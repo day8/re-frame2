@@ -36,12 +36,23 @@
 
   Clicking a play row selects + runs it. Clicking 'Run all plays'
   runs every play sequentially, updating the chip as each one
-  completes."
+  completes.
+
+  ## Every run is fresh (rf2-3x7nj.30.3)
+
+  Re-run, a play row and Run all each run the variant again from its
+  declared start through the one run owner (`rf.story.runtime/rerun!`):
+  the frame is reset in place (phases 0-2 with the canvas's current
+  Controls overrides, modes and substrate), then the chosen play runs. A
+  single play starts from `:setup`; Run all resets once and runs every
+  play in order. The other plays' row badges therefore go IDLE after a
+  single-play run — those verdicts belonged to earlier runs."
   (:require [reagent.core                    :as r]
             [re-frame.story.config           :as rf.story.config]
             [re-frame.story.play.dom         :as rf.story.play.dom]
             [re-frame.story.play.runner      :as rf.story.play.runner]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
+            [re-frame.story.runtime          :as rf.story.runtime]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as rf.story.theme.colors]))
 
@@ -265,7 +276,7 @@
        :on-click    (fn [e]
                       (.stopPropagation e)
                       (close!)
-                      (rf.story.play.runner-events/run-play! variant-id pk))}
+                      (rf.story.runtime/rerun! variant-id {:play pk}))}
       [:span {:style (:dropdown-row-name styles)} (or pk "(unnamed)")]
       [:span {:style (:dropdown-row-status styles)} (dropdown-row-status state)]])
    [:div {:style (:dropdown-divider styles)}]
@@ -277,7 +288,7 @@
      :on-click  (fn [e]
                   (.stopPropagation e)
                   (close!)
-                  (rf.story.play.runner-events/run-all-plays! variant-id))}
+                  (rf.story.runtime/rerun! variant-id {:play :all}))}
     (str "Run all (" (count plays) ")")]])
 
 (defn chip
@@ -339,9 +350,11 @@
                            (if multi?
                              (str "play: " (or active-name "(default)"))
                              "the play script"))
+           ;; `active-key` is captured HERE, before the fresh run's
+           ;; in-place reset evicts the active play (rf2-3x7nj.30.3).
            :on-click  (fn [e]
                         (.stopPropagation e)
-                        (rf.story.play.runner-events/re-run! variant-id))}
+                        (rf.story.runtime/rerun! variant-id {:play active-key}))}
           "Re-run"]]))))
 
 ;; ---- failure banner -------------------------------------------------------
@@ -366,7 +379,11 @@
   (let [state (get @rf.story.play.runner-events/run-state variant-id)]
     (when (banner-text state)
       (let [{:keys [first]} (rf.story.play.runner/fail-summary state)
-            sel (rf.story.play.runner/step-selector (:step first))]
+            sel (rf.story.play.runner/step-selector (:step first))
+            ;; Captured before the fresh run's reset evicts it, as the chip does.
+            active-key (or (rf.story.play.runner-events/active-play-key variant-id)
+                           (rf.story.play.runner/default-play-key
+                             (rf.story.play.runner-events/variant-plays variant-id)))]
         [:div {:style     (:banner styles)
                :role      "alert"
                :data-test "story-play-banner"}
@@ -381,7 +398,7 @@
          [:button {:style    (:banner-btn styles)
                    :data-test "story-play-banner-re-run"
                    :title    "Re-run the play script"
-                   :on-click (fn [_] (rf.story.play.runner-events/re-run! variant-id))}
+                   :on-click (fn [_] (rf.story.runtime/rerun! variant-id {:play active-key}))}
           "Re-run"]]))))
 
 ;; ---- production-elision wrapper ------------------------------------------
