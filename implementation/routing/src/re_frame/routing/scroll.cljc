@@ -436,14 +436,18 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
 
 #?(:cljs
    (defn- scroll-dom!
-     "The DOM half of `:rf.nav/scroll` — the only part that touches the page."
+     "The DOM half of `:rf.nav/scroll` — the only part that touches the page.
+     A no-op without a `window`: deferred, it runs outside the fx's error
+     isolation, so a pageless client host must not throw from here."
      [strategy saved-pos fragment]
-     (case strategy
-       :top     (if-let [el (and fragment (.getElementById js/document fragment))]
-                  (.scrollIntoView el)
-                  (.scrollTo js/window 0 0))
-       :restore (when (and saved-pos (sequential? saved-pos))
-                  (.scrollTo js/window (first saved-pos) (second saved-pos))))))
+     (when (exists? js/window)
+       (case strategy
+         :top     (if-let [el (and fragment (exists? js/document)
+                                   (.getElementById js/document fragment))]
+                    (.scrollIntoView el)
+                    (.scrollTo js/window 0 0))
+         :restore (when (and saved-pos (sequential? saved-pos))
+                    (.scrollTo js/window (first saved-pos) (second saved-pos)))))))
 
 #?(:cljs
    (defn- navigation-identity
