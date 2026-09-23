@@ -636,6 +636,17 @@
   index handling."
   #{:get :head})
 
+(defn ^:private dot-dot-path?
+  "Whether `uri` carries a `..` path segment, with `/` or `\\` as separator.
+
+  shadow's push-state handler builds its candidate by concatenating the RAW
+  request URI onto each root, and shadow-http hands `:uri` over un-normalised,
+  so a `..` segment walks out of the root to any `index.html` on disk. shadow's
+  static file handler refuses the same path; push-state is the one handler in
+  the chain without that guard (rf2-3x7nj.38.1)."
+  [uri]
+  (boolean (re-find #"(^|[/\\])\.\.([/\\]|$)" (str uri))))
+
 (defn handler
   "shadow-cljs `:dev-http` fallback entry point: this namespace's endpoint,
   layered over shadow's own default rather than replacing it.
@@ -652,10 +663,12 @@
   Only a page load. Push-state never looks at the method, so delegating a POST
   would hand one that accepts HTML the index page and a 200 — and a non-2xx
   for an off-endpoint POST is what sends the client to its `editor://` URI
-  fallback. Every other off-endpoint request keeps the plain 404."
+  fallback. Every other off-endpoint request keeps the plain 404 — as does a
+  page load whose path carries a `..` segment (`dot-dot-path?`)."
   [req]
   (or (handle req)
-      (when (contains? page-load-methods (:request-method req))
+      (when (and (contains? page-load-methods (:request-method req))
+                 (not (dot-dot-path? (:uri req))))
         (shadow.push-state/handle req))
       {:status 404
        :headers {"content-type" "text/plain"}
