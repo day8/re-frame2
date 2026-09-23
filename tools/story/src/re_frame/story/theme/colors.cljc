@@ -58,8 +58,9 @@
   {:no-doc true})
 
 (def tokens
-  "Story's semantic colour tokens. All hex literals in `tools/story/src`
-  resolve through here; hex literals at use-sites are banned. The
+  "Story's semantic colour tokens. Chrome colour resolves through here;
+  new code adds no hex literals at use-sites (some pre-palette panels
+  still carry raw hex — spec/016 §Zero-raw contract). The
   foundation ships as inline styles without a CSS asset pipeline; a
   v1.0 styling pass replaces these with CSS variables.
 
@@ -162,8 +163,12 @@
 
 ;; ── hex-literal contract ─────────────────────────────────────────────
 ;;
-;; Every colour across `tools/story/src` resolves through one canonical
-;; token in this map; hex literals at use-sites are banned. Each token
+;; Chrome colour resolves through one canonical token in this map, and
+;; new code adds no hex literals at use-sites. The rule binds new code:
+;; some pre-palette panels and dialogs still carry raw hex that
+;; duplicates no token, and colour values that are DATA (canvas
+;; background presets, colour-control defaults) are exempt — see
+;; spec/016 §Zero-raw contract (rf2-x7h5b). Each token
 ;; carries a single semantic meaning (e.g. `:bg-canvas` for the variant
 ;; render surface, `:accent-amber` for the hero accent), so call sites
 ;; name the role rather than a raw colour and the palette stays a single

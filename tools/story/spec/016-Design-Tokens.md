@@ -230,10 +230,28 @@ resolutions.
 
 ### Zero-raw contract
 
-Per rf2-i3i5j AC#3 — **no hex literals at call sites in
-`tools/story/src/**`**. All colour references resolve through
-`(:keyword tokens)`. The sweep that established the contract spanned
-30+ files; subsequent additions to the chrome have honoured it.
+Per rf2-i3i5j AC#3 — **chrome colour resolves through
+`(:keyword tokens)`, and new chrome code introduces no hex
+literals.** That is the contract going forward, not a description of
+the whole tree. The sweep that established it moved the shell's
+principal surfaces (shell frame, sidebar, toolbar) and most chrome
+files onto the palette, but it did not reach every panel and
+dialog: several still carry raw hex from before the palette existed —
+mostly VS-Code-Dark greys (`#1e1e1e`, `#252526`, `#3c3c3c`,
+`#cccccc`) and one-off status tints. rf2-x7h5b measured that almost
+none of those values duplicates an existing token (the few that did
+were swapped), so moving the rest onto the palette is a visual
+redesign of each surface rather than a mechanical swap, and has not
+been done. Treat such a literal as residue: when you touch the
+surface for another reason, prefer the nearest semantic token rather
+than copying the literal, and do not add a token merely to absorb a
+one-off.
+
+Colour values that are **data** rather than chrome sit outside the
+contract: the canvas-background presets and checkerboard pattern
+(`backgrounds.cljc`, `modes/standard.cljc`), the layout-debug outline
+palette, a colour control's default value, and hex written as an
+example in a docstring.
 
 ### Cross-references
 
@@ -771,17 +789,25 @@ The seven token namespaces are the **single source of truth** for the
 chrome's identity-bearing values. The contract:
 
 - **No `font-family` strings outside `theme.typography`** (rf2-2rwdc AC#5).
-- **No hex literals outside `theme.colors`** (rf2-i3i5j AC#3).
+- **No hex literals outside `theme.colors`** in new chrome code
+  (rf2-i3i5j AC#3). Pre-palette residue remains in some panels and
+  dialogs, and colour values that are data are exempt — see §Colour
+  §Zero-raw contract.
 - **No raw duration / easing strings outside `theme.motion`** (rf2-3lt89 follow-on).
-- **No `box-shadow` strings outside `theme.depth`** (rf2-ypd6h follow-on).
+- **No `box-shadow` strings outside `theme.depth`** in new chrome
+  code (rf2-ypd6h follow-on). Like the hex rule this is not yet true
+  of the whole tree: a handful of floating panels, popovers and dialogs
+  carry their own elevation shadow strings, none of them identical to a
+  `shadows` slot, so adopting the scale there is a visual change rather
+  than a swap.
 - **No SVG glyph definitions outside `theme.glyphs`** (rf2-p0wur).
 
 Call sites consume tokens via keyword lookup against the canonical
-maps; failures are caught at review. The contract is enforced by
-maintenance discipline rather than a lint rule — the test corpus's
-chrome-feature gates exercise the rendered surfaces, and the
-[`015-Test-Coverage.md`](015-Test-Coverage.md) row count would
-inflate visibly if a regression sneaked in a hard-coded value.
+maps. Nothing enforces the contract mechanically — there is no lint
+rule, source scan or test for it (the token rows of
+[`015-Test-Coverage.md`](015-Test-Coverage.md) say so) — so it holds
+only as far as review holds it, which is how the hex and shadow
+residue above accumulated.
 
 ## Production elision
 

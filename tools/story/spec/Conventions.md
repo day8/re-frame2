@@ -127,7 +127,7 @@ Per [016-Design-Tokens.md](016-Design-Tokens.md), chrome consumers consume **des
 - **No raw hex literals (`#xxxxxx`).** Chrome consumes `(:token-name re-frame.story.theme.colors/tokens)`. The rule is enforced as a ban under rf2-i3i5j AC#3.
 - **No raw `transition` literals.** Chrome consumes `(:row re-frame.story.theme.motion/transitions)` (or any pre-composed transition). The rule is enforced as a ban under rf2-3lt89 follow-on sweep.
 
-The bans are enforced at review, not by a linter or CI gate (none exists) — see [016-Design-Tokens.md](016-Design-Tokens.md) §Zero-raw contract; rf2-x7h5b tracks the call sites that currently breach it. Third-party Story panel authors honour the same contract: panels that ship in user repos use the same token namespaces so light / dark / future themes apply uniformly.
+The bans bind new chrome code and are enforced at review, not by a linter or CI gate (none exists). They are not yet true of the whole tree: some pre-palette panels and dialogs still carry raw hex and their own `box-shadow` strings, none of them duplicating a token, so adopting the palette there is a visual redesign rather than a swap — see [016-Design-Tokens.md](016-Design-Tokens.md) §Zero-raw contract (rf2-x7h5b). Third-party Story panel authors honour the same contract: panels that ship in user repos use the same token namespaces so light / dark / future themes apply uniformly.
 
 ## Privacy — `:sensitive` / `:large` classification
 

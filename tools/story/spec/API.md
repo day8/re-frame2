@@ -535,8 +535,10 @@ contracts.
   `theme.typography`; raw `font-family` literals are banned (rf2-2rwdc
   AC#5).
 - **No raw hex literals at call sites.** Chrome consumes
-  `(:token-name colors/tokens)`; raw `#xxxxxx` literals are banned
-  (rf2-i3i5j AC#3).
+  `(:token-name colors/tokens)`; new chrome code introduces no raw
+  `#xxxxxx` literals (rf2-i3i5j AC#3). Some pre-palette panels still
+  carry raw hex, and colour values that are data are exempt — see
+  [`016-Design-Tokens.md`](016-Design-Tokens.md) §Zero-raw contract.
 - **No raw `transition` literals at call sites.** Chrome consumes
   `(:row motion/transitions)` etc.; raw `transition` strings are
   banned (rf2-3lt89 follow-on sweep).
