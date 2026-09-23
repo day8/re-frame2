@@ -236,6 +236,31 @@
   says nothing (rf2-v4foc)."
   9007199254740991)
 
+(defn portable-number?
+  "Is the number `v` of a TYPE and RANGE the browser holds exactly? The type /
+  range half of `wire-number?` below, shared with the hydration payload's
+  crossing check (`re-frame.ssr.payload-policy`, rf2-3x7nj.13.3) so the two
+  wires cannot drift apart on which JVM numbers cross.
+
+  JVM: no Ratio, BigDecimal, BigInt / BigInteger or Float; integers only
+  within ±`max-safe-integer`; every DOUBLE, `##NaN` and `##Inf` included —
+  a double is already what the browser holds. CLJS: every number, since every
+  CLJS number is already a double. What this leaves out is `wire-number?`'s
+  NaN clause, which is about round-trip EQUALITY rather than about transport:
+  NaN reads back as NaN, it just is not `=` to itself. See `wire-number?` for
+  the table of what each refused type reads back as."
+  [v]
+  #?(:clj
+     (cond
+       (or (ratio? v) (decimal? v))    false
+       (integer? v)                    (and (not (instance? clojure.lang.BigInt v))
+                                            (not (instance? java.math.BigInteger v))
+                                            (<= (- max-safe-integer) v max-safe-integer))
+       (double? v)                     true
+       :else                           false)
+     :cljs
+     (number? v)))
+
 (defn- wire-number?
   "Can the number `v` cross the wire UNCHANGED? The whole predicate is
   the round-trip equality itself — `v` is admitted exactly when printing
@@ -278,18 +303,14 @@
   approximation, changes the prop's TYPE between server and client,
   which is the very defect a fail-loud wire exists to prevent. The
   author narrows the value explicitly, so both hosts agree about what
-  they are holding."
+  they are holding.
+
+  The type / range rule is `portable-number?`, shared with the hydration
+  payload (rf2-3x7nj.13.3); this adds only the NaN clause."
   [v]
-  #?(:clj
-     (cond
-       (or (ratio? v) (decimal? v))    false
-       (integer? v)                    (and (not (instance? clojure.lang.BigInt v))
-                                            (not (instance? java.math.BigInteger v))
-                                            (<= (- max-safe-integer) v max-safe-integer))
-       (double? v)                     (not (Double/isNaN v))
-       :else                           false)
-     :cljs
-     (not (js/Number.isNaN v))))
+  (and (portable-number? v)
+       (not #?(:clj  (and (double? v) (Double/isNaN v))
+               :cljs (js/Number.isNaN v)))))
 
 (defn edn-carryable?
   "Can `v` ride the manifest's EDN wire? Scalars (nil / boolean / number

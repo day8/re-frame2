@@ -246,9 +246,14 @@
   projection under `frame-id` (`payload-policy/project-app-db-egress`) — the
   SAME allowlist-first-then-project boundary the final `__rf_payload` obeys, so
   an off-allowlist changed key is dropped and a frame-sensitive child inside an
-  allowed changed key redacts. `policy-opts` carries the `:payload` policy
-  (validated at handler-construction time, so a malformed policy never reaches
-  here). A nil / empty delta returns `{}` (nothing to hydrate). Pure."
+  allowed changed key redacts. The projected delta then obeys the final
+  payload's numeric crossing rule on a JVM host
+  (`payload-policy/check-portable-numbers!`, rf2-3x7nj.13.3): a number the
+  browser would read back as a different value throws
+  `:rf.error/ssr-hydration-payload-invalid`. `policy-opts` carries the
+  `:payload` policy (validated at handler-construction time, so a malformed
+  policy never reaches here). A nil / empty delta returns `{}` (nothing to
+  hydrate). Pure."
   [delta frame-id {:as policy-opts}]
   (if-not (seq delta)
     {}
@@ -259,7 +264,11 @@
       ;; `:rf/redacted` sentinel, which the host's `(seq …)` emit guard cannot
       ;; walk). Short-circuit to `{}` so the host emits no delta script.
       (if (seq allowed)
-        (rf.ssr.payload-policy/project-app-db-egress allowed frame-id)
+        ;; rf2-3x7nj.13.3 — a delta is hydration state too, so it obeys the
+        ;; final payload's numeric crossing rule (a no-op on CLJS).
+        (rf.ssr.payload-policy/check-portable-numbers!
+          :rf/app-db
+          (rf.ssr.payload-policy/project-app-db-egress allowed frame-id))
         {}))))
 
 ;; ---- continuation registry (per-request, transient) -----------------------

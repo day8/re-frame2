@@ -93,7 +93,11 @@
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.projection :as rf.projection]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace :as rf.trace]
+            ;; rf2-3x7nj.13.3 — the numeric crossing rule, JVM-only: on CLJS
+            ;; every number already crosses, and the client bundle (which
+            ;; reaches this ns through `re-frame.ssr.hydrate`) never loads it.
+            #?(:clj [re-frame.ssr.manifest :as rf.ssr.manifest])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -712,6 +716,101 @@
   (or (coerce-version explicit-version)
       pattern-protocol-version))
 
+;; ---- the numeric crossing rule (rf2-3x7nj.13.3) ---------------------------
+;;
+;; The payload is `pr-str`'d on the JVM and read back by the browser's EDN
+;; reader, and for a handful of JVM number types that read SUCCEEDS WITH A
+;; DIFFERENT VALUE: a Long past 2^53 lands on its even neighbour, a BigDecimal
+;; or Ratio becomes a double, a BigInt loses precision. An order id then
+;; addresses a different order and money becomes a double — while the server
+;; reads its own value back perfectly, same-host tests pass, and the render
+;; hash agrees whenever the view prints the value identically or carries it
+;; only into an event. The root manifest and the ssr-node render-state wire
+;; already refuse exactly these numbers; this is the same rule on the third
+;; wire (Spec 011 §Payload scope).
+;;
+;; FAIL CLOSED, ALWAYS ON, JVM ONLY. The failure is data-dependent, so a
+;; dev-only check would leave it open precisely in production. The walk
+;; inspects only data already leaving the server. On CLJS (including Fresco's
+;; Node door) every number is already a double and crosses unchanged, so the
+;; check does not exist there.
+;;
+;; NUMBERS ONLY, and the manifest's TYPE / RANGE rule (`manifest/
+;; portable-number?`), not its NaN clause and not `edn-carryable?` wholesale:
+;; `##NaN`, `#inst` and `#uuid` all read back as what they were, and a record
+;; already fails LOUD at the far end. Map KEYS are walked as well as values —
+;; an app-db keyed by a wide entity id narrows just as silently.
+
+#?(:clj
+   (defn- refuse-non-portable-number!
+     "`position` is `:value`, `:key` (a map key; `path` names its map) or
+     `:member` (a set member; `path` names its set)."
+     [partition path n position]
+     (let [class-name (.getName (class n))]
+       (rf.error/throw-error!
+         :rf.error/ssr-hydration-payload-invalid
+         're-frame.ssr.payload-policy
+         (str "hydration payload " partition " carries a " class-name
+              (case position
+                :key    " as a map KEY in the map at "
+                :member " as a member of the set at "
+                " at ")
+              (pr-str path)
+              ", a number the browser's EDN reader cannot read back as the same"
+              " value: a Long or BigInt past 2^53 lands on a different integer,"
+              " a BigDecimal or Ratio becomes a double, a Float is not the double"
+              " it prints as. Narrow it where you know what it means (an id to a"
+              " string, money to a string or integer cents) or leave the key off"
+              " the :payload allowlist.")
+         {:recovery :narrow-the-value-or-drop-the-key
+          :extra    (cond-> {:partition partition
+                             :path      path
+                             :class     class-name}
+                      (= :key position) (assoc :half :key))}))))
+
+#?(:clj
+   (defn- check-portable-numbers-at!
+     [partition path v position]
+     (cond
+       (number? v)
+       (when-not (rf.ssr.manifest/portable-number? v)
+         (refuse-non-portable-number! partition path v position))
+
+       ;; A record is left to the reader, which refuses an unknown tag LOUDLY.
+       (record? v)
+       nil
+
+       (map? v)
+       (reduce-kv (fn [_ k child]
+                    (check-portable-numbers-at! partition path k :key)
+                    (check-portable-numbers-at! partition (conj path k) child :value))
+                  nil
+                  v)
+
+       (set? v)
+       (doseq [member v]
+         (check-portable-numbers-at! partition path member :member))
+
+       (sequential? v)
+       (reduce (fn [index child]
+                 (check-portable-numbers-at! partition (conj path index) child :value)
+                 (inc index))
+               0
+               v))))
+
+(defn check-portable-numbers!
+  "Refuse a hydration-payload slice carrying a number the browser's EDN reader
+  would read back as a DIFFERENT value — see the section comment above
+  (rf2-3x7nj.13.3). Walks every number in `slice`, map keys and set members
+  included, and throws `:rf.error/ssr-hydration-payload-invalid` on the first
+  outside `manifest/portable-number?`, naming `partition` (`:rf/app-db` /
+  `:rf/runtime-db`), the path from the partition root (for a map key or a set
+  member, the path of the collection holding it, with `:half :key`) and the
+  class. Returns `slice`. A no-op on CLJS, where every number crosses."
+  [partition slice]
+  #?(:clj (check-portable-numbers-at! partition [] slice :value))
+  slice)
+
 (defn build-payload
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
   hydration payload — the two always-present keys (`:rf/version`,
@@ -769,11 +868,20 @@
   nil — the explicit-`:head`-STRING or degraded-head-resolution shape
   where the server knows the head is not client-reconstructible.
 
+  rf2-3x7nj.13.3 — both slices obey the numeric crossing rule first
+  (`check-portable-numbers!`): on a JVM host a number the browser's EDN reader
+  would read back as a DIFFERENT value throws
+  `:rf.error/ssr-hydration-payload-invalid` rather than shipping.
+
   Shared verbatim by both SSR paths (rf2-8wrzz.4): the non-streaming
   `re-frame.ssr.ring.payload/build-payload` and the streaming
   `re-frame.ssr.streaming/build-final-payload`, which differ only in how
   they source `app-db` + runtime-db before projecting them."
   [wire-frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
+  ;; rf2-3x7nj.13.3 — both partitions obey the numeric crossing rule before
+  ;; they are assembled (a no-op on CLJS). One site covers both SSR paths.
+  (check-portable-numbers! :rf/app-db db-slice)
+  (check-portable-numbers! :rf/runtime-db runtime-db)
   (cond-> {:rf/version (resolve-version version)
            :rf/app-db  db-slice}
     ;; rf2-2rtt6.91 — the hash channel is HICCUP-TIER-ONLY, so a nil

@@ -634,10 +634,13 @@ render's own per-request frame, which is the right page. Name the key either
 way: the list is the deployment's ceiling, not a promise that something fills
 it. Both directions are measured in the login example's crossing suite.
 
-Both policies are fail-closed allowlists of top-level keys, and both project
-the same EDN wire domain the hydration payload already uses. Where the
-allowlist vocabulary cannot express a projection, `:render-state` also accepts
-`(fn [frame-id] → partitions)`.
+Both policies are fail-closed allowlists of top-level keys. The render-state
+wire refuses the same JVM-only numbers the hydration payload refuses (a Long
+past 2^53, a BigInt, a BigDecimal, a Ratio, a Float), and it is stricter than
+the payload in one respect: it also refuses `##NaN`, `#inst` and `#uuid`,
+which the payload carries, so narrow a date to a string or epoch millis before
+it crosses. Where the allowlist vocabulary cannot express a projection,
+`:render-state` also accepts `(fn [frame-id] → partitions)`.
 
 ### 5. Start the sidecar, and mind the skew
 
