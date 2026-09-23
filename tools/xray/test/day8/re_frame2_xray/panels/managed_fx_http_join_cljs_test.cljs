@@ -26,7 +26,7 @@
             [re-frame.machines :as rf.machines]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.projection :as projection]
+            [re-frame.trace.projection :as rf.trace.projection]
             [re-frame.trace.tooling :as rf.trace.tooling]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]))
 
@@ -100,7 +100,7 @@
 
 ;; ---- reading a capture the way Xray does ---------------------------------
 
-(defn- bundles [buffer] (projection/group-by-event buffer))
+(defn- bundles [buffer] (rf.trace.projection/group-by-event buffer))
 
 (defn- bundle-for
   "The (single) bundle whose dispatched event is `event`."
