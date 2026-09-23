@@ -453,6 +453,28 @@
                              :frame      frame-id}
                             reply-facts))))))
 
+(defn- live-attempt-member?
+  "True iff `spawned-id` is still a LIVE actor whose `:rf/join-child`
+  membership authenticates against THIS join attempt — parent, invoke path,
+  logical child id, its own address, and the attempt token (the same test
+  `destroy/authenticated-join-child` applies before a teardown).
+
+  rf2-3x7nj.9.5 — `:done ∪ :failed` record carriers already FOLDED, not actors
+  already FINISHED. A sibling that reached `:final?` while its carrier is still
+  queued behind the decisive one has already published its own terminal and
+  torn itself down; it is no survivor, and cancelling it would give one attempt
+  contradictory terminals."
+  [runtime-db parent-id invoke-id join-state child-id spawned-id]
+  (let [member (get-in runtime-db (conj (rf.machines.paths/snapshot-path spawned-id :data)
+                                        :rf/join-child))]
+    (and (map? member)
+         (= parent-id  (:parent-id member))
+         (= invoke-id  (:invoke-id member))
+         (= child-id   (:child-id member))
+         (= spawned-id (:spawned-id member))
+         (some? (:attempt member))
+         (= (:rf/attempt join-state) (:attempt member)))))
+
 (defn- build-resolution-fx
   "Build the fx vector to fire on resolution: a `:rf.machine/destroy` per
   SURVIVOR (a child that never completed), each carrying one
@@ -480,8 +502,13 @@
   (`re-frame.epoch.capture/capture-event!` silently drops events whose tags
   lack `:frame`). The caller threads `frame-id` (resolved from `(:rf/frame
   machine)` at the entry point) so the per-survivor cancellation traces reach
-  the cascade's `:trace-events` slot."
-  [frame-id parent-id invoke-id join-state'' child-id result
+  the cascade's `:trace-events` slot.
+
+  A SURVIVOR is also a LIVE member of this attempt (`live-attempt-member?`,
+  read off `runtime-db`): a sibling that already FINISHED while its carrier is
+  still queued is neither cancelled nor destroyed here — its queued carrier
+  lands as a `late-completion` (rf2-3x7nj.9.5)."
+  [runtime-db frame-id parent-id invoke-id join-state'' child-id result
    {:keys [resolved? resolution-event join-event-kw]}]
   (let [destroy-fx
         (when resolved?
@@ -490,7 +517,11 @@
                                                 (:failed join-state'')))
                 survivors     (->> children
                                    (remove (fn [[cid _]]
-                                             (contains? completed-ids cid))))]
+                                             (contains? completed-ids cid)))
+                                   (filter (fn [[cid spawned-id]]
+                                             (live-attempt-member?
+                                               runtime-db parent-id invoke-id
+                                               join-state'' cid spawned-id))))]
             (doseq [[cid spawned-id] survivors]
               ;; A join-survivor cancellation closes the survivor's actor
               ;; work attempt the reply-envelope way: a `:status :cancelled`
@@ -853,7 +884,7 @@
       (emit-child-fold-terminal! frame-id parent-id invoke-id join-state''
                                  child-id work-generation kind result
                                  completed-at))
-    (let [fx (build-resolution-fx frame-id parent-id invoke-id join-state''
+    (let [fx (build-resolution-fx runtime-db frame-id parent-id invoke-id join-state''
                                   child-id result resolution)]
       {:rf.db/runtime (assoc-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id) join-state'')
        :fx fx})))
