@@ -28,7 +28,7 @@
             ;; §7 unbinds the walker hooks to pin the fail-loud path.
             [re-frame.late-bind :as rf.late-bind]
             ;; load-bearing: binds the shared schema walker hooks.
-            [re-frame.schemas]))
+            [re-frame.schemas :as rf.schemas]))
 
 ;; No per-test fixture: every test here is a pure `re-frame.http.privacy-body`
 ;; call — nothing touches the registrar / frames / app-db, so there is no
@@ -263,3 +263,30 @@
     (is (= {:token :rf/redacted}
            (rf.http.privacy-body/classify-decoded {:token "bearer-secret"}
                                   [:map [:token {:sensitive? true} :string]])))))
+
+;; ---- 8. per-request :decode extraction retains nothing (rf2-3x7nj.19.4) ---
+;;
+;; The schemas artefact's sensitive-path memo is never evicted, which is safe
+;; only for schemas registered once at boot. A `:decode` schema is built per
+;; REQUEST — a literal operand such as `[:= id]` makes every request's schema a
+;; distinct value — so an HTTP extraction that lands in that memo grows it by
+;; one permanent entry per distinct request. The published walker hook is
+;; therefore an UNMEMOISED walk. The probe: a memoised extraction of the same
+;; schema value returns the IDENTICAL result object on the next memo lookup,
+;; while an unmemoised one leaves nothing there to return.
+
+(deftest decode-schema-marks-leaves-the-walker-memo-untouched
+  (testing "a per-request `:decode` classification adds no entry to the
+            never-evicted sensitive-path memo"
+    (rf.schemas/clear-sensitive-paths-cache!)
+    (let [decode (let [id "user-19-4"]
+                   [:map [:id [:= id]]
+                         [:ssn {:sensitive? true} :string]
+                         [:name :string]])
+          marks  (rf.http.privacy-body/decode-schema-marks decode)]
+      (is (= {[:ssn] {:sensitive? true :source :schema}} (:sensitive marks))
+          "the classification itself is unchanged")
+      (is (not (identical? (:sensitive marks)
+                           (rf.schemas/extract-sensitive-paths-from-schema decode [])))
+          "the memo holds no entry for the per-request schema: its lookup walks
+           afresh instead of returning the request's result"))))

@@ -69,6 +69,14 @@
     :in       [:s "SECRET-SET-ELEMENT"]
     :expected [:s :rf/redacted]}
 
+   {:desc     "a :set element failing at a NON-sensitive leaf beside a
+               :sensitive? sibling — the segment is still the WHOLE element,
+               sibling secret included, so it is scrubbed; the declared leaf
+               key survives (rf2-3x7nj.19.1)"
+    :schema   [:set [:map [:uid :int] [:token {:sensitive? true} :string]]]
+    :in       [{:uid "not-an-int" :token "SECRET-TOKEN-A1"} :uid]
+    :expected [:rf/redacted :uid]}
+
    {:desc     "a sensitive :map-of KEY is the secret itself — scrubbed; the
                navigable inner declared map key survives (rf2-612mri)"
     :schema   [:map-of [:string {:sensitive? true}] [:map [:age :int]]]

@@ -102,17 +102,26 @@
 (def ^:private value-bearing-slots
   [:value :received :explain :explain-humanized :rf.fx/args :rf.sub/query-v])
 
+;; The value-bearing slots that carry the CHECKED value, so the `:large?`
+;; size marker may stand in for them. `:rf.sub/query-v` is value-bearing for
+;; privacy (it is the lookup key) but it is not the checked value: a marker
+;; there would replace the query vector Xray matches a sub-return violation
+;; by with a description of a different value (rf2-3x7nj.19.2).
+(def ^:private size-elided-slots
+  (filterv #(not= :rf.sub/query-v %) value-bearing-slots))
+
 ;; ---- :large? size-elision of validation-failure value slots ---------------
 ;;
 ;; A `:large?`-flagged slot inside the checked value ships the whole blob into
 ;; the validation-failure trace's value-bearing slots unless the emit-site
 ;; elides it. Per Spec 010 §`:large?` (the validation size-safety arm) and
 ;; §Composition with `:large?` (sensitive wins), the emit-site substitutes the
-;; `:rf.size/large-elided` marker for the whole value-bearing slots when the
-;; schema declares any `:large?` slot and NO `:sensitive?` slot governs the
-;; redaction — a sensitive failure already scrubs to `:rf/redacted`, and a
-;; sensitive marker would itself leak the secret's `:path` / `:bytes` size
-;; signature. The canonical `re-frame.elision/->marker` owns the wire shape.
+;; `:rf.size/large-elided` marker for each value-bearing slot that carries the
+;; checked value when the schema declares any `:large?` slot and the slot's
+;; own `:sensitive?` decision did not redact it — a redacted slot already
+;; scrubs to `:rf/redacted`, and a sensitive marker would itself leak the
+;; secret's `:path` / `:bytes` size signature. The canonical
+;; `re-frame.elision/->marker` owns the wire shape.
 
 (defn- large-marker
   "Build the `:rf.size/large-elided` marker for the whole failing value `v`.
@@ -128,29 +137,32 @@
   permits a nil value); the whole-value substitution has no human-facing
   re-fetch hint distinct from the trace envelope.
 
-  `:path []` — the marker substitutes the WHOLE value-bearing slot, matching
-  the whole-payload nature of these slots (a single marker, not a path-walk;
-  the value-bearing slots carry the whole checked value, not a leaf)."
+  `:path []` — the marker substitutes the WHOLE slot it stands in for (a
+  single marker, not a path-walk), so its path is relative to that slot's
+  value: the whole checked value, or the failing leaf on the app-db
+  surface's narrowed `:value`."
   [v]
   (rf.elision/->marker v [] {:reason :effect :hint nil}))
 
 (defn- elide-large-slots
-  "Substitute the `:rf.size/large-elided` marker (for `v`, the whole checked
-  value) into each `value-bearing-slots` entry present in `tags`, and stamp
-  `:large? true`. `contains?`-guarded so a slot a surface doesn't carry is a
-  no-op. Per Spec 010 §`:large?` validation size-safety arm.
+  "Substitute the `:rf.size/large-elided` marker for `v` (the value those
+  slots carry) into each of `slots` present in `tags` — every
+  `size-elided-slots` entry by default — and stamp `:large? true`.
+  `contains?`-guarded so a slot a surface doesn't carry is a no-op. Per
+  Spec 010 §`:large?` validation size-safety arm.
 
-  Called ONLY on the non-sensitive branch (sensitive wins — see
-  `redact-tags` / `redact-tags-per-slot`): a slot already scrubbed to
+  Called ONLY for slots the sensitive decision left alone (sensitive wins —
+  see `redact-tags` / `redact-tags-per-slot`): a slot already scrubbed to
   `:rf/redacted` must never be replaced by a size marker that re-leaks the
   secret's `:bytes` signature."
-  [tags v]
-  (let [marker (large-marker v)]
-    (-> (reduce (fn [t slot]
-                  (cond-> t (contains? t slot) (assoc slot marker)))
-                tags
-                value-bearing-slots)
-        (assoc :large? true))))
+  ([tags v] (elide-large-slots tags v size-elided-slots))
+  ([tags v slots]
+   (let [marker (large-marker v)]
+     (-> (reduce (fn [t slot]
+                   (cond-> t (contains? t slot) (assoc slot marker)))
+                 tags
+                 slots)
+         (assoc :large? true)))))
 
 ;; ---- per-slot decision scope ----------------------------------------------
 ;; A redaction decision must match the value a tag carries. App-db `:value`
@@ -293,6 +305,27 @@
       (let [paths (keep :in errors)]
         (when (seq paths)
           (reduce common-prefix (first paths) (rest paths)))))))
+
+(defn- failing-leaf-value
+  "The failing datum at `in-path` (as `failing-in-path` derived it).
+
+  When every error shares that one `:in` (the single-error case among them),
+  the first error's own `:value` is the failing datum. That is not always
+  the value AT `:in`: a `:map-of` KEY failure reports the key under the same
+  `:in [k]` as the entry, so `get-in` would hand back the entry's VALUE —
+  possibly valid — as the thing that failed (rf2-3x7nj.19.3). When the
+  errors diverge, `in-path` is their common ancestor and no single error
+  owns it, so the value is read from `registered-value`. An error without a
+  `:value` key (a non-Malli explainer) falls back to `get-in` too."
+  [explanation in-path registered-value]
+  (if (nil? in-path)
+    registered-value
+    (let [errors (seq (:errors explanation))
+          error  (first errors)]
+      (if (and (contains? error :value)
+               (every? #(= in-path (:in %)) errors))
+        (:value error)
+        (get-in registered-value in-path)))))
 
 (defn- reason-string
   "Build the human-readable reason for a validation failure. Each caller
@@ -450,9 +483,10 @@
       failing leaf's Malli `:in`, and `:in` segments are not all structural:
       a `:set` failure's segment IS the failing element value and a `:map-of`
       key rides as the key. `sanitize-sensitive-path` scrubs those only when
-      the leaf is `:sensitive?`, so a non-sensitive set element would ship
-      verbatim. A structural-path projection would have to drop those segment
-      kinds first; that is not this PR.
+      the schema declares something `:sensitive?`, so a set element under a
+      schema declaring nothing sensitive would ship verbatim. A
+      structural-path projection would have to drop those segment kinds
+      first; that is not this PR.
     - `:value` / `:received` / `:explain` / `:explain-humanized` / `:schema` —
       the payload itself, and the schema FORM (unbounded `pr-str`).
 
@@ -967,19 +1001,18 @@
                  ;; regardless of whether path narrowing succeeded.
                  ;;
                  ;; Per Spec 010 §`:sensitive?`, the redaction decision is
-                 ;; The redaction decision is PER-SLOT-SCOPED (see the
-                 ;; `let` below): the path-targeted check
-                 ;; (`schema-sensitive-at?`) governs only the slots this
-                 ;; surface NARROWS to the failing leaf — `:value`, plus
-                 ;; the `:path` / `:reason` leaf coordinates — so a
+                 ;; PER-SLOT-SCOPED (see the `let` below): the path-targeted
+                 ;; check (`schema-sensitive-at?`) governs only the slot this
+                 ;; surface NARROWS to the failing leaf — `:value` — so a
                  ;; failure at a non-sensitive leaf whose SIBLING is
-                 ;; sensitive does not redact THOSE (the precise-narrowing
+                 ;; sensitive does not redact it (the precise-narrowing
                  ;; win; ancestor- OR descendant-sensitive at the leaf
                  ;; counts). The WHOLE-PAYLOAD slots (`:explain` /
                  ;; `:explain-humanized`, which carry the whole registered value)
                  ;; stay under the coarse `schema-has-sensitive?` root
                  ;; check because a conforming sensitive sibling rides inside
-                 ;; them.
+                 ;; them — and so does the `:path` / `:reason` sanitization,
+                 ;; because a `:set` segment carries the whole element.
                  ;;
                  ;; The trace carries `:rollback? true` (consistent with depth-exceeded;
                  ;; reuses the existing `:recovery :no-recovery`
@@ -992,13 +1025,15 @@
                     (if-not (continue?)
                       :rf/stale-incarnation
                       (let [in-path     (failing-in-path explanation)
-                             leaf-value (if in-path
-                                          (get-in registered-value in-path)
-                                          registered-value)
+                            ;; The failing datum — usually the value at
+                            ;; `in-path`, but the key itself on a `:map-of`
+                            ;; key failure (see `failing-leaf-value`).
+                             leaf-value (failing-leaf-value explanation in-path
+                                                            registered-value)
                        ;; The app-db
                        ;; hot path is the ONLY surface that NARROWS a slot:
-                       ;; `:value` is `(get-in registered-value in-path)` — just the
-                       ;; failing leaf. So it carries TWO redaction decisions
+                       ;; `:value` is the failing leaf's datum, not the whole
+                       ;; registered value. So it carries TWO redaction decisions
                        ;; scoped to the two value-scopes it ships:
                        ;;
                        ;;   - `leaf-sensitive?` — the LEAF-PRECISE check
@@ -1007,8 +1042,7 @@
                        ;;     A failure at a non-sensitive leaf whose sibling is sensitive is
                        ;;     NOT redacted — the leaf value genuinely doesn't
                        ;;     contain the sibling. This decision governs the
-                       ;;     NARROWED `:value` slot AND the `:path` / `:reason`
-                       ;;     sanitization (both keyed to the failing leaf).
+                       ;;     NARROWED `:value` slot only.
                        ;;
                        ;;   - `whole-sensitive?` — the ROOT / whole-schema check
                        ;;     (`schema-has-sensitive?`). This governs the
@@ -1023,7 +1057,9 @@
                        ;;     would leak through a leaf-only decision. The root
                        ;;     check catches them. `whole-sensitive?` also stamps
                        ;;     the top-level `:sensitive?` (it is the broader
-                       ;;     decision — `leaf-sensitive?` ⊆ `whole-sensitive?`).
+                       ;;     decision — `leaf-sensitive?` ⊆ `whole-sensitive?`)
+                       ;;     and gates the `:path` / `:reason` sanitization
+                       ;;     (see `trace-in-path` below).
                        ;; A compiled or opaque schema (a
                        ;; non-vector, non-keyword `m/schema` object) cannot be
                        ;; walked, so a per-slot `:sensitive?` Malli honoured is
@@ -1050,15 +1086,21 @@
                        ;; not taint an unrelated non-opaque leaf's `:value`.
                        leaf-sensitive?  (rf.schemas.walker/schema-sensitive-at? schema in-path)
                        whole-sensitive? (rf.schemas.walker/schema-sensitive-at? schema nil)
-                       ;; A `:large?` non-sensitive schema
-                       ;; elides the value-bearing slots to the size marker
-                       ;; (sensitive wins; opaque is fail-closed sensitive,
-                       ;; subsuming large). `whole-large?` governs every
-                       ;; value-bearing slot uniformly here — the marker is the
-                       ;; same shape on the narrowed `:value` (built from the
-                       ;; failing leaf) and the whole-payload `:explain`.
-                       whole-large?     (and (not whole-sensitive?)
-                                             (rf.schemas.walker/schema-has-large? schema))
+                       ;; A schema declaring any `:large?` slot elides each
+                       ;; value-bearing slot that its OWN sensitive decision
+                       ;; left alone (sensitive wins; opaque is fail-closed
+                       ;; sensitive, subsuming large), so the size arm is
+                       ;; scoped exactly like the redaction arm: the narrowed
+                       ;; `:value` under `leaf-large?`, with a marker built
+                       ;; from the leaf so no sensitive sibling reaches its
+                       ;; `:bytes`, and the whole-payload slots under
+                       ;; `whole-large?`. Gating `:value` on the whole-schema
+                       ;; decision switched the arm off beside ANY sensitive
+                       ;; sibling and shipped the blob verbatim
+                       ;; (rf2-3x7nj.19.2).
+                       large?           (rf.schemas.walker/schema-has-large? schema)
+                       leaf-large?      (and large? (not leaf-sensitive?))
+                       whole-large?     (and large? (not whole-sensitive?))
                        ;; Some `:in`
                        ;; segments are value-bearing, not structural: a
                        ;; `:set` failure's segment is the failing ELEMENT
@@ -1070,17 +1112,20 @@
                        ;; `:path` tag would ship those verbatim — defeating
                        ;; the redaction the `:value` / `:explain` slots
                        ;; apply, and re-leaking through `:reason` (built from
-                       ;; the same path). The `:path` / `:reason` sanitization
-                       ;; is keyed to the failing leaf, so it scopes to
-                       ;; `leaf-sensitive?` (the path segments are the failing
-                       ;; leaf's coordinates — a conforming sibling's secret
-                       ;; never appears in THIS leaf's path). When the leaf is
-                       ;; sensitive, scrub the value-bearing segments out of
-                       ;; `:path` via `sanitize-sensitive-path` (navigable
-                       ;; `:vector` / `:tuple` / `:map` segments + NON-sensitive
-                       ;; `:map-of` keys are kept so `:path` stays a useful
-                       ;; locator for those shapes).
-                            trace-in-path   (if (and in-path leaf-sensitive?)
+                       ;; the same path). The sanitization scopes to
+                       ;; `whole-sensitive?`, NOT `leaf-sensitive?`: a `:set`
+                       ;; segment is the WHOLE element, so a failure at a
+                       ;; non-sensitive leaf carries every conforming
+                       ;; sensitive sibling of that element in its own path
+                       ;; (rf2-3x7nj.19.1). Whenever the schema declares
+                       ;; anything sensitive, scrub the value-bearing segments
+                       ;; out of `:path` via `sanitize-sensitive-path`
+                       ;; (navigable `:vector` / `:tuple` / declared `:map`
+                       ;; segments + NON-sensitive `:map-of` keys are kept so
+                       ;; `:path` stays a useful locator for those shapes; the
+                       ;; tail past an ambiguous wrapper over-redacts, which is
+                       ;; the accepted direction).
+                            trace-in-path   (if (and in-path whole-sensitive?)
                                               (rf.schemas.walker/sanitize-sensitive-path schema in-path)
                                               in-path)
                             trace-path      (if trace-in-path
@@ -1110,18 +1155,21 @@
                                             event-id          (assoc :failing-id event-id)
                                             (some? humanized) (assoc :explain-humanized humanized))
                        ;; PER-SLOT DECISION SCOPING: `:value` (narrowed) under
-                       ;; the leaf decision; `:explain` / `:explain-humanized`
-                       ;; (whole registered value) under the root decision. When the
-                       ;; schema is `:large?` and not
-                       ;; sensitive) the value-bearing slots elide to the size
-                       ;; marker (built from the whole `registered-value`) — sensitive
-                       ;; wins, so this arm only fires when neither the leaf nor
-                       ;; the whole-payload decision redacted.
+                       ;; the leaf decisions; `:explain` / `:explain-humanized`
+                       ;; (whole registered value) under the root decisions.
+                       ;; Each slot is size-elided only when its own sensitive
+                       ;; decision left it alone — sensitive wins per slot.
                               tags        (cond-> (redact-tags-per-slot base-tags
                                                                         whole-sensitive?
                                                                         leaf-sensitive?
                                                                         app-db-narrowed-slots)
-                                            whole-large? (elide-large-slots registered-value))]
+                                            whole-large? (elide-large-slots
+                                                           registered-value
+                                                           (remove app-db-narrowed-slots
+                                                                   size-elided-slots))
+                                            leaf-large?  (elide-large-slots
+                                                           leaf-value
+                                                           app-db-narrowed-slots))]
                           (if-not (continue?)
                             :rf/stale-incarnation
                             (do

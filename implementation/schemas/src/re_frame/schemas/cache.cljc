@@ -13,10 +13,12 @@
 
   App schemas are registered ONCE at boot, so each memo is bounded by the
   registered-schema cardinality and is intentionally NOT evicted — no
-  bounded LRU. The only scenario that violates boot-once is a test that
-  deliberately generates many distinct schemas; such tests call the
-  returned `clear!` fn in fixture teardown so the cache doesn't grow
-  unbounded across the suite. See [010 §Schema digest].")
+  bounded LRU. That bound holds only while every schema a memo sees is a
+  registered one: a schema built per call (a managed-HTTP request's
+  `:decode`) must take an unmemoised path instead, or it adds one permanent
+  entry per distinct value. Tests that deliberately generate many distinct
+  schemas call the returned `clear!` fn in fixture teardown so the cache
+  doesn't grow unbounded across the suite. See [010 §Schema digest].")
 
 #?(:clj (set! *warn-on-reflection* true))
 

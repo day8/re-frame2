@@ -368,12 +368,25 @@
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 
+(defn walk-sensitive-paths-from-schema
+  "The UNMEMOISED sensitive-path walk: the same `{path declaration}` map as
+  `extract-sensitive-paths-from-schema`, computed afresh and retaining
+  nothing.
+
+  This is the extractor for a schema built PER CALL rather than registered
+  at boot — a managed-HTTP request's `:decode`, where a literal operand such
+  as `[:= id]` makes every request's schema a distinct value. Fed to the
+  never-evicted memo, each such schema would be a permanent entry
+  (rf2-3x7nj.19.4). So this, not the memo, is what the
+  `:schemas/extract-sensitive-paths-from-schema` late-bind hook publishes to
+  other artefacts."
+  [schema base-path]
+  (walk-flagged-schema :sensitive? schema base-path {}))
+
 ;; The sensitive-path walk is memoized for boot-time schema reuse and
 ;; clearable by fixtures that generate many distinct schemas.
 (let [[memo clear!]
-      (rf.schemas.cache/clearable-memo
-        (fn [schema base-path]
-          (walk-flagged-schema :sensitive? schema base-path {})))]
+      (rf.schemas.cache/clearable-memo walk-sensitive-paths-from-schema)]
 
   (def
     ^{:doc "Walk a registered Malli schema form at `base-path` and return
@@ -391,10 +404,14 @@
             Memoised by `(schema, base-path)`: the failure branch
             (`schema-sensitive-at?`) re-walks the same
             registered schema on every consecutive failure, and the walk
-            is pure over immutable schema values. The cache is bounded by
-            the (registered-schema, base-path) cardinality — schemas are
-            registered once at app-boot, so steady-state cache size equals
-            the registry size.
+            is pure over immutable schema values. The cache is never
+            evicted, so it is bounded only while every schema it sees is
+            a REGISTERED one — schemas are registered once at app-boot, so
+            steady-state cache size equals the registry size. A schema
+            built per call (a managed-HTTP request's `:decode`) must go
+            through `walk-sensitive-paths-from-schema` instead, which is
+            what the late-bind hook publishes; handing such schemas to
+            this memo grows it by one permanent entry per distinct value.
 
             The memo is clearable for test isolation via
             `clear-sensitive-paths-cache!`."
@@ -405,7 +422,8 @@
     ^{:doc "Reset the `extract-sensitive-paths-from-schema` memo cache.
             The walker memo is process-
             lifetime and bounded by the (registered-schema, base-path)
-            cardinality in real apps (schemas register once at boot), so
+            cardinality in real apps (schemas register once at boot, and
+            per-call schemas take the unmemoised walk), so
             production never needs this — but a test that registers many
             distinct fresh schemas (`schemas_concurrency_stress_test`)
             calls it in fixture teardown so the cache doesn't grow

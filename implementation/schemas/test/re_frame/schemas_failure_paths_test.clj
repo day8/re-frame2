@@ -40,6 +40,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.schemas.validate :as rf.schemas.validate]
@@ -402,6 +403,47 @@
             "common-prefix of [:id] and [:age] is [] — leaf path is the
              registered root [:rec]")
         (is (= [:rec] (-> v :tags :registered-path)))))))
+
+;; ---- a :map-of KEY failure blames the key, not the entry's value ---------
+;; (rf2-3x7nj.19.3). Malli reports a key-schema failure and a value-schema
+;; failure under the same `:in [k]`, so `(get-in registered-value [k])` hands
+;; back the entry's VALUE — valid, here — as the failing datum. The error's
+;; own `:value` is the key. Both the dev trace and the always-on `:errors`
+;; record describe the failing datum, so both are pinned.
+
+(deftest map-of-key-failure-reports-the-failing-key
+  (testing "rf2-3x7nj.19.3 — a string key under [:map-of :keyword :int]
+            reports the key as :value and 'got string', never the entry's
+            valid integer value"
+    (rf/reg-app-schema [:scores] [:map-of :keyword :int])
+    (let [errors (atom [])
+          traces (do (rf.error-emit/register-error-listener!
+                       ::rec (fn [r] (swap! errors conj r)))
+                     (try
+                       (capture-trace
+                         #(rf.schemas/validate-app-schema! {:scores {"alice" 10}}
+                                                           :scores/bad))
+                       (finally
+                         (rf.error-emit/unregister-error-listener! ::rec))))
+          v      (first traces)
+          record (first (filter #(= :app-db (:where %)) @errors))]
+      (is (= 1 (count traces)))
+      (is (= [:scores "alice"] (-> v :tags :path)) ":path locates the entry")
+      (is (= "alice" (-> v :tags :value))
+          ":value is the failing KEY, not the entry's valid value 10")
+      (is (str/includes? (-> v :tags :reason) "got string")
+          "the trace's :reason types the key")
+      (is (some? record) "the always-on :errors record fired")
+      (is (str/includes? (:reason record) "(got string)")
+          "the always-on record's :reason types the key too")))
+  (testing "control — a :map-of VALUE failure still reports the value"
+    (let [traces (capture-trace
+                   #(rf.schemas/validate-app-schema! {:scores {:alice "ten"}}
+                                                     :scores/bad))
+          v      (first traces)]
+      (is (= 1 (count traces)))
+      (is (= [:scores :alice] (-> v :tags :path)))
+      (is (= "ten" (-> v :tags :value))))))
 
 ;; ---- G1: direct unit tests for the private helpers -----------------------
 
