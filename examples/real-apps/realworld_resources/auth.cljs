@@ -299,13 +299,16 @@
          `:realworld/session` / `:realworld/viewer` resolvers every site shares.
          Each resolves nil when there is nothing to clear (no user, or an
          already-unresolved viewer), and the clear is skipped. The truly-invariant
-         `:rf.scope/global` popular-tags read is left alone."}
+         `:rf.scope/global` popular-tags read is left alone. The unsent comment
+         draft goes too: it is the departing user's words, and the next account
+         must not find them pre-filled in its own comment box."}
   (fn [{:keys [db]} _]
     (let [old-session (rf/resolve-resource-scope db :realworld/session)
           old-viewer  (rf/resolve-resource-scope db :realworld/viewer)]
       {:db (-> db
                (assoc-in [:auth :user] nil)
-               (assoc-in [:auth :token] nil))
+               (assoc-in [:auth :token] nil)
+               (dissoc :comment-form))
        :fx (cond-> []
              old-session (conj [:dispatch [:rf.resource/clear-scope
                                            {:scope old-session :cause :logout}]])

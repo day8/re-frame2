@@ -187,9 +187,11 @@
 
 (rf/reg-route :realworld.article/show
   {:doc    "Article detail plus its comments. Both load on entry; the comments are
-            a sub-resource keyed by the same slug."
+            a sub-resource keyed by the same slug. `:on-match` starts the shared
+            comment form over when the article is a new one (views.cljs)."
    :params [:map [:slug :string]]
    :scroll :top
+   :on-match [[:comment-form/enter-article]]
    :resources
    [{:resource  :realworld/article
      :params    (fn [route] {:slug (get-in route [:params :slug])})

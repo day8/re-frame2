@@ -237,6 +237,21 @@
 ;; COMMENT FORM — a tiny app-db draft + a post mutation
 ;; ============================================================================
 
+(rf/reg-event :comment-form/enter-article
+  {:doc "The article route's `:on-match`. The draft at `[:comment-form]` is ONE
+         shared widget, so without this an unsent comment typed on alpha rides
+         into beta's textarea, where Post Comment would publish it under beta.
+         A NEW article identity starts the form over; a same-slug re-entry
+         (leave alpha, come back) keeps what the reader was typing. That is the
+         http twin's rule (rf2-84iek, `:comments/load`), keyed here on the
+         slug the draft records rather than on a comments slice. The draft
+         crossing to another ACCOUNT is `:auth/clear-session`'s to scrub."}
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
+      (if (= slug (get-in db [:comment-form :slug]))
+        {}
+        {:db (assoc db :comment-form {:slug slug :body ""})}))))
+
 (rf/reg-event :comment-form/edit
   (fn [{:keys [db]} [_ body]] {:db (assoc-in db [:comment-form :body] body)}))
 
