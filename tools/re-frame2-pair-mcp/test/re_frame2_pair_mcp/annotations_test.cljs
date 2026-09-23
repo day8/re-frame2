@@ -51,10 +51,15 @@
       (doseq [n ["discover-app" "snapshot" "get-path" "trace-window"
                  "watch-epochs" "list-subscriptions"
                  "handler-meta" "list-handlers"
-                 "get-re-frame2-pair-instructions" "tail-build"]]
+                 "get-re-frame2-pair-instructions"]]
         (is (true? (:readOnlyHint (by-name n)))
             (str n " should have readOnlyHint true")))
-      ;; Destructive tools
-      (doseq [n ["dispatch" "eval-cljs"]]
+      ;; Destructive tools. `tail-build` evaluates its caller-supplied
+      ;; `:probe` CLJS in the runtime (rf2-3x7nj.32.1), so it is in the
+      ;; eval-cljs authority class — never the auto-approvable read-only
+      ;; set.
+      (doseq [n ["dispatch" "eval-cljs" "tail-build"]]
         (is (true? (:destructiveHint (by-name n)))
-            (str n " should have destructiveHint true"))))))
+            (str n " should have destructiveHint true"))
+        (is (not (:readOnlyHint (by-name n)))
+            (str n " must not carry readOnlyHint"))))))

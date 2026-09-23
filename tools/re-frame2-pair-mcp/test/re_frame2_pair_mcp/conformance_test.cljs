@@ -302,7 +302,7 @@
     | replace-app-db         | yes   | yes         | gated-default     |
     | trace-window           | yes   | n/a         | n/a               |
     | watch-epochs           | yes   | n/a         | n/a               |
-    | tail-build             | yes   | n/a         | n/a               |
+    | tail-build             | yes   | n/a         | gated (--no-eval) |
     | snapshot               | yes   | n/a         | yes (no-preload)  |
     | get-path               | yes   | yes         | yes (no-preload)  |
     | read-dom               | yes   | yes         | bad-selector      |
@@ -1177,6 +1177,22 @@
      [:default                    {:status :idle :last-completed 0}]]
     :fixture/expect
     {:isError? false}}
+
+   ;; rf2-3x7nj.32.1 — the `:probe` is arbitrary CLJS evaluated in the
+   ;; runtime (the eval-cljs authority class), so `--no-eval` refuses it
+   ;; with eval-cljs's own envelope, and the probe source never reaches an
+   ;; nREPL eval. Beside `:eval-cljs/disabled-via-no-eval`.
+   {:fixture/id    :tail-build/disabled-via-no-eval
+    :fixture/doc   "tail-build with a :probe under --no-eval returns :rf.error/eval-cljs-disabled without evaluating the probe."
+    :fixture/tool  "tail-build"
+    :fixture/eval-allowed? false
+    :fixture/args  {:probe "(+ 1 2)" :baseline "3"}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :rf.error/eval-cljs-disabled}
+    :fixture/eval-form-must-not-contain ["(+ 1 2)"]}
 
    ;; ---------- snapshot ---------------------------------------------------
    {:fixture/id    :snapshot/happy

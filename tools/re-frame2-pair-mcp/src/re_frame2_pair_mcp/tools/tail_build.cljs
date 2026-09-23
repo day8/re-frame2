@@ -52,9 +52,21 @@
   Returning the full comparison lets the operator distinguish a
   non-discriminating probe from a genuinely stalled rebuild directly from
   the envelope, instead of manually calling `handler-meta` to confirm the
-  rebuild landed."
+  rebuild landed.
+
+  ## The probe is arbitrary evaluation (rf2-3x7nj.32.1)
+
+  `:probe` is caller-supplied CLJS source evaluated in the browser
+  runtime — once, then on every poll — so it belongs to the same
+  arbitrary-eval authority class as `eval-cljs` and honours the same
+  `--no-eval` opt-out: under that flag a supplied probe is refused with
+  `:rf.error/eval-cljs-disabled` before any nREPL round-trip. The
+  no-probe soft delay evaluates nothing and stays available. For the
+  same reason the descriptor carries the destructive annotation set, not
+  the auto-approvable read-only one."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def ^:private default-wait-ms
@@ -112,6 +124,13 @@
   (str ":baseline without :probe has nothing to compare — supply the probe "
        "form the baseline was captured from."))
 
+(def ^:private eval-disabled-hint
+  "Hint surfaced when `:probe` arrives on a `--no-eval` server."
+  (str "tail-build's :probe is evaluated as CLJS, and eval has been disabled "
+       "for this server instance via --no-eval; relaunch without that flag "
+       "to enable it. Calling tail-build with no :probe (the fixed soft "
+       "delay) evaluates nothing and remains available."))
+
 (defn- matches-baseline?
   "True when the sampled value still reads as the caller's pre-edit
   baseline. Both printed renderings are accepted: `pr-str` (the canonical
@@ -162,6 +181,16 @@
                                                   no-probe-soft-delay-ms
                                                   "ms fixed delay.")})))
             no-probe-soft-delay-ms)))
+
+      ;; The probe is arbitrary CLJS evaluated in the runtime — the
+      ;; eval-cljs authority class — so it honours `--no-eval` exactly as
+      ;; eval-cljs does, refusing before any nREPL round-trip
+      ;; (rf2-3x7nj.32.1).
+      (not (eval-cljs/eval-allowed-enabled?))
+      (js/Promise.resolve
+        (wire/err-text {:ok?    false
+                        :reason :rf.error/eval-cljs-disabled
+                        :hint   eval-disabled-hint}))
 
       ;; A probe without its pre-edit baseline re-creates the fast-reload
       ;; race this contract exists to close — refuse it with the capture

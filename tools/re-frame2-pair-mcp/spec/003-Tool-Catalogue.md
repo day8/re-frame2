@@ -667,7 +667,7 @@ CLI flags:
 
 | Flag                      | Default       | Effect when set |
 |---------------------------|---------------|------------------|
-| `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
+| `--no-eval`               | absent (eval-cljs ON) | Disables arbitrary evaluation: `eval-cljs` AND `tail-build`'s `probe`, which is caller-supplied CLJS evaluated in the runtime (rf2-a0z0h, inverting the prior rf2-cxx5s default-OFF posture; rf2-3x7nj.32.1 for the probe). Default is eval ENABLED — `eval-cljs` is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` — and `tail-build` called with a `probe` — return `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket; `tail-build` with no `probe` (the fixed soft delay) evaluates nothing and stays available. |
 | `--allow-sensitive-reads` | OFF | Enables the per-call disclosure knobs documented by each value-egress tool; it does not reveal every payload class by itself. Direct app-db reads have independent `include-sensitive` and `elision` axes; epochs always use `project-egress` and `include-sensitive` lifts only its app-db sensitive axis. Dry-run effect arguments additionally require `include-fx-args true`. Also signals the preload's launch-time raw-state posture for `app-db-reset!` taps and compact cascade summaries. Canonical cross-MCP flag name shared with Story-MCP. |
 | `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes). `--no-eval` additionally removes eval-driven writes, but neither flag disables `dispatch` or `replay-epoch`; the combination is not a read-only mode. |
 
@@ -1942,12 +1942,22 @@ edit reloads), `baseline` (string — the probe's **pre-edit** printed
 value; required with `probe`, and refused without it), `wait-ms`
 (integer, default 5000), `build` (string).
 
-**Returns**: one of six envelope shapes (rf2-36awg, rf2-1f60u; impl:
+**The probe is arbitrary evaluation** (rf2-3x7nj.32.1). `probe` is
+caller-supplied CLJS source evaluated in the runtime — once, then on
+every poll — so it belongs to the same arbitrary-eval authority class as
+`eval-cljs` and honours the same `--no-eval` opt-out (see §Universal:
+server launch flags): under that flag a supplied `probe` is refused with
+envelope 7 below before any nREPL round-trip. The no-probe soft delay
+(envelope 6) evaluates nothing and stays available. For the same reason
+the descriptor carries the destructive annotation set
+(`destructiveHint`), never the read-only set agent hosts auto-approve.
+
+**Returns**: one of seven envelope shapes (rf2-36awg, rf2-1f60u; impl:
 [`src/re_frame2_pair_mcp/tools/tail_build.cljs`](../src/re_frame2_pair_mcp/tools/tail_build.cljs)
-lines 141-247):
+lines 160-276):
 
 1. **Success (probe + baseline supplied) — a sample left the baseline
-   within the deadline** (lines 185-190 for the fast ordering, 226-231
+   within the deadline** (lines 214-219 for the fast ordering, 255-260
    for the slow one — one envelope shape, two orderings):
 
     ```clojure
@@ -1965,7 +1975,7 @@ lines 141-247):
    reads *which ordering fired* rather than guessing.
 
 2. **Timeout (probe + baseline supplied) — every sample matched the
-   baseline for the whole of `wait-ms`** (lines 212-218):
+   baseline for the whole of `wait-ms`** (lines 241-247):
 
     ```clojure
     {:ok?          false
@@ -1992,7 +2002,7 @@ lines 141-247):
    **not** on its own evidence of a compile error — confirm that from
    actual shadow-cljs / browser output.
 
-3. **Probe errored on its initial evaluation** (lines 244-247):
+3. **Probe errored on its initial evaluation** (lines 273-276):
 
     ```clojure
     {:ok?         false
@@ -2006,7 +2016,7 @@ lines 141-247):
    baseline comparison ever ran. Almost always a malformed probe (typo,
    dotted-form host interop against a missing var, etc.).
 
-4. **`probe` without `baseline` — refused** (lines 171-173):
+4. **`probe` without `baseline` — refused** (lines 200-202):
 
     ```clojure
     {:ok?    false
@@ -2028,7 +2038,7 @@ lines 141-247):
    against the file (e.g. `handler-meta`'s `:line` for the edited
    handler) with `eval-cljs`.
 
-5. **`baseline` without `probe` — refused** (lines 147-149):
+5. **`baseline` without `probe` — refused** (lines 166-168):
 
     ```clojure
     {:ok?    false
@@ -2037,7 +2047,7 @@ lines 141-247):
               the probe form the baseline was captured from."}
     ```
 
-6. **No probe supplied — soft delay** (lines 158-163):
+6. **No probe supplied — soft delay** (lines 177-182):
 
     ```clojure
     {:ok?   true
@@ -2060,6 +2070,24 @@ lines 141-247):
    exists — the direct source-derived verification named under envelope
    4. See [`ops.md` §Hot-reload
    coordination](../../../skills/re-frame2-pair/references/ops.md).
+
+7. **`probe` supplied on a `--no-eval` server — refused** (lines
+   191-193; rf2-3x7nj.32.1):
+
+    ```clojure
+    {:ok?    false
+     :reason :rf.error/eval-cljs-disabled
+     :hint   "tail-build's :probe is evaluated as CLJS, and eval has been
+              disabled for this server instance via --no-eval; relaunch
+              without that flag to enable it. Calling tail-build with no
+              :probe (the fixed soft delay) evaluates nothing and remains
+              available."}
+    ```
+
+   The same operator-gated reason `eval-cljs` returns under `--no-eval`,
+   so an agent host recognises the eval cluster as one family. Refused
+   before the probe is evaluated even once — the probe is never sent to
+   nREPL.
 
 ## snapshot
 
