@@ -17,7 +17,10 @@
   ## API
 
   - `json-stringify` — Clojure → JSON string. Uses Cheshire's
-    `generate-string` on JVM; CLJS uses `js/JSON.stringify`.
+    `generate-string` on JVM; CLJS uses `js/JSON.stringify`. Both hosts
+    write a keyword (key or value) as its colon-less qualified name
+    (`:user/id` → `\"user/id\"`) and a UUID (key or value) as its canonical
+    string.
   - `json-parse`     — string → Clojure data with keyword keys for
     objects. Uses Cheshire's `parse-string` on JVM; CLJS uses
     `js/JSON.parse` + `js->clj :keywordize-keys true`. Accepts an
@@ -51,12 +54,49 @@
   enough to bound an attacker-controlled payload."
   10000)
 
+#?(:cljs
+   (defn- qualify-for-json
+     "rf2-3x7nj.16.2 — pre-walk a Clojure value so `clj->js` writes what
+     Cheshire writes: every keyword, key or value, becomes its colon-less
+     qualified name, and every UUID, key or value, its canonical string.
+
+     A bare `clj->js` drops keyword namespaces (its default `:keyword-fn` is
+     `name`, applied to keys and values alike), so `{:order/id 1 :customer/id
+     7}` collapsed onto one `\"id\"` member and lost a value. It also passes a
+     UUID through untouched, and `JSON.stringify` then enumerated the deftype's
+     fields. Only keyword and UUID keys are rewritten; any other key keeps
+     `clj->js`'s own treatment. A value that already satisfies `IEncodeJS` is
+     left to its own encoding."
+     [x]
+     (cond
+       (satisfies? IEncodeJS x) x
+       (keyword? x) (subs (str x) 1)
+       (uuid? x)    (str x)
+       (map? x)     (persistent!
+                      (reduce-kv (fn [m k v]
+                                   (assoc! m
+                                           (if (or (keyword? k) (uuid? k))
+                                             (qualify-for-json k)
+                                             k)
+                                           (qualify-for-json v)))
+                                 (transient {})
+                                 x))
+       (coll? x)    (mapv qualify-for-json x)
+       :else        x)))
+
 (defn json-stringify
   "Clojure value → JSON string. JVM uses Cheshire (`generate-string`);
-  CLJS uses `js/JSON.stringify`."
+  CLJS uses `js/JSON.stringify`.
+
+  The two hosts write the same bytes for the same value (rf2-3x7nj.16.2): a
+  keyword, key or value, goes out as its colon-less qualified name
+  (`:user/id` → `\"user/id\"`, `:id` → `\"id\"`), and a UUID, key or value, as
+  its canonical string. The JVM gets this from Cheshire; CLJS pre-walks the
+  value before `clj->js`. Keyword and UUID values come back from `json-parse`
+  as strings, as any JSON string does."
   [v]
   #?(:clj  (cheshire/generate-string v)
-     :cljs (js/JSON.stringify (clj->js v))))
+     :cljs (js/JSON.stringify (clj->js (qualify-for-json v)))))
 
 (defn- too-many-keys-ex
   "Build the keyword-interning cap overflow ex-info. Platform-
