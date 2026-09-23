@@ -741,21 +741,38 @@
 
   Gated on `frame-has-declarations?` so a frame with no classification keeps the
   reference-identity the `:rf.event/db` stamp promises. FAIL CLOSED on a nil
-  `frame-id`."
+  `frame-id`.
+
+  rf2-3x7nj.4.3 — t1 / t2 fire BEFORE the commit folds this event's EP-0025
+  classification effects into the registry, so the router carries those
+  effects under the PRIVATE tag `::pending-classification-effects`
+  (`:re-frame.classification/pending-classification-effects`, never a `:rf.*`
+  key). When present the value is walked against the CANDIDATE registry
+  (`rf.elision/elide-pending-db`: committed + this event's effects), so a path
+  classified in the same event is redacted from its first egress. The tag is
+  STRIPPED here unconditionally, so it reaches no listener, ring or epoch."
   [tags frame-id]
-  (cond
-    (not (contains? tags :rf.event/db))
-    tags
+  (let [pending (::pending-classification-effects tags)
+        tags    (cond-> tags
+                  (contains? tags ::pending-classification-effects)
+                  (dissoc ::pending-classification-effects))]
+    (cond
+      (not (contains? tags :rf.event/db))
+      tags
 
-    (nil? frame-id)
-    (assoc tags :rf.event/db rf.privacy/redacted-sentinel)
+      (nil? frame-id)
+      (assoc tags :rf.event/db rf.privacy/redacted-sentinel)
 
-    (frame-has-declarations? frame-id)
-    (assoc tags :rf.event/db
-           (rf.elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
+      (seq pending)
+      (assoc tags :rf.event/db
+             (rf.elision/elide-pending-db (:rf.event/db tags) frame-id pending))
 
-    :else
-    tags))
+      (frame-has-declarations? frame-id)
+      (assoc tags :rf.event/db
+             (rf.elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
+
+      :else
+      tags)))
 
 (defn- project-after-delta-segment
   "Apply `project-v` (a fn of `[side k v]`) to every VALUE in one segment delta

@@ -56,9 +56,13 @@
   vacuous: something was rejected, and the rejection had a consequence."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.elision :as rf.elision]
+            ;; Side-effect load: the flow transform behind the t2 leg (a
+            ;; test-only dep of core).
+            [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.privacy :as rf.privacy]
@@ -641,3 +645,71 @@
     (rf/dispatch-sync [:classify-only])
     (is (contains? (sensitive-decls) [:secret :value])
         "a classification-only effect writes the registry")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.4.3 — the SAME event's own t1 / t2 trace honours its classification
+;; ---------------------------------------------------------------------------
+;;
+;; t1 `:rf.event/db-pending` and t2 `:rf.event/db-pending-post-flow` stamp the
+;; pending app-db BEFORE the commit folds this event's classification effects
+;; into the registry, so projecting them against the committed registry shipped
+;; the very secret the event was classifying. They are now projected against
+;; the CANDIDATE registry: the committed one with this event's effects applied.
+;; Dev-trace legs, so `^:requires-debug` (rf2-d2841).
+
+(def ^:private t1-secret "SAME-EVENT-TRACE-SENTINEL-4x3")
+
+(defn- same-event-login!
+  "Write the secret at `[:user :token]` AND under a map-of key
+  (`[:user \"s1\" :token]`, which the declared `[:user :token]` also governs
+  through elision's collection-coordinate skip), classify `[:user :token]`
+  sensitive in the SAME return, and dispatch it. Returns the event's t1 and t2
+  traces (t2 only when a flow reshaped the pending db)."
+  [event-id]
+  (let [rec (record-traces! event-id)]
+    (try
+      (rf/reg-event event-id
+        (fn [{:keys [db]} _]
+          {:db        (-> db
+                          (assoc :n 1)
+                          (assoc-in [:user :token] t1-secret)
+                          (assoc-in [:user "s1" :token] (str t1-secret "-map-of"))
+                          (assoc-in [:user :name] "alice"))
+           :sensitive [[:user :token]]}))
+      (rf/dispatch-sync [event-id])
+      {:t1 (filterv #(= :rf.event/db-pending (:operation %)) @rec)
+       :t2 (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @rec)}
+      (finally
+        (rf/unregister-listener! :trace event-id)))))
+
+(defn- assert-same-event-db-redacted [where trace]
+  (let [db (get-in trace [:tags :rf.event/db])]
+    (is (= rf.privacy/redacted-sentinel (get-in db [:user :token]))
+        (str where ": the path classified THIS event is redacted"))
+    (is (= rf.privacy/redacted-sentinel (get-in db [:user "s1" :token]))
+        (str where ": the map-of position the declaration governs is redacted"))
+    (is (= "alice" (get-in db [:user :name]))
+        (str where ": a benign sibling survives — per declared path, not wholesale"))
+    (is (not-any? #(and (keyword? %)
+                        (some-> (namespace %) (str/starts-with? "re-frame.")))
+                  (keys (:tags trace)))
+        (str where ": no private carrier tag reaches the listener"))))
+
+(deftest ^:requires-debug same-event-classification-redacts-its-own-t1-trace
+  (testing "t1 is projected against the candidate registry, so the secret the
+            event classifies never ships raw on its own :rf.event/db-pending"
+    (let [{:keys [t1]} (same-event-login! :auth/login-t1)]
+      (is (= 1 (count t1)) "producer control: the event emitted its t1 trace")
+      (assert-same-event-db-redacted :t1 (first t1)))))
+
+(deftest ^:requires-debug same-event-classification-redacts-its-own-t2-trace
+  (testing "t2 (a flow reshaped the pending db) takes the same candidate
+            registry as t1"
+    (rf/reg-flow :same-event/doubled {:inputs [[:n]] :output-path [:doubled]}
+      (fn [n] (* 2 n)))
+    (let [{:keys [t1 t2]} (same-event-login! :auth/login-t2)]
+      (is (= 1 (count t2)) "producer control: the flow reshaped the db, so t2 fired")
+      (is (= 2 (get-in (first t2) [:tags :rf.event/db :doubled]))
+          "the flow's output rides t2")
+      (assert-same-event-db-redacted :t1 (first t1))
+      (assert-same-event-db-redacted :t2 (first t2)))))
