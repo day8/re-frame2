@@ -26,6 +26,9 @@
        slot (epoch records carry `:trace-events` verbatim) and
        `panels.fresco-reads/trace-windows` (Xray's second, seam-side
        reader of the framework rings).
+    7. The spine RE-SEED writers (rf2-3x7nj.26.1) — `:rf.xray/set-frame`
+       and a cross-frame `:rf.xray/focus-event` re-seed `:epoch-history`
+       from a real framework ring through the same gate.
 
   Pure-data + JVM-runnable so the algebra runs under the JVM target;
   CLJC keeps the file shadow's `:node-test` target as well."
@@ -38,10 +41,14 @@
             #?(:cljs [re-frame.frame :as rf.frame])
             #?(:cljs [re-frame.trace :as rf.trace])
             #?(:cljs [re-frame.epoch.assembly :as rf.epoch.assembly])
+            ;; The epoch PRODUCER, loaded so the re-seed tests' real
+            ;; dispatches record into the framework ring they read back.
+            #?(:cljs [re-frame.epoch])
             #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
             #?(:cljs [re-frame.test-support :as rf.test-support])
             #?(:cljs [day8.re-frame2-xray.epoch :as xray-epoch])
             #?(:cljs [day8.re-frame2-xray.panels.fresco-reads :as fresco-reads])
+            #?(:cljs [day8.re-frame2-xray.spine :as spine])
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -813,3 +820,133 @@
                  "both cascades reach the opted-in window")
              (is (some #(some :sensitive? (:trace-events %)) bundles)
                  "including the sensitive one")))))))
+
+;; ---- (8) the spine RE-SEED writers (rf2-3x7nj.26.1) ----------------------
+;;
+;; `redact-history` gated the three `epoch.cljs` writers, but the spine
+;; writes the slot too: the frame picker (`:rf.xray/set-frame` →
+;; `spine/set-frame-reducer`) and every committed-focus gesture that crosses
+;; frames (`:rf.xray/focus-event`, its prev/next steps, `:rf.xray/focus-epoch`
+;; and `:rf.xray/select-dispatch-id` → `spine/reseed-epoch-history-for-frame`).
+;; Both reducers wrote `(vec ring)`, so one picker change put every record
+;; the gate had dropped straight back into the slot.
+;;
+;; The ring here is the REAL framework ring, filled by real dispatches on a
+;; host frame, and both gestures run through their registered handlers — so
+;; the slot is written exactly as a picker change or a row click writes it.
+
+#?(:cljs
+   (def ^:private re-seed-secret
+     "A token that occurs nowhere else in this file or the runtime."
+     "rf2-3x7nj-26-1-reseed-secret-8b2e"))
+
+#?(:cljs (def ^:private re-seed-app ::re-seed-app))
+#?(:cljs (def ^:private re-seed-other ::re-seed-other))
+
+#?(:cljs
+   (defn- record-sensitive-ring!
+     "Fill `re-seed-app`'s framework epoch ring with three REAL records: a
+     clean tick, then a login whose handler writes the secret into app-db
+     and classifies that path `:sensitive`, then a second tick whose
+     `:db-before` / `:db-after` carry the classified leaf. Returns the ring,
+     oldest-first."
+     []
+     (rf/make-frame {:id re-seed-app})
+     (rf/reg-event ::re-seed-tick
+       (fn [{:keys [db]} _] {:db (update db :ticks (fnil inc 0))}))
+     (rf/reg-event ::re-seed-login
+       (fn [{:keys [db]} [_ token]]
+         {:db        (assoc-in db [:auth :token] token)
+          :sensitive [[:auth :token]]}))
+     (rf/dispatch-sync [::re-seed-tick] {:frame re-seed-app})
+     (rf/dispatch-sync [::re-seed-login re-seed-secret] {:frame re-seed-app})
+     (rf/dispatch-sync [::re-seed-tick] {:frame re-seed-app})
+     (vec (rf/epoch-history re-seed-app))))
+
+#?(:cljs
+   (defn- assert-ring-preconditions!
+     "The fixture is producer-made, so pin what the producer made of it."
+     [ring]
+     (is (= 3 (count ring))
+         "precondition: the framework ring holds all three records")
+     (is (false? (:rf.epoch/sensitive? (first ring)))
+         "precondition: the first tick ran before any classification, and
+          the producer's own rollup reads it clean")
+     (is (every? true? (map :rf.epoch/sensitive? (rest ring)))
+         "precondition: the login and the tick after it carry the classified
+          leaf, and the producer's own rollup reads both sensitive")
+     (is (str/includes? (pr-str ring) re-seed-secret)
+         "precondition: the RAW ring holds the secret, so the gate has
+          something to keep out")))
+
+#?(:cljs
+   (defn- install-xray-epoch-surface!
+     "Register the epoch and spine handlers and seat a bare `:rf/xray`
+     frame. No epoch collector is registered, so the only writers of the
+     slot are the gestures under test."
+     []
+     (xray-epoch/install!)
+     (spine/install!)
+     (rf/make-frame {:id :rf/xray})))
+
+#?(:cljs
+   (defn- assert-slot-gated!
+     [slot ring]
+     (is (= [(:epoch-id (first ring))] (mapv :epoch-id slot))
+         "exactly the clean record reaches the slot: both sensitive records
+          are dropped, and the clean one is not over-redacted")
+     (is (not-any? :rf.epoch/sensitive? slot)
+         "no record whose rollup is sensitive is in the slot")
+     (is (not (str/includes? (pr-str slot) re-seed-secret))
+         "the secret survives NOWHERE in the slot: the raw `:trigger-event`,
+          `:db-*` and `:trace-events` left with their records")))
+
+#?(:cljs
+   (deftest set-frame-re-seed-keeps-sensitive-records-out
+     (with-runtime
+       (fn []
+         (testing "rf2-3x7nj.26.1 — the frame picker's `:rf.xray/set-frame`
+                   re-seeds `:epoch-history` from the picked frame's RAW ring
+                   through `redact-history`, under the default profile"
+           (let [ring (record-sensitive-ring!)]
+             (assert-ring-preconditions! ring)
+             (install-xray-epoch-surface!)
+             (rf/with-frame :rf/xray
+               (rf/dispatch-sync [:rf.xray/set-frame re-seed-app])
+               (is (= re-seed-app @(rf/subscribe [:rf.xray/target-frame]))
+                   "the picker selected the frame, so the re-seed ran")
+               (assert-slot-gated! @(rf/subscribe [:rf.xray/epoch-history])
+                                   ring))))))))
+
+#?(:cljs
+   (deftest cross-frame-focus-event-re-seed-keeps-sensitive-records-out
+     (with-runtime
+       (fn []
+         (testing "rf2-3x7nj.26.1 — an L2 row click on another frame's event
+                   (`:rf.xray/focus-event`) re-keys `:epoch-history` onto that
+                   frame's RAW ring through `redact-history`, and cannot
+                   resolve a dropped record's epoch-id"
+           (let [ring  (record-sensitive-ring!)
+                 login (second ring)]
+             (assert-ring-preconditions! ring)
+             (is (some? (:dispatch-id login))
+                 "precondition: the login record names its settling
+                  dispatch-id, so the click below targets it")
+             (install-xray-epoch-surface!)
+             (rf/make-frame {:id re-seed-other})
+             (rf/with-frame :rf/xray
+               (rf/dispatch-sync [:rf.xray/set-target-frame re-seed-other])
+               (is (= [] @(rf/subscribe [:rf.xray/epoch-history]))
+                   "precondition: Xray observes ANOTHER frame, which has
+                    recorded nothing, so the click below crosses frames")
+               (rf/dispatch-sync [:rf.xray/focus-event (:dispatch-id login)
+                                  re-seed-app])
+               (is (= re-seed-app @(rf/subscribe [:rf.xray/target-frame]))
+                   "the click re-keyed the slot onto the row's frame, so the
+                    re-seed ran")
+               (assert-slot-gated! @(rf/subscribe [:rf.xray/epoch-history])
+                                   ring)
+               (is (not= (:epoch-id login)
+                         (:epoch-id @(rf/subscribe [:rf.xray/focus-slot])))
+                   "focusing the sensitive row does not pin the epoch-id of
+                    a record the gate keeps out of the slot"))))))))
