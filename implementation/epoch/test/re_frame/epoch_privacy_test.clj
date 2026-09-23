@@ -748,6 +748,112 @@
       (is (= [:login :rf/redacted] (:trigger-event twice))
           "double-projection is idempotent at the :trigger-event slot"))))
 
+(def ^:private halt-secret "halt-secret-do-not-leak")
+
+(deftest halted-depth-record-carries-no-raw-event-args
+  (testing "rf2-3x7nj.17.1 — a depth halt's `:halt-reason` names the last
+            SETTLED event by id only (`:last-event-id`), and the halting event
+            (which never ran) is registration-classified before it becomes the
+            record's `:trigger-event`. Before the fix the descriptor carried the
+            last-settled event's args RAW under `:last-event`, and that slot
+            reached `project-egress` (declared bookkeeping, passed through), the
+            `replay-epoch!` refusal envelope and the
+            `:rf.epoch/restore-non-ok-record` trace; the dev
+            `:rf.error/drain-depth-exceeded` trace carried the same vector
+            unprojected; and the halt record's `:trigger-event` held the halting
+            event's declared-sensitive arg raw ON-BOX, while every `:ok` record
+            holds it classified.
+
+            DISTINCT events: A (`:halt/settled`) settles and dispatches B
+            (`:halt/pending`), which the depth limit refuses. A self-dispatching
+            loop cannot tell the halting event from the last-settled one."
+    (rf/make-frame {:id :test/halt :drain-depth 1})
+    (let [pending-ran (atom 0)
+          traces      (atom [])
+          leaks?      #(contains-leaf? % halt-secret)]
+      (rf/reg-event :halt/settled {:sensitive [[:token]]}
+        (fn [_ [_ {:keys [token]}]]
+          {:fx [[:dispatch [:halt/pending {:token token :visible "pending"}]]]}))
+      (rf/reg-event :halt/pending {:sensitive [[:token]]}
+        (fn [_ _] (swap! pending-ran inc) {}))
+      (rf/register-listener! :trace ::halt-traces (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:halt/settled {:token halt-secret :visible "settled"}]
+                        {:frame :test/halt})
+      (let [ring       (rf/epoch-history :test/halt)
+            ok-rec     (first ring)
+            halt       (last ring)
+            depth-ev   (some #(when (= :rf.error/drain-depth-exceeded (:operation %)) %)
+                             @traces)]
+        ;; PRECONDITIONS — the halt really happened, on the event we meant.
+        (is (= [:ok :halted-depth] (mapv :outcome ring))
+            "PRECONDITION: A settled `:ok`, then the depth limit halted B")
+        (is (zero? @pending-ran) "PRECONDITION: the halting event never ran")
+        (is (some? depth-ev) "PRECONDITION: the dev depth trace fired")
+
+        ;; The descriptor: ids only, and both identities kept.
+        (is (= :halt/pending (:event-id halt))
+            "the halt record names the HALTING event (B)")
+        (is (= :halt/settled (get-in halt [:halt-reason :last-event-id]))
+            "`:halt-reason :last-event-id` names the last SETTLED event (A)")
+        (is (not (contains? (:halt-reason halt) :last-event))
+            "no event VECTOR in the descriptor — the conformance matcher is a
+             submap match, so only this assertion catches a producer that added
+             `:last-event-id` but left `:last-event` beside it")
+
+        ;; On-box: the halting event is classified exactly as the `:ok`
+        ;; records' triggers are (they read the emit-time-classified run-start).
+        (is (= [:halt/pending {:token :rf/redacted :visible "pending"}]
+               (:trigger-event halt))
+            "the raw halt record's `:trigger-event` is registration-classified")
+        (is (not (leaks? halt))
+            "the RAW on-box halt record carries the secret nowhere")
+
+        ;; Off-box, every profile.
+        (is (not (leaks? (rf/project-egress halt)))
+            "default `project-egress` of the halt record carries no secret")
+        (is (not (leaks? (rf/project-egress
+                           halt {:rf.egress/profile :rf.egress/off-box-observability})))
+            ":rf.egress/off-box-observability carries no secret")
+        (is (not (leaks? (rf/project-egress
+                           halt {:rf.egress/profile :rf.egress/off-box-tool})))
+            ":rf.egress/off-box-tool carries no secret")
+
+        ;; The dev trace keeps its vector, now classified like any `:event`.
+        (is (= [:halt/settled {:token :rf/redacted :visible "settled"}]
+               (get-in depth-ev [:tags :last-event]))
+            "the dev trace's `:last-event` is A's vector, registration-classified")
+        (is (not (leaks? depth-ev))
+            "the dev `:rf.error/drain-depth-exceeded` trace carries no secret")
+
+        ;; The replay refusal envelope.
+        (let [res (rf/replay-epoch! :test/halt (:epoch-id halt))]
+          (is (= :rf.epoch/replay-non-replayable-record (:reason res))
+              "PRECONDITION: replay refuses the halt record")
+          (is (some? (:halt-reason res))
+              "…carrying its halt reason")
+          (is (not (leaks? res))
+              "the replay refusal envelope carries no secret"))
+
+        ;; The restore refusal trace.
+        (reset! traces [])
+        (is (false? (rf/restore-epoch! :test/halt (:epoch-id halt)))
+            "PRECONDITION: restore refuses the halt record")
+        (let [ev (some #(when (= :rf.epoch/restore-non-ok-record (:operation %)) %)
+                       @traces)]
+          (is (some? ev) "PRECONDITION: :rf.epoch/restore-non-ok-record fired")
+          (is (not (leaks? ev))
+              "the restore refusal trace carries no secret"))
+
+        ;; CONTROL — the same drain's `:ok` record, raw and projected: capture
+        ;; classified A's args, so the walker can see a redaction happen.
+        (is (= [:halt/settled {:token :rf/redacted :visible "settled"}]
+               (:trigger-event ok-rec))
+            "CONTROL: the :ok record's trigger is classified at capture")
+        (is (not (leaks? ok-rec))
+            "CONTROL: the raw :ok record carries no secret")
+        (is (not (leaks? (rf/project-egress ok-rec)))
+            "CONTROL: nor does its projection")))))
+
 (deftest project-egress-sensitive-wins-over-large
   (testing "the wire-elision walker's composition rule (sensitive
             wins over large) holds inside the projection — a slot

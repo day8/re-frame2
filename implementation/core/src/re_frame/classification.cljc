@@ -1287,6 +1287,12 @@
                                        (= :subscribe (:op tags)))))
                         (project-event-tags :event)
 
+                        ;; `:rf.error/drain-depth-exceeded`'s dev-only
+                        ;; `:last-event` — the last-settled event's vector
+                        ;; (rf2-3x7nj.17.1).
+                        (contains? tags :last-event)
+                        (project-event-tags :last-event)
+
                         ;; `:rf.event/fx` — the WHOLE returned effect vector on
                         ;; `:rf.fx/do-fx`; redact each entry's args through its
                         ;; fx registration (sibling of the `:rf.event/db` walk).

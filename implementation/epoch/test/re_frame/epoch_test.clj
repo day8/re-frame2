@@ -1492,6 +1492,103 @@
                 (:schema-digest-current tags))
           "recorded ≠ current — that's *why* the restore was rejected"))))
 
+;; ---- rf2-3x7nj.17.3 — restore / replace obey `set-schema-fns!` -------------
+;;
+;; The app-db check behind `restore-epoch!` and `replace-frame-state!` used to
+;; call Malli directly, bypassing the registered validator: validation switched
+;; off still refused, a substituted validator's rejections were admitted, and a
+;; validator that threw counted as a pass. It now routes through the
+;; `:schemas/validate-with-registered-fn` seam every other Spec 010 site uses.
+
+(defn- with-schema-fns
+  "Run `f` with `fns` installed through `set-schema-fns!`, restoring the
+  framework defaults afterwards. The validator is PROCESS-GLOBAL and this
+  suite's reset fixture does not touch it, so a leaked substitute would poison
+  every later test."
+  [fns f]
+  (rf.schemas/set-schema-fns! fns)
+  (try (f)
+       (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))
+
+(defn- replace-schema-mismatch [recorded]
+  (some #(when (= :rf.epoch/replace-schema-mismatch (:operation %)) %) @recorded))
+
+(deftest restore-obeys-a-nil-validator
+  (testing "rf2-3x7nj.17.3 — with validation switched off, restore rewinds to a
+            state the app itself committed; the schema set is inert data"
+    (rf/make-frame {:id :test/off})
+    (rf/reg-app-schema [:n] {:frame :test/off} :int)
+    (rf/reg-event :seed    (fn [_ _] {:db {:n 0}}))
+    (rf/reg-event :set-str (fn [_ _] {:db {:n "not-an-int"}}))
+    (rf/dispatch-sync [:seed] {:frame :test/off})
+    (with-schema-fns {:validate nil}
+      (fn []
+        (rf/dispatch-sync [:set-str] {:frame :test/off})
+        (rf/dispatch-sync [:seed]    {:frame :test/off})
+        (let [target (some #(when (= "not-an-int" (:n (:db-after %))) %)
+                           (rf/epoch-history :test/off))]
+          (is (some? target)
+              "PRECONDITION: with validation off the hot path committed the value")
+          (is (true? (rf/restore-epoch! :test/off (:epoch-id target)))
+              "restore rewinds to a state the app legitimately produced")
+          (is (= {:n "not-an-int"} (rf/app-db-value :test/off))))))))
+
+(deftest replace-obeys-a-substituted-validators-verdict
+  (testing "rf2-3x7nj.17.3 — a substituted (non-Malli) validator decides: its
+            rejection refuses the replace, its acceptance admits it. Malli
+            threw on the foreign schema token, and the throw counted as a pass."
+    (with-schema-fns {:validate (fn [schema v]
+                                  (if (= ::pos schema) (and (int? v) (pos? v)) true))}
+      (fn []
+        (rf/make-frame {:id :test/sub})
+        (rf/reg-app-schema [:n] {:frame :test/sub} ::pos)
+        (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
+        (rf/reg-event :neg  (fn [_ _] {:db {:n -5}}))
+        (rf/dispatch-sync [:seed] {:frame :test/sub})
+        (rf/dispatch-sync [:neg]  {:frame :test/sub})
+        (is (= {:n 1} (rf/app-db-value :test/sub))
+            "PRECONDITION: the substituted validator rejects {:n -5} on the hot path")
+        (let [recorded (record-trace!)]
+          (is (false? (rf/replace-frame-state! :test/sub {:rf.db/app {:n -5}}))
+              "replace refuses what the installed validator rejects")
+          (is (= {:n 1} (rf/app-db-value :test/sub)) "app-db unchanged")
+          (is (= [[:n]] (:failing-paths (:tags (replace-schema-mismatch recorded))))
+              ":rf.epoch/replace-schema-mismatch names the failing path"))
+        (is (true? (rf/replace-frame-state! :test/sub {:rf.db/app {:n 7}}))
+            "CONTROL: a value the installed validator accepts is admitted")))))
+
+(deftest replace-obeys-a-permissive-validator
+  (testing "rf2-3x7nj.17.3 — respecting a substituted validator includes its
+            permissiveness: an accept-all validator admits a value default Malli
+            would refuse"
+    (rf/make-frame {:id :test/lax})
+    (rf/reg-app-schema [:n] {:frame :test/lax} :int)
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+    (rf/dispatch-sync [:seed] {:frame :test/lax})
+    (is (false? (rf/replace-frame-state! :test/lax {:rf.db/app {:n "not-an-int"}}))
+        "CONTROL: the default validator refuses the value")
+    (with-schema-fns {:validate (fn [_ _] true)}
+      (fn []
+        (is (true? (rf/replace-frame-state! :test/lax {:rf.db/app {:n "not-an-int"}}))
+            "the accept-all validator admits it")
+        (is (= {:n "not-an-int"} (rf/app-db-value :test/lax)))))))
+
+(deftest replace-refuses-when-the-validator-throws
+  (testing "rf2-3x7nj.17.3 — a validator that THROWS (here default Malli on the
+            childless, malformed `[:vector]`) refuses the replace, as the hot
+            path refuses the write. The probe used to count the throw as a pass
+            and install the unvalidated value."
+    (rf/make-frame {:id :test/malformed})
+    (rf/reg-event :seed (fn [_ _] {:db {:n [1 2]}}))
+    (rf/dispatch-sync [:seed] {:frame :test/malformed})
+    (rf/reg-app-schema [:n] {:frame :test/malformed} [:vector])
+    (let [recorded (record-trace!)]
+      (is (false? (rf/replace-frame-state! :test/malformed {:rf.db/app {:n [9 9 9]}}))
+          "replace refuses under a throwing validator")
+      (is (= {:n [1 2]} (rf/app-db-value :test/malformed)) "app-db unchanged")
+      (is (= [[:n]] (:failing-paths (:tags (replace-schema-mismatch recorded))))
+          "the refusal names the path whose validation threw"))))
+
 (deftest epoch-record-stamps-schema-digest
   (testing "Per Spec-Schemas §:rf/epoch-record (rf2-0z1z): every epoch
             record carries a :schema-digest pinned at record time."
@@ -1661,6 +1758,62 @@
           (is (= :machine/tl (:machine-id (:tags ev))))
           (is (= 1 (:version-recorded (:tags ev))))
           (is (= 2 (:version-current  (:tags ev)))))))))
+
+(defn- restore-across-a-version-change
+  "Record a `:machine/tl` snapshot stamped `recorded` (nil = no stamp) under a
+  definition stamped the same, hot-reload the definition to `current`, then
+  restore that epoch. Returns the restore's return value, whether the frame
+  state was left untouched, and the version-mismatch trace (or nil)."
+  [recorded current]
+  (let [machine (fn [v] (cond-> {:initial :red
+                                 :states  {:red {:on {:tick :green}} :green {}}}
+                          (some? v) (assoc :meta {:rf/snapshot-version v})))
+        snap    (cond-> {:state :red :data {}}
+                  (some? recorded) (assoc :meta {:rf/snapshot-version recorded}))]
+    (rf/make-frame {:id :test/main})
+    (rf/reg-machine :machine/tl (machine recorded))
+    (rf/reg-event :put-snap
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime
+         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots :machine/tl] snap)}))
+    (rf/dispatch-sync [:put-snap] {:frame :test/main})
+    (let [target (last (rf/epoch-history :test/main))]
+      (rf/reg-machine :machine/tl (machine current))
+      (let [recorded-traces (record-trace!)
+            pre             (rf/frame-state-value :test/main)
+            ok?             (rf/restore-epoch! :test/main (:epoch-id target))]
+        {:ok?        ok?
+         :unchanged? (= pre (rf/frame-state-value :test/main))
+         :mismatch   (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %)
+                           @recorded-traces)}))))
+
+(deftest restore-refuses-a-version-stamp-added-since-the-recording
+  (testing "rf2-3x7nj.17.2 — absent → 1 (a machine's FIRST incompatible change)
+            is drift. The machines artefact's rule is exact equality, absent
+            included, so a restore that passed here was reset to `:initial` by
+            the machine's own check on its next event, after reporting success."
+    (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change nil 1)]
+      (is (false? ok?) "restore refused up front")
+      (is (true? unchanged?) "frame state unchanged")
+      (is (some? mismatch) ":rf.epoch/restore-version-mismatch fired")
+      (is (nil? (get-in mismatch [:tags :version-recorded])))
+      (is (= 1 (get-in mismatch [:tags :version-current]))))))
+
+(deftest restore-refuses-a-version-stamp-removed-since-the-recording
+  (testing "rf2-3x7nj.17.2 — the mirror, 1 → absent, is drift too"
+    (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change 1 nil)]
+      (is (false? ok?) "restore refused up front")
+      (is (true? unchanged?) "frame state unchanged")
+      (is (some? mismatch) ":rf.epoch/restore-version-mismatch fired")
+      (is (= 1 (get-in mismatch [:tags :version-recorded])))
+      (is (nil? (get-in mismatch [:tags :version-current]))))))
+
+(deftest restore-admits-an-unversioned-machine-across-a-reload
+  (testing "rf2-3x7nj.17.2 CONTROL — both absent matches: an unversioned machine
+            hot-reloaded without a stamp still restores"
+    (let [{:keys [ok? mismatch]} (restore-across-a-version-change nil nil)]
+      (is (true? ok?) "restore succeeds")
+      (is (nil? mismatch) "no version-mismatch trace"))))
 
 (deftest restore-failure-during-drain
   (testing "restore-epoch! called from inside a drain fires :rf.epoch/restore-during-drain"

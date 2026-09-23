@@ -95,8 +95,11 @@
              :event-id  :recursive
              :db-before {:depth 5}
              :db-after  {:depth 5}
+             ;; Ids only — the last-settled event is named, never carried
+             ;; (its args live on its own :ok record). The dev trace above
+             ;; keeps the vector for the local debugger.
              :halt-reason
-             {:operation  :rf.error/drain-depth-exceeded
-              :depth      5
-              :queue-size 1
-              :last-event [:recursive]}}}]}}
+             {:operation     :rf.error/drain-depth-exceeded
+              :depth         5
+              :queue-size    1
+              :last-event-id :recursive}}}]}}
