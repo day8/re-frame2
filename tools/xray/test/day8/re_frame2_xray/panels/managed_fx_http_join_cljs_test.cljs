@@ -125,6 +125,17 @@
     (is (= 1 (count recs)) "PRECONDITION: one :rf.http/managed record in the bundle")
     (first recs)))
 
+(defn- only-managed-in-run
+  "Like `only-managed`, but finds the bundle by its dispatch-id — for a
+  capture whose `:rf.event/dispatched` row is gone (an evicted ring)."
+  [buffer dispatch-id]
+  (let [bs   (bundles buffer)
+        b    (first (filter #(= dispatch-id (:dispatch-id %)) bs))
+        recs (managed-records (h/event-bundle->managed-fx-records
+                                b nil (h/http-join-context buffer bs)))]
+    (is (= 1 (count recs)) "PRECONDITION: one :rf.http/managed record in the run")
+    (first recs)))
+
 (defn- issued-in [buffer event]
   (ops (:other (bundle-for buffer event)) :rf.http/issued))
 
@@ -385,7 +396,11 @@
 
 ;; ===========================================================================
 ;; (e) the rf2-n3sx9 residue: an explicit `[:rf.http/managed-abort :y]`
-;; beside a same-id re-issue in ONE bundle resolves by work-id.
+;; beside a same-id re-issue in ONE bundle. MEASURED HERE, and not what the
+;; ruling expected: the abort is terminal for `:y`, so it evicts `:y`'s
+;; issuance counter and the re-issue is `[:rf.work/http :y 1 1]` AGAIN — the
+;; two attempts share one work id, and it is POSITION over the trace `:id`
+;; that separates them (the abort fires before the re-issue's issued row).
 ;; ===========================================================================
 
 (deftest e-explicit-abort-beside-a-same-id-reissue-resolves-by-work-id
@@ -420,6 +435,18 @@
                         (testing "PRECONDITION — the user abort of the OLD attempt landed in the re-issuing bundle"
                           (is (seq (filter #(= :user (get-in % [:tags :reason]))
                                            (ops (:other b2) :rf.http/aborted)))))
+                        (testing "PRECONDITION — the explicit abort evicted the counter, so the re-issue REUSED the work id"
+                          (is (= (prefix (first (issued-in buffer [:t/e1])))
+                                 (prefix (first (issued-in buffer [:t/e2])))
+                                 [:rf.work/http :y 1]))
+                          (is (= #{[:rf.work/http :y 1 1]}
+                                 (set (map #(get-in % [:tags :rf.reply/work-id])
+                                           (ops buffer :rf.http/replied))))
+                              "both completions carry the identical work id"))
+                        (testing "in-bundle attribution by position: the abort precedes the re-issue's issued row, so it is not the new record's"
+                          (let [bundle-only (first (managed-records (h/event-bundle->managed-fx-records b2)))]
+                            (is (= :issued (:status bundle-only)))
+                            (is (nil? (:cancel-cause bundle-only)))))
                         (testing "control — attributed by request-id alone (the pre-join rule), the new record takes the old attempt's abort"
                           (let [legacy (h/http-adapter fx-new (:other b2) {:sole-http-fx? false})]
                             (is (= :cancelled (:status legacy)))
@@ -429,7 +456,9 @@
                         (is (some? (:reply-link old)) "the :cancelled reply was delivered")
                         (is (= :ok (:status new)))
                         (is (nil? (:cancel-cause new)))
-                        (is (not= (:reply-link old) (:reply-link new)))))))))))
+                        (is (some? (:reply-link new)))
+                        (is (not= (:reply-link old) (:reply-link new))
+                            "one work id, two deliveries — each record links to the reply AFTER its own completion")))))))))
       done)))
 
 ;; ===========================================================================
@@ -439,8 +468,9 @@
 
 (deftest f-issued-with-no-terminal-row-says-so
   (async done
+    (rf/reg-event :t/done (fn [_ _] {}))
     (rf/reg-event :t/f
-      (fn [_ _] {:fx [[:rf.http/managed {:request {:url "/f"} :request-id :f}]]}))
+      (fn [_ _] {:fx [[:rf.http/managed {:request {:url "/f"} :request-id :f :reply-to [:t/done]}]]}))
     (finish
       (with-parked-fetch
         (fn [_release!]
@@ -494,7 +524,7 @@
                         (testing "control — on the full capture the record joins"
                           (is (= :ok (:status (only-managed full [:t/gh])))))
                         (testing "(g) issued row aged out"
-                          (let [r (only-managed aged [:t/gh])]
+                          (let [r (only-managed-in-run aged (:dispatch-id (bundle-for full [:t/gh])))]
                             (is (seq (ops aged :rf.http/replied)) "PRECONDITION: the terminal row survived")
                             (is (= :issued (:status r)))
                             (is (nil? (:completion r)))

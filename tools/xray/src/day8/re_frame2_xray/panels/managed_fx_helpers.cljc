@@ -765,29 +765,50 @@
     (reduce-kv (fn [m k rows] (assoc m k (vec (sort-by :id rows)))) {} grouped)))
 
 (defn http-reply-index
-  "Index the DELIVERED HTTP replies: `{[frame work-id] -> {:dispatch-id
-  :frame}}` over the event-bundles whose run was dispatched by the HTTP
-  transport (`:source :http`) and whose event vector carries a reply map
-  with an HTTP `:rf.reply/work-id` — the same reading of reply maps off
-  event args the `:http-correlation` matcher makes (rf2-st7j0).
+  "Index the DELIVERED HTTP replies: `{[frame work-id] -> [{:dispatch-id
+  :frame :id} ...]}`, sorted by the trace `:id` of each delivery's
+  `:rf.event/dispatched` row, over the event-bundles whose run was
+  dispatched by the HTTP transport (`:source :http`) and whose event
+  vector carries a reply map with an HTTP `:rf.reply/work-id` — the same
+  reading of reply maps off event args the `:http-correlation` matcher
+  makes (rf2-st7j0).
+
+  A VECTOR per key, because a work id is legitimately reused once its
+  attempt has terminated — measured on the producer: an explicit
+  `[:rf.http/managed-abort :y]` evicts `:y`'s issuance counter, so a
+  same-id re-issue in the same run is `[:rf.work/http :y 1 1]` again, and
+  both replies carry it. `reply-link-for` resolves by position.
 
   `:source :http` is required, not decorative: an app handler that
   forwards the reply map to another event carries the same work id, and
   that forwarded event is not the delivery. Pure."
   [event-bundles]
-  (reduce
-    (fn [m {:keys [frame dispatch-id dispatched event]}]
-      (let [source (or (:source dispatched) (get-in dispatched [:tags :source]))
-            reply  (when (vector? event)
-                     (some (fn [a] (when (and (re/reply-map? a)
-                                              (issuance-prefix (re/work-id-of a)))
-                                     a))
-                           (rest event)))]
-        (if (and (= :http source) reply)
-          (assoc m [frame (re/work-id-of reply)] {:dispatch-id dispatch-id :frame frame})
-          m)))
-    {}
-    (or event-bundles [])))
+  (let [grouped (reduce
+                  (fn [m {:keys [frame dispatch-id dispatched event]}]
+                    (let [source (or (:source dispatched) (get-in dispatched [:tags :source]))
+                          reply  (when (vector? event)
+                                   (some (fn [a] (when (and (re/reply-map? a)
+                                                            (issuance-prefix (re/work-id-of a)))
+                                                   a))
+                                         (rest event)))]
+                      (if (and (= :http source) reply)
+                        (update m [frame (re/work-id-of reply)] (fnil conj [])
+                                {:dispatch-id dispatch-id :frame frame :id (:id dispatched)})
+                        m)))
+                  {}
+                  (or event-bundles []))]
+    (reduce-kv (fn [m k v] (assoc m k (vec (sort-by :id v)))) {} grouped)))
+
+(defn- reply-link-for
+  "The delivery of ONE terminal row: the first reply bundle under the same
+  frame and full work id whose dispatch comes after the terminal row —
+  the transport emits the completion row and only then dispatches the
+  reply. `{:dispatch-id :frame}`, or nil when the delivery is not in the
+  capture."
+  [reply-index frame wid terminal-id]
+  (when-let [hit (some #(when (and (number? (:id %)) (> (:id %) terminal-id)) %)
+                       (get reply-index [frame wid]))]
+    (select-keys hit [:dispatch-id :frame])))
 
 (defn http-join-context
   "The per-recompute join context the walker threads to every HTTP
@@ -871,7 +892,8 @@
      ;; its reply-dispatch bundle is the link — when it is still in the
      ;; capture.
      :reply-link   (when (contains? #{:ok :error :cancelled} status)
-                     (get reply-index [(terminal-row-frame terminal) wid]))}))
+                     (reply-link-for reply-index (terminal-row-frame terminal) wid
+                                     (:id terminal)))}))
 
 (defn http-adapter
   "HTTP surface adapter — the ISSUING bundle says `:issued`; the WHOLE
@@ -904,13 +926,18 @@
   unattributed `:issued`.
 
   In-bundle attribution. With an issued row, a same-bundle HTTP row
-  belongs to this record exactly when its work id shares the record's
-  issuance prefix — which separates an explicit
-  `[:rf.http/managed-abort :x]` beside a same-id re-issue (the abort
-  names the OLD attempt's id) from an already-aborted `:abort-signal`
-  firing at THIS attempt, two cases the request-id alone could not tell
-  apart (rf2-n3sx9's residue). Without one, attribution falls back to
-  `http-row-for-this-record?`.
+  belongs to this record exactly when it comes AFTER the issued row and
+  its work id shares the record's issuance prefix. Position is the half
+  that separates an explicit `[:rf.http/managed-abort :x]` beside a
+  same-id re-issue from an already-aborted `:abort-signal` firing at THIS
+  attempt — two cases the request-id alone could not tell apart
+  (rf2-n3sx9's residue) — because the explicit abort evicts `:x`'s
+  issuance counter and the re-issue reuses the SAME work id, so the ids
+  agree and only the order differs: that abort fires before the re-issue's
+  issued row, a same-attempt abort after it. The prefix is the half that
+  rejects the abort a supersession fires, which lands after the issued
+  row but names the superseded issuance. Without an issued row,
+  attribution falls back to `http-row-for-this-record?`.
 
   `opts` also carries `:sole-http-fx?` — whether this is the bundle's
   only HTTP effect, which the walker knows and the adapter cannot. The
@@ -924,10 +951,13 @@
          key            (when issued (issued-key issued))
          own-row?       (if key
                           (fn [ev]
-                            (let [tags (:tags ev)]
-                              (= (second key)
-                                 (issuance-prefix (or (:work/id tags)
-                                                      (:rf.reply/work-id tags))))))
+                            (let [tags (:tags ev)
+                                  id   (:id ev)]
+                              (and (number? id)
+                                   (> id (:id issued))
+                                   (= (second key)
+                                      (issuance-prefix (or (:work/id tags)
+                                                           (:rf.reply/work-id tags)))))))
                           #(http-row-for-this-record? request-id sole-http-fx? %))
          surface-events (filterv own-row? (surface-events-for event-bundle-other :http))
          request        (when (map? args) (:request args))

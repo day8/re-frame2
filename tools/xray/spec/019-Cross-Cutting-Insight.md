@@ -614,34 +614,58 @@ APP-DB SLICE TOUCHED — but two of the headline's links are
 - **Wire.** No runtime producer stamps per-phase wire timing, so the
   `issued → sent → received → decoded → on-success` waterfall drawn above
   is unbuilt. The four non-HTTP surfaces draw a synthesised two-phase
-  `:issued → :elapsed` bar instead; absent even that, an explicit `n/a`.
+  `:issued → :elapsed` bar from their in-bundle rows instead, absent
+  even that an explicit `n/a`; HTTP draws the same bar once its
+  completion has joined (below).
 - **Applied.** No diff feed is wired into the record, so the section
   reports app-db paths as UNTRACKED rather than measured-and-empty. That
   distinction is load-bearing: an amber warning which read the empty list
   as evidence fired on every healthy record, and was removed.
 
-**And the HTTP record is narrower again.** The issuing event-bundle holds
-essentially one HTTP fact — that the request went out — because almost
-every row the runtime emits afterwards comes from a transport callback
-with no handler scope, or from a different run's drain. So an HTTP record
-draws REQUEST and REPLY TARGET only, and its phase / wire / response /
-duration fields are nil BY CONSTRUCTION rather than pending, since no
-later event could fill them in. The four surfaces whose end events DO
-land in-bundle keep all five sections. **REPLY TARGET is what the caller
-configured, not an observed delivery.**
+**The HTTP record reads its outcome off the whole capture (built,
+rf2-6ooch).** The issuing event-bundle holds essentially one HTTP fact —
+that the request went out — because almost every row the runtime emits
+afterwards comes from a transport callback with no handler scope, or from
+a different run's drain. So the record JOINS its outcome from the whole
+trace buffer, on an exact key the runtime already stamps: the
+`:rf.http/issued` row in the issuing bundle carries the attempt's
+`:rf.reply/work-id` `[:rf.work/http logical-id issuance attempt]`, every
+terminal row carries the work id of the attempt that completed, and the
+two are matched within the frame on the three-element issuance prefix —
+never on full equality, since a retried request completes on a later
+attempt. The record takes the FIRST terminal row after its own issued
+row by trace id (a named id is legitimately reused once its request has
+completed, so "the latest" would hand an earlier record a later
+request's outcome), and a stale-suppression row is read by the attempt
+it CARRIED, never the one that superseded it. What it then draws:
 
-**Two fields say which outcome you are looking at.** `ISSUED` is the
-ordinary no-failure outcome — the status such a record reads instead of
-`OK`, so `OK` can never mean "completed" by accident — and it draws no
-RESPONSE. A record carrying a failure this bundle witnessed about its
-own attempt reads `ERROR` instead, and RESPONSE is drawn over that
-failure detail. Two failures qualify, both of them running inside the
-issuing fx handler's own stack: a synchronous request-body-prep failure,
-and — on CLJS — an already-aborted external `:abort-signal` firing this
-attempt's own abort-fn during attempt setup. The abort an issuance fires
-at the attempt it SUPERSEDED, and a cancellation aimed at an unrelated
-request, are neither of them this record's: they leave it `ISSUED` with
-no RESPONSE.
+- **Status** — the framework's closed reply statuses, `✓ OK`, `✗ ERROR`,
+  `◌ CANCELLED` and `⊘ STALE`, with the HTTP status where the reply
+  carries one and `N attempts` after a retry. A cancellation is its own
+  status, not an error.
+- **Elapsed** — the terminal row's trace time minus the issued row's, on
+  the one clock both carry, labelled *elapsed* because it includes retry
+  backoff, and drawn as the `:issued → :elapsed` WIRE TIMING bar. The
+  per-phase `sent → received → decoded` waterfall above is still unbuilt.
+- **Response** — the summary the terminal row carries: the elision
+  walker's output is the ceiling, and a `:sensitive?` request shows the
+  redaction sentinel.
+- **→ reply ↗** — focuses the `:source :http` bundle whose reply map
+  carries the same work id. Only a DELIVERED reply has one; a stale
+  outcome delivered nothing.
+- **`ISSUED · no completion in this capture`** when the issued row is in
+  the buffer and no terminal row is — never "in flight", because a ring
+  cannot tell a pending request from one whose completion aged out — and
+  plain `ISSUED` when there is no issued row to join from (an overridden
+  effect, an issued row aged out of the ring, a capture from before the
+  row existed). `ISSUED` is deliberately not `OK`, so `OK` can never mean
+  "completed" by accident.
+
+The record draws no APP-DB SLICE: what the reply did to app-db is the
+reply bundle's own story, and the link is the bridge to it (the
+"Applied:" half of the headline is not built for HTTP). **REPLY TARGET is
+what the caller configured, not an observed delivery.** The four surfaces
+whose end events DO land in-bundle keep all five sections.
 
 For WebSocket: same shape but for a frame's send/recv, plus connection
 state at issue time.
