@@ -220,13 +220,22 @@
          classification doesn't propagate — each path declares its own. Views and
          subs read `:auth/user` for identity (username, bio, image) and none of
          them want the token anyway; the bearer-auth interceptor reads it from the
-         classified `[:auth :token]` path. The incoming `user` arg is itself the
-         positional second element of THIS event's own dispatched-event trace, and
-         it still carries the token the durable write is about to strip — so
-         `:sensitive [[1 :token]]` redacts that positional slot too. This event
-         is for DIRECT/top-level dispatch only — a classified caller inlines
-         `store-session-db` instead (see that fn's doc)."
-   :sensitive [[1 :token]]}
+         classified `[:auth :token]` path. The incoming `user` arg still carries
+         the token the durable write is about to strip, so it needs its own mark
+         for THIS event's own dispatched-event trace — and the mark is
+         `:sensitive [[:token]]`, ROOTED AT THE ARG-MAP. An event's
+         classification paths index into the event vector's SECOND element,
+         never into the outer vector (`redact-event-vec` in
+         `re-frame.classification` redacts `(second event)`), and here that
+         element IS the `user` map. A vector-relative `[1 :token]` would ask
+         the map for a numeric key `1` that no map has — a mark at a missing
+         slot is a silent no-op, so the JWT would ship RAW while the
+         declaration read as protection. The handler's own `[_ user]`
+         destructuring is a different coordinate system and does not move the
+         classification root. This event is for DIRECT/top-level dispatch
+         only — a classified caller inlines `store-session-db` instead (see
+         that fn's doc)."
+   :sensitive [[:token]]}
   (fn [{:keys [db]} [_ user]]
     {:db (store-session-db db user)}))
 

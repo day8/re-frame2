@@ -53,6 +53,8 @@
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -549,6 +551,39 @@
               "no token persists under [:auth :user] — the unclassified duplicate is avoided")
           (is (= "jwt-abc" (get-in db [:auth :token]))
               "the JWT rides its one classified durable home at [:auth :token]"))))))
+
+(deftest store-session-event-token-redacts-at-its-arg-map-path
+  (testing "examples/real-apps/realworld_resources — the DIRECTLY-DISPATCHABLE
+            :auth/store-session event classifies its JWT at the ARG-MAP-relative
+            path [:token], not the vector-relative [1 :token] it shipped with
+            (rf2-3x7nj.42.1, the resources twin of rf2-oxyle). An event's
+            classification paths index into the event vector's SECOND element
+            (`redact-event-vec` redacts `(second event)`), and here that element
+            IS the User map, so [1 :token] asked for a numeric map key `1` no map
+            has — a silent no-op, and the JWT rode RAW into the dispatched-event
+            trace. Assertions are POSITIVE (the sentinel at the slot), so the old
+            spelling cannot pass them, and the non-secret username rides visible
+            beside it: selective classification, not whole-arg blanking."
+    (is (= {:sensitive [[:token]]}
+           (rf.classification/registration-classification :event :auth/store-session))
+        ":auth/store-session owns the arg-map-relative [:token]")
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:auth/store-session {:email    "alice@example.com"
+                                                :username "alice"
+                                                :token    "JWT-RESOURCES-SENTINEL-42d1"
+                                                :bio nil :image nil}]
+                          {:frame f})
+        (let [slots (->> @traces
+                         (keep #(get-in % [:tags :rf.event/v]))
+                         (filter #(= :auth/store-session (first %))))]
+          (is (seq slots)
+              "teeth — the drive actually emitted the dispatched-event slot under test")
+          (doseq [v slots]
+            (is (= rf.privacy/redacted-sentinel (get-in v [1 :token]))
+                "the JWT reads :rf/redacted at the event's own arg-map :token")
+            (is (= "alice" (get-in v [1 :username]))
+                "the non-secret username rides visible — selective, not whole-arg")))))))
 
 ;; ============================================================================
 ;; 3. MUTATION :populates / cross-scope :invalidates / :reply-to
