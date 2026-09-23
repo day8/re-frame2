@@ -5,10 +5,11 @@
   `compute-transition-geometry` (reached via the public `apply-transition-once`)
   reads `(:decl-path transition <default>)` — the absolute path of the state
   node whose `:on` / `:always` / `:after` table the transition was declared
-  in. It anchors the LCA / exit / entry geometry: the `target-descendant-of-
-  decl?` rule (XState v5 — \"child nodes targeted by a compound transition are
-  re-entered\") is GATED on a NON-EMPTY decl-path (`(pos? (count decl-path))`),
-  which deliberately excludes the synthetic ROOT.
+  in. It anchors the LCA / exit / entry geometry: a transition's DOMAIN is its
+  declaring node (XState `getTransitionDomain`), so for a proper-descendant
+  target every active state below the declaring node exits while the
+  declaring node survives. The machine ROOT is such a node (rf2-3x7nj.8.1,
+  rf2-3x7nj.8.3).
 
   Every in-tree caller stamps `:decl-path` (via `pick-transition` then
   `machine-transition-single`'s `(assoc :decl-path …)`), so the default is
@@ -16,9 +17,9 @@
   `apply-transition-once`. For such a caller the ROOT default keeps a
   ROOT-declared transition (decl-path `[]`) on a deep machine correctly
   located at root: a depth-1 default (`(vec (take 1 src-path))`, the first
-  element of the active leaf's path) would mis-locate it at `[<top>]` — a
-  NON-empty path that WRONGLY trips `target-descendant-of-decl?`, diverging
-  the LCA geometry (the wrong exit / entry set).
+  element of the active leaf's path) would mis-locate it at `[<top>]`, moving
+  the domain down a level — the top-level compound would then survive a
+  root transition that must restart it (the wrong exit / entry set).
 
   This is a pure-engine geometry test — it calls `apply-transition-once`
   directly with a transition map carrying NO `:decl-path`, so it exercises the
@@ -29,7 +30,9 @@
 ;; A deep compound machine. `:p` is a top-level compound (initial :q); `:q` and
 ;; `:r` are its children; `:r` is itself compound (initial :s). Each state
 ;; records its `:exit` / `:entry` firing into `:data :log` so the cascade is
-;; observable. The active configuration is the leaf [:p :q].
+;; observable. The active configuration is the leaf [:p :q]. `:p` carries an
+;; `:exit` so the log can tell a root domain (`:p` restarts) from a depth-1
+;; `[:p]` domain (`:p` survives).
 (def ^:private deep-machine
   {:initial :p
    :data    {:log []}
@@ -39,6 +42,7 @@
              :enter-s (fn [{:keys [data]}] {:data (update data :log conj :enter-s)})}
    :states
    {:p {:initial :q
+        :exit    :exit-p
         :states  {:q {:exit :exit-q}
                   :r {:initial :s
                       :entry   :enter-r
@@ -46,24 +50,19 @@
 
 (deftest decl-path-default-is-root-not-depth-1
   (testing "a ROOT-declared transition with NO `:decl-path` (a pure-fn /
-   hand-built caller) targeting a deep descendant of a DIFFERENT top-level
-   subtree resolves the LCA geometry from ROOT — NOT the depth-1 guess that
-   would mis-trip `target-descendant-of-decl?` and break the exit/entry set"
+   hand-built caller) targeting a deep descendant of a top-level compound
+   resolves its domain at ROOT — NOT the depth-1 guess that would move the
+   domain down to `:p` and let `:p` survive"
     ;; Active leaf [:p :q]; transition (no :decl-path) targets [:p :r :s]
-    ;; (a deeper descendant of :p, NOT on the active branch). The LCCA of
-    ;; [:p :q] and [:p :r :s] is [:p] (common-prefix length 1), so the
-    ;; correct geometry exits :q (deepest-first) and enters :r then :s while
-    ;; :p survives.
+    ;; (a deeper descendant of :p, NOT on the active branch).
     ;;
-    ;; With the ROOT default (decl-path []): `target-descendant-of-decl?` is
-    ;; false (empty decl-path), so lca-len = common-prefix = 1 → exit :q,
-    ;; enter :r, :s. CORRECT.
+    ;; With the ROOT default (decl-path []): the domain is the root, so every
+    ;; active state below it exits — :q then :p — and the path from the root
+    ;; to the target enters: :p (no :entry), :r, :s. lca-len = 0.
     ;;
-    ;; With a depth-1 default (decl-path [:p]):
-    ;; `target-descendant-of-decl?` would be TRUE ([:p] is a prefix of both
-    ;; src and target), forcing lca-len = (dec (count [:p :r :s])) = 2 →
-    ;; exit set EMPTY (:q not exited) and only :s entered. WRONG: :q would
-    ;; stay on the active path while the machine dives to :s.
+    ;; With a depth-1 default (decl-path [:p]): the domain would be :p, so
+    ;; only :q exits and :p survives (lca-len = 1) — the third `testing`
+    ;; below pins that contrast, so this test can tell the two apart.
     (let [snapshot {:state [:p :q] :data {:log []}}
           ;; NB: no :decl-path key — exercises the default.
           r        (rf.machines.transition/apply-transition-once
@@ -72,10 +71,9 @@
       (let [snap (:snapshot r)]
         (is (= [:p :r :s] (:state snap))
             "the machine lands at the targeted deep leaf [:p :r :s]")
-        (is (= [:exit-q :enter-r :enter-s] (get-in snap [:data :log]))
-            "ROOT-anchored geometry: :q exits (deepest-first), then :r and :s
-             enter — :p survives. The depth-1 guess would skip :q's exit and
-             :r's entry (lca-len pulled to 2 by a mis-tripped descendant rule)."))))
+        (is (= [:exit-q :exit-p :enter-r :enter-s] (get-in snap [:data :log]))
+            "ROOT domain: :q and :p exit (deepest-first), then :r and :s enter
+             — :p restarts. The depth-1 guess would keep :p alive."))))
 
   (testing "control — the SAME transition WITH an explicit root `:decl-path []`
    produces the identical cascade (the default and the explicit root agree)"
@@ -83,5 +81,14 @@
           r        (rf.machines.transition/apply-transition-once
                      deep-machine snapshot [:go] {:target [:p :r :s] :decl-path []})]
       (is (= :ok (:status r)))
+      (is (= [:exit-q :exit-p :enter-r :enter-s] (get-in (:snapshot r) [:data :log]))
+          "explicit root decl-path matches the defaulted-root geometry")))
+
+  (testing "contrast — an explicit depth-1 `:decl-path [:p]` gives a DIFFERENT
+   cascade (:p survives), so the default above is observably the root"
+    (let [snapshot {:state [:p :q] :data {:log []}}
+          r        (rf.machines.transition/apply-transition-once
+                     deep-machine snapshot [:go] {:target [:p :r :s] :decl-path [:p]})]
+      (is (= :ok (:status r)))
       (is (= [:exit-q :enter-r :enter-s] (get-in (:snapshot r) [:data :log]))
-          "explicit root decl-path matches the defaulted-root geometry"))))
+          "a :p-declared transition's domain is :p — :q exits, :p survives"))))
