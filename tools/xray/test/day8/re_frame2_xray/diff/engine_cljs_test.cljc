@@ -428,20 +428,22 @@
       (is (empty? (:wholly-changed-roots p)))
       (is (= :children (engine/op-at p []))))))
 
-(deftest non-empty-populated-disjoint-passes-through
-  (testing "rf2-9d4j8 — two populated maps swapping wholesale (e.g.
-            `{:a 1 :b 2} → {:c 3 :d 4}`) is NOT an empty-side
-            replacement and should NOT expand to spurious per-key
-            ops. Editscript emits a single root `:r` for this case
-            (A* chooses root replace over 4 per-key edits); the
-            engine leaves it classified as `:modified` at `[]`."
+(deftest populated-disjoint-map-swap-expands-per-key
+  (testing "rf2-3x7nj.26.4 — two populated maps swapping wholesale
+            (`{:a 1 :b 2} → {:c 3 :d 4}`) expand to per-key ops. Editscript
+            emits a single root `:r` here (A* prices it below four per-key
+            edits), and rf2-9d4j8, scoped to the empty edge, used to pin
+            that `:r` as one `:modified` at `[]` with every key `:same` —
+            the same shape with ONE key per side already arrived per-key,
+            so the projection depended on A*'s cost model. Now every
+            same-kind `:r` expands, and the root stays intact."
     (let [p (engine/project {:a 1 :b 2} {:c 3 :d 4})]
-      ;; The wholesale root replacement classifies as :modified at []
-      ;; (one map swapped for another with disjoint keys). Per-key
-      ;; paths return :same — the operator sees one wholesale row.
-      (is (= :modified (engine/op-at p [])))
-      (is (= :same (engine/op-at p [:a])))
-      (is (= :same (engine/op-at p [:c]))))))
+      (is (= :children (engine/op-at p [])))
+      (is (= 4 (engine/change-count-at p [])))
+      (is (= :removed (engine/op-at p [:a])))
+      (is (= :removed (engine/op-at p [:b])))
+      (is (= :added (engine/op-at p [:c])))
+      (is (= :added (engine/op-at p [:d]))))))
 
 (deftest type-change-still-modified
   (testing "rf2-9d4j8 — `{} → {}` style detection must NOT catch
@@ -1530,4 +1532,82 @@
     (let [p (engine/project {:f {:a 1 :keep 0}} {:f {:b 2 :keep 0}})]
       (is (= #{} (:wholly-changed-roots p)))
       (is (= :children (engine/op-at p [:f]))))))
+
+;; ---- rf2-3x7nj.26.4 — a POPULATED collection's whole-value :r expands ----
+;;
+;; `expand-collection-replacement` expanded a whole-value `:r` for sets at
+;; any member count but for vectors and maps only at the empty edge, on the
+;; premise that A* never collapses a populated vector or map. It does, once
+;; enough of the collection differs, and the container then read
+;; `:modified` with every member `:same` — each changed element painted as
+;; unchanged, `[N∆]` reading 0. Raw scripts are Editscript 0.6.5's.
+
+(deftest x7nj-26-4-every-element-changed-is-per-index
+  (testing "`[[[:scores] :r [11 21 31]]]` — each tick is its own `:modified`"
+    (let [p (engine/project {:scores [10 20 30]} {:scores [11 21 31]})]
+      (is (= {:op :modified :before 10 :after 11} (engine/entry-at p [:scores 0])))
+      (is (= {:op :modified :before 20 :after 21} (engine/entry-at p [:scores 1])))
+      (is (= {:op :modified :before 30 :after 31} (engine/entry-at p [:scores 2])))
+      (is (= :children (engine/op-at p [:scores])))
+      (is (= 3 (engine/change-count-at p [:scores])))
+      (is (= [[:scores 0] [:scores 1] [:scores 2]] (mapv :path (:flat-rows p)))))))
+
+(deftest x7nj-26-4-reversal-is-per-index
+  (testing "`[[[:v] :r [4 3 2 1]]]`, and the same at the root"
+    (let [p (engine/project {:v [1 2 3 4]} {:v [4 3 2 1]})]
+      (is (= {:op :modified :before 1 :after 4} (engine/entry-at p [:v 0])))
+      (is (= {:op :modified :before 4 :after 1} (engine/entry-at p [:v 3])))
+      (is (= 4 (engine/change-count-at p [:v]))))
+    (let [p (engine/project [1 2 3 4] [4 3 2 1])]
+      (is (= :modified (engine/op-at p [0])))
+      (is (= :modified (engine/op-at p [3])))
+      (is (= :children (engine/op-at p []))))))
+
+(deftest x7nj-26-4-map-with-every-key-replaced-is-per-key
+  (testing "`[[[:user :prefs] :r {:c 3 :d 4}]]` — per-key union delta, and,
+            with the rf2-3x7nj.26.3 union walk, no ancestor is promoted"
+    (let [p (engine/project {:user {:prefs {:a 1 :b 2}}}
+                            {:user {:prefs {:c 3 :d 4}}})]
+      (is (= :removed (engine/op-at p [:user :prefs :a])))
+      (is (= :removed (engine/op-at p [:user :prefs :b])))
+      (is (= :added (engine/op-at p [:user :prefs :c])))
+      (is (= :added (engine/op-at p [:user :prefs :d])))
+      (is (= :children (engine/op-at p [:user :prefs])))
+      (is (= 4 (engine/change-count-at p [:user :prefs])))
+      (is (= #{} (:wholly-changed-roots p))))))
+
+(deftest x7nj-26-4-length-change-under-a-whole-replace
+  (testing "`[[[:v] :r [9 8]]]` and `[[[:v] :r [9 8 7 6]]]` — the overlap is
+            per-index, the tail is removed (through `:vector-removals`) or
+            added"
+    (let [p (engine/project {:v [1 2 3 4]} {:v [9 8]})]
+      (is (= {:op :modified :before 2 :after 8} (engine/entry-at p [:v 1])))
+      (is (= [{:before-index 2 :before-value 3} {:before-index 3 :before-value 4}]
+             (engine/vector-removals-at p [:v]))))
+    (let [p (engine/project {:v [1 2]} {:v [9 8 7 6]})]
+      (is (= {:op :modified :before 1 :after 9} (engine/entry-at p [:v 0])))
+      (is (= :added (engine/op-at p [:v 2])))
+      (is (= :added (engine/op-at p [:v 3]))))))
+
+(deftest x7nj-26-4-a-changed-element-collection-expands-too
+  (testing "the expansion recurses: `[[[:v] :r [5 6 7 {:a 2}]]]` diffs the
+            map element key by key, and `[[[:v 0] :r {:e 5 :f 6}] …]` —
+            A*'s own per-index replace of a map — expands per key"
+    (let [p (engine/project {:v [1 2 3 {:a 1}]} {:v [5 6 7 {:a 2}]})]
+      (is (= {:op :modified :before 1 :after 2} (engine/entry-at p [:v 3 :a])))
+      (is (= :children (engine/op-at p [:v 3]))))
+    (let [p (engine/project {:v [{:a 1 :b 2} {:c 3 :d 4}]}
+                            {:v [{:e 5 :f 6} {:g 7 :h 8}]})]
+      (is (= :removed (engine/op-at p [:v 0 :a])))
+      (is (= :added (engine/op-at p [:v 0 :e])))
+      (is (= :children (engine/op-at p [:v 0])))
+      (is (= #{} (:wholly-changed-roots p))))))
+
+(deftest x7nj-26-4-a-type-change-stays-r7
+  (testing "CONTROL — `[[[:v] :r (4 5 6)]]`, a vector replaced by a list,
+            is not a same-kind pair: it stays one R7 `:modified`"
+    (let [p (engine/project {:v [1 2 3]} {:v '(4 5 6)})]
+      (is (= :modified (engine/op-at p [:v])))
+      (is (engine/type-change? p [:v]))
+      (is (= :same (engine/op-at p [:v 0]))))))
 

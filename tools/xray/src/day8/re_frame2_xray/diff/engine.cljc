@@ -128,6 +128,12 @@
 (defn- container? [v]
   (not= :scalar (container-kind v)))
 
+(defn- seq-coll?
+  "A vector, list or seq — a sequential that is neither a map nor a set."
+  [v]
+  (or (vector? v)
+      (and (sequential? v) (not (map? v)) (not (set? v)))))
+
 ;; =========================================================================
 ;; safe value accessor along an Editscript path
 ;; =========================================================================
@@ -194,52 +200,114 @@
         (mapv (fn [el] [(conj (vec path) el) :+ el])
               (set/difference after-set before-set))))
 
+(declare expand-replacement)
+
+(defn- replacement-edits
+  "The member-level edits that turn `b` into `a` at `path` when the two are
+  collections of the SAME kind, or nil when they are not (a type change, a
+  scalar, an absent side) or when no member differs. Pure.
+
+    - SET↔SET → the membership delta (`expand-set-replacement`).
+    - MAP↔MAP → the per-key union delta: `:-` for a before-only key, `:+`
+      for an after-only key, and for a shared key whose value differs the
+      expansion of THAT pair (`expand-replacement`).
+    - SEQUENTIAL↔SEQUENTIAL → per-index, for `0 … (min n m)-1` where the
+      values differ, the expansion of that pair; then `:+` for the after
+      tail, or `:-` for the before tail in DESCENDING index order. The two
+      sides must be the same sequential kind, except at the empty edge
+      (rf2-yucxn), which any two sequentials share.
+
+  The tail removals descend because `project` replays `:-` edits
+  sequentially against the shrinking sequence (`replay-vector-edits`), and
+  only a descending walk keeps each index naming its ORIGINAL element
+  (rf2-gwye.10 — ascending indices dropped every other removal and invented
+  shifts); `resolve-vector-removals` sorts them back into before order. A
+  per-index replacement neither lengthens nor shortens the sequence, so no
+  index in the tail is shifted by one."
+  [path b a]
+  (let [path  (vec path)
+        edits (cond
+                (and (set? b) (set? a))
+                (expand-set-replacement path b a)
+
+                (and (map? b) (map? a))
+                (into (mapv (fn [k] [(conj path k) :-])
+                            (remove #(contains? a %) (keys b)))
+                      (mapcat (fn [[k av]]
+                                (cond
+                                  (not (contains? b k)) [[(conj path k) :+ av]]
+                                  (= (get b k) av)      nil
+                                  :else                 (expand-replacement
+                                                          (conj path k) (get b k) av))))
+                      a)
+
+                (and (seq-coll? b) (seq-coll? a)
+                     (or (empty? b) (empty? a)
+                         (= (container-kind b) (container-kind a))))
+                (let [bv (vec b)
+                      av (vec a)
+                      n  (count bv)
+                      m  (count av)
+                      k  (min n m)]
+                  (-> []
+                      (into (mapcat (fn [i]
+                                      (let [x (nth bv i)
+                                            y (nth av i)]
+                                        (when (not= x y)
+                                          (expand-replacement (conj path i) x y)))))
+                            (range k))
+                      (into (map (fn [i] [(conj path i) :+ (nth av i)]))
+                            (range k m))
+                      (into (map (fn [i] [(conj path i) :-]))
+                            (range (dec n) (dec k) -1))))
+
+                :else nil)]
+    (when (seq edits) edits)))
+
+(defn- expand-replacement
+  "`replacement-edits` for `b` → `a` at `path`, or the whole-value
+  `[path :r a]` when they are not a same-kind collection pair — the R7
+  type change, a scalar change, or two unequal collections with no
+  differing member (a record against a map of the same entries). Pure."
+  [path b a]
+  (or (replacement-edits path b a)
+      [[(vec path) :r a]]))
+
 (defn- expand-collection-replacement
   "Expand a single Editscript edit that replaces a collection wholesale
-  (whole-value `:r`) into per-member `:+` / `:-` edits, so downstream
-  classification sees member-level granularity instead of one whole-value
-  `:modified`.
+  (whole-value `:r`) into per-member `:+` / `:-` / `:r` edits, so
+  downstream classification sees member-level granularity instead of one
+  whole-value `:modified`.
 
-  ## Empty↔populated maps (rf2-9d4j8 / rf2-5j7ch)
+  ## Why every same-kind `:r` is expanded (rf2-3x7nj.26.4)
 
-  Editscript's A* emits a single `[[path] :r new-value]` edit for the
-  `{} → {populated}` (and `{populated} → {}`) cases — the whole collection
-  replacement is one step in the edit script. Downstream classification
-  then tags `path` as `:modified` and leaves every PER-KEY path returning
-  `:same` from `op-at`, which the renderer reads as 'no per-key change' —
-  wrong for an absent→present transition (rf2-9d4j8; related precedent
-  rf2-5j7ch which patched only the `:flat-rows` lens).
+  Left alone a whole-value `:r` classifies as ONE `:modified` at the
+  collection's path, and every member path answers `:same` from `op-at` —
+  the renderer paints a changed element as unchanged and the `[N∆]` chip
+  reads 0. Whether Editscript's A* emits that `:r` or per-member edits is
+  its COST MODEL's call, not anything the programmer chose, so the
+  projection must not depend on it. It emits the `:r`:
 
-  ## Sets — empty↔populated AND multi-member swaps (rf2-l0us2 / rf2-4vp8c)
+    - at the empty edge of every collection kind: `{} → {:a 1}`
+      (rf2-9d4j8), `#{} → #{:a}` (rf2-l0us2), `[1] → []` (rf2-yucxn);
+    - for a multi-member set swap: `#{:a :b :c} → #{:a :d :e}` ⇒
+      `[[] :r #{:a :d :e}]` (rf2-4vp8c);
+    - once enough of a POPULATED vector or map differs:
+      `{:scores [10 20 30]} → {:scores [11 21 31]}` ⇒
+      `[[[:scores] :r [11 21 31]]]`, a reversal `[1 2 3 4] → [4 3 2 1]`,
+      or a map whose keys were all replaced
+      `{:prefs {:a 1 :b 2}} → {:prefs {:c 3 :d 4}}` (rf2-3x7nj.26.4 —
+      the scoping this function used to carry rested on the false premise
+      that populated vectors and maps never collapse).
 
-  For a SINGLE-member set swap Editscript already emits member-level
-  `:+` / `:-` edits (`#{:a} → #{:b}` ⇒ `[[:a] :-] [[:b] :+]`), so it needs
-  no expansion. But Editscript falls back to a whole-value `:r` for sets in
-  two cases: when ONE side is EMPTY (`#{} → #{:a}` ⇒ `[[] :r #{:a}]`,
-  rf2-l0us2) AND when MULTIPLE members change simultaneously
-  (`#{:a :b :c} → #{:a :d :e}` ⇒ `[[] :r #{:a :d :e}]`, rf2-4vp8c — its
-  A* cost threshold). Both classify as a single `:modified` at the set's
-  path with every per-member path `:same` ('sea of red'). We catch ALL
-  set `:r` here and delegate to `expand-set-replacement`, which synthesizes
-  the membership delta regardless of member count — the empty↔populated
-  edge is just the degenerate case where the in-both intersection is empty.
-
-  ## Vectors / lists — empty↔populated edge (rf2-yucxn)
-
-  Editscript emits a whole-value `:r` for the vector/list empty edge too
-  (`[1] → []` ⇒ `[[] :r []]`; `{:a [1]} → {:a []}` ⇒ `[[:a] :r []]`; and
-  symmetrically for `[] → [1]`). Left alone this classifies as a single
-  `:modified` at the sequential's path — a whole-key `~` modify — which
-  reads inconsistently with the set/map empty edges (which expand to
-  member-level `:removed` / `:added` with the key intact). A vector/list
-  going empty is an ELEMENT REMOVAL (and going populated-from-empty an
-  ELEMENT ADD), not a wholesale value mutation. We expand the empty edge to
-  per-index `:-` / `:+` edits so it renders member-level, matching set/map.
-  Only the EMPTY edge is expanded: a populated↔populated vector swap is
-  handled by Editscript's per-index `:+` / `:-` / `:r` edits already (it does
-  NOT collapse to a whole-value `:r`), so there is no `:r` to intercept
-  there. Per-index `:-` edits then flow through `project`'s
-  `:vector-removals` channel exactly like ordinary tail deletions.
+  So every `:r` between two collections of the same kind expands, through
+  `replacement-edits`, into the edits Editscript would have emitted member
+  by member — recursively, so an element that is itself a changed
+  collection expands too. Type changes (nil↔map, scalar↔set, map↔vector,
+  set↔map, vector↔list) are LEFT ALONE so R7's
+  `:rf.xray.diff/type-change?` branch still fires. Per-index `:-` edits
+  flow through `project`'s `:vector-removals` channel exactly like
+  ordinary tail deletions.
 
   This expansion runs over the raw edit script BEFORE classification so
   every downstream artefact (`:path-ops`, `:container-ops`,
@@ -252,76 +320,13 @@
   on the before side, so a raw `(value-at before path)` would compare the
   replacement against the wrong element.
 
-  Rule:
-    - SET↔SET `:r` (both sides sets) → membership-delta expansion, any
-      member count (`expand-set-replacement`).
-    - MAP `:r` where ONE side is the EMPTY map → per-key `:+` / `:-`.
-      (Multi-key populated↔populated MAP swaps are NOT a known Editscript
-      `:r` pathology — A* emits per-key edits for maps — so this branch
-      stays scoped to the empty edge.)
-    - VECTOR/LIST/SEQ `:r` where ONE side is the EMPTY sequential → per-
-      index `:-` (going empty) / `:+` (filling from empty). Scoped to the
-      empty edge — populated↔populated sequentials never collapse to a
-      whole-value `:r` (rf2-yucxn).
-    - Type changes (nil↔map, scalar↔set, map↔vector, set↔map, vector↔map)
-      are LEFT ALONE so R7's `:rf.xray.diff/type-change?` branch still
-      fires (both sides must be the SAME sequential kind to expand).
-
   Pure; non-matching edits pass through unchanged."
   [edit before-value after]
   (let [[path op _value] edit]
     (if (not= op :r)
       [edit]
-      (let [before-at (before-value path)
-            after-at  (value-at after path)]
-        (cond
-          ;; SET↔SET replace — synthesize the membership delta for ANY
-          ;; member count (single swap, multi-member swap, full no-overlap
-          ;; replacement, or the empty↔populated edge). rf2-4vp8c.
-          (and (set? before-at) (set? after-at))
-          (expand-set-replacement path before-at after-at)
-
-          ;; {} → populated map: per-key :+
-          (and (map? before-at) (empty? before-at)
-               (map? after-at)  (seq after-at))
-          (mapv (fn [[k v]] [(conj (vec path) k) :+ v]) after-at)
-
-          ;; populated map → {}: per-key :- (Editscript :- omits value)
-          (and (map? before-at) (seq before-at)
-               (map? after-at)  (empty? after-at))
-          (mapv (fn [[k _v]] [(conj (vec path) k) :-]) before-at)
-
-          ;; rf2-yucxn — sequential (vector / list / seq) empty edge. BOTH
-          ;; sides must be sequentials of the same family (neither a set nor
-          ;; a map) so a vector↔map type flip stays an R7 `:modified`.
-          ;; `[] → [populated]`: per-index :+ at the AFTER indices.
-          ;; `[populated] → []`: per-index :- at the BEFORE indices (each
-          ;; flows through `project`'s `:vector-removals` channel).
-          ;; The removals are emitted in DESCENDING index order: `project`
-          ;; replays `:-` edits sequentially against the shrinking sequence
-          ;; (`replay-vector-edits`), and only a descending walk keeps each
-          ;; index naming its ORIGINAL element (rf2-gwye.10 — ascending
-          ;; indices dropped every other removal and invented shifts).
-          ;; `resolve-vector-removals` sorts them back into before order.
-          (let [seq? (fn [v] (and (sequential? v) (not (map? v)) (not (set? v))))]
-            (and (seq? before-at) (seq? after-at)
-                 (or (empty? before-at) (empty? after-at))))
-          (let [bvec (vec before-at)
-                avec (vec after-at)]
-            (cond
-              (and (empty? bvec) (seq avec))
-              (mapv (fn [i] [(conj (vec path) i) :+ (nth avec i)])
-                    (range (count avec)))
-
-              (and (seq bvec) (empty? avec))
-              (mapv (fn [i] [(conj (vec path) i) :-])
-                    (range (dec (count bvec)) -1 -1))
-
-              ;; both empty (shouldn't reach — `:r` implies a value change)
-              :else [edit]))
-
-          :else
-          [edit])))))
+      (or (replacement-edits path (before-value path) (value-at after path))
+          [edit]))))
 
 (defn- raw-editscript
   "Return Editscript A* edits for `(before, after)` as a vector of
@@ -543,12 +548,6 @@
 ;; removals and shift channels already use. Translating the last segment
 ;; alone (the rf2-96csq4 repair) left every nested path reading the wrong
 ;; element.
-
-(defn- seq-coll?
-  "A vector, list or seq — a sequential that is neither a map nor a set."
-  [v]
-  (or (vector? v)
-      (and (sequential? v) (not (map? v)) (not (set? v)))))
 
 (defn- vector-parent?
   "True when `path`'s parent is a sequential on either side. A `:-`'s
