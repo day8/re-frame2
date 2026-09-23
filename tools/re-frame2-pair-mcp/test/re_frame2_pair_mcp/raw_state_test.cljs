@@ -203,6 +203,25 @@
     (is (= :malformed-value (:issue d)))
     (is (re-find #"9630" (:effect d)))))
 
+(deftest launch-diagnostics-names-boolean-flag-with-inline-value
+  ;; rf2-3x7nj.32.7 — `--no-eval=true` is the `--flag=value` style many
+  ;; CLIs accept. The parser recognises only the bare token, so the opt-out
+  ;; is NOT applied and eval stays ON; before the fix the diagnostic built
+  ;; for exactly this mismatch read the `=true` prefix as the known flag and
+  ;; said nothing.
+  (testing "--no-eval=true is named, and says eval-cljs stays enabled"
+    (let [argv       ["--no-eval=true"]
+          [d :as ds] (server/launch-diagnostics argv)]
+      (is (= 1 (count ds)) "REGRESSION: the silent case is named")
+      (is (= :malformed-value (:issue d)))
+      (is (= "--no-eval=true" (:input d)))
+      (is (re-find #"eval-cljs stays ENABLED" (:effect d)))
+      (is (true? (:eval-allowed? (server/parse-launch-flags argv)))
+          "warn-only: the inline form is deliberately not accepted, so eval really is on — as the warning says")))
+  (testing "the other boolean flags are named too (their misparse fails closed)"
+    (is (= :malformed-value (:issue (first (server/launch-diagnostics ["--allow-writes=true"])))))
+    (is (= :malformed-value (:issue (first (server/launch-diagnostics ["--allow-sensitive-reads=1"])))))))
+
 ;; ---------------------------------------------------------------------------
 ;; --port-file launch flag — explicit, cwd-independent port file.
 ;; ---------------------------------------------------------------------------

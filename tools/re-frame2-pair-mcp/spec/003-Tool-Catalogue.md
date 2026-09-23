@@ -723,7 +723,7 @@ rejected input and the effective fallback:
 | `:removed-flag`    | A renamed / removed legacy name (`--allow-raw-state` → `--allow-sensitive-reads`; `--allow-eval`, now eval defaults ON) | Names the replacement — pre-alpha, no silent no-op for a stale `~/.claude.json`. |
 | `:unknown-flag`    | A `--*` token matching no known flag (a typo like `--no-eavl`) | "ignored — not a recognised launch flag". |
 | `:missing-value`   | A valued flag (`--port-file` / `--http-port`) present with no value | Names the fall-through to default discovery / behaviour. |
-| `:malformed-value` | `--http-port` non-numeric | Names the fall-back to the documented default. |
+| `:malformed-value` | `--http-port` non-numeric; or a boolean flag given an inline value (`--no-eval=true`, `--allow-writes=true`, …), which is NOT applied — only the bare token is recognised (rf2-3x7nj.32.7) | Names the fall-back to the documented default; for a boolean flag, names the posture left in force (`--no-eval=true` → "eval-cljs stays ENABLED") and asks for the bare flag. |
 
 The validator **warns, it does not hard-fail**: a hard boot-fail would
 make the server vanish from the agent host (the operator never sees
