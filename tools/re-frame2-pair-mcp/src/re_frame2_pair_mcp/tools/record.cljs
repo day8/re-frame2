@@ -300,7 +300,14 @@
                       false)
         ;; Polarity — MCP `elision` true = emit markers =
         ;; `:rf.egress/include-large?` false, hence `(not elision?)`.
-        egress-opts (elision/egress-opts-edn (not elision?) incl?)]
+        egress-opts (elision/egress-opts-edn (not elision?) incl?)
+        ;; rf2-3x7nj.32.2 — a JSON-object `signals` / `stop` has its keys
+        ;; minted into keywords (`js->clj :keywordize-keys`), and those are
+        ;; PRINTED into the recording form; quoting cannot contain a
+        ;; keyword that prints as code, so a key without keyword grammar is
+        ;; refused.
+        key-refusal (or (args/invalid-key-refusal :signals signals)
+                        (when (= :ok stop-tag) (args/invalid-key-refusal :stop stop)))]
     (cond
       (or (nil? signals) (empty? signals))
       (js/Promise.resolve
@@ -308,6 +315,9 @@
           {:ok? false :reason :no-signals
            :hint (str "usage: record {signals '[{:focus true} {:dom \"#count\"} "
                       "{:app-db [:cart :items]}]' [stop {:ms 30000}] [frame :rf/default]}")}))
+
+      (some? key-refusal)
+      (js/Promise.resolve (wire/err-text key-refusal))
 
       ;; The `stop` EDN failed to parse (or read clean but non-map).
       ;; Surface an honest `:ok? false` error (same one-cond-branch shape

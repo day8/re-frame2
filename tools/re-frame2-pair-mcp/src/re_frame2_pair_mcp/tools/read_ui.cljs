@@ -189,34 +189,46 @@
             ;; string id passes through. point coerces its JS object to a
             ;; CLJS map. Only present keys are included so the runtime's
             ;; precedence (view-id > point > selector) is unambiguous.
+            ;;
+            ;; rf2-3x7nj.32.2 — the keyword is PRINTED into the eval form,
+            ;; so it is minted only with keyword grammar
+            ;; (`args/->id-keyword`); a colon-prefixed string without it
+            ;; is refused below instead of printing as code.
             vid   (cond
                     (nil? view-id)    nil
                     (and (string? view-id)
                          (pos? (count view-id))
                          (= ":" (subs view-id 0 1)))
-                    (let [body  (subs view-id 1)
-                          slash (.indexOf body "/")]
-                      (if (neg? slash)
-                        (keyword body)
-                        (keyword (subs body 0 slash) (subs body (inc slash)))))
+                    (or (args/->id-keyword view-id) ::invalid-id)
                     :else view-id)
             pt    (when (some? point)
                     (let [m (js->clj point :keywordize-keys true)]
                       (when (map? m) (select-keys m [:x :y]))))
-            form  (read-ui-form vid pt selector max-text frame)]
-        ;; The runtime's `ui-read` ALWAYS returns a map, so a non-map at
-        ;; `on-value` means a BLANK eval. The shared
-        ;; `probe/map-result-or-blank` projects a map → `ok-text` with the
-        ;; `:build` echo, or a blank → a structured `:ok? false` error so
-        ;; `ok-text` never sees `nil` and emits the `null`
-        ;; structuredContent the SDK rejects. read-dom carries the
-        ;; identical projection.
-        (probe/eval-after-runtime!
-          conn build-id form :rf.error/read-ui-failed
-          (probe/map-result-or-blank
-            build-id :rf.error/read-ui-blank-result
-            (str "read-ui's browser eval returned a blank "
-                 "value (no map envelope). Reload the app tab "
-                 "so the re-frame2-pair runtime reconnects, "
-                 "then retry; run discover-app to confirm "
-                 ":liveness :fresh.")))))))
+            ;; `point`'s values are caller JSON too; a nested object's
+            ;; keys become keywords the same print would splice.
+            point-refusal (args/invalid-key-refusal :point pt)]
+        (cond
+          (= ::invalid-id vid)
+          (js/Promise.resolve (wire/err-text (args/invalid-id-arg :view-id view-id)))
+
+          (some? point-refusal)
+          (js/Promise.resolve (wire/err-text point-refusal))
+
+          :else
+          ;; The runtime's `ui-read` ALWAYS returns a map, so a non-map at
+          ;; `on-value` means a BLANK eval. The shared
+          ;; `probe/map-result-or-blank` projects a map → `ok-text` with the
+          ;; `:build` echo, or a blank → a structured `:ok? false` error so
+          ;; `ok-text` never sees `nil` and emits the `null`
+          ;; structuredContent the SDK rejects. read-dom carries the
+          ;; identical projection.
+          (probe/eval-after-runtime!
+            conn build-id (read-ui-form vid pt selector max-text frame)
+            :rf.error/read-ui-failed
+            (probe/map-result-or-blank
+              build-id :rf.error/read-ui-blank-result
+              (str "read-ui's browser eval returned a blank "
+                   "value (no map envelope). Reload the app tab "
+                   "so the re-frame2-pair runtime reconnects, "
+                   "then retry; run discover-app to confirm "
+                   ":liveness :fresh."))))))))

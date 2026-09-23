@@ -750,18 +750,49 @@
   ([conn-atom form-str opts]
    (send-op! conn-atom {"op" "eval" "code" form-str} opts)))
 
+(defn build-id-literal
+  "Render `build-id` as the keyword literal spliced into a JVM-side form
+  (`cljs-eval` below, the freshness read in `tools/freshness`), or nil
+  when that literal would not read back as exactly one keyword.
+
+  The belt at the JVM sink (rf2-3x7nj.32.2). The JVM form is evaluated as
+  Clojure on the developer's shadow-cljs process, so a build id that
+  PRINTS as more than one token — a keyword minted from `\"app (do (evil))
+  #_\"` prints exactly that — is arbitrary JVM code. The id grammar at the
+  argument boundary (`tools.args/->id-keyword`) keeps such ids from being
+  minted; this check holds regardless of how an id arrived: the literal
+  must read back as a keyword that prints as the literal itself."
+  [build-id]
+  (let [lit (if (keyword? build-id) (str build-id) (str ":" (name (or build-id :app))))
+        v   (try (edn/read-string lit) (catch :default _ nil))]
+    (when (and (keyword? v) (= lit (str v)))
+      lit)))
+
 (defn cljs-eval
   "Evaluate a ClojureScript form through shadow-cljs's `cljs-eval` API.
   Returns a Promise resolving to a combined response map. Optional
-  `opts` (e.g. `{:timeout-ms 60000}`) tunes the per-op deadline."
+  `opts` (e.g. `{:timeout-ms 60000}`) tunes the per-op deadline.
+
+  Rejects — without sending anything — when `build-id` does not render as
+  a single keyword literal (`build-id-literal`, rf2-3x7nj.32.2)."
   ([conn-atom build-id form-str] (cljs-eval conn-atom build-id form-str nil))
   ([conn-atom build-id form-str opts]
-   (let [build-pr  (if (keyword? build-id) (str build-id) (str ":" (name (or build-id :app))))
-         ;; pr-str CLJS form: use double-quote-escaped string literal.
-         code-pr   (pr-str form-str)
-         wrapped   (str "(shadow.cljs.devtools.api/cljs-eval "
-                        build-pr " " code-pr " {})")]
-     (jvm-eval conn-atom wrapped opts))))
+   (if-let [build-pr (build-id-literal build-id)]
+     (let [;; pr-str CLJS form: use double-quote-escaped string literal.
+           code-pr   (pr-str form-str)
+           wrapped   (str "(shadow.cljs.devtools.api/cljs-eval "
+                          build-pr " " code-pr " {})")]
+       (jvm-eval conn-atom wrapped opts))
+     (js/Promise.reject
+       ;; Canonical thrown-error shape (Spec 009 §The thrown-error shape):
+       ;; a human sentence plus the trailing `[:rf.error/<id>]` token.
+       (ex-info (str "Refusing to evaluate against build id " (pr-str build-id)
+                     ": it does not print as a single keyword, so splicing it"
+                     " into the JVM form would run it as code."
+                     " [" :rf.error/pair-mcp-malformed-build-id "]")
+                {:rf.error/id :rf.error/pair-mcp-malformed-build-id
+                 :reason      :rf.error/pair-mcp-malformed-build-id
+                 :build       (pr-str build-id)})))))
 
 (defn- read-edn-safe
   "Best-effort EDN read of the nREPL value string. On parse failure we

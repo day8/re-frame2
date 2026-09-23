@@ -16,6 +16,7 @@
   Each MCP tool returns `{:content [{:type \"text\" :text <edn-string>}]}`
   on success, or `{:isError true :content [...]}` on failure."
   (:require [applied-science.js-interop :as j]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.cache :as cache]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.boundary-step :as bs]
@@ -324,6 +325,37 @@
     :run        apply-cap-step
     :skip-when? (fn [{:keys [result]}] (wire/marker? result))}])
 
+(defn- id-refusal
+  "The `:rf.mcp/invalid-arg` refusal when `v` is a non-blank string that
+  fails the id grammar (`args/->id-keyword` mints nothing), else nil."
+  [k v]
+  (when (and (string? v)
+             (not (str/blank? v))
+             (nil? (args/->id-keyword v)))
+    (args/invalid-id-arg k v)))
+
+(defn- refuse-malformed-ids
+  "rf2-3x7nj.32.2 — refuse a caller-supplied `:build`, `:frame`, or
+  `:frames` entry that lacks keyword grammar, BEFORE anything reads it.
+
+  Those ids are minted into keywords that tools print into eval source —
+  `:build` into the JVM form `nrepl/cljs-eval` sends, `:frame` into the
+  browser form — so a string like `\"app (do (evil)) #_\"` would print as
+  code and run past `--no-eval`, on every tool, read-only ones included.
+  The coercers (`args/->id-keyword`) already mint nothing for such a
+  string; refusing here is what turns that into an honest error rather
+  than a silent fall-back to the default build or frame, and it runs
+  ahead of `stick-build!` so a hostile build is never stuck as the
+  session default."
+  [args]
+  (or (id-refusal :build (wire/arg args :build))
+      (id-refusal :frame (wire/arg args :frame))
+      (let [frames (wire/arg args :frames)]
+        (when (array? frames)
+          (some #(id-refusal :frames %) (array-seq frames))))))
+
+(declare invoke*)
+
 (defn invoke
   "Dispatch a `tools/call` invocation through the wire-boundary
   pipeline. Returns a Promise resolving to the MCP result object.
@@ -366,7 +398,19 @@
 
   `extra` carries the MCP `extra` payload (the SDK's per-request
   context: signal + sendNotification + _meta). Every current handler
-  ignores it."
+  ignores it.
+
+  Before any of that, a `:build` / `:frame` / `:frames` id without
+  keyword grammar is refused with `:rf.mcp/invalid-arg`
+  (`refuse-malformed-ids`, rf2-3x7nj.32.2) — no tool runs, nothing is
+  stuck, nothing is evaluated."
+  [conn name args extra]
+  (if-let [refusal (refuse-malformed-ids args)]
+    (js/Promise.resolve (wire/err-text refusal))
+    (invoke* conn name args extra)))
+
+(defn- invoke*
+  "The body of [[invoke]] once the caller's ids have passed the grammar."
   [conn name args extra]
   ;; Session-sticky operating build. An explicit `:build` on
   ;; any tool call (except `discover-app`, which owns its success-gated

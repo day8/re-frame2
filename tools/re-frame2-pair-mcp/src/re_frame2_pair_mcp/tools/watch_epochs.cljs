@@ -93,10 +93,20 @@
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
         pred-arg  (when-let [p (wire/arg raw-args :pred)] (js->clj p :keywordize-keys true))
-        cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))]
-    (if (= cursor-in ::cursor/malformed)
+        cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))
+        ;; rf2-3x7nj.32.2 — `pred`'s keys are minted into keywords by
+        ;; `:keywordize-keys` and PRINTED into the poll form; a key without
+        ;; keyword grammar would print as code, so it is refused.
+        key-refusal (args/invalid-key-refusal :pred pred-arg)]
+    (cond
+      (some? key-refusal)
+      (js/Promise.resolve (wire/err-text key-refusal))
+
+      (= cursor-in ::cursor/malformed)
       (js/Promise.resolve
         (cursor/cursor-stale-result "watch-epochs" {:requested-id nil}))
+
+      :else
       (let [;; Cursor's :after-id overrides bare :since-id when both
             ;; are supplied. Both shapes share semantics; cursor wins
             ;; so the agent's continuation flow stays consistent.
@@ -122,10 +132,22 @@
             ;; caller's id in that empty history and reports
             ;; `:id-aged-out? true` — so the ambiguity arrived as a
             ;; quiet poll AND a dead cursor (rf2-yo4s).
-            epochs-since-call (fr/frame-sym-call 'epochs-since effective-after)
+            ;; The id is caller data (the `:since-id` arg, or a
+            ;; caller-supplied cursor's EDN `:after-id`), so it rides
+            ;; QUOTED — a list, symbol, or emitter-shaped vector is data,
+            ;; never source (rf2-3x7nj.32.2; the provenance rule in
+            ;; `eval-form`). An absent id stays the literal `nil`.
+            epochs-since-call (fr/frame-sym-call 'epochs-since
+                                                 (when (some? effective-after)
+                                                   (ef/rt-quote effective-after)))
+            ;; The predicate is caller data — a JSON object on page 1, the
+            ;; cursor's EDN on page 2+ — so it rides QUOTED: a list or
+            ;; symbol a crafted cursor carries is compared as data, never
+            ;; evaluated (rf2-3x7nj.32.2; the provenance rule in
+            ;; `eval-form`).
             matches-form (str "(filterv #"
                               (ef/emit (ef/rt-call 'epoch-matches?
-                                                   (or sticky-pred {})
+                                                   (ef/rt-quote (or sticky-pred {}))
                                                    (ef/rt-raw "%")))
                               " (:epochs r))")
             history-call (fr/frame-sym-call 'epoch-history)

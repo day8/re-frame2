@@ -516,12 +516,14 @@
                              (let [form-str (first @forms)]
                                (is (some? form-str) "a runtime form was emitted")
                                ;; The emitted epoch-matches? call carries
-                               ;; the sticky predicate from the cursor.
-                               (is (re-find #"epoch-matches\? \{:event-id :ev/login\}"
+                               ;; the sticky predicate from the cursor —
+                               ;; QUOTED, since a cursor is caller data
+                               ;; (rf2-3x7nj.32.2).
+                               (is (re-find #"epoch-matches\? \(quote \{:event-id :ev/login\}\)"
                                             form-str)
                                    "page-2 form filters by the sticky pred from the cursor")
                                ;; And NOT the match-all empty map.
-                               (is (not (re-find #"epoch-matches\? \{\}" form-str))
+                               (is (not (re-find #"epoch-matches\? \(quote \{\}\)" form-str))
                                    "page-2 form must NOT degrade to match-all {}")
                                (done))))))))))))
 

@@ -64,6 +64,42 @@ is not allowed. Agents pattern-match on `:rf.mcp/overflow` and either
 narrow their args or pass `max-tokens 0` for the rare case where the
 full payload is genuinely needed.
 
+## Universal: caller-supplied ids have keyword grammar
+
+Every id a caller names — `build`, `frame`, an entry of `frames`,
+`read-ui`'s `view-id`, an `fx-overrides` / `interceptor-overrides` id,
+and every key of an object argument the server turns into a keyword
+(`pred`, `signals`, `stop`, `point`) — must be an optional namespace and
+a name, each made only of `A-Z a-z 0-9` and `* + ! _ ? < > = . -` (a
+leading `:` is tolerated, as everywhere). Real build, frame, view and
+effect ids are ordinary keywords and pass unchanged.
+
+The reason is where the ids go (rf2-3x7nj.32.2). Tools print them into
+the source they evaluate — the build into the Clojure form sent to the
+shadow-cljs JVM, the rest into the browser form — and a keyword prints
+its name unescaped, so an id outside that grammar would print as code and
+run past `--no-eval` on any tool, read-only ones included. Quoting does
+not contain it: the damage is done by the print. Such an id is refused
+before anything is evaluated:
+
+```clojure
+{:rf.mcp/invalid-arg {:arg   :build        ; or :frame, :frames, :view-id, :pred, …
+                      :value "<the rejected id, or the offending key>"
+                      :hint  "<the grammar, with examples>"}}
+```
+
+`build`, `frame` and `frames` are checked once at the `tools/call`
+chokepoint, before a build could be stuck as the session default; the
+others by the tool that reads them. `fx-overrides` and
+`interceptor-overrides` keep their own reasons
+(`:rf.error/invalid-fx-overrides`,
+`:rf.error/interceptor-override-invalid`). Two further guards hold
+whatever route an id took: the JVM form refuses a build id that does not
+print as exactly one keyword (`:rf.error/pair-mcp-malformed-build-id`),
+and a `cursor` — caller-supplied EDN like any other argument — must carry
+a keyword frame of this grammar (otherwise it is treated as stale), while
+its epoch id and predicate ride quoted, as data.
+
 ## Universal: structural dedup on epoch slices
 
 Every tool that ships epoch slices or events vectors —
