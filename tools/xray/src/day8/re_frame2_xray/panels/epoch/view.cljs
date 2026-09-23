@@ -4239,8 +4239,13 @@
   `:rf.xray/epoch-pipeline` sub and threaded down `ctx`; that comment
   carries the reasoning and the one residual. A DIRECT caller (a test,
   a gallery fixture) gets exactly the values it passes: this block
-  applies no policy of its own and cannot, having no frame to apply."
-  [db-post-handler db-write? record instance]
+  applies no policy of its own and cannot, having no frame to apply.
+
+  rf2-v6ftp — `result-discarded?` (a `:halted-destroy` record whose
+  handler result never reached the commit, `projection/mark-halted`) words
+  the no-write line for the destroy: the handler RAN, and its result was
+  discarded. 'Returned no :db' would be false there."
+  [db-post-handler db-write? record instance result-discarded?]
   (let [db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
         ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
@@ -4259,6 +4264,12 @@
            :data-rf-xray-db-write (str (boolean db-write?))}
      (sub-header ":db" nil)
      (cond
+       ;; rf2-v6ftp — the frame was destroyed before the result committed.
+       (and (not db-write?) result-discarded?)
+       [:span {:data-testid "rf-xray-epoch-handler-db-discarded"
+               :style handler-db-all-missing-style}
+        "— no :db (the handler ran; its result was discarded because the frame was destroyed)"]
+
        ;; rf2-wnvid — the handler wrote no `:db` → no phantom app-db.
        ;; rf2-oqi0c — the threw case is omitted upstream (`handler-body`),
        ;; so this placeholder is only ever the clean 'returned no :db'.
@@ -4324,7 +4335,7 @@
   means no `:db-before`, which renders as an absent pre-image."
   ([row] (handler-body row {}))
   ([{:keys [flavour event-id db-post-handler db-write? fx-vec
-            machine errors] :as _row}
+            machine errors result-discarded?] :as _row}
     ctx]
   (let [machine? (= :reg-machine flavour)
         ;; rf2-wnvid — the handler threw iff a `:rf.error/handler-exception`
@@ -4349,7 +4360,8 @@
      (when (and (not machine?) (not threw?))
        (handler-db-diff-block db-post-handler db-write?
                               (:selected-epoch-record ctx)
-                              (:instance ctx)))
+                              (:instance ctx)
+                              result-discarded?))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone

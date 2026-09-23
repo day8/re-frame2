@@ -3814,11 +3814,24 @@ pre-rf2-wnvid code fell back to the record's full post-cascade
 ENTIRE app-db tree under the HANDLER step as if the handler had returned
 it (the phantom `:db`, most visible where the handler mutated nothing).
 
+**A `:halted-destroy` record's HANDLER ran (rf2-v6ftp).** When the frame
+was destroyed before any of the handler's result was committed (no `:db`
+write, no SIDE EFFECTS step), `projection/mark-halted` stamps HANDLER
+`:result-discarded? true` and the placeholder reads
+`— no :db (the handler ran; its result was discarded because the frame was destroyed)`:
+the trace carries `:rf.event/run-start`, so the handler is never shown as
+skipped, and "returned no :db" would be false. SIDE EFFECTS is left as the
+trace projected it, so it lists exactly the effects that ran before the
+destroy.
+
 ### §9.1.10.5 Epoch outcome — tool-side, NOT the framework slot (rf2-ahhgn)
 
 The `:rf.xray/epoch-pipeline` composite sub carries an `:outcome`
-(`:ok` / `:error`) from `projection/epoch-outcome` — `:error` when
-ANY projected step reads `step-status :error`. The Panel stamps
+(`:ok` / `:blocked` / `:error`) from `projection/epoch-outcome` — `:error` when
+ANY projected step reads `step-status :error`, else `:blocked` for a
+`:halted-destroy` record (rf2-v6ftp: a destroy is a deliberate lifecycle
+stop, which the framework's consumer-facing mapping also sends to
+`:blocked`, so it carries no card), else `:ok`. The Panel stamps
 `data-rf-xray-outcome` on the panel root (tools / e2e read the
 tool-side outcome there). The failure surfaces **inline**: the inline
 "Exception Thrown" card (or the schema-violation card) sits right under

@@ -4191,6 +4191,46 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-db-no-write"))
           "the 'no :db (returned no :db)' placeholder does NOT render"))))
 
+(deftest halted-destroy-record-renders-a-discarded-result-test
+  (testing "rf2-v6ftp — a `:halted-destroy` record whose handler destroyed its
+            own frame renders no card, a HANDLER that RAN, and a :db line
+            saying its result was discarded, never 'returned no :db'. The
+            record is the producer's shape for that case (see
+            halted-destroy-cljs-test, which drives the real producer)."
+    (epoch-orchestrator/install!)
+    (rf/make-frame {:id :rf/xray})
+    (let [record {:epoch-id      3
+                  :outcome       :halted-destroy
+                  :halt-reason   {:operation :rf.frame/destroyed-mid-drain}
+                  :event-id      :user/leave
+                  :trigger-event [:user/leave]
+                  :db-before     {}
+                  :db-after      {}
+                  :trace-events  [{:op-type   :rf.event
+                                   :operation :rf.event/dispatched
+                                   :tags      {:rf.event/v [:user/leave]
+                                               :frame      :user/page}}
+                                  {:op-type   :rf.event
+                                   :operation :rf.event/run-start
+                                   :tags      {:rf.trace/event-id :user/leave
+                                               :rf.event/v        [:user/leave]
+                                               :frame             :user/page
+                                               :rf.trace/phase    :run-start}}
+                                  {:op-type   :rf.frame
+                                   :operation :rf.frame/destroyed
+                                   :tags      {:frame :user/page}}]}
+          tree   (rf/with-frame :rf/xray
+                   (view/pipeline-view (proj/project-numbered record)))]
+      (is (nil? (find-by-testid tree "rf-xray-epoch-errors-dispatch"))
+          "no Exception card: a destroy is a lifecycle stop, not an error")
+      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-skipped"))
+          "HANDLER is not rendered as skipped — it ran")
+      (is (string/includes? (str (text-of tree "rf-xray-epoch-handler-db-discarded"))
+                            "result was discarded because the frame was destroyed")
+          "the :db line says the result was discarded")
+      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-db-no-write"))
+          "the 'returned no :db' placeholder does NOT render"))))
+
 ;; ============================================================================
 ;; rf2-4yrr6 — :fuse/box exception-row decluttering (parts 2-4)
 ;; ============================================================================
