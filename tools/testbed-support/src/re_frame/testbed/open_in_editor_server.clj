@@ -519,14 +519,6 @@
              (str/blank? origin)
              (loopback-host? (origin-host origin))))))
 
-(defn ^:private allow-origin
-  "Reflect a validated loopback Origin; otherwise deny with `null`."
-  [{:keys [headers]}]
-  (let [origin (get-header headers "origin")]
-    (if (and origin (loopback-host? (origin-host origin)))
-      origin
-      "null")))
-
 (defn ^:private escape-json-string
   "Escape a JSON string in one pass, including every C0 control character."
   [^String s]
@@ -544,13 +536,13 @@
     (.toString sb)))
 
 (defn ^:private json-resp
-  [status allow-origin-val m]
+  "A JSON answer. It sets no CORS header: the only client posts a RELATIVE URL,
+  so every real request is same-origin (rf2-3x7nj.38.2). Every answer carries a
+  body, which keeps shadow-http from rewriting a nil-body answer to 304."
+  [status m]
   {:status  status
-   :headers {"content-type"                "application/json"
-             ;; A cross-port local testbed receives its own validated origin.
-             "access-control-allow-origin" allow-origin-val
-             "vary"                        "origin"
-             "cache-control"               "no-store"}
+   :headers {"content-type"  "application/json"
+             "cache-control" "no-store"}
    :body    (str "{"
                  (str/join ","
                            (for [[k v] m]
@@ -579,57 +571,49 @@
   which does carry the coordinate."
   [{:keys [uri request-method query-string remote-addr] :as req}]
   (when (= uri endpoint-path)
-    (let [ao (allow-origin req)]
-      (cond
-        ;; The transport boundary, applied before anything a client can write.
-        ;; A remote caller reaches nothing here — not the launch path, not the
-        ;; preflight — however it spells Host, Origin or X-Forwarded-For.
-        (not (loopback-peer? remote-addr))
-        (json-resp 403 ao {:ok false :error "forbidden"})
+    (cond
+      ;; The transport boundary, applied before anything a client can write.
+      ;; A remote caller reaches nothing here — not the launch path, not the
+      ;; method check — however it spells Host, Origin or X-Forwarded-For.
+      (not (loopback-peer? remote-addr))
+      (json-resp 403 {:ok false :error "forbidden"})
 
-        ;; Cross-port local testbeds require an OPTIONS response.
-        (= request-method :options)
-        {:status 204
-         :headers {"access-control-allow-origin"  ao
-                   "access-control-allow-methods" "POST, OPTIONS"
-                   "access-control-allow-headers" "content-type"
-                   "vary"                          "origin"}}
+      ;; Defence in depth, still before any path is resolved.
+      (not (local-request? req))
+      (json-resp 403 {:ok false :error "forbidden"})
 
-        ;; Defence in depth, still before any path is resolved.
-        (not (local-request? req))
-        (json-resp 403 ao {:ok false :error "forbidden"})
+      ;; A simple GET/HEAD request must never trigger an editor launch, and a
+      ;; same-origin client sends no OPTIONS preflight, so it gets this too.
+      (not= request-method :post)
+      (json-resp 405 {:ok false :error "method-not-allowed"})
 
-        ;; A simple GET/HEAD request must never trigger an editor launch.
-        (not= request-method :post)
-        (json-resp 405 ao {:ok false :error "method-not-allowed"})
+      :else
+      ;; Convert URI decoding failures into the endpoint's JSON error shape.
+      (try
+        (let [q      (parse-query query-string)
+              file   (get q "file")
+              line   (->int (get q "line"))
+              column (->int (get q "column"))
+              cmd    (editor-hint (get q "editor"))]
+          (cond
+            (str/blank? file)
+            (json-resp 400 {:ok false :error "missing-file"})
 
-        :else
-        ;; Convert URI decoding failures into the endpoint's JSON error shape.
-        (try
-          (let [q      (parse-query query-string)
-                file   (get q "file")
-                line   (->int (get q "line"))
-                column (->int (get q "column"))
-                cmd    (editor-hint (get q "editor"))]
-            (cond
-              (str/blank? file)
-              (json-resp 400 ao {:ok false :error "missing-file"})
+            ;; A 200 here is a claim that the COORDINATE arrived, not merely
+            ;; that a process exited. Where the launcher would drop it,
+            ;; decline before spawning so the client's coordinate-preserving
+            ;; `editor://` URI fallback gets its turn (rf2-1i1ec).
+            (position-would-be-dropped? cmd line column)
+            (json-resp 422 {:ok false :error position-unsupported-error})
 
-              ;; A 200 here is a claim that the COORDINATE arrived, not merely
-              ;; that a process exited. Where the launcher would drop it,
-              ;; decline before spawning so the client's coordinate-preserving
-              ;; `editor://` URI fallback gets its turn (rf2-1i1ec).
-              (position-would-be-dropped? cmd line column)
-              (json-resp 422 ao {:ok false :error position-unsupported-error})
-
-              :else
-              (let [abs-path (resolve-file file)
-                    {:keys [ok message]} (launch! abs-path line column cmd)]
-                (if ok
-                  (json-resp 200 ao {:ok true :file abs-path})
-                  (json-resp 422 ao {:ok false :error (or message "launch-failed")})))))
-          (catch IllegalArgumentException _
-            (json-resp 400 ao {:ok false :error "malformed-query"})))))))
+            :else
+            (let [abs-path (resolve-file file)
+                  {:keys [ok message]} (launch! abs-path line column cmd)]
+              (if ok
+                (json-resp 200 {:ok true :file abs-path})
+                (json-resp 422 {:ok false :error (or message "launch-failed")})))))
+        (catch IllegalArgumentException _
+          (json-resp 400 {:ok false :error "malformed-query"}))))))
 
 (def ^:private page-load-methods
   "Request methods that load a page, and so may fall through to shadow's own

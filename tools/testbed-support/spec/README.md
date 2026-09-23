@@ -59,7 +59,7 @@ remote caller can spell them as loopback — the socket the request arrived on i
 the one fact it cannot choose, and forwarding headers are deliberately ignored
 because a `:dev-http` server is a direct listener. Missing or malformed peer
 addresses are refused. A non-loopback peer reaches nothing here, not even the
-`OPTIONS` preflight.
+method check.
 
 Accepted peers are the whole `127.0.0.0/8` block, IPv6 `::1` — which
 shadow-cljs reports in its expanded `0:0:0:0:0:0:0:1` spelling — and the
@@ -74,7 +74,12 @@ SSH local port-forward is: `ssh -L 8031:localhost:8031 <host>` makes the tunnel
 itself the caller, so the peer the server sees is genuine loopback and nothing
 needs configuring at either end.
 
-CORS reflects only a validated loopback origin; it never emits `*`. Missing
+The supported client workflow is same-origin: the client posts a relative URL
+to the port that served its page, so no browser CORS-checks the request. The
+endpoint sets no CORS headers of its own and answers no preflight. shadow-cljs
+`:dev-http` itself adds `Access-Control-Allow-Origin: *` to every response it
+serves; that is shadow's behaviour, not a re-frame2 guarantee, and admission —
+peer, Host, Origin, `POST`-only — is the boundary either way. Missing
 files return 422 before Node is spawned so the browser client can fall back to
 its `editor://` URI. The handler lives in a `.clj` file and is never compiled
 into a browser bundle.
@@ -150,9 +155,10 @@ absolute paths need no checkout-root setting.
 | Disallowed method on an otherwise allowed request | 405 | `{"ok":false,"error":"method-not-allowed"}` |
 | Missing file, unsupported position, launch failure or timeout | 422 | `{"ok":false,"error":"<reason>"}` |
 
-Loopback `OPTIONS` returns 204 with no body and allows `POST, OPTIONS`;
-a remote peer is rejected before preflight. JSON responses are non-cacheable.
-CORS reflects a validated loopback Origin, otherwise `null`, never `*`.
+Every answer carries a JSON body. A loopback `OPTIONS` is not a preflight
+here: it takes the 405 like any other non-`POST` method, and a remote peer is
+rejected before the method check. JSON responses are non-cacheable and carry
+no CORS headers.
 
 The launcher receives file and position as separate process arguments, not a
 shell command assembled from the coordinate. Its wait is bounded (10 seconds
