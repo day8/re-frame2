@@ -123,7 +123,9 @@ npx shadow-cljs watch app
 
 (The emitted `:shadow` alias is deps-only — the npx wrapper supplies
 `-m shadow.cljs.devtools.cli` itself, so the pure-JVM form is
-`clojure -M:shadow -m shadow.cljs.devtools.cli watch app`.)
+`clojure -M:shadow:dev -m shadow.cljs.devtools.cli watch app`. `:dev` puts
+Story on the classpath, which the dev build's `stories/init` entry requires;
+the wrapper adds it from `shadow-cljs.edn`'s `:deps` aliases.)
 
 Until `day8/re-frame2` is published, the emitted `deps.edn` names
 coordinates that are not on Clojars yet; point them at a checkout with
