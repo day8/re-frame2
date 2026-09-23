@@ -46,7 +46,7 @@
 
   Token data is `.cljc`. The inject helper is CLJS-only."
   {:no-doc true}
-  (:require [re-frame.story.theme.colors :as colors]
+  (:require [re-frame.story.theme.colors :as rf.story.theme.colors]
             #?(:cljs [re-frame.story.config :as rf.story.config])))
 
 (def shadows
@@ -86,11 +86,11 @@
   Each backdrop is a single CSS `background` shorthand that drops
   straight into an inline style map."
   {:shell-root    (str "radial-gradient(1200px circle at 12% 0%, rgba(245, 165, 36, 0.045), transparent 60%), radial-gradient(900px circle at 88% 110%, rgba(67, 195, 208, 0.025), transparent 55%), "
-                       (:bg-0 colors/tokens))
+                       (:bg-0 rf.story.theme.colors/tokens))
    :canvas-frame  (str "radial-gradient(600px circle at 50% 0%, rgba(245, 165, 36, 0.04), transparent 70%), "
-                       (:bg-canvas colors/tokens))
+                       (:bg-canvas rf.story.theme.colors/tokens))
    :overlay-glass (str "radial-gradient(800px circle at 50% 0%, rgba(245, 165, 36, 0.035), transparent 65%), "
-                       (:bg-overlay colors/tokens))})
+                       (:bg-overlay rf.story.theme.colors/tokens))})
 
 (def grain-css
   "Styles a subtle SVG-feTurbulence noise overlay on the layer the shell
