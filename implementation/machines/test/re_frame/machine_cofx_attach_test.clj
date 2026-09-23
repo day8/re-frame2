@@ -750,3 +750,107 @@
     (is (= :done (rf.machines.test-support/machine-state :ful212/defmachine))
         "the defmachine-stamped named-cofx guard resolved its cofx and fired —
          the entry-map was collocated without double-wrapping")))
+
+;; ===========================================================================
+;; rf2-3x7nj.8.4 — every slot the runtime selects from is in the ensure-set
+;; ===========================================================================
+;;
+;; The ensure-set must cover each place `transition/pick-transition` can
+;; select a candidate from: a flat/compound machine's ROOT `:on` (the fallback
+;; after the active path), a parallel REGION body's own root `:on`, a region
+;; compound's `:on-done` (whose done-raise carries a region-name head), and a
+;; single `:spawn`'s `:on-error`. Each row pairs the slot with a control
+;; placing the SAME named guard where the ensure-set already looked.
+
+(def ^:private rolled-six
+  {:rf.cofx/requires [:test/roll8]
+   :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll8 cofx)))})
+
+(defn- ensured-ids [m snap event]
+  (set (map :id (rf.machines.cofx-attach/ensure-set-for
+                  (rf.machines.cofx-attach/index-ensure-sets m) snap event))))
+
+(deftest root-on-guard-fact-is-ensured-before-selection
+  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
+  (testing "CASE: a named guard on the machine ROOT's :on reads the generated
+            fact and its transition is selected"
+    (let [seen (atom ::unset)]
+      (rf/reg-machine :attach/root-on
+        {:initial :idle
+         :guards  {:rolled-six? (update rolled-six :fn
+                                        (fn [f] (fn [ctx] (reset! seen (:test/roll8 (:rf.cofx ctx))) (f ctx))))}
+         :on      {:go {:target :done :guard :rolled-six?}}
+         :states  {:idle {} :done {}}})
+      (rf/dispatch-sync [:attach/root-on [:go]] {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+      (is (= 6 @seen) "the root guard saw the ensured fact, not nil")
+      (is (= :done (rf.machines.test-support/machine-state :attach/root-on)))))
+  (testing "CONTROL: the identical guard on the LEAF :idle's :on"
+    (rf/reg-machine :attach/leaf-on
+      {:initial :idle
+       :guards  {:rolled-six? rolled-six}
+       :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}} :done {}}})
+    (rf/dispatch-sync [:attach/leaf-on [:go]] {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+    (is (= :done (rf.machines.test-support/machine-state :attach/leaf-on)))))
+
+(deftest region-body-root-on-guard-fact-is-ensured
+  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
+  (let [snap {:state {:a :idle :b :x} :data {}}]
+    (testing "CASE: the guard on region :a's own root :on"
+      (is (contains? (ensured-ids {:type    :parallel
+                                   :guards  {:g rolled-six}
+                                   :regions {:a {:initial :idle
+                                                 :on      {:go {:target :done :guard :g}}
+                                                 :states  {:idle {} :done {}}}
+                                             :b {:initial :x :states {:x {}}}}}
+                                  snap [:go])
+                     :test/roll8)))
+    (testing "CONTROL: the same guard on region :a's leaf :on"
+      (is (contains? (ensured-ids {:type    :parallel
+                                   :guards  {:g rolled-six}
+                                   :regions {:a {:initial :idle
+                                                 :states  {:idle {:on {:go {:target :done :guard :g}}}
+                                                           :done {}}}
+                                             :b {:initial :x :states {:x {}}}}}
+                                  snap [:go])
+                     :test/roll8)))))
+
+(deftest region-compound-on-done-guard-fact-is-ensured
+  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
+  (let [flow {:initial :s1
+              :on-done {:target :after :guard :g}
+              :states  {:s1 {} :fin {:final? true}}}
+        par  {:type    :parallel
+              :guards  {:g rolled-six}
+              :regions {:a {:initial :flow :states {:flow flow :after {}}}
+                        :b {:initial :x :states {:x {}}}}}
+        snap {:state {:a [:flow :fin] :b :x} :data {}}]
+    (testing "CASE: region :a's compound :on-done, raised with its region head"
+      (is (contains? (ensured-ids par snap [:rf.machine/done [:a :flow]]) :test/roll8)))
+    (testing "CONTROL: the same :on-done on a flat machine (no region head)"
+      (is (contains? (ensured-ids {:initial :flow :guards {:g rolled-six}
+                                   :states  {:flow flow :after {}}}
+                                  {:state [:flow :fin] :data {}}
+                                  [:rf.machine/done [:flow]])
+                     :test/roll8)))
+    (testing "CONTROL: a done raised by a FOREIGN region head is not :a's"
+      (is (not (contains? (ensured-ids par snap [:rf.machine/done [:b :flow]]) :test/roll8))))))
+
+(deftest spawn-on-error-guard-fact-is-ensured
+  (rf/reg-cofx :test/roll8 {:recordable? true} (fn [] 6))
+  (let [snap {:state :working :data {}}
+        ev   [:rf.machine.spawn/error [:working] {:boom 1}]]
+    (testing "CASE: the guard on the spawning state's :spawn :on-error"
+      (is (contains? (ensured-ids {:initial :working :guards {:g rolled-six}
+                                   :states  {:working {:spawn {:machine-id :x/child
+                                                               :on-error {:target :errored :guard :g}}}
+                                             :errored {}}}
+                                  snap ev)
+                     :test/roll8)))
+    (testing "CONTROL: the same guard on the escape-hatch :on {:rf.machine.spawn/error …}"
+      (is (contains? (ensured-ids {:initial :working :guards {:g rolled-six}
+                                   :states  {:working {:spawn {:machine-id :x/child}
+                                                       :on    {:rf.machine.spawn/error
+                                                               {:target :errored :guard :g}}}
+                                             :errored {}}}
+                                  snap ev)
+                     :test/roll8)))))

@@ -548,10 +548,19 @@
   resolved `:target` (via `add-always!`) — joins the ensure-set, so an
   `:on-done` guard/action declaring `:rf.cofx/requires` has its facts ensured
   before the done transition is selected. No-op when the event is not a done
-  signal, the node-path does not resolve, or the node declares no `:on-done`."
-  [by-entry states event add! add-always!]
+  signal, the node-path does not resolve, or the node declares no `:on-done`.
+
+  `region` is the region name when `states` is a parallel region's body, else
+  nil. A region's done-raise carries a region-name head, so strip it iff it
+  names THIS region (a foreign head declines), exactly as
+  `transition/pick-done-transition` does."
+  [by-entry states event region add! add-always!]
   (when (and (vector? event) (= done-event-id (first event)))
-    (let [done-path (second event)]
+    (let [raw-path  (second event)
+          done-path (cond
+                      (not (vector? raw-path)) nil
+                      region (when (= region (first raw-path)) (vec (rest raw-path)))
+                      :else  raw-path)]
       (when (vector? done-path)
         (let [node (node-at states done-path)]
           (when (and (map? node) (contains? node :on-done))
@@ -559,6 +568,35 @@
               (add! (entry-diet by-entry :guards  (:guard cand)))
               (add! (entry-diet by-entry :actions (:action cand)))
               (when-let [tgt (resolve-target-path done-path (:target cand))]
+                (add-always! tgt)))))))))
+
+;; The synthetic single-`:spawn` failure event id
+;; (`transition/spawn-error-event-id`), inlined for the same cycle-free reason
+;; as `done-event-id` above.
+(def ^:private spawn-error-event-id :rf.machine.spawn/error)
+
+(defn- spawn-error-diet-for-event
+  "Add (into `add!`) the `:spawn :on-error` guard/action diets of the
+  `:spawn`-bearing node a raised `[:rf.machine.spawn/error <invoke-id> <err>]`
+  names — a slot separate from `:on` that `transition/pick-spawn-error-
+  transition` selects first — plus the `:always` closure from each candidate's
+  target. `region` strips / declines a region-name head exactly as
+  `on-done-diet-for-event` does. No-op when the event is not a spawn-error
+  signal, the invoke-id does not resolve, or the node declares no `:on-error`."
+  [by-entry states event region add! add-always!]
+  (when (and (vector? event) (= spawn-error-event-id (first event)))
+    (let [raw-id    (second event)
+          invoke-id (cond
+                      (not (vector? raw-id)) nil
+                      region (when (= region (first raw-id)) (vec (rest raw-id)))
+                      :else  raw-id)]
+      (when (seq invoke-id)
+        (let [on-error (get-in (node-at states invoke-id) [:spawn :on-error])]
+          (when (some? on-error)
+            (doseq [cand (candidate-maps on-error)]
+              (add! (entry-diet by-entry :guards  (:guard cand)))
+              (add! (entry-diet by-entry :actions (:action cand)))
+              (when-let [tgt (resolve-target-path invoke-id (:target cand))]
                 (add-always! tgt)))))))))
 
 (defn- after-diet-for-event
@@ -603,6 +641,8 @@
               (when-let [tgt (resolve-target-path decl-path (:target cand))]
                 (add-always! tgt)))))))))
 
+(declare initial-path-for-scope)
+
 (defn- ensure-set-in-scope
   "Compute the ensure-set (a set of `parse-requires` entries, deduped by
   `:id`) for a single `states` scope, active `path`, and inner event type
@@ -628,11 +668,18 @@
   `region` is the region name when `states` is a parallel region's body (so the
   region-qualified decl-path can be stripped / declined), else nil.
 
+  `root` is the node that owns `states` — the flat / compound machine, or a
+  parallel region's body — whose OWN `:on` the runtime consults after the
+  active path (`transition/pick-transition`'s root fallback, Spec 005
+  §Transition resolution steps 6-7), so its candidates join clause (a) at
+  decl-path `[]` (rf2-3x7nj.8.4).
+
   `by-entry` is the registration index's `:by-entry` map. Returns a vector of
   parsed-requires entries (deduped by id, declaration-order-insensitive — the
   ensure step is order-independent)."
-  [by-entry states path event region]
-  (let [event-id (when (vector? event) (first event))
+  [by-entry root path event region]
+  (let [states   (:states root)
+        event-id (when (vector? event) (first event))
         acc      (volatile! [])
         seen-ids (volatile! #{})
         add!     (dedup-adder seen-ids acc)
@@ -646,11 +693,15 @@
     ;; (a) candidate transitions for this event type, leaf→root. We do NOT
     ;; stop at the first match — the ensure-set is STATIC (every candidate
     ;; the selection COULD touch must have its guard-consumed facts ensured
-    ;; before selection runs, since a guard reads them to decide).
-    (doseq [i (range (count path))]
-      (let [prefix (subvec (vec path) 0 (inc i))
-            node   (node-at states prefix)
-            on     (:on node)
+    ;; before selection runs, since a guard reads them to decide). The walk
+    ;; ends at the scope ROOT's own `:on` (decl-path `[]`), the fallback the
+    ;; runtime consults after the active path.
+    (doseq [[prefix node] (conj (mapv (fn [i]
+                                        (let [prefix (subvec (vec path) 0 (inc i))]
+                                          [prefix (node-at states prefix)]))
+                                      (range (count path)))
+                                [[] root])]
+      (let [on     (:on node)
             ;; exact + :ns/* + :* descriptor tiers can all match this event.
             keys*  (cond-> [event-id]
                      (and (keyword? event-id) (namespace event-id))
@@ -669,7 +720,10 @@
           ;; entered descending the target's `:initial` chain, since entering a
           ;; compound target cascades into its initial leaf. The active-state
           ;; `:exit` diet is added once below (it is candidate-independent).
-          (when-let [tgt (resolve-target-path prefix (:target cand))]
+          ;; A ROOT `:same-state` re-descends the root's own `:initial`.
+          (when-let [tgt (if (and (empty? prefix) (= :same-state (:target cand)))
+                           (initial-path-for-scope states (:initial root))
+                           (resolve-target-path prefix (:target cand)))]
             (add-lifecycle! states (initial-descent-path states tgt) :entry)
             ;; (b) :always closure reachable from this candidate's target.
             (add! (always-diet-for-state by-entry states tgt))))))
@@ -689,7 +743,11 @@
     ;; transition (a separate slot from `:on`); add its guard/action diet + the
     ;; `:always` closure reachable from its target so an `:on-done` callback's
     ;; `:rf.cofx/requires` is ensured before the done transition is selected.
-    (on-done-diet-for-event by-entry states event add! add-always!)
+    (on-done-diet-for-event by-entry states event region add! add-always!)
+    ;; (d') a raised single-`:spawn` failure (`[:rf.machine.spawn/error
+    ;; <invoke-id> <err>]`) selects the spawning node's `:spawn :on-error`
+    ;; first — a slot separate from `:on`, like `:on-done`.
+    (spawn-error-diet-for-event by-entry states event region add! add-always!)
     ;; (e) the synthetic `:after` timer signal
     ;; (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`) fires the
     ;; scheduling node's `:after`-table transition at decl-path/delay-key — a
@@ -817,7 +875,7 @@
                                       (keyword? region-state) [region-state]
                                       :else nil)]
                     :when (and scope rpath)]
-              (add! (ensure-set-in-scope by-entry scope rpath event region)))
+              (add! (ensure-set-in-scope by-entry body rpath event region)))
             ;; the parallel root's own live transition surfaces.
             (parallel-root-diet by-entry machine event event-id add!)
             @acc)
@@ -826,7 +884,7 @@
                            (keyword? state) [state]
                            :else nil)]
             (if path
-              (ensure-set-in-scope by-entry (scope-for machine) path event nil)
+              (ensure-set-in-scope by-entry machine path event nil)
               [])))))))
 
 (defn- initial-path-for-scope
