@@ -73,7 +73,10 @@
 ;;    ids even though both reset their retry `:attempt` to 1. Without it both
 ;;    computed `[:rf.work/http logical-id 1]` and tooling/conformance could
 ;;    not tell the old suppressed attempt from the new one (the EP-0011
-;;    single-attempt-identity break this fixes).
+;;    single-attempt-identity break this fixes). An ANONYMOUS request (no
+;;    `:request-id`) is numbered per (frame, originating event-id) instead,
+;;    never reset (rf2-x8oz5), so two anonymous requests of one event never
+;;    share a work id.
 ;;  - `attempt`  — the retry attempt number WITHIN one issuance, which
 ;;    discriminates transport retries of the same issuance.
 ;;
@@ -88,11 +91,11 @@
   caller's `:request-id` (when non-nil) else the originating event-id;
   `issuance` is the monotonic per-request-id issuance number (rf2-azcmd3 —
   bumped on each fresh request under the same `:request-id`, so a superseded
-  attempt and its superseder carry distinct work ids); `attempt` is the retry
-  attempt within that issuance. `=`-comparable and EDN-serializable
+  attempt and its superseder carry distinct work ids; for an anonymous request
+  it is numbered per (frame, originating event-id), rf2-x8oz5); `attempt` is
+  the retry attempt within that issuance. `=`-comparable and EDN-serializable
   (Managed-Effects §Work-id correlation). `issuance` defaults to 1 (the first
-  issuance, and the only value an anonymous / non-superseding request ever
-  sees)."
+  issuance) when the ctx carries none."
   [{:keys [request-id origin-event issuance attempt]}]
   (let [logical-id (if (some? request-id) request-id (first origin-event))]
     [:rf.work/http logical-id (or issuance 1) (or attempt 1)]))
