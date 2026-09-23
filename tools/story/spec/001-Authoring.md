@@ -624,7 +624,7 @@ The top-level `:xray-panel` slot names the default RHS-embed panel:
 The variant body's `:xray-panel` wins over the parent story's; the
 resolver lives in `re-frame.story.ui.xray-embed/resolve-panel`. The
 `:xray` preset's own `:panel` slot (§Xray preset slot) is a distinct
-auto-config step — it dispatches `:rf.xray/select-panel` on mount,
+auto-config step — it dispatches `:rf.xray/select-tab` on mount,
 alongside `:open?` / `:filters` / `:focus` — not a second spelling of
 the embed default.
 
@@ -648,7 +648,7 @@ level.
 | Slot | Shape | Effect on mount |
 |---|---|---|
 | `:open?` | boolean | Auto-open the whole Xray shell (popout / escape-hatch path; the RHS embed owns its own mount). |
-| `:panel` | panel keyword | Dispatches `:rf.xray/select-panel`. Distinct from the `:xray-panel` embed default above. |
+| `:panel` | panel keyword | Dispatches `:rf.xray/select-tab`. Distinct from the `:xray-panel` embed default above. |
 | `:filters` | `{:in [<event-id> ...] :out [<event-id> ...]}` | Pre-populates Xray's ribbon filter pills. |
 | `:focus` | `{:event-pos <n>}` | Dispatches `:rf.xray/focus-event`. Rare — usually you want LIVE to track head. |
 
