@@ -19,7 +19,7 @@
 
     * DEV (gate on): authored `:doc` survives — under the nested `:metadata`
       (every kind), and at the top level for the kinds whose lowering spreads
-      authored metadata there (event, sub);
+      authored metadata there (every kind since rf2-3x7nj.5.1);
     * PRODUCTION (gate off): `:doc` is absent at the descriptor top level AND
       under nested `:metadata` for EVERY kind, while the load-bearing witness key
       and the runnable slots are retained.
@@ -67,9 +67,9 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The supported-kind matrix. `:spreads-meta?` marks the kinds whose lowering
-;; hoists authored metadata onto the descriptor TOP LEVEL (event via
-;; `event-handler-meta`, sub via the normalized-metadata spread) — those kinds
-;; must be clean of `:doc` at the top level too, not just under `:metadata`.
+;; hoists authored metadata onto the descriptor TOP LEVEL — since rf2-3x7nj.5.1
+;; every kind does, as its `reg-*` stores it — so each must be clean of `:doc`
+;; at the top level too, not just under `:metadata`.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private supported-kinds
@@ -77,9 +77,9 @@
     :body (fn [_cofx _event] {})}
    {:label "sub"   :kind :sub   :section :reg-sub   :spreads-meta? true
     :body (fn [_db _query] :ok)}
-   {:label "fx"    :kind :fx    :section :reg-fx    :spreads-meta? false
+   {:label "fx"    :kind :fx    :section :reg-fx    :spreads-meta? true
     :body (fn [_args] nil)}
-   {:label "cofx"  :kind :cofx  :section :reg-cofx  :spreads-meta? false
+   {:label "cofx"  :kind :cofx  :section :reg-cofx  :spreads-meta? true
     :body (fn [] :v)}])
 
 (defn- assemble

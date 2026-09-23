@@ -143,7 +143,7 @@
    {:key         :image/lower-inline-event
     :producer-ns 're-frame.events
     :design-bead "rf2-ffc6s0"
-    :description "Lower an inline :reg-event descriptor's :impl fn body into the runnable event-handler slots (:handler-fn + the :interceptors chain carrying the :rf/event-handler wrapper) so an image's inline event routes through a frame-targeted dispatch. Consumed by re-frame.image-assembly during assembly."}
+    :description "Lower an inline :reg-event entry (authored id, metadata, :impl fn body) into the registrar shape register-event! stores: the metadata at top level, validated as reg-event validates it, plus :handler-fn and the :interceptors chain (the authored refs, then the :rf/event-handler wrapper), so an image's inline event routes through a frame-targeted dispatch. Consumed by re-frame.image-assembly during assembly."}
    {:key         :image/lower-inline-sub
     :producer-ns 're-frame.subs
     :design-bead "rf2-ffc6s0"
@@ -151,11 +151,11 @@
    {:key         :image/lower-inline-fx
     :producer-ns 're-frame.fx
     :design-bead "rf2-ffc6s0"
-    :description "Lower an inline :reg-fx descriptor's :impl fn body into the runnable fx slot (:handler-fn) so an image's inline fx runs when an event handler emits it. Consumed by re-frame.image-assembly during assembly."}
+    :description "Lower an inline :reg-fx entry (authored id, metadata, :impl fn body) into the registrar shape reg-fx stores: the metadata at top level, validated as reg-fx validates it, plus the :handler-fn slot, so an image's inline fx runs (or is skipped by :platforms) when an event handler emits it. Consumed by re-frame.image-assembly during assembly."}
    {:key         :image/lower-inline-cofx
     :producer-ns 're-frame.cofx
     :design-bead "rf2-ffc6s0"
-    :description "Lower an inline :reg-cofx descriptor's :impl supplier fn into the runnable cofx slots (:handler-fn + the :recordable? / :provided? grade flags) so an image's inline cofx is delivered through a frame-targeted cascade. Consumed by re-frame.image-assembly during assembly."}
+    :description "Lower an inline :reg-cofx entry (authored id, metadata, :impl supplier fn) into the registrar shape reg-cofx stores: the metadata at top level, validated and graded as reg-cofx validates it, plus :handler-fn and the :recordable? / :provided? grade flags, so an image's inline cofx is delivered through a frame-targeted cascade. Consumed by re-frame.image-assembly during assembly."}
 
    ;; ---- re-frame.subs --------------------------------------------------------
    {:key         :subs/subscribe-once

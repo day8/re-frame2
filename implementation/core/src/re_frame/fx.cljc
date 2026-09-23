@@ -36,21 +36,21 @@
 
 ;; ---- registration ---------------------------------------------------------
 
-(defn register-with-classification!
-  "Shared registration tail for `reg-fx` and `reg-cofx` (rf2-a3pl56). Both
-  register sites validate any declared `:sensitive` / `:large` classification
-  fail-loud BEFORE the registrar write (rf2-ehexnw — the classification itself is
-  DERIVED from the registrar meta at `registration-classification` read time, no
-  imperative stash), then write the registrar entry as the merged source-coords +
-  the `:handler-fn` callable slot. `kind` is `:fx` / `:cofx`; `extra-slots` is an
-  optional map of kind-specific registrar slots merged on top — `nil` for
-  `reg-fx`, the `:recordable?` / `:provided?` grade flags for `reg-cofx`.
+(defn validate-registration-meta!
+  "The registration-time metadata checks `reg-fx` and `reg-cofx` share — and
+  that their INLINE image lowerings (`lower-inline-fx` /
+  `re-frame.cofx/lower-inline-cofx`) run too, so an inline registration accepts
+  and rejects exactly what the registrar does (EP-0026 §Inline Registration
+  Grammar; rf2-3x7nj.5.1). Validates the metadata KEYS
+  (`rf.reg-meta/validate-registration-metadata!`) and any declared `:sensitive`
+  / `:large` classification (`rf.classification/validate-classification!`),
+  both fail-loud. Writes nothing. Returns `meta`.
 
   Classification validation is a DIRECT call into
   `re-frame.classification/validate-classification!`: an ALWAYS-ON
   registration-time validator in the same core artefact, already pinned into
   every production bundle; the require is cycle-free."
-  [kind id meta handler-fn extra-slots]
+  [kind id meta]
   ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS (shared by
   ;; `reg-fx` and `reg-cofx`): a retired bare key (`:spec`) hard-errors, an
   ;; unknown bare key warns, namespaced/known keys pass. The per-kind vocabulary
@@ -58,6 +58,20 @@
   (rf.reg-meta/validate-registration-metadata!
     kind (case kind :fx 'rf/reg-fx :cofx 'rf/reg-cofx (symbol "rf" (str "reg-" (name kind)))) id meta)
   (rf.classification/validate-classification! kind meta)
+  meta)
+
+(defn register-with-classification!
+  "Shared registration tail for `reg-fx` and `reg-cofx` (rf2-a3pl56). Both
+  register sites validate the metadata (`validate-registration-meta!` — keys,
+  plus any declared `:sensitive` / `:large` classification) fail-loud BEFORE the
+  registrar write (rf2-ehexnw — the classification itself is DERIVED from the
+  registrar meta at `registration-classification` read time, no imperative
+  stash), then write the registrar entry as the merged source-coords + the
+  `:handler-fn` callable slot. `kind` is `:fx` / `:cofx`; `extra-slots` is an
+  optional map of kind-specific registrar slots merged on top — `nil` for
+  `reg-fx`, the `:recordable?` / `:provided?` grade flags for `reg-cofx`."
+  [kind id meta handler-fn extra-slots]
+  (validate-registration-meta! kind id meta)
   (rf.registrar/register! kind id (merge (assoc (rf.source-coords/merge-coords meta)
                                              :handler-fn handler-fn)
                                       extra-slots)))
@@ -80,6 +94,25 @@
                       :recovery :no-recovery})
   (rf.error/throw-error! :rf.error/fx-registration-invalid 'rf/reg-fx reason
                       {:extra {:rf.fx/id id}}))
+
+(defn- validate-fx-handler!
+  "rf2-x76af2.26: a `reg-fx` MUST supply a callable handler. The metadata-only
+  form `(reg-fx :id {…})` (a plausible typo) parses to `handler-fn` nil and would
+  otherwise register a nil `:handler-fn`, deferring the failure to a misleading
+  fire-time `:rf.error/fx-handler-exception`. Reject at REGISTRATION time,
+  naming the missing handler — mirroring reg-cofx's registration-time
+  missing-supplier rejection (`emit-cofx-registration-invalid!`). Shared by
+  `reg-fx` and the inline lowering `lower-inline-fx` (rf2-3x7nj.5.1)."
+  [id handler-fn]
+  (when-not (ifn? handler-fn)
+    (emit-fx-registration-invalid!
+      id
+      (str "`reg-fx` id `" id "` was registered with no handler fn. A "
+           "`reg-fx` needs a `(fn [ctx args] …)` handler as its final "
+           "argument — the metadata-only form `(reg-fx " id " {…})` supplies "
+           "metadata but omits the handler, so nothing would run when the "
+           "effect fires (it would fail LATE at fire-time as a misleading "
+           "`:rf.error/fx-handler-exception`). Supply the handler fn."))))
 
 (defn reg-fx
   "Register an effect handler under `id`. The handler runs when a
@@ -140,22 +173,7 @@
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
-    ;; rf2-x76af2.26: a `reg-fx` MUST supply a callable handler. The
-    ;; metadata-only form `(reg-fx :id {…})` (a plausible typo) parses to
-    ;; `handler-fn` nil and would otherwise register a nil `:handler-fn`,
-    ;; deferring the failure to a misleading fire-time
-    ;; `:rf.error/fx-handler-exception`. Reject at REGISTRATION time, naming
-    ;; the missing handler — mirroring reg-cofx's registration-time
-    ;; missing-supplier rejection (`emit-cofx-registration-invalid!`).
-    (when-not (ifn? handler-fn)
-      (emit-fx-registration-invalid!
-        id
-        (str "`reg-fx` id `" id "` was registered with no handler fn. A "
-             "`reg-fx` needs a `(fn [ctx args] …)` handler as its final "
-             "argument — the metadata-only form `(reg-fx " id " {…})` supplies "
-             "metadata but omits the handler, so nothing would run when the "
-             "effect fires (it would fail LATE at fire-time as a misleading "
-             "`:rf.error/fx-handler-exception`). Supply the handler fn.")))
+    (validate-fx-handler! id handler-fn)
     (register-with-classification! :fx id meta handler-fn nil)
     id))
 
@@ -171,20 +189,32 @@
 ;; An image's inline `:registrations` `:reg-fx` entry carries the raw effect
 ;; handler fn under `:impl`. For the inline fx to RUN when an event handler
 ;; emits it through a frame-targeted cascade, the assembled generation's
-;; resolver descriptor must carry the SAME runnable slot `reg-fx` installs —
-;; `:handler-fn` (the fx-walker reads it via `rf.registrar/handler :fx`). Closes
-;; the EP-0023 §Image Fragments "same runtime descriptor shape" contract for
-;; fx. Published via late-bind (image-assembly cannot static-require this ns).
+;; resolver descriptor must carry the SAME shape `reg-fx` installs — the
+;; `:handler-fn` slot (the fx-walker reads it via `rf.registrar/handler :fx`)
+;; AND the registration metadata at the TOP LEVEL, where every runtime reader
+;; looks (`runs-on-platform?`, `registration-classification`, the `:schema`
+;; gate). Closes the EP-0023 §Image Fragments "same runtime descriptor shape"
+;; contract for fx. Published via late-bind (image-assembly cannot
+;; static-require this ns).
 
 (defn lower-inline-fx
-  "Lower an inline `:reg-fx` descriptor's raw fn body into the runnable fx slot
-  `reg-fx` installs (`:handler-fn`). `_meta` is the inline entry's metadata map
-  (unused — the descriptor already carries the inline `:metadata`; the runtime
-  `:platforms` predicate reads that map directly); `impl` is the raw
-  `(fn [ctx args] …)` handler. Returns ONLY the runnable slot so image-assembly
-  merges it onto the descriptor, preserving `:impl` + provenance."
-  [_meta impl]
-  {:handler-fn impl})
+  "Lower an inline `:reg-fx` entry into the registrar shape `reg-fx` installs:
+  the authored metadata at the TOP LEVEL plus the `:handler-fn` slot. `id` is
+  the AUTHORED descriptor id, so a diagnostic names the author's effect; `meta`
+  is the inline entry's metadata map (nil when the entry has none); `impl` is
+  the raw `(fn [ctx args] …)` handler.
+
+  Runs the SAME registration-time checks `reg-fx` runs (rf2-3x7nj.5.1): the
+  handler must be callable, and `validate-registration-meta!` checks the keys
+  and any `:sensitive` / `:large` classification. Without the top-level
+  metadata an inline `{:platforms #{:client}}` fx ran on `:server` and an
+  inline `:sensitive` declaration derived no classification to redact from.
+  Writes nothing to the registrar. Image-assembly merges the result UNDER the
+  descriptor, preserving `:impl` + provenance."
+  [id meta impl]
+  (validate-fx-handler! id impl)
+  (validate-registration-meta! :fx id meta)
+  (assoc meta :handler-fn impl))
 
 (rf.late-bind/set-fn! :image/lower-inline-fx lower-inline-fx)
 

@@ -830,12 +830,15 @@
         (assoc m :rf.handler/source src)
         m))))
 
-(defn- resolve-interceptors
-  "Resolve the metadata-map `:interceptors` superset form into the effective
-  user-supplied interceptor chain, returning `[clean-meta effective-interceptors]`.
-
-  The metadata-map carries a reserved `:interceptors` key. A non-vector /
-  non-interceptor value raises `:rf.error/reg-event-bad-interceptors`.
+(defn- split-meta-interceptors
+  "The SHAPE half of `resolve-interceptors`: validate the metadata-map
+  `:interceptors` superset form and split it out, returning
+  `[clean-meta interceptor-refs]`. A non-vector / non-interceptor value raises
+  `:rf.error/reg-event-bad-interceptors`. Checks no reference's EXISTENCE — that
+  depends on which registry is authoritative, so each caller supplies it:
+  `register-event!` against the registrar (`validate-refs-registered!`), an
+  inline image event at assembly against the frame's own generation
+  (`image-assembly/check-references!`, rf2-3x7nj.5.1).
 
   RETAIN-vs-STRIP: the raw `:interceptors`
   key is STRIPPED from the stored metadata. The registrar entry already stores
@@ -849,15 +852,23 @@
   [reg-fn-name id meta]
   (if-not (and (map? meta) (contains? meta :interceptors))
     [meta []]
-    (let [meta-interceptors (validate-meta-interceptors!
-                              reg-fn-name id (:interceptors meta))]
-      ;; Per Spec 002 §Validation and resolution timing: validate that every
-      ;; REFERENCE resolves at registration (typos die before dispatch), but
-      ;; store the chain UNRESOLVED — the router resolves refs at chain
-      ;; assembly so a hot-reloaded interceptor descriptor is picked up on the
-      ;; next dispatch (EP-0022).
-      (validate-refs-registered! meta-interceptors)
-      [(dissoc meta :interceptors) meta-interceptors])))
+    [(dissoc meta :interceptors)
+     (validate-meta-interceptors! reg-fn-name id (:interceptors meta))]))
+
+(defn- resolve-interceptors
+  "Resolve the metadata-map `:interceptors` superset form into the effective
+  user-supplied interceptor chain, returning `[clean-meta effective-interceptors]`:
+  the shape half (`split-meta-interceptors`), then every reference checked
+  against the registrar."
+  [reg-fn-name id meta]
+  (let [[_ meta-interceptors :as split] (split-meta-interceptors reg-fn-name id meta)]
+    ;; Per Spec 002 §Validation and resolution timing: validate that every
+    ;; REFERENCE resolves at registration (typos die before dispatch), but
+    ;; store the chain UNRESOLVED — the router resolves refs at chain
+    ;; assembly so a hot-reloaded interceptor descriptor is picked up on the
+    ;; next dispatch (EP-0022).
+    (validate-refs-registered! meta-interceptors)
+    split))
 
 ;; ---- reserved framework-standard event ids (EP-0027) ----------------------
 ;;
@@ -1487,47 +1498,41 @@
 ;; whole inline-lowering family rides the same forward-reference seam).
 
 (defn lower-inline-event
-  "Lower an inline `:reg-event` descriptor's raw fn body into the runnable
-  event-handler slots — the same shape `register-event!` stores and
-  `event-handler-meta` produces: `:handler-fn` + the `:interceptors` chain
-  carrying the `:rf/event-handler` wrapper, PLUS `:rf.cofx/requires-parsed`
-  when the inline entry declared `:rf.cofx/requires`.
+  "Lower an inline `:reg-event` entry into the registrar shape `register-event!`
+  stores and `event-handler-meta` produces: the registration metadata at the
+  TOP LEVEL, `:handler-fn`, the `:interceptors` chain — the authored references
+  followed by the `:rf/event-handler` wrapper — PLUS `:rf.cofx/requires-parsed`
+  when the entry declared `:rf.cofx/requires`. `id` is the AUTHORED descriptor
+  id, so every diagnostic names the author's event; `meta` is the inline entry's
+  metadata map (nil when the entry has none); `impl` is the raw handler fn.
 
-  `meta` is the inline entry's metadata map. It is MERGED onto the runnable
-  slots at TOP LEVEL — exactly as `register-event!` stores the registration
-  metadata (`event-handler-meta` `assoc`s the runnable slots onto `meta`) — so
-  the inline path lowers to the SAME runtime descriptor shape a registered
-  handler carries (EP-0023 §Image Fragments: \"both paths should lower to the
-  same runtime descriptor shape\"). Without the merge, top-level registration-
-  meta the runtime reads at run/enqueue time was silently dropped for inline
-  image handlers — e.g. `:rf.trace/no-emit?` (rf2-x76af2.25): the enqueue-time
-  `:rf.event/dispatched` gate and the handler-scope run-trace gate both read the
-  flag at TOP LEVEL, so an inline image handler marked `:rf.trace/no-emit?`
-  still flooded the trace stream because the flag lived only under the
-  descriptor's nested `:metadata`. Symmetric with `lower-inline-cofx`, which
-  likewise hoists the cofx grade flags the delivery step reads.
+  The inline contract is exactly the registrar's contract (EP-0026 §Inline
+  Registration Grammar; rf2-3x7nj.5.1), so this runs the SAME registration-time
+  checks `register-event!` runs: the metadata keys, the `:interceptors` chain
+  SHAPE, `:boundary?` without `:schema`, the `:sensitive` / `:large`
+  classification, and the `:rf.cofx/requires` parse. Two `register-event!`
+  steps are deliberately NOT run here: the reserved-id guard (an inline
+  standard id already fails at assembly as
+  `:rf.error/image-standard-replacement-forbidden`), and the registrar
+  EXISTENCE check on interceptor references — an image's authority for those is
+  its own sealed generation, checked by `image-assembly/check-references!`
+  once the refs sit on the chain. The chain is stored UNRESOLVED, as
+  `register-event!` stores it; the router resolves each ref against the frame's
+  generation at dispatch.
 
-  The cofx-requirements are additionally parsed via `rf.cofx/parse-requires` into
-  the TOP-LEVEL `:rf.cofx/requires-parsed` slot exactly as `register-event!`
-  does (EP-0017 §4/§5) — load-bearing: the satisfaction step
-  (`router/assemble-initial-ctx`) reads it to deliver the declared coeffects,
-  so an inline image-loaded event MUST carry it or its declared facts are
-  silently dropped. A malformed / duplicate declaration fails loud at lowering
-  (`:rf.error/cofx-request-invalid` / `:rf.error/cofx-name-collision`),
-  mirroring registration.
-
-  The other event-meta slot affecting the runnable chain — author-declared
-  `:interceptors` references — remains an advanced inline shape out of this
-  slice's scope (the descriptor already carries the inline `:metadata` for
-  introspection). `impl` is the raw handler fn.
-
-  Returns the runnable slots so image-assembly merges them onto the
-  descriptor, preserving `:impl` + provenance for replacement-winner
-  coordinates and dedupe."
-  [meta impl]
-  (let [requires-parsed (rf.cofx/parse-requires :rf/image-inline-event
-                                             (:rf.cofx/requires meta))]
-    (cond-> (event-handler-meta meta [] impl)
-      (seq requires-parsed) (assoc :rf.cofx/requires-parsed requires-parsed))))
+  Top-level metadata is load-bearing: the runtime reads `:rf.trace/no-emit?`
+  (rf2-x76af2.25), `:boundary?` / `:schema` and the classification there, and
+  the satisfaction step (`router/assemble-initial-ctx`) reads
+  `:rf.cofx/requires-parsed` (EP-0017 §4/§5). Writes nothing to the registrar.
+  Image-assembly merges the result UNDER the descriptor, preserving `:impl` +
+  provenance for replacement-winner coordinates and dedupe."
+  [id meta impl]
+  (rf.reg-meta/validate-registration-metadata! :event 'rf/reg-event id meta)
+  (let [[meta refs] (split-meta-interceptors "reg-event" id meta)]
+    (reject-at-boundary-without-schema! "reg-event" id meta)
+    (rf.classification/validate-classification! :event meta)
+    (let [requires-parsed (rf.cofx/parse-requires id (:rf.cofx/requires meta))]
+      (cond-> (event-handler-meta meta refs impl)
+        (seq requires-parsed) (assoc :rf.cofx/requires-parsed requires-parsed)))))
 
 (rf.late-bind/set-fn! :image/lower-inline-event lower-inline-event)
