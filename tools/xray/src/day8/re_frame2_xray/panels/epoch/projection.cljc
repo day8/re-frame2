@@ -3663,6 +3663,57 @@
           steps)
     steps))
 
+;; ---- HALTED-DEPTH record (rf2-3x7nj.22.1) --------------------------------
+;;
+;; A `:halted-depth` record marks the event the drain REFUSED: the depth
+;; limit tripped with it at the head of the queue, so it never ran (Spec-
+;; Schemas §`:rf/epoch-record` §Outcomes). Its trace carries only the
+;; `:rf.event/dispatched` marker, so every trace-driven pass reads it as a
+;; clean event whose handler wrote nothing — HANDLER "returned no :db",
+;; outcome `:ok` — on the head epoch of a runaway loop. The record's own
+;; `:outcome` / `:halt-reason` are the only evidence, so this pass reads
+;; them: HANDLER + SIDE EFFECTS go `:skipped` (the rf2-yz57h machinery,
+;; with a `:skip-reason` the view words the body from), and one card built
+;; from `:halt-reason` lands on DISPATCH, which also turns `epoch-outcome`
+;; `:error`.
+
+(defn halt-row
+  "The DISPATCH-step card for a `:halted-depth` epoch record (rf2-3x7nj.22.1);
+  nil for any other record. Built from `:halt-reason`'s `:operation` /
+  `:depth` / `:queue-size` only, in the `exception-row` shape so
+  `error-block` renders it unchanged."
+  [epoch-record]
+  (when (= :halted-depth (:outcome epoch-record))
+    (let [{:keys [operation depth queue-size]} (:halt-reason epoch-record)]
+      {:operation (or operation :rf.error/drain-depth-exceeded)
+       :message   (str "Drain depth limit"
+                       (when (some? depth) (str " (" depth ")"))
+                       " exceeded — this event never ran"
+                       (when (some? queue-size)
+                         (str "; " queue-size " queued event(s) dropped"))
+                       ".")})))
+
+(defn mark-halted
+  "When `epoch-record` is a `:halted-depth` record (`halt-row`), attach its
+  halt card to the DISPATCH step (`:status :error`) and stamp the HANDLER +
+  SIDE EFFECTS steps `:status :skipped` with `:skip-reason :halted-depth`
+  (rf2-3x7nj.22.1). Any other record returns `steps` unchanged."
+  [steps epoch-record]
+  (if-let [row (halt-row epoch-record)]
+    (mapv (fn [step]
+            (case (:step step)
+              :dispatch
+              (-> step
+                  (update :errors (fnil conj []) row)
+                  (assoc :status :error))
+
+              (:handler :side-effects)
+              (assoc step :status :skipped :skip-reason :halted-depth)
+
+              step))
+          steps)
+    steps))
+
 (defn- attach-to-fx-error-row
   "Attach an fx exception row to the SIDE EFFECTS step's matching
   `:fx-id` row (rf2-ahhgn / rf2-kt6js). When `:failing-id` matches a
@@ -4219,7 +4270,8 @@
   ## Pure-data
 
   Reads only `:trace-events`, `:event-id`, `:dispatch-id` off the
-  record; no DOM, no substrate runtime, JVM-testable. The optional opts
+  record, plus `:outcome` / `:halt-reason` for a `:halted-depth` record
+  (`mark-halted`); no DOM, no substrate runtime, JVM-testable. The optional opts
   map's `:resolve-event-interceptors` (rf2-se9a9t) is the ONLY runtime-fed
   input — a fn, not data — and is itself injectable for pure tests."
   ([epoch-record] (project epoch-record nil))
@@ -4470,6 +4522,9 @@
             ;; SIDE EFFECTS steps `:status :skipped` so the view renders them
             ;; as SKIPPED rather than 'ran, returned no :db'.
             skipped    (mark-skipped-handler with-errs events)
+            ;; rf2-3x7nj.22.1 — a `:halted-depth` record's event never ran;
+            ;; only the record's `:outcome` / `:halt-reason` say so.
+            skipped    (mark-halted skipped epoch-record)
             steps      (mark-rolled-back-downstream skipped violations)]
         steps)))))
 

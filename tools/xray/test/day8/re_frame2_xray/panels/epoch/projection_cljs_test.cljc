@@ -5188,6 +5188,66 @@
       (is (= :skipped (proj/step-status (second steps)))
           "the skipped handler reads :skipped, not :error"))))
 
+;; -- HALTED-DEPTH record (rf2-3x7nj.22.1) ----------------------------------
+
+(defn- halted-depth-record
+  "A `:halted-depth` record in the shape the producer commits, read off a
+  real `dispatch-sync` runaway (`:drain-depth 5`): the record's `:outcome`,
+  the flat `:halt-reason` descriptor, the halting event pinned as
+  `:event-id` / `:trigger-event`, equal db snapshots, and a trace carrying
+  ONLY the halting event's `:rf.event/dispatched` marker — it never ran."
+  []
+  {:epoch-id      6
+   :outcome       :halted-depth
+   :halt-reason   {:operation     :rf.error/drain-depth-exceeded
+                   :depth         5
+                   :queue-size    1
+                   :last-event-id :user/loop}
+   :event-id      :user/loop
+   :trigger-event [:user/loop]
+   :db-before     {:n 5}
+   :db-after      {:n 5}
+   :trace-events  [(dispatched-ev [:user/loop] :ui nil)]})
+
+(deftest halted-depth-record-projects-the-halt-test
+  (testing "rf2-3x7nj.22.1 — the event a drain-depth halt refused reads as
+            refused: a halt card on DISPATCH, HANDLER skipped (not 'ran,
+            returned no :db'), and the panel outcome :error"
+    (let [steps (proj/project (halted-depth-record))
+          by    (into {} (map (juxt :step identity)) steps)
+          d     (:dispatch by)
+          h     (:handler by)]
+      (is (= :skipped (proj/step-status h))
+          "HANDLER is SKIPPED — the halting event's handler never ran")
+      (is (= :halted-depth (:skip-reason h))
+          "and carries the halt reason the view words its body from")
+      (is (= [:rf.error/drain-depth-exceeded] (mapv :operation (:errors d)))
+          "exactly one card, on DISPATCH, named by the halt's :operation")
+      (is (= "Drain depth limit (5) exceeded — this event never ran; 1 queued event(s) dropped."
+             (:message (first (:errors d))))
+          "the card reads the descriptor's :depth and :queue-size")
+      (is (= #{:operation :message} (set (keys (first (:errors d)))))
+          "and nothing else off the descriptor — its ids stay off the card")
+      (is (= :error (proj/epoch-outcome steps))
+          "the panel outcome reads :error, not :ok")))
+
+  (testing "control — the SAME record carrying :outcome :ok projects clean,
+            so the halt reading keys on the record's :outcome"
+    (let [steps (proj/project (assoc (halted-depth-record) :outcome :ok))
+          h     (some #(when (= :handler (:step %)) %) steps)]
+      (is (= :ok (proj/step-status h)))
+      (is (empty? (:errors (first steps))))
+      (is (= :ok (proj/epoch-outcome steps)))))
+
+  (testing "mark-halted stamps HANDLER + SIDE EFFECTS only, and leaves a
+            non-halted record's steps untouched"
+    (let [steps [{:step :dispatch} {:step :handler}
+                 {:step :side-effects} {:step :subscriptions}]
+          out   (proj/mark-halted steps (halted-depth-record))]
+      (is (= [:error :skipped :skipped :ok] (mapv proj/step-status out)))
+      (is (= steps (proj/mark-halted steps {:outcome :ok})))
+      (is (= steps (proj/mark-halted steps {}))))))
+
 (deftest interceptor-badge-in-badge-set-test
   (testing "rf2-yz57h — :INTERCEPTOR is a valid badge"
     (is (proj/valid-badge? :INTERCEPTOR))))

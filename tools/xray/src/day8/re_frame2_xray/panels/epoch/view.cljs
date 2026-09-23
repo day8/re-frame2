@@ -1744,12 +1744,20 @@
 (defn- skipped-body
   "Render a SKIPPED step's body (rf2-yz57h) — a muted italic line stating
   the step did not run because an upstream step threw. `what` names the
-  step for the operator (e.g. \"The handler\" / \"Side effects\")."
-  [testid what]
-  [:div {:data-testid (str testid "-skipped")
-         :data-rf-xray-step-skipped "true"
-         :style skipped-body-style}
-   (str what " did not run — an upstream step threw before this step could execute.")])
+  step for the operator (e.g. \"The handler\" / \"Side effects\").
+
+  rf2-3x7nj.22.1 — `skip-reason` `:halted-depth` (stamped by
+  `projection/mark-halted`) words it for a drain-depth halt instead: nothing
+  threw, the drain refused the event."
+  ([testid what] (skipped-body testid what nil))
+  ([testid what skip-reason]
+   [:div {:data-testid (str testid "-skipped")
+          :data-rf-xray-step-skipped "true"
+          :style skipped-body-style}
+    (str what
+         (if (= :halted-depth skip-reason)
+           " did not run — the drain hit its depth limit before this event could execute."
+           " did not run — an upstream step threw before this step could execute."))]))
 
 ;; `rolled-back-banner-style` + the `rolled-back-banner` render fn
 ;; were retired (rf2-w8evg) — the rf2-7gf7v / rf2-8resu redesign moves
@@ -2448,7 +2456,7 @@
   the §per-mount inspector identity commentary above [[dispatch-body]]."
   ([step] (render-dispatch-step step nil nil))
   ([step dispatch-id->epoch-id] (render-dispatch-step step dispatch-id->epoch-id nil))
-  ([{:keys [source coord duration-ms step-number violations] :as step}
+  ([{:keys [source coord duration-ms step-number violations errors] :as step}
     dispatch-id->epoch-id instance]
    [:div {:data-testid "rf-xray-epoch-step-dispatch"
           :data-step-kw "dispatch"
@@ -2474,6 +2482,9 @@
        :duration-ms duration-ms}
       nil)
     (dispatch-body step instance)
+    ;; rf2-3x7nj.22.1 — a `:halted-depth` record's halt card
+    ;; (`projection/mark-halted`): the drain refused this event.
+    (error-blocks :dispatch errors instance)
     ;; rf2-xgeag — `:event` boundary violations attach to DISPATCH.
     (violation-blocks :dispatch violations instance)]))
 
@@ -4412,7 +4423,7 @@
        ;; of the normal body — the prior body's `:db` sub-section read
        ;; "— no :db (handler returned no :db)" which was WRONG: the handler
        ;; body returns a :db (via `bump`), it just never executed.
-       (skipped-body "rf-xray-epoch-handler" "The handler")
+       (skipped-body "rf-xray-epoch-handler" "The handler" (:skip-reason step))
        (handler-body step ctx))
      ;; rf2-ahhgn — a handler EXCEPTION attaches here as an inline error
      ;; card (button-16). Rendered BELOW the handler body so the operator
@@ -4752,7 +4763,7 @@
        nil)
      (if skipped?
        ;; rf2-yz57h — side effects never ran (upstream `:before`-chain throw).
-       (skipped-body "rf-xray-epoch-side-effects" "Side effects")
+       (skipped-body "rf-xray-epoch-side-effects" "Side effects" (:skip-reason step))
        [:div {:style margin-top-5-style}
         (map-indexed (fn [i row] (fx-row-with-violations i row instance)) rows)])
      ;; rf2-ahhgn — fx exceptions that didn't match a row (no-such-fx,

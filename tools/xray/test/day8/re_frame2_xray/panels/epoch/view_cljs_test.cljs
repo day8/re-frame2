@@ -4125,6 +4125,42 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-side-effects-status"))
           "no per-stage status glyph (retired rf2-9wq0v)"))))
 
+(deftest halted-depth-record-renders-the-halt-test
+  (testing "rf2-3x7nj.22.1 — a `:halted-depth` record (the event a drain-depth
+            halt refused) renders its halt card under DISPATCH and a HANDLER
+            body worded for the halt, never 'returned no :db'"
+    (epoch-orchestrator/install!)
+    (rf/make-frame {:id :rf/xray})
+    (let [record {:epoch-id      6
+                  :outcome       :halted-depth
+                  :halt-reason   {:operation     :rf.error/drain-depth-exceeded
+                                  :depth         5
+                                  :queue-size    1
+                                  :last-event-id :user/loop}
+                  :event-id      :user/loop
+                  :trigger-event [:user/loop]
+                  :db-before     {:n 5}
+                  :db-after      {:n 5}
+                  :trace-events  [{:op-type   :rf.event
+                                   :operation :rf.event/dispatched
+                                   :tags      {:rf.event/v [:user/loop]
+                                               :source     :ui}}]}
+          tree   (rf/with-frame :rf/xray
+                   (view/pipeline-view (proj/project-numbered record)))]
+      (is (some? (find-by-testid tree "rf-xray-epoch-errors-dispatch"))
+          "the halt card renders under DISPATCH")
+      (is (= "drain-depth-exceeded"
+             (:data-error-op (node-attrs (find-by-testid tree "rf-xray-epoch-error-dispatch-0"))))
+          "named by the halt's :operation")
+      (is (string/includes? (str (text-of tree "rf-xray-epoch-error-dispatch-0-message"))
+                            "this event never ran")
+          "and says the event never ran")
+      (is (string/includes? (str (text-of tree "rf-xray-epoch-handler-skipped"))
+                            "depth limit")
+          "the HANDLER body is the SKIPPED body, worded for the halt")
+      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-db-no-write"))
+          "the 'no :db (returned no :db)' placeholder does NOT render"))))
+
 ;; ============================================================================
 ;; rf2-4yrr6 — :fuse/box exception-row decluttering (parts 2-4)
 ;; ============================================================================
