@@ -25,6 +25,8 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
+            [day8.re-frame2-xray.test-helpers.popout-document
+             :as popout-document]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -217,6 +219,45 @@
       (is (some #(= [:rf.xray/set-event-list-col-width :timestamp 250] %)
                 width-events)
           "drag left widens: 200 - (-50) = 250"))))
+
+(deftest col-divider-drag-binds-the-dividers-own-document
+  (testing "rf2-3x7nj.25.5 — `ShellView` is also the pop-out's body, and
+            there `js/document` names the OPENER's document, which the
+            pop-out's pointer events never reach. The drag must bind its
+            listeners and cursor to the divider's OWN document, and detach
+            from that same one."
+    (popout-document/with-opener-globals
+      (fn [{opener-listeners :listeners opener-doc :doc}]
+        (let [{pdoc :doc plisteners :listeners} (popout-document/mk-document)
+              dispatches (atom [])
+              e          #js {:pageX          1000
+                              :pointerId      1
+                              :currentTarget  #js {:ownerDocument pdoc}
+                              :preventDefault (fn [])}]
+          (shell/col-divider-start-drag! e :source 52
+                                         (fn [ev] (swap! dispatches conj ev)))
+          (is (= 1 (count (popout-document/listeners-on plisteners "pointermove")))
+              "the move listener sits on the POP-OUT document")
+          (is (popout-document/detached? opener-listeners)
+              "and the opener's document received no listener at all")
+          (is (= "col-resize" (.. pdoc -body -style -cursor))
+              "the drag cursor is the pop-out body's")
+          (is (= "" (.. opener-doc -body -style -cursor))
+              "and the opener's body cursor is untouched")
+          ;; Drive the drag through the listeners it registered — the pop-out
+          ;; document's, since that is where the pop-out's pointer lands.
+          (when-let [on-move (first (popout-document/listeners-on plisteners "pointermove"))]
+            (on-move #js {:pageX 1080}))
+          (is (= [[:rf.xray/set-event-list-col-width :source -28]] @dispatches)
+              "a pop-out pointer move resizes the column")
+          (when-let [on-up (first (popout-document/listeners-on plisteners "pointerup"))]
+            (on-up #js {}))
+          (is (false? (shell/col-divider-dragging?))
+              "the pop-out release ends the drag")
+          (is (popout-document/detached? plisteners)
+              "detaching from the SAME document the drag attached to")
+          (is (= "" (.. pdoc -body -style -cursor))
+              "and restoring the pop-out body's cursor"))))))
 
 (deftest drag-cancel-tears-down-state
   (setup!)

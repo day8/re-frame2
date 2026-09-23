@@ -33,6 +33,8 @@
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
+            [day8.re-frame2-xray.test-helpers.popout-document
+             :as popout-document]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -222,6 +224,44 @@
                                 @dispatches)]
       (is (some #(= 150 (second %)) height-events)
           "drag up shrinks: 250 - 100 = 150"))))
+
+(deftest seam-drag-binds-the-seams-own-document
+  (testing "rf2-3x7nj.27.2 — in the pop-out, `js/document` names the
+            OPENER's document. A seam drag bound there never tracked the
+            pop-out pointer, never saw its release, overrode the host
+            page's cursor, and let a later hover over the host page drive
+            the pop-out's list height. The drag must bind to the seam's
+            OWN document, and detach from that same one."
+    (popout-document/with-opener-globals
+      (fn [{opener-listeners :listeners opener-doc :doc}]
+        (let [{pdoc :doc plisteners :listeners} (popout-document/mk-document)
+              dispatches (atom [])
+              e          #js {:pageY          500
+                              :pointerId      1
+                              :currentTarget  #js {:ownerDocument pdoc}
+                              :preventDefault (fn [])}]
+          (resize-handle/start-seam-drag! e 200
+                                          (fn [ev] (swap! dispatches conj ev)))
+          (is (= 1 (count (popout-document/listeners-on plisteners "pointermove")))
+              "the move listener sits on the POP-OUT document")
+          (is (popout-document/detached? opener-listeners)
+              "and the host page's document received no listener at all")
+          (is (= "row-resize" (.. pdoc -body -style -cursor))
+              "the drag cursor is the pop-out body's")
+          (is (= "" (.. opener-doc -body -style -cursor))
+              "and the host page's cursor is untouched")
+          (when-let [on-move (first (popout-document/listeners-on plisteners "pointermove"))]
+            (on-move #js {:pageY 600}))
+          (is (= [[:rf.xray/set-events-list-height-px 300]] @dispatches)
+              "a pop-out pointer move resizes the list")
+          (when-let [on-up (first (popout-document/listeners-on plisteners "pointerup"))]
+            (on-up #js {}))
+          (is (false? (resize-handle/seam-dragging?))
+              "the pop-out release ends the drag")
+          (is (popout-document/detached? plisteners)
+              "detaching from the SAME document the drag attached to")
+          (is (= "" (.. pdoc -body -style -cursor))
+              "and restoring the pop-out body's cursor"))))))
 
 (deftest seam-pointer-cancel-tears-down
   (setup!)

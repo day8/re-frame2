@@ -1700,6 +1700,27 @@
         (try (.add cl klass) (catch :default _ nil)))))
   nil)
 
+(defn- remove-stale-popout-nodes!
+  "Evict a previous pop-out's `#rf-xray-popout-root` and its opener-gone
+  overlay from `doc` before `popout!` appends fresh ones — the pop-out
+  counterpart of `remove-stale-root!` (rf2-3x7nj.27.3).
+
+  `popout!` opens `window.open(\"\", \"rf-xray-popout\")`: a fixed window
+  NAME and an empty URL, so a pop-out still open from before an opener
+  RELOAD is handed back un-navigated. Its document still holds the dead
+  realm's shell root and the overlay the reload announcer revealed —
+  full-window, topmost — while the reloaded opener's `popout-state` is
+  nil, so the re-pop does not recognise the window as its own. Without
+  this, the fresh live shell rendered UNDER that overlay, which still
+  told the user to close the window. No-op when `doc` has neither node,
+  or cannot look them up."
+  [^js doc]
+  (when (and doc (.-getElementById doc))
+    (doseq [id ["rf-xray-popout-root" "rf-xray-popout-opener-gone-overlay"]]
+      (when-let [^js stale (.getElementById doc id)]
+        (when-let [^js parent (.-parentNode stale)]
+          (.removeChild parent stale))))))
+
 (defn popout!
   "Open a same-origin Xray pop-out window and render the shell into it.
   The pop-out shares the opener runtime and Xray frame; no
@@ -1753,6 +1774,10 @@
               ;; renders fully styled (visually identical to the inline
               ;; panel) rather than unstyled against the bare window.
               (style-popout-document! doc)
+              ;; rf2-3x7nj.27.3 — a window reused from before an opener
+              ;; reload still carries the dead shell and its revealed
+              ;; overlay; clear both before appending the live ones.
+              (remove-stale-popout-nodes! doc)
               (set! (.-id node) "rf-xray-popout-root")
               (.setAttribute node "data-rf-xray-mode" "popout")
               (.appendChild body node)

@@ -178,26 +178,42 @@
        document and focusable), so closing the dialog returns the
        keyboard user to where they were — not to `<body>`.
 
-  Tolerant of a DOM-less runtime (Node test target): when
-  `js/document` is absent it degrades to a no-op ref, so the same view
-  fn renders on both the browser-test and node-test builds."
+  ## Which document
+
+  Every read goes to the DIALOG NODE's own document
+  (`node.ownerDocument`), never `js/document`. In pop-out mode `popout!`
+  paints the shell into the pop-out's document from code running in the
+  OPENER's realm, where `js/document` is the opener's document — whose
+  `activeElement` is never one of the pop-out dialog's controls, so the
+  trap read every Tab as focus-outside-the-cycle and pinned it to the
+  first control (rf2-3x7nj.25.5). The document is captured at mount,
+  since React calls the ref with `nil` on unmount.
+
+  Tolerant of a DOM-less runtime (Node test target): with no document
+  to reach it degrades to a no-op ref, so the same view fn renders on
+  both the browser-test and node-test builds."
   []
   (let [opener   (atom nil)     ;; element focused before the dialog opened
         listener (atom nil)     ;; the installed keydown handler (for teardown)
-        node*    (atom nil)]    ;; the dialog node (closure over remove-listener)
+        node*    (atom nil)     ;; the dialog node (closure over remove-listener)
+        doc*     (atom nil)]    ;; the dialog node's own document (for unmount)
     (fn [^js node]
-      (when (exists? js/document)
+      (when-let [^js doc (if node
+                           (or (.-ownerDocument node)
+                               (when (exists? js/document) js/document))
+                           @doc*)]
         (if node
           ;; ---- mount ------------------------------------------------------
           (do
             (reset! node* node)
+            (reset! doc* doc)
             ;; Capture the opener for restore-on-close. Only an element
             ;; OUTSIDE the dialog is a valid opener — if focus already
             ;; sits inside (an `:auto-focus` input ran before this ref),
             ;; the original opener is no longer derivable, so we record
             ;; nil and skip restore rather than restoring into the
             ;; closed dialog's stale subtree.
-            (let [active (.-activeElement js/document)
+            (let [active (.-activeElement doc)
                   inside? (and active (not= active node) (.contains node active))]
               (reset! opener (when-not inside? active))
               ;; (1)+(2) land focus inside the dialog — UNLESS something
@@ -222,7 +238,7 @@
                               (try (.focus node) (catch :default _ nil)))
                           (when-let [target (trap-wrap-target
                                               focusables
-                                              (.-activeElement js/document)
+                                              (.-activeElement doc)
                                               (.-shiftKey e))]
                             (.preventDefault e)
                             (try (.focus target) (catch :default _ nil)))))))]
@@ -235,11 +251,12 @@
                 (.removeEventListener n "keydown" h)))
             (reset! listener nil)
             (reset! node* nil)
+            (reset! doc* nil)
             ;; restore focus to the opener if it is still attached +
             ;; focusable (a removed/replaced opener is skipped rather
             ;; than throwing).
-            (let [prev @opener
-                  body (.-body js/document)]
+            (let [^js prev @opener
+                  body     (.-body doc)]
               (when (and prev
                          (.-focus prev)
                          body

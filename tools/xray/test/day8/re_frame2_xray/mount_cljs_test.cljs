@@ -1402,7 +1402,14 @@
         body      (mk-stub-node)
         doc       (js-obj "body"          body
                           "title"         ""
-                          "createElement" (fn [_tag] (mk-stub-node)))
+                          "createElement" (fn [_tag] (mk-stub-node))
+                          ;; rf2-3x7nj.27.3 — `popout!` evicts a stale root
+                          ;; and overlay by id. Looks among the body's
+                          ;; direct children, which is where both live.
+                          "getElementById"
+                          (fn [id]
+                            (some #(when (= id (.-id %)) %)
+                                  (array-seq (.-children body)))))
         win       (js-obj "document" doc)]
     (set! (.-addEventListener win)
           (fn [event-name handler]
@@ -3452,3 +3459,55 @@
                     "direction two: a real opener unload reveals the overlay
                      popout! created, so a reloaded host stops presenting
                      stale panels as live data")))))))))
+
+;; ---- (e) re-popping into a window an opener reload left behind -----------
+;;
+;; `popout!` opens `window.open("", "rf-xray-popout")` — a fixed NAME and an
+;; empty URL — so a pop-out still open from before an opener RELOAD comes back
+;; un-navigated, its document still holding the dead realm's shell root and
+;; the overlay the reload announcer revealed. The reloaded opener's
+;; `popout-state` is nil, so it does not recognise the window as its own.
+
+(deftest popout!-evicts-a-dead-realms-shell-and-overlay-from-a-reused-window
+  (testing "rf2-3x7nj.27.3 — re-popping after an opener reload clears the
+            stale root and the revealed overlay out of the POP-OUT's
+            document before appending the live ones, so the user gets one
+            live shell and one hidden overlay rather than a fresh shell
+            buried under 'Opener gone … close this window'"
+    (with-driven-popout
+      (fn [{:keys [popout opener-doc]}]
+        (let [body          (.-body (.-document popout))
+              stale-root    (mk-stub-node)
+              stale-overlay (mk-stub-node)
+              ids-in-body   (fn [] (mapv #(.-id %) (array-seq (.-children body))))
+              {:keys [render-fn]} (mk-render-stub)]
+          ;; What the dead realm left in the window it opened.
+          (set! (.-id stale-root) "rf-xray-popout-root")
+          (set! (.-id stale-overlay) "rf-xray-popout-opener-gone-overlay")
+          (set! (.-display (.-style stale-overlay)) "flex")
+          (.appendChild body stale-root)
+          (.appendChild body stale-overlay)
+          (is (= ["rf-xray-popout-root" "rf-xray-popout-opener-gone-overlay"]
+                 (ids-in-body))
+              "precondition: the reused window carries the dead shell and
+               its revealed overlay")
+          (with-popout-seams render-fn
+            (fn []
+              (let [state (mount/popout!)]
+                (is (true? (:ok? state)) "the re-pop opened")
+                (is (= ["rf-xray-popout-root" "rf-xray-popout-opener-gone-overlay"]
+                       (ids-in-body))
+                    (str "exactly ONE root and ONE overlay in the pop-out's "
+                         "document. Got: " (pr-str (ids-in-body))))
+                (is (nil? (.-parentNode stale-root))
+                    "the dead realm's shell root is gone")
+                (is (nil? (.-parentNode stale-overlay))
+                    "and so is the overlay the reload revealed")
+                (is (identical? (:node state) (first (array-seq (.-children body))))
+                    "the root left is the live one popout! painted")
+                (is (identical? (:overlay-node state) (second (array-seq (.-children body))))
+                    "the overlay left is the fresh one popout! installed")
+                (is (= "none" (.-display (.-style (:overlay-node state))))
+                    "and it is hidden — nothing covers the live shell")
+                (is (zero? (.-length (.-children (.-body opener-doc))))
+                    "the opener's own document was never touched")))))))))

@@ -65,7 +65,9 @@
 
   `onPointerDown` records the starting pointer-X + starting panel
   width, then attaches `pointermove` + `pointerup` + `pointercancel`
-  listeners on `js/document` (NOT the handle element). Document-level
+  listeners on the handle's own document (NOT the handle element, and
+  not `js/document`, which in the pop-out names the opener's — see
+  [[pointer-document]]). Document-level
   capture is the standard devtool pattern — without it, drags faster
   than the pointer-event cadence escape the handle's hit-test box
   and the drag stalls. The handle's own pointer events only fire
@@ -182,11 +184,59 @@
   Matches the coarse step in spec/007-UX-IA.md §Keyboard."
   4)
 
+;; ---- the gesture's own document -----------------------------------------
+
+(defn pointer-document
+  "The document a pointer gesture belongs to: the `ownerDocument` of the
+  element whose handler received `e` (its `currentTarget`). Falls back
+  to `js/document` for an event that carries no element — the test
+  seams' stubs — and is nil when there is neither.
+
+  Never simply `js/document`. In pop-out mode `popout!` paints the shell
+  into the pop-out window's document from code running in the OPENER's
+  realm, so `js/document` there names the opener's document — and DOM
+  events do not cross the realm boundary (011-Launch-Modes §Pop-out). A
+  drag whose listeners and cursor sit on the opener's document never
+  tracks the pop-out pointer, never sees its release, and leaves the
+  opener's body cursor overridden (rf2-3x7nj.25.5, rf2-3x7nj.27.2).
+  Every drag keeps the document this returns in its state, so its
+  teardown detaches from the same one."
+  [^js e]
+  (or (some-> e .-currentTarget .-ownerDocument)
+      (when (exists? js/document) js/document)))
+
+(defn- set-body-cursor!
+  "Set `doc`'s body cursor to `cursor`. No-op without a document or a
+  body."
+  [^js doc cursor]
+  (when-let [^js body (some-> doc .-body)]
+    (set! (-> body .-style .-cursor) cursor)))
+
+(defn- body-cursor
+  "`doc`'s current body cursor, or nil without a document or a body."
+  [^js doc]
+  (some-> doc .-body .-style .-cursor))
+
+(defn- listen-document!
+  "Add (`op` :add) or remove (`op` :remove) the drag's three document
+  listeners on `doc`. Per-listener errors are swallowed so a teardown
+  always reaches its state reset. No-op without a document."
+  [^js doc op {:keys [on-move on-up on-cancel]}]
+  (when (and doc (.-addEventListener doc))
+    (doseq [[ev-name handler] [["pointermove" on-move]
+                               ["pointerup" on-up]
+                               ["pointercancel" on-cancel]]]
+      (try (if (= op :add)
+             (.addEventListener doc ev-name handler)
+             (.removeEventListener doc ev-name handler))
+           (catch :default _ nil)))))
+
 ;; ---- drag state ---------------------------------------------------------
 
 (defonce ^:private drag-state
   ;; Holds the active drag's snapshot:
-  ;;   {:start-x       <Number>   ; pageX at pointerdown
+  ;;   {:doc           <Document> ; the gesture's own document (`pointer-document`)
+  ;;    :start-x       <Number>   ; pageX at pointerdown
   ;;    :start-width   <Number>   ; px at pointerdown (from sub)
   ;;    :pointer-id    <Number>   ; pointerdown's pointerId (for capture release)
   ;;    :on-move       <fn>       ; bound document handler (for cleanup)
@@ -206,20 +256,12 @@
   (some? @drag-state))
 
 (defn- detach-document-listeners! []
-  (when-let [{:keys [on-move on-up on-cancel prev-cursor]} @drag-state]
-    (when (and (exists? js/document) (.-removeEventListener js/document))
-      (try (.removeEventListener js/document "pointermove" on-move)
-           (catch :default _ nil))
-      (try (.removeEventListener js/document "pointerup" on-up)
-           (catch :default _ nil))
-      (try (.removeEventListener js/document "pointercancel" on-cancel)
-           (catch :default _ nil)))
+  (when-let [{:keys [doc prev-cursor] :as state} @drag-state]
+    (listen-document! doc :remove state)
     ;; Restore the body cursor so the col-resize override doesn't
     ;; linger after pointerup (the document drag overrides whatever
     ;; the cursor was hovering, so we need to restore explicitly).
-    (when (and (exists? js/document) (.-body js/document))
-      (set! (-> js/document .-body .-style .-cursor)
-            (or prev-cursor "")))
+    (set-body-cursor! doc (or prev-cursor ""))
     (reset! drag-state nil)))
 
 (defn- on-document-move [^js e]
@@ -266,35 +308,23 @@
   ([^js e current-width dispatch-fn]
   ;; Defensive: clear any stale state from a prior aborted drag.
   (detach-document-listeners!)
-  (let [start-x     (.-pageX e)
-        pointer-id  (.-pointerId e)
-        prev-cursor (when (and (exists? js/document)
-                               (.-body js/document))
-                      (-> js/document .-body .-style .-cursor))
-        on-move     on-document-move
-        on-up       on-document-up
-        on-cancel   on-document-cancel]
-    (reset! drag-state {:start-x     start-x
-                        :start-width (or current-width 560)
-                        :pointer-id  pointer-id
-                        :dispatch-fn dispatch-fn
-                        :on-move     on-move
-                        :on-up       on-up
-                        :on-cancel   on-cancel
-                        :prev-cursor prev-cursor})
+  (let [doc   (pointer-document e)
+        state {:doc         doc
+               :start-x     (.-pageX e)
+               :start-width (or current-width 560)
+               :pointer-id  (.-pointerId e)
+               :dispatch-fn dispatch-fn
+               :on-move     on-document-move
+               :on-up       on-document-up
+               :on-cancel   on-document-cancel
+               :prev-cursor (body-cursor doc)}]
+    (reset! drag-state state)
     ;; Override the body cursor so the col-resize indicator persists
     ;; through the drag even when the cursor moves off the 6px handle
     ;; (which it will the moment the panel resizes wider than the
     ;; original pointer position).
-    (when (and (exists? js/document) (.-body js/document))
-      (set! (-> js/document .-body .-style .-cursor) "col-resize"))
-    (when (and (exists? js/document) (.-addEventListener js/document))
-      (try (.addEventListener js/document "pointermove" on-move)
-           (catch :default _ nil))
-      (try (.addEventListener js/document "pointerup" on-up)
-           (catch :default _ nil))
-      (try (.addEventListener js/document "pointercancel" on-cancel)
-           (catch :default _ nil)))
+    (set-body-cursor! doc "col-resize")
+    (listen-document! doc :add state)
     ;; preventDefault swallows the native text-selection / scroll
     ;; gesture that begins on pointerdown over a non-input element
     ;; — without it a drag visually selects every piece of text the
@@ -632,17 +662,11 @@
   (some? @seam-drag-state))
 
 (defn- seam-detach-document-listeners! []
-  (when-let [{:keys [on-move on-up on-cancel prev-cursor]} @seam-drag-state]
-    (when (and (exists? js/document) (.-removeEventListener js/document))
-      (try (.removeEventListener js/document "pointermove" on-move)
-           (catch :default _ nil))
-      (try (.removeEventListener js/document "pointerup" on-up)
-           (catch :default _ nil))
-      (try (.removeEventListener js/document "pointercancel" on-cancel)
-           (catch :default _ nil)))
-    (when (and (exists? js/document) (.-body js/document))
-      (set! (-> js/document .-body .-style .-cursor)
-            (or prev-cursor "")))
+  (when-let [{:keys [doc prev-cursor] :as state} @seam-drag-state]
+    ;; The SAME document the drag attached to — the pop-out's own when
+    ;; the seam is painted there (rf2-3x7nj.27.2).
+    (listen-document! doc :remove state)
+    (set-body-cursor! doc (or prev-cursor ""))
     (reset! seam-drag-state nil)))
 
 (defn- seam-on-document-move [^js e]
@@ -680,32 +704,24 @@
   ([^js e current-height] (start-seam-drag! e current-height rf/dispatch))
   ([^js e current-height dispatch-fn]
   (seam-detach-document-listeners!)
-  (let [start-y     (.-pageY e)
-        pointer-id  (.-pointerId e)
-        prev-cursor (when (and (exists? js/document)
-                               (.-body js/document))
-                      (-> js/document .-body .-style .-cursor))
-        on-move     seam-on-document-move
-        on-up       seam-on-document-up
-        on-cancel   seam-on-document-cancel]
-    (reset! seam-drag-state {:start-y      start-y
-                             :start-height (or current-height
-                                               config/default-events-list-height-px)
-                             :pointer-id   pointer-id
-                             :dispatch-fn  dispatch-fn
-                             :on-move      on-move
-                             :on-up        on-up
-                             :on-cancel    on-cancel
-                             :prev-cursor  prev-cursor})
-    (when (and (exists? js/document) (.-body js/document))
-      (set! (-> js/document .-body .-style .-cursor) "row-resize"))
-    (when (and (exists? js/document) (.-addEventListener js/document))
-      (try (.addEventListener js/document "pointermove" on-move)
-           (catch :default _ nil))
-      (try (.addEventListener js/document "pointerup" on-up)
-           (catch :default _ nil))
-      (try (.addEventListener js/document "pointercancel" on-cancel)
-           (catch :default _ nil)))
+  ;; The seam's own document, not `js/document` — in the pop-out that is
+  ;; the OPENER's, where a drag never tracked and a hover over the host
+  ;; page then drove the height (rf2-3x7nj.27.2). Kept in the state so
+  ;; the detach removes the listeners from the same document.
+  (let [doc   (pointer-document e)
+        state {:doc          doc
+               :start-y      (.-pageY e)
+               :start-height (or current-height
+                                 config/default-events-list-height-px)
+               :pointer-id   (.-pointerId e)
+               :dispatch-fn  dispatch-fn
+               :on-move      seam-on-document-move
+               :on-up        seam-on-document-up
+               :on-cancel    seam-on-document-cancel
+               :prev-cursor  (body-cursor doc)}]
+    (reset! seam-drag-state state)
+    (set-body-cursor! doc "row-resize")
+    (listen-document! doc :add state)
     (try (.preventDefault e) (catch :default _ nil)))))
 
 (defn seam-simulate-move!
