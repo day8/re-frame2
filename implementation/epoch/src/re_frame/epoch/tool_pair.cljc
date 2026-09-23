@@ -60,17 +60,18 @@
 
 ;; ---- restore failure-mode predicates --------------------------------------
 
-(defn- malli-validate-fn
-  "Return the malli validate fn or nil.
+(defn- registered-validate-fn
+  "Return the registered-validator seam, or nil when the schemas artefact is
+  not loaded.
 
-  Looks up the late-bind hook `:schemas/malli-validate`, published by
-  `re-frame.schemas.malli` when loaded. This is the only lookup step on both
-  CLJ and CLJS, so validation has the same contract in both runtimes.
-
-  Callers treat an unbound hook as a soft pass: without a validator they
-  cannot disprove validity."
+  Looks up the late-bind hook `:schemas/validate-with-registered-fn` — the
+  seam every Spec 010 validation site routes through, so restore obeys
+  `set-schema-fns!` exactly as the hot path does (rf2-3x7nj.17.3). It answers
+  true under a `nil` validator (validation disabled), the substituted
+  validator's verdict otherwise, and false when the validator throws (a
+  malformed schema fails CLOSED)."
   []
-  (rf.late-bind/get-fn :schemas/malli-validate))
+  (rf.late-bind/get-fn :schemas/validate-with-registered-fn))
 
 (defn- registered-app-schemas
   "Return the {path → schema-meta} map registered against the named
@@ -85,27 +86,26 @@
 
 (defn failing-schema-paths
   "Return a vector of failing schema-paths for `db` against `frame-id`'s
-  registered app-schemas. Empty vector means valid — either every
-  registered schema accepted the path's value, OR no schemas are
-  registered, OR no Malli validator is on the classpath. The latter
-  two are soft-pass: we can't disprove validity, so we treat the db
-  as valid.
+  registered app-schemas. Empty vector means valid.
+
+  The registered validator decides (`registered-validate-fn`): a `nil`
+  validator passes every path, a substituted validator's verdict stands —
+  its acceptances and its rejections — and a validator that throws refuses
+  the path. No schemas registered, or the schemas artefact not loaded,
+  is a soft pass: there is nothing to validate against.
 
   Single walk over the schema set: the validity question is
   `(empty? (failing-schema-paths frame-id db))`, so callers get both the
   yes/no answer and the failing paths from one traversal."
   [frame-id db]
   (let [app-schemas     (registered-app-schemas frame-id)
-        validate-schema (malli-validate-fn)]
+        validate-schema (registered-validate-fn)]
     (if (or (empty? app-schemas) (nil? validate-schema))
       []
       (vec
         (keep (fn [[path schema-entry]]
-                (let [schema       (:schema schema-entry)
-                      schema-value (get-in db path)]
-                  (when-not (try (validate-schema schema schema-value)
-                                 (catch #?(:clj Throwable :cljs :default) _ true))
-                    path)))
+                (when-not (validate-schema (:schema schema-entry) (get-in db path))
+                  path))
               app-schemas)))))
 
 (defn- machine-registration
@@ -135,19 +135,6 @@
   is the canonical slot. Nil-spec-safe."
   [machine]
   (get-in machine [:meta :rf/snapshot-version]))
-
-(defn- singleton-definition-version
-  "Read a currently-registered SINGLETON machine definition's
-  `:rf/snapshot-version` by snapshot key. The key of a singleton's snapshot
-  IS its registered machine-id (a `reg-machine`'d machine outlives no
-  per-instance allocation), so the registrar probe resolves it directly.
-  Returns nil when `machine-id` is not a registered machine (e.g. a spawned
-  actor's instance-id key — those resolve via `:rf/machine-type`, see
-  `machine-version-mismatch`)."
-  [machine-id]
-  (some-> (machine-registration machine-id)
-          :rf/machine
-          spec-snapshot-version))
 
 ;; Machine snapshots and the route slice are durable runtime-db partition
 ;; state, addressed at the
@@ -255,64 +242,65 @@
             [{:kind :route :id route-id}]))]
     (vec (concat missing-machines missing-route))))
 
-(defn- current-definition-version
-  "Resolve the current definition `:rf/snapshot-version` for one recorded
-  snapshot the same way dispatch resolves the live spec:
+(defn- current-definition
+  "Resolve the CURRENT machine definition for one recorded snapshot the same
+  way dispatch resolves the live spec:
 
     - SINGLETON snapshots — the snapshot key IS the registered machine-id, so
-      `singleton-definition-version` resolves the live spec by key.
+      the registrar resolves the live spec by key.
     - SPAWNED-ACTOR snapshots — the key is an instance-id with NO per-instance
       registration; the actor's TYPE rides the snapshot under `:rf/machine-type`
       (a registered TYPE keyword OR an inline `:definition` spec map, per Spec
       005 §Reserved snapshot-internal keys). The late-bound
       `:machines/spec-from-snapshot` hook (published by `re-frame.machines`,
       body `resolver/spec-from-snapshot`) resolves the same spec the lazy
-      actor-handler resolver materialises on dispatch; its
-      `[:meta :rf/snapshot-version]` is the spawned actor's current version.
+      actor-handler resolver materialises on dispatch.
 
-  Returns `{:current <int-or-nil> :type <type-ref-or-nil>}`. `:current` is the
-  resolved version (nil when no definition resolves — a cleared TYPE is a
-  MISSING reference, caught upstream by `missing-references`, not a version
-  drift). `:type` is the spawned actor's `:rf/machine-type` (keyword or inline
-  map) when the snapshot carried one, nil for a singleton — surfaced so the
-  drift trace can identify the actor's TYPE as well as its instance id."
+  Returns `{:spec <spec-or-nil> :type <type-ref-or-nil>}`. `:spec` is nil when
+  no definition resolves — a cleared TYPE is a MISSING reference, caught
+  upstream by `missing-references`, not a version drift. The definition is
+  resolved BEFORE its version is read, so a registered definition carrying no
+  version is told apart from no definition at all (rf2-3x7nj.17.2). `:type` is
+  the spawned actor's `:rf/machine-type` (keyword or inline map) when the
+  snapshot carried one, nil for a singleton — surfaced so the drift trace can
+  identify the actor's TYPE as well as its instance id."
   [machine-id snapshot]
-  (let [singleton (singleton-definition-version machine-id)]
-    (if (some? singleton)
-      ;; The snapshot key names a registered machine — a singleton.
-      {:current singleton :type nil}
-      ;; No registered machine under the key: a spawned actor whose TYPE rides
-      ;; the snapshot. Resolve the spec the dispatch-time way.
-      (let [type-ref      (:rf/machine-type snapshot)
-            from-snapshot (rf.late-bind/get-fn :machines/spec-from-snapshot)
-            spec          (when from-snapshot (from-snapshot snapshot))]
-        {:current (spec-snapshot-version spec)
-         :type    type-ref}))))
+  (if-let [registration (machine-registration machine-id)]
+    {:spec (:rf/machine registration) :type nil}
+    (let [from-snapshot (rf.late-bind/get-fn :machines/spec-from-snapshot)]
+      {:spec (when from-snapshot (from-snapshot snapshot))
+       :type (:rf/machine-type snapshot)})))
 
 (defn machine-version-mismatch
   "Walk the recorded runtime-db partition's `[:rf.runtime/machines :snapshots]`
   for snapshot version drift. The recorded snapshot may carry
   `:rf/snapshot-version` under `:meta`; the CURRENT machine definition carries
-  `:rf/snapshot-version` under its own `:meta`. When they differ, return the
-  first mismatch as
-  `{:machine-id <id> :machine-type <type-or-nil> :recorded <int> :current <int>}`.
-  nil when no mismatch is found.
+  `:rf/snapshot-version` under its own `:meta`. The rule is the machines
+  artefact's own (`version-compatible?`): exact equality, absent included — both
+  absent matches, both present-and-equal matches, and any other shape is a
+  mismatch, so a version stamp ADDED or REMOVED since the recording is drift
+  exactly as a changed one is (rf2-3x7nj.17.2). Returns the first mismatch as
+  `{:machine-id <id> :machine-type <type-or-nil> :recorded <int-or-nil>
+  :current <int-or-nil>}`, nil when none is found.
 
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
   frame-state. The current definition is resolved the same way dispatch
   resolves the live spec: a singleton by its snapshot key (the key is the registered
   machine-id), a SPAWNED ACTOR by its snapshot's `:rf/machine-type` (registered
-  type keyword or inline `:definition` map — `current-definition-version`).
+  type keyword or inline `:definition` map — `current-definition`). A snapshot
+  whose definition does not resolve is skipped here; `missing-references`
+  reports it.
 
   The recorded version is read through the public Spec 005 §Snapshot shape
   contract — the snapshot's `[:meta :rf/snapshot-version]`;
   the current version through the resolved spec's `[:meta :rf/snapshot-version]`."
   [runtime-db]
   (some (fn [[machine-id snapshot]]
-          (let [recorded (snapshot-version snapshot)]
-            (when (some? recorded)
-              (let [{:keys [current type]} (current-definition-version machine-id snapshot)]
-                (when (and (some? current) (not= recorded current))
+          (let [{:keys [spec type]} (current-definition machine-id snapshot)]
+            (when (some? spec)
+              (let [recorded (snapshot-version snapshot)
+                    current  (spec-snapshot-version spec)]
+                (when (not= recorded current)
                   {:machine-id   machine-id
                    :machine-type type
                    :recorded     recorded

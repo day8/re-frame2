@@ -8,7 +8,7 @@
   Here we exercise the full off-box-forwarder pattern an MCP server runs:
 
     1. Build a realistic mixed ring (sensitive + large + bookkeeping-only
-       records, halted-destroy records, the empty case). `large` means BOTH
+       records, a `:halted-depth` record, the empty case). `large` means BOTH
        shapes a large value can arrive in: the app-db PATH declaration and
        the whole-output `:large?` sub REGISTRATION stamp (rf2-isp3i). The
        second is not app-db-rooted, so a fixture that declared only paths
@@ -95,14 +95,15 @@
 ;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, fires the epoch
 ;; reset-hook table (history / listeners / config-to-default), and the
-;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
+;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 7`
 ;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
 ;; public `configure!` boundary — no test ns reaches into the private
-;; `state/config` var.
+;; `state/config` var. 7 is the record count `drive-mixed-ring!` settles,
+;; so every record in the mixed ring keeps its `:trace-events`.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
-     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 7}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -174,6 +175,13 @@
                 :large     [[:blob :payload]]})))
   nil)
 
+(def ^:private mixed-ring-frame
+  "The frame every `drive-mixed-ring!` deftest makes. `:drain-depth 1` is what
+  lets the ring carry a `:halted-depth` record after two events instead of a
+  hundred (rf2-3x7nj.17.1); no other cascade in the ring dispatches a child,
+  so the cap changes nothing else."
+  {:id :test/mcp :drain-depth 1})
+
 (defn- drive-mixed-ring!
   "Drive a deterministic, mixed cascade matrix against `frame-id`:
     - :seed — non-sensitive bookkeeping
@@ -188,6 +196,16 @@
               so this fixture kept them out; that constraint is now lifted)
     - :upload — writes the large path (large payload closed-over in the
                 handler for the same reason)
+    - :halt/loop — a runaway (rf2-3x7nj.17.1): it re-dispatches itself
+                carrying the secret in an arg its registration declares
+                `:sensitive`, so under the frame's `:drain-depth 1`
+                (`mixed-ring-frame`) it settles one `:ok` record and the
+                depth limit commits a `:halted-depth` record. Before
+                rf2-3x7nj.17.1 that record's `:halt-reason` carried the
+                settled event's args raw, and `:halt-reason` is a bookkeeping
+                slot this file's byte-for-byte check requires to pass
+                through — so the scans below had never seen the one shape
+                that could smuggle event args past both checks at once
     - :inc — non-sensitive again, AND the FIRST reading of the two subs
              below. It takes that reading through `subscribe` (not
              `subscribe-once`), so the cache entry outlives the cascade
@@ -213,15 +231,22 @@
                    therefore inhabited by one cascade, and all FOUR of
                    their payload slots carry a real value
   Driven LAST so the existing index-addressed assertions (`(nth _ 1)` =
-  :login, `(nth _ 2)` = :upload) keep addressing the same cascades. Five
-  cascades against this suite's `:trace-events-keep 5` means every record
-  retains its `:trace-events`, so the tag slot is present on all of them.
+  :login, `(nth _ 2)` = :upload) keep addressing the same cascades — and
+  :halt/loop sits between :upload and :inc for the same reason, leaving
+  `(last …)` on :read-subs. Seven records against this suite's
+  `:trace-events-keep 7` means every record retains its `:trace-events`, so
+  the tag slot is present on all of them.
   Returns the resulting `(epoch-history frame-id)` for direct comparison
   with its whole-ring projection."
   [frame-id]
+  (when-not (= 1 (:drain-depth (rf.frame/frame-config frame-id)))
+    (throw (ex-info "drive-mixed-ring! needs a frame made from `mixed-ring-frame`"
+                    {:frame frame-id})))
   (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 0}}))
   (rf/reg-event :login  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret-password)}))
   (rf/reg-event :upload (fn [{:keys [db]} _] {:db (assoc-in db [:blob :payload] (big-string payload-size))}))
+  (rf/reg-event :halt/loop {:sensitive [[:token]]}
+    (fn [_ [_ arg]] {:fx [[:dispatch [:halt/loop arg]]]}))
   ;; The `:large?` sub's output rides `:n`, so the two readings below produce
   ;; values of DIFFERENT sizes — the raw current / previous pair the four
   ;; payload slots must each carry, and the reason their two markers can be
@@ -242,6 +267,7 @@
   (rf/dispatch-sync [:seed]      {:frame frame-id})
   (rf/dispatch-sync [:login]     {:frame frame-id})
   (rf/dispatch-sync [:upload]    {:frame frame-id})
+  (rf/dispatch-sync [:halt/loop {:token secret-password}] {:frame frame-id})
   (rf/dispatch-sync [:inc]       {:frame frame-id})
   (rf/dispatch-sync [:read-subs] {:frame frame-id})
   (rf/epoch-history frame-id))
@@ -872,7 +898,7 @@
             shape MUST NOT carry the raw secret string anywhere — the
             promise the MCP wire boundary makes to Security.md §Epoch
             privacy posture (line 104)."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (let [shipped (atom [])
           ship!   (fn [record]
@@ -882,6 +908,9 @@
       (drive-mixed-ring! :test/mcp)
       (is (pos? (count @shipped))
           "the forwarder saw at least one cascade")
+      (is (some #(= :halted-depth (:outcome %)) @shipped)
+          "fixture: the forwarder shipped the `:halted-depth` record whose
+           descriptor once carried the secret (rf2-3x7nj.17.1)")
       (is (not-any? contains-secret? @shipped)
           "no projected record carries the raw secret string anywhere
            in its structure — every leaf at the sensitive path is the
@@ -911,7 +940,7 @@
             through. Without them a future retention change (or a
             registration that silently stopped stamping) would return
             this gate to reporting green over ground it never covered."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (let [shipped (atom [])]
       (rf/register-listener! :epoch ::forwarder
@@ -1008,7 +1037,7 @@
             tool routing, :rf.epoch/sensitive? to display the
             sensitivity badge — all MUST survive the projection
             verbatim (Spec Security.md §Epoch privacy posture line 103)."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw       (rf/epoch-history :test/mcp)
@@ -1016,6 +1045,10 @@
           bookkeeping-keys [:epoch-id :frame :committed-at :event-id
                             :outcome :halt-reason :schema-digest
                             :rf.epoch/sensitive?]]
+      (is (some #(some? (:halt-reason %)) raw)
+          "fixture: the ring carries a record with a `:halt-reason`, so the
+           byte-for-byte check below compares a real descriptor rather than
+           nil against nil (rf2-3x7nj.17.1)")
       (doseq [k bookkeeping-keys
               [r p] (map vector raw projected)]
         (is (= (get r k) (get p k))
@@ -1027,7 +1060,7 @@
             transform — it MUST NOT mutate the underlying ring, the
             schemas registry, or the elision registry. A forwarder
             running on every cascade would compound any side effect."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before        (rf/epoch-history :test/mcp)
@@ -1068,7 +1101,7 @@
             irreversible across passes. Once a record has been projected,
             re-projecting it yields the same shape, byte-for-byte at
             the substitution points."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
@@ -1118,7 +1151,7 @@
             irreversible across passes: once `:rf.size/large-elided`,
             always `:rf.size/large-elided` with the SAME `:bytes` /
             `:digest` slots. Parallel to the sensitive-case guarantee."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
@@ -1153,7 +1186,7 @@
             projected map for a real record. A forwarder that mixes
             optional / present records (cursor mid-stream, an epoch-id
             lookup that lost the race) MUST be able to call uniformly."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
@@ -1190,7 +1223,7 @@
             bulk output MUST NOT leak the raw secret OR the raw large
             payload anywhere in its structure — the same per-record
             guarantee, lifted to the bulk surface."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [snapshot (project-ring :test/mcp)]
@@ -1207,7 +1240,7 @@
             server's resume-cursor (`:after-id` keyed off the last
             epoch-id) addresses a stable point in the projected stream.
             A reordering would break cursor pagination."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw      (rf/epoch-history :test/mcp)
@@ -1234,7 +1267,7 @@
             projection MUST be pure — repeat calls (the initial snapshot, a
             resync-after-reconnect, a debug print) MUST NOT mutate the
             ring or any registry."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before    (rf/epoch-history :test/mcp)
@@ -1803,7 +1836,7 @@
             vocabulary MUST see uniform shapes across the per-record and
             bulk-egress paths — divergence would force per-path branching
             client-side. Pinned per-record-AND-bulk against the same ring."
-    (rf/make-frame {:id :test/mcp})
+    (rf/make-frame mixed-ring-frame)
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw        (rf/epoch-history :test/mcp)
@@ -1843,8 +1876,10 @@
 ;;  [:login "topsecret"]) previously egressed RAW through the generic
 ;;  app-db-rooted payload-slot projection. The fix fails closed: args
 ;;  redacted, head event-id retained; trusted-local :rf.egress/include-event-args?
-;;  opts back in. (drive-mixed-ring! keeps secrets OUT of the trigger-event
-;;  on purpose — see its :login comment — so these tests drive the secret IN.)
+;;  opts back in. (drive-mixed-ring!'s :login keeps the secret OUT of the
+;;  trigger-event on purpose — see its :login comment — and its :halt/loop
+;;  carries it only in an arg its registration declares `:sensitive`, so these
+;;  tests drive an UNDECLARED secret IN.)
 ;; ============================================================================
 
 (deftest forwarder-trigger-event-positional-secret-fails-closed

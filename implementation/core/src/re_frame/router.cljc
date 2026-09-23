@@ -2878,8 +2878,7 @@
   caller's read rides `rf.interop/debug-enabled?`); the `(some? ...)` slot
   then collapses.
 
-  Per rf2-9dk9y two further `:tags` slots ride this emit so the Xray
-  Event lens's COEFFECTS / AFTER INTERCEPTORS sections render uniformly
+  Per rf2-9dk9y two further `:tags` slots ride this emit, present
   regardless of whether the handler returned `:fx`:
 
     `:rf.event/coeffects`    — the USER-INJECTED subset of the
@@ -2888,16 +2887,18 @@
                                 `:source` `:trace-id` `:rf.db/runtime`
                                 filtered out at this boundary). Absent
                                 entirely when zero user cofx were
-                                injected.
+                                injected. The Xray Event lens's
+                                COEFFECTS section reads it.
     `:rf.event/after-deltas` — vector of per-`:after` interceptor
                                 ctx-delta records `{:rf.interceptor.delta/id <id>
                                 :rf.interceptor.delta/ctx-delta {...}}` populated by
                                 `rf.interceptor/execute-chain` for every
                                 user-registered `:after` that mutated
                                 the context. Absent when no user-`:after`
-                                ran. The Xray AFTER INTERCEPTORS section
-                                reads it to render an EDN-diff under
-                                each row."
+                                ran. A dev-only per-interceptor delta
+                                record, surfaced through generic trace
+                                inspection; its `:db` values are
+                                classified like `:rf.event/db`."
   [event-id event emit-event frame outcome start-ms handler-elapsed-ms final-ctx]
   ;; The cofx / after-delta projections are dev-only: their cost rides
   ;; `rf.interop/debug-enabled?` so production CLJS bundles DCE the
@@ -3428,10 +3429,14 @@
                                 (comp (keep :event)
                                       (map #(when (vector? %) (first %))))
                                 queue)
-        halt-reason     {:operation  :rf.error/drain-depth-exceeded
-                         :depth      depth
-                         :queue-size queue-size
-                         :last-event last-event}]
+        ;; rf2-3x7nj.17.1 — the record's descriptor carries the last-settled
+        ;; event's ID, never its args: `:halt-reason` is a bookkeeping slot that
+        ;; egresses verbatim, and the args already live (classified) on that
+        ;; event's own `:ok` record.
+        halt-reason     {:operation     :rf.error/drain-depth-exceeded
+                         :depth         depth
+                         :queue-size    queue-size
+                         :last-event-id last-event-id}]
     ;; The evidence assembly above is a pure read; A still owns the frame at the
     ;; halt seam (a halt is a depth trip, not a destroy). Bind A's EXACT-owner
     ;; continuation predicate around EVERY callback-bearing halt action below
@@ -3510,10 +3515,22 @@
     ;; and the epoch surface writes it into both slots. rf2-bh56rc:
     ;; `:committed-at` is the halting event's causal `:rf/time-ms`, not an
     ;; ambient read.
+    ;;
+    ;; rf2-3x7nj.17.1: the halting event never ran, so no run-start trace
+    ;; classified it. Apply its registration's classification here, inside the
+    ;; frame's resolution scope (as `rf.error-emit` does for the always-on
+    ;; record), so the record's `:trigger-event` holds what every `:ok`
+    ;; record's does. Replay refuses halted records, so no raw copy is needed.
     (when (rf.trace/continuation-live?)
       (when-let [commit-halt! (rf.late-bind/get-fn-cached :epoch/commit-halt-record!)]
-        (commit-halt! frame-id fs-now halting-time-ms :halted-depth
-                      halt-reason halting-event owner-token)))))))
+        (let [redact  (rf.late-bind/get-fn-cached
+                        :classification/redact-event-by-registration)
+              trigger (if redact
+                        (rf.live-frame/call-with-frame-resolution
+                          frame-id #(redact halting-event))
+                        halting-event)]
+          (commit-halt! frame-id fs-now halting-time-ms :halted-depth
+                        halt-reason trigger owner-token))))))))
 
 (defn- settle-event-epoch!
   "Commit the just-completed event's epoch (Tool-Pair §Time-travel). Per
