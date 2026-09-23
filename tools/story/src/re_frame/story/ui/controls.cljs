@@ -152,13 +152,17 @@
   Scalar shapes:
 
   - `:string`             → `{:widget :text}`
-  - `:int` / `:double`    → `{:widget :number}`
+  - `:int` / `:double` / `:number` → `{:widget :number}`
   - `:boolean`            → `{:widget :boolean}`
   - `:keyword`            → `{:widget :text :coerce :keyword}` (the
                             `:coerce` tag is what makes the promised
                             keyword-coercion-at-edit actually happen —
                             `render-text` reads it, rf2-i6v4)
   - `[:enum a b c]`       → `{:widget :select :options [a b c]}`
+  - `[:int {:min 8}]` etc. → the same widget as the bare keyword — a
+                            scalar carrying Malli properties is still that
+                            scalar (rf2-3x7nj.28.4)
+  - `[:maybe X]`          → the widget for `X`
 
   Collection shapes:
 
@@ -180,11 +184,16 @@
     (= :string schema-fragment)  {:widget :text}
     (= :int schema-fragment)     {:widget :number}
     (= :double schema-fragment)  {:widget :number}
+    (= :number schema-fragment)  {:widget :number}
     (= :boolean schema-fragment) {:widget :boolean}
     (= :keyword schema-fragment) {:widget :text :coerce :keyword}
 
     (vector? schema-fragment)
     (case (schema-op schema-fragment)
+      ;; rf2-3x7nj.28.4 — `[:int {:min 8 :max 64}]` is still an :int.
+      (:string :int :double :number :boolean :keyword)
+      (infer-widget (schema-op schema-fragment))
+      :maybe  (infer-widget (first (schema-children schema-fragment)))
       :enum   {:widget :select :options (vec (schema-children schema-fragment))}
       :map    (group-descriptor (schema-map-entries->descriptors schema-fragment))
       :vector (repeater-descriptor :vector (infer-widget (first (schema-children schema-fragment))))
