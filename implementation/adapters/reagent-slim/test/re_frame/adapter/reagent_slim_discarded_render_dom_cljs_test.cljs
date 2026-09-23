@@ -146,6 +146,22 @@
                 (set! (.-rfTestForced inst) (inc (.-rfTestForced inst)))
                 (.call original inst callback)))))))
 
+(defn- capture-owner!
+  "Record the render Reaction the rendering instance runs under — the OWNER
+  re-frame's render-owned references hang off. make-render-method sets it on
+  the instance before running the render, so it is readable from inside."
+  [^js owners]
+  (let [rea (.-cljsRenderRea ^js (r/current-component))]
+    (when (and (some? rea) (not (.includes owners rea)))
+      (.push owners rea))))
+
+(defn- owners-holding
+  "How many captured owners still record a render-owned holding — the
+  per-owner holdings cell `re-frame.subs` keeps on the owner and clears when
+  the owner is disposed (rf2-3x7nj.3.1)."
+  [^js owners]
+  (count (filter #(some? (.-rfSubRefs ^js %)) (array-seq owners))))
+
 (defn- live-render-reactions
   "How many of the captured instances still hold a render Reaction."
   [^js instances]
@@ -190,6 +206,7 @@
       (let [frame-kw     ::suspense-frame
             query-v      [::suspense-n]
             instances    #js []
+            owners       #js []
             disposes     (atom [])
             resolve-lazy (atom nil)
             chunk        (js/Promise. (fn [res _] (reset! resolve-lazy res)))
@@ -200,6 +217,7 @@
         (rf/reg-view* ::suspense-row
                       (fn suspense-row []
                         (capture-instance! instances)
+                        (capture-owner! owners)
                         [:b "n=" @(rf/subscribe query-v)]))
         (record-disposes! ::suspense-disposes disposes)
         (let [row    (rf/view ::suspense-row)
@@ -226,6 +244,9 @@
                       (str "past the horizon, no discarded instance still holds its render "
                            "Reaction; " (live-render-reactions instances) " of "
                            (alength instances) " do"))
+                  (is (zero? (owners-holding owners))
+                      (str "no discarded owner is left recording a holding; "
+                           (owners-holding owners) " of " (alength owners) " are"))
                   (is (nil? (slot frame-kw query-v))
                       (str "with no committed reader the slot is released past the horizon; "
                            ":ref-count is " (pr-str (ref-count frame-kw query-v))))
@@ -247,6 +268,9 @@
                   (is (= 1 (live-render-reactions instances))
                       (str "only the committed instance holds a render Reaction; "
                            (live-render-reactions instances) " of " (alength instances) " do"))
+                  (is (= 1 (owners-holding owners))
+                      (str "only the committed owner records a holding; "
+                           (owners-holding owners) " of " (alength owners) " do"))
                   (is (= 1 (ref-count frame-kw query-v))
                       (str ":ref-count counts the one committed reader; got "
                            (pr-str (ref-count frame-kw query-v))))
@@ -290,6 +314,7 @@
       (let [frame-kw  ::boundary-frame
             query-v   [::boundary-n]
             instances #js []
+            owners    #js []
             thrown    (atom 0)
             disposes  (atom [])
             done?     (atom false)]
@@ -297,6 +322,7 @@
         (rf/reg-view* ::boundary-row
                       (fn boundary-row []
                         (capture-instance! instances)
+                        (capture-owner! owners)
                         [:b "row=" @(rf/subscribe query-v)]))
         (rf/reg-view* ::boundary-control
                       (fn boundary-control []
@@ -304,6 +330,7 @@
         (rf/reg-view* ::boundary-thrower
                       (fn boundary-thrower []
                         (swap! thrown inc)
+                        (capture-owner! owners)
                         (when (some? @(rf/subscribe query-v))
                           (throw (js/Error. "rf2-3x7nj.6.3 discarded-render boom")))))
         (record-disposes! ::boundary-disposes disposes)
@@ -342,6 +369,10 @@
                         (str "past the horizon, no discarded instance still holds its render "
                              "Reaction; " (live-render-reactions instances) " of "
                              (alength instances) " do"))
+                    (is (zero? (owners-holding owners))
+                        (str "no discarded owner — the view's or the thrower's — is left "
+                             "recording a holding; " (owners-holding owners) " of "
+                             (alength owners) " are"))
                     (is (= 1 (ref-count frame-kw query-v))
                         (str ":ref-count counts the one committed reader, the control; got "
                              (pr-str (ref-count frame-kw query-v))))
