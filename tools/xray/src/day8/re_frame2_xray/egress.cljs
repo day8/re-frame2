@@ -39,10 +39,11 @@
   is the profile whose `:rf.egress/*` floor is the one this fn used to
   hand-roll — sensitive redacts, large elides, NO structural digests — so
   the migration is output-identical. It is deliberately NOT
-  `:rf.egress/off-box-tool`, which turns `:rf.egress/include-digests?` ON;
-  whether an Xray clipboard payload should carry digests is a separate
-  policy question owned by rf2-elrh, not a side effect of naming a
-  boundary. A frame-declared sensitive slot egresses as `:rf/redacted`
+  `:rf.egress/off-box-tool`, which names the MCP / AI tool wire rather than
+  a human sink. Neither profile turns `:rf.egress/include-digests?` on
+  (rf2-3x7nj.32.6); whether an Xray clipboard payload should carry digests
+  is a separate policy question owned by rf2-elrh, not a side effect of
+  naming a boundary. A frame-declared sensitive slot egresses as `:rf/redacted`
   and a large slot as the `:rf.size/large-elided` marker. Xray's panel
   affordances expose no opt-in argument — the snapshot path is ALWAYS the
   redacted, size-elided projection, and any future affordance inherits
