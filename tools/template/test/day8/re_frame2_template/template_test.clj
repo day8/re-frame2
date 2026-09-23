@@ -27,7 +27,7 @@
             [clojure.string :as string]
             [day8.re-frame2-template.test-support
              :refer [tmp-dir delete-recursively run-template!
-                     run-template-opts! read-edn file-exists?]]))
+                     run-template-opts! read-edn file-exists? repo-root]]))
 
 ;; --- The contract ----------------------------------------------------------
 
@@ -282,6 +282,31 @@
 (deftest reagent-contract-test
   (testing ":substrate :reagent emits the contract"
     (assert-contract! :reagent)))
+
+;; --- The template's own README ----------------------------------------------
+
+(deftest readme-pure-jvm-form-names-the-wrapper-aliases-test
+  (testing "the template README's pure-JVM watch form names exactly the aliases
+            the emitted shadow-cljs.edn hands the `npx shadow-cljs` wrapper —
+            `:dev` included, since the dev build boots `stories/init`, whose
+            Story require only `:dev` puts on the classpath (rf2-3x7nj.37.2)"
+    (let [tmp (tmp-dir "rf2-template-readme-")]
+      (try
+        (let [root    (run-template! tmp "acme/my-app" :reagent)
+              wrapper (get-in (read-edn (io/file root "shadow-cljs.edn")) [:deps :aliases])
+              readme  (slurp (io/file (repo-root) "tools/template/README.md"))
+              forms   (map second
+                           (re-seq #"clojure\s+-M(\S+)\s+-m\s+shadow\.cljs\.devtools\.cli\s+watch\s+app"
+                                   readme))]
+          (is (seq wrapper) "the emitted shadow-cljs.edn names the wrapper's aliases")
+          (is (= 1 (count forms))
+              "the README gives exactly one pure-JVM watch form — the instrument found it")
+          (doseq [aliases forms]
+            (is (= (apply str wrapper) aliases)
+                (str "the README's `clojure -M" aliases " …` must name the wrapper's "
+                     "aliases " (pr-str wrapper)))))
+        (finally
+          (delete-recursively tmp))))))
 
 (deftest uix-contract-test
   (testing ":substrate :uix emits the contract"
