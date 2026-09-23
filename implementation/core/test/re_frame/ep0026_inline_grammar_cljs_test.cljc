@@ -247,12 +247,16 @@
         (is (= false (:recordable? d)))
         (is (= false (:provided? d)))))
     (testing "the grade is carried from the inline metadata (recordable / provided)"
-      (let [body (fn [] :v)
-            d    (runnable {:reg-cofx [[:graded/cofx
-                                        {:recordable? true :provided? true}
-                                        body]]})]
+      ;; A PROVIDED fact has no generator, so its inline entry carries a nil
+      ;; body — exactly the shape `reg-cofx` accepts. A supplier here is the
+      ;; contradiction `reg-cofx` refuses, and so does the inline lowering
+      ;; (rf2-3x7nj.5.1).
+      (let [d (runnable {:reg-cofx [[:graded/cofx
+                                     {:recordable? true :provided? true}
+                                     nil]]})]
         (is (= true (:recordable? d)))
-        (is (= true (:provided? d)))))))
+        (is (= true (:provided? d)))
+        (is (nil? (:handler-fn d)) "a provided fact lowers with no supplier")))))
 
 ;; ===========================================================================
 ;; 2. UNSUPPORTED inline kinds fail loud (every kind without a published

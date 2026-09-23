@@ -120,6 +120,81 @@
   (rf.error/throw-error! :rf.error/cofx-registration-invalid 'rf/reg-cofx reason
                       {:extra {:rf.cofx/id id}}))
 
+(defn- validate-cofx-grade!
+  "The `reg-cofx` registration-time checks on the id and the coeffect's GRADE,
+  shared by `reg-cofx` and the inline lowering `lower-inline-cofx` so an inline
+  registration accepts and rejects exactly what the registrar does
+  (rf2-3x7nj.5.1). `meta` is the registration metadata (nil allowed); `supplier`
+  is the value-returning fn, or nil for a provided fact. Throws on a fold-argument
+  name collision or a malformed grade; otherwise returns the grade flags the
+  registrar stores, `{:recordable? bool :provided? bool}`."
+  [id meta supplier]
+  ;; ---- name-collision guard (Spec 001 §Collisions) ------------------------
+  (when (contains? fold-argument-keys id)
+    (emit-cofx-name-collision!
+      id
+      (str "`reg-cofx` id `" id "` collides with a fold ARGUMENT key. `:db` "
+           "and `:event` are the handler's own arguments — staged by the "
+           "runtime, not registered coeffects, and not declarable via "
+           "`:rf.cofx/requires`. Choose an owner-qualified fact name.")))
+  (let [recordable? (boolean (:recordable? meta))
+        provided?   (boolean (:provided? meta))]
+    ;; `:provided?` is meaningful ONLY alongside `:recordable? true` — a
+    ;; provided fact is recordable by definition (its owner stamps the
+    ;; value onto the token; an ambient fact always runs a supplier). A
+    ;; `{:provided? true}` without `:recordable? true` is a malformed
+    ;; grade that would otherwise register as an ambient fact with a nil
+    ;; supplier, surfacing only as an opaque host NPE at delivery
+    ;; (`run-ambient-supplier` invoking nil). Reject it loudly at the call
+    ;; site instead (Spec-Schemas §`:rf/cofx-meta`, rf2-cu8wet). This is a
+    ;; malformed-grade error, NOT a name collision (rf2-d8mvke.6).
+    (when (and provided? (not recordable?))
+      (emit-cofx-registration-invalid!
+        id
+        (str "`reg-cofx` id `" id "` declared `:provided? true` without "
+             "`:recordable? true`. A provided coeffect is recordable by "
+             "definition (its owner stamps the value onto the token); an "
+             "ambient coeffect always runs a supplier. Either add "
+             "`:recordable? true` (a provided recordable fact) or drop "
+             "`:provided?` and supply a value-returning fn (an ambient "
+             "fact).")))
+    ;; A PROVIDED recordable fact has NO generator: its value is stamped
+    ;; onto the token by its owner and delivery reads it from the token's
+    ;; `:rf.cofx` verbatim (`deliver-declared-cofx`'s recordable branch
+    ;; never invokes a supplier). A supplier passed alongside `:provided?
+    ;; true` is therefore SILENTLY IGNORED at delivery — the registration
+    ;; looks like it provides a generator, but the first handler requiring
+    ;; the fact (when it is absent from the token) fails as
+    ;; `:rf.error/missing-required-cofx`. Reject the contradiction at the
+    ;; call site (rf2-d8mvke.1). The valid provided shape is
+    ;; `{:recordable? true :provided? true}` with NO supplier.
+    (when (and provided? (some? supplier))
+      (emit-cofx-registration-invalid!
+        id
+        (str "`reg-cofx` id `" id "` declared `:provided? true` WITH a "
+             "supplier. A provided recordable fact has NO generator — its "
+             "value is stamped onto the causal token by its owner and "
+             "delivered verbatim, so this supplier would be silently "
+             "ignored at delivery (the first consumer fails as "
+             "`:rf.error/missing-required-cofx`). Either drop the supplier "
+             "(a provided recordable fact: `{:recordable? true :provided? "
+             "true}`) or drop `:provided?` (a recordable fact whose "
+             "supplier generates the value).")))
+    ;; A non-recordable (ambient) fact with no supplier cannot produce a
+    ;; value; only a PROVIDED recordable fact legitimately omits its
+    ;; generator (its owner stamps the token). An ambient fact MUST carry a
+    ;; supplier. This is a malformed-grade error, NOT a name collision
+    ;; (rf2-d8mvke.6).
+    (when (and (nil? supplier) (not provided?))
+      (emit-cofx-registration-invalid!
+        id
+        (str "`reg-cofx` id `" id "` declared no supplier. Only a PROVIDED "
+             "recordable fact (`{:recordable? true :provided? true}`) may "
+             "omit its supplier — its owner stamps the value onto the token. "
+             "An ambient supplier must be a value-returning fn.")))
+    {:recordable? recordable?
+     :provided?   provided?}))
+
 (defn reg-cofx
   "Register a coeffect id with a **value-returning supplier** and standard
   Spec 001 metadata. Per Spec 001 §`reg-cofx` + EP-0017.
@@ -203,69 +278,7 @@
           ;; legitimately has no supplier, so `(reg-cofx :id {:provided? true})`
           ;; is the single-arg-meta form handled by the map? branch above.
           [{} metadata-or-supplier])]
-    ;; ---- name-collision guard (Spec 001 §Collisions) ----------------------
-    (when (contains? fold-argument-keys id)
-      (emit-cofx-name-collision!
-        id
-        (str "`reg-cofx` id `" id "` collides with a fold ARGUMENT key. `:db` "
-             "and `:event` are the handler's own arguments — staged by the "
-             "runtime, not registered coeffects, and not declarable via "
-             "`:rf.cofx/requires`. Choose an owner-qualified fact name.")))
-    (let [recordable? (boolean (:recordable? meta))
-          provided?   (boolean (:provided? meta))]
-      ;; `:provided?` is meaningful ONLY alongside `:recordable? true` — a
-      ;; provided fact is recordable by definition (its owner stamps the
-      ;; value onto the token; an ambient fact always runs a supplier). A
-      ;; `{:provided? true}` without `:recordable? true` is a malformed
-      ;; grade that would otherwise register as an ambient fact with a nil
-      ;; supplier, surfacing only as an opaque host NPE at delivery
-      ;; (`run-ambient-supplier` invoking nil). Reject it loudly at the call
-      ;; site instead (Spec-Schemas §`:rf/cofx-meta`, rf2-cu8wet). This is a
-      ;; malformed-grade error, NOT a name collision (rf2-d8mvke.6).
-      (when (and provided? (not recordable?))
-        (emit-cofx-registration-invalid!
-          id
-          (str "`reg-cofx` id `" id "` declared `:provided? true` without "
-               "`:recordable? true`. A provided coeffect is recordable by "
-               "definition (its owner stamps the value onto the token); an "
-               "ambient coeffect always runs a supplier. Either add "
-               "`:recordable? true` (a provided recordable fact) or drop "
-               "`:provided?` and supply a value-returning fn (an ambient "
-               "fact).")))
-      ;; A PROVIDED recordable fact has NO generator: its value is stamped
-      ;; onto the token by its owner and delivery reads it from the token's
-      ;; `:rf.cofx` verbatim (`deliver-declared-cofx`'s recordable branch
-      ;; never invokes a supplier). A supplier passed alongside `:provided?
-      ;; true` is therefore SILENTLY IGNORED at delivery — the registration
-      ;; looks like it provides a generator, but the first handler requiring
-      ;; the fact (when it is absent from the token) fails as
-      ;; `:rf.error/missing-required-cofx`. Reject the contradiction at the
-      ;; call site (rf2-d8mvke.1). The valid provided shape is
-      ;; `{:recordable? true :provided? true}` with NO supplier.
-      (when (and provided? (some? supplier))
-        (emit-cofx-registration-invalid!
-          id
-          (str "`reg-cofx` id `" id "` declared `:provided? true` WITH a "
-               "supplier. A provided recordable fact has NO generator — its "
-               "value is stamped onto the causal token by its owner and "
-               "delivered verbatim, so this supplier would be silently "
-               "ignored at delivery (the first consumer fails as "
-               "`:rf.error/missing-required-cofx`). Either drop the supplier "
-               "(a provided recordable fact: `{:recordable? true :provided? "
-               "true}`) or drop `:provided?` (a recordable fact whose "
-               "supplier generates the value).")))
-      ;; A non-recordable (ambient) fact with no supplier cannot produce a
-      ;; value; only a PROVIDED recordable fact legitimately omits its
-      ;; generator (its owner stamps the token). An ambient fact MUST carry a
-      ;; supplier. This is a malformed-grade error, NOT a name collision
-      ;; (rf2-d8mvke.6).
-      (when (and (nil? supplier) (not provided?))
-        (emit-cofx-registration-invalid!
-          id
-          (str "`reg-cofx` id `" id "` declared no supplier. Only a PROVIDED "
-               "recordable fact (`{:recordable? true :provided? true}`) may "
-               "omit its supplier — its owner stamps the value onto the token. "
-               "An ambient supplier must be a value-returning fn.")))
+    (let [grade (validate-cofx-grade! id meta supplier)]
       ;; Per Spec 015 §5. Coeffects — VALIDATE any declared `:sensitive` /
       ;; `:large` classification fail-loud BEFORE the registrar write (rf2-ehexnw);
       ;; the classification itself is DERIVED from the registrar meta at
@@ -277,9 +290,7 @@
       ;; conventional `:handler-fn` slot; nil for a provided fact with no
       ;; generator. The cofx-specific `:recordable?` / `:provided?` grade flags
       ;; ride the `extra-slots` map.
-      (rf.fx/register-with-classification! :cofx id meta supplier
-                                        {:recordable? recordable?
-                                         :provided?   provided?}))
+      (rf.fx/register-with-classification! :cofx id meta supplier grade))
     id))
 
 ;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
@@ -287,24 +298,31 @@
 ;; An image's inline `:registrations` `:reg-cofx` entry carries the raw
 ;; value-returning supplier fn under `:impl`. For the inline cofx to be
 ;; DELIVERED through a frame-targeted cascade, the assembled generation's
-;; resolver descriptor must carry the SAME runnable slots `reg-cofx` installs
-;; — `:handler-fn` (the supplier) + the `:recordable?` / `:provided?` grade
-;; flags delivery reads. Closes the EP-0023 §Image Fragments "same runtime
-;; descriptor shape" contract for cofx. Published via late-bind (image-assembly
-;; cannot static-require this ns).
+;; resolver descriptor must carry the SAME shape `reg-cofx` installs —
+;; `:handler-fn` (the supplier) + the `:recordable?` / `:provided?` grade flags
+;; delivery reads, AND the registration metadata at the TOP LEVEL, where the
+;; `:platforms`, classification and `:schema` readers look. Closes the EP-0023
+;; §Image Fragments "same runtime descriptor shape" contract for cofx.
+;; Published via late-bind (image-assembly cannot static-require this ns).
 
 (defn lower-inline-cofx
-  "Lower an inline `:reg-cofx` descriptor's raw supplier fn into the runnable
-  cofx slots `reg-cofx` installs (`:handler-fn` + the `:recordable?` /
-  `:provided?` grade flags read at delivery). `meta` is the inline entry's
-  metadata map (its `:recordable?` / `:provided?` grade is read here, mirroring
-  `reg-cofx`); `impl` is the raw value-returning supplier (nil for a provided
-  recordable fact). Returns ONLY the runnable slots so image-assembly merges
-  them onto the descriptor, preserving `:impl` + provenance."
-  [meta impl]
-  {:handler-fn  impl
-   :recordable? (boolean (:recordable? meta))
-   :provided?   (boolean (:provided? meta))})
+  "Lower an inline `:reg-cofx` entry into the registrar shape `reg-cofx`
+  installs: the authored metadata at the TOP LEVEL, the `:handler-fn` supplier
+  slot, and the `:recordable?` / `:provided?` grade flags read at delivery. `id`
+  is the AUTHORED descriptor id, so a diagnostic names the author's coeffect;
+  `meta` is the inline entry's metadata map (nil when the entry has none);
+  `impl` is the raw value-returning supplier (nil for a provided recordable
+  fact).
+
+  Runs the SAME registration-time checks `reg-cofx` runs (rf2-3x7nj.5.1): the
+  id and grade checks (`validate-cofx-grade!`), then the key + classification
+  checks (`rf.fx/validate-registration-meta!`). Writes nothing to the registrar.
+  Image-assembly merges the result UNDER the descriptor, preserving `:impl` +
+  provenance."
+  [id meta impl]
+  (let [grade (validate-cofx-grade! id meta impl)]
+    (rf.fx/validate-registration-meta! :cofx id meta)
+    (merge (assoc meta :handler-fn impl) grade)))
 
 (rf.late-bind/set-fn! :image/lower-inline-cofx lower-inline-cofx)
 
