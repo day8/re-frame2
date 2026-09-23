@@ -1485,3 +1485,49 @@
       (is (= 2 (engine/shifted-was-index p [:rows 2 1]))
           "5 moved up from before-index 2"))))
 
+;; ---- rf2-3x7nj.26.3 — a map whose keys were all swapped still exists -----
+;;
+;; The R5 uniformity walk took the union of both sides only for SETS (rf2-
+;; l0us2). A map whose every old key was removed and every new key added
+;; puts its two sides' leaves at disjoint paths exactly as a set swap does,
+;; so each one-sided walk saw a uniform side and promoted a container that
+;; still exists. Raw scripts are Editscript 0.6.5's.
+
+(deftest x7nj-26-3-nested-map-key-swap-does-not-promote-the-map
+  (testing "`[[:form :errors :email] :-] [[:form :errors :name] :+ …]` —
+            `:form` and `:errors` exist on both sides. Pre-fix `:form` was a
+            wholly-REMOVED root: struck, with the added `:name` row washed
+            red and its `+` glyph suppressed"
+    (let [p (engine/project {:form {:errors {:email "bad"}}}
+                            {:form {:errors {:name "required"}}})]
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (= :children (engine/op-at p [:form])))
+      (is (= :children (engine/op-at p [:form :errors])))
+      (is (nil? (engine/wholly-changed-ancestor p [:form :errors :name])))
+      (is (= :added (engine/op-at p [:form :errors :name])))
+      (is (= :removed (engine/op-at p [:form :errors :email]))))))
+
+(deftest x7nj-26-3-key-swap-inside-a-vector-element
+  (testing "`[[0 :z] :-] [[0 :k] :+ 2] [[1] :-]` — Editscript morphs element
+            0 and deletes element 1. Pre-fix element 0, which is present as
+            `{:k 2}`, was a wholly-removed root"
+    (let [p (engine/project [{:z 5} {:z 9 :k 2}] [{:k 2}])]
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (= :children (engine/op-at p [0])))
+      (is (= :added (engine/op-at p [0 :k])))
+      (is (= :removed (engine/op-at p [0 :z]))))))
+
+(deftest x7nj-26-3-genuinely-new-or-removed-maps-still-promote
+  (testing "CONTROL — the union is one side when the opposite map is empty
+            or absent, so a genuine new or removed subtree still promotes,
+            and a map keeping one key never did"
+    (let [p (engine/project {:user {}} {:user {:prefs {:c 3}}})]
+      (is (= #{[:user]} (:wholly-changed-roots p)))
+      (is (= :added (engine/op-at p [:user]))))
+    (let [p (engine/project {:user {:prefs {:a 1}}} {:user {}})]
+      (is (= #{[:user]} (:wholly-changed-roots p)))
+      (is (= :removed (engine/op-at p [:user]))))
+    (let [p (engine/project {:f {:a 1 :keep 0}} {:f {:b 2 :keep 0}})]
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (= :children (engine/op-at p [:f]))))))
+

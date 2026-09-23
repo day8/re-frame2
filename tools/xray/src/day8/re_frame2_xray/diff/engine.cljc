@@ -762,9 +762,21 @@
   only changed descendant is a swapped set was the deeper trap a set-only
   gate missed). When the opposite set is empty/absent the union equals
   the present side's members (all one op), so cold-boot / clear sets still
-  promote correctly. Maps and vectors are unchanged: their slots are keyed
-  by a shared key/index, so the one-sided walk was always correct for
-  them — the union is taken only for sets.
+  promote correctly.
+
+  ## Maps take the same union (rf2-3x7nj.26.3)
+
+  A map is keyed by a shared key, but a map whose EVERY old key was
+  removed and every new key added puts its before-leaves and after-leaves
+  at disjoint paths exactly as a set swap does (`{:errors {:email …}} →
+  {:errors {:name …}}` ⇒ `[[:errors :email] :-] [[:errors :name] :+ …]`),
+  so each one-sided walk saw a uniform side and promoted the surviving map
+  — or its shallowest ancestor with no other leaf — to a wholly-changed
+  root. `collect-leaves` therefore also walks the keys present ONLY on the
+  opposite side: a swapped key contributes its opposite-side leaf, and the
+  uniformity test fails at the map and every ancestor. A genuinely new or
+  removed map is unaffected — its opposite is empty or absent, so the
+  union is one side.
 
   ## Both walks run in AFTER coordinates (rf2-3x7nj.26.2)
 
@@ -804,9 +816,9 @@
               data)))
         collect-leaves
         ;; `opposite` is the value at the SAME slot on the other side of
-        ;; the diff (`missing-sentinel` when absent). Sets consult it
-        ;; (member-keyed → disjoint paths across sides); maps walk `data`'s
-        ;; own keys; vectors pair children through the replay.
+        ;; the diff (`missing-sentinel` when absent). Sets and maps take
+        ;; the UNION of both sides' members / keys (a swap puts each side's
+        ;; at disjoint paths); vectors pair children through the replay.
         (fn collect-leaves [side data opposite path]
           (cond
             ;; rf2-bufw2 — an empty container is a terminal leaf (it has
@@ -824,15 +836,27 @@
             (and (container? data) (empty? data))
             [path]
 
+            ;; rf2-3x7nj.26.3 — a key present only on the OPPOSITE side is
+            ;; walked too, over the opposite value (so from the other
+            ;; side), so a map whose keys were all swapped contributes
+            ;; both a removed and an added leaf.
             (map? data)
-            (mapcat (fn [[k cv]]
-                      (collect-leaves side
-                                      cv
-                                      (if (map? opposite)
-                                        (get opposite k missing-sentinel)
-                                        missing-sentinel)
-                                      (conj path k)))
-                    data)
+            (let [opp (when (map? opposite) opposite)]
+              (concat
+                (mapcat (fn [[k cv]]
+                          (collect-leaves side
+                                          cv
+                                          (if opp
+                                            (get opp k missing-sentinel)
+                                            missing-sentinel)
+                                          (conj path k)))
+                        data)
+                (when opp
+                  (mapcat (fn [[k ov]]
+                            (when-not (contains? data k)
+                              (collect-leaves (if (= side :after) :before :after)
+                                              ov missing-sentinel (conj path k))))
+                          opp))))
 
             ;; rf2-l0us2 — sets are member-keyed, so a swap puts each
             ;; side's members at DISJOINT paths. Collect the UNION of both
