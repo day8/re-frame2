@@ -814,10 +814,15 @@
     (if-not (identical? r walk-recur)
       r
       (cond
+        ;; A record rebuilds as a plain map: `(empty <record>)` THROWS on the
+        ;; JVM, which made every walk over a value holding one throw — out of
+        ;; the event pipeline's db projection and the error path included
+        ;; (rf2-3x7nj.4.6). CLJS `empty` is nil for a record, so this is what
+        ;; that host already did.
         (map? v)
         (reduce-kv (fn [acc k vv]
                      (assoc acc k (walk-tree vv (map-key state k) decider)))
-                   (empty v) v)
+                   (if (record? v) {} (empty v)) v)
 
         (or (vector? v) (seq? v))
         (let [idx (volatile! -1)]
@@ -1099,11 +1104,37 @@
                    :rf.egress/include-digests?   (true? (:rf.egress/include-digests? opts))
                    :threshold-bytes    threshold
                    :as-of-epoch        (:as-of-epoch opts)}
-        seed-path (vec (:path opts))]
-    ;; Seed the candidate declaration-coordinate set with the offset path
-    ;; (`#{[]}` for the common no-offset call). The walk forks/prunes it
-    ;; against `:decl-prefixes` on every map-key descent.
-    (walk v seed-path #{seed-path} ctx)))
+        seed-path (vec (:path opts))
+        n         (count seed-path)
+        decide    (:decide (walk-decider ctx))
+        prefixes  (:decl-prefixes ctx)]
+    ;; `:path` is the ABSOLUTE app-db offset of `v`, so a declaration AT or
+    ;; ABOVE the offset governs `v` exactly as it would in a whole-db walk
+    ;; (rf2-3x7nj.4.1). Seeding the candidate set with the bare offset could
+    ;; only ever match declarations EXTENDING it: an `[:auth]`-sensitive frame
+    ;; redacted `[:auth]` whole-db while a direct read of `[:auth :token]`
+    ;; shipped raw, and `[:items 0]` escaped the index-free `[:items :token]`.
+    ;; So replay the walker's OWN descent from the root along the offset — the
+    ;; same forks, the same per-node decision at every ancestor — and walk `v`
+    ;; with the candidate set that descent arrives at. An ancestor matched
+    ;; sensitive yields the sentinel; one matched large yields the marker,
+    ;; built for `v` at the offset so its handle re-fetches exactly what was
+    ;; asked for; a large ancestor shadowing a sensitive descendant descends,
+    ;; as it does whole-db. The offset carries no container types, so an
+    ;; integer segment takes the index fork — the SUPERSET of the map-key fork
+    ;; for the same segment, so an integer-keyed map can over-match but never
+    ;; leak. No offset (`[]`) walks from `#{[]}` exactly as before.
+    (loop [i 0 cands #{[]}]
+      (if (= i n)
+        (walk v seed-path cands ctx)
+        (let [r (decide [seed-path cands] v)]
+          (if (identical? r walk-recur)
+            (let [seg (nth seed-path i)]
+              (recur (inc i)
+                     (if (integer? seg)
+                       (fork-index-paths cands seg prefixes)
+                       (fork-decl-paths cands seg prefixes))))
+            r))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The CLOSED egress-opts vocabulary (rf2-kuky.6).
@@ -1193,7 +1224,7 @@
   spelled the same way at every egress door:
 
       {:frame                      <frame-id>   ;; by KEY PRESENCE, see below
-       :path                       [...]        ;; absolute app-db offset of `v`
+       :path                       [...]        ;; absolute app-db offset of `v`; a declaration at or above it governs `v`
        :query-v                    [...]        ;; route-sub re-seeding
        :as-of-epoch                <epoch-id>
        :rf.egress/include-sensitive? <bool>

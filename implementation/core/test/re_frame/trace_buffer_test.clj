@@ -111,6 +111,43 @@
       (is (= 3 (count bundles))
           (str "ring caps at 3 event-bundle slots; got " (count bundles))))))
 
+;; rf2-3x7nj.4.7 — the `:run-order` SPINE is bounded by the cap too, not just
+;; its visible count. A `subvec` counts only its window but keeps the whole
+;; vector it views reachable, and `conj` onto one appends to that vector — so
+;; an eviction that left a `subvec` behind grew the spine by one dispatch-id
+;; per run for the life of the ring.
+
+(defn- ring-spine-size
+  "How many dispatch-ids `frame-id`'s `:run-order` keeps REACHABLE: the size
+  of the vector it is backed by, not its `count`."
+  [frame-id]
+  (let [order (get-in @@#'rf.trace.tooling/trace-rings [frame-id :run-order])]
+    (if (instance? clojure.lang.APersistentVector$SubVector order)
+      (count (.-v ^clojure.lang.APersistentVector$SubVector order))
+      (count order))))
+
+(deftest ^:requires-debug run-order-spine-stays-bounded-by-the-cap
+  (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
+  (testing "evicting on push"
+    (rf/configure! {:trace-buffer {:events-retained 3}})
+    (dotimes [_ 200] (rf/dispatch-sync [:ping]))
+    (is (= 3 (count (rf/trace-buffer :rf/default))) "control: the ring reads 3 bundles")
+    (is (= 3 (ring-spine-size :rf/default))
+        "200 runs at cap 3 keep 3 dispatch-ids reachable, not 200"))
+  (testing "trimming an inherited ring through configure!"
+    (rf/configure! {:trace-buffer {:events-retained 50}})
+    (dotimes [_ 20] (rf/dispatch-sync [:ping]))
+    (rf/configure! {:trace-buffer {:events-retained 2}})
+    (is (= 2 (count (rf/trace-buffer :rf/default))) "control: the ring reads 2 bundles")
+    (is (= 2 (ring-spine-size :rf/default))))
+  (testing "resizing a used ring to a per-frame override"
+    (rf/configure! {:trace-buffer {:events-retained 50}})
+    (rf/make-frame {:id :tb/spine})
+    (dotimes [_ 20] (rf/dispatch-sync [:ping] {:frame :tb/spine}))
+    (rf.trace.tooling/apply-frame-events-retained-policy! :tb/spine true 4 (constantly true))
+    (is (= 4 (count (rf/trace-buffer :tb/spine))) "control: the ring reads 4 bundles")
+    (is (= 4 (ring-spine-size :tb/spine)))))
+
 (deftest ^:requires-debug cascade-burst-cannot-evict-prior-cascades
   (testing "a single cascade's burst of :rf.sub/skip-like noise can't displace OTHER cascades"
     (rf/configure! {:trace-buffer {:events-retained 5}})
