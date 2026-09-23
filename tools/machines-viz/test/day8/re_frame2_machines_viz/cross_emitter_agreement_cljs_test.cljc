@@ -826,3 +826,62 @@
         (is (<= (- big small) 6)
             (str surface ": ex-data may grow only by the DIGITS of its counts; "
                  small " -> " big))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.33.1 — the `:spawn :on-error` parent transition
+;;
+;; Spec 005 §Spawn-spec keys: `:on-error` is an `:on`-shaped TRANSITION the
+;; engine takes (`pick-spawn-error-transition`) when the spawned child fails,
+;; resolved at the spawning state's own level — a keyword target is its
+;; SIBLING. Pre-fix every emitter walked only `:on` / `:after` / `:always` /
+;; `:on-done`, so the documented "child failed, leave the spawning state"
+;; pattern charted `:working` as a dead end and `:failed` as unreachable.
+
+(def spawn-on-error-machine
+  "The review wave's reproduction."
+  {:initial :idle
+   :states  {:idle    {:on {:go :working}}
+             :working {:spawn {:machine-id :child :on-error :failed}}
+             :failed  {:final? true}}})
+
+(deftest spawn-on-error-drawn-by-chart-and-mermaid-dropped-by-scxml
+  (testing "rf2-3x7nj.33.1 — chart and Mermaid draw working -> failed; SCXML
+            omits it as documented"
+    ;; CHART
+    (let [edges (:edges (layout/project-definition spawn-on-error-machine))
+          oe    (filter :on-error? edges)]
+      (is (= 1 (count oe)) "exactly one :on-error edge")
+      (let [e (first oe)]
+        (is (= [:working] (:from e)) "sourced from the spawning state")
+        (is (= [:failed] (:to e)) "lands on the SIBLING target")
+        (is (= :rf.machine.spawn/error (:event e)) "the engine's reserved event")
+        (is (= "✗ error" (:event-label e)))
+        (is (not (:internal? e))))
+      (is (some #(= [:failed] (:to %)) edges) ":failed has an incoming edge")
+      (is (= 2 (count edges)) "control: the :go edge and the :on-error edge, nothing else"))
+    ;; MERMAID
+    (let [out (mermaid-body spawn-on-error-machine)]
+      (is (str/includes? out "working --> failed : ✗ error"))
+      (is (str/includes? out "idle --> working : go") "control: the :on edge still renders"))
+    ;; SCXML — the documented drop: `:spawn` does not survive, and nothing
+    ;; about it rides a comment either.
+    (let [out (scxml/spec->scxml spawn-on-error-machine)]
+      (is (not (str/includes? out "on-error")))
+      (is (not (str/includes? out "child")))
+      (is (= {:initial :idle
+              :states  {:idle    {:on {:go :working}}
+                        :working {}
+                        :failed  {:final? true}}}
+             (scxml/scxml->spec out))
+          "the export still reads back through our importer, spawn omitted")))
+  (testing "rf2-3x7nj.33.1 — an ACTION-ONLY :on-error self-anchors in the chart
+            and surfaces as a note in Mermaid, like every other internal candidate"
+    (let [m     {:initial :working
+                 :states  {:working {:spawn {:machine-id :child
+                                             :on-error {:action :log-failure}}}}}
+          oe    (first (filter :on-error? (:edges (layout/project-definition m))))
+          out   (mermaid-body m)]
+      (is (true? (:internal? oe)) "chart: internal, self-anchored")
+      (is (= (:source oe) (:target oe)))
+      (is (str/includes? out "note right of working"))
+      (is (str/includes? out "✗ error / log-failure")))))

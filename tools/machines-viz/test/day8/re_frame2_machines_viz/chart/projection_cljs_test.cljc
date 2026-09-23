@@ -1254,6 +1254,27 @@
       (is (nil? (:eventId (:data always-node))) "not user-fireable")
       (is (= "always" (:variant (:data always-node)))))))
 
+(deftest xyflow-graph-spawn-on-error-event-node-is-its-own-variant
+  (testing "rf2-3x7nj.33.1 — the `:spawn :on-error` transition's event-node is
+            the `on-error` variant, labelled `✗ error`, and NOT user-fireable:
+            `:rf.machine.spawn/error` is raised by the engine when the child
+            fails, never sent by a click"
+    (let [parsed  (layout/project-definition
+                    {:initial :idle
+                     :states  {:idle    {:on {:go :working}}
+                               :working {:spawn {:machine-id :child :on-error :failed}}
+                               :failed  {:final? true}}})
+          graph   (projection/xyflow-graph parsed {} {})
+          oe      (first (filter :on-error? (:edges parsed)))
+          go      (first (filter #(= :go (:event %)) (:edges parsed)))
+          ev-node (event-node-for graph (:id oe))]
+      (is (some? ev-node) "the :on-error event-node was projected")
+      (is (= "on-error" (:variant (:data ev-node))))
+      (is (= "✗ error" (:eventLabel (:data ev-node))))
+      (is (nil? (:eventId (:data ev-node))) "not user-fireable")
+      (is (= :go (:eventId (:data (event-node-for graph (:id go)))))
+          "control: the ordinary :go event-node stays fireable"))))
+
 (deftest xyflow-graph-threads-on-edge-click-onto-every-event-node
   (testing "rf2-u422r + rf2-qo5xy — the host's `:on-edge-click` (now
             on-event-click) threads onto every event-node's

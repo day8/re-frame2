@@ -218,11 +218,13 @@
   "Bucket a parsed edge by its event variant for the events-as-nodes
   paradigm: `:after` (clock glyph), `:always` (infinity glyph),
   `:on-done` (completion ✓ done chip — the XState `onDone`
-  compound/parallel completion transition), or `:on` (regular event
-  keyword). Pure data → keyword."
+  compound/parallel completion transition), `:on-error` (the ✗ error
+  chip — a `:spawn` `:on-error` parent transition, rf2-3x7nj.33.1), or
+  `:on` (regular event keyword). Pure data → keyword."
   [edge]
   (cond
     (:on-done? edge) :on-done
+    (:on-error? edge) :on-error
     (:after edge)    :after
     (:always? edge)  :always
     :else            :on))
@@ -1690,10 +1692,13 @@
                       ;; but NOT a fireable event (Spec 005 §Wildcard).
                       ;; An `:on-done` completion edge carries the reserved
                       ;; `:rf.machine/done` (an engine-RAISED event, not
-                      ;; user-fireable), so it is not click-to-send.
+                      ;; user-fireable), so it is not click-to-send. Nor is
+                      ;; a `:spawn :on-error` edge: `:rf.machine.spawn/error`
+                      ;; is raised by the engine when the child fails.
                       fireable?    (and (nil? (:after e))
                                         (not (:always? e))
                                         (not (:on-done? e))
+                                        (not (:on-error? e))
                                         (keyword? (:event e))
                                         (not= :* (:event e)))
                       event-id     (when fireable? (:event e))

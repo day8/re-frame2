@@ -403,6 +403,7 @@ or two edges, with these structural rules:
 | `:always [{:target ...}]` | yes (`:variant "always"`) | state → ev-node | ev-node → target |
 | `:always [{:action :a}]` — INTERNAL (no `:target`) (rf2-mnp93.4) | yes (`:variant "always"`, `:internal true`) | state → ev-node | **none** |
 | Wildcard `:*` | yes (`:eventId nil`, not user-fireable) | state → ev-node | ev-node → target |
+| `:spawn {:on-error :t}` — the parent transition taken when the spawned child fails (rf2-3x7nj.33.1) | yes (`:variant "on-error"`, `:eventLabel "✗ error"`, `:eventId nil` — `:rf.machine.spawn/error` is engine-raised, not user-fireable); a keyword target resolves at the spawning state's own level | state → ev-node | ev-node → target (**none** for an action-only `:on-error`, which is `:internal true`) |
 
 **The `:reenter?` external-restart axis (rf2-9dj21r).** A TARGETED transition
 is INTERNAL by default (XState v5 / Spec 005 §Self-transitions): a self /
@@ -421,8 +422,9 @@ with/without forms produced identical chart topology, Mermaid, and SCXML.
 The event-node carries everything the legacy edge `:data` used to
 carry: `:eventLabel` (the `chart.layout/event-segment` glyph-aware
 text), `:guard` (string), `:action` (string), `:variant` (`:on` /
-`:after` / `:always`), `:eventId` (raw fireable keyword for the
-on-chart sim — nil for `:after` / `:always` / wildcard), `:fromPath`
+`:after` / `:always` / `:on-done` / `:on-error`), `:eventId` (raw fireable
+keyword for the on-chart sim — nil for `:after` / `:always` / `:on-done` /
+`:on-error` / wildcard), `:fromPath`
 / `:toPath`, `:focused`, `:fired`, `:guardBlocked` (rf2-fzrzlw — the
 guard-blocked no-op marker; drives the PINK border + emphasised pink
 `IF <guard>` chip), `:internal`, `:reenter` (rf2-9dj21r —
@@ -2156,6 +2158,9 @@ The emitter is **static-topology only**:
   `after(<delay>)`; the countdown-ring semantics are lossy.
 - `:always` transitions render as plain edges labelled `always`;
   microstep timing remains lossy.
+- A `:spawn` map's `:on-error` parent transition renders as a
+  `from --> to : ✗ error` edge (an action-only one as a note), resolved
+  at the spawning state's own level (rf2-3x7nj.33.1).
 - Top-level fallback `:on` renders from a synthetic `root fallback`
   node because Mermaid has no exact deepest-wins fallback primitive.
 - `:type :parallel` machines render as independent region state
@@ -2373,6 +2378,14 @@ back.
   machine, with no diagnostic anywhere.)
 - `:spawn-all` rows — omitted; the parent state renders without
   spawn affordances.
+- `:spawn` (rf2-3x7nj.33.1) — omitted with its whole map, **including
+  its `:on-error` parent transition**, so a state whose only way out is
+  `:spawn :on-error` exports as a dead end and the `:on-error` target as
+  unreached. The chart and the Mermaid emitter do draw that edge
+  (`✗ error`); SCXML does not, nothing about it rides a comment, and the
+  import cannot recover it.
+- `:entry` / `:exit` state actions — omitted; neither their names nor a
+  comment carrying them survive the export.
 - **Internal-default self / proper-ancestor self-transition semantics
   (rf2-0pp6as).** re-frame2 / XState v5 make a targeted transition
   INTERNAL by default — the targeted state's own `:exit` / `:entry` do
@@ -2398,9 +2411,10 @@ back.
   conforming consumers may reject them and the local importer drops them.
 - `:tags` — re-frame2-specific; not part of W3C SCXML.
 - `:action`s and guard FN bodies — only the *names* survive
-  (SCXML `cond="name"` for guards; entry/exit `<script>` would
-  require evaluation context, so names are preserved as XML
-  comments on imports/exports). An INLINE-FN `:guard` / `:action`
+  (SCXML `cond="name"` for guards; a transition `:action` name rides an
+  `<!-- action: NAME -->` comment and round-trips; entry/exit `<script>`
+  would require evaluation context, so entry/exit actions are omitted,
+  as listed above). An INLINE-FN `:guard` / `:action`
   (the Spec 005 escape hatch) is **lossy-not-crash** (rf2-m285a): the
   exporter surfaces the fn's `:name` meta or a stable `"fn"` fallback
   (consistent with the chart + Mermaid emitters, and the API promise

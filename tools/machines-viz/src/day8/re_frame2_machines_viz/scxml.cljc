@@ -89,6 +89,13 @@
     `<final>`, `<history>` and `<transition>` carry meaning here.
   - `:spawn-all` rows — omitted; the parent state renders without
     spawn affordances.
+  - `:spawn` (rf2-3x7nj.33.1) — omitted with its whole map, INCLUDING its
+    `:on-error` parent transition, so a state whose only way out is
+    `:spawn :on-error` exports as a dead end and its target as unreached
+    (the chart and Mermaid do draw that edge). Nothing about it rides a
+    comment, and the import cannot recover it.
+  - `:entry` / `:exit` state actions — omitted; neither the names nor a
+    comment carrying them survive the export.
   - INTERNAL-default self / proper-ancestor SELF-TRANSITION semantics
     — re-frame2 / XState v5 make a targeted transition INTERNAL by
     default (the targeted state's OWN `:exit` / `:entry` do NOT re-run);
@@ -126,9 +133,9 @@
     `{:action :log}` — a valid Spec-005 internal action transition — NOT
     the empty `{}` FORBIDDEN BLOCK a naive comment-strip would synthesise
     (a semantic inversion). FN BODIES are still lost (only the name
-    survives). Entry/exit actions would require an evaluation context, so
-    their names are preserved as XML comments but are not part of this
-    round-trip.
+    survives). Entry/exit actions would require an evaluation context and
+    are omitted entirely (see above) — only TRANSITION actions ride a
+    comment.
   - Source-coord metadata — stripped at export time (same posture as
     share-URL encoding; see `Principles.md` §No session data in shares).
   - Consumer-attachment `:rf.cofx/requires` (EP-0017 — the replay-critical
