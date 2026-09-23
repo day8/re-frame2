@@ -732,6 +732,16 @@ panel MUST remain open across an `:after-load`, with its internal
 state intact. This is the hot-reload story for rf2-iw5ym's
 reactive-container parity: trace-buffer and mount-state share the
 same "outlast the namespace reload" posture.
+That promise covers an ordinary `:after-load`, and does not survive an
+explicit `(rf/destroy-adapter!)`, under any adapter: that call releases
+every Fresco root in the page
+([spec/006 §The client root](../../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable),
+Teardown), Xray's `xray-root` and `xray-popout-root` included, and Xray
+does not repaint itself, so the panel and any open pop-out stay blank
+until a page reload, which is the supported restart. A host running Xray
+with a custom adapter should hold that adapter in a `defonce` (the other
+documented hot-reload option) where that suits, and reload the page when
+it needs edits to the adapter's own functions to take effect.
 
 **Before-mount probe.** Host code (re-frame app code, tests,
 adjacent tools) MUST be able to ask "is Xray currently mounted /
