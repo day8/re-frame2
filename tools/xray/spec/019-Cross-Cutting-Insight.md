@@ -650,9 +650,13 @@ it CARRIED, never the one that superseded it. What it then draws:
 - **Response** — the summary the terminal row carries: the elision
   walker's output is the ceiling, and a `:sensitive?` request shows the
   redaction sentinel.
-- **→ reply ↗** — focuses the `:source :http` bundle whose reply map
-  carries the same work id. Only a DELIVERED reply has one; a stale
-  outcome delivered nothing.
+- **→ reply ↗** — focuses the `:source :http` bundle that delivered THIS
+  completion's reply: the first whose reply map carries the same work id
+  after the terminal row and before the next completion under the same
+  issuance. The bound matters because a reused named id puts the identical
+  work id on a later request's reply too. Only a DELIVERED reply has a
+  link: a stale outcome delivers nothing, and neither does a silenced
+  reply (`:on-failure nil`, `:reply-to nil`), whatever its status.
 - **`ISSUED · no completion in this capture`** when the issued row is in
   the buffer and no terminal row is — never "in flight", because a ring
   cannot tell a pending request from one whose completion aged out — and
