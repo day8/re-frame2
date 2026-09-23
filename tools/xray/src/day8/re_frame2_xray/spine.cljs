@@ -42,6 +42,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -909,8 +910,16 @@
   `:epoch-history` slot from `epoch-history-for-frame` so every per-
   frame sub re-fires off the standard app-db-write reactive path with
   the correct frame's epochs. The pure 2-arg arity takes the resolved
-  history as a parameter (JVM-runnable); the event handler in
-  `install!` resolves it via `rf/epoch-history` at dispatch time."
+  history as a parameter; the event handler in `install!` resolves it
+  via `rf/epoch-history` at dispatch time.
+
+  ## rf2-3x7nj.26.1 — the re-seed passes the privacy gate
+
+  `epoch-history-for-frame` is the framework's RAW ring, so the slot is
+  written through `epoch/redact-history` — the same ingest gate
+  `:rf.xray/set-target-frame` and `:rf.xray/epoch-recorded` apply.
+  Writing the bare `vec` put every sensitive record the gate had kept
+  out straight back into the slot on a picker change."
   ([db frame-id]
    (set-frame-reducer db frame-id []))
   ([db frame-id epoch-history-for-frame]
@@ -920,7 +929,7 @@
                :dispatch-id nil
                :mode :live)
        (assoc :target-frame  frame-id
-              :epoch-history (vec epoch-history-for-frame)))))
+              :epoch-history (epoch/redact-history epoch-history-for-frame)))))
 
 (defn reseed-epoch-history-for-frame
   "Pure reducer: re-key the Xray app-db's per-frame `:epoch-history`
@@ -988,7 +997,14 @@
   clobber it with the (empty) framework ring. This keeps the same
   no-clobber contract the pre-EP `:rf/default`-default branch provided for
   the direct-seed case (the seed IS that frame's history; the gallery
-  seeded it for the frame now being focused)."
+  seeded it for the frame now being focused).
+
+  rf2-3x7nj.26.1 — the cross-frame re-key writes the ring through
+  `epoch/redact-history`, exactly as `set-frame-reducer` does, so a
+  cross-frame click cannot put a record the ingest gate dropped back
+  into the slot. Every committed-focus caller (`:rf.xray/focus-event`,
+  its prev/next steps, `:rf.xray/focus-epoch` and
+  `:rf.xray/select-dispatch-id`) reaches the slot through here."
   [db frame-id epoch-history-for-frame]
   (let [current-target (get db :target-frame defaults/default-target-frame)]
     (cond
@@ -1005,7 +1021,7 @@
       :else
       (assoc db
              :target-frame  frame-id
-             :epoch-history (vec epoch-history-for-frame)))))
+             :epoch-history (epoch/redact-history epoch-history-for-frame)))))
 
 (defn preview-event-reducer
   "Pure reducer for `:rf.xray/preview-event <id>`. A preview is a
@@ -1326,8 +1342,12 @@
       ;; ring its epoch resolves against — is the FOCUSED frame's. When
       ;; the caller omits the hint (legacy / single-frame dispatch) the
       ;; lookup degrades to the id-only match as before.
+      ;;
+      ;; rf2-3x7nj.26.1 — the read goes through `epoch/redact-history`
+      ;; like every write to the slot, so a preview can never pin the
+      ;; epoch-id of a record the ingest gate keeps out of `:epoch-history`.
       {:db (let [frame-id      (:frame (event-bundle-by-id (db->event-bundles db) dispatch-id frame-hint))
-            frame-history (when frame-id (rf/epoch-history frame-id))
+            frame-history (when frame-id (epoch/redact-history (rf/epoch-history frame-id)))
             epoch-id      (epoch-id-for-event-bundle frame-history dispatch-id)]
         (preview-event-reducer db dispatch-id epoch-id))}))
 
