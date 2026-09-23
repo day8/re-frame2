@@ -29,6 +29,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react-dom" :as react-dom]
             [uix.core :as uix :refer-macros [defui $]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.test-support :as rf.test-support]))
@@ -147,6 +149,53 @@
         (react-dom/flushSync (fn [] (rf.adapter.uix/unmount! live)))
         (drop-host! el-live)
         (drop-host! el-gone)))))
+
+;; ---- adapter teardown over a MOUNTED use-sub (rf2-3x7nj.2.2) --------------
+;;
+;; The row above mounts a tree with no subscription. This one mounts a
+;; committed `use-sub`, which is what the drain meets in a real app: the
+;; sub-cache walk disposes the hook's reaction BEFORE the roots unmount, so the
+;; hook's rf2-1frc reacquisition fires on a component that is still mounted.
+;; It must let go, as it does for a destroyed frame. Rebuilding would reach
+;; `make-derived-value` through an adapter already claimed for disposal, and
+;; `rf/destroy-adapter!` would rethrow `:rf.error/adapter-disposed` from an
+;; otherwise clean teardown.
+
+(def ^:private sub-frame ::sub-frame)
+
+(defui SubProbe []
+  (let [n (rf.adapter.uix/use-sub [::n] {:frame sub-frame})]
+    ($ :div ($ :p {:data-testid "rf-uix-client-root-probe"} (str "n=" n)))))
+
+(deftest destroy-adapter-over-a-mounted-use-sub-returns-nil
+  (testing "rf/destroy-adapter! over a still-mounted root holding a committed
+            use-sub returns nil, unmounts the root and rebuilds nothing"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — the :browser-test build runs the assertions")
+      (let [el (host! nil)
+            h  (rf.adapter.uix/client-root)]
+        (rf/make-frame {:id sub-frame})
+        (rf/reg-event ::seed (fn [_ _] {:db {:n 1}}))
+        (rf/reg-event ::inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
+        (rf/reg-sub ::n (fn [db _] (:n db)))
+        (rf/dispatch-sync [::seed] {:frame sub-frame})
+        (react-dom/flushSync (fn [] (rf.adapter.uix/render! h ($ SubProbe) el)))
+        (is (= "n=1" (some-> (probe el) .-textContent))
+            "precondition: the use-sub rendered")
+        (react-dom/flushSync (fn [] (rf/dispatch-sync [::inc] {:frame sub-frame})))
+        (is (= "n=2" (some-> (probe el) .-textContent))
+            "precondition: the hook's store subscription is COMMITTED — a dispatch
+             re-rendered it, so its reacquisition callback is armed on the
+             cached reaction the drain is about to dispose")
+        (let [outcome (try (react-dom/flushSync (fn [] (rf/destroy-adapter!)))
+                           (catch :default e e))]
+          (is (nil? outcome)
+              (str "rf/destroy-adapter! returned nil rather than throwing — got "
+                   (pr-str (or (ex-data outcome) outcome)))))
+        (is (nil? (probe el)) "the drain unmounted the still-mounted root")
+        (is (= {} @(:sub-cache (rf.frame/frame sub-frame)))
+            "the disposed reaction was let go, not rebuilt into the cache")
+        (drop-host! el)))))
 
 ;; ---- hydrating mount: adopt the server node, then update it --------------
 
