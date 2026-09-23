@@ -620,13 +620,17 @@
                    (str/join "/" (map keyword-label dt))
                    (label-value dt)))))))
 
+(declare render-state-declarations)
+
 (defn- render-state-block
-  "Render a compound state's `state X { ... }` block (Mermaid
+  "Render a compound state's `state \"<name>\" as X { ... }` block (Mermaid
   nesting). Returns a sequence of lines (indented at `depth`).
 
-  Leaf states do not need an explicit declaration in Mermaid — they
-  appear inline in their outbound edges. We only emit blocks for
-  compound states.
+  rf2-3x7nj.33.2 — the block carries the state's NAME as its label, and
+  declares EVERY child inside it (`render-state-declarations`), leaves
+  included. Mermaid scopes a state to the block it is first mentioned in,
+  so a child left to its first edge line — which goes out at root scope,
+  after every block — was drawn OUTSIDE its compound.
 
   rf2-m285a — a `:type :history` child is declared as a labelled history
   marker (`render-history-marker`) so an incoming `:target :hist` edge
@@ -637,28 +641,27 @@
         sub-initial (:initial state-node)]
     (when children
       (concat
-       [(str indent "state " (sanitise-id state-path) " {")]
+       [(str indent "state \"" (sanitise-state-label (peek state-path)) "\" as "
+             (sanitise-id state-path) " {")]
        (when sub-initial
          [(str indent "  [*] --> " (sanitise-id (conj state-path sub-initial)))])
-       (mapcat (fn [[child-id child-node]]
-                 (let [child-path (conj state-path child-id)]
-                   (if (history-node? child-node)
-                     (render-history-marker child-path child-node (inc depth))
-                     (render-state-block child-path
-                                         child-node
-                                         (inc depth)))))
-               children)
+       (render-state-declarations state-path children (inc depth))
        [(str indent "}")]))))
 
-(defn- render-compound-blocks
-  "Render every compound state in the top-level `:states` map as a
-  Mermaid nested block."
-  [root-path states depth]
+(defn- render-state-declarations
+  "rf2-3x7nj.33.2 — declare every state in a `:states` map at `depth`: a
+  compound as its nested block, a history pseudo-state as its marker, and a
+  leaf as `state \"<name>\" as <id>`. The label is the state's own name
+  (`ns/name` for a namespaced id); the id stays the injective escape, which
+  is internal to Mermaid. Declaring each state here, inside its parent,
+  places it there, whatever scope its edge lines go out at."
+  [parent-path states depth]
   (mapcat (fn [[state-id state-node]]
-            (when (:states state-node)
-              (render-state-block (conj (vec root-path) state-id)
-                                  state-node
-                                  depth)))
+            (let [path (conj (vec parent-path) state-id)]
+              (cond
+                (history-node? state-node) (render-history-marker path state-node depth)
+                (:states state-node)       (render-state-block path state-node depth)
+                :else                      [(render-state-alias path state-id depth)])))
           states))
 
 (defn- render-root-fallback-alias
@@ -743,7 +746,8 @@
         ;; so their `:status :error` / parent `:on-error` routing is not
         ;; silently collapsed into a plain success terminal.
         error-final-notes (render-error-final-notes root-path states)
-        compound-lines (render-compound-blocks root-path states 1)
+        ;; rf2-3x7nj.33.2 — every state declared, labelled, in scope.
+        compound-lines (render-state-declarations root-path states 1)
         ;; rf2-ay42f — a COMPOUND whose `:on-done` is action-only
         ;; (target-less) has no sibling arrow to draw; render its
         ;; completion as a note so it is not silently dropped (the
@@ -781,10 +785,12 @@
   [[region-id {:keys [initial states on]}]]
   (let [region-path (vector region-id)]
     (concat
-     [(str "    state " (sanitise-id region-path) " {")
+     [(str "    state \"" (sanitise-state-label region-id) "\" as "
+           (sanitise-id region-path) " {")
       (region-initial-line region-path initial 3)]
      (render-root-fallback-alias region-path on 3)
-     (render-compound-blocks region-path states 3)
+     ;; rf2-3x7nj.33.2 — every region state declared inside its region.
+     (render-state-declarations region-path states 3)
      ["    }"])))
 
 (defn- render-parallel-region-blocks
@@ -935,7 +941,9 @@
                ["stateDiagram-v2"
                 (str "  [*] --> " (sanitise-id parallel-root-path))]
                (render-root-fallback-alias [] on after 1)
-               [(str "  state " (sanitise-id parallel-root-path) " {")]
+               ;; rf2-3x7nj.33.2 — the synthetic root reads as what it is,
+               ;; like the `root fallback` alias, not as its escaped id.
+               [(str "  state \"parallel root\" as " (sanitise-id parallel-root-path) " {")]
                (render-parallel-region-blocks regions)
                ["  }"]
                edge-lines
