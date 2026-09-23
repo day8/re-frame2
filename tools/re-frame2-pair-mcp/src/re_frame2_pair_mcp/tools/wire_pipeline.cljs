@@ -7,7 +7,7 @@
 
   Without it each tool body would re-derive its own subset of the
   shrink steps inline in its `let` binding, and the ordering invariant
-  (dedup-BEFORE-summary · elision-count-AFTER-dedup-BEFORE-summary ·
+  (dedup-BEFORE-summary · elision-count-over-what-SHIPS ·
   summary-BEFORE-cap) would live implicitly across `snapshot-tool`'s
   let-sequence and the abbreviated trace-window / watch-epochs /
   get-path pipelines — several local-obvious copies of one rule, which
@@ -23,8 +23,10 @@
         → path-slice          (snapshot only — :app-db sliced before summary)
         → diff-encode         (epoch records)
         → dedup               (structural sharing across the wire)
-        → indicator-count     (count :rf.size/large-elided markers)
         → summary             (lazy-summary for non-app-db rich slices)
+        → indicator-count     (count the :rf.size/large-elided markers
+                               that ship; a deduped slice is counted
+                               pre-dedup, since dedup pools markers)
         → source-uri          (splice :rf.mcp/source-uri onto
                                every :source-coord map; runs after
                                shrink so no URI build is wasted on
@@ -32,19 +34,21 @@
 
   ## Indicator counting
 
-  When the SERVER-SIDE eval form already counted markers (snapshot +
-  get-path, where `project-egress` ran app-side and the count flows
-  back via `:server-elided` on the opts map), the pipeline uses the
-  pre-shipped count directly — the walker that inserted the marker is
-  the only thing that needs to know about it. For these kinds, dedup
-  never touches the slice carrying the markers (dedup re-shapes
-  `:epochs` only; elision fires on `:app-db` for snapshot and on the
-  scalar payload for get-path), so the server-side count is exact.
+  `:elided-large` counts the markers in the payload that SHIPS (Spec
+  009 §Indicator field). For `get-path` (`:scalar-value`) the eval form
+  counts app-side over exactly the value it returns, and that count
+  flows back via `:server-elided` on the opts map.
 
-  When the count was NOT pre-shipped (`:epoch-vector` — runtime drain
-  records may already carry markers from upstream
-  `event_emit/elide-wire-value`), the arm falls back to walking the
-  post-dedup payload.
+  `:snapshot-map` does NOT take the app-side count (rf2-3x7nj.32.8): the
+  eval form walks every frame's full `:app-db`, every `:sub-cache` entry
+  and every epoch, and the path slice and the summary pass then remove
+  markers, so that figure over-reported for a summary or a path-sliced
+  read. The arm counts over its own post-summary result instead, with a
+  `:full` `:epochs` slice counted before dedup.
+
+  `:epoch-vector` walks its post-encode, pre-dedup payload (runtime
+  drain records may already carry markers from upstream
+  `event_emit/elide-wire-value`, and dedup pools identical markers).
 
   Cap is NOT part of the pipeline — it runs at the `invoke` boundary
   on the rendered envelope. Indicator-counting runs INSIDE this ns;
@@ -112,6 +116,26 @@
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.source-uri :as source-uri]))
 
+(defn- count-shipped-markers
+  "Count the `:rf.size/large-elided` markers the snapshot response
+  actually SHIPS (rf2-3x7nj.32.8). `summarised` is the post-summary
+  snapshot: a path-sliced `:app-db` holds only the addressed subtree and
+  a summary-mode slice is a `{:rf.mcp/summary ...}` marker holding no
+  value at all, so a marker outside the path or inside a summarised
+  slice is not counted. A `:full` `:epochs` slice is counted over its
+  PRE-dedup form (`pre-dedup`), because dedup pools identical markers
+  into one cache entry — the same rule the `:epoch-vector` arm follows."
+  [summarised pre-dedup epochs-full?]
+  (if-not (map? summarised)
+    (rf.mcp-base.elision/count-elided-markers summarised)
+    (reduce-kv
+      (fn [n fid fmap]
+        (+ n (rf.mcp-base.elision/count-elided-markers
+               (if (and epochs-full? (map? fmap) (contains? fmap :epochs))
+                 (assoc fmap :epochs (get-in pre-dedup [fid :epochs]))
+                 fmap))))
+      0 summarised)))
+
 (defn- run-snapshot-map
   "Full snapshot pipeline. Sequences:
 
@@ -119,18 +143,20 @@
       → slice-app-db (path-slice or full)
       → diff-encode-epochs
       → dedup-epochs
-      → count elision markers (from `:server-elided` opt)
       → summarise other slices
+      → count elision markers over what ships
 
   Returns `{:value snapshot :indicators {:dropped N :elided N
   :path-status M :resolved-modes M}}`.
 
-  `:server-elided` rides in on opts when the
-  `snapshot` eval form counted markers app-side. Dedup never
-  touches `:app-db` (only `:epochs`), so the server-side count is
-  exact post-pipeline. Falls back to a tree-walk when the opt is
-  missing (older eval-form shape)."
-  [snapshot {:keys [incl? mode dedup? path slice-mode slice-modes server-elided]}]
+  `:elided-large` counts the markers ENCOUNTERED in the response
+  payload (Spec 009 §Indicator field), so it is counted AFTER the path
+  slice and the summary pass, both of which remove markers
+  (rf2-3x7nj.32.8). The eval form's app-side `:elided-count` is taken
+  over the whole walked state — every frame's full `:app-db`, every
+  `:sub-cache` entry, every epoch — so it is NOT used here: it reported
+  markers a summary or a path-sliced read never contained."
+  [snapshot {:keys [incl? mode dedup? path slice-mode slice-modes]}]
   (let [app-db-mode           (pipeline/resolve-slice-mode :app-db slice-modes slice-mode)
         [scrubbed dropped]    (sensitive/scrub-snapshot-sensitive snapshot incl?)
         [sliced path-status]  (pipeline/slice-app-db-in-snapshot scrubbed path app-db-mode)
@@ -145,14 +171,14 @@
                                 sliced slice-modes slice-mode pipeline/full-epochs-cap)
         diff-encoded          (pipeline/diff-encode-epochs-in-snapshot capped mode)
         deduped               (pipeline/dedup-epochs-in-snapshot diff-encoded dedup?)
-        ;; :elided-large counts upstream-pre-elided markers per
-        ;; Spec 009 §Indicator field.
-        elided                (if (some? server-elided)
-                                server-elided
-                                (rf.mcp-base.elision/count-elided-markers deduped))
         {summarised  :snapshot
          other-modes :resolved-modes} (pipeline/summarise-other-slices-in-snapshot
                                         deduped slice-modes slice-mode)
+        ;; :elided-large counts the markers in the payload that SHIPS,
+        ;; per Spec 009 §Indicator field (rf2-3x7nj.32.8).
+        elided                (count-shipped-markers
+                                summarised diff-encoded
+                                (= :full (get other-modes :epochs)))
         resolved-modes        (assoc other-modes :app-db
                                      (cond
                                        path :path-sliced
@@ -243,10 +269,11 @@
   - `:slice-mode`     global `:summary` / `:full` mode for non-app-db slices.
   - `:slice-modes`    per-slice override map.
   - `:server-elided`  integer count of `:rf.size/large-elided` markers
-                      inserted server-side. When present,
-                      the `:snapshot-map` and `:scalar-value` arms use
-                      this instead of re-walking the payload. Missing
-                      ⇒ falls back to a local walk.
+                      inserted server-side. When present, the
+                      `:scalar-value` arm uses this instead of
+                      re-walking the payload; missing ⇒ a local walk.
+                      The `:snapshot-map` arm ignores it and counts what
+                      it ships (rf2-3x7nj.32.8).
 
   Unknown `:kind` throws — the dispatch is closed to three cases and
   silently degrading would mask a programmer typo / a new-payload

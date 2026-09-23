@@ -519,11 +519,12 @@
 ;; ---------------------------------------------------------------------------
 ;; Wire-pipeline `:server-elided` opt.
 ;;
-;; The wire-pipeline's `:snapshot-map` and `:scalar-value` arms read
-;; the elision count from the `:server-elided` opt instead of re-walking
-;; the payload. The server-side eval form pre-counts and ships the
-;; integer back on the same nREPL round-trip; the client-side walk is
-;; eliminated for these payload kinds.
+;; The wire-pipeline's `:scalar-value` arm reads the elision count from
+;; the `:server-elided` opt instead of re-walking the payload — get-path's
+;; eval form counts over exactly the value it returns. The `:snapshot-map`
+;; arm IGNORES it (rf2-3x7nj.32.8): the snapshot eval form counts over the
+;; whole walked state, which the path slice and summary pass then shrink,
+;; so the arm counts what it ships (pinned in `wire-pipeline-test`).
 ;;
 ;; The `:epoch-vector` arm continues to walk locally — its payload
 ;; (runtime trace/epoch records) may carry markers from upstream
@@ -538,11 +539,13 @@
    {:path [:user :uploaded-pdf] :bytes 102400 :type :string
     :reason :schema :handle [:rf.elision/at [:user :uploaded-pdf]]}})
 
-(deftest snapshot-map-arm-uses-server-elided-when-supplied
-  ;; When `:server-elided` is on opts, the arm uses it
-  ;; directly. The payload might or might not actually contain
-  ;; markers — we trust the server-side count because the walker
-  ;; that inserted the markers was the one counting.
+(deftest snapshot-map-arm-counts-what-ships-not-server-elided
+  ;; Flipped deliberately by rf2-3x7nj.32.8. This test used to pin the
+  ;; server count flowing through VERBATIM ("the payload might or might
+  ;; not actually contain markers — we trust the server-side count"),
+  ;; which is exactly the defect: the snapshot eval form counts over the
+  ;; whole walked state, not the sliced / summarised payload that ships.
+  ;; A marker-free payload now reports 0 whatever the server said.
   (let [snap {:rf/default {:app-db {:k :v}}}
         {:keys [indicators]}
         (wp/run-wire-pipeline snap
@@ -553,8 +556,8 @@
                                :slice-mode    :full
                                :slice-modes   {}
                                :server-elided 7})]
-    (is (= 7 (:elided indicators))
-        "Server-side count flows through verbatim")))
+    (is (= 0 (:elided indicators))
+        "the count is over the shipped payload, which carries no marker")))
 
 (deftest snapshot-map-arm-falls-back-to-walk-when-missing
   ;; Defensive: a degraded eval-form / a test shape that doesn't
