@@ -254,9 +254,10 @@
 
 (defn- internal-candidate-lines
   "rf2-mnp93.4 — note-body lines for every INTERNAL candidate declared on
-  one state's `:on` / `:after` / `:always`. `:on` candidates carry their
-  event id as the descriptor; `:after` candidates `after(<delay>)`;
-  `:always` candidates `always`."
+  one state's `:on` / `:after` / `:always` / `:spawn :on-error`. `:on`
+  candidates carry their event id as the descriptor; `:after` candidates
+  `after(<delay>)`; `:always` candidates `always`; `:on-error` candidates
+  `✗ error` (rf2-3x7nj.33.1)."
   [state-node]
   (concat
     (mapcat (fn [[event-id spec]]
@@ -279,7 +280,14 @@
     (when (:always state-node)
       (->> (transition-candidates (:always state-node))
            (filter internal-candidate?)
-           (map #(internal-note-line "always" %))))))
+           (map #(internal-note-line "always" %))))
+    ;; rf2-3x7nj.33.1 — an action-only `:spawn` `:on-error` (the child failed;
+    ;; run the action, stay put). Gated on presence for the same reason as
+    ;; `:always` above.
+    (when-let [oe (get-in state-node [:spawn :on-error])]
+      (->> (transition-candidates oe)
+           (filter internal-candidate?)
+           (map #(internal-note-line "✗ error" %))))))
 
 (defn- collect-internal-transition-notes
   "rf2-mnp93.4 — emit a `note right of <state>` for every state with one or
@@ -512,7 +520,13 @@
          ;; rf2-41goo — the compound `:on-done` completion edge (sibling
          ;; target). A parallel-root `:on-done` (action/fx-only) is
          ;; rendered separately in `render-parallel-body`.
-         (collect-on-done-edges root-path state-path (:on-done state-node)))
+         (collect-on-done-edges root-path state-path (:on-done state-node))
+         ;; rf2-3x7nj.33.1 — the `:spawn` `:on-error` parent transition the
+         ;; engine takes when the spawned child fails (sibling target,
+         ;; resolved at the spawning state's own level). An action-only
+         ;; candidate has no arrow; `internal-candidate-lines` notes it.
+         (when-let [oe (get-in state-node [:spawn :on-error])]
+           (collect-transition-edges root-path state-path "✗ error" oe)))
 
         nested-edges
         (mapcat (fn [[child-id child-node]]

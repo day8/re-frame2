@@ -353,7 +353,12 @@
 
   rf2-41goo — a compound node's `:on-done` (XState `onDone`) emits the
   completion edge (sibling target, or a terminal affordance for the
-  action-only form) via `on-done-edges`."
+  action-only form) via `on-done-edges`.
+
+  rf2-3x7nj.33.1 — a `:spawn` map's `:on-error` (the parent transition taken
+  when the spawned child fails) emits an `:on-error? true` edge on the
+  reserved `:rf.machine.spawn/error` event, resolved like `:on-done` at the
+  spawning state's own level."
   [state-path state-node]
   (let [self-anchor  (vec state-path)
         resolve-tgt  #(resolve-target-path state-path %)
@@ -411,7 +416,22 @@
          ;; completion edge (XState `onDone`). The done node is THIS node
          ;; (its path is the `done.state.<id>` the engine raises).
          (when-let [od (:on-done state-node)]
-           (on-done-edges state-path state-path od)))
+           (on-done-edges state-path state-path od))
+         ;; rf2-3x7nj.33.1 — the `:spawn` `:on-error` parent transition
+         ;; (Spec 005 §Spawn-spec keys; XState v5 `invoke onError`). The
+         ;; engine (`pick-spawn-error-transition`) takes it on the reserved
+         ;; `:rf.machine.spawn/error` event when the spawned child fails,
+         ;; resolved at the SPAWNING state's own level — so a keyword target
+         ;; is its sibling, exactly `resolve-tgt`. An action-only candidate
+         ;; self-anchors as `:internal?` like every other trigger.
+         (when-let [oe (get-in state-node [:spawn :on-error])]
+           (keep (fn [candidate]
+                   (transition-edge candidate
+                                    {:from      state-path
+                                     :event     :rf.machine.spawn/error
+                                     :on-error? true}
+                                    self-anchor resolve-tgt))
+                 (g/transition-candidates oe))))
         nested
         (mapcat (fn [[child-id child-node]]
                   (collect-state-edges (conj state-path child-id) child-node))
@@ -640,10 +660,15 @@
                               transition. A checkmark-done chip reads as
                               the 'sub-flow finished, advance the outer
                               flow' arrow Stately Studio renders, distinct
-                              from an ordinary event arrow)"
-  [{:keys [event after always? on-done?]}]
+                              from an ordinary event arrow)
+    - `:spawn :on-error`     → `\"✗ error\"` (rf2-3x7nj.33.1 — the parent
+                              transition the engine takes when a spawned
+                              child fails; the failure counterpart of the
+                              `✓ done` chip)"
+  [{:keys [event after always? on-done? on-error?]}]
   (cond
     on-done?         "✓ done"
+    on-error?        "✗ error"
     after            (str "⌚ " after "ms")
     always?          "∞"
     (= :* event)     "* (any)"
