@@ -936,7 +936,7 @@ Lift the existing implementation from `re-frame.ssr.html-helpers/escape-html` �
 
 **Two element-context exceptions (rf2-3x7nj.6.2)**, each lifted by intent from `re-frame.ssr.html-helpers` and matching `react-dom/server`:
 
-- **Raw text.** A `<script>` or `<style>` whose children are all strings emits them **verbatim**: the HTML parser never decodes character references inside those elements, so entity-escaping corrupted inline CSS and JS (`'Open Sans'` → `&#39;Open Sans&#39;`, `a && b` → `a &amp;&amp; b`). Only an embedded `<script` / `</script` (resp. `style`), in any case, is rewritten, its `s` becoming the JS escape `s` / `S` (resp. the CSS escape `\73 ` / `\53 `), so the element cannot be closed early. The tag test is case-insensitive.
+- **Raw text.** A `<script>` or `<style>` whose children are all strings emits them **verbatim**: the HTML parser never decodes character references inside those elements, so entity-escaping corrupted inline CSS and JS (`'Open Sans'` → `&#39;Open Sans&#39;`, `a && b` → `a &amp;&amp; b`). Only an embedded `<script` / `</script` (resp. `style`), in any case, is rewritten, its `s` becoming the JS escape `\u0073` / `\u0053` (resp. the CSS escape `\73 ` / `\53 `), so the element cannot be closed early. The tag test is case-insensitive.
 - **Leading LF.** A `<pre>`, `<listing>` or `<textarea>` whose sole child is a string starting with LF gets one compensating LF after the start tag, because the parser eats the first one. A multi-child body is left alone, as React leaves it.
 
 ### §8.3 Attribute serialisation
