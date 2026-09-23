@@ -995,3 +995,174 @@
                     (done))
                   0))
               0)))))))
+
+;; ---- a REAL incremental parse (rf2-3x7nj.13.2) -----------------------------
+;;
+;; Every test above appends each chunk WHOLE (`append-chunk!` parses it
+;; through a `<template>` first), so an element always arrives complete. The
+;; HTML parser does not work that way: it INSERTS a `<script>` or `<template>`
+;; at its start tag and fills it as bytes arrive, and an observer batch can
+;; fall between two network reads. The two tests below drive the browser's
+;; own parser one read at a time — `document.open` + `document.write` into a
+;; same-origin iframe, whose document stays `readyState "loading"` until
+;; `document.close` — so an element is observed half-parsed exactly as on a
+;; live stream. Each `write` is one network read.
+
+(defn- open-streaming-document!
+  "A same-origin iframe whose document is open for writing and has received
+  `shell-html` as its first read. Returns `[iframe doc]`."
+  [shell-html]
+  (let [iframe (.createElement js/document "iframe")]
+    (.appendChild (.-body js/document) iframe)
+    (let [doc (.-contentDocument iframe)]
+      (.open doc)
+      (.write doc shell-html)
+      [iframe doc])))
+
+(defn- streamed-shell [ids]
+  (str "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
+       (shell-with-fallbacks ids)
+       "</div>"))
+
+(defn- after-observer!
+  "Run `f` on a macrotask, so the MutationObserver microtask the last
+  `document.write` queued has already run."
+  [f]
+  (js/setTimeout f 0))
+
+(defn- await!
+  "Call `k` with true once `(pred)` holds, or with false after `timeout-ms`,
+  so a finalisation that never comes fails the test instead of hanging the
+  lane."
+  [pred timeout-ms k]
+  (let [deadline (+ (js/Date.now) timeout-ms)]
+    (letfn [(poll []
+              (cond
+                (pred)                     (k true)
+                (> (js/Date.now) deadline) (k false)
+                :else                      (js/setTimeout poll 10)))]
+      (poll))))
+
+(deftest split-payload-is-not-finalised-until-the-parser-closes-it
+  (testing "rf2-3x7nj.13.2 — the final `__rf_payload` reaches the renderer
+            in two network reads. After the first, the parser has already
+            INSERTED the payload `<script>`, holding only a prefix of the EDN.
+            Finalisation must wait until the parser has closed it: `:on-ready`
+            (where the bootstrap `hydrate!`s from the payload) must not fire
+            on the half-parsed element, and when it does fire the payload is
+            whole. Before the fix the element's mere presence finalised, so
+            `hydrate!` read a truncated payload, refused it as malformed, and
+            the canonical state was never installed."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (async
+        done
+        (let [fid          (make-client-frame!)
+              payload-id   rf.ssr.constants/payload-script-id
+              payload-edn  (pr-str {:rf/version 1
+                                    :rf/app-db  {:cards {:revenue {:title "Revenue" :value 42375}}}})
+              cut          (quot (count payload-edn) 2)
+              [iframe doc] (open-streaming-document! (streamed-shell [:card.revenue]))
+              ;; What a bootstrap would read at readiness: the payload's text.
+              ready        (atom [])
+              stop!        (rf.ssr.streaming.client/install!
+                             {:frame    fid
+                              :root     doc
+                              :on-ready (fn [_report]
+                                          (swap! ready conj
+                                                 (.-textContent (.getElementById doc payload-id))))})]
+          ;; Read 1: the payload's start tag and the first half of its EDN.
+          (.write doc (str "<script id=\"" payload-id "\" type=\"application/edn\">"
+                           (subs payload-edn 0 cut)))
+          ;; Asked synchronously, before the observer microtask can run, so
+          ;; this reads the parser alone.
+          (is (some? (.getElementById doc payload-id))
+              "precondition: the parser has already inserted the half-parsed payload element")
+          (after-observer!
+            (fn []
+              (is (= [] @ready)
+                  "not finalised while the parser is still writing the payload")
+              ;; Read 2: the rest of the payload, then the end of the document.
+              (.write doc (str (subs payload-edn cut) "</script></body></html>"))
+              (.close doc)
+              (await! #(seq @ready) 2000
+                      (fn [finalised?]
+                        (is finalised? "finalised once the parser has closed the payload")
+                        (is (= [payload-edn] @ready)
+                            "finalised exactly once, with the WHOLE payload in the element")
+                        (stop!)
+                        (remove-root! iframe)
+                        (done))))))))))
+
+(deftest split-resolved-template-and-delta-wait-for-the-parser
+  (testing "rf2-3x7nj.13.2 — a resolved `<template>` and its delta `<script>`
+            each reach the renderer across two network reads. A half-parsed
+            template must not be swapped in: its clone carries only the
+            markup parsed so far, and the parser goes on filling the removed
+            original. A half-parsed delta must not be read: it fails to parse
+            and is dropped. Each is processed once the parser has moved past
+            it."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (async
+        done
+        (let [fid          (make-client-frame!)
+              template     (rf.ssr/streaming-resolved-template
+                             :card.revenue
+                             "<div class=\"card resolved-revenue\">Revenue 42375</div>")
+              template-cut (str/index-of template "42375")
+              delta-script (rf.ssr/streaming-hydrate-delta-script
+                             :card.revenue
+                             (pr-str {:cards {:revenue {:title "Revenue" :value 42375}}}))
+              delta-cut    (str/index-of delta-script ":value")
+              [iframe doc] (open-streaming-document! (streamed-shell [:card.revenue]))
+              ready        (atom 0)
+              stop!        (rf.ssr.streaming.client/install!
+                             {:frame fid :root doc :on-ready (fn [_] (swap! ready inc))})
+              revenue-text #(some-> (.querySelector doc ".resolved-revenue") .-textContent)
+              deltas-in-dom
+              #(count (array-seq
+                        (.querySelectorAll
+                          doc (str "[" rf.ssr.streaming.constants/attr-suspense-hydrate "]"))))]
+          (is (true? (showing-fallback? doc :card.revenue))
+              "the fallback is live before any chunk")
+          ;; Read 1: the resolved template, cut inside its content.
+          (.write doc (subs template 0 template-cut))
+          (is (some? (.querySelector
+                       doc (str "[" rf.ssr.streaming.constants/attr-suspense-resolved "]")))
+              "precondition: the parser has already inserted the half-parsed resolved template")
+          (after-observer!
+            (fn []
+              (is (true? (showing-fallback? doc :card.revenue))
+                  "a half-parsed resolved template is not swapped in")
+              ;; Read 2: the rest of the template, then the delta cut inside
+              ;; its EDN.
+              (.write doc (str (subs template template-cut)
+                               (subs delta-script 0 delta-cut)))
+              (is (= 1 (deltas-in-dom))
+                  "precondition: the parser has already inserted the half-parsed delta script")
+              (after-observer!
+                (fn []
+                  (is (= "Revenue 42375" (revenue-text))
+                      "once the parser has moved past it, the template swaps in WHOLE")
+                  (is (= 1 (deltas-in-dom))
+                      "the half-parsed delta script is left in the DOM, not consumed")
+                  (is (nil? @(rf/subscribe [:sct/card :revenue] {:frame fid}))
+                      "and not merged")
+                  ;; Read 3: the rest of the delta, the payload, the end of
+                  ;; the document.
+                  (.write doc (str (subs delta-script delta-cut)
+                                   "<script id=\"" rf.ssr.constants/payload-script-id
+                                   "\" type=\"application/edn\">{:rf/version 1}</script>"
+                                   "</body></html>"))
+                  (.close doc)
+                  (await! #(pos? @ready) 2000
+                          (fn [finalised?]
+                            (is finalised? "finalised once the document has been parsed")
+                            (is (= {:title "Revenue" :value 42375}
+                                   @(rf/subscribe [:sct/card :revenue] {:frame fid}))
+                                "the delta, read once whole, merged")
+                            (is (zero? (deltas-in-dom)) "and was consumed")
+                            (stop!)
+                            (remove-root! iframe)
+                            (done))))))))))))
