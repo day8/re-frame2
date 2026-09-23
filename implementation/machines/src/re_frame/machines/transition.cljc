@@ -3072,30 +3072,34 @@
         target-on-active-path? (and (not targetless?)
                                     (= (count target-base)
                                        (common-prefix-length src-path target-base)))
-        ;; The DECLARING-state ↔ TARGET relationship. XState v5: "child state
-        ;; nodes are always re-entered when targeted by transitions defined on
-        ;; compound state nodes." So a transition DECLARED ON an active
-        ;; compound D whose target T is a PROPER DESCENDANT of D re-enters the
-        ;; targeted descendant T (and exits/re-enters the active descendants
-        ;; between D and the resolved leaf), while D itself and the prefix
-        ;; above survive — UNLESS `:reenter?` forces D's own restart.
+        ;; The DECLARING-state ↔ TARGET relationship — XState's transition
+        ;; DOMAIN (`getTransitionDomain`). A transition DECLARED ON an active
+        ;; node D whose target T is a PROPER DESCENDANT of D has domain D:
+        ;; EVERY active state below D exits (not only the branch leading to
+        ;; T), D itself and the prefix above survive, and the path from D's
+        ;; child down to T (then T's `:initial` chain) enters — UNLESS
+        ;; `:reenter?` forces D's own restart. So T re-enters even when it is
+        ;; already active, and an already-active intermediate between D and T
+        ;; restarts too (rf2-3x7nj.8.1).
         ;; Note T need NOT be on the active branch: D may target a
         ;; DISJOINT descendant (e.g. a sibling of the active child) — the
         ;; `:editor`→`[:editor :preview]` shape while `:draft` is
         ;; active. So this is gated on T-vs-D, NOT on `target-on-active-path?`.
         ;;
         ;; THREE structural conditions (all over ABSOLUTE paths):
-        ;;   (a) D is a NON-EMPTY genuine state node — excludes the synthetic
-        ;;       root / bootstrap whose `:decl-path` is `[]` (a root-`:on` or
-        ;;       the birth cascade is the standard external geometry, not the
-        ;;       compound-targets-its-child rule);
+        ;;   (a) the SOURCE path is non-empty — excludes ONLY the birth
+        ;;       cascade, which runs from `:state []` and so has no active path
+        ;;       to exit. The machine ROOT (`:decl-path []`) is an ordinary
+        ;;       declaring node: its own `:on`, its done / spawn-error
+        ;;       fallbacks, a parallel root's per-region targets and a region
+        ;;       body's root-level `:on` all follow this rule (rf2-3x7nj.8.3);
         ;;   (b) D is an ACTIVE ancestor of the current leaf (D is a prefix of
-        ;;       `src-path`) — the firing compound is on the active path, the
+        ;;       `src-path`) — the firing node is on the active path, the
         ;;       leaf→root walk that selected the transition guarantees it for a
         ;;       real `:on` match;
         ;;   (c) T is a PROPER DESCENDANT of D (D is a strict prefix of T).
         target-descendant-of-decl? (and (not targetless?)
-                                        (pos? (count decl-path))
+                                        (pos? (count src-path))
                                         (= (count decl-path)
                                            (common-prefix-length src-path decl-path))
                                         (> (count target-base) (count decl-path))
@@ -3134,22 +3138,30 @@
         ;; active-path arm would silently swallow the re-entry the
         ;; declaring-compound rule requires. Do not reorder or collapse.
         ;;
-        ;;  • T is a PROPER DESCENDANT of D (D's compound transition targets a
-        ;;    descendant — XState "child nodes targeted by compound transitions
-        ;;    are re-entered"):
-        ;;      WITHOUT `:reenter?` — the targeted descendant T is re-entered,
-        ;;        D survives. boundary = (count target-base) - 1. Computed
-        ;;        against target-BASE (not target-leaf) so a T whose `:initial`
-        ;;        re-descends to the active leaf still re-enters rather than
-        ;;        collapsing to the emz8l silent no-op. This holds EVEN WHEN T
-        ;;        IS ALREADY ACTIVE AND EVEN WHEN T IS A LEAF — that case is
-        ;;        NOT equivalent to a targetless transition: declared on
-        ;;        :parent while at [:parent :leaf], target [:parent :leaf]
-        ;;        gives exit-leaf/action/enter-leaf, whereas the targetless
-        ;;        control on :parent gives the action alone.
+        ;;  • T is a PROPER DESCENDANT of D (the transition's domain is D —
+        ;;    XState `getTransitionDomain`; "child nodes targeted by compound
+        ;;    transitions are re-entered"):
+        ;;      WITHOUT `:reenter?` — every active state below D exits, D
+        ;;        survives, and D's path down to T enters. boundary =
+        ;;        (count decl-path): it depends only on WHERE the transition is
+        ;;        written, never on which child of D happens to be active
+        ;;        (rf2-3x7nj.8.1). So a T whose `:initial` re-descends to the
+        ;;        active leaf still re-enters rather than collapsing to the
+        ;;        emz8l silent no-op, and this holds EVEN WHEN T IS ALREADY
+        ;;        ACTIVE AND EVEN WHEN T IS A LEAF — that case is NOT
+        ;;        equivalent to a targetless transition: declared on :parent
+        ;;        while at [:parent :leaf], target [:parent :leaf] gives
+        ;;        exit-leaf/action/enter-leaf, whereas the targetless control
+        ;;        on :parent gives the action alone.
         ;;          e.g. declared on :parent, target [:parent :child] while at
         ;;          [:parent :child :a] → exit a + child, re-enter child/a;
         ;;          :parent not exited.
+        ;;          e.g. declared on :p, target [:p :r :s] while at [:p :q]
+        ;;          → exit q, enter r then s; while at [:p :r :x] → exit x +
+        ;;          r, re-enter r then s (an ACTIVE intermediate restarts —
+        ;;          declare the event on :r too to keep it; deepest-wins).
+        ;;        At the ROOT (decl-path []) the boundary is 0: every active
+        ;;        state exits, the root itself never does.
         ;;      WITH `:reenter?` — the DECLARING compound D exits +
         ;;        re-enters (run D's :exit/:entry, restart D's :after, re-spawn),
         ;;        then descends to the NAMED descendant T (NOT D's :initial —
@@ -3177,7 +3189,7 @@
                         target-descendant-of-decl?
                         (if external-re-entry?
                           (max 0 (dec (count decl-path)))
-                          (max 0 (dec (count target-base))))
+                          (count decl-path))
 
                         reenter-active-path?
                         (max 0 (dec (count target-base)))
