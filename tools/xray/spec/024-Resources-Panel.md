@@ -416,8 +416,14 @@ stacked sections:
      restore-dangled and the recorded inverse was replayed,
      conflict-aware), or `:superseded` (the reply arrived for an already-
      stale generation, so the runtime suppressed it and emitted NO settle
-     op at all — the inverse was discarded rather than replayed, and the
-     optimistic value is left sitting on the cache). `:superseded` is
+     op at all). The superseded apply's value is not left sitting on the
+     cache (rf2-3x7nj.11.2): the same-instance successor inherits its
+     pre-paint baseline for the keys it re-paints, and the keys it does not
+     re-paint are rolled back at the re-execute — which emits
+     `:rf.mutation/optimistic-rolled-back` carrying the SUPERSEDED apply's
+     `:snapshot-id`, so that row then reads `:rolled-back`, the settle row
+     outranking the supersession row, as a `:rf.mutation/clear` of a pending
+     apply also does. `:superseded` is
      rf2-y8doi.15's fourth outcome: before it, a superseded apply read
      `:pending` for ever, claiming a settled request was still in flight;
    - the apply facts — the mutation id, instance, work id, generation, the
@@ -441,9 +447,10 @@ stacked sections:
    now-stale inverse OVER a concurrent authoritative write — the deliberate
    single-writer last-write-wins escape, surfaced so an unexpected clobber is
    visible (the forced keys + the recovery hint `:review-on-conflict`). A
-   STALE / superseded mutation reply produces NEITHER op (the inverse is
-   discarded, never replayed — it appears as `:rf.mutation/stale-suppressed`
-   instead), and that suppression row is what the `:superseded` outcome
+   STALE / superseded mutation reply produces NEITHER op (the reply writes
+   nothing — it appears as `:rf.mutation/stale-suppressed` instead; the apply
+   it belonged to was already rolled back or handed on when it was
+   superseded), and that suppression row is what the `:superseded` outcome
    reads off: the apply is joined to it on the emitting FRAME plus the
    mutation WORK identity — the suppression row's `:rf.reply/work-id`
    against the apply's `:work/id`, falling back to `[instance generation]`
@@ -586,7 +593,7 @@ here by their literal op keys via `optimistic-mutation-op?` in
 |---|---|---|
 | `:rf.mutation/optimistic-applied` | `mutation-events.cljc` (phase 1.5, before the request lowers) | `:mutation` `:instance` `:work/id` `:generation` `:scope` `:snapshot-id` `:affected-keys` `:revisions` (per-key `{:resource/key :revision :forward}` at apply time — the conflict-check basis) `:tag-matched-keys` `:target-unresolved` `:cause` |
 | `:rf.mutation/optimistic-reconciled` | `mutation-events.cljc` (mutation SUCCESS — commit) | `:instance` `:mutation` `:work/id` `:generation` `:snapshot-id` `:optimistic-keys` `:committed` `:reconciliation-refetches` `:cause` |
-| `:rf.mutation/optimistic-rolled-back` | `mutation-events.cljc` (mutation FAILURE / cancel / restore-dangle) | `:instance` `:mutation` `:work/id` `:generation` `:snapshot-id` `:on-conflict` `:dispositions` (per-key `{:resource/key :restored :conflict :on-conflict}`) `:restored` `:conflicted` `:refetched` `:cause` |
+| `:rf.mutation/optimistic-rolled-back` | `mutation-events.cljc` (mutation FAILURE / cancel / restore-dangle; a same-instance re-execute or `:rf.mutation/clear` abandoning a pending apply, carrying THAT apply's `:snapshot-id`) | `:instance` `:mutation` `:work/id` `:generation` `:snapshot-id` `:on-conflict` `:dispositions` (per-key `{:resource/key :restored :conflict :on-conflict}`) `:restored` `:conflicted` `:refetched` `:cause` |
 
 plus the `:warning`-level `:rf.warning/optimistic-force-clobber` (emitted
 alongside a `:force` rollback that clobbered a concurrent write — carries
@@ -596,7 +603,8 @@ pairs each `:applied` with its terminal settle by `[frame :snapshot-id]` to
 drive the §6d **Optimistic mutations** section above. The settle is keyed on
 the recorded `:revision` + the work-id/generation acceptance verdict, never a
 wall-clock race; a STALE / superseded reply emits NEITHER terminal op (the
-inverse is discarded), and the apply row is instead paired with that
+reply writes nothing), and — unless its supersession already rolled keys
+back and emitted a settle row for it — the apply row is instead paired with that
 mutation's `:rf.mutation/stale-suppressed` row on the frame + work identity
 and reads the fourth outcome `:superseded` (rf2-y8doi.15). Every one of these
 join keys carries the emitting frame, for the reason §6d gives: the buffer is

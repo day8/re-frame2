@@ -380,8 +380,9 @@
   apply (EP-0019 Decision 2). Derived from the instance id + generation (both
   recorded causal facts), so it reproduces on replay for free — no host call, no
   ambient counter. A re-execute under the same instance mints a NEW generation,
-  hence a NEW snapshot id, so the SETTLE slice's stale-suppression discards the
-  superseded apply's inverse correctly."
+  hence a NEW snapshot id; the superseded apply's inverse is rolled back or
+  inherited by the successor at that re-execute (rf2-3x7nj.11.2), and its late
+  reply is stale-suppressed."
   [instance-id generation]
   [:rf.mutation/snapshot instance-id generation])
 
@@ -606,9 +607,15 @@
 ;;     conflict-aware rollback: an UNMOVED `:revision` restores the recorded
 ;;     `:before` verbatim; a MOVED `:revision` defers to `:on-conflict`
 ;;     (`:invalidate` default — mark stale + refetch; `:force` — restore anyway).
-;;   - STALE / superseded — handled by the existing stale-suppression branch
-;;     (the inverse is discarded, never replayed; the newer apply recorded the
-;;     truthful inverse). The settle below never runs on a suppressed reply.
+;;   - STALE / superseded REPLY — handled by the existing stale-suppression
+;;     branch, which writes nothing. The superseded APPLY is not forgotten
+;;     (rf2-3x7nj.11.2): a same-instance re-execute rolls back the keys its
+;;     successor does not re-touch and hands the successor the pre-paint
+;;     `:before` of those it does, and `:rf.mutation/clear` rolls the whole
+;;     apply back. A row whose baseline came from such an abandoned attempt
+;;     carries `:revalidate? true`: its rollback restores, then marks the key
+;;     stale and refetches it when owned — the abandoned write may still have
+;;     reached the server. This is recovery, not write ordering.
 ;;
 ;; These pieces compute the rolled-back runtime-db + the per-key dispositions
 ;; (for the trace + the `:reconciliation-refetches` evidence) + the
@@ -670,12 +677,21 @@
   continuations — rf2-wcdj4 audit); `:refetched-keys` names ONLY the keys
   whose recovery refetch was actually enqueued (its active-owner subset —
   never a stale-only / vanished key — rf2-wcdj4). PURE w.r.t. trace (the
-  caller emits `:rf.mutation/optimistic-rolled-back`)."
+  caller emits `:rf.mutation/optimistic-rolled-back`).
+
+  THE REVALIDATE OBLIGATION (rf2-3x7nj.11.2): a recorded row carrying
+  `:revalidate? true` — its baseline came from an attempt whose reply the
+  runtime discarded or abandoned — is restored and THEN marked stale
+  (`rf.resources.state/entry-invalidate`, in that order, so a still-pending
+  earlier apply sees the mark as a conflict) and refetched when owned, exactly
+  as an `:invalidate` conflict key is. A restored ABSENCE has nothing to stale.
+  An ordinary single-attempt row carries no flag and restores exactly."
   [inverse runtime-db on-conflict cause clock-ms]
   (let [dispositions (mapv (fn [{scoped-key :resource/key :as recorded}]
-                             (rf.resources.mutation-runtime/rollback-entry-disposition
-                               (get-in runtime-db (rf.resources.state/entry-path scoped-key))
-                               recorded on-conflict))
+                             (cond-> (rf.resources.mutation-runtime/rollback-entry-disposition
+                                       (get-in runtime-db (rf.resources.state/entry-path scoped-key))
+                                       recorded on-conflict)
+                               (:revalidate? recorded) (assoc :revalidate? true)))
                            inverse)
         restored?    #(= :restore (:disposition %))
         ;; rf2-2c2mkh — capture the pre-rollback entries so the index delta is
@@ -701,7 +717,17 @@
         [rdb' staled-ks]
                      (reduce (fn [[rdb staled] {scoped-key :resource/key :as disp}]
                                (case (:disposition disp)
-                                 :restore    [(rf.resources.mutation-runtime/restore-before rdb disp) staled]
+                                 :restore    (let [rdb1 (rf.resources.mutation-runtime/restore-before rdb disp)
+                                                   path (rf.resources.state/entry-path scoped-key)]
+                                               ;; rf2-3x7nj.11.2 — restore THEN stale
+                                               ;; a row carrying the revalidate obligation.
+                                               (if (and (:revalidate? disp)
+                                                        (not= (:before disp)
+                                                              rf.resources.mutation-runtime/absent-snapshot)
+                                                        (get-in rdb1 path))
+                                                 [(update-in rdb1 path rf.resources.state/entry-invalidate clock-ms)
+                                                  (conj staled scoped-key)]
+                                                 [rdb1 staled]))
                                  :invalidate (if (get-in rdb (rf.resources.state/entry-path scoped-key))
                                                [(update-in rdb (rf.resources.state/entry-path scoped-key)
                                                            rf.resources.state/entry-invalidate clock-ms)
@@ -716,12 +742,14 @@
         ;; the moved entries that stayed). A vanished / owner-free key arms no
         ;; refetch (the owner-free entry stays durably stale for its next
         ;; ensure), and is therefore NEVER listed in `:refetched-keys`.
+        ;; rf2-3x7nj.11.2 — read off `staled-ks`, which is every SURVIVING
+        ;; `:invalidate` key plus every revalidated restore, so a restore that
+        ;; carried the obligation recovers exactly as a conflict key does.
         recoveries   (into []
-                           (keep (fn [{scoped-key :resource/key :keys [disposition]}]
-                                   (when (= :invalidate disposition)
-                                     (when-let [fx (conflicted-key-refetch-fx rdb'' scoped-key cause)]
-                                       [scoped-key fx]))))
-                           dispositions)]
+                           (keep (fn [scoped-key]
+                                   (when-let [fx (conflicted-key-refetch-fx rdb'' scoped-key cause)]
+                                     [scoped-key fx])))
+                           staled-ks)]
     {:runtime-db      rdb''
      :dispositions    dispositions
      :recovery-fx     (mapv second recoveries)
@@ -744,6 +772,44 @@
                    :conflict     (boolean conflict?)}
             conflict? (assoc :on-conflict on-conflict)))
         dispositions))
+
+(defn- abandon-optimistic-apply
+  "Roll back the recorded `rows` of a PENDING optimistic apply the runtime
+  abandons on its own initiative — a same-instance re-execute supersedes it, or
+  `:rf.mutation/clear` drops it (rf2-3x7nj.11.2). Its reply will be discarded,
+  and the write may still have reached the server, so every row carries the
+  revalidate obligation: restore the pre-paint `:before`, mark the key stale,
+  refetch it when owned (`settle-optimistic-rollback`). `inst` is the abandoned
+  instance row (its mutation's `:on-conflict` governs); `clock-ms` is the
+  abandoning event's causal time. Returns the `settle-optimistic-rollback`
+  result plus `:on-conflict` / `:cause`."
+  [runtime-db inst rows clock-ms]
+  (let [mutation-id (:mutation/id inst)
+        on-conflict (rf.resources.mutation-runtime/on-conflict-policy
+                      (rf.resources.mutation-registry/mutation-meta mutation-id))
+        cause       [:mutation mutation-id (:instance/id inst)]]
+    (assoc (settle-optimistic-rollback
+             (mapv #(assoc % :revalidate? true) rows)
+             runtime-db on-conflict cause clock-ms)
+           :on-conflict on-conflict
+           :cause cause)))
+
+(defn- emit-abandoned-rollback!
+  "Emit `:rf.mutation/optimistic-rolled-back` for an ABANDONED apply
+  (`abandon-optimistic-apply`), carrying that apply's own `:snapshot-id`, so
+  tooling joins the rollback to the apply it undid (rf2-3x7nj.11.2)."
+  [frame-id inst {:keys [dispositions on-conflict cause] :as rolled}]
+  (rf.trace/emit! :rf.event :rf.mutation/optimistic-rolled-back
+                  {:rf.frame/id frame-id :instance (:instance/id inst)
+                   :mutation (:mutation/id inst)
+                   :work/id (:current-work inst) :generation (:generation inst)
+                   :snapshot-id (-> inst :patch-summary :snapshot-id)
+                   :on-conflict on-conflict
+                   :dispositions (rollback-trace-dispositions dispositions on-conflict)
+                   :restored (vec (:restored-keys rolled))
+                   :conflicted (vec (:conflicted-keys rolled))
+                   :refetched (vec (:refetched-keys rolled))
+                   :cause cause}))
 
 ;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
 ;;
@@ -1406,9 +1472,6 @@
                       :frame-id     frame-id
                       :generation   generation
                       :where        where}))
-        rdb0       (-> runtime-db
-                       (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) instance')
-                       (rf.resources.work-ledger/put-record work-id record))
         ;; EP-0019 PHASE 1.5 — the FORWARD optimistic apply, BEFORE the request
         ;; lowers. Per-call opt-out (Q4): `{:optimistic? false}` forces the
         ;; pessimistic path for one call (the registration plan is otherwise
@@ -1423,7 +1486,9 @@
         opt-out?    (and (contains? payload :optimistic?) (false? (:optimistic? payload)))
         has-opt?    (and (not opt-out?)
                          (or (:optimistic spec) (:optimistic-tags spec)))
-        opt-entries (when has-opt? (get-in rdb0 (rf.resources.state/entries-path)))
+        ;; the successor's targets are resolved against the cache AS IT STANDS
+        ;; (it paints on the current value — rf2-3x7nj.11.2)
+        opt-entries (when has-opt? (get-in runtime-db (rf.resources.state/entries-path)))
         [exact-tm exact-nils]
         (when has-opt?
           (optimistic-exact-targets (:optimistic spec) cparams cscope app-db where))
@@ -1445,10 +1510,41 @@
         ;; record the `:target-unresolved` evidence + emit the trace).
         opt-applied?   (boolean (and has-opt? (or (seq opt-target-map) (seq opt-nil-ids))))
         snapshot-id    (when opt-applied? (mint-snapshot-id instance-id generation))
+        ;; rf2-3x7nj.11.2 — a re-execute over a still-PENDING instance
+        ;; SUPERSEDES its optimistic apply (its reply will be discarded). The
+        ;; keys this successor will not re-touch roll back NOW (restore → stale →
+        ;; refetch if owned); the keys it does re-touch it paints on the current
+        ;; value, inheriting the superseded pre-paint `:before` (below).
+        ;; PENDING is `pending?`, never the presence of `:rollback` — a settled
+        ;; row keeps a stripped `:rollback` vector (rf2-3x7nj.11.1).
+        prior       (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance-id))
+        prior-rows  (when (rf.resources.mutation-runtime/pending? prior)
+                      (recorded-rollback prior))
+        retouched?  #(contains? opt-target-map (:resource/key %))
+        superseded  (when-let [rows (seq (remove retouched? prior-rows))]
+                      (abandon-optimistic-apply runtime-db prior (vec rows) time-ms))
+        inherited   (into {} (comp (filter retouched?) (map (juxt :resource/key identity)))
+                          prior-rows)
+        rdb0       (-> (or (:runtime-db superseded) runtime-db)
+                       (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) instance')
+                       (rf.resources.work-ledger/put-record work-id record))
         [rdb1 opt-ks opt-inverse]
         (if (seq opt-target-map)
           (apply-optimistic rdb0 opt-target-map started-at)
           [rdb0 #{} []])
+        ;; a re-touched key carries the obligation; while it is UNMOVED since the
+        ;; superseded apply (the revision this apply observed is the one that
+        ;; apply left), its baseline is the superseded pre-paint `:before`, so a
+        ;; chain restores its EARLIEST unconfirmed baseline. A moved key keeps
+        ;; this apply's own snapshot — never a blind restore across an
+        ;; authoritative write.
+        opt-inverse (mapv (fn [{k :resource/key :as row}]
+                            (if-let [old (get inherited k)]
+                              (cond-> (assoc row :revalidate? true)
+                                (= (:revision row) (:applied-revision old))
+                                (assoc :before (:before old)))
+                              row))
+                          opt-inverse)
         ;; record the snapshot inverse on the instance row's reserved
         ;; `:patch-summary` `:snapshot-id` / `:rollback` slots (the SETTLE slice
         ;; replays them). The `:target-unresolved` carries the fail-closed
@@ -1471,6 +1567,8 @@
                          (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                  opt-entries (mapv rf.resources.state/key-id opt-ks)))
                      rdb1)]
+    (when superseded
+      (emit-abandoned-rollback! frame-id prior superseded))
     (when opt-applied?
       (rf.trace/emit! :rf.event :rf.mutation/optimistic-applied
                    {:rf.frame/id frame-id :mutation mutation :instance instance-id
@@ -1515,7 +1613,9 @@
                    {:frame-id frame-id :work-id work-id
                     :transport transport-id :request-id request-id}]]
            before-fxs (into before-fxs)
-           true       (conj lower-fx))}))
+           true       (conj lower-fx)
+           ;; rf2-3x7nj.11.2 — the superseded apply's recovery refetches
+           superseded (into (:recovery-fx superseded)))}))
 
 ;; ---- :rf.mutation/clear — causal instance reset ---------------------------
 
@@ -1532,7 +1632,13 @@
   reply handler's existence check suppresses it). Marks the in-flight work
   row terminal `:cancelled` (carrying the event's causal `:completed-at` —
   rf2-pk4i6.1#6) and DROPS every cleared instance's ledger rows, the instance
-  having left the runtime (rf2-6gzdb)."
+  having left the runtime (rf2-6gzdb).
+
+  A cleared PENDING optimistic apply is rolled back first (rf2-3x7nj.11.2):
+  each touched key is restored to its pre-paint snapshot, marked stale (the
+  write's server outcome is unknown) and refetched when owned, and
+  `:rf.mutation/optimistic-rolled-back` names the cleared apply's
+  `:snapshot-id`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {:keys [instance mutation]}]]
   (let [runtime-db (or rt {})
@@ -1563,7 +1669,20 @@
         ;; byte key-ids are an opaque storage detail), read off the rows BEFORE
         ;; they were dissoc'd.
         cleared-ids (mapv #(:instance/id (get instances %)) target-kids)
-        rdb'       (-> runtime-db
+        ;; rf2-3x7nj.11.2 — clear is a CANCELLATION: a cleared PENDING
+        ;; optimistic apply is rolled back (restore → stale → refetch if owned)
+        ;; BEFORE its row, and with it the inverse, is dropped.
+        [rdb-r abandoned]
+        (reduce (fn [[db acc] kid]
+                  (let [inst (get instances kid)
+                        rows (when (rf.resources.mutation-runtime/pending? inst)
+                               (recorded-rollback inst))]
+                    (if rows
+                      (let [rolled (abandon-optimistic-apply db inst (vec rows) time-ms)]
+                        [(:runtime-db rolled) (conj acc [inst rolled])])
+                      [db acc])))
+                [runtime-db []] target-kids)
+        rdb'       (-> rdb-r
                        (update-in (rf.resources.mutation-runtime/instances-path)
                                   (fn [m] (reduce dissoc m target-kids)))
                        (as-> db (reduce (fn [d [wid _]]
@@ -1593,6 +1712,8 @@
                                           (rf.resources.work-ledger/drop-rows-for-key
                                             d [:rf.mutation iid]))
                                         db cleared-ids)))]
+    (doseq [[inst rolled] abandoned]
+      (emit-abandoned-rollback! frame-id inst rolled))
     (rf.trace/emit! :rf.event :rf.mutation/cleared
                  ;; rf2-pk4i6.1#6 — the causal `:completed-at` rides the trace as
                  ;; well as the cancelled rows, symmetric with
@@ -1606,8 +1727,12 @@
     {:rf.db/runtime rdb'
      ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the token the
      ;; lower registered); the bare work-id would miss the in-flight request.
-     :fx (into [] (keep (fn [[wid transport]] (rf.resources.work-ledger/abort-fx transport frame-id wid)))
-               in-flight)}))
+     ;; rf2-3x7nj.11.2 — the rolled-back keys' recovery refetches ride beside it.
+     :fx (-> []
+             (into (keep (fn [[wid transport]] (rf.resources.work-ledger/abort-fx transport frame-id wid)))
+                   in-flight)
+             (into (mapcat (fn [[_ rolled]] (:recovery-fx rolled)))
+                   abandoned))}))
 
 ;; ---- framework-internal reply handlers ------------------------------------
 ;;

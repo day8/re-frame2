@@ -519,8 +519,14 @@
 ;;     governs — `:invalidate` (default) marks the entry stale to recover
 ;;     authoritative truth via the read path, `:force` restores the (stale)
 ;;     inverse anyway (single-writer last-write-wins, with a tooling warning);
-;;   - on a STALE / superseded reply -> NEITHER (the inverse is discarded; the
-;;     newer generation's apply already recorded the truthful inverse).
+;;   - on a STALE / superseded reply -> NEITHER: the late reply writes nothing.
+;;     The superseded APPLY was already disposed of when it was superseded
+;;     (rf2-3x7nj.11.2): a same-instance re-execute rolls back the keys its
+;;     successor does not re-touch and hands the successor the pre-paint
+;;     `:before` of those it does, and a `:rf.mutation/clear` rolls the apply
+;;     back. A baseline from such an abandoned attempt ends STALE on rollback
+;;     (restore, then mark stale, then refetch when owned) — recovery, not write
+;;     ordering.
 ;;
 ;; These are the PURE pieces (the per-entry decision + the cache transform); the
 ;; impure swap (the `:on-conflict` invalidation dispatch, the trace emit) lives
