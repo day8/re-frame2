@@ -259,7 +259,10 @@
   is the surviving consumer alongside the JVM unit-test corpus."
   [{:keys [event handler dispatch-id] :as event-bundle}]
   (let [event-id    (when (vector? event) (first event))
-        duration-ms (get-in handler [:tags :duration-ms])
+        ;; rf2-3x7nj.22.5 — `:rf.event/run-end` stamps `:rf.event/elapsed-ms`;
+        ;; `:duration-ms` is the legacy fallback only.
+        duration-ms (or (get-in handler [:tags :rf.event/elapsed-ms])
+                        (get-in handler [:tags :duration-ms]))
         ssr?        (or (= :rf.ssr/hydrated event-id)
                         (= :rf.ssr/hydration-complete event-id))
         [outcome glyph] (cond

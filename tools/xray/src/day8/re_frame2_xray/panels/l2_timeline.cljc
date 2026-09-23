@@ -119,21 +119,25 @@
 ;;
 ;; The Figma EventList's fourth (right-most) column is `duration` — the
 ;; handler's wall-time, right-aligned, rendered as `1.2 ms` / `0.4 ms`.
-;; Xray stamps the handler's elapsed time on the event-bundle's `:handler`
-;; trace event (`:rf.event/run-end`) under `[:tags :duration-ms]` — the
-;; SAME field the L4 Event-detail event-bundle-outcome reads. Surfacing it on
-;; the L2 row restores the reference's four-column layout; the column was
-;; clipped off the live list pre-rf2-lnod7 (gap audit rf2-4297k).
+;; The substrate stamps the handler's elapsed time on the event-bundle's
+;; `:handler` trace event (`:rf.event/run-end`) as `:rf.event/elapsed-ms`
+;; (spec 009) — the SAME field the L4 Event-detail event-bundle-outcome
+;; reads. Surfacing it on the L2 row restores the reference's four-column
+;; layout; the column was clipped off the live list pre-rf2-lnod7 (gap
+;; audit rf2-4297k).
 
 (defn event-bundle-duration-ms
   "Pluck the handler wall-time (ms) from an event-bundle's `:handler` trace
-  event (`[:handler :tags :duration-ms]`). Returns the number or nil
-  when the slot is absent / non-numeric (synthetic fixtures, event-bundles
-  whose handler trace predates duration tagging). Nil-safe at every
-  level; pure data, JVM-runnable."
+  event (`[:handler :tags :rf.event/elapsed-ms]`, with the legacy
+  `:duration-ms` as a fallback — rf2-3x7nj.22.5, mirroring the Epoch
+  HANDLER step's rf2-slnce repair). Returns the number or nil when the slot
+  is absent / non-numeric (synthetic fixtures, event-bundles whose handler
+  trace predates duration tagging). Nil-safe at every level; pure data,
+  JVM-runnable."
   [event-bundle]
   (when (map? event-bundle)
-    (let [d (get-in event-bundle [:handler :tags :duration-ms])]
+    (let [d (or (get-in event-bundle [:handler :tags :rf.event/elapsed-ms])
+                (get-in event-bundle [:handler :tags :duration-ms]))]
       (when (number? d) d))))
 
 (defn format-duration-ms

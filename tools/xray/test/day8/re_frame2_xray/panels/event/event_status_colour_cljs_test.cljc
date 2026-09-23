@@ -247,6 +247,21 @@
       (is (false? (:focused? state)))
       (is (= :settled-success (event-status/classify-status state))))))
 
+(deftest event-bundle-outcome-reads-the-producer-duration-key
+  (testing "rf2-3x7nj.22.5 — `:duration-ms` is read off the run-end trace's
+            `:rf.event/elapsed-ms`, the key the producer stamps"
+    (is (= 8 (:duration-ms
+               (event-status/event-bundle-outcome
+                 {:event   [:poll/tick]
+                  :handler {:operation :rf.event/run-end
+                            :tags      {:rf.event/elapsed-ms 8}}})))))
+  (testing "the legacy `:duration-ms` stays a fallback"
+    (is (= 3 (:duration-ms
+               (event-status/event-bundle-outcome
+                 {:event   [:poll/tick]
+                  :handler {:operation :rf.event/run-end
+                            :tags      {:duration-ms 3}}}))))))
+
 (deftest event-bundle->state-frame-strict-focused-rf2-bz7flo
   (testing "rf2-bz7flo — when a multi-frame caller renders two cascades
             sharing a dispatch-id in different frames, only the cascade

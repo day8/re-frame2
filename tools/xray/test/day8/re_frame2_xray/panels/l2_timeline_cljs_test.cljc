@@ -106,20 +106,29 @@
 
 (defn- cascade-with-duration
   "Build a synthetic cascade whose `:handler` (`:rf.event/run-end`) trace
-  event carries the given handler `:duration-ms`. Mirrors the shape
-  `re-frame.trace.projection/group-by-event` buckets into `:handler`."
+  event carries the given handler duration under `:rf.event/elapsed-ms`,
+  the key the producer stamps (rf2-3x7nj.22.5 — a live run-end carries
+  `:frame :rf.event/elapsed-ms :rf.event/v :rf.trace/dispatch-id
+  :rf.trace/event-id :rf.trace/phase` and no `:duration-ms`). Mirrors the
+  shape `re-frame.trace.projection/group-by-event` buckets into `:handler`."
   [duration-ms]
   {:dispatch-id 7
    :event       [:poll/tick]
    :handler     {:operation :rf.event/run-end
                  :op-type   :rf.event
-                 :tags      {:duration-ms duration-ms
+                 :tags      {:rf.event/elapsed-ms  duration-ms
                              :rf.trace/dispatch-id 7}}})
 
 (deftest event-bundle-duration-ms-test
-  (testing "reads :duration-ms from [:handler :tags :duration-ms]"
+  (testing "reads the producer's :rf.event/elapsed-ms off the :handler trace"
     (is (= 1.234 (l2/event-bundle-duration-ms (cascade-with-duration 1.234))))
-    (is (= 0     (l2/event-bundle-duration-ms (cascade-with-duration 0)))))
+    (is (= 0     (l2/event-bundle-duration-ms (cascade-with-duration 0))))
+    (is (= "1.2 ms" (l2/event-bundle-duration-label (cascade-with-duration 1.234)))))
+
+  (testing "falls back to the legacy :duration-ms when elapsed-ms is absent"
+    (is (= 2.5 (l2/event-bundle-duration-ms
+                 {:handler {:operation :rf.event/run-end
+                            :tags      {:duration-ms 2.5}}}))))
 
   (testing "nil-safe on missing / non-numeric slots"
     (is (nil? (l2/event-bundle-duration-ms nil)))
