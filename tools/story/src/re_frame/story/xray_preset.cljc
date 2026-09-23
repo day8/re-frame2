@@ -393,13 +393,15 @@
 
 #?(:cljs
    (defn- apply-panel!
-     "Select the Xray panel via `:rf.xray/select-panel`. Xray's
-     registry registers this event handler against the `:rf/xray`
-     frame."
+     "Select the Xray panel via `:rf.xray/select-tab`, the L3 tab-bar
+     event Xray's registry registers against the `:rf/xray` frame
+     (`day8.re-frame2-xray.registry`). Xray no longer registers the
+     older `:rf.xray/select-panel`, so dispatching that id selected
+     nothing and raised no error (rf2-dsbob)."
      [panel]
      (when panel
-       (safe-call! ":rf.xray/select-panel"
-                   rf/dispatch [:rf.xray/select-panel panel] {:frame :rf/xray}))))
+       (safe-call! ":rf.xray/select-tab"
+                   rf/dispatch [:rf.xray/select-tab panel] {:frame :rf/xray}))))
 
 ;; ---- :filters bridge (rf2-q5pd6) ----------------------------------------
 ;;
@@ -512,7 +514,7 @@
      Steps (only those whose slot is present run):
 
        1. `:open?` true → `mount/open!`.
-       2. `:panel` set → dispatch `:rf.xray/select-panel` into `:rf/xray`.
+       2. `:panel` set → dispatch `:rf.xray/select-tab` into `:rf/xray`.
        3. `:filters` set → lower to Xray pills, seed
           `:rf.xray/filters`, and hydrate the live `:rf/xray` slot.
        4. `:focus`   set → dispatch `:rf.xray/focus-event` with coords.

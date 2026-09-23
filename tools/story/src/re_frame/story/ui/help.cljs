@@ -39,7 +39,8 @@
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
             [re-frame.story.theme.colors :as rf.story.theme.colors]
             [re-frame.story.theme.depth :as rf.story.theme.depth]
-            [re-frame.story.theme.motion :as rf.story.theme.motion]))
+            [re-frame.story.theme.motion :as rf.story.theme.motion]
+            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -166,6 +167,16 @@
   [s]
   [:span {:style (:kw styles)} s])
 
+(def ^:private shortcut-descriptions
+  "Help copy for each single-letter hotkey. The ROWS come from
+  `keybindings/shortcut-keys` (spec 014 §Keyboard shortcuts), so a
+  binding added to the registry appears in the table even before it
+  gets a line here."
+  {"f" "full-screen mode (canvas fills viewport)."
+   "s" "toggle the sidebar."
+   "a" "toggle the inspectors (RHS / addons)."
+   "t" "toggle the toolbar."})
+
 (defn help-content
   "The body of the help overlay — pure hiccup, factored out so future
   tests can render it in isolation and so the copy stays in one place.
@@ -213,14 +224,14 @@
    [:div {:style (:section-h styles)} "Keyboard shortcuts"]
    [:ul {:style (:list styles)
          :data-test "story-help-shortcuts-table"}
-    [:li {:style (:list-item styles)}
-     [kw "f"] " — full-screen mode (canvas fills viewport)."]
-    [:li {:style (:list-item styles)}
-     [kw "s"] " — toggle the sidebar."]
-    [:li {:style (:list-item styles)}
-     [kw "a"] " — toggle the inspectors (RHS / addons)."]
-    [:li {:style (:list-item styles)}
-     [kw "t"] " — toggle the toolbar."]
+    (for [k (rf.story.ui.keybindings/shortcut-keys)]
+      ^{:key k}
+      [:li {:style (:list-item styles)}
+       [kw k]
+       (when-let [desc (get shortcut-descriptions k)]
+         (str " — " desc))])
+    ;; ⌘K / Esc stay hand-written: the palette and the full-screen
+    ;; overlay own their own listeners, outside the registry.
     [:li {:style (:list-item styles)}
      [kw "⌘K"] " / " [kw "Ctrl-K"] " — open the command palette."]
     [:li {:style (:list-item styles)}
