@@ -618,6 +618,187 @@
                    :other []}]
       (is (= [] (h/event-bundle->managed-fx-records cascade))))))
 
+;; ---- (3b) an overridden effect (rf2-3x7nj.23.5) -------------------------
+;;
+;; The walker used to drop `:rf.fx/override-applied` (it keys on `:rf.fx/id`,
+;; which that row never carries) and derive the STUB marker from a status
+;; nothing could produce: a no-op stub read `ISSUED` like a real request, and a
+;; keyword redirect's record vanished (its handled row carries the TARGET id).
+;;
+;; Every row below is the PRODUCER's shape, captured from the real runtime
+;; (core + http on the plain-atom substrate, a local HttpServer counting
+;; requests, `group-by-event`): `re-frame.fx` stamps ONLY `:rf.fx/from` /
+;; `:rf.fx/to` on override-applied — never `:rf.fx/id` — emits it immediately
+;; before a function override fires, and stamps `:rf.fx/from` on a redirected
+;; handled row. The trace ids are the capture's own.
+
+(defn- override-applied
+  [id from to]
+  {:operation :rf.fx/override-applied
+   :op-type   :rf.fx
+   :id        id
+   :time      1000
+   :tags      {:rf.fx/from from :rf.fx/to to
+               :rf.trace/dispatch-id 7 :frame :rf/default}})
+
+(def ^:private load-args
+  {:request {:url "/api/load" :method :get} :request-id :app/load
+   :decode :json :reply-to [:app/done]})
+
+(defn- handled-at
+  ([id fx-id] (handled-at id fx-id nil))
+  ([id fx-id from]
+   (assoc (fx-handled fx-id load-args (cond-> {:rf.fx/elapsed-ms 1}
+                                        from (assoc :rf.fx/from from)))
+          :id id)))
+
+(defn- issued-at
+  "The producer's `:rf.http/issued` `:info` row, emitted inside the fx
+  handler, so it sits between the override row and the handled row."
+  [id]
+  {:operation :rf.http/issued
+   :op-type   :info
+   :id        id
+   :time      1000
+   :tags      {:rf.reply/work-id [:rf.work/http :app/load 1 1] :rf.reply/work-kind :http
+               :request-id :app/load :url "/api/load" :method :get :frame :rf/default
+               :reply-to {:on-success :app/done :on-failure :app/done}
+               :rf.trace/dispatch-id 7}})
+
+(defn- replied-at
+  "The producer's `:rf.http/replied` completion row (lands `:ungrouped`)."
+  [id]
+  {:operation :rf.http/replied
+   :op-type   :info
+   :id        id
+   :time      1040
+   :tags      {:rf.frame/id :rf/default :meta {:status 200 :status-text ""}
+               :rf.reply/work-kind :http :correlation {:request-id :app/load}
+               :value {:v 1} :rf.reply/work-status :completed :status :ok
+               :rf.reply/work-id [:rf.work/http :app/load 1 1] :attempt 1}})
+
+(defn- ovr-bundle [effects other]
+  {:dispatch-id 7 :frame :rf/default :event [:app/load] :effects effects :other other})
+
+(defn- records-with-join
+  "Records as the live panel builds them — WITH the join context, over a
+  buffer holding the bundle's rows plus any `:ungrouped` completion rows."
+  [b extra-buffer-rows]
+  (h/event-bundle->managed-fx-records
+    b nil (h/http-join-context (concat (:effects b) (:other b) extra-buffer-rows) [b])))
+
+(deftest overridden-no-op-function-reads-overridden
+  (testing "REGRESSION — a function override that makes no request (0 network
+            hits, no issued row) reads OVERRIDDEN, marked, target the function;
+            it used to read ISSUED, unmarked, exactly like a real request"
+    (let [recs (records-with-join
+                 (ovr-bundle [(override-applied 42 :rf.http/managed :re-frame.fx/fn-value)
+                          (handled-at 43 :rf.http/managed)]
+                         [])
+                 [])
+          r    (first recs)]
+      (is (= 1 (count recs)) "ONE record per handled row — the override row is provenance")
+      (is (= :rf.http/managed (:fx-id r)))
+      (is (= :overridden (:status r)))
+      (is (= "OVERRIDDEN" (h/format-status-label (:status r))))
+      (is (true? (:overridden? r)))
+      (is (= :re-frame.fx/fn-value (:override-to r)))
+      (is (nil? (:completion r))))))
+
+(deftest overridden-no-op-redirect-keeps-its-record
+  (testing "REGRESSION — a keyword redirect to a no-op is listed under the id
+            the handler EMITTED, target as detail; its record used to vanish,
+            because the handled row carries the target id"
+    (let [recs (records-with-join
+                 (ovr-bundle [(override-applied 48 :rf.http/managed :app/fake-http)
+                          (handled-at 49 :app/fake-http :rf.http/managed)]
+                         [])
+                 [])
+          r    (first recs)]
+      (is (= 1 (count recs)))
+      (is (= :http (:surface r)))
+      (is (= :rf.http/managed (:fx-id r)))
+      (is (= :overridden (:status r)))
+      (is (true? (:overridden? r)))
+      (is (= :app/fake-http (:override-to r))))))
+
+(deftest overridden-delegating-function-reads-what-it-did
+  (testing "REGRESSION — an override replaces the HANDLER, not the I/O: a
+            function that delegates to the real handler issued one real request
+            (its issued row pairs to it) and reads the joined OK, still marked"
+    (let [recs (records-with-join
+                 (ovr-bundle [(override-applied 54 :rf.http/managed :re-frame.fx/fn-value)
+                          (handled-at 56 :rf.http/managed)]
+                         [(issued-at 55)])
+                 [(replied-at 59)])
+          r    (first recs)]
+      (is (= 1 (count recs)))
+      (is (= :ok (:status r)))
+      (is (= :joined (:completion r)))
+      (is (true? (:overridden? r)) "marked, though its status is OK")
+      (is (= :re-frame.fx/fn-value (:override-to r)))))
+  (testing "…and with no completion in the capture it reads ISSUED, not
+            OVERRIDDEN — its own issued row evidences the request"
+    (let [r (first (records-with-join
+                     (ovr-bundle [(override-applied 54 :rf.http/managed :re-frame.fx/fn-value)
+                              (handled-at 56 :rf.http/managed)]
+                             [(issued-at 55)])
+                     []))]
+      (is (= :issued (:status r)))
+      (is (= :none (:completion r)))
+      (is (true? (:overridden? r))))))
+
+(deftest redirect-into-a-managed-surface-keeps-its-record
+  (testing "EDGE — `{:app/fetch :rf.http/managed}`: the emitted id names no
+            surface, so the record stays under its target, marked overridden"
+    (let [r (first (records-with-join
+                     (ovr-bundle [(override-applied 77 :app/fetch :rf.http/managed)
+                              (handled-at 79 :rf.http/managed :app/fetch)]
+                             [(issued-at 78)])
+                     [(replied-at 81)]))]
+      (is (= :rf.http/managed (:fx-id r)))
+      (is (= :ok (:status r)))
+      (is (true? (:overridden? r)))
+      (is (= :app/fetch (:override-from r))))))
+
+(deftest override-status-never-hides-failure-evidence
+  (testing "an overridden WebSocket record reads OVERRIDDEN in place of OK…"
+    (let [b (ovr-bundle [(override-applied 10 :rf.ws/connect :re-frame.fx/fn-value)
+                     (assoc (fx-handled :rf.ws/connect {:socket-id :s}) :id 11)]
+                    [])
+          r (first (h/event-bundle->managed-fx-records b))]
+      (is (= :overridden (:status r)))
+      (is (true? (:overridden? r)))))
+  (testing "…and a measured failure still wins over the override"
+    (let [b (ovr-bundle [(override-applied 10 :rf.ws/connect :re-frame.fx/fn-value)
+                     (assoc (fx-handled :rf.ws/connect {:socket-id :s}) :id 11)]
+                    [(surface-ev :rf.ws/transport {:socket-id :s :message "ECONNRESET"})])
+          r (first (h/event-bundle->managed-fx-records b))]
+      (is (= :error (:status r)))
+      (is (true? (:overridden? r))))))
+
+(deftest override-controls-absence-is-not-evidence
+  (testing "CONTROL — the unoverridden request reads ISSUED (OK once joined), unmarked"
+    (let [b (ovr-bundle [(handled-at 33 :rf.http/managed)] [(issued-at 32)])]
+      (is (= [:ok false]
+             ((juxt :status :overridden?) (first (records-with-join b [(replied-at 35)])))))
+      (is (= [:issued false]
+             ((juxt :status :overridden?) (first (h/event-bundle->managed-fx-records b)))))))
+  (testing "CONTROL — an unoverridden record with NO issued row (aged out, or a
+            capture from before the row existed) stays plain ISSUED, unmarked:
+            a missing issued row is never read as an override"
+    (let [r (first (records-with-join (ovr-bundle [(handled-at 33 :rf.http/managed)] []) []))]
+      (is (= :issued (:status r)))
+      (is (false? (:overridden? r)))))
+  (testing "CONTROL — an override row for a DIFFERENT fx does not mark this one"
+    (let [r (first (records-with-join
+                     (ovr-bundle [(override-applied 40 :app/other :re-frame.fx/fn-value)
+                              (handled-at 43 :rf.http/managed)]
+                             [])
+                     []))]
+      (is (= :issued (:status r)))
+      (is (false? (:overridden? r))))))
+
 ;; ---- (4) formatting helpers --------------------------------------------
 
 (deftest format-fx-id-handles-keyword-and-nil

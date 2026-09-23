@@ -240,11 +240,29 @@
                       :cursor        "pointer"}}
      "→ reply ↗"]))
 
-(defn- stub-pill
-  [stubbed?]
-  (when stubbed?
-    [:span {:data-testid "rf-xray-managed-fx-stub"
-            :title "Stubbed — this effect is redirected by an :fx-overrides entry instead of running for real."
+(defn- override-title
+  "The OVERRIDE pill's tooltip. Neutral on purpose: an override replaces
+  the HANDLER and says nothing about whether the replacement did any real
+  I/O — the status beside the pill says what the capture evidences."
+  [{:keys [fx-id override-to override-from]}]
+  (cond
+    (= :re-frame.fx/fn-value override-to)
+    "Overridden — an :fx-overrides entry replaced this effect's handler with a function"
+
+    ;; A redirect INTO a managed surface is listed under its target, so
+    ;; the id the handler emitted is the fact worth naming.
+    (and (some? override-from) (not= override-from fx-id))
+    (str "Overridden — an :fx-overrides entry redirected " override-from " to this effect")
+
+    :else
+    (str "Overridden — an :fx-overrides entry replaced this effect's handler"
+         (when (some? override-to) (str ", redirected to " override-to)))))
+
+(defn- override-pill
+  [{:keys [overridden?] :as record}]
+  (when overridden?
+    [:span {:data-testid "rf-xray-managed-fx-override"
+            :title (override-title record)
             :style {:padding       "1px 6px"
                     :margin-left   "8px"
                     :border-radius "3px"
@@ -255,11 +273,11 @@
                     :font-size     "10px"
                     :font-weight   700
                     :letter-spacing "0.5px"}}
-     "STUB"]))
+     "OVERRIDE"]))
 
 (defn- panel-header
   [dispatch
-   {:keys [surface fx-id duration-ms status http-status correlation-id phase cancel-cause stubbed?
+   {:keys [surface fx-id duration-ms status http-status correlation-id phase cancel-cause
            attempts completion]
     :as   record}]
   [:header {:data-testid (str "rf-xray-managed-fx-header-" (name surface))
@@ -316,7 +334,7 @@
    (correlation-pill dispatch correlation-id)
    (phase-pill phase)
    (cancel-pill cancel-cause)
-   (stub-pill stubbed?)])
+   (override-pill record)])
 
 ;; ---- section bodies ----------------------------------------------------
 ;;

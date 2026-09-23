@@ -39,7 +39,7 @@
    :origin-event-id 99
    :dispatch-id     7
    :frame           :rf/default
-   :stubbed?        false})
+   :overridden?     false})
 
 ;; ---- recursive hiccup walker ------------------------------------------
 
@@ -878,8 +878,9 @@
               (record {:surface :machine-invoke :fx-id :rf.machine/spawn :status :ok})
               (record {:surface :ssr-fx :fx-id :rf.server/set-status :status :ok})
               (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})
-              (-> (record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
-                  (assoc :stubbed? true))
+              (-> (record {:surface :http :fx-id :rf.http/managed :status :overridden})
+                  (assoc :overridden? true :override-to :app/fake-http
+                         :override-from :rf.http/managed))
               (-> (record {:surface :http :fx-id :rf.http/managed :status :cancelled})
                   (assoc :cancel-cause :upstream-cancelled))]]
     (doseq [r recs]
@@ -887,6 +888,47 @@
             label (str (:surface r) "/" (:status r))]
         (assert-no-internal-refs! (str "visible-text[" label "]") (visible-text panel))
         (assert-no-internal-refs! (str "tooltip-text[" label "]") (tooltip-text panel))))))
+
+;; ---- the OVERRIDE marker (rf2-3x7nj.23.5) --------------------------------
+;;
+;; The pill used to read STUB with a tooltip claiming the effect ran
+;; "instead of running for real". An override replaces the HANDLER; a
+;; delegating override really issues a request. So the pill says OVERRIDE,
+;; names the replacement, and claims nothing about I/O — the status beside
+;; it carries what the capture evidences.
+
+(defn- override-node [panel]
+  (first (filter #(and (vector? %) (map? (second %))
+                       (= "rf-xray-managed-fx-override" (:data-testid (second %))))
+                 (hiccup-vectors panel))))
+
+(deftest override-pill-names-the-replacement
+  (testing "a redirected record draws OVERRIDE, its target in the tooltip"
+    (let [panel (template/record-panel
+                  (assoc (record {:surface :http :fx-id :rf.http/managed :status :overridden})
+                         :overridden? true :override-to :app/fake-http
+                         :override-from :rf.http/managed))
+          pill  (override-node panel)
+          title (:title (second pill))]
+      (is (some? pill))
+      (is (= "OVERRIDE" (visible-text pill)))
+      (is (str/includes? title ":app/fake-http"))
+      (is (not (str/includes? title "for real"))
+          "the tooltip claims nothing about whether real I/O happened")
+      (is (not (str/includes? (visible-text panel) "STUB")))))
+  (testing "a function override says so; it rides beside ANY status, OK included"
+    (let [pill (override-node
+                 (template/record-panel
+                   (assoc (record {:surface :http :fx-id :rf.http/managed :status :ok
+                                   :http-status 200})
+                          :overridden? true :override-to :re-frame.fx/fn-value
+                          :override-from :rf.http/managed)))]
+      (is (some? pill))
+      (is (str/includes? (:title (second pill)) "with a function"))))
+  (testing "CONTROL — an unmarked record draws no pill"
+    (is (nil? (override-node
+                (template/record-panel
+                  (record {:surface :http :fx-id :rf.http/managed :status :issued})))))))
 
 ;; ---- the joined HTTP record (rf2-6ooch) ----------------------------------
 ;;
