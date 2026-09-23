@@ -208,10 +208,18 @@ A set is therefore only a **wholly-changed root** when the opposite side
 is empty or absent (a genuine cold-boot `#{} → #{…}` or clear `#{…} →
 #{}`, where there is no surviving member to anchor a member-level diff).
 While the opposite side still holds members, the membership delta *is*
-the diff and the per-member chrome shows with the key intact. Maps and
-vectors are unaffected — their slots are keyed by a shared key/index, so
-the one-sided uniformity walk was always correct for them; the union is
-taken only for sets.
+the diff and the per-member chrome shows with the key intact.
+
+**Maps take the same union (rf2-3x7nj.26.3).** A map is keyed by a
+shared key, but one whose every old key was removed and every new key
+added puts its before-leaves and after-leaves at disjoint paths exactly
+as a set swap does (`{:form {:errors {:email "bad"}}} → {:form {:errors
+{:name "required"}}}` ⇒ `[[:form :errors :email] :-] [[:form :errors
+:name] :+ "required"]`), and a one-sided walk promoted the surviving
+`:form` to a wholly-removed root. The uniformity walk therefore collects
+the union of both sides' keys, so a map is a wholly-changed root only
+when its opposite side is empty or absent. Vectors pair each element
+with its counterpart through the replay slots (§Vectors and lists).
 
 > **Why this is a contract, not an edge case.** The misrender hit ANY
 > set whose membership changed — `:tags` on a machine snapshot, a
