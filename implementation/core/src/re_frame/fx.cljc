@@ -667,7 +667,10 @@
   flag. `re-frame.router/dispatch!` reads it to insert the child at the
   FRONT of the queue so the machine settles its macrostep to quiescence
   before the next external event. Unlike the trace-only inheritable
-  keys, this is a runtime ordering flag — carried unconditionally.
+  keys, this is a runtime ordering flag — carried unconditionally here.
+  `child-dispatch!` drops it again for a DELAYED (`:ms`) child: a timer
+  callback fires after the macrostep ended and joins the back of the queue
+  (rf2-3x7nj.1.2).
 
   Per rf2-snsup5 §Cascade-exclusion: the inherited `:fx-overrides` is
   filtered against `non-overridable-source-fx-ids` so a reject-tier reserved-fx
@@ -701,7 +704,8 @@
     - parent-envelope inheritance (`child-dispatch-opts`): `:fx-overrides`,
       `:interceptor-overrides`, `:trace-id`, `:origin`, the per-call
       `:rf.cofx/mint-policy` strict/replay discipline, and the
-      `:rf.machine/internal?` front-of-queue ordering flag — per Spec 002
+      `:rf.machine/internal?` front-of-queue ordering flag (IMMEDIATE children
+      only — a delayed child drops it, rf2-3x7nj.1.2) — per Spec 002
       §Cascade propagation + EP-0017 §6;
     - the frame-owned `:dispatch-later` timer table (`arm-dispatch-later!`),
       cancelled on frame destroy (`release-frame!`) — so a delayed child never
@@ -744,7 +748,12 @@
                (some? rf-cofx)       (assoc :rf.cofx rf-cofx)
                (true? flow-settle?)  (assoc :rf.flow/settle? true))]
     (if (number? ms)
-      (arm-dispatch-later! frame-id ms event opts)
+      ;; rf2-3x7nj.1.2 — a delayed child is a TIMER callback, not a macrostep
+      ;; continuation: by the time it fires the emitting machine's macrostep
+      ;; is long over. So it drops `:rf.machine/internal?` and joins the BACK
+      ;; of the queue like any timer event (Spec 005 Level 4, Spec 002
+      ;; `do-fx :dispatch-later`). `:source` / `:source-detail` are kept.
+      (arm-dispatch-later! frame-id ms event (dissoc opts :rf.machine/internal?))
       ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once at
       ;; re-frame.router load and never withdrawn.
       (when-let [f (rf.late-bind/get-fn-cached :router/dispatch!)]
@@ -941,7 +950,10 @@
    ;; message* scheduled with a delay — stamp `:source :machine-action`
    ;; (carrying the same `:source-detail {:ms <ms>}`) when the parent
    ;; envelope is machine-internal, matching the `:dispatch` fx
-   ;; handler's machine-action discriminator above.
+   ;; handler's machine-action discriminator above. Unlike `:dispatch`,
+   ;; the delayed child does NOT keep `:rf.machine/internal?`:
+   ;; `child-dispatch!` drops it, so the event joins the BACK of the queue
+   ;; when the timer fires, like every timer callback (rf2-3x7nj.1.2).
    ;;
    ;; Per rf2-uxz52g: the armed host handle is RETAINED in the
    ;; `dispatch-later-timers` side table (keyed by frame) so

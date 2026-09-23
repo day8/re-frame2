@@ -352,11 +352,13 @@
         ;; machine's own processing (its `:action` / `:entry` / `:exit` /
         ;; transition handling, via `:fx [[:dispatch …]]` or an inter-
         ;; machine dispatch) is a machine-internal continuation. The
-        ;; `:dispatch` / `:dispatch-later` fx body stamps
+        ;; `:dispatch` fx body stamps
         ;; `:rf.machine/internal? true` on the child opts when the
         ;; emitting handler is a machine (see `child-dispatch-opts` in
         ;; re-frame.fx, which copies the flag off the machine-tagged
-        ;; parent envelope). `dispatch!` reads it to insert the envelope
+        ;; parent envelope). A `:dispatch-later` child does not keep it:
+        ;; it is a timer callback and goes to the back (rf2-3x7nj.1.2).
+        ;; `dispatch!` reads it to insert the envelope
         ;; at the FRONT of the queue so the macrostep settles to
         ;; quiescence before the next EXTERNAL event. This is a runtime
         ;; ordering guarantee — NOT a trace concern — so the flag is
@@ -3004,10 +3006,12 @@
         ;; registration meta carries `:rf/machine? true`, stamped by
         ;; re-frame.machines `reg-machine*`). The tagged envelope is the
         ;; `parent-envelope` threaded into `do-fx`; `child-dispatch-opts`
-        ;; (re-frame.fx) copies the flag onto every `:dispatch` /
-        ;; `:dispatch-later` child emitted during this handler's fx walk,
-        ;; so those continuation events front-of-queue insert (see
-        ;; `enqueue-envelope!`). The cut is the dispatch's ORIGIN — an
+        ;; (re-frame.fx) copies the flag onto every IMMEDIATE `:dispatch`
+        ;; child emitted during this handler's fx walk, so those
+        ;; continuation events front-of-queue insert (see
+        ;; `enqueue-envelope!`). A `:dispatch-later` child drops it — a
+        ;; timer callback fires after the macrostep and goes to the back
+        ;; (rf2-3x7nj.1.2). The cut is the dispatch's ORIGIN — an
         ;; event that merely TARGETS a machine but originates elsewhere
         ;; carries no flag and stays FIFO. `:raise` is untouched: it
         ;; never reaches the router queue (it drains in-memory inside the
