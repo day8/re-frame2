@@ -704,6 +704,54 @@
               (str "all permutations must serialize `:edges` identically (slug-first? "
                    slug-first? ")")))))))
 
+;; ---- (c++) the order key never throws on a legal live query vector --------
+;;
+;; A LIVE edge endpoint carries a subscription's whole concrete query vector,
+;; and a query argument may legally sit outside the CEDN-1 domain: a finite
+;; float (the cache-key contract admits them) or a fn. `canonical-bytes`
+;; throws on both, so ordering by it alone lost the WHOLE live graph as soon
+;; as two edges had to be compared (rf2-3x7nj.3.3; a one-edge `sort-by` never
+;; calls its key fn). The nodes are shaped like `sub-cache-algebra-view`'s.
+
+(def ^:private out-of-domain-arg-fn
+  "A fn query-vector argument — one fixed object, so every assembly below sees
+  the same value."
+  (fn [x] x))
+
+(defn- live-query-arg-contributors
+  "A live `:subs` contributor over `[:a]` and three subs reading it: `[:b 0.5]`
+  (a float argument), `[:c]` (inside the CEDN-1 domain) and `[:d <fn>]` (a fn
+  argument), inserted in `order`."
+  [order]
+  (let [nodes {:a [[:a] []]
+               :b [[:b 0.5] [[:sub [:a]]]]
+               :c [[:c] [[:sub [:a]]]]
+               :d [[:d out-of-domain-arg-fn] [[:sub [:a]]]]}]
+    {:subs {:live-shape :map
+            :static-fn  (constantly {})
+            :live-fn    (constantly
+                          (reduce (fn [m k]
+                                    (let [[q inputs] (get nodes k)]
+                                      (assoc m q (permutation-sub-node q inputs))))
+                                  (array-map) order))}}))
+
+(deftest cplusplus-live-edge-order-tolerates-out-of-domain-query-args
+  (let [expected [{:from [:sub [:a]] :to [:sub [:c]] :role :input}
+                  {:from [:sub [:a]] :to [:sub [:b 0.5]] :role :input}
+                  {:from [:sub [:a]] :to [:sub [:d out-of-domain-arg-fn]] :role :input}]]
+    (testing "a float or fn query-vector argument does not lose the live graph"
+      (let [g (rf.derivation.graph/live-derivation-graph :rf/default
+                                                         (live-query-arg-contributors [:a :b :c :d]))]
+        (is (= 4 (count (:nodes g))) "every live sub node is present")
+        (is (= (set expected) (set (:edges g))) "every realized :input edge is present")))
+    (testing "CEDN-1 edges keep their canonical position and out-of-domain edges
+              sort after them, identically under every insertion order"
+      (doseq [order (permutations-of [:a :b :c :d])]
+        (is (= expected
+               (:edges (rf.derivation.graph/live-derivation-graph
+                         :rf/default (live-query-arg-contributors order))))
+            (str "edges must equal the expected order for insertion order " order))))))
+
 ;; ===========================================================================
 ;; (d) WHOLE-VALUE — the semantic whole-value law (slice-1).
 ;; ===========================================================================
@@ -1441,6 +1489,51 @@
         "the projected :work-ledger :record :work/id is stable under re-projection")
     (is (= (:host-transient node1) (:host-transient node2))
         "the projected :host-transient in-flight handle is stable under re-projection")))
+
+;; ---- (g) the identity projection touches resource nodes only --------------
+;;
+;; A live sub node's `:id` and `:output` carry its query vector, and a query
+;; vector `[:sub-id :kw {…}]` has the scoped-key SHAPE. Egress used to run the
+;; resource identity projection over every node, so it rewrote such a sub's
+;; `:id` and `:output` into opaque handles while its node key and edges kept
+;; the raw query vector (rf2-3x7nj.3.5).
+
+(def ^:private scoped-key-shaped-query
+  [:items/page :active {:limit 10}])
+
+(defn- scoped-key-shaped-sub-contributors
+  "The `egress-live-contributors` resource + route fixture, plus a live sub
+  node whose query vector has the scoped-key shape."
+  []
+  (assoc (egress-live-contributors)
+         :subs
+         {:live-shape :map
+          :static-fn  (constantly {})
+          :live-fn    (constantly
+                        {scoped-key-shaped-query
+                         {:id      scoped-key-shaped-query :kind :derivation
+                          :inputs  [] :output [:fact scoped-key-shaped-query]
+                          :storage :ephemeral :evaluation :on-demand
+                          :lifecycle :subscription-cache-entry}})}))
+
+(deftest g-egress-leaves-a-scoped-key-shaped-sub-node-alone
+  (rf/make-frame {:id egress-frame})
+  (let [raw      (rf.derivation.graph/live-derivation-graph egress-frame
+                                                            (scoped-key-shaped-sub-contributors))
+        redacted (rf.derivation.egress/project-graph raw egress-frame)
+        sub-key  [:sub scoped-key-shaped-query]
+        sub      (get-in redacted [:nodes sub-key])]
+    (testing "the sub node keeps its key, :id and :output"
+      (is (some? sub) "the sub node is still keyed by its raw query vector")
+      (is (= scoped-key-shaped-query (:id sub)) ":id is still the query vector")
+      (is (= [:fact scoped-key-shaped-query] (:output sub)) ":output is untouched")
+      (is (= (second sub-key) (:id sub)) ":id still matches the node key"))
+    (testing "the resource node in the same graph is still projected"
+      (is (contains-secret? raw) "sanity: the raw graph carries the secret")
+      (is (not (contains-secret? redacted))
+          "no raw secret survives — resource projection still applies")
+      (is (not (contains? (:nodes redacted) [:resource egress-scoped-key]))
+          "the raw resource node key is gone"))))
 
 ;; ===========================================================================
 ;; (g+) RESOURCE-CONTRIBUTOR EGRESS THROUGH THE COMPOSER.

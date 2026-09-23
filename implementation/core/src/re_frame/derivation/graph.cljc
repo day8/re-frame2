@@ -627,6 +627,24 @@
 ;; key.
 ;; ---------------------------------------------------------------------------
 
+(defn- edge-order-key
+  "The sort key `graph-edges` orders edges by. It never throws.
+
+  An edge inside the CEDN-1 domain keys by its `rf.identity/canonical-bytes`
+  token, which is the platform-stable canonical order (rf2-3fc89f.1). But a
+  LIVE edge endpoint carries a subscription's whole concrete query vector, and
+  a query argument may legally sit outside that domain: a finite float (the
+  cache-key contract admits them, Spec 006 §Value-keyed cache-key contract),
+  a fn, or a host object. `canonical-bytes` throws on those. Such an edge sorts
+  AFTER every CEDN edge, by its `pr-str`, so one out-of-domain argument costs
+  that edge its cross-platform byte-stable position and never costs the whole
+  graph (rf2-3x7nj.3.3)."
+  [edge]
+  (try
+    [0 (rf.identity/canonical-bytes edge)]
+    (catch #?(:clj Throwable :cljs :default) _
+      [1 (pr-str edge)])))
+
 (defn- graph-edges
   "Every edge across the assembled `nodes` map, in `mode` (`:static` /
   `:live`), in a CANONICAL total order. Composes the common per-node
@@ -650,7 +668,9 @@
   `distinct` keeps duplicate-suppression semantics and every edge map's
   contents / identity unchanged; we reorder the collection, never rewrite an
   edge. (`:nodes` needs no such treatment — it is a map, already
-  order-insensitive under value equality.)"
+  order-insensitive under value equality.) An edge outside the CEDN-1 domain
+  (a live query-vector argument that is a float or a fn) sorts after the rest
+  rather than throwing — see `edge-order-key`."
   [mode nodes contributors selector-targets]
   (let [node-ids (keys nodes)
         ctx      {:mode mode :nodes nodes :node-ids node-ids
@@ -669,7 +689,7 @@
                   (present-families contributors))]
     (->> (concat input extra)
          distinct
-         (sort-by rf.identity/canonical-bytes)
+         (sort-by edge-order-key)
          vec)))
 
 ;; ---------------------------------------------------------------------------
