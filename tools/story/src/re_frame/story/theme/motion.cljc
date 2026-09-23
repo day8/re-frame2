@@ -34,7 +34,7 @@
   choreography map. The inject helper is CLJS-only — it touches
   `js/document.head`."
   {:no-doc true}
-  (:require [re-frame.story.theme.colors :as colors]
+  (:require [re-frame.story.theme.colors :as rf.story.theme.colors]
             #?(:cljs [re-frame.story.config :as rf.story.config])))
 
 (def timing
@@ -176,7 +176,7 @@
 @keyframes rf-story-overlay-out{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(4px) scale(0.99)}}
 @keyframes rf-story-chip-press{0%{transform:scale(1)}40%{transform:scale(0.94)}100%{transform:scale(1)}}
 @keyframes rf-story-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-[data-rf-story-root] *:focus-visible{outline:2px solid " (:focus-ring colors/tokens) ";outline-offset:2px;border-radius:3px;transition:outline-offset 120ms cubic-bezier(0.0, 0.0, 0.2, 1.0)}
+[data-rf-story-root] *:focus-visible{outline:2px solid " (:focus-ring rf.story.theme.colors/tokens) ";outline-offset:2px;border-radius:3px;transition:outline-offset 120ms cubic-bezier(0.0, 0.0, 0.2, 1.0)}
 @media (prefers-reduced-motion: reduce){
   [data-rf-story-root] *,[data-rf-story-root] *::before,[data-rf-story-root] *::after{animation-duration:0.01ms !important;animation-delay:0ms !important;transition-duration:0.01ms !important;transition-delay:0ms !important}
 }
