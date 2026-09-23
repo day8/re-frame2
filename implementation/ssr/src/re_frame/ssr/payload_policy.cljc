@@ -798,18 +798,20 @@
                0
                v))))
 
-(defn check-portable-numbers!
-  "Refuse a hydration-payload slice carrying a number the browser's EDN reader
-  would read back as a DIFFERENT value — see the section comment above
-  (rf2-3x7nj.13.3). Walks every number in `slice`, map keys and set members
-  included, and throws `:rf.error/ssr-hydration-payload-invalid` on the first
-  outside `manifest/portable-number?`, naming `partition` (`:rf/app-db` /
-  `:rf/runtime-db`), the path from the partition root (for a map key or a set
-  member, the path of the collection holding it, with `:half :key`) and the
-  class. Returns `slice`. A no-op on CLJS, where every number crosses."
-  [partition slice]
-  #?(:clj (check-portable-numbers-at! partition [] slice :value))
-  slice)
+#?(:clj
+   (defn check-portable-numbers!
+     "Refuse a hydration-payload slice carrying a number the browser's EDN
+     reader would read back as a DIFFERENT value — see the section comment
+     above (rf2-3x7nj.13.3). Walks every number in `slice`, map keys and set
+     members included, and throws `:rf.error/ssr-hydration-payload-invalid` on
+     the first outside `manifest/portable-number?`, naming `partition`
+     (`:rf/app-db` / `:rf/runtime-db`), the path from the partition root (for
+     a map key or a set member, the path of the collection holding it; a map
+     key also carries `:half :key`) and the class. Returns `slice`. JVM only:
+     on CLJS every number crosses, so the check does not exist there."
+     [partition slice]
+     (check-portable-numbers-at! partition [] slice :value)
+     slice))
 
 (defn build-payload
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
@@ -878,10 +880,10 @@
   `re-frame.ssr.streaming/build-final-payload`, which differ only in how
   they source `app-db` + runtime-db before projecting them."
   [wire-frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
-  ;; rf2-3x7nj.13.3 — both partitions obey the numeric crossing rule before
-  ;; they are assembled (a no-op on CLJS). One site covers both SSR paths.
-  (check-portable-numbers! :rf/app-db db-slice)
-  (check-portable-numbers! :rf/runtime-db runtime-db)
+  ;; rf2-3x7nj.13.3 — on a JVM host both partitions obey the numeric crossing
+  ;; rule before they are assembled. One site covers both SSR paths.
+  #?(:clj (do (check-portable-numbers! :rf/app-db db-slice)
+              (check-portable-numbers! :rf/runtime-db runtime-db)))
   (cond-> {:rf/version (resolve-version version)
            :rf/app-db  db-slice}
     ;; rf2-2rtt6.91 — the hash channel is HICCUP-TIER-ONLY, so a nil
