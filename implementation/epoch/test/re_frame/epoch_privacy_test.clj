@@ -930,10 +930,11 @@
 ;; consumer SELECT the `:rf.egress/off-box-tool` boundary via the named
 ;; `:rf.egress/profile` opt, while `:rf.egress/off-box-observability` stays
 ;; the hosted-monitoring DEFAULT. The tool profile keeps the same
-;; redact-sensitive / elide-large defaults but turns ON structural digests,
-;; so a large frame-owned app-db slot egresses as a `:rf.size/large-elided`
-;; marker carrying the `:digest` structural indicator the tool needs to
-;; reason about shape. Observability omits that detail. An unknown profile
+;; redact-sensitive / elide-large defaults and, since rf2-3x7nj.32.6, the
+;; same no-digest floor: a large frame-owned app-db slot egresses as a
+;; `:rf.size/large-elided` marker whose `:path` / `:bytes` / `:type` /
+;; `:handle` are the structural indicators, and a `:digest` appears only
+;; under the explicit `:rf.egress/include-digests? true` override. An unknown profile
 ;; is rejected against the shared closed enum.
 
 (defn- large-marker-body
@@ -947,9 +948,9 @@
 (deftest project-egress-tool-profile-includes-structural-digest
   (testing "rf2-1afn7q: an MCP/AI/tool epoch consumer selects
             :rf.egress/off-box-tool — the elided large slot's marker
-            carries the :digest structural indicator the tool profile
-            enables, while the :rf.egress/off-box-observability default
-            omits it. Both still elide the large value (no raw bytes
+            equals the :rf.egress/off-box-observability default's, with no
+            :digest (rf2-3x7nj.32.6); the explicit include-digests? override
+            adds one. Both still elide the large value (no raw bytes
             egress)."
     (rf/make-frame {:id :test/main})
     (install-large-schema! :test/main)
@@ -975,18 +976,21 @@
       ;; The DEFAULT (no profile) == the observability profile.
       (is (= obs-body obs-body2)
           "the bare 1-arity default == :rf.egress/off-box-observability")
-      ;; The structural indicator: observability omits :digest; tool includes it.
+      ;; Neither off-box profile carries a digest by default (rf2-3x7nj.32.6);
+      ;; the shared metadata (path / bytes / type / handle) IS the structural
+      ;; indicator set, so the two markers are equal.
       (is (not (contains? obs-body :digest))
-          ":rf.egress/off-box-observability omits the structural :digest")
-      (is (contains? tool-body :digest)
-          ":rf.egress/off-box-tool includes the structural :digest the EP
-           says tools should receive")
-      (is (string? (:digest tool-body))
-          "the tool profile's structural digest is a content hash, not a value")
-      ;; The shared metadata (path / bytes / type) is on both (it is the
-      ;; observability baseline); the tool profile ADDS the digest.
-      (is (= (dissoc tool-body :digest) obs-body)
-          "tool profile == observability marker PLUS the structural digest"))))
+          ":rf.egress/off-box-observability omits :digest")
+      (is (not (contains? tool-body :digest))
+          ":rf.egress/off-box-tool omits :digest by default (rf2-3x7nj.32.6)")
+      (is (= tool-body obs-body)
+          "tool profile marker == observability marker")
+      (let [digest-body (large-marker-body
+                          (rf/project-egress
+                            raw {:rf.egress/profile          :rf.egress/off-box-tool
+                                 :rf.egress/include-digests? true}))]
+        (is (string? (:digest digest-body))
+            "the explicit digest override is a content hash on the JVM, not a value")))))
 
 (deftest project-egress-tool-profile-still-redacts-sensitive
   (testing "rf2-1afn7q: selecting the tool profile does NOT lift the
@@ -1026,9 +1030,10 @@
 
 (deftest whole-ring-composition-threads-tool-profile
   (testing "rf2-1afn7q: the whole-ring composition threads the named
-            :rf.egress/off-box-tool profile to every record — the
-            structural :digest rides each elided large slot off the
-            whole-ring egress path too."
+            :rf.egress/off-box-tool profile to every record — each elided
+            large slot rides off the whole-ring egress path as a marker with
+            no :digest (rf2-3x7nj.32.6), and the explicit digest override
+            threads through the composition too."
     (rf/make-frame {:id :test/main})
     (install-large-schema! :test/main)
     (rf/reg-event :store
@@ -1041,8 +1046,14 @@
                           (rf.epoch/epoch-history :test/main))
           last-body (large-marker-body (last tool-hist))]
       (is (some? last-body) "the whole-ring tool egress elides the large slot")
-      (is (contains? last-body :digest)
-          "the composition threads the tool profile's structural digest"))))
+      (is (not (contains? last-body :digest))
+          "the tool profile carries no digest by default (rf2-3x7nj.32.6)")
+      (is (string? (:digest (large-marker-body
+                              (last (mapv #(rf/project-egress
+                                             % {:rf.egress/profile          :rf.egress/off-box-tool
+                                                :rf.egress/include-digests? true})
+                                          (rf.epoch/epoch-history :test/main))))))
+          "the composition threads the explicit digest override"))))
 
 ;; ---- 3. whole-ring projection by composition -------------------------------
 ;;

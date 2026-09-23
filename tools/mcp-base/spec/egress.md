@@ -39,7 +39,7 @@ This namespace carries the profile NAME SET and the posture→profile mapping �
 
 The `:rf.egress/*` floor each name resolves to lives in the framework (`re-frame.projection`'s §10 default-behaviour table, per [`/spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md)) and is not repeated here. The one distinction a server needs when choosing a name:
 
-- `:rf.egress/off-box-tool` is the off-box profile that carries structural digests — the §10 "include structural indicators / counters so the tool can reason about shape without seeing content" clause. It is the MCP servers' DEFAULT off-box boundary.
+- `:rf.egress/off-box-tool` is the MCP servers' DEFAULT off-box boundary — the §10 "include structural indicators so the tool can reason about shape without seeing content" clause. It does not carry digests by default; a digest is the explicit `:rf.egress/include-digests? true` override.
 - `:rf.egress/local-raw` is the trusted-local, operator-opt-in boundary (e.g. `--allow-sensitive-reads`) that opts sensitive AND large back in.
 
 ## Surface

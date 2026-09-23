@@ -1369,9 +1369,11 @@
   An MCP or AI tool selects the
   `:rf.egress/off-box-tool` boundary instead via `project-egress`'s
   `:rf.egress/profile` opt — that profile keeps the same redact/elide
-  defaults but turns on `:rf.egress/include-digests?`, so a large owner-local
-  slot egresses as a marker carrying the structural indicators / counters a
-  tool needs to reason about shape without seeing content."
+  defaults and the same no-digest floor (rf2-3x7nj.32.6), so a large
+  owner-local slot egresses as a marker whose `:path` / `:bytes` / `:type` /
+  `:handle` are the structural indicators a tool needs to reason about shape
+  without seeing content; a `:digest` needs the explicit
+  `:rf.egress/include-digests? true` override."
   :rf.egress/off-box-observability)
 
 (defn- resolve-egress-profile

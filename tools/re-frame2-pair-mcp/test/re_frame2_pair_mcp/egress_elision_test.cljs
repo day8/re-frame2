@@ -660,18 +660,17 @@
 ;; Pair-MCP is an OFF-BOX TOOL WIRE (epoch records cross to an external
 ;; agent). Per Tool-Pair.md §Named-egress profile adoption (EP-0015 §10) the
 ;; epoch egress MUST name `:rf.egress/off-box-tool`, NOT lean on the
-;; epoch projector's `:rf.egress/off-box-observability` default (same
-;; redact/elide floor, but OMITS the structural `:rf.egress/include-digests?`
-;; indicators a tool needs to reason about an elided slot's shape). The
+;; epoch projector's `:rf.egress/off-box-observability` default (the same
+;; redact/elide floor and, since rf2-3x7nj.32.6, the same no-digest floor;
+;; the profile is named because it IS the tool boundary). The
 ;; profile lives in `egress-opts-edn`, so every epoch egress caller that
 ;; threads through it (trace-window / watch-epochs / snapshot :epochs /
 ;; dispatch :trace / :settle) inherits it.
 ;;
 ;; These unit tests pin the helper directly — they PARSE the emitted EDN
-;; (not just substring it) so the assertion is the actual data shape, and
-;; cross-check that the named off-box-tool boundary resolves (via the shared
-;; cross-MCP mirror) to the fail-closed-sensitive / digests-on floor the
-;; off-box wire requires.
+;; (not just substring it) so the assertion is the actual data shape. What
+;; the named profile RESOLVES to is pinned where the table lives,
+;; `implementation/core` (the cross-MCP mirror is gone, rf2-kuky.88).
 
 (defn- parse-opts
   "Read `egress-opts-edn`'s rendered EDN string back into a data map."

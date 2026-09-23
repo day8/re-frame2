@@ -88,12 +88,17 @@
       (let [o (rf.projection/profile-size-opts p)]
         (is (false? (:rf.egress/include-sensitive? o)) (str p " redacts sensitive"))
         (is (false? (:rf.egress/include-large? o))     (str p " elides large"))))
-    ;; off-box-tool turns digests ON (structural indicators).
+    ;; off-box-tool shares that floor and does NOT turn digests on
+    ;; (rf2-3x7nj.32.6): its §10 structural indicators are the marker's own
+    ;; :path / :bytes / :type / :handle; a digest is an explicit override.
     (let [o (rf.projection/profile-size-opts :rf.egress/off-box-tool)]
       (is (false? (:rf.egress/include-sensitive? o)))
       (is (false? (:rf.egress/include-large? o)))
-      (is (true?  (:rf.egress/include-digests? o))
-          "off-box-tool includes structural indicators (§10)"))
+      (is (false? (:rf.egress/include-digests? o))
+          "off-box-tool carries no digest by default (rf2-3x7nj.32.6)"))
+    (is (not-any? (comp true? :rf.egress/include-digests? rf.projection/profile-size-opts)
+                  rf.projection/profiles)
+        "no profile turns digests on")
     ;; local-raw opts sensitive + large back in.
     (let [o (rf.projection/profile-size-opts :rf.egress/local-raw)]
       (is (true? (:rf.egress/include-sensitive? o)) "local-raw includes sensitive")
@@ -133,6 +138,37 @@
       (is (= big-string (get-in out [:docs :blob]))
           "trusted-local sees the large value raw")
       (is (= 3 (get-in out [:public :count]))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3x7nj.32.6 — a marker carries `:digest` only when a digest string was
+;; computed. The browser build computes none (`sha256-hex` is `nil` there), and
+;; `->marker` used to assoc that nil, so every browser-side marker — every
+;; marker pair-MCP ships — carried `:digest nil`, which the normative
+;; `:rf/elision-marker` schema rejects and which reads as a false "unchanged".
+;; This is the only test that grades that `#?(:cljs …)` branch: a JVM lane
+;; reads it but never compiles it.
+;; ---------------------------------------------------------------------------
+
+(deftest marker-digest-is-a-string-or-absent-never-nil
+  (mk-frame! :proj/digest)
+  (let [marker-body (fn [opts]
+                      (get-in (rf/project-egress (sample-value)
+                                                 (merge {:frame :proj/digest} opts))
+                              [:docs :blob :rf.size/large-elided]))
+        default-body  (marker-body {:rf.egress/profile :rf.egress/off-box-tool})
+        override-body (marker-body {:rf.egress/profile          :rf.egress/off-box-tool
+                                    :rf.egress/include-digests? true})]
+    (is (map? default-body) "fixture: the declared-large slot is a marker")
+    (is (not (contains? default-body :digest))
+        "off-box-tool carries no digest by default, on either host")
+    (is (map? override-body) "fixture: the override still elides")
+    (is (not (and (contains? override-body :digest)
+                  (nil? (:digest override-body))))
+        "the slot is never present-and-nil")
+    #?(:clj  (is (string? (:digest override-body))
+                 "the JVM computes the sha256 digest the explicit override asks for")
+       :cljs (is (not (contains? override-body :digest))
+                 "the browser build computes none, so the slot is omitted"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Profile + explicit :rf.egress/* override composes — override wins.

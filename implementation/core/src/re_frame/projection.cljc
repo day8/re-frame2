@@ -122,15 +122,18 @@
 
 (def ^:private profile->size-opts
   "Resolve each profile to its default `:rf.egress/*` opt-set (the §10
-  default-behaviour table). All six off-box / on-box-redacted boundaries
-  fail closed (`include-sensitive?`/`include-large?` both false, no
-  digests); `:rf.egress/local-raw` is the single trusted-local boundary
-  that opts sensitive AND large back in.
+  default-behaviour table). Every boundary except `:rf.egress/local-raw`
+  fails closed (`include-sensitive?`/`include-large?` both false) and NO
+  profile turns digests on; `:rf.egress/local-raw` is the single
+  trusted-local boundary that opts sensitive AND large back in.
 
-  `:rf.egress/off-box-tool` additionally turns on `:rf.egress/include-digests?`
-  so the marker carries the structural indicators / counters a tool needs
-  to reason about shape without seeing content (the §10 \"include
-  structural indicators\" clause)."
+  `:rf.egress/off-box-tool` shares `:rf.egress/off-box-observability`'s
+  size floor; what differs is the boundary it NAMES. Its §10 \"structural
+  indicators\" are the marker's own `:path` / `:bytes` / `:type` /
+  `:handle` and the tools' elided counts, not a digest (rf2-3x7nj.32.6:
+  the browser host computes no digest, and nothing reads one). A caller
+  that wants a content digest passes the explicit
+  `:rf.egress/include-digests? true` override."
   {:rf.egress/off-box-observability
    {:rf.egress/include-sensitive? false
     :rf.egress/include-large?     false
@@ -139,7 +142,7 @@
    :rf.egress/off-box-tool
    {:rf.egress/include-sensitive? false
     :rf.egress/include-large?     false
-    :rf.egress/include-digests?   true}
+    :rf.egress/include-digests?   false}
 
    :rf.egress/local-redacted
    {:rf.egress/include-sensitive? false

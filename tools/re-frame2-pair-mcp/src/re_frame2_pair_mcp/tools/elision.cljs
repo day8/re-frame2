@@ -86,8 +86,10 @@
   the app runtime, where the framework graph is already loaded. That is
   what keeps the resolution table out of the Node bundle WITHOUT a second
   copy of it: the server ships a keyword, not a policy.
-  `:rf.egress/off-box-tool` redacts sensitive, elides large, and carries
-  the structural digest a tool needs to reason about shape;
+  `:rf.egress/off-box-tool` redacts sensitive and elides large to a marker
+  carrying the structural indicators (`:path` / `:bytes` / `:type` /
+  `:handle`) a tool needs to reason about shape, with no `:digest`
+  (rf2-3x7nj.32.6);
   `:rf.egress/local-raw` opts both inclusions back in (the operator's
   deliberate raw read). The `:elision` MCP arg composes ON TOP as the
   EP-0015 §10 explicit override (a caller that turns elision off overlays

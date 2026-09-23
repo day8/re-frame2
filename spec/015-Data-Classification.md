@@ -261,7 +261,7 @@ The normal public choice at a boundary is **"which boundary is this?"** — a na
 | Profile | Default behaviour |
 |---|---|
 | `:rf.egress/off-box-observability` | hosted monitoring (Datadog / Sentry / Honeycomb). Redact sensitive; elide large; omit digests; the off-box default omits raw `:event` args. |
-| `:rf.egress/off-box-tool` | MCP / AI / tool wire. Redact sensitive; elide large; include structural indicators / digests so the tool can reason about shape without seeing content. |
+| `:rf.egress/off-box-tool` | MCP / AI / tool wire. Redact sensitive; elide large; include structural indicators (the marker's `:path` / `:bytes` / `:type` / `:handle` and elided counts) so the tool can reason about shape without seeing content. |
 | `:rf.egress/local-redacted` | local dev-UI default. Suppress sensitive display by default; may show size indicators on-box. |
 | `:rf.egress/local-raw` | trusted local operator. Include sensitive and large unless size caps still require handles. |
 | `:rf.egress/ssr-hydration` | the projection applied **after** the SSR allowlist (see [§SSR and hydration](#ssr-and-hydration-are-allowlist-first)) — defence-in-depth, never a parallel SSR mechanism. |
