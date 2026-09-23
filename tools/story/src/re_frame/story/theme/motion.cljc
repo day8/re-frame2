@@ -34,7 +34,8 @@
   choreography map. The inject helper is CLJS-only — it touches
   `js/document.head`."
   {:no-doc true}
-  #?(:cljs (:require [re-frame.story.config :as rf.story.config])))
+  (:require [re-frame.story.theme.colors :as colors]
+            #?(:cljs [re-frame.story.config :as rf.story.config])))
 
 (def timing
   "Duration tokens (CSS strings). Six slots covering the chrome's
@@ -170,12 +171,12 @@
     (`Highlight`, `CanvasText`, `ButtonText`, `LinkText`, `Mark`,
     `GrayText`) so HCM users keep operator-grade signal — see the
     `forced-colors` block below for the rule rationale."
-  "@keyframes rf-story-mount-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  (str "@keyframes rf-story-mount-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes rf-story-overlay-in{from{opacity:0;transform:translateY(8px) scale(0.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes rf-story-overlay-out{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(4px) scale(0.99)}}
 @keyframes rf-story-chip-press{0%{transform:scale(1)}40%{transform:scale(0.94)}100%{transform:scale(1)}}
 @keyframes rf-story-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-[data-rf-story-root] *:focus-visible{outline:2px solid #F5A524;outline-offset:2px;border-radius:3px;transition:outline-offset 120ms cubic-bezier(0.0, 0.0, 0.2, 1.0)}
+[data-rf-story-root] *:focus-visible{outline:2px solid " (:focus-ring colors/tokens) ";outline-offset:2px;border-radius:3px;transition:outline-offset 120ms cubic-bezier(0.0, 0.0, 0.2, 1.0)}
 @media (prefers-reduced-motion: reduce){
   [data-rf-story-root] *,[data-rf-story-root] *::before,[data-rf-story-root] *::after{animation-duration:0.01ms !important;animation-delay:0ms !important;transition-duration:0.01ms !important;transition-delay:0ms !important}
 }
@@ -272,7 +273,7 @@
 [data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"critical\"]{outline-width:3px}
 [data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"serious\"]{outline-width:2px}
 [data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"moderate\"]{outline-width:2px;outline-style:dashed}
-[data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"minor\"]{outline-width:1px;outline-style:dotted}")
+[data-rf-force-colors=\"active\"] [data-rf-a11y-violation=\"minor\"]{outline-width:1px;outline-style:dotted}"))
 
 #?(:cljs
    (defonce ^:private motion-css-injected? (atom false)))
