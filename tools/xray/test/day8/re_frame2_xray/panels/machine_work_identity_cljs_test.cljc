@@ -336,3 +336,41 @@
                       (filter #(= :completed (:phase %)))
                       first :status)))
           (is (true? (:suppressed? arc))))))))
+
+(deftest single-spawn-stale-carrier-reaches-the-xray-stale-view
+  ;; rf2-syc7a — producer-derived. The machines runtime drops a single-`:spawn`
+  ;; carrier that arrives after the parent left the spawning state and emits
+  ;; `:rf.machine.spawn/stale-completion` (rf2-3x7nj.9.3). Nothing is
+  ;; hand-dispatched: one plain handler queues the child's finishing event and
+  ;; then the parent's `:cancel`, so the runtime mints the carrier behind it.
+  (testing "the real stale-completion row survives into Xray's stale view"
+    (rf/reg-event ::kick (fn [_ [_ events]] {:fx (mapv (fn [e] [:dispatch e]) events)}))
+    (rf/reg-machine :xray-work-id/single-child
+      {:initial :running
+       :data    {:id "first"}
+       :states  {:running {:on {:go :done}}
+                 :done    {:final? true :output-key :id}}})
+    (rf/reg-machine :xray-work-id/single-parent
+      {:initial :idle
+       :data    {}
+       :states  {:idle    {:on {:start :loading}}
+                 :loading {:spawn {:machine-id :xray-work-id/single-child
+                                   :on-done    (fn [{:keys [data result]}]
+                                                 (update data :results (fnil conj []) result))}
+                           :on    {:cancel :idle}}}})
+    (with-trace-recorder!
+      [traces {:pred #(= :rf.machine.spawn/stale-completion (:operation %))}]
+      (rf/dispatch-sync [:xray-work-id/single-parent [:start]])
+      (rf/dispatch-sync [::kick [[:xray-work-id/single-child#1 [:go]]
+                                 [:xray-work-id/single-parent [:cancel]]]])
+      (is (= 1 (count @traces)) "the producer emitted exactly one stale-completion")
+      (let [[row & more] (reply-envelope/stale-suppressions @traces)]
+        (is (some? row) "Xray's stale view keeps the row")
+        (is (nil? more))
+        (is (= :rf.machine.spawn/stale-completion (:operation row)))
+        (is (= :rf.machine.spawn/state-exited (:stale-reason row)))
+        (is (= :machine (:work-kind row)))
+        (is (= :stale (:status row)))
+        (is (= :suppressed (:work-status row)))
+        (is (= :rf/default (:frame row))))
+      (is (= {:machine 1} (reply-envelope/stale-tally-by-kind @traces))))))

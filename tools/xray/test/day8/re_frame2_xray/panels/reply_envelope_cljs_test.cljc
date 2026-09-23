@@ -282,7 +282,10 @@
     ;; `:resolved?`-latched EXACT-CURRENT straggler (the only carrier that
     ;; clears the exact-attempt fence yet arrives post-latch).
     (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/stale-completion)))
-    (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/late-completion))))
+    (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/late-completion)))
+    ;; rf2-syc7a — the single-`:spawn` analogue has the same `-completion`
+    ;; name shape, so it is enumerated for the same reason.
+    (is (= :stale-suppressed (re/phase-of :rf.machine.spawn/stale-completion))))
   (testing "rf2-hj4skn — the NON-DECISIVE `:spawn-all` child terminal is a REAL
             completion (its `-completed` suffix classifies correctly) and stays
             `:completed`, NOT lowered to stale"
@@ -707,6 +710,36 @@
       (is (= :suppressed (:work-status row)))
       (is (= 474 (:completed-at row)))
       (is (some? (:correlation row))))))
+
+(deftest single-spawn-stale-completion
+  (testing "rf2-syc7a — the single-`:spawn` stale row, in the 009 catalogue's
+            tag shape (`:actor-id` / `:invoke-id` / `:kind`, no `:child-id`,
+            no `:rf.reply/work-id`, the bare `:frame`), projects onto the
+            uniform stale-suppressed row"
+    (let [ev  {:id 90 :operation :rf.machine.spawn/stale-completion :time 490
+               :tags {:actor-id  :loader#1 :invoke-id [:loading] :kind :done
+                      :frame     :rf/default
+                      :rf.reply/work-kind    :machine
+                      :rf.reply/status       :stale
+                      :rf.reply/work-status  :suppressed
+                      :rf.reply/stale-reason :rf.machine.spawn/attempt-superseded
+                      :rf.reply/correlation  {:parent-id :loader#1 :invoke-id [:loading]
+                                              :attempt {:carried 1 :current 2}}
+                      :rf.reply/completed-at 489}}
+          row (re/work-event-row ev)]
+      (is (= :stale-suppressed (:phase row)))
+      (is (true? (:stale? row)))
+      (is (= :machine (:work-kind row)) "the explicit work-kind, never the :kind tag")
+      (is (nil? (:work-id row)) "the op carries no work-id")
+      (is (= :stale (:status row)))
+      (is (= :suppression (:status-class row)))
+      (is (= :suppressed (:work-status row)))
+      (is (= :rf.machine.spawn/attempt-superseded (:stale-reason row)))
+      (is (= :rf/default (:frame row)) "the bare [:tags :frame] attributes the row")
+      (is (= 489 (:completed-at row)))
+      (is (= "map" (:type (:correlation row))) "correlation summarized (PRIVACY)")
+      (is (= [row] (re/stale-suppressions [ev])))
+      (is (= {:machine 1} (re/stale-tally-by-kind [ev]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (6b-spawn-all-races) The spawn-all stale rows flow into the cross-family

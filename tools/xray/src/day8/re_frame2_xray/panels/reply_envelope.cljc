@@ -491,6 +491,15 @@
    ;; ops without reply-envelope proof.
    :rf.machine.spawn-all/stale-completion  :stale-suppressed
    :rf.machine.spawn-all/late-completion   :stale-suppressed
+   ;; rf2-syc7a — the single-`:spawn` analogue (rf2-3x7nj.9.3): a completion
+   ;; carrier dropped because the parent left or re-entered the spawning
+   ;; state before it arrived (`:rf.reply/stale-reason`
+   ;; `:rf.machine.spawn/state-exited` / `.../attempt-superseded`). Same
+   ;; `-completion` name shape, so the heuristic misses it too. Its tags are
+   ;; `:actor-id` / `:invoke-id` / `:kind` plus the reply facts, with no
+   ;; `:child-id` and no `:rf.reply/work-id`; `work-event-row` reads none of
+   ;; the former and tolerates a nil work-id.
+   :rf.machine.spawn/stale-completion      :stale-suppressed
    ;; Mutations emit `:rf.mutation/stale-suppressed` for a superseded / cleared
    ;; / cross-frame reply (EP-0016 D1 — a stale reply NEVER fires the
    ;; `:reply-to` continuation; it suppresses here instead), carrying the
