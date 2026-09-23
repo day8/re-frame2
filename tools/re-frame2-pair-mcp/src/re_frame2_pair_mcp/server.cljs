@@ -912,6 +912,15 @@
   {"--allow-raw-state" "renamed to --allow-sensitive-reads (rf2-2x3ql)"
    "--allow-eval"      "removed — eval-cljs now defaults ENABLED; pass --no-eval to opt OUT (rf2-a0z0h)"})
 
+(def ^:private boolean-flag-ignored-effect
+  "What an operator gets when a boolean flag is given an inline value and
+  so is NOT applied — the posture the flag was meant to change, left at
+  its default. `--no-eval` is the one opt-OUT, so it is the one whose
+  misparse fails OPEN."
+  {"--no-eval"               "eval-cljs stays ENABLED"
+   "--allow-sensitive-reads" "sensitive reads stay gated"
+   "--allow-writes"          "restore-epoch / replace-app-db stay disabled"})
+
 (defn- flag-prefix
   "The bare flag name of an argv token: the part before `=` for the
   equals form, the whole token otherwise. `--http-port=9700` → `--http-port`."
@@ -941,7 +950,9 @@
     - `:missing-value`       — a valued flag (`--port-file` / `--http-port`)
                                present with no value (trailing, or
                                immediately followed by another flag).
-    - `:malformed-value`     — `--http-port` with a non-numeric value.
+    - `:malformed-value`     — `--http-port` with a non-numeric value, or
+                               a boolean flag given an inline value
+                               (`--no-eval=true`), which is NOT applied.
 
   `argv` here is the launch argv AFTER node/shadow strip their own
   prelude — i.e. the same vector `parse-launch-flags` sees. Tokens that
@@ -975,6 +986,22 @@
                     :input    token
                     :issue    :unknown-flag
                     :effect   "ignored — not a recognised re-frame2-pair-mcp launch flag"}
+
+                   ;; A boolean flag given an inline value (`--no-eval=true`,
+                   ;; the `--flag=value` style many CLIs accept). The parser
+                   ;; recognises only the bare token, so the flag is NOT
+                   ;; applied — and for the opt-out `--no-eval` that leaves
+                   ;; eval ON while the operator asked for it OFF
+                   ;; (rf2-3x7nj.32.7). Warn, per the posture above; the
+                   ;; inline form is deliberately NOT accepted, so there is
+                   ;; one spelling of each flag.
+                   (and (contains? known-boolean-flags prefix) has-inline?)
+                   {:severity :warn
+                    :input    token
+                    :issue    :malformed-value
+                    :effect   (str prefix " takes no value — " token " is IGNORED; "
+                                   (get boolean-flag-ignored-effect prefix)
+                                   ". Pass the bare " prefix " flag.")}
 
                    ;; Valued flag present with no value.
                    (and (contains? known-valued-flags prefix)
