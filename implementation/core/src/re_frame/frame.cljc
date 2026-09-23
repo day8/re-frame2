@@ -1366,27 +1366,35 @@
 (defn- frame-record-visible-to-current-actor?
   "True when raw registry record `f` is a live frame visible to this actor.
 
-  Final records are process-visible. A provisional record is visible only when
-  the current dynamic construction owner is the record's exact owner AND that
-  identity still holds `id` on this host thread. This is the single visibility
-  predicate for exact lookup and every public registry enumeration; no reader
-  may expose a half-constructed id by filtering raw `@frames` independently."
+  Final records are process-visible. A FIRST construction's provisional record
+  is visible only when the current dynamic construction owner is the record's
+  exact owner AND that identity still holds `id` on this host thread. A
+  re-registration's provisional record is process-visible (rf2-3x7nj.2.1): it
+  stages a new config onto a LIVE frame whose runtime state, router and drain
+  lock are the same objects, so it is not a half-construction, and hiding it
+  would make a stable incarnation fail its own liveness checks on every other
+  thread. This is the single visibility predicate for exact lookup and every
+  public registry enumeration; no reader may expose a half-constructed id by
+  filtering raw `@frames` independently."
   [id f]
   (and (not (-> f :lifecycle :destroyed?))
        (or (not= :provisional (-> f :construction :state))
+           (= :re-registration (-> f :construction :kind))
            (let [owner (-> f :construction :owner)]
              (and (identical? owner *frame-transaction-owner*)
                   (owner-holds-frame-id? owner id))))))
 
 (defn frame
   "Return the frame record for `id` (a frame-id keyword), or nil if not
-  registered, still provisional under another host actor's construction
-  transaction, or destroyed. The registry is keyed by the bare frame-id.
+  registered, still provisional under another host actor's FIRST construction,
+  or destroyed. The registry is keyed by the bare frame-id.
 
-  A provisional record is visible only to its exact construction owner on the
-  owning host thread. Synchronous setup and lifecycle publication can therefore
-  use the ordinary frame machinery, while unrelated callers never observe the
-  former live-looking pre-setup row. Final records have no owner restriction.
+  A first construction's provisional record is visible only to its exact
+  construction owner on the owning host thread. Synchronous setup and lifecycle
+  publication can therefore use the ordinary frame machinery, while unrelated
+  callers never observe the former live-looking pre-setup row. A
+  re-registration's staged revision is visible to every actor (the frame is
+  live throughout), and final records have no owner restriction.
 
   2-level lookup written as keyword-invoke (`(-> f :lifecycle :destroyed?)`)
   rather than `(get-in f [:lifecycle :destroyed?])` — `get-in` allocates
@@ -3037,8 +3045,13 @@
   (when-let [probe *upsert-policy-probe*] (probe id))
   (serialize-frame-trace-policy! publish!))
 
-(defn- provisional-construction [owner revision]
+(defn- provisional-construction
+  "`kind` is `:creation` (a first construction: owner-only visibility) or
+  `:re-registration` (a staged revision of a live frame: visible to every
+  actor) — see `frame-record-visible-to-current-actor?`."
+  [kind owner revision]
   {:state    :provisional
+   :kind     kind
    :owner    owner
    :revision revision})
 
@@ -3121,7 +3134,8 @@
   (when-not (contains? @frames id)
     (let [f (assoc (new-frame-record id config)
                    :trace-policy-token policy-token
-                   :construction (provisional-construction owner policy-token))]
+                   :construction (provisional-construction
+                                   :creation owner policy-token))]
       (loop []
         (let [registry @frames]
           (cond
@@ -3527,7 +3541,7 @@
                                       :trace-policy-token policy-token
                                       :construction
                                       (provisional-construction
-                                        owner policy-token)))
+                                        :re-registration owner policy-token)))
                         registry))))
                 ;; The candidate above is built from the registry value that
                 ;; the atomic swap actually replaced. A generation-only writer
