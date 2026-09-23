@@ -61,6 +61,24 @@
 
 (defn scroll-y [] (js/Math.round (.-scrollY js/window)))
 
+(defn max-scroll-y
+  "How far this document can scroll. A restore past it is clamped."
+  []
+  (- (.-scrollHeight js/document.documentElement) (.-innerHeight js/window)))
+
+(defn isolate!
+  "Hide every other child of `<body>` for the row's duration and answer the
+  thunk that puts them back. The bundle shares one page, and what earlier
+  namespaces leave behind makes it tens of thousands of pixels tall — tall
+  enough that no \"short\" page is short, so a restore made on the page being
+  left is never clamped and the Back row could not fail."
+  [container]
+  (let [saved (->> (js/Array.from (.-children js/document.body))
+                   (remove #(identical? % container))
+                   (mapv (fn [el] [el (.. el -style -display)])))]
+    (doseq [[el _] saved] (set! (.. el -style -display) "none"))
+    (fn restore! [] (doseq [[el d] saved] (set! (.. el -style -display) d)))))
+
 (defn- fragment-reading []
   (let [el (.getElementById js/document install-id)]
     {:scroll-y (scroll-y)
@@ -72,8 +90,9 @@
   read where the page landed. `unmount!` takes what `mount!` returned."
   [{:keys [adapter-name mount! unmount!]} done]
   (let [frame-id  ::fragment-frame
-        container (.createElement js/document "div")]
-    (.appendChild js/document.body container)
+        container (.createElement js/document "div")
+        _         (.appendChild js/document.body container)
+        restore!  (isolate! container)]
     (rf/make-frame {:id frame-id})
     ;; The starting page, with no scroll of its own — so the fragment
     ;; navigation's scroll is the first after-render use of this mount.
@@ -98,6 +117,7 @@
           (.then (fn [_]
                    (try (unmount! handle) (catch :default _ nil))
                    (try (.remove container) (catch :default _ nil))
+                   (restore!)
                    (try (.scrollTo js/window 0 0) (catch :default _ nil))
                    (try (rf/destroy-frame! frame-id) (catch :default _ nil))
                    (done)))))))

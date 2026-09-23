@@ -98,10 +98,11 @@
   (let [frame-id   ::back-frame
         runner-url (.-href js/location)
         prior      (.-scrollRestoration js/window.history)
-        container  (.createElement js/document "div")]
+        container  (.createElement js/document "div")
+        _          (.appendChild js/document.body container)
+        restore!   (witness/isolate! container)]
     (set! (.-scrollRestoration js/window.history) scroll-restoration)
     (.replaceState js/window.history nil "" from-url)
-    (.appendChild js/document.body container)
     (rf/make-frame {:id frame-id :url-bound? true})
     (let [root (mount! ::back-page container frame-id)]
       (-> (witness/after-commit (fn []) (fn [] nil))
@@ -113,10 +114,14 @@
                        " — it reads " (witness/scroll-y)))
               (witness/after-commit
                 #(rf/dispatch-sync [:rf.route/navigate {:to ::detail}] {:frame frame-id})
-                witness/scroll-y)))
+                (fn [] [(witness/scroll-y) (witness/max-scroll-y)]))))
           (.then
-            (fn [y]
+            (fn [[y max-y]]
               (is (= 0 y) "precondition: forward to the short detail page lands at the top")
+              (is (< max-y deep-offset)
+                  (str "precondition: the detail page can scroll only " max-y "px, so a"
+                       " restore to " deep-offset " made on it would be clamped. Without"
+                       " this the Back row cannot fail"))
               (js/Promise.
                 (fn [resolve]
                   (let [on-pop (fn on-pop [_]
@@ -130,6 +135,7 @@
           (.then (fn [_]
                    (try (.unmount root) (catch :default _ nil))
                    (try (.remove container) (catch :default _ nil))
+                   (restore!)
                    (.replaceState js/window.history nil "" runner-url)
                    (set! (.-scrollRestoration js/window.history) prior)
                    (try (.scrollTo js/window 0 0) (catch :default _ nil))
