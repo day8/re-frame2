@@ -115,10 +115,14 @@ function boot() {
     // while reading as though the application's trace survived into the
     // refusal. The live diagnostic is the parent's `worker.on('error')`
     // handler, which has the real `Error` and keeps its stack.
+    //
+    // Nullish-safe for the same reason that handler is (rf2-3x7nj.15.1): a
+    // module that throws `null` at boot would otherwise be refused with
+    // "Cannot read properties of null", which says nothing about the module.
     postMessage({
       t: 'boot-error',
-      code: err.code ?? CODE.MALFORMED_MODULE,
-      message: err.message,
+      code: err?.code ?? CODE.MALFORMED_MODULE,
+      message: err?.message ?? String(err),
     });
     return;
   }
