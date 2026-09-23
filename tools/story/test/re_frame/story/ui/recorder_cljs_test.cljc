@@ -18,7 +18,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.recorder :as rf.story.recorder]
-            #?(:cljs [re-frame.story.ui.recorder :as rf.story.ui.recorder])))
+            #?(:cljs [re-frame.story.ui.recorder :as rf.story.ui.recorder])
+            #?(:cljs [re-frame.story.ui.recorder-export-dialog
+                      :as rf.story.ui.recorder-export-dialog])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -226,6 +228,33 @@
            (is (not (str/includes? flat ":auth/login"))
                "B's freshly-captured events do NOT bleed into the snippet")
            (is (not (str/includes? flat ":auth/logout"))))))))
+
+;; ---- CLJS-only: the export hand-off carries the recording's seed ----------
+
+#?(:cljs
+   (deftest save-dialog-export-hands-off-the-recording-seed
+     (testing "rf2-3x7nj.29.2: 'export as :script' opens the export dialog
+               with the app-db the recording started from, so its auto-assert
+               diffs against it"
+       (reset! rf.story.recorder/state
+               (-> (rf.story.recorder/start rf.story.recorder/initial-state
+                                            :story.a/source 0 {:n 0})
+                   (rf.story.recorder/append [:counter/inc] 5)
+                   rf.story.recorder/stop))
+       (reset! rf.story.ui.recorder/ui-dialog
+               (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
+                                              :story.a/source [[:counter/inc]] nil 12345))
+       (let [export (some (fn [n]
+                            (when (and (vector? n) (map? (second n))
+                                       (= "story-recorder-export" (:data-test (second n))))
+                              n))
+                          (tree-seq #(or (vector? %) (seq? %)) seq
+                                    (rf.story.ui.recorder/save-dialog)))]
+         (is (some? export) "the save dialog renders its export button")
+         ((:on-click (second export)) nil)
+         (is (= {:n 0} (:seed-db @rf.story.ui.recorder-export-dialog/ui-dialog))))
+       (reset! rf.story.ui.recorder-export-dialog/ui-dialog
+               rf.story.ui.recorder-export-dialog/initial-state))))
 
 ;; ---- CLJS-only: assertion picker ARIA + arrow-key nav (rf2-p1ai7 + 07m13)
 
