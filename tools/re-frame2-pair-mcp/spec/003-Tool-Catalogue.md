@@ -1773,7 +1773,7 @@ per-frame epoch-history is non-empty, the envelope carries an
 `:advisory` slot distinguishing "nothing happened" from "events exist
 but fell outside the time window" (impl:
 [`src/re_frame2_pair_mcp/tools/trace_window.cljs`](../src/re_frame2_pair_mcp/tools/trace_window.cljs)
-lines 237-256):
+lines 242-261):
 
 ```clojure
 {:advisory {:reason            :window-excludes-history
@@ -1845,8 +1845,13 @@ This is the MCP equivalent of the bash `watch-epochs.sh` script's
 poll loop — but MCP isn't streaming, so callers that want a tight
 loop should call us repeatedly with the same `since-id`.
 
-**Args**: `since-id` (string, optional — omit to start fresh; supplanted
-by `cursor` when both are supplied), `pred` (object, optional predicate
+**Args**: `since-id` (string, optional — the last epoch id seen, i.e. a
+previous poll's `:head-id`; omit to start fresh; supplanted by `cursor`
+when both are supplied. Parsed as EDN exactly as `restore-epoch` parses
+its `epoch-id`, because the reference runtime's epoch ids are integers
+that `epochs-since` matches with `=`: `"47"` names the integer id 47,
+while a keyword or string id still round-trips (rf2-3x7nj.32.3). An
+unreadable value is refused with `:reason :invalid-since-id`), `pred` (object, optional predicate
 filter — sticky across cursor pagination, encoded in the cursor on the
 first call (rf2-mb17rj), so a continuation passing back only `:cursor`
 keeps the same filter; keys from: `:event-id`, `:event-id-prefix`,
@@ -1873,7 +1878,7 @@ proportional to the match rate. Accepts either a number (sugar for
 entries) carry no derivable timing and never match a numeric
 threshold.
 
-**Returns**: `{:ok? true :matches [...] :limit L :count K :head-id "..." :id-aged-out? bool :epochs-mode :diff|:full :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
+**Returns**: `{:ok? true :matches [...] :limit L :count K :head-id <epoch-id> :id-aged-out? bool :epochs-mode :diff|:full :has-more? bool :estimated-remaining N :next-cursor "<base64>"|nil}`.
 
 When the call surfaces zero matches but the per-frame epoch-history is
 non-empty, the envelope additionally carries an `:advisory` slot —
@@ -1890,7 +1895,7 @@ When the response would carry `:count 0` but the operating frame's
 per-frame epoch-history is non-empty, the envelope carries an
 `:advisory` slot distinguishing two distinct empty-result causes
 (impl: [`src/re_frame2_pair_mcp/tools/watch_epochs.cljs`](../src/re_frame2_pair_mcp/tools/watch_epochs.cljs)
-lines 240-269):
+lines 284-313):
 
 **Case A — `:no-events-since-id`** (zero `:count`, zero new epochs
 since `:since-id`, non-empty history). The caller's `:since-id` sits

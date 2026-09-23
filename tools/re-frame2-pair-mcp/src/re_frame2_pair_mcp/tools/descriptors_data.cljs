@@ -806,14 +806,14 @@
                      "supplied. A cursor whose epoch-id has aged out of the ring surfaces as "
                      "`:reason :rf.mcp/cursor-stale`. "
                      "Examples: "
-                     "1. First poll for a specific event: {:pred {:event-id :cart/checkout}} -> {:ok? true :matches [...] :count 1 :head-id \"...\"}. "
-                     "2. Resume after last seen id: {:since-id \"epoch-42\" :pred {:effects :http}} -> {:ok? true :matches [...] :head-id \"epoch-47\"}. "
+                     "1. First poll for a specific event: {:pred {:event-id :cart/checkout}} -> {:ok? true :matches [...] :count 1 :head-id 42}. "
+                     "2. Resume after last seen id (since-id is read as EDN, so \"42\" names the integer id 42): {:since-id \"42\" :pred {:effects :http}} -> {:ok? true :matches [...] :head-id 47}. "
                      "3. Slow-cascade probe: {:pred {:timing-ms \">100\"}} -> {:ok? true :matches [{:rf/epoch-id ... :elapsed-ms 142}]}.")
    :typicalTokens 2000
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
-                 :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh). Supplanted by :cursor when both are passed."}
+                 :properties {:since-id {:type "string" :description "The last epoch id you've seen — the :head-id a previous poll returned (omit to start fresh). Parsed as EDN like restore-epoch's epoch-id, so the integer id 47 is passed as \"47\". Supplanted by :cursor when both are passed."}
                               :pred     {:type "object" :description "Filter map"}
                               :frame    {:type "string"
                                          :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection returns :ambiguous-frame rather than an empty poll with :id-aged-out? true."}
