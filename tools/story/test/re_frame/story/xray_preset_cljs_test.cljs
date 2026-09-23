@@ -436,6 +436,39 @@
       (is (= [{:pattern :user/pill}] (:out (active-filters)))
           "the user's pill survives a preset that says nothing about filters"))))
 
+;; ---- :panel preset selects Xray's real tab (rf2-dsbob) --------------------
+;;
+;; The `:panel` arm used to dispatch `:rf.xray/select-panel`, an event Xray
+;; stopped registering when the 4-layer shell replaced it with
+;; `:rf.xray/select-tab`. `safe-call!` swallowed the no-handler outcome, so
+;; the slot was a silent no-op — and the only test asserted that the
+;; dispatch HAPPENED, which stayed green throughout. This test reads the
+;; OUTCOME instead: Xray's own `:rf.xray/selected-tab` sub.
+;;
+;; The preset dispatches asynchronously; the redef routes that one dispatch
+;; through `dispatch-sync` in the frame the caller named, so the real
+;; registered handler (or its absence) decides the result synchronously.
+
+(defn- selected-tab
+  "Read Xray's live selected tab through its own sub."
+  []
+  (rf/with-frame :rf/xray
+    @(rf/subscribe [:rf.xray/selected-tab])))
+
+(deftest panel-preset-selects-the-xray-tab
+  (testing "a {:panel :trace} preset moves Xray's selected tab off its
+            :epoch default and onto :trace"
+    (install-xray-frame!)
+    (is (= :epoch (selected-tab)) "baseline: Xray's default tab")
+    (let [vid (reg-filtered-variant! :story.filt/panel {:panel :trace})]
+      (with-redefs [rf/dispatch (fn [ev & [opts]]
+                                  (rf/with-frame (:frame opts)
+                                    (rf/dispatch-sync ev))
+                                  nil)]
+        (rf.story.xray-preset/apply-preset! vid))
+      (is (= :trace (selected-tab))
+          "the preset's :panel reached a handler Xray actually registers"))))
+
 ;; ---- project-root propagator (rf2-r1uod) ---------------------------------
 
 (deftest propagate-project-root-reaches-xray
@@ -545,8 +578,8 @@
         (with-spies #(rf.story.xray-preset/on-variant-selected! :story.filt/deep-link))
         (is (= 1 @opened)
             "dev control: :open? true reached Xray's mount/open!")
-        (is (some #(= :rf.xray/select-panel (first %)) @dispatched)
-            "dev control: :panel reached the :rf.xray/select-panel dispatch")
+        (is (some #(= :rf.xray/select-tab (first %)) @dispatched)
+            "dev control: :panel reached the :rf.xray/select-tab dispatch")
         (is (some #(= :rf.xray/focus-event (first %)) @dispatched)
             "dev control: :focus reached the :rf.xray/focus-event dispatch")
         (is (some #(contains? % :rf.xray/filters) @configured)

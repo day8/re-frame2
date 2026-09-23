@@ -14,7 +14,8 @@
   in `re-frame.story-help-dom-cljs-test`, which BOTH lanes load
   (rf2-r51p)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story.ui.help :as rf.story.ui.help]))
+            [re-frame.story.ui.help :as rf.story.ui.help]
+            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -39,6 +40,40 @@
 ;; is exactly where that belongs.
 
 ;; ---- hiccup shape --------------------------------------------------------
+
+(defn- shortcuts-table
+  "The `story-help-shortcuts-table` list inside `help-content`'s hiccup."
+  []
+  (->> (tree-seq sequential? seq (rf.story.ui.help/help-content))
+       (filter #(and (vector? %)
+                     (= :ul (first %))
+                     (= "story-help-shortcuts-table" (:data-test (second %)))))
+       first))
+
+(defn- table-strings
+  "Every string anywhere inside the shortcuts table."
+  []
+  (set (filter string? (tree-seq sequential? seq (shortcuts-table)))))
+
+;; rf2-nxbdw — spec 014 §Keyboard shortcuts, API.md and `shortcut-keys`'
+;; own docstring all say the overlay's table is READ from the hotkey
+;; registry. It used to hard-code the four letters, so a fifth binding
+;; would never have reached the cheat-sheet.
+
+(deftest shortcuts-table-renders-every-registered-key
+  (testing "each key the registry binds appears in the help table"
+    (is (some? (shortcuts-table)) "control: the table is found")
+    (doseq [k (rf.story.ui.keybindings/shortcut-keys)]
+      (is (contains? (table-strings) k)
+          (str "registered key " (pr-str k) " is in the help table")))))
+
+(deftest shortcuts-table-follows-the-registry
+  (testing "a key added to the registry appears in the table with no help.cljs edit"
+    (is (not (contains? (table-strings) "z")) "control: no z row today")
+    (with-redefs [rf.story.ui.keybindings/shortcut-keys
+                  (fn [] ["a" "f" "s" "t" "z"])]
+      (is (contains? (table-strings) "z")
+          "the table was built from shortcut-keys"))))
 
 (deftest help-content-is-hiccup
   (testing "help-content returns a hiccup vector rooted at :div"
