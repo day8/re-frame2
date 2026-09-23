@@ -3697,11 +3697,43 @@
                          (str "; " queue-size " queued event(s) dropped"))
                        ".")})))
 
+;; ---- HALTED-DESTROY record (rf2-v6ftp) ----------------------------------
+;;
+;; A `:halted-destroy` record marks the event during which its own frame was
+;; destroyed. That is a deliberate lifecycle stop, not an error — the
+;; framework's consumer-facing mapping sends it to `:blocked`
+;; (`re-frame.epoch.assembly/outcome->consumer-facing`) — so it gets NO card.
+;; The trace is exact about everything else: `:rf.event/run-start` fired, so
+;; the handler RAN, and any effect that ran before the destroy emitted its
+;; own trace and already projects as a SIDE EFFECTS row, so nothing is
+;; assumed skipped. Two stamps: DISPATCH carries `:halted :halted-destroy`,
+;; which `epoch-outcome` reads as `:blocked`, and HANDLER carries
+;; `:result-discarded? true` when none of its result reached the commit (no
+;; `:db` write, no SIDE EFFECTS step), so the view stops saying it "returned
+;; no :db".
+
+(defn- destroy-discarded-result?
+  "True iff no part of the handler's result reached the commit in `steps`:
+  the HANDLER wrote no `:db` and no SIDE EFFECTS step projected."
+  [steps]
+  (not-any? (fn [step]
+              (case (:step step)
+                :handler      (:db-write? step)
+                :side-effects true
+                false))
+            steps))
+
 (defn mark-halted
   "When `epoch-record` is a `:halted-depth` record (`halt-row`), attach its
   halt card to the DISPATCH step (`:status :error`) and stamp the HANDLER +
   SIDE EFFECTS steps `:status :skipped` with `:skip-reason :halted-depth`
-  (rf2-3x7nj.22.1). Any other record returns `steps` unchanged."
+  (rf2-3x7nj.22.1).
+
+  When it is a `:halted-destroy` record (rf2-v6ftp), stamp DISPATCH
+  `:halted :halted-destroy` (the `:blocked` outcome, no card) and, when
+  nothing of the handler's result was committed, HANDLER
+  `:result-discarded? true`. SIDE EFFECTS is left exactly as the trace
+  projected it. Any other record returns `steps` unchanged."
   [steps epoch-record]
   (if-let [row (halt-row epoch-record)]
     (mapv (fn [step]
@@ -3716,7 +3748,15 @@
 
               step))
           steps)
-    steps))
+    (if (= :halted-destroy (:outcome epoch-record))
+      (let [discarded? (destroy-discarded-result? steps)]
+        (mapv (fn [step]
+                (case (:step step)
+                  :dispatch (assoc step :halted :halted-destroy)
+                  :handler  (cond-> step discarded? (assoc :result-discarded? true))
+                  step))
+              steps))
+      steps)))
 
 (defn- attach-to-fx-error-row
   "Attach an fx exception row to the SIDE EFFECTS step's matching
@@ -4066,11 +4106,17 @@
   runtime). Surfacing the framework slot's `:ok` as the panel's outcome
   is the rf2-ahhgn bug; deriving from the trace stream fixes it without a
   framework-contract change (which would ripple into `restore-epoch`'s
-  non-`:ok` refusal + Story / MCP consumers — see rf2-ahhgn settle-first)."
+  non-`:ok` refusal + Story / MCP consumers — see rf2-ahhgn settle-first).
+
+  rf2-v6ftp — `:blocked` for a `:halted-destroy` record (`mark-halted`
+  stamps DISPATCH `:halted`), following the framework's own consumer-facing
+  mapping: a destroy is a deliberate lifecycle stop, not an error. An
+  `:error` step still wins."
   [steps]
-  (if (some #(= :error (step-status %)) steps)
-    :error
-    :ok))
+  (cond
+    (some #(= :error (step-status %)) steps)      :error
+    (some #(= :halted-destroy (:halted %)) steps) :blocked
+    :else                                         :ok))
 
 (defn cascade-rolled-back?
   "True iff any STATE-partition schema violation in `rows` carries
@@ -4274,8 +4320,8 @@
   ## Pure-data
 
   Reads only `:trace-events`, `:event-id`, `:dispatch-id` off the
-  record, plus `:outcome` / `:halt-reason` for a `:halted-depth` record
-  (`mark-halted`); no DOM, no substrate runtime, JVM-testable. The optional opts
+  record, plus `:outcome` / `:halt-reason` for a `:halted-depth` or
+  `:halted-destroy` record (`mark-halted`); no DOM, no substrate runtime, JVM-testable. The optional opts
   map's `:resolve-event-interceptors` (rf2-se9a9t) is the ONLY runtime-fed
   input — a fn, not data — and is itself injectable for pure tests."
   ([epoch-record] (project epoch-record nil))
@@ -4528,6 +4574,7 @@
             skipped    (mark-skipped-handler with-errs events)
             ;; rf2-3x7nj.22.1 — a `:halted-depth` record's event never ran;
             ;; only the record's `:outcome` / `:halt-reason` say so.
+            ;; rf2-v6ftp — a `:halted-destroy` record reads `:blocked`.
             skipped    (mark-halted skipped epoch-record)
             steps      (mark-rolled-back-downstream skipped violations)]
         steps)))))
