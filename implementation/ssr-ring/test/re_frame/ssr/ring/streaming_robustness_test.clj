@@ -87,6 +87,7 @@
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.streaming :as rf.ssr.ring.streaming]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
+            [re-frame.test-support :refer [with-trace-recorder!]]
             [ring.middleware.head :as ring.head])
   (:import [java.io InputStream IOException
                     PipedInputStream PipedOutputStream]
@@ -922,3 +923,52 @@
             (is (= no-leak census))
             (is (empty? records) "no writer-failed record")))
         (finally (close-bodies! bodies))))))
+
+;; ===========================================================================
+;; A final payload the refusal stops mid-stream (rf2-qtald)
+;; ===========================================================================
+;;
+;; `ssr-handler` builds its payload before committing anything, so a payload
+;; refusal there is an ordinary projected 500 (`ring_test`'s
+;; `handler-payload-number-refusal-is-a-projected-500`). The streaming writer
+;; builds the final payload AFTER the head and the shell are on the wire, so
+;; the same refusal can only truncate.
+
+(deftest payload-number-refusal-truncates-the-stream-and-reclaims-everything
+  (testing "rf2-qtald: a final payload carrying a Long past 2^53 is refused
+            with :rf.error/ssr-hydration-payload-invalid (rf2-3x7nj.13.3)
+            after the 200 was committed. The body stops before any
+            __rf_payload, the writer reports exactly one
+            :rf.error/ssr-streaming-writer-failed naming the refusal, and the
+            writer thread, request frame and request slot are reclaimed"
+    (rf/reg-event :rf.test.server/init-wide-order-id
+      {:platforms #{:server}}
+      (fn [_ _] {:db {:order {:id 9007199254740993}}}))
+    (let [handler (rf.ssr.ring/stream-handler
+                    {:initial-events [[:rf.test.server/init-wide-order-id]]
+                     :root-view      [:div "page"]
+                     :payload        [:order]})]
+      (with-trace-recorder! [captured]
+        (let [response (handler {:request-method :get :uri "/order"})
+              html     (with-open [^InputStream is (:body response)]
+                         (slurp is))
+              census   (await-no-leak! 3000)
+              failures (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
+                                @captured)
+              failure  (first failures)]
+          (is (= 200 (:status response))
+              "the head was committed before the final payload was built")
+          (is (str/includes? html "page") "the shell was streamed")
+          (is (not (str/includes? html "__rf_payload"))
+              "the stream stops before any payload script")
+          (is (not (str/includes? html "9007199254740993"))
+              "the refused value is nowhere on the wire")
+          (is (= 1 (count failures)) "exactly one writer-failed trace")
+          (is (str/ends-with? (str (-> failure :tags :exception))
+                              "[:rf.error/ssr-hydration-payload-invalid]")
+              "it names the payload refusal")
+          (is (= "clojure.lang.ExceptionInfo" (-> failure :tags :ex-class)))
+          (is (= :truncate-and-close (:recovery failure)))
+          (is (= no-leak census)
+              "no writer thread, request frame or request slot outlives the
+               truncated response"))))))

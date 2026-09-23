@@ -733,6 +733,31 @@
             ":rf.error/ssr-ring-error-view-failed trace fired for the
              buggy error view")))))
 
+(deftest handler-payload-number-refusal-is-a-projected-500
+  (testing "rf2-qtald: a payload slice carrying a number the browser's EDN
+            reader cannot read back as the same value (a Long past 2^53) is
+            refused with :rf.error/ssr-hydration-payload-invalid
+            (rf2-3x7nj.13.3). The ssr-handler builds the payload before it
+            commits anything, so the refusal projects like any render-time
+            throw: a 500 carrying the default projector's page, with the
+            value nowhere on the wire."
+    (rf/reg-event :init/wide-order-id
+      {:platforms #{:server}}
+      (fn [_ _] {:db {:order {:id 9007199254740993}}}))
+    (let [handler  (rf.ssr.ring/ssr-handler
+                     {:initial-events [[:init/wide-order-id]]
+                      :root-view      [:div "page"]
+                      :payload        [:order]})
+          response (handler {:uri "/order" :request-method :get})
+          body     (:body response)]
+      (is (= 500 (:status response)) "refused, not shipped")
+      (is (str/includes? body "Something went wrong")
+          "the default projector's page")
+      (is (not (str/includes? body "9007199254740993"))
+          "the refused value is nowhere on the wire")
+      (is (not (str/includes? body "__rf_payload"))
+          "and no payload script was shipped"))))
+
 ;; ===========================================================================
 ;; ssr-handler — fn-form :root-view invoked exactly once per request (rf2-6t36h)
 ;;
