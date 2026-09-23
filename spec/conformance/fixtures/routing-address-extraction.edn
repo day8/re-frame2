@@ -85,11 +85,14 @@
  ;; Final slice after all four dispatches: the in-place edit (3) left
  ;; route/article + slug intact and replaced the query; (2) and (4) rejected
  ;; and changed nothing. Submap match tolerates :transition/:nav-token/etc.
+ ;; `:route/article` declares no `:query`, so `:tab` is an undeclared key and
+ ;; the slice spells it as the URL string it names, whichever door set it
+ ;; (012 §One spelling on every door, rf2-3x7nj.12.1).
  {:final-runtime-db
   {:rf.runtime/routing
    {:current {:route-id :route/article
               :params   {:slug "routing-as-data"}
-              :query    {:tab "history"}
+              :query    {"tab" "history"}
               :fragment nil}}}
 
   ;; Policy honoured separately from the address: (1) REPLACES (:replace?
