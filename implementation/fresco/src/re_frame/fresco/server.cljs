@@ -108,7 +108,10 @@
   "One page: the app root's inner `html`, then the payload script, then
   the bootstrap `<script src>` last — the order `ssr-ring`'s
   non-streaming shell writes. No `data-rf-render-hash` on the app root:
-  that marker is the hiccup tier's (see the namespace docstring)."
+  that marker is the hiccup tier's (see the namespace docstring). A
+  `<title>` only when `:title` is given: the module does not know the
+  application's title, so it invents none (rf2-veuyo, the class
+  rf2-3x7nj.14.4 ruled for ssr-ring)."
   [{:keys  [html app-element-id script-src title]
     script :payload-script}]
   ;; `or`, not `:or` — a caller threading `nil` through for an option it
@@ -116,8 +119,10 @@
   ;; and the page would silently get `id=""`.
   (str "<!DOCTYPE html>"
        "<html lang=\"en\">"
-       "<head><meta charset=\"utf-8\"><title>"
-       (rf.ssr.html-helpers/escape-html (or title "Fresco SSR")) "</title></head>"
+       "<head><meta charset=\"utf-8\">"
+       (when (some? title)
+         (str "<title>" (rf.ssr.html-helpers/escape-html title) "</title>"))
+       "</head>"
        "<body>"
        "<div id=\"" (rf.ssr.html-helpers/escape-attr (or app-element-id "app")) "\">"
        html
