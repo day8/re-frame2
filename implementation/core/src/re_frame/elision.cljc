@@ -425,6 +425,12 @@
   [effects]
   (boolean (some #(contains? effects %) classification-effect-keys)))
 
+(defn ^:no-doc classification-effects
+  "The subset of `effects` that is EP-0025 classification effects — what the
+  router carries to the t1 / t2 trace projection (`elide-pending-db`)."
+  [effects]
+  (select-keys effects classification-effect-keys))
+
 (defn classification-effect-defect
   "PURE fail-loud-INPUT validator for the four EP-0025 classification effect
   payloads in `effects`. Returns the FIRST defect as a map
@@ -1071,14 +1077,14 @@
   [v path decl-paths ctx]
   (walk-tree v [(vec path) decl-paths] (walk-decider ctx)))
 
-(defn- elide-against-frame
-  "Inner walk for `elide-wire-value` against a KNOWN carried frame.
-  `frame-id` is the resolved frame whose elision registry supplies the
-  sensitive / large declaration tables. Pure walk — no frame resolution
-  happens here (the caller has already resolved + validated the stamp)."
-  [v opts frame-id]
-  (let [reg       (registry-of frame-id)
-        ;; Precedence (API.md L507): explicit opt > configured > default.
+(defn- elide-against-registry
+  "Inner walk for `elide-wire-value` against a KNOWN carried frame, over the
+  elision registry VALUE `reg` (normally `frame-id`'s own, via
+  `elide-against-frame`). `frame-id` still names the frame for the large-value
+  warnings. Pure walk — no frame resolution happens here (the caller has
+  already resolved + validated the stamp)."
+  [v opts frame-id reg]
+  (let [;; Precedence (API.md L507): explicit opt > configured > default.
         threshold (let [opt (:rf.egress/threshold-bytes opts)]
                     (if (some? opt) opt (configured-threshold-bytes)))
         large     (or (:declarations reg) {})
@@ -1135,6 +1141,11 @@
                        (fork-index-paths cands seg prefixes)
                        (fork-decl-paths cands seg prefixes))))
             r))))))
+
+(defn- elide-against-frame
+  "`elide-against-registry` over `frame-id`'s own committed elision registry."
+  [v opts frame-id]
+  (elide-against-registry v opts frame-id (registry-of frame-id)))
 
 ;; ---------------------------------------------------------------------------
 ;; The CLOSED egress-opts vocabulary (rf2-kuky.6).
@@ -1343,6 +1354,36 @@
        ;; an empty policy.
        :else
        rf.privacy/redacted-sentinel))))
+
+(defn ^:no-doc elide-pending-db
+  "Walk `v`, a PENDING app-db value rooted at the db root, against the
+  CANDIDATE registry: `frame-id`'s committed elision registry with the EP-0025
+  classification `effects` applied — exactly what the commit is about to
+  write (`apply-classification-effects`). The router's t1 / t2 dev traces stamp
+  the pending db BEFORE that commit, so projecting them against the committed
+  registry alone shipped a path classified in the SAME event raw
+  (rf2-3x7nj.4.3), breaking the first-egress promise above.
+
+  The walk is `elide-wire-value`'s own (map-of key skip, index-free descent,
+  owner-aware markers), under the same fail-closed contract: `frame-id` must
+  name a LIVE frame, else the whole value is the sentinel. A malformed effect
+  payload — which the router refuses pre-commit, after t1 has fired — fails
+  closed too. Internal: consumed by `re-frame.classification`'s
+  `project-db-tags`."
+  [v frame-id effects]
+  (cond
+    (not (and (some? frame-id) (some? (rf.frame/frame frame-id))))
+    rf.privacy/redacted-sentinel
+
+    (classification-effect-defect effects)
+    rf.privacy/redacted-sentinel
+
+    :else
+    (elide-against-registry
+      v {:frame frame-id} frame-id
+      (get (apply-classification-effects
+             {:rf.runtime/elision (registry-of frame-id)} effects)
+           :rf.runtime/elision))))
 
 (defn marker?
   [v]

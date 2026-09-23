@@ -1817,7 +1817,16 @@
             ;; ctx so schema-sensitive event payloads ride the same
             ;; scrubbed value the rest of the family does.
             emit-event  (when has-db? (rf.privacy/redacted-event-from-ctx ctx))
-            event-id    (when has-db? (some-> emit-event first))]
+            event-id    (when has-db? (some-> emit-event first))
+            ;; rf2-3x7nj.4.3 — t1 / t2 stamp the pending db BEFORE the commit
+            ;; folds this event's EP-0025 classification effects into the
+            ;; registry. Carry those effects to the emit-time projection under
+            ;; a PRIVATE tag that `re-frame.classification/project-db-tags`
+            ;; consumes and strips, so a path classified in the SAME event is
+            ;; redacted on its own t1 / t2 (first egress). Dev-only.
+            class-effects (when (and rf.interop/debug-enabled?
+                                     (rf.elision/classification-effect? effects))
+                            (rf.elision/classification-effects effects))]
         ;; t1 — stamp the handler-returned (post-`:after`-chain, pre-
         ;; flow-transform) `:db` value. Always fires when the handler
         ;; returned `:db`, whether or not the flows artefact is loaded.
@@ -1825,10 +1834,13 @@
         ;; with app-db means the emit cost is pointer-sized.
         (when has-db?
           (rf.trace/emit! :rf.event :rf.event/db-pending
-                       {:rf.trace/event-id event-id
-                        :rf.event/v        emit-event
-                         :frame             frame
-                         :rf.event/db       pending-db}))
+                       (cond-> {:rf.trace/event-id event-id
+                                :rf.event/v        emit-event
+                                :frame             frame
+                                :rf.event/db       pending-db}
+                         class-effects
+                         (assoc :re-frame.classification/pending-classification-effects
+                                class-effects))))
         ;; Trace listeners are synchronous callback boundaries.  A listener on
         ;; t1 may destroy A; do not enter the optional flow artefact afterward.
         (if-not (rf.frame/event-continuation-live? frame owner-token)
@@ -1905,10 +1917,13 @@
                 (let [t2-event   (or emit-event (rf.privacy/redacted-event-from-ctx ctx))
                       t2-evt-id  (or event-id (some-> t2-event first))]
                    (rf.trace/emit! :rf.event :rf.event/db-pending-post-flow
-                               {:rf.trace/event-id t2-evt-id
-                                :rf.event/v        t2-event
-                                 :frame             frame
-                                 :rf.event/db       new-db})))
+                               (cond-> {:rf.trace/event-id t2-evt-id
+                                        :rf.event/v        t2-event
+                                        :frame             frame
+                                        :rf.event/db       new-db}
+                                 class-effects
+                                 (assoc :re-frame.classification/pending-classification-effects
+                                        class-effects)))))
               (if-not (rf.frame/event-continuation-live? frame owner-token)
                 (assoc ctx :rf/stale-incarnation? true)
                 ;; Only publish a `:db` effect when flows actually changed
