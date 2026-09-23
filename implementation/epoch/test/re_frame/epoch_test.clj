@@ -1761,9 +1761,11 @@
 
 (defn- restore-across-a-version-change
   "Record a `:machine/tl` snapshot stamped `recorded` (nil = no stamp) under a
-  definition stamped the same, hot-reload the definition to `current`, then
-  restore that epoch. Returns the restore's return value, whether the frame
-  state was left untouched, and the version-mismatch trace (or nil)."
+  definition stamped the same, move app-db on past it, hot-reload the
+  definition to `current`, then restore that epoch. Returns the restore's
+  return value, whether the frame state was left untouched (a restore that
+  went through would drop the later app-db write), and the version-mismatch
+  trace (or nil)."
   [recorded current]
   (let [machine (fn [v] (cond-> {:initial :red
                                  :states  {:red {:on {:tick :green}} :green {}}}
@@ -1776,8 +1778,10 @@
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime
          (assoc-in (or rt {}) [:rf.runtime/machines :snapshots :machine/tl] snap)}))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (assoc db :bumped? true)}))
     (rf/dispatch-sync [:put-snap] {:frame :test/main})
     (let [target (last (rf/epoch-history :test/main))]
+      (rf/dispatch-sync [:bump] {:frame :test/main})
       (rf/reg-machine :machine/tl (machine current))
       (let [recorded-traces (record-trace!)
             pre             (rf/frame-state-value :test/main)
@@ -1811,8 +1815,9 @@
 (deftest restore-admits-an-unversioned-machine-across-a-reload
   (testing "rf2-3x7nj.17.2 CONTROL — both absent matches: an unversioned machine
             hot-reloaded without a stamp still restores"
-    (let [{:keys [ok? mismatch]} (restore-across-a-version-change nil nil)]
+    (let [{:keys [ok? unchanged? mismatch]} (restore-across-a-version-change nil nil)]
       (is (true? ok?) "restore succeeds")
+      (is (false? unchanged?) "and rewound past the later app-db write")
       (is (nil? mismatch) "no version-mismatch trace"))))
 
 (deftest restore-failure-during-drain
