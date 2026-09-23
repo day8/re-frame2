@@ -59,20 +59,24 @@
   ## Severity
 
   Spec 009's `:op-type` field is the universal severity discriminator.
-  The panel ladders it onto three tiers (per spec/021 §8.2 +
-  spec/022 §Semantic & change, strongest first):
+  An issue is `:error` or `:warning` — the two tiers Spec 009 §`:op-type`
+  names as the ones issue filters subscribe to (strongest first):
 
       :error    — `:op-type :error`     → `error` (red), strongest
       :warning  — `:op-type :warning`   → `warning` (amber)
-      :advisory — `:op-type :info`      → `advisory` (cool blue; calm)
 
   Each row reads its 3px LEFT-BORDER + uppercase TEXT badge in its
   severity colour per the Figma design
   (`design-reference/xray_devtools_reference.cljs`, the `issues-panel` component).
 
-  Lifecycle / success-path traces (`:op-type` `:rf.event`, `:rf.fx`,
-  `:rf.frame`, `:rf.sub/*`, `:rf.view/*`, etc.) are NOT issues and never reach
-  the panel.
+  `:op-type :info` is ACTIVITY, never an issue (rf2-3x7nj.24.1): the
+  runtime emits it for success-path lifecycle rows — `:rf.http/issued`
+  on every managed request, `:rf.http/replied`, `:rf.http/retry-attempt`,
+  interceptor registration — which the Trace panel reads. Counting them
+  here painted the L2 issue wash on every healthy HTTP-issuing event
+  and could trip auto-open-on-error. Lifecycle / success-path traces
+  (`:op-type` `:info`, `:rf.event`, `:rf.fx`, `:rf.frame`, `:rf.sub/*`,
+  `:rf.view/*`, etc.) are NOT issues and never reach the panel.
 
   ## Category prefix
 
@@ -129,15 +133,14 @@
 ;; ---- severity classification --------------------------------------------
 
 (defn op-type->severity
-  "Map a trace event's `:op-type` onto the panel's three severity
+  "Map a trace event's `:op-type` onto the panel's two severity
   buckets. Returns nil for `:op-type` values that are not issues
-  (`:rf.event`, `:rf.fx`, `:rf.frame`, `:rf.sub/run`, `:rf.view/render`, etc.).
-  Pure data → keyword-or-nil; JVM-testable."
+  (`:info`, `:rf.event`, `:rf.fx`, `:rf.frame`, `:rf.sub/run`,
+  `:rf.view/render`, etc.). Pure data → keyword-or-nil; JVM-testable."
   [op-type]
   (case op-type
     :error   :error
     :warning :warning
-    :info    :advisory
     nil))
 
 (defn issue-event?
@@ -277,7 +280,7 @@
 
       {:id              <int>           ;; the trace event's :id
        :time            <ms>
-       :severity        <:error :warning :advisory>
+       :severity        <:error :warning>
        :op-type         <kw>
        :operation       <kw>
        :category        <string-or-nil>  ;; muted category cell

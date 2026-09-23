@@ -20,7 +20,8 @@
   string / number / bool. No CLJS runtime touched."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-xray.panels.l2-timeline :as l2]))
+            [day8.re-frame2-xray.panels.l2-timeline :as l2]
+            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -155,8 +156,8 @@
 ;; `event-bundle-has-issue?` drives the L2 row's light-pink `:bg-issue-row`
 ;; wash. It must light up for EXACTLY the set the Issues ribbon/feed
 ;; aggregates — it reuses `issues-ribbon-helpers/issue-event?`, which is
-;; severity-driven off `:op-type` (`:error` / `:warning` / `:info`), so a
-;; lifecycle / success-path trace (no severity `:op-type`) is NOT an issue.
+;; severity-driven off `:op-type` (`:error` / `:warning`), so a lifecycle /
+;; success-path trace — an `:info` activity row included — is NOT an issue.
 
 (deftest event-bundle-has-issue?-clean-test
   (testing "a clean cascade (no issue traces) → false; nil-safe"
@@ -180,11 +181,10 @@
     (is (true? (l2/event-bundle-has-issue?
                 {:other [(ev :rf.warning/schema-violation :op-type :warning)]}))))
 
-  (testing "an advisory trace (`:op-type :info`) in :other → true — the
-            wash covers the FULL Issues set (error + warning + advisory),
-            matching the Issues ribbon/feed"
+  (testing "a hydration mismatch in :other → true — it arrives as an
+            `:error` envelope (the hiccup tier), so the wash covers it"
     (is (true? (l2/event-bundle-has-issue?
-                {:other [(ev :rf.ssr/hydration-mismatch :op-type :info)]}))))
+                {:other [(ev :rf.ssr/hydration-mismatch :op-type :error)]}))))
 
   (testing "the cascade's legacy :errors slot alone → true (defence in
             depth for synthetic / older traces that populate it directly)"
@@ -196,3 +196,23 @@
                 (assoc :other [(ev :rf.machine/transition :op-type :rf.machine)
                                (ev :rf.error/handler-exception :op-type :error)]))]
       (is (true? (l2/event-bundle-has-issue? c))))))
+
+(deftest event-bundle-has-issue?-info-activity-test
+  (testing "REGRESSION rf2-3x7nj.24.1 — a healthy managed-HTTP event does NOT
+            wash. The runtime emits `:rf.http/issued` at `:info` inside the
+            issuing fx handler on every managed request, so the row lands in
+            the issuing bundle's :other beside a green `:ok` status; `:info`
+            is activity, never an issue. The bundle is the producer's shape."
+    (let [b (-> (cascade-with-source :ui)
+                (assoc :effects [(teb/fx-handled-ev :rf.http/managed {} 1)]
+                       :other   [(teb/http-issued-ev :app/load "/api/load")]))]
+      (is (false? (l2/event-bundle-has-issue? b)))))
+  (testing "CONTROLS — beside the same :info row, a `:warning` and an
+            `:error` still wash, so the false above is about :info"
+    (is (true? (l2/event-bundle-has-issue?
+                {:other [(teb/http-issued-ev :app/load "/api/load")
+                         (teb/ev :warning :rf.fx/skipped-on-platform
+                                 {:rf.fx/id :app/clip})]})))
+    (is (true? (l2/event-bundle-has-issue?
+                {:other [(teb/http-issued-ev :app/load "/api/load")
+                         (teb/handler-exception-ev :app/load "boom")]})))))

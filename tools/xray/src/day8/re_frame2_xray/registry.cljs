@@ -934,8 +934,8 @@
     ;; ---- Issues feed composite ------------------------------------
     ;;
     ;; `:rf.xray/issues-ribbon` projects the focused epoch's
-    ;; `:trace-events` into the issue subset (errors + warnings +
-    ;; advisories per Spec 009 §Error event catalogue). Issues surface
+    ;; `:trace-events` into the issue subset (errors + warnings per
+    ;; Spec 009 §Error event catalogue). Issues surface
     ;; inline in the Epoch panel, via the L2 event-row pink-wash, and
     ;; via the always-on issues ribbon signal (the auto-open-on-error
     ;; watcher); there is no dedicated Issues tab or session-wide

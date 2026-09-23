@@ -268,9 +268,12 @@ Issues now surface through three kept surfaces:
 
 The issue projection (`:rf.xray/issues-ribbon`) reads the focused
 epoch's `:trace-events` and projects the issue subset (errors +
-warnings + advisories) per
+warnings) per
 [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
-§Error event catalogue. The pure-data algebra lives in
+§Error event catalogue. An `:info` row is activity, never an issue —
+Spec 009 has issue filters subscribe to `:warning` / `:error` only — so
+a healthy managed-HTTP event's `:rf.http/issued` row neither washes its
+L2 row nor counts toward the ribbon. The pure-data algebra lives in
 `panels/issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
 predicate `l2-timeline/event-bundle-has-issue?`). What was a panel lens is
 now purely a signal source.
@@ -857,9 +860,9 @@ ribbon signal.) See
 
 ### Open-redirect / CRLF / trusted-shell advisories
 
-Three security-class advisories surface at `:advisory` severity
-(different from `:error` / `:warning`, not pushed to top) — inline in
-the Epoch panel + via the issues ribbon signal (rf2-gbz39 removed the
+Three security-class advisories surface at their catalogued `:error`
+severity (Spec 009 §Error event catalogue) — inline in the Epoch
+panel and via the issues ribbon signal (rf2-gbz39 removed the
 dedicated Issues tab per Option (c)):
 
 - Open-redirect when `:rf.server/redirect` uses caller-untrusted
@@ -867,9 +870,6 @@ dedicated Issues tab per Option (c)):
 - CRLF in header value when `:rf.error/header-invalid-value` fires.
 - Trusted-shell opt advisory when `:head` / `:body-end` /
   `:script-src` carry caller-controlled strings.
-
-Xray is a debugger, not a linter — advisories are quiet by default;
-configurable to "loud" via Settings → Trace → "Security advisories".
 
 ### App-db tab — current-route slice always-visible
 

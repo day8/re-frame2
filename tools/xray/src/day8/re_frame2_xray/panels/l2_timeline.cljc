@@ -166,8 +166,9 @@
 ;; looking rather than gated behind the Issues tab.
 ;;
 ;; "CONTAINS AN ISSUE" is the SAME set the Issues ribbon/feed aggregates:
-;; errors + warnings + schema violations + hydration mismatches +
-;; perf-budget overruns + app console errors. We reuse the canonical
+;; errors + warnings (schema violations, hydration mismatches, perf-budget
+;; overruns and app console errors among them) — never an `:info`
+;; lifecycle row such as `:rf.http/issued`. We reuse the canonical
 ;; `issues-ribbon-helpers/issue-event?` predicate (severity-driven off
 ;; `:op-type`, per Spec 009) rather than re-enumerating what counts as an
 ;; issue — so the wash stays in lockstep with the ribbon/feed by
@@ -186,8 +187,8 @@
   "True iff this event-bundle's epoch CONTAINS AN ISSUE — i.e. any trace event
   in the event-bundle's `:other` bucket (or its `:errors` slot) is an issue per
   the canonical `issues-ribbon-helpers/issue-event?` predicate (errors +
-  warnings + advisories — the SAME set the Issues ribbon/feed aggregates,
-  reused rather than re-enumerated). Drives the L2 row's light-pink
+  warnings — the SAME set the Issues ribbon/feed aggregates, reused
+  rather than re-enumerated). Drives the L2 row's light-pink
   `:bg-issue-row` wash (rf2-b8guz).
 
   Pure data → bool; nil-safe on missing slots; JVM-runnable."
