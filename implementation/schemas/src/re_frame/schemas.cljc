@@ -130,9 +130,12 @@
 (rf.late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
 
 ;; Pure-data per-slot extractors. These do not populate durable app-db
-;; classification; frame commit effects own that policy.
+;; classification; frame commit effects own that policy. Both hooks walk
+;; UNMEMOISED: a consumer may hand them a schema built per call (managed
+;; HTTP's `:decode`), which the never-evicted memo behind the public
+;; `extract-sensitive-paths-from-schema` must never see (rf2-3x7nj.19.4).
 (rf.late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
-(rf.late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
+(rf.late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema rf.schemas.walker/walk-sensitive-paths-from-schema)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; make-reset-runtime-fixture).

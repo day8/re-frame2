@@ -41,6 +41,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.schemas :as rf.schemas]
             ;; Compiled schemas exercise fail-closed opaque handling.
             [malli.core :as m]
@@ -148,6 +149,21 @@
       (is (false? (rf.schemas/schema-has-sensitive? schema))))
     (is (false? (rf.schemas/schema-has-sensitive? :int)))
     (is (false? (rf.schemas/schema-has-sensitive? [:vector :string])))))
+
+(deftest sensitive-extractor-hook-is-unmemoized-public-memo-kept
+  (testing "rf2-3x7nj.19.4 — the cross-artefact hook walks unmemoised, so a
+            per-request schema (managed HTTP `:decode`) retains nothing; the
+            public extractor keeps its never-evicted memo for registered
+            schemas"
+    (let [hook   (rf.late-bind/get-fn :schemas/extract-sensitive-paths-from-schema)
+          schema [:map [:id [:= 7]] [:ssn {:sensitive? true} :string]]]
+      (is (= {[:ssn] {:sensitive? true :source :schema}} (hook schema []))
+          "the hook classifies exactly as the memoised extractor does")
+      (is (not (identical? (hook schema []) (hook schema [])))
+          "the hook retains nothing between calls")
+      (is (identical? (rf.schemas/extract-sensitive-paths-from-schema schema [])
+                      (rf.schemas/extract-sensitive-paths-from-schema schema []))
+          "the public extractor still memoises"))))
 
 ;; ---- redaction at app-db validation site ----------------------------------
 
@@ -444,6 +460,30 @@
           "no :sensitive? stamp — nothing in the schema is sensitive")
       (is (not= :rf/redacted (-> v :tags :value))
           ":value rides verbatim — no spurious redaction"))))
+
+(deftest app-db-validation-set-non-sensitive-leaf-sensitive-sibling-path-carries-no-secret
+  (testing "rf2-3x7nj.19.1 — a failure at a NON-sensitive leaf inside a :set
+            element whose CONFORMING sibling is :sensitive? still scrubs the
+            element segment: Malli's :in segment is the WHOLE element, so it
+            carries the sibling secret into :path and :reason unless the
+            sanitizer runs whenever the schema declares anything sensitive,
+            not only when the failing leaf does"
+    (let [secret "SECRET-TOKEN-A1"
+          v      (app-db-failure-trace
+                   [:sessions]
+                   [:set [:map [:uid :int] [:token {:sensitive? true} :string]]]
+                   {:sessions #{{:uid "not-an-int" :token secret}}}
+                   :sessions/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v)) "top-level :sensitive? stamp present")
+      (is (= [:sessions :rf/redacted :uid] (-> v :tags :path))
+          ":path's :set-element segment is the :rf/redacted sentinel; the leaf key survives")
+      (is (= "not-an-int" (-> v :tags :value))
+          ":value (narrowed to the non-sensitive :uid leaf) still rides verbatim")
+      (is (not (str/includes? (-> v :tags :reason) secret))
+          "the sibling secret does NOT appear in the generated :reason text")
+      (is (not (str/includes? (pr-str v) secret))
+          "the sibling secret does NOT appear ANYWHERE in the whole trace event"))))
 
 ;; ---- sensitive SCALAR collection elements / map-of KEYS in :path (rf2-612mri)
 ;; Two residual scalar-leak shapes the rf2-ss06u.1 :set-element scrub did NOT
@@ -2273,6 +2313,59 @@
         (is (not (-> v :tags :large?)) "no :large? stamp")
         (is (= [:api/x {:n "nope"}] (-> v :tags :value))
             ":value rides verbatim")))))
+
+(deftest app-db-validation-large-leaf-beside-sensitive-sibling-elides
+  (testing "rf2-3x7nj.19.2 — a failing :large? leaf in a schema that ALSO
+            declares a :sensitive? sibling: the whole-payload :explain redacts
+            (the sibling rides in it) and the leaf-narrowed :value elides to a
+            size marker built from the LEAF — a sensitive sibling elsewhere in
+            the schema must not switch the size-safety arm off for :value"
+    (let [blob (apply str "BLOB-SENTINEL-19-2-" (repeat 500 "L"))]
+      (rf/reg-app-schema [:doc] [:map
+                                 [:token {:sensitive? true} :string]
+                                 [:pdf {:large? true} :int]])
+      (with-trace-recorder! [traces]
+        (rf.schemas/validate-app-schema! {:doc {:token "TOKEN-OK-19-2" :pdf blob}}
+                                         :doc/bad)
+        (let [v      (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                                    @traces))
+              marker (-> v :tags :value :rf.size/large-elided)]
+          (is (some? v) "a trace fired")
+          (is (= [:doc :pdf] (-> v :tags :path)))
+          (is (= :rf/redacted (-> v :tags :explain))
+              ":explain (whole registered value) redacted — the sensitive sibling rides in it")
+          (is (map? marker) ":value (the narrowed :pdf leaf) is the size marker")
+          (is (= :string (:type marker))
+              "the marker describes the LEAF, not the whole map carrying the sensitive sibling")
+          (is (true? (-> v :tags :large?)) ":tags :large? stamped")
+          (is (not (str/includes? (pr-str v) blob))
+              "the large blob survives nowhere verbatim in the failure trace")
+          (is (not (str/includes? (pr-str v) "TOKEN-OK-19-2"))
+              "the sensitive sibling survives nowhere either"))))))
+
+(deftest sub-return-large-elision-keeps-query-v
+  (testing "rf2-3x7nj.19.2 — the size marker replaces the CHECKED value only;
+            `:rf.sub/query-v` is the subscription's lookup key, not the
+            checked value, so it survives both the hot-path and the
+            off-namespace seam (the `:sub-override` path)"
+    (let [blob (apply str (repeat 500 "Q"))]
+      (with-trace-recorder! [traces]
+        (rf.schemas/validate-sub! :probe/sub [:probe/sub 42] {:pdf blob}
+                                  {:schema [:map [:pdf {:large? true} :int]]})
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a trace fired")
+          (is (= [:probe/sub 42] (-> v :tags :rf.sub/query-v))
+              ":rf.sub/query-v rides verbatim")
+          (is (contains? (-> v :tags :value) :rf.size/large-elided)
+              ":value is still elided")
+          (is (not (str/includes? (pr-str v) blob)) "the blob never rides the trace")))
+      (let [out (rf.schemas/redact-validation-tags
+                  [:map [:pdf {:large? true} :int]]
+                  {:where :sub-override :rf.sub/query-v [:probe/sub 42] :value {:pdf blob}})]
+        (is (= [:probe/sub 42] (:rf.sub/query-v out))
+            "the seam leaves :rf.sub/query-v alone too")
+        (is (contains? (:value out) :rf.size/large-elided) "the seam still elides :value")))))
 
 ;; ---- sensitive closed-map EXTRA KEY leak (rf2-j538f7.13) --------------------
 ;; Malli reports a `[:map {:closed true} …]` extra-key failure with the

@@ -207,7 +207,9 @@
   `:decode` SCHEMA declares for the response body, as
   `{:sensitive {path decl} :large {path decl}}` rooted at the body root
   (`[]`). Empty maps when `decode` is not a schema or carries no marks.
-  Pure (modulo the memoised shared walker).
+  Pure, and retains nothing: `decode` is built per request, so the shared
+  walker hooks walk it unmemoised rather than growing a never-evicted cache
+  by one entry per distinct request (rf2-3x7nj.19.4).
 
   Throws `:rf.error/schemas-artefact-missing` when `decode` declares a mark
   and the shared walker hook is unbound — see `extract-paths`."
