@@ -759,7 +759,7 @@ The low-level walker already needs boolean opts:
 > `:include-runtime-db?` / `:include-event-args?`. All seven opts keys — those
 > six plus `:rf.size/threshold-bytes` — now live under **one** namespace,
 > `:rf.egress/*`, so the closed twelve-key opts map `rf/project-egress` accepts
-> is describable by a single namespace and a single Malli schema. `:rf.size/*`
+> (eleven keys since rf2-aakv6 retired `:as-of-epoch`) is describable by a single namespace and a single Malli schema. `:rf.size/*`
 > keeps the wire MARKER (`:rf.size/large-elided`) and nothing else; the handle
 > is still `:rf.elision/at`. The bodies above are left in their original
 > spelling as the record of the ruling that led here;

@@ -171,14 +171,14 @@ Tools that forward epoch records across a process boundary must project at the w
 - **A kindless input is a VALUE, not a no-op.** `nil`, a non-map, or a map carrying no `:kind` stamp is not short-circuited — it falls to the door's [tree-shaped value path](re-frame.core.md#project-egress) and is projected under that path's ordinary frame-resolution and classification rules. So `(mapv rf/project-egress ring)` over a ring with holes still never throws, but what a hole egresses as is whatever those rules give it — never a guaranteed `nil`. (The retired `projected-record` door short-circuited non-map input to `nil`; the one door does not.)
 - **Profiles** (the primary `:rf.egress/profile` selector — *"which boundary is this?"*):
     - `:rf.egress/off-box-observability` (the epoch arm's DEFAULT) — for hosted monitoring, log shippers, Story, and pair recorders. Redacts sensitive paths, elides large ones, and omits structural digests.
-    - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same redact/elide defaults, but includes structural marker indicators (`:digest`) so a tool can reason about an elided large slot's shape. An unknown profile is rejected against the closed enum.
+    - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same redact/elide defaults and no digests; it differs from observability by the boundary it names. A tool reasons about an elided large slot's shape from the marker's structural indicators (`:path` / `:bytes` / `:type` / `:handle`). An unknown profile is rejected against the closed enum.
 - The advanced per-call inclusion overrides (`:rf.egress/include-sensitive?` / `:rf.egress/include-large?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-fx-args?` / `:rf.egress/include-event-args?`, all default `false`) compose over the selected profile. All five take the `:rf.egress/*` spelling every egress door reads; the last three govern keyspaces only an `:rf/epoch-record` has, so on any other kind they are accepted and inert.
-- `opts` is a **closed** twelve-key map. Any other key throws `:rf.error/bad-egress-opts` naming it, the unqualified `include-sensitive?` / `include-large?` spellings included. With the `day8/re-frame2-epoch` artefact absent, an epoch record handed to the door throws `:rf.error/epoch-artefact-missing` naming the kind rather than being bare-walked.
+- `opts` is a **closed** eleven-key map. Any other key throws `:rf.error/bad-egress-opts` naming it, the unqualified `include-sensitive?` / `include-large?` spellings included. With the `day8/re-frame2-epoch` artefact absent, an epoch record handed to the door throws `:rf.error/epoch-artefact-missing` naming the kind rather than being bare-walked.
 
 ```clojure
 ;; Project an epoch record before forwarding it off-box (fully redacted).
 (rf/project-egress (last (rf/epoch-history :app/main)))
-;; Tool wire — include structural digests for elided slots.
+;; Tool wire — elided slots carry the marker's structural indicators, no digest.
 (rf/project-egress record {:rf.egress/profile :rf.egress/off-box-tool})
 ;; The whole ring is ordinary composition.
 (mapv #(rf/project-egress % opts) (rf/epoch-history :app/main))

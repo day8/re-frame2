@@ -152,6 +152,39 @@
     (is (rf.elision/marker? {:rf.size/large-elided {:path [] :bytes 1}})
         ":rf.size/large-elided is still the wire marker")))
 
+(deftest as-of-epoch-is-retired
+  (testing "rf2-aakv6 — `:as-of-epoch` is no longer egress vocabulary. Its only
+            effect was a four-element marker handle,
+            `[:rf.elision/at <path> :as-of-epoch <id>]`, which Spec-Schemas
+            `:rf/elision-marker` rejects (the handle is a two-tuple), and
+            rf2-3x7nj.32.5 ruled epoch-resolvable handles out. Removed from
+            the CLOSED maps, a caller passing it gets the closed-map refusal
+            naming it, at BOTH doors — never a silently schema-invalid marker."
+    (let [d (bad-opts-ex-data
+              #(rf.elision/elide-wire-value {:a 1} {:as-of-epoch 7}))]
+      (is (some? d) "the walker refuses :as-of-epoch")
+      (is (= [:as-of-epoch] (:unknown-keys d)) "and names it")
+      (is (= 're-frame.elision/elide-wire-value (:where d)))
+      (is (= :use-a-recognised-egress-opts-key (:recovery d)))
+      (is (not (contains? (set (:accepted d)) :as-of-epoch))))
+    (let [d (bad-opts-ex-data
+              #(rf.projection/project-egress
+                 {:a 1}
+                 {:rf.egress/profile :rf.egress/off-box-tool :as-of-epoch 7}))]
+      (is (some? d) "project-egress refuses :as-of-epoch")
+      (is (= [:as-of-epoch] (:unknown-keys d)) "and names it")
+      (is (= 'rf/project-egress (:where d)))
+      (is (= :use-a-recognised-egress-opts-key (:recovery d)))
+      (is (not (contains? (set (:accepted d)) :as-of-epoch)))))
+  (testing "CONTROL — the same calls without the retired key pass the guard,
+            so the refusal above is about `:as-of-epoch` and nothing else."
+    (is (nil? (bad-opts-ex-data
+                #(rf.elision/elide-wire-value {:a 1} {:frame :app/main}))))
+    (is (nil? (bad-opts-ex-data
+                #(rf.projection/project-egress
+                   {:a 1}
+                   {:rf.egress/profile :rf.egress/off-box-tool}))))))
+
 (deftest walker-rejects-an-arbitrary-unknown-key
   (testing "rf2-kuky.6 — the guard is a CLOSED-SET test, not a denylist of
             the two spellings that bit us."

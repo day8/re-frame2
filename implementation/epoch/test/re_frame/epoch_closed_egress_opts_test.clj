@@ -36,7 +36,8 @@
   them, and bare was the only honest spelling while the vocabulary was named
   for the AXIS. Stage 4 of the rf2-kuky.9 option-A ruling settled it by naming
   the vocabulary for the BOUNDARY instead: `:rf.egress/*` is true of all six
-  axes, so the closed twelve-key map takes ONE namespace and one Malli schema.
+  axes, so the closed map (eleven keys since rf2-aakv6 retired `:as-of-epoch`)
+  takes ONE namespace and one Malli schema.
   `epoch-local-knobs-are-qualified` below is the test the earlier revision
   asked a later sweep to change on purpose."
   (:require [clojure.test :refer [deftest is testing]]

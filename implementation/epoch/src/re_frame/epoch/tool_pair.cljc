@@ -1419,8 +1419,7 @@
    :rf.egress/include-large?
    :rf.egress/include-digests?
    :rf.egress/threshold-bytes
-   :query-v
-   :as-of-epoch])
+   :query-v])
 
 (defn- egress-opts
   "Build the `project-egress` opts map for ONE payload slot of an epoch

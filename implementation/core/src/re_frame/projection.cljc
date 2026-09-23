@@ -176,8 +176,8 @@
 ;;
 ;; A profile resolves to a `:rf.egress/*` opt-set; an explicit `:rf.egress/*`
 ;; key the caller ALSO passes composes ON TOP (the override wins). The
-;; non-size opts (`:frame`, `:path`, `:rf.egress/threshold-bytes`,
-;; `:as-of-epoch`) flow through to `elide-wire-value` untouched.
+;; non-size opts (`:frame`, `:path`, `:rf.egress/threshold-bytes`) flow
+;; through to `elide-wire-value` untouched.
 ;; ---------------------------------------------------------------------------
 
 (def epoch-only-opt-keys
@@ -230,7 +230,7 @@
   FLOOR; any `:rf.egress/*` boolean the caller passes explicitly OVERLAYS it
   (the override wins). When no profile is given the opts pass through as-is
   (the advanced raw-flags path). `:frame` / `:path` /
-  `:rf.egress/threshold-bytes` / `:as-of-epoch` are preserved verbatim.
+  `:rf.egress/threshold-bytes` are preserved verbatim.
 
   An UNKNOWN `:rf.egress/profile` value throws — the enum is closed
   (Spec 015 §The graduation gate), so a typo is a loud error, never a
@@ -713,7 +713,6 @@
        :rf.egress/include-large?     <bool>
        :rf.egress/include-digests?   <bool>
        :rf.egress/threshold-bytes    <int>        ;; pass-through tuning
-       :as-of-epoch                <epoch-id>   ;; pass-through
        :rf.egress/include-fx-args?           <bool>       ;; :rf/epoch-record only — effect :args
        :rf.egress/include-runtime-db?        <bool>       ;; :rf/epoch-record only — the :rf.db/runtime partition
        :rf.egress/include-event-args?        <bool>}      ;; :rf/epoch-record only — trigger / trace event args

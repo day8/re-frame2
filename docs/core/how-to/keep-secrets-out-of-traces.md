@@ -278,7 +278,7 @@ A profile names the *boundary* the data is crossing — *who is about to look at
 | Profile | Boundary |
 |---|---|
 | `:rf.egress/off-box-observability` | hosted monitoring (Datadog / Sentry / Honeycomb): redact sensitive, elide large, omit raw `:event` args |
-| `:rf.egress/off-box-tool` | MCP / AI / tool wire: redact sensitive, elide large, include shape digests so a tool can reason about structure without content |
+| `:rf.egress/off-box-tool` | MCP / AI / tool wire: redact sensitive, elide large; each marker's `:path` / `:bytes` / `:type` / `:handle` let a tool reason about structure without content (no digests) |
 | `:rf.egress/local-redacted` | on-box dev-UI default: suppress sensitive, may show size indicators |
 | `:rf.egress/local-raw` | trusted local operator opt-in: include sensitive + large (subject to size caps) |
 | `:rf.egress/ssr-hydration` | the projection applied *after* the SSR allowlist (defence-in-depth) |
