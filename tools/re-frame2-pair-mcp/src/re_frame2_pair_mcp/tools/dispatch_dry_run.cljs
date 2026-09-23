@@ -73,7 +73,7 @@
 
   ## Raw-state tap signal
 
-  The dry-run primitive internally calls `restore-epoch` to roll back,
+  The dry-run primitive internally calls `replace-frame-state!` to roll back,
   and the preload's tap-emitting surfaces default to RAW payloads until
   the server signals its boot-gate posture via `configure-raw-state!`.
   Like snapshot / get-path, this tool issues
