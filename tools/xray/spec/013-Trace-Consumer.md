@@ -548,10 +548,14 @@ machines / timers:
   still-live unresolved join, rf2-ixjd48) +
   `:rf.machine.spawn-all/late-completion` (the POST-resolution
   `:resolved?`-latched EXACT-CURRENT straggler — the only carrier that clears
-  the exact-attempt fence yet still arrives after its own join resolved) — rf2-waawic /
+  the exact-attempt fence yet still arrives after its own join resolved), and
+  the single-`:spawn` analogue `:rf.machine.spawn/stale-completion` (a
+  carrier dropped because the parent left or re-entered the spawning state
+  before it arrived; its tags are `:actor-id` / `:invoke-id` / `:kind` with
+  no `:child-id` and no `:rf.reply/work-id`, rf2-syc7a) — rf2-waawic /
   rf2-azcmd3 / rf2-hj4skn; the suffix heuristic
   catches `stale-suppress` / `suppressed` but NOT `stale-after`, and NOT the
-  spawn-all `*-completion` names (which end in `-completion`, not
+  spawn / spawn-all `*-completion` names (which end in `-completion`, not
   `-completed`), so those ops are enumerated explicitly. The NON-DECISIVE
   `:rf.machine.spawn-all/child-completed` terminal is a REAL `:completed`
   (its `-completed` suffix classifies correctly) and is deliberately left on
