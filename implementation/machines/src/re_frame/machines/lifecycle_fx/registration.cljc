@@ -232,7 +232,9 @@
            :event             event
            :exception-message ex-msg
            :exception-data    ex-data
-           :reason            reason})))
+           :reason            reason}
+          ;; rf2-3x7nj.8.2 — the spawn attempt, for the parent's currency gate.
+          (:rf/invoke-attempt child-data))))
     {}))
 
 (defn- handle-step-failure!
@@ -669,11 +671,12 @@
   could never react to.
 
   The `:spawn` map is resolved from the parent's OWN spec at `invoke-id`
-  (`resolver/spawn-spec-at`), so it resolves whether or not the parent still
-  rests on the spawning state. A parent that declares no `:on-done`, or whose
-  invoke path no longer resolves, rides through untouched — the carrier then
-  simply reaches the engine as an ordinary reserved event the parent may or
-  may not have a transition for."
+  (`resolver/spawn-spec-at`). It runs only for a CURRENT carrier: one from a
+  spawn attempt the parent has since left or re-entered was already dropped by
+  `suppress-stale-spawn-carrier` (rf2-3x7nj.9.3). A parent that declares no
+  `:on-done` rides through untouched — the carrier then simply reaches the
+  engine as an ordinary reserved event the parent may or may not have a
+  transition for."
   [ctx invoke-id completion]
   (let [on-done (:on-done (rf.machines.lifecycle-fx.resolver/spawn-spec-at (:machine ctx) invoke-id))]
     (if on-done
@@ -686,6 +689,52 @@
                          :state    (:state snapshot)
                          :frame    (:frame-id ctx)}))))
       ctx)))
+
+(defn- suppress-stale-spawn-carrier
+  "rf2-3x7nj.9.3 / .8.2 — the single-`:spawn` currency gate, run at the
+  parent's handler boundary BEFORE the `:on-done` fold and BEFORE the engine
+  step. A runtime-minted carrier — `[:rf.machine.spawn/done <invoke-id>
+  <completion> <attempt>]` or `[:rf.machine.spawn/error <invoke-id> <error>
+  <attempt>]` — is delivered only while the SAME spawn attempt is current: the
+  `:spawn`-bearing node at `<invoke-id>` is still active and has not been
+  re-entered since the child was spawned (Spec 005 §Stale suppression). A
+  carrier is QUEUED, so the parent can leave, or leave and re-enter, the
+  spawning state before it arrives.
+
+  A stale carrier gets no `:on-done` fold, no `:on-error`, no ancestor or root
+  `:on` for its event, and no snapshot write — just one
+  `:rf.machine.spawn/stale-completion` trace. Returns the no-op effect map
+  `{}` for a stale carrier, else nil. A carrier with no attempt (a
+  hand-dispatched one, or a `:spawn-all` join child's, which the join fence
+  owns) is not gated."
+  [ctx]
+  (let [[event-id invoke-id payload attempt] (:inner-event ctx)
+        done? (= rf.machines.transition/spawn-done-event-id event-id)]
+    (when (and (some? attempt)
+               (vector? invoke-id)
+               (or done? (= rf.machines.transition/spawn-error-event-id event-id)))
+      (when-let [reason (rf.machines.transition/spawn-carrier-stale-reason
+                          (:snapshot ctx) invoke-id attempt)]
+        (let [invoke-id    (vec invoke-id)
+              completed-at (when done? (:completed-at payload))]
+          (rf.trace/emit! :rf.machine :rf.machine.spawn/stale-completion
+                          (cond-> {:actor-id  (:machine-id ctx)
+                                   :invoke-id invoke-id
+                                   :kind      (if done? :done :error)
+                                   :frame     (:frame-id ctx)
+                                   ;; reply-envelope vocabulary (Managed-Effects §9)
+                                   :rf.reply/work-kind    :machine
+                                   :rf.reply/status       :stale
+                                   :rf.reply/work-status  :suppressed
+                                   :rf.reply/stale-reason reason
+                                   :rf.reply/correlation
+                                   {:parent-id (:machine-id ctx)
+                                    :invoke-id invoke-id
+                                    :attempt   {:carried attempt
+                                                :current (get-in (:snapshot ctx)
+                                                                 [:rf/spawn-attempts invoke-id])}}}
+                            (some? completed-at) (assoc :rf.reply/completed-at completed-at)))
+          {})))))
 
 (defn- commit-or-finalize
   "Step 4 of 4. Emit `:rf.machine/transition` (and optional
@@ -1007,16 +1056,27 @@
                           (rf.machines.lifecycle-fx.join/intercept-spawn-done-event
                             (:machine ctx) runtime-db (:machine-id ctx)
                             (second (:inner-event ctx)) completion))
+            ;; rf2-3x7nj.9.3 / .8.2 — a single-`:spawn` carrier (done OR error)
+            ;; from a spawn attempt the parent has since left or re-entered is
+            ;; dropped HERE, before the fold and before the engine step.
+            stale       (when-not intercepted
+                          (suppress-stale-spawn-carrier ctx))
             ;; The `:spawn` fold lands on the ctx snapshot BEFORE the engine
             ;; runs, so the parent's `:always` guards and `:on` clauses see the
             ;; folded `:data` in the SAME macrostep, and a parent that declares
             ;; no transition at all still commits the fold (the engine's
             ;; unhandled-event branch returns the snapshot it was given).
-            ctx         (if (and completion (not intercepted))
+            ctx         (if (and completion (not intercepted) (not stale))
                           (apply-spawn-on-done ctx (second (:inner-event ctx)) completion)
                           ctx)]
-        (if intercepted
+        (cond
           intercepted
+          intercepted
+
+          stale
+          stale
+
+          :else
           ;; Enforce the public/private `:internal-events` boundary.
           ;; If the routed inner event names a declared INTERNAL event, this
           ;; is an EXTERNAL dispatch of a private event: reject it (emit

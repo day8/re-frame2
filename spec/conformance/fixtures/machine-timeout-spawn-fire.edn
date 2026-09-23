@@ -69,13 +69,16 @@
    :expect-next-snapshot {:state            :loading
                           :data             {:rf/spawned     {[:loading] :fetch/user#1}
                                              :rf/after-epoch {[:loading] 1}}
-                          :rf/spawn-counter {:fetch/user 1}}
+                          :rf/spawn-counter {:fetch/user 1}
+                          ;; rf2-3x7nj.9.3 — the entry's spawn attempt token.
+                          :rf/spawn-attempts {[:loading] 1}}
    :expect-effects [[:rf.machine/spawn
                      {:machine-id    :fetch/user
                       :id-prefix     :fetch/user
                       :rf/spawned-id :fetch/user#1
                       :rf/parent-id  :rf/transition-pure
-                      :rf/invoke-id  [:loading]}]
+                      :rf/invoke-id  [:loading]
+                      :rf/invoke-attempt 1}]
                     [:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:loading]

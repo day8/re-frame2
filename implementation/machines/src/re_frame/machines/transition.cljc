@@ -1348,6 +1348,36 @@
           (when-let [hit (match-on-clause machine machine done-event-id event snapshot)]
             {:transition hit :decl-path []}))))))
 
+(defn spawn-carrier-stale-reason
+  "rf2-3x7nj.9.3 / .8.2 — is a single-`:spawn` completion carrier from attempt
+  `carried-attempt` at `invoke-id` still CURRENT against the parent's
+  `snapshot`? Returns nil when it is, else the stale reason:
+
+    - `:rf.machine.spawn/state-exited` — the `:spawn`-bearing node at
+      `invoke-id` is no longer on the active path;
+    - `:rf.machine.spawn/attempt-superseded` — the node is active but was
+      re-entered since this child was spawned, so the snapshot's
+      `[:rf/spawn-attempts invoke-id]` no longer equals the carried attempt.
+
+  Per Spec 005 §Stale suppression a stale carrier gets no `:on-done` fold, no
+  `:on-error`, and no engine step. `invoke-id` is the carrier's own path, which
+  is region-qualified on a parallel machine (head = region name) — the same key
+  `handle-spawn-decl` bumps. Child finality is NOT staleness: the child and its
+  registry slot are always gone by the time its carrier arrives."
+  [snapshot invoke-id carried-attempt]
+  (let [state       (:state snapshot)
+        invoke-id   (vec invoke-id)
+        [path rel]  (if (map? state)
+                      [(some-> (get state (first invoke-id)) state-path)
+                       (vec (rest invoke-id))]
+                      [(state-path state) invoke-id])]
+    (cond
+      (not (and path (prefix-of? rel path)))
+      :rf.machine.spawn/state-exited
+
+      (not= carried-attempt (get-in snapshot [:rf/spawn-attempts invoke-id]))
+      :rf.machine.spawn/attempt-superseded)))
+
 (defn- pick-spawn-error-transition
   "Per Spec 005 §Final states §`:on-error` — child-failure control flow
   (XState v5 `invoke onError`): resolve the synthetic parent event
@@ -2431,17 +2461,30 @@
   `:action-ref :rf.machine.spawn/data-fn` + `:invoke-id` for a `:data`-fn
   throw, so the lifecycle boundary routes it through the machine action
   exception contract rather than letting it escape as a generic handler
-  exception."
-  [parent-id s acc-fx prefix n event]
+  exception.
+
+  rf2-3x7nj.9.3 / .8.2 — every entry also bumps this invoke's ATTEMPT token
+  at `[:rf/spawn-attempts <attempt-key>]` and stamps it on the spawn args as
+  `:rf/invoke-attempt`. The child carries it back on both completion
+  carriers, and the parent delivers a carrier only while the carried attempt
+  is still the current one (`spawn-carrier-stale-reason`). The key is the
+  REGION-QUALIFIED invoke path (the same path `prefix-region-invoke-id` gives
+  the child's `:rf/invoke-id`), because a parallel machine's regions share one
+  snapshot."
+  [parent-id region s acc-fx prefix n event]
   (let [spawn-spec   (:spawn n)
         invoke-id    (vec prefix)
+        attempt-key  (if region (into [region] invoke-id) invoke-id)
+        s            (update-in s [:rf/spawn-attempts attempt-key] (fnil inc 0))
+        attempt      (get-in s [:rf/spawn-attempts attempt-key])
         [s-alloc id] (allocate-one s spawn-spec)
         args-builder (fn [spec' spawned-id]
                        (-> spec'
                            (assoc :id-prefix     (spawn-id-prefix spec'))
                            (assoc :rf/spawned-id spawned-id)
                            (assoc :rf/parent-id  parent-id)
-                           (assoc :rf/invoke-id  invoke-id)))
+                           (assoc :rf/invoke-id  invoke-id)
+                           (assoc :rf/invoke-attempt attempt)))
         spawn-r      (spawn-one spawn-spec s-alloc event id args-builder
                                 {:action-ref :rf.machine.spawn/data-fn
                                  :invoke-id  invoke-id})]
@@ -3403,7 +3446,7 @@
                    (fn [[s acc-fx] [prefix n]]
                      (cond
                        (:spawn n)
-                       (handle-spawn-decl parent-id s acc-fx prefix n event)
+                       (handle-spawn-decl parent-id (:rf/region machine) s acc-fx prefix n event)
 
                        (:spawn-all n)
                        (handle-spawn-all-decl parent-id s acc-fx prefix n event)

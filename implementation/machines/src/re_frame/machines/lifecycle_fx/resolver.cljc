@@ -118,9 +118,10 @@
 (def actor-identity-data-keys
   "Framework-owned `:data` slots that carry a spawned actor's identity and
   lineage — its own address, its owner's address, the invocation path it was
-  spawned from, and (for a `:spawn-all` child) its private exact-attempt join
-  membership. Each is present only on the spawn flavour that stamps it."
-  [:rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child])
+  spawned from, (for a `:spawn-all` child) its private exact-attempt join
+  membership, and (for a single `:spawn` child) the spawn attempt it belongs
+  to. Each is present only on the spawn flavour that stamps it."
+  [:rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child :rf/invoke-attempt])
 
 (defn carry-actor-identity
   "Copy the spawned-actor identity envelope from `prev` onto `next`,

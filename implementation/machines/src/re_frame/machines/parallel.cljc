@@ -621,6 +621,9 @@
            ;; snapshot (so a prior epoch's recordings survive) and merged
            ;; back below.
            cur-history  (:rf/history snapshot)
+           ;; rf2-3x7nj.9.3 — the per-invoke `:spawn` attempt tokens, threaded
+           ;; like `:rf/history` (region-qualified keys, so no collision).
+           cur-attempts (:rf/spawn-attempts snapshot)
            new-states   state-map
            acc-fx       []
            any-handled? false
@@ -633,7 +636,9 @@
                        (some? cur-counter)
                        (assoc :rf/spawn-counter cur-counter)
                        (some? cur-history)
-                       (assoc :rf/history cur-history))]
+                       (assoc :rf/history cur-history)
+                       (some? cur-attempts)
+                       (assoc :rf/spawn-attempts cur-attempts))]
           ;; Per Spec 005 §Parallel regions (005:1168-1171): carry the
           ;; aggregate handled flag (true iff at least one region resolved
           ;; the event) so `parallel-machine-transition` warns exactly once
@@ -731,7 +736,9 @@
                             ;; reads the prior recording and a record writes
                             ;; the region's own key.
                             (some? cur-history)
-                            (assoc :rf/history cur-history))
+                            (assoc :rf/history cur-history)
+                            (some? cur-attempts)
+                            (assoc :rf/spawn-attempts cur-attempts))
               step-result (step-fn region-spec region-snap)]
           (if (rf.machines.result/fail? step-result)
             step-result
@@ -753,6 +760,7 @@
                        ;; (region-qualified keys) so later regions + the
                        ;; merge see them.
                        (:rf/history reg-snap)
+                       (:rf/spawn-attempts reg-snap)
                        (assoc new-states rn (:state reg-snap))
                        (into acc-fx
                              (map (partial prefix-region-invoke-id rn))
@@ -1088,7 +1096,9 @@
                         (some? (:rf/spawn-counter acc))
                         (assoc :rf/spawn-counter (:rf/spawn-counter acc))
                         (some? (:rf/history acc))
-                        (assoc :rf/history (:rf/history acc)))
+                        (assoc :rf/history (:rf/history acc))
+                        (some? (:rf/spawn-attempts acc))
+                        (assoc :rf/spawn-attempts (:rf/spawn-attempts acc)))
           ;; Root-relative target WITHIN the region (`:decl-path []` → a
           ;; keyword/vector target resolves against the region root, exactly
           ;; like a region-root `:on` target). A single-element in-region path
@@ -1111,6 +1121,8 @@
                 (assoc :rf/spawn-counter (:rf/spawn-counter reg-snap)))
               (cond-> (some? (:rf/history reg-snap))
                 (assoc :rf/history (:rf/history reg-snap)))
+              (cond-> (some? (:rf/spawn-attempts reg-snap))
+                (assoc :rf/spawn-attempts (:rf/spawn-attempts reg-snap)))
               (assoc-in [:state-map region-name] (:state reg-snap))
               (update :fx into
                       (map (partial prefix-region-invoke-id region-name))
@@ -1146,6 +1158,7 @@
               seed           {:data            (:data snap-after-action)
                               :rf/spawn-counter (:rf/spawn-counter snapshot)
                               :rf/history      (:rf/history snapshot)
+                              :rf/spawn-attempts (:rf/spawn-attempts snapshot)
                               :state-map       (:state snapshot)
                               :fx              (vec action-fx)}
               acc            (reduce (partial apply-root-region-target machine event)
@@ -1159,7 +1172,9 @@
                            (some? (:rf/spawn-counter acc))
                            (assoc :rf/spawn-counter (:rf/spawn-counter acc))
                            (some? (:rf/history acc))
-                           (assoc :rf/history (:rf/history acc)))]
+                           (assoc :rf/history (:rf/history acc))
+                           (some? (:rf/spawn-attempts acc))
+                           (assoc :rf/spawn-attempts (:rf/spawn-attempts acc)))]
               (-> (rf.machines.result/ok (commit-tags-parallel machine merged) (:fx acc))
                   (rf.machines.result/with-handled true)))))))))
 

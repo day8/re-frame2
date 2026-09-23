@@ -50,9 +50,13 @@
    ;; `[:data :loading]` (the fx-level prefix that keeps the top-level
    ;; registry slot per-region-unique). Documented asymmetry: the :data key
    ;; is region-local, the registry key is region-qualified.
+   ;; Per rf2-3x7nj.9.3 the entry also bumps the spawn ATTEMPT token, keyed
+   ;; like the registry — region-qualified, since the regions share one
+   ;; snapshot.
    :expect-next-snapshot {:state            {:data :loading :ui :neutral}
                           :data             {:rf/spawned {[:loading] :fetcher#1}}
-                          :rf/spawn-counter {:fetcher 1}}
+                          :rf/spawn-counter {:fetcher 1}
+                          :rf/spawn-attempts {[:data :loading] 1}}
    :expect-effects
    [[:rf.machine/spawn
      {:machine-id    :fetcher
@@ -62,4 +66,5 @@
       ;; The invoke-id is prefixed with the region name :data so the
       ;; runtime-owned [:rf.runtime/machines :spawned <parent> <invoke-id>] slot is
       ;; uniquely keyed per region.
-      :rf/invoke-id  [:data :loading]}]]}]}
+      :rf/invoke-id  [:data :loading]
+      :rf/invoke-attempt 1}]]}]}

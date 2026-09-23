@@ -61,16 +61,20 @@
    :expect-next-snapshot {:state            [:outer :inner]
                           :data             {:rf/spawned {[:outer]         :leaf#1
                                                           [:outer :inner]  :leaf#2}}
-                          :rf/spawn-counter {:leaf 2}}
+                          :rf/spawn-counter {:leaf 2}
+                          ;; rf2-3x7nj.9.3 — each invoke's own attempt token.
+                          :rf/spawn-attempts {[:outer] 1 [:outer :inner] 1}}
    ;; Effect ORDER is the assertion: the SHALLOWER node's spawn fx fires first.
    :expect-effects
    [[:rf.machine/spawn {:machine-id    :leaf
                         :id-prefix     :leaf
                         :rf/spawned-id :leaf#1
                         :rf/parent-id  :rf/transition-pure
-                        :rf/invoke-id  [:outer]}]
+                        :rf/invoke-id  [:outer]
+                        :rf/invoke-attempt 1}]
     [:rf.machine/spawn {:machine-id    :leaf
                         :id-prefix     :leaf
                         :rf/spawned-id :leaf#2
                         :rf/parent-id  :rf/transition-pure
-                        :rf/invoke-id  [:outer :inner]}]]}]}
+                        :rf/invoke-id  [:outer :inner]
+                        :rf/invoke-attempt 1}]]}]}
