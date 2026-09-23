@@ -127,6 +127,7 @@
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.panels.routing-helpers :as h]
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus-resolver]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -285,9 +286,15 @@
     - :navigation-blocked → 'blocked'      (warning — a :can-leave guard refused)
     - :entry-denied       → 'entry denied' (warning — a :can-enter guard refused)
     - :fragment-changed   → 'fragment changed' (info — anchor)
-    - navigated? but no destination resolved → 'not-found' (error)"
+    - a navigation that committed `:rf.route/not-found`, or navigated? with
+      no destination resolved → 'not-found' (error). Tested BEFORE
+      :on-match: an unmatched URL commits under `:rf.route/not-found` WITH
+      a nav-token, so it reads :on-match too (rf2-3x7nj.23.1)."
   [{:keys [phase]} navigated? to-id]
   (cond
+    (and navigated? (= :rf.route/not-found to-id))
+    {:label "not-found" :colour (:error tokens)}
+
     (= phase :on-match)
     {:label "transitioned" :colour (:green tokens)}
 
@@ -314,13 +321,16 @@
   caption ('No route activity in this epoch.') when the focused event
   isn't a navigation — the topology-plus-overlay contract keeps the
   ROUTE TABLE below visible regardless."
-  [{:keys [activity from-id to-id navigated? current]}]
+  [{:keys [activity from-id to-id navigated?]}]
   (section
     {:first? false :testid "rf-xray-routing-nav"}
     (section-caption "Navigation this epoch" "rf-xray-routing-nav-caption")
     (if (or navigated? (some? activity))
       (let [outcome (nav-outcome activity navigated? to-id)
-            params  (or (:match activity) (:params current))]
+            ;; rf2-3x7nj.23.1 — the focused navigation's OWN params, never
+            ;; the live route's: a blocked or denied navigation committed
+            ;; none, and a later one's would read as this one's.
+            params  (:match activity)]
         [:div {:data-testid "rf-xray-routing-nav-row"
                :style       {:display     "flex"
                              :align-items "center"
@@ -812,14 +822,27 @@
     {:inputs [[:rf.xray/registered-routes]
               [:rf.xray/current-route-slice]
               [:rf.xray/event-bundles]
-              [:rf.xray/focus]]}
-    (fn [[routes-map slice event-bundles focus] _query]
+              [:rf.xray/focus]
+              [:rf.xray/epoch-history]
+              [:rf.xray/observed-frame]]}
+    (fn [[routes-map slice event-bundles focus epoch-history observed-frame] _query]
       ;; rf2-bz7flo — pass the whole focus map so the lookup is
       ;; frame-strict (dispatch ids collide across frames). Passing only
       ;; `(:dispatch-id focus)` could surface route overlays from a foreign
       ;; frame's same-id event-bundle while focus is on another frame.
-      (let [focused-event-bundle (h/focused-event-bundle event-bundles focus)]
-        (h/project-topology-data routes-map slice focused-event-bundle))))
+      (let [focused-event-bundle (h/focused-event-bundle event-bundles focus)
+            ;; rf2-3x7nj.23.1 — the focused epoch's POST-STATE route slice,
+            ;; projected exactly as the live one is, so NAVIGATION THIS EPOCH
+            ;; can show the params that navigation committed once the live
+            ;; slice has moved on. The helper only takes params from it when
+            ;; it carries the focused navigation's nav-token.
+            record        (focus-resolver/find-epoch-record
+                            (:epoch-id focus) (:dispatch-id focus) epoch-history)
+            focused-slice (current-route-slice-value
+                            (get (:frame-state-after record) :rf.db/runtime)
+                            observed-frame)]
+        (h/project-topology-data routes-map slice focused-event-bundle
+                                 focused-slice))))
 
   ;; rf2-2moh1 — register the Dynamic Routing tab with the internal L4
   ;; tab registry. Per rf2-nrbs9 Mike's design call (2026-05-18) Routing

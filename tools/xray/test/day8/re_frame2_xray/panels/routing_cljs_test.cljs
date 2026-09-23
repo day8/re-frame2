@@ -464,3 +464,94 @@
         (let [from (find-by-testid tree "rf-xray-routing-nav-from")]
           (is (re-find #":route/cart" (node-text from))
               "FROM reads the prior route :route/cart"))))))
+
+;; ---- (5) NAVIGATION THIS EPOCH reads the focused navigation's params -----
+;; rf2-3x7nj.23.1 — never the live route's.
+
+(defn- focused-nav-buffer
+  "A focused bundle (dispatch 99, frame :rf/default) carrying `op`'s trace
+  with `tags`."
+  [op tags]
+  [{:id 99 :op-type :rf.event :operation :rf.event/dispatched
+    :tags {:rf.trace/dispatch-id 99 :frame :rf/default
+           :rf.event/v [:rf.route/navigate {:to (:route-id tags)}]}}
+   {:id 100 :op-type :rf.event :operation op
+    :tags (assoc tags :rf.trace/dispatch-id 99 :frame :rf/default)}])
+
+(deftest navigation-shows-a-historical-navigations-own-params
+  (testing "focused on an EARLIER navigation, the row reads the params THAT
+            navigation committed — off the focused epoch's post-state slice
+            — not the live route's"
+    (setup-xray-frame!)
+    (rf/reg-route ::hist {} "/routing-cljs-test/hist/:id")
+    (let [nav!    (fn [id]
+                    (rf/dispatch-sync [:rf.route/navigate {:to ::hist :params {:id id}}]
+                                      {:frame :rf/default})
+                    (rf.frame/frame-runtime-db-value :rf/default))
+          rdb-1   (nav! "1")
+          after-1 (get-in rdb-1 [:rf.runtime/routing :current])
+          live    (get-in (nav! "3") [:rf.runtime/routing :current])]
+      (is (= {:id "3"} (:params live)) "PRECONDITION: the app has moved on")
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
+                           (real-route-entry ::hist)] {:frame :rf/xray})
+        (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test live]
+                          {:frame :rf/xray})
+        (rf/dispatch-sync [:rf.xray/sync-trace-buffer
+                           (focused-nav-buffer :rf.route.nav-token/allocated
+                                               {:route-id  ::hist
+                                                :nav-token (:nav-token after-1)})]
+                          {:frame :rf/xray})
+        (rf/dispatch-sync [:rf.xray/focus-event 99 :rf/default] {:frame :rf/xray})
+        (rf/dispatch-sync [:rf.xray/sync-epoch-history
+                           [{:epoch-id          ::e-1
+                             :dispatch-id       99
+                             :frame             :rf/default
+                             :frame-state-after {:rf.db/runtime rdb-1}}]]
+                          {:frame :rf/xray})
+        (is (= :rf/default @(rf/subscribe [:rf.xray/observed-frame]))
+            "PRECONDITION: the observed frame is the one that navigated")
+        (is (= ::e-1 (:epoch-id @(rf/subscribe [:rf.xray/focus])))
+            "PRECONDITION: focus names the navigation's epoch")
+        (let [params (find-by-testid (panel-tree) "rf-xray-routing-nav-params")]
+          (is (some? params) "the params span rendered")
+          (is (= (pr-str {:id "1"}) (node-text params))
+              "E1's own params, not the live {:id \"3\"}"))))))
+
+(deftest navigation-shows-no-params-for-a-blocked-navigation
+  (testing "a :can-leave refusal committed nothing, so the row shows no
+            params — not the live route's beside a 'blocked' chip"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
+                         {:route-id :route/cart :params {:id "3"} :nav-token "nav-2"}]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer
+                         (focused-nav-buffer :rf.route/navigation-blocked
+                                             {:route-id :route/checkout})]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/focus-event 99 :rf/default] {:frame :rf/xray})
+      (let [tree (panel-tree)]
+        (is (re-find #"blocked" (node-text (find-by-testid tree "rf-xray-routing-nav-outcome")))
+            "PRECONDITION: the focused epoch is the blocked navigation")
+        (is (nil? (find-by-testid tree "rf-xray-routing-nav-params"))
+            "no params span")))))
+
+(deftest navigation-colours-an-unmatched-url-not-found
+  (testing "an unmatched URL commits under :rf.route/not-found WITH a
+            nav-token, so it reads :on-match; §7.2's outcome is still
+            the red not-found, not a green 'transitioned'"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer
+                         (focused-nav-buffer :rf.route.nav-token/allocated
+                                             {:route-id  :rf.route/not-found
+                                              :nav-token "nav-1"})]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/focus-event 99 :rf/default] {:frame :rf/xray})
+      (let [outcome (find-by-testid (panel-tree) "rf-xray-routing-nav-outcome")]
+        (is (= "not-found" (node-text outcome)))))))

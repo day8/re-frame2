@@ -1545,7 +1545,9 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
    The query renders unsorted, in the router's own key order. With no active slice the
    section reads "No active route."
 2. **NAVIGATION THIS EPOCH** (event-driven lens) — when the focused event navigated:
-   **FROM route ──► TO route**, the **params**, and the **outcome** (*transitioned* ·
+   **FROM route ──► TO route**, the **params** that navigation committed (never the live
+   route's: none for a blocked or denied navigation, and none when the committing slice
+   cannot be read — see §7.3), and the **outcome** (*transitioned* ·
    *blocked* · *entry denied* · *fragment changed* · *not-found*; coloured by result —
    transitioned green, blocked / entry denied warning, fragment changed info, not-found
    error). *entry denied* is a `:can-enter` refusal, TERMINAL per EP-0037 R4; nothing
@@ -1591,6 +1593,7 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 | Focused event bundle | The route ops in the focused event bundle — `:rf.xray/event-bundles` + `:rf.xray/focus`, resolved frame-strictly by `routing_helpers/focused-event-bundle` (not the focused epoch record's `:trace-events`). The panel maps them to its own phase set `#{:on-match :navigation-blocked :entry-denied :fragment-changed}`, first match wins: `:rf.route.nav-token/allocated` → `:on-match` (and names TO), `:rf.route/navigation-blocked` → `:navigation-blocked` (a `:can-leave` refusal), `:rf.route/entry-denied` → `:entry-denied` (a `:can-enter` refusal — TERMINAL per EP-0037 R4; unlike a leave block it parks no pending value), `:rf.route/fragment-changed` → `:fragment-changed`. `:rf.route/deactivated` names FROM. The panel does not read `:rf.route/activated` |
 | Registries | Route tree — `(rf/registrations {:source :store :kind :route})` |
 | Per-frame state | The target frame's route slice at `[:rf.runtime/routing :current]` (runtime-db — CURRENT ROUTE and the current-row highlight) |
+| Focused epoch record | Its `:frame-state-after` route slice, for NAVIGATION THIS EPOCH's params only. The trace names no params, but every committed slice carries its `:nav-token`: the row takes the params of the live slice when it carries the focused navigation's token, else of this post-state slice when it carries that token AND names the live route (it is projected under the observed frame's classification, which is the live route's), else shows none (rf2-3x7nj.23.1) |
 
 ### §7.4 Cross-panel navigation
 

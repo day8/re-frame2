@@ -554,7 +554,7 @@ Routes, not this event-coupled lens.
 | `:rf.xray/registered-routes-override` | Test override slot. |
 | `:rf.xray/current-route-slice` | The current route from the target frame's routing runtime-db. |
 | `:rf.xray/current-route-slice-override` | Test override slot. |
-| `:rf.xray/routing-tab-data` | Topology-plus-navigation projection from `routing_helpers/project-topology-data`, using registered routes, current route, event bundles, and the complete focus map. |
+| `:rf.xray/routing-tab-data` | Topology-plus-navigation projection from `routing_helpers/project-topology-data`, using registered routes, current route, event bundles, the complete focus map, and the focused epoch record's post-state route slice (epoch history + observed frame). |
 
 ### Events
 
