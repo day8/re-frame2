@@ -221,8 +221,8 @@
   fn over the before/after context snapshots; idempotent and JVM-
   portable. Returns nil when the `:after` was a no-op (returned the
   context unchanged) so the caller can skip stashing the row entirely
-  — the Xray AFTER INTERCEPTORS section renders nothing for no-op
-  interceptors."
+  — a no-op interceptor leaves no record in the dev-only
+  `:rf.event/after-deltas` diff (read through generic trace inspection)."
   [before after]
   (let [slots (reduce (fn [acc seg]
                         (if-let [d (segment-delta (get before seg)
@@ -240,8 +240,8 @@
   one predicate:
 
     - `invoke-after` (this ns) skips its ctx-delta capture for these —
-      they are framework machinery, not user-meaningful interceptors on
-      the Xray AFTER INTERCEPTORS surface.
+      they are framework machinery, not user-meaningful interceptors in
+      the dev-only `:rf.event/after-deltas` diff.
     - `re-frame.interceptor-registry/resolve-chain` lets this ONE inline
       value pass through a chain untouched (chains are reference-only and
       reject every other inline value). `interceptor-registry` already
@@ -258,13 +258,42 @@
   [x]
   (and (map? x) (true? (:rf/default? x))))
 
-(defn- invoke-after [context interceptor]
+(defn- ctx-db-focus
+  "The ABSOLUTE app-db offset of `ctx`'s `:db` values: the concatenation of
+  the path each `:rf.interceptor.path/stack` entry records as its third
+  element, outermost first. `[]` when no path focus is active (the root).
+  nil — UNKNOWN — when any entry records no path (a hand-built entry, or a
+  replacement standard pushing only `[original-db focused]`), so the
+  projector fails closed rather than walk a slice at the wrong offset."
+  [ctx]
+  (reduce (fn [acc entry]
+            (let [p (when (and (vector? entry) (> (count entry) 2)) (nth entry 2))]
+              (if (vector? p) (into acc p) (reduced nil))))
+          []
+          (:rf.interceptor.path/stack ctx)))
+
+(defn- invoke-after
+  "Run `interceptor`'s `:after` over `context`. When it changes the context,
+  the dev-only capture appends a record to `:rf/interceptor-after-deltas`,
+  which the router stamps on `:rf.event/run-end` as `:rf.event/after-deltas`
+  — a per-user-`:after` context diff read through generic trace inspection.
+
+  The record's KEYS are exactly the closed `:rf.interceptor.delta/*` pair.
+  Its `:db` values may be FOCUSED SLICES (under a path focus), so the record
+  also carries each side's absolute app-db focus (`ctx-db-focus`) in a
+  PRIVATE carrier: METADATA, `{::db-focus {:before <path|nil> :after
+  <path|nil>}}`, never a key, so the record's key set and `=` are
+  unaffected. Its one consumer is
+  `re-frame.classification/project-after-deltas-tags`, which walks each
+  value at its side's focus and STRIPS the metadata unconditionally, so the
+  carrier reaches no trace listener, ring, epoch record or egress (rf2-fc84b)."
+  [context interceptor]
   (if-let [f (:after interceptor)]
-    (let [;; Dev-only ctx-delta capture. The snapshot ride
-          ;; the same `rf.interop/debug-enabled?` gate as the trace surface
-          ;; so production CLJS bundles DCE the capture. Framework
-          ;; defaults (`:rf/default?`) are skipped — they are not
-          ;; user-meaningful interceptors on the AFTER INTERCEPTORS surface.
+    (let [;; Dev-only ctx-delta capture. The snapshot rides the same
+          ;; `rf.interop/debug-enabled?` gate as the trace surface so
+          ;; production CLJS bundles DCE the capture. Framework defaults
+          ;; (`:rf/default?`) are skipped — they are not user-meaningful
+          ;; interceptors in the diff.
           capture? (and rf.interop/debug-enabled?
                         (not (framework-default-interceptor? interceptor)))
           before   (when capture? context)]
@@ -273,8 +302,11 @@
           (if capture?
             (if-let [delta (compute-ctx-delta before after)]
               (update after :rf/interceptor-after-deltas (fnil conj [])
-                      {:rf.interceptor.delta/id        (:id interceptor)
-                       :rf.interceptor.delta/ctx-delta delta})
+                      (with-meta
+                        {:rf.interceptor.delta/id        (:id interceptor)
+                         :rf.interceptor.delta/ctx-delta delta}
+                        {::db-focus {:before (ctx-db-focus before)
+                                     :after  (ctx-db-focus after)}}))
               after)
             after))
         (catch #?(:clj Throwable :cljs :default) e

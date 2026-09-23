@@ -758,61 +758,82 @@
     tags))
 
 (defn- project-after-delta-segment
-  "Apply `project-v` (a fn of `[k v]`) to every VALUE in one segment delta
+  "Apply `project-v` (a fn of `[side k v]`) to every VALUE in one segment delta
   `{:added {k v} :changed {k {:before b :after a}} :removed {k v}}` — the shape
-  `re-frame.interceptor/segment-delta` builds. Keys are left alone."
+  `re-frame.interceptor/segment-delta` builds. `side` names the context the
+  value was read from: `:before` for `:removed` entries and `:changed :before`,
+  `:after` for `:added` entries and `:changed :after`. Keys are left alone."
   [seg project-v]
-  (let [entries (fn [m]
+  (let [entries (fn [m side]
                   (if (map? m)
-                    (reduce-kv (fn [acc k v] (assoc acc k (project-v k v))) m m)
+                    (reduce-kv (fn [acc k v] (assoc acc k (project-v side k v))) m m)
                     m))
         changed (fn [m]
                   (if (map? m)
                     (reduce-kv (fn [acc k ba]
                                  (assoc acc k (if (map? ba)
                                                 (cond-> ba
-                                                  (contains? ba :before) (update :before #(project-v k %))
-                                                  (contains? ba :after)  (update :after #(project-v k %)))
+                                                  (contains? ba :before) (update :before #(project-v :before k %))
+                                                  (contains? ba :after)  (update :after #(project-v :after k %)))
                                                 ba)))
                                m m)
                     m))]
     (if-not (map? seg)
       seg
       (cond-> seg
-        (contains? seg :added)   (update :added entries)
+        (contains? seg :added)   (update :added entries :after)
         (contains? seg :changed) (update :changed changed)
-        (contains? seg :removed) (update :removed entries)))))
+        (contains? seg :removed) (update :removed entries :before)))))
 
 (defn- project-after-deltas-tags
-  "Walk the `:rf.event/after-deltas` slot on `:rf.event/run-end` — one
+  "Walk the `:rf.event/after-deltas` slot on `:rf.event/run-end` — the dev-only
+  per-user-`:after` context diff, read through generic trace inspection: one
   `{:rf.interceptor.delta/id … :rf.interceptor.delta/ctx-delta {:coeffects …
   :effects …}}` record per user `:after` that changed the context, each diff
   carrying its `:before` / `:after` VALUES. The standard `:rf.interceptor/path`
-  `:after` always rewrites `[:coeffects :db]` and widens `[:effects :db]` back to
-  the whole app-db, so without this arm every path-focused handler shipped the
-  frame's classified paths RAW past this chokepoint (rf2-3x7nj.4.2).
+  `:after` rewrites `[:coeffects :db]` and widens `[:effects :db]`, so without
+  this arm every path-focused handler shipped the frame's classified paths RAW
+  past this chokepoint (rf2-3x7nj.4.2).
 
-  `:db` values (both segments) take the `project-db-tags` treatment: the
-  frame's app-db registry walked from the db root, gated on
-  `frame-has-declarations?`, FAIL CLOSED on a nil `frame-id`. `:fx` values (the
-  `:effects` segment) redact each entry's args through its fx registration, as
-  `project-event-fx-tags` does for `:rf.event/fx`."
+  A `:db` value is walked at its TRUE app-db focus (rf2-fc84b): under a path
+  focus it is a SLICE, and a root walk cannot match `[:auth :token]` against
+  `{:token …}`. The producer, `re-frame.interceptor/invoke-after`, records each
+  side's absolute focus in a PRIVATE metadata carrier on the record,
+  `{:re-frame.interceptor/db-focus {:before <path|nil> :after <path|nil>}}`;
+  this fn is its ONE consumer, and STRIPS it unconditionally (every frame,
+  classified or not) so it never egresses. Per value, at focus `p`:
+    - nil `frame-id` — FAIL CLOSED to the sentinel;
+    - a frame with no declarations — identity (reference-preserving);
+    - `p` a vector — `elide-wire-value {:frame f :path p}` (`[]` is the root);
+    - `p` nil (UNKNOWN: a stack entry recorded no path) — FAIL CLOSED.
+  A record with NO carrier (built by hand) reads as focus `[]` on both sides.
+  `:fx` values (the `:effects` segment) take no focus: each entry's args
+  redact through its fx registration, as `project-event-fx-tags` does for
+  `:rf.event/fx`."
   [tags frame-id]
   (let [deltas (:rf.event/after-deltas tags)]
     (if-not (sequential? deltas)
       tags
-      (let [project-db (cond
-                         (nil? frame-id)                    (constantly rf.privacy/redacted-sentinel)
-                         (frame-has-declarations? frame-id) #(rf.elision/elide-wire-value % {:frame frame-id})
-                         :else                              identity)
-            cofx-v     (fn [k v] (if (= :db k) (project-db v) v))
-            fx-v       (fn [k v]
+      (let [declared?  (and (some? frame-id) (frame-has-declarations? frame-id))
+            project-db (fn [focus v]
                          (cond
-                           (= :db k)                    (project-db v)
-                           (and (= :fx k) (vector? v))  (mapv project-event-fx-entry v)
-                           :else                        v))
+                           (nil? frame-id)  rf.privacy/redacted-sentinel
+                           (not declared?)  v
+                           (vector? focus)  (rf.elision/elide-wire-value v {:frame frame-id :path focus})
+                           :else            rf.privacy/redacted-sentinel))
             project    (fn [rec]
-                         (let [d (when (map? rec) (:rf.interceptor.delta/ctx-delta rec))]
+                         (let [m     (meta rec)
+                               focus (get m :re-frame.interceptor/db-focus {:before [] :after []})
+                               rec   (if (contains? m :re-frame.interceptor/db-focus)
+                                       (with-meta rec (not-empty (dissoc m :re-frame.interceptor/db-focus)))
+                                       rec)
+                               d     (when (map? rec) (:rf.interceptor.delta/ctx-delta rec))
+                               cofx-v (fn [side k v] (if (= :db k) (project-db (get focus side) v) v))
+                               fx-v   (fn [side k v]
+                                        (cond
+                                          (= :db k)                   (project-db (get focus side) v)
+                                          (and (= :fx k) (vector? v)) (mapv project-event-fx-entry v)
+                                          :else                       v))]
                            (if-not (map? d)
                              rec
                              (assoc rec :rf.interceptor.delta/ctx-delta
