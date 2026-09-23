@@ -149,19 +149,46 @@
          second-guess it")))
 
 (deftest records-render-with-their-tag
-  ;; The user-visible payoff: `#R{:a 1}` rather than `{:a 1}`. Every
+  ;; The user-visible payoff: `#…R{:a 1}` rather than `{:a 1}`. Every
   ;; defrecord in app-db was losing its tag.
-  (let [h (ei/render-node {:value (->R 1)
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
+  ;;
+  ;; rf2-3x7nj.25.3 — this asserted only that the text contained a `#`,
+  ;; and the broken tag WAS `"#"`: `(.-name (type v))` is `""` for every
+  ;; CLJS type, so each record opened `#{`, a SET's bracket, and passed.
+  ;; The expected opening now comes from the PRODUCER — `pr-str`'s own
+  ;; `#<ns>.R{` — so the tag's text is what is pinned.
+  (let [r      (->R 1)
+        pr     (pr-str r)
+        opening (subs pr 0 (inc (str/index-of pr "{")))
+        render (fn [expansion-map]
+                 (ei/render-node {:value r
+                                  :panel-id :test
+                                  :mount-id "m1"
+                                  :path []
+                                  :depth 0
+                                  :expansion-map expansion-map
+                                  :opts {}}))
+        h      (render {})]
+    (testing "CONTROL — the producer's opening is a qualified record tag"
+      (is (str/ends-with? opening ".R{")
+          (str "cljs.core prints " (pr-str pr) ", naming the record type"))
+      (is (not= "#{" opening) "and not a set's bracket"))
     (is (some? (find-attr h :data-rf-kind "record"))
         "renders through the :record container path")
-    (is (str/includes? (collect-text h) "#")
-        "and the `#<tag>` record prefix is painted")))
+    (is (str/includes? (collect-text h) opening)
+        (str "the inline render opens with " opening))
+    (is (not (str/includes? (collect-text h) "#{"))
+        "and never with a set's `#{`")
+    (testing "the EXPANDED header carries the same tag"
+      (let [h (render {(ei/expansion-key :test "m1" []) {:expanded? true}})]
+        (is (str/includes? (collect-text h) opening))
+        (is (not (str/includes? (collect-text h) "#{")))))
+    (testing "and so does the collapsed preview, so a record is no map look-alike"
+      (is (str/starts-with? (ei/inline-preview-string r 3 80) opening)
+          "the record's own preview")
+      (is (str/includes? (ei/inline-preview-string {:p r} 3 80)
+                         (str opening "…1 keys}"))
+          "and its one-level placeholder inside a parent's preview"))))
 
 (deftest classify-sentinels
   (testing "redacted bare keyword"
@@ -828,12 +855,65 @@
                              :path [] :depth 0
                              :expansion-map {}
                              :opts {:default-expanded-depth 5 :max-depth 1}})
+        ;; rf2-3x7nj.25.4 — `[:a]`, the node AT the cap. This addressed
+        ;; the root's `…-m--toggle`, which sits at depth 0 and is not
+        ;; capped, so the test never reached the branch it is named for.
         tog (find-attr h :data-testid
-                       "rf-xray-edn-inspector-test-m--toggle")]
+                       "rf-xray-edn-inspector-test-m-:a-toggle")]
     (is (some? tog) "depth-capped renders still carry a toggle span")
+    (is (str/includes? (collect-text h) "…")
+        "and it is the capped `▸ {…}` placeholder")
     (let [s (-> tog second :style)]
       (is (= ei/triangle-style s)
           "depth-capped triangle uses the shared triangle-style"))))
+
+(deftest depth-capped-toggle-expands-one-level-rf2-3x7nj-25-4
+  ;; The capped `▸ {…}` is a real control — `role=button`, focusable, an
+  ;; `on-click` — and its click dispatched a toggle the reducer stored as
+  ;; `{:expanded? true}`. But `depth-capped?` read `depth` and `max-depth`
+  ;; alone, and both `expanded?` and `children` required it false, so the
+  ;; stored override could never take effect: nothing on screen changed.
+  ;;
+  ;; The override is PRODUCED here, not hand-written: the capped toggle's
+  ;; own click is captured and run through the real reducer.
+  (let [v        {:a {:b {:c 1}}}
+        opts     {:default-expanded-depth 5 :max-depth 1}
+        render   (fn [expansion-map dispatch-fn]
+                   (ei/render-node {:value v
+                                    :panel-id :test :mount-id "m"
+                                    :path [] :depth 0
+                                    :expansion-map expansion-map
+                                    :dispatch-fn dispatch-fn
+                                    :opts opts}))
+        a-toggle "rf-xray-edn-inspector-test-m-:a-toggle"
+        b-toggle "rf-xray-edn-inspector-test-m-:a/:b-toggle"
+        captured (atom nil)
+        capped   (render {} (fn [ev] (reset! captured ev)))]
+    (testing "CONTROL — at the cap, `[:a]` is a collapsed toggle with nothing under it"
+      (is (false? (-> (find-attr capped :data-testid a-toggle) second :aria-expanded)))
+      (is (not (str/includes? (collect-text capped) ":b"))
+          "its child key is not painted"))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
+    ((-> (find-attr capped :data-testid a-toggle) second :on-click) nil)
+    (is (= [:rf.xray.edn-inspector/toggle-node :test "m" [:a] false] @captured)
+        "the click dispatches a toggle from the visible, collapsed state")
+    (rf/dispatch-sync @captured)
+    (let [expansion-map @(rf/subscribe [ei/expansion-slot])
+          h             (render expansion-map nil)]
+      (is (= {:expanded? true}
+             (get expansion-map (ei/expansion-key :test "m" [:a])))
+          "the reducer stores the open override")
+      (testing "and that override now EXPANDS the capped node"
+        (is (true? (-> (find-attr h :data-testid a-toggle) second :aria-expanded))
+            "`[:a]` renders open")
+        (is (str/includes? (collect-text h) ":b")
+            "its child key is painted"))
+      (testing "by ONE level — the next node down is capped in its turn"
+        (is (false? (-> (find-attr h :data-testid b-toggle) second :aria-expanded))
+            "`[:a :b]`, at depth 2, is a collapsed toggle")
+        (is (not (str/includes? (collect-text h) ":c"))
+            "and nothing below it is painted")))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 ;; ---- rf2-1bra5 — map body layout: column-align + inline scalars ---------
 ;;
@@ -2039,10 +2119,13 @@
   from `bounded-count*` — the same function `child-count` and
   `diff-pair-count` report through, so this is the header's own arithmetic
   and not a re-derivation of it. A `max-chars` of 0 forces that fallback
-  rather than an element preview."
+  rather than an element preview.
+
+  rf2-3x7nj.25.1 — a sequence CUT at the bound prints `N+`; the `+` is
+  read past, so this still answers the number."
   [v]
   (let [s (ei/inline-preview-string v 3 0)]
-    (some-> (re-find #"(\d+) items" s) second js/parseInt)))
+    (some-> (re-find #"(\d+)\+? items" s) second js/parseInt)))
 
 (defn- rendered-rows
   "How many child rows the renderer actually emitted for the ROOT
@@ -2162,6 +2245,70 @@
             (str "and realised " @seen " elements; the RENDER path's bound "
                  "is " render-path-bound " — `count-bound` plus the single "
                  "element `cljs.core/bounded-count` looks ahead"))))))
+
+;; ---- rf2-3x7nj.25.1 — a sequence cut at the bound SAYS so ---------------
+;;
+;; A not-`counted?` sequence longer than `count-bound` rendered as exactly
+;; `count-bound` elements: header, `(…1001 items)` summary and body all
+;; agreed on 1001, and the body closed after row 1000 with nothing saying
+;; the sequence went on. An endless `(iterate inc 0)` read as a finite
+;; 1001-element seq. The diff path already refuses that lie with
+;; `::unrealised`; the browse path had no equivalent.
+;;
+;; The marker must cost NOTHING past the bound: it looks at the one element
+;; `cljs.core/bounded-count` already realises, so `render-path-bound` still
+;; holds.
+
+(defn- unrealised-tail
+  "The trailing `… (not realised past N)` row, or nil."
+  [tree]
+  (find-attr tree :data-rf-cell "unrealised-tail"))
+
+(deftest a-cut-sequence-says-so-rf2-3x7nj-25-1
+  (let [guard 50000]
+    (testing "the expanded BROWSE body closes on an explicit unrealised-tail row"
+      (let [seen (atom 0)
+            h    (render-expanded {:value (counting-seq seen guard)})]
+        (is (some? (unrealised-tail h))
+            "a trailing row says the sequence continues past the bound")
+        (is (str/includes? (collect-text (unrealised-tail h))
+                           (str "not realised past " count-bound))
+            "naming the bound it was not realised past")
+        (is (= count-bound (rendered-rows h))
+            "the body's own rows are still exactly the rows walked")
+        (is (<= @seen render-path-bound)
+            (str "and realised " @seen " elements; the marker adds nothing to "
+                 "the RENDER path's bound of " render-path-bound))))
+    (testing "the DIFF body says so too — the item's App-DB scenario is a diff"
+      (let [seen (atom 0)
+            h    (render-expanded {:value      (counting-seq seen guard)
+                                   :before     [0 1 2]
+                                   :diff?      true
+                                   :projection nil})]
+        (is (some? (unrealised-tail h)))
+        (is (<= @seen render-path-bound)
+            (str "realised " @seen " elements"))))
+    (testing "the collapsed count reads `1001+`, not a confident `1001`"
+      (let [seen (atom 0)
+            s    (ei/inline-preview-string (counting-seq seen guard) 3 0)]
+        (is (str/includes? s (str count-bound "+ items")) s)
+        (is (<= @seen render-path-bound) (str "realised " @seen " elements")))
+      (is (str/includes? (ei/inline-preview-string
+                           {:rows (map identity (range 5000))} 3 80)
+                         (str "(…" count-bound "+ items)"))
+          "and so does a cut sequence's placeholder inside a parent's preview")))
+  (testing "CONTROLS — nothing is claimed of a sequence that was NOT cut"
+    (let [exact (map identity (range count-bound))]
+      (is (nil? (unrealised-tail (render-expanded {:value exact})))
+          (str "a lazy seq of EXACTLY " count-bound " elements was realised "
+               "whole — its end is known, so no marker"))
+      (is (str/includes? (ei/inline-preview-string exact 3 0)
+                         (str count-bound " items"))
+          "and its count carries no `+`"))
+    (is (nil? (unrealised-tail (render-expanded {:value (map identity (range 10))})))
+        "a short lazy seq has no marker")
+    (is (nil? (unrealised-tail (render-expanded {:value (apply list (range jh12f-n))})))
+        (str "nor does a `counted?` list of " jh12f-n ": it is rendered whole"))))
 
 ;; ---- rf2-zk4he — a capped BEFORE side must not hide the counted AFTER
 ;; ---- tail ----------------------------------------------------------------
@@ -5808,6 +5955,102 @@
     (is (re-find #"41" text)
         "the re-rooted before's prior leaf renders too — diff annotation
          survives the zoom (before re-rooted along the same path)")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+
+;; ---- rf2-3x7nj.25.2 — a list / seq element is zoomable, and an
+;; ---- unresolvable zoom renders un-zoomed ---------------------------------
+;;
+;; `children-of` keys a list / seq element by its integer index — the very
+;; segment a zoom stores — but the zoom walk was `get-in`, and `get`
+;; answers not-found on a `List`, `IndexedSeq` or `LazySeq`. The walk fell
+;; back to the WHOLE value while `zoom-active?` stayed true, so the
+;; breadcrumbs claimed a zoom over a body that was the un-zoomed root, and
+;; every further zoom composed a meaningless absolute path. A stale path
+;; (the zoomed key since removed) reached the same state.
+
+(deftest resolve-zoom-into-steps-into-list-and-seq-elements-rf2-3x7nj-25-2
+  (let [zoom (fn [path] {[:p "m"] path})]
+    (testing "CONTROL — a vector element resolved already"
+      (is (= {:id 2} (ei/resolve-zoom-into {:todos [{:id 1} {:id 2}]}
+                                           (zoom [:todos 1]) :p "m"))))
+    (testing "a LIST element resolves by index"
+      (is (= {:id 2} (ei/resolve-zoom-into {:todos (list {:id 1} {:id 2})}
+                                           (zoom [:todos 1]) :p "m"))))
+    (testing "and so does a LAZY-SEQ element"
+      (is (= {:id 2} (ei/resolve-zoom-into {:rows (map identity [{:id 1} {:id 2}])}
+                                           (zoom [:rows 1]) :p "m"))))
+    (testing "an index past the end still falls back — nothing is invented"
+      (let [v {:todos (list {:id 1})}]
+        (is (= v (ei/resolve-zoom-into v (zoom [:todos 5]) :p "m")))))))
+
+(deftest zoom-into-a-list-element-renders-that-element-rf2-3x7nj-25-2
+  ;; The item's scenario, end to end: the zoom path is the one the
+  ;; renderer's own double-click MINTS for the second todo, not one
+  ;; written here.
+  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
+  (let [site-id  [:rf.xray/app-db "top"]
+        v        {:todos (list {:id 1 :title "alpha"} {:id 2 :title "bravo"})
+                  :sibling 1}
+        captured (atom nil)
+        tree     (ei/render-node {:value v
+                                  :panel-id :rf.xray/app-db
+                                  :mount-id site-id
+                                  :path [] :depth 0
+                                  :expansion-map {}
+                                  :zoomable? true
+                                  :zoom-path-prefix []
+                                  :dispatch-fn (fn [ev] (reset! captured ev))
+                                  :opts {}})
+        target   (first (filter (fn [n]
+                                  (let [t (collect-text n)]
+                                    (and (str/includes? t "bravo")
+                                         (not (str/includes? t "alpha")))))
+                                (zoom-target-nodes tree)))]
+    (is (some? target) "the second todo is a zoom target")
+    ((:on-double-click (second target)) nil)
+    (is (= [:rf.xray.edn-inspector/zoom-to :rf.xray/app-db site-id [:todos 1]]
+           @captured)
+        "its double-click stores the list element's INDEX path")
+    (rf/dispatch-sync @captured)
+    (let [h     (invoke-edn-inspector v {:panel-id :rf.xray/app-db
+                                         :site-id  site-id
+                                         :zoomable? true})
+          attrs (second h)
+          text  (collect-text h)]
+      (is (= "1" (:data-rf-zoomed attrs)) "the zoom is active")
+      (is (str/includes? text "bravo") "the zoomed element renders")
+      (is (not (str/includes? text "alpha"))
+          "and its sibling element does not — the body is the zoom, not the root")
+      (is (not (str/includes? text ":sibling"))
+          "nor does anything outside the list"))
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+
+(deftest unresolvable-zoom-renders-un-zoomed-rf2-3x7nj-25-2
+  ;; A stale path — the zoomed key removed by a later event.
+  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
+  (let [site-id [:rf.xray/app-db "top"]
+        _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
+                                   :rf.xray/app-db site-id [:gone]])
+        v       {:todos {:a 1 :b 2 :c 3 :d 4} :sibling 1}
+        h       (invoke-edn-inspector v {:panel-id :rf.xray/app-db
+                                         :site-id  site-id
+                                         :zoomable? true
+                                         :header   [:span "app-db"]})
+        attrs   (second h)]
+    (is (nil? (:data-rf-zoomed attrs)) "no zoom is advertised")
+    (is (nil? (:data-rf-zoom-path attrs)) "and no zoom path")
+    (is (nil? (find-attr h :role "navigation"))
+        "no breadcrumbs claim a zoom the body does not show")
+    (is (str/includes? (collect-text h) ":sibling")
+        "the body is the full value")
+    (is (= "Zoom into [:todos]"
+           (some (fn [n] (let [l (:aria-label (second n))]
+                           (when (= "Zoom into [:todos]" l) l)))
+                 (zoom-target-nodes h)))
+        "a further zoom composes a path from the ROOT, not under the stale one")
+    (is (= [:gone] (get @(rf/subscribe [ei/zoom-slot])
+                        (ei/zoom-key :rf.xray/app-db site-id)))
+        "the stored path itself is left as it was")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest zoom-persists-across-mount-unmount-via-site-id

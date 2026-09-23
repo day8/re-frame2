@@ -5066,7 +5066,9 @@ and-return round-trip (App-DB tab switching, focused-event re-mount).
 **Sub** — `[:rf.xray.edn-inspector/zoom]` reads the slot as a map.
 Pure helpers `resolve-zoom-path` + `resolve-zoom-into` project the
 map for a given mount into either the stored path vector or the
-resolved sub-value (used by the widget's render-time `get-in` walk).
+resolved sub-value (used by the widget's render-time walk, which steps
+into a list / seq element by index, since `get` answers not-found on
+those — rf2-3x7nj.25.2).
 
 **Keyboard navigation** — two node-local + widget-level bindings:
 
@@ -5106,8 +5108,10 @@ full+diff renderer — see the `:before` note below).
   re-roots both halves so the whole subtree reads `:added` (the
   re-rooted before stays the missing-sentinel and the projection
   classifies the subtree green); a stale path (mutated out from under
-  the zoom) falls back to the full value via `resolve-zoom-into`. So
-  `zoom-active? = zoomable? AND zoom-path non-empty` — the `NOT diff?`
+  the zoom) renders exactly as un-zoomed — the full value, with no
+  breadcrumb and no `data-rf-zoomed` — while the stored path is left in
+  the slot (rf2-3x7nj.25.2). So `zoom-active? = zoomable? AND zoom-path
+  non-empty AND the path resolves against value` — the `NOT diff?`
   clause is gone.
 - **`:header`** — the hiccup feeds the breadcrumb home segment when
   zoomed (`home-label`).
