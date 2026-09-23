@@ -139,7 +139,8 @@
   rules of [Spec 002 §Standard `:rf.interceptor/path`]:
 
     1. records the original full app-db object AND the original focused slice
-       (stacked, so nested path interceptors compose);
+       (stacked beside its own path, so nested path interceptors compose and
+       a context's absolute focus is recoverable);
     2. stages the focused slice as the handler's `:db` coeffect;
     3. if the handler emits NO `:db` effect, emits no synthetic `:db` effect;
     4. if the handler emits a `:db` effect whose focused value is `identical?`
@@ -170,11 +171,17 @@
                           original-db)]
         (-> ctx
             ;; Rule 1: stack the original full app-db AND the original focused
-            ;; slice (a pair) so nested path interceptors unwind correctly and
-            ;; rule 4 can compare against the slice this `:before` focused.
-            ;; Reserved-namespace slot (Conventions §Reserved namespaces).
+            ;; slice so nested path interceptors unwind correctly and rule 4
+            ;; can compare against the slice this `:before` focused. The
+            ;; entry's third element is this interceptor's OWN (relative)
+            ;; path: `re-frame.interceptor/invoke-after` concatenates the stack
+            ;; into a context's absolute app-db focus, so the dev-only
+            ;; after-delta capture can redact a focused slice at its true
+            ;; offset (rf2-fc84b). The vector is already held, so the entry
+            ;; allocates nothing new. Reserved-namespace slot (Conventions
+            ;; §Reserved namespaces).
             (update :rf.interceptor.path/stack (fnil conj [])
-                    [original-db focused])
+                    [original-db focused path-vector])
             ;; Rule 2: stage the focused slice as the handler's :db coeffect.
             (assoc-in [:coeffects :db] focused))))
     :after

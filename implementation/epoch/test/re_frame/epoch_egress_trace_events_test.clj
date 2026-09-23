@@ -217,6 +217,30 @@
                  (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})))
           "the off-box-tool projection carries the secret nowhere"))))
 
+(deftest off-box-projection-of-an-auth-focused-event-omits-its-slice-secret
+  (testing "rf2-fc84b — a handler focused AT the classified subtree
+            ([:rf.interceptor/path [:auth]] writing :password) puts FOCUSED
+            SLICES into :rf.event/after-deltas: the :before values the handler
+            saw and returned sit at [:auth], where a root-anchored walk cannot
+            match [:auth :password]. The off-box-tool projection of that epoch
+            record carries the secret nowhere"
+    (rf/make-frame {:id :test/eg})
+    (install-sensitive-schema! :test/eg)
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db (assoc db :auth {:password secret})}))
+    (rf/reg-event :rotate {:interceptors [[:rf.interceptor/path [:auth]]]}
+      (fn [{:keys [db]} _] {:db (assoc db :password (str secret "-rotated"))}))
+    (rf/dispatch-sync [:seed] {:frame :test/eg})
+    (rf/dispatch-sync [:rotate] {:frame :test/eg})
+    (let [raw     (last (rf/epoch-history :test/eg))
+          run-end (first (filter #(= :rf.event/run-end (:operation %)) (:trace-events raw)))]
+      (is (= [:rotate] (:trigger-event raw)) "control: the newest record is :rotate's")
+      (is (= [:rf.interceptor/path]
+             (mapv :rf.interceptor.delta/id (get-in run-end [:tags :rf.event/after-deltas])))
+          "control: the record carries the path interceptor's after-delta")
+      (is (not (contains-secret?
+                 (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})))
+          "the off-box-tool projection carries the secret nowhere"))))
+
 ;; ===========================================================================
 ;; 2. Direct unit: project-egress over a hand-built record whose
 ;;    :trace-events carries a t1/t2 event with a sensitive leaf. Isolates
