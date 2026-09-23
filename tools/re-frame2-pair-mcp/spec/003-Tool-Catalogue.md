@@ -438,7 +438,7 @@ nREPL port discovery — symmetric with the gated-write pre-connection
 refusal (rf2-wz66k7). "Does this tool exist?" is a pure function of the
 static registry, so a typo or removed alias is diagnosable on a fresh or
 misconfigured session with no live app. Without this guard the lazy
-discovery step rejects first (`:nrepl-port-not-found`) and masks the
+discovery step rejects first (`:rf.error/pair-mcp-nrepl-port-not-found`) and masks the
 unknown name behind a transport error, hiding the recovery affordances
 above for exactly the case they were built for.
 
@@ -547,17 +547,17 @@ On a precondition failure the response is `:ok? false` with a
 preload installs). When the marker is missing the failure-path
 diagnostic ladder (rf2-7tgfk; impl:
 [`src/re_frame2_pair_mcp/tools/probe.cljs`](../src/re_frame2_pair_mcp/tools/probe.cljs)
-`diagnose-preload-failure!`, lines 181-271) walks four rungs to name
+`diagnose-preload-failure!`, lines 303-398) walks four rungs to name
 the underlying cause rather than always blaming the preload:
 
 ### Failure-path diagnostic ladder (rf2-7tgfk)
 
 | `:reason` | Fires when | Hint shape |
 |---|---|---|
-| `:nrepl-unreachable` | JVM `jvm-eval` round-trip fails — the nREPL socket is dead even though the MCP server is up. Most often: the shadow-cljs JVM stopped, or restarted and left the MCP server holding a stale socket. (probe.cljs lines 207-210) | "Restart `shadow-cljs watch` and retry; the MCP server reconnects on the next tool call." |
+| `:nrepl-unreachable` | JVM `jvm-eval` round-trip fails — the nREPL socket is dead even though the MCP server is up. Most often: the shadow-cljs JVM stopped, or restarted and left the MCP server holding a stale socket. (probe.cljs lines 330-332) | "Restart `shadow-cljs watch` and retry; the MCP server reconnects on the next tool call." |
 | `:build-not-running` | nREPL is reachable but shadow's `active-builds` doesn't include the targeted build (after suffix resolution, rf2-qda59 — so a typo, never a mere short-tail). Carries `:running-builds` enumerating what IS up, plus `:running-builds-arg-forms` — each in the round-trippable `:build` arg form (rf2-qda59). (probe.cljs `diagnose-preload-failure!`) | "shadow-cljs is running `[":other-build"]` but not `:<target>`. Pass `--build=:other-build` (or set `SHADOW_CLJS_BUILD_ID`)…" |
-| `:no-runtime-connected` | Build IS running but the cljs-eval round-trip returns blank — no browser tab has connected, or the tab's WebSocket has dropped. Carries `:running-builds`. (probe.cljs lines 233-237) | "build `<id>` is running but no CLJS runtime is currently connected… Open the app in a browser tab — or if a tab IS open, reload the page so the runtime reconnects." |
-| `:runtime-loaded-but-preload-missing` | A CLJS runtime is alive but the `__re_frame2_pair_runtime` marker is absent. The original meaning of the legacy `:runtime-not-preloaded` reason — the preload entry IS what to add. (probe.cljs lines 242-245) | "re-frame2-pair.runtime is not loaded into this build. Add the preload entry to your shadow-cljs.edn… See skills/re-frame2-pair/SKILL.md (§Setup)." |
+| `:no-runtime-connected` | Build IS running but the cljs-eval round-trip returns blank — no browser tab has connected, or the tab's WebSocket has dropped. Carries `:running-builds`. (probe.cljs lines 361-364) | "build `<id>` is running but no CLJS runtime is currently connected… Open the app in a browser tab — or if a tab IS open, reload the page so the runtime reconnects." |
+| `:runtime-loaded-but-preload-missing` | A CLJS runtime is alive but the `__re_frame2_pair_runtime` marker is absent. The original meaning of the legacy `:runtime-not-preloaded` reason — the preload entry IS what to add. (probe.cljs lines 370-372) | "re-frame2-pair.runtime is not loaded into this build. Add the preload entry to your shadow-cljs.edn… See skills/re-frame2-pair/SKILL.md (§Setup)." |
 
 Each rung carries `:build` (the targeted id) plus a targeted
 `:hint`; `:build-not-running` and `:no-runtime-connected` also carry
@@ -575,7 +575,7 @@ nothing.
 When the ladder itself errors (e.g. a transient nREPL failure mid-
 diagnosis), the response degrades to the original blanket
 `:reason :runtime-not-preloaded` with the generic preload hint
-(probe.cljs lines 266-271). Reserved as the degradation case; the
+(probe.cljs lines 396-398). Reserved as the degradation case; the
 ladder's four named reasons cover the common path.
 
 There is no fallback inject path; see the skill's SKILL.md §Setup for
@@ -687,8 +687,7 @@ rejected input and the effective fallback:
 | `:removed-flag`    | A renamed / removed legacy name (`--allow-raw-state` → `--allow-sensitive-reads`; `--allow-eval`, now eval defaults ON) | Names the replacement — pre-alpha, no silent no-op for a stale `~/.claude.json`. |
 | `:unknown-flag`    | A `--*` token matching no known flag (a typo like `--no-eavl`) | "ignored — not a recognised launch flag". |
 | `:missing-value`   | A valued flag (`--port-file` / `--http-port`) present with no value | Names the fall-through to default discovery / behaviour. |
-| `:malformed-value` | `--http-port` non-numeric, or a resource-control flag whose value isn't a positive integer | Names the fall-back to the documented default. |
-| `:malformed-env`   | A resource env var set to a blank / non-numeric / non-positive value | Names the fall-back to the documented default. |
+| `:malformed-value` | `--http-port` non-numeric | Names the fall-back to the documented default. |
 
 The validator **warns, it does not hard-fail**: a hard boot-fail would
 make the server vanish from the agent host (the operator never sees
@@ -696,8 +695,8 @@ make the server vanish from the agent host (the operator never sees
 working (default-posture) server still come up. The rationale: a
 one-character typo in a safety flag silently changes session posture
 (`--no-eavl` leaves `eval-cljs` enabled because eval defaults on; a
-misspelled `--port-file` falls through to discovery; an invalid resource
-cap reverts to default). The diagnostic makes that mismatch visible in
+misspelled `--port-file` falls through to discovery). The diagnostic
+makes that mismatch visible in
 the boot log instead of leaving the operator to discover it the hard
 way.
 
@@ -1262,8 +1261,9 @@ within `:timeout-ms` (default `5000`) returns
 
 Simulate a re-frame2 cascade WITHOUT committing it (rf2-17hvp). Full
 reducer + interceptor chain runs, schema validation fires, machine
-transitions simulate, sub-runs and renders are recorded — but NO fx
-execute and the framework rolls back the app-db via `restore-epoch`.
+transitions simulate, sub-runs and renders are recorded — but NO
+declared fx executes and the preload restores the ACTUAL pre-call
+frame-state (app-db AND runtime-db) via `replace-frame-state!`.
 The fundamental "experiment without consequences" primitive: every fx
 the cascade WOULD have fired is enumerated in `:would-fire-effects`
 (with its args), so the operator reasons about real-world impact
@@ -1279,19 +1279,24 @@ reserved-fx dispatch, or user-handler invoke — RECORDING every
 source-ordered `[fx-id args]` and running NO body. So no http /
 navigation / persisted write, machine spawn/destroy, flow
 register/clear, nav-token, or image-only inline fx escapes. The
-framework's `restore-epoch` then rewinds the app-db and trims the
-assembled would-be epoch from the ring. There is no state change for
+preload then reinstalls the captured pre-call frame-state through
+`rf/replace-frame-state!` — app-db AND runtime-db — recording a
+synthetic rollback epoch; the would-be epoch stays in the bounded
+history as diagnostic evidence. (Arbitrary side effects inside
+handler / listener code sit outside the sink's guarantee.) The live
+frame-state ends where it began, so there is no state change for
 the `--allow-writes` gate to protect against; pairing dry-run behind
 that gate would force the operator to opt INTO writes to experiment
 with NOT writing, which inverts the gate's intent.
 
 ### How it works (the effect sink)
 
-The framework's dry-run effect SINK and the existing `restore-epoch`
-primitive (Tool-Pair §Time-travel) compose into a dry-run that is
-structurally unable to execute an effect:
+The framework's dry-run effect SINK and the public `replace-frame-state!`
+mutator (Tool-Pair §Pair-tool writes) compose into a dry-run that is
+structurally unable to execute a declared effect:
 
-1. Snapshot the head epoch-id (the rollback target).
+1. Capture the frame's ACTUAL pre-call frame-state
+   (`rf/frame-state-value`) and the head epoch-id (`:before-epoch-id`).
 2. Bind `re-frame.fx/*effect-sink*` to a fresh atom. `do-fx` — the
    SINGLE effect executor every fx flows through (the event fx walk, a
    machine exit-cascade walk, a resource-release walk) — RECORDS each
@@ -1304,10 +1309,13 @@ structurally unable to execute an effect:
    (schema validation, machine-step machinery, sub re-evaluation, all
    live here); the cascade ASSEMBLES a real epoch on the ring.
 4. Read the new head epoch — this IS the cascade-summary source.
-5. `restore-epoch` back to the pre-call head. The framework's
-   canonical undo gesture rewinds db and trims the would-be epoch
-   from history. No handler ran before this, so there is nothing
-   external to unwind.
+5. `rf/replace-frame-state!` reinstalls the captured pre-call
+   frame-state — both partitions, validated by the public mutator —
+   and records a synthetic rollback epoch. The would-be epoch is NOT
+   trimmed: history is diagnostic, and the epoch head is not assumed
+   to equal the live state (an earlier `restore-epoch` leaves history
+   intact), so consecutive simulations cannot move the baseline. No
+   declared fx body ran, so there is nothing external to unwind.
 
 The recorded fx calls AND the would-be epoch's cascade-summary
 project together into the response shape.
@@ -1330,8 +1338,9 @@ project together into the response shape.
 - **Frame mismatch** — the runtime fails with `:reason
   :ambiguous-frame` before the dispatch; no rollback needed.
 - **Listener fan-out** — `register-listener!` / `register-epoch-
-  listener!` consumers DO see the would-be epoch land between step 3
-  and step 5. This is a documented limitation: the framework has no
+  listener!` consumers DO see the would-be epoch land at step 3 and
+  the synthetic rollback epoch at step 5 — both stay in the bounded
+  history. This is a documented limitation: the framework has no
   "private dispatch" primitive. Production builds elide the entire
   listener path anyway; dev-tier listeners observing a phantom epoch
   is acceptable in exchange for the simpler composition.
@@ -1400,7 +1409,7 @@ minting a new confirmation gate:
 Like the read surfaces, the tool also issues `configure-raw-state!`
 (`raw-state/signal-runtime!`) between the preload probe and the eval,
 so the runtime's tap-emitting surfaces (the dry-run's internal
-`restore-epoch` rollback) sit in the gated posture too — not just the
+`replace-frame-state!` rollback) sit in the gated posture too — not just the
 wire payload.
 
 **Args**: `event` (string, required — EDN-encoded event vector),
@@ -1446,25 +1455,25 @@ non-zero.
 
 **Returns** (failure — all `isError: true`, rf2-wdxyx3 finding 2):
 
-- `:reason :no-epoch-recorded` — epoch-history empty / frame
-  unregistered / `interop/debug-enabled?` false. The dry-run did NOT
-  land; no rollback needed.
+- `:reason :no-epoch-recorded` — `interop/debug-enabled?` false or
+  `:epoch-history :depth` zero (no epoch artefact / a production
+  build), refused BEFORE dispatch. No handler ran; no rollback needed.
 - `:reason :no-new-epoch` — `dispatch-sync` returned but the head did
   not advance (the reducer rejected the event or an interceptor
   early-returned). The dry-run did NOT land; no rollback needed.
 - `:reason :rollback-failed` (rf2-glg4uo) — the simulation LANDED and a
-  would-be epoch assembled, but `restore-epoch` returned `false`, so the
-  rollback did NOT complete: the would-be db IS now the live app-db and
-  a spurious epoch remains at the ring head. This is the one failure
-  where the dry-run left the live app **mutated**, so it is the most
-  important to surface — a dry-run that silently mutated the live app
-  and reported green would defeat the tool's entire "no observable
-  effect" contract. The envelope carries `:rolled-back? false`,
-  `:before-epoch-id`, and a `:hint` for manual re-restore
-  (`(rf/restore-epoch! <frame> <before-epoch-id>)`). Rare but reachable:
-  a nil `before-id` on a frame's first epoch-recording event, or a tiny
-  `:epoch-history` ring (e.g. `:depth 1`) that evicts the rollback
-  target. The MCP tool routes it to `isError: true` on BOTH `:ok?
+  would-be epoch assembled, but `replace-frame-state!` returned `false`,
+  so the rollback did NOT complete: the simulated state can still be
+  the live frame-state. This is the one failure where the dry-run may
+  have left the live app **mutated**, so it is the most important to
+  surface — a dry-run that silently mutated the live app and reported
+  green would defeat the tool's entire "no observable effect" contract.
+  The envelope carries `:rolled-back? false`, `:before-epoch-id`, and a
+  `:hint` to inspect the frame state and the replacement's failure
+  trace before issuing further writes. (A first-event dry-run and a
+  one-slot `:epoch-history` ring are supported: the rollback reinstalls
+  the captured frame-state rather than rewinding to a ring entry, so
+  neither can evict its target.) The MCP tool routes it to `isError: true` on BOTH `:ok?
   false` AND a belt-and-braces `(false? (:rolled-back? result))`
   boundary check — defence-in-depth so that even a degraded/older
   runtime that mis-reported `:ok? true` cannot ride green over a
@@ -1728,7 +1737,7 @@ per-frame epoch-history is non-empty, the envelope carries an
 `:advisory` slot distinguishing "nothing happened" from "events exist
 but fell outside the time window" (impl:
 [`src/re_frame2_pair_mcp/tools/trace_window.cljs`](../src/re_frame2_pair_mcp/tools/trace_window.cljs)
-lines 130-142):
+lines 237-256):
 
 ```clojure
 {:advisory {:reason            :window-excludes-history
@@ -1845,7 +1854,7 @@ When the response would carry `:count 0` but the operating frame's
 per-frame epoch-history is non-empty, the envelope carries an
 `:advisory` slot distinguishing two distinct empty-result causes
 (impl: [`src/re_frame2_pair_mcp/tools/watch_epochs.cljs`](../src/re_frame2_pair_mcp/tools/watch_epochs.cljs)
-lines 139-165):
+lines 240-269):
 
 **Case A — `:no-events-since-id`** (zero `:count`, zero new epochs
 since `:since-id`, non-empty history). The caller's `:since-id` sits
@@ -2238,6 +2247,11 @@ carries the answer; the lazy-summary default keeps that discovery
 workflow inside the wire cap by construction.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :wholesale-read-of-reserved-frame` if the call asks for the
+full, unsliced state of a reserved `:rf/*` tool frame (root `path`, or
+`mode "full"` with no narrowing path, while `frames` is `"all"` or names
+a tool frame) — refused before the nREPL round-trip; slice with `path`
+instead (rf2-qef58);
 `:reason :snapshot-failed` (with `:message`) on any other failure.
 
 ## get-path
@@ -2326,6 +2340,9 @@ wants several slices in the same round-trip; both share the same
 `:reason :missing-path` if neither `path` nor `paths` was supplied;
 `:reason :path-and-paths-both-supplied` if both were supplied;
 `:reason :empty-paths` if `paths` was an empty vector;
+`:reason :wholesale-read-of-reserved-frame` if `frame` names a reserved
+`:rf/*` tool frame and `path` is the root `[]` (refused before the nREPL
+round-trip; rf2-qef58);
 `:reason :get-path-failed` (with `:message`) on any other failure.
 
 ## read-sub
@@ -3312,7 +3329,7 @@ There is no `realm` arg — the EP-0013 realm substrate was deleted in full
 `:resource-scope` kinds — EP-0016 / rf2-f8s9g6 — and the `:interceptor`
 kind — EP-0022; per rf2-cq1ak app-db
 schemas are not a registrar kind — use `re-frame.schemas/app-schemas {:frame f}` for those; plus
-the virtual `:machine` kind). The fourteen
+the virtual `:machine` kind). The twelve
 registrar kinds lift the id vector off the registrar's per-kind
 map via `(re-frame2-pair.runtime/registrar-list kind)` —
 `list-handlers {kind "resource-scope"}` enumerates a resources app's
@@ -3622,7 +3639,7 @@ It is a **closed-world** tool: the server
 dispatches it at the **pre-connection** boundary (rf2-6amhbt), BEFORE
 `ensure-connection!`, so an agent orienting on a fresh / degraded session
 with no shadow build running gets the onboarding text rather than a
-`:nrepl-port-not-found` discovery error.
+`:rf.error/pair-mcp-nrepl-port-not-found` discovery error.
 
 **Args**: none recognised. `:additionalProperties false`.
 
