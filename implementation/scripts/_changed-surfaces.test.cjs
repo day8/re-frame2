@@ -817,9 +817,9 @@ test('Story macros.clj keeps its existing non-CLJS fan-out (rf2-eyyd2)', () => {
   assert.equal(result.examples_compile, 'true');
   assert.equal(result.tools_jvm, 'true');
   assert.equal(result.mcp_conformance, 'true');
-  // template_expensive is NOT in that roster (rf2-6r9j.108): the reduced
-  // scaffold compiles against no Story surface, macros.clj included.
-  assert.equal(result.template_expensive, 'false');
+  // …and template_expensive (rf2-3x7nj.37.1): macros.clj is under
+  // tools/story/src/**, which every generated app's `:dev` build compiles.
+  assert.equal(result.template_expensive, 'true');
 });
 
 // rf2-uqf5q — the THIRD predicate. rf2-eyyd2 armed macros.clj on the two CLJS
@@ -2040,43 +2040,61 @@ test('Other spec/*.md change does NOT light cljs_node_test (scope discipline) (r
   assert.equal(result.cljs_node_test, 'false');
 });
 
-// rf2-6r9j.108 — template_expensive is armed by the generated app's ACTUAL
-// inputs and nothing else. rf2-jdj17.1 armed it for tools/xray, tools/story
-// and implementation/schemas because the then-current scaffold compiled
-// against all three: `:devtools/preloads [day8.re-frame2-xray.preload]` in
-// every emitted shadow-cljs.edn, a `:with-story` variant requiring
-// re-frame.story, and an events.cljs/schema.cljs pair calling reg-app-schema.
-// rf2-zq34m (18b9486664) deleted all of that. The current twelve-file
-// emission requires core, the selected adapter and the view library only —
-// and tools/template's own `template_test.clj` FORBIDS the three coordinates
-// and their marker strings in anything emitted. So none of the three can
-// break the generated `:app` compile, and arming the ~30-minute
-// jvm-tools-template job (npm ci + Playwright Chromium provisioning) for a
-// schemas-only or Story/Xray-only PR was pure cost.
+// template_expensive is armed by the generated app's ACTUAL inputs and nothing
+// else. rf2-6r9j.108 removed the Story/Xray arm when rf2-zq34m's reduced
+// scaffold stopped compiling against either tool. rf2-1bkoc (PR #9821) put
+// Story back: every emitted deps.edn carries `day8/re-frame2-story` under
+// `:dev`, the emitted stories.cljs requires re-frame.story, the `:app` build's
+// `:dev` override boots `stories/init`, and Story's shell requires Xray — and
+// `emitted_test_run_test.clj` compiles exactly that with `-M:shadow:dev`. So
+// rf2-3x7nj.37.1 re-arms it, for exactly the files that compile can read: both
+// tools declare `:paths ["src"]`, so `src/**` plus each `deps.edn`. Their own
+// lanes stay armed alongside, so a mistaken "narrow everything" edit reds.
 //
-// These are the NEGATIVE CONTROLS that replaced the three positive
-// assertions. Each surface keeps its own independent lanes, asserted here
-// alongside so a mistaken "narrow everything" edit reds instead of passing:
-// re-add a template_expensive arm only with a real emitted dependency and a
-// fixture that compiles it.
+// schemas (below) is NOT re-armed: the scaffold still registers no schema,
+// and the transitive artefacts Xray pulls in are left to the nightly by
+// ruling.
 
-test('Xray src change does NOT arm template_expensive — not in the reduced scaffold (rf2-6r9j.108)', () => {
-  const result = classify('tools/xray/src/day8/re_frame2_xray/preload.cljs');
-  assert.equal(result.template_expensive, 'false');
-  // ...but Xray's own lanes are untouched.
-  assert.equal(result.tools_jvm, 'true');
-  assert.equal(result.mcp_conformance, 'true');
-  assert.equal(result.story_xray_browser, 'true');
+const STORY_XRAY_SCAFFOLD_INPUTS = pinnedRoster('STORY_XRAY_SCAFFOLD_INPUTS', [
+  'tools/xray/src/day8/re_frame2_xray/preload.cljs',
+  'tools/story/src/re_frame/story.cljc',
+  'tools/story/deps.edn',
+  'tools/xray/deps.edn',
+]);
+
+for (const file of STORY_XRAY_SCAFFOLD_INPUTS) {
+  test(`${file} arms template_expensive — the scaffold's :dev build compiles it (rf2-3x7nj.37.1)`, () => {
+    const result = classify(file);
+    assert.equal(result.template_expensive, 'true');
+    // ...and the tool's own lanes are untouched.
+    assert.equal(result.tools_jvm, 'true');
+    assert.equal(result.mcp_conformance, 'true');
+  });
+}
+
+test('Story/Xray src changes keep story_xray_browser alongside template_expensive (rf2-3x7nj.37.1)', () => {
+  assert.equal(classify('tools/xray/src/day8/re_frame2_xray/preload.cljs').story_xray_browser, 'true');
+  assert.equal(classify('tools/story/src/re_frame/story.cljc').story_xray_browser, 'true');
 });
 
-test('Story src change does NOT arm template_expensive — the with-story variant is gone (rf2-6r9j.108)', () => {
-  const result = classify('tools/story/src/re_frame/story.cljs');
-  assert.equal(result.template_expensive, 'false');
-  // ...but Story's own lanes are untouched.
-  assert.equal(result.tools_jvm, 'true');
-  assert.equal(result.mcp_conformance, 'true');
-  assert.equal(result.story_xray_browser, 'true');
-});
+// The NEGATIVE half: a path outside `src/**` and `deps.edn` cannot reach the
+// scaffold, so an over-broad arm (the whole `tools/story/*` tree) reds here.
+const STORY_XRAY_NON_SCAFFOLD_PATHS = pinnedRoster('STORY_XRAY_NON_SCAFFOLD_PATHS', [
+  'tools/story/test/re_frame/story/golden_test.cljc',
+  'tools/xray/test/day8/re_frame2_xray/config_test.clj',
+  'tools/story/testbeds/counter_with_stories/stories.cljs',
+  'tools/xray/testbeds/standard_epochs/core.cljs',
+  'tools/story/README.md',
+  'tools/xray/README.md',
+]);
+
+for (const file of STORY_XRAY_NON_SCAFFOLD_PATHS) {
+  test(`${file} does NOT arm template_expensive — no generated app compiles it (rf2-3x7nj.37.1)`, () => {
+    const result = classify(file);
+    assert.equal(result.template_expensive, 'false');
+    assert.equal(result.tools_jvm, 'true');
+  });
+}
 
 test('Schemas change does NOT arm template_expensive — the scaffold registers no schema (rf2-6r9j.108)', () => {
   const result = classify('implementation/schemas/src/re_frame/schemas.cljc');
@@ -2099,7 +2117,7 @@ test('Xray spec-md-only change does NOT arm template_expensive (rf2-jdj17.1, rf2
   assert.equal(result.template_expensive, 'false');
 });
 
-test('Other per-feature artefact (machines) does NOT arm template_expensive — not in scaffold (rf2-jdj17.1)', () => {
+test('Other per-feature artefact (machines) does NOT arm template_expensive — transitive only, left to the nightly (rf2-jdj17.1, rf2-3x7nj.37.1)', () => {
   const result = classify('implementation/machines/src/re_frame/machines.cljc');
   assert.equal(result.template_expensive, 'false');
 });
@@ -2137,7 +2155,7 @@ test('implementation/epoch change still arms the generic per-feature gates (regr
   assert.equal(result.bundle_isolation, 'true');
 });
 
-test('implementation/epoch is NOT in the scaffold — does NOT arm template_expensive (rf2-ribu5a)', () => {
+test('implementation/epoch does NOT arm template_expensive — transitive only, left to the nightly (rf2-ribu5a, rf2-3x7nj.37.1)', () => {
   const result = classify('implementation/epoch/src/re_frame/epoch.cljc');
   assert.equal(result.template_expensive, 'false');
 });

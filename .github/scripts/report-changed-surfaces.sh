@@ -443,9 +443,9 @@ is_story_xray_node_test_path() {
 #
 # Its NON-CLJS fan-out is unchanged and already correct: `tools/story/src/*`
 # arms examples_compile, and the `tools/{story,xray}/*` case arms tools_jvm
-# and mcp_conformance, for macros.clj as for any other src file. (It does NOT
-# arm template_expensive: rf2-6r9j.108 removed that fan-out when rf2-zq34m's
-# reduced scaffold stopped compiling against either tool. See that case.)
+# and mcp_conformance, for macros.clj as for any other src file — and, being
+# under tools/story/src/**, template_expensive too, since every generated
+# app's `:dev` build compiles Story (rf2-3x7nj.37.1). See that case.
 is_story_xray_dom_test_path() {
   case "$1" in
     tools/story/test/*_dom_cljs_test.cljs|tools/story/test/*_dom_cljs_test.cljc)
@@ -1227,17 +1227,19 @@ else
         # any other per-feature artefact. rf2-jdj17.1 armed it for
         # implementation/schemas/* because the then-current scaffold's
         # events.cljs side-loaded re-frame.schemas and its schema.cljs called
-        # rf/reg-app-schema. rf2-zq34m (18b9486664) deleted both: today's
-        # twelve-file emission requires core, the selected adapter and the
-        # view library only, and `template_test.clj` FORBIDS
-        # `day8/re-frame2-schemas` in an emitted deps.edn and the strings
-        # `re-frame.schemas` / `reg-app-schema` in any emitted text file. So
-        # the generated `:app` has no schemas edge for a schemas change to
-        # break, and firing the ~30-minute jvm-tools-template job (npm ci +
-        # Playwright Chromium) for one bought nothing. schemas keeps every
-        # lane of its own above — implementation_jvm, cljs_node_test,
-        # cljs_browser, cljs_prod, bundle_isolation. Re-add an arm here only
-        # WITH a real emitted dependency and a fixture that compiles it.
+        # rf/reg-app-schema. rf2-zq34m (18b9486664) deleted both, and
+        # `template_test.clj` FORBIDS `day8/re-frame2-schemas` in an emitted
+        # deps.edn and the strings `re-frame.schemas` / `reg-app-schema` in
+        # any emitted text file, so the generated `:app` has no DIRECT edge
+        # to a per-feature artefact. The emission's `:dev` build does reach
+        # some of them TRANSITIVELY, through Story's deps graph into Xray's
+        # (rf2-1bkoc); that path is left to the nightly `Template emitted-app
+        # smoke` by ruling (rf2-3x7nj.37.1), and Story/Xray's own src and
+        # deps.edn arm jvm-tools-template (~5.5-7.3 min) in their case below.
+        # schemas keeps every lane of its own above — implementation_jvm,
+        # cljs_node_test, cljs_browser, cljs_prod, bundle_isolation. Re-add an
+        # arm here only WITH a real emitted dependency and a fixture that
+        # compiles it.
         # (epoch has its own case above, rf2-ribu5a.)
         # rf2-2h1yhk / rf2-tzy13 — the docs/cljs live-cell SCI bundle BAKES IN
         # the machines and flows artefacts (`re-frame.machines` +
@@ -2309,26 +2311,32 @@ else
           *)
             tools_jvm=true
             mcp_conformance=true
-            # rf2-6r9j.108 — deliberately NO template_expensive arm.
-            # rf2-jdj17.1 fired it here because the then-current scaffold
-            # compiled against both tools: a `:with-story` variant whose core
-            # required re-frame.story and called story/mount-shell!, and
-            # `:devtools/preloads [day8.re-frame2-xray.preload]` in every
-            # emitted shadow-cljs.edn. rf2-zq34m (18b9486664) removed the
-            # Story variant and the preload outright. Today's emitted
-            # shadow-cljs.edn declares no `:devtools/preloads` at all, no
-            # emitted file names either tool (the generated README links their
-            # docs under `docs/`, which is not this surface), and
-            # `template_test.clj` FORBIDS `day8/re-frame2-xray` /
-            # `day8/re-frame2-story` in deps.edn plus the strings
-            # `day8.re-frame2-xray`, `data-rf-xray-host` and `include-story?`
-            # in any emitted text file. So a Story/Xray change cannot break
-            # the generated `:app` compile, and queueing the ~30-minute
-            # jvm-tools-template job (npm ci + Playwright Chromium) for one
-            # bought nothing. Both tools keep every lane of their own —
-            # tools_jvm and mcp_conformance right here, and story_xray_browser
-            # below. Re-add an arm only WITH a real emitted dependency and a
-            # fixture that compiles it.
+            # rf2-3x7nj.37.1 — template_expensive, for exactly the files a
+            # generated app's dev compile reads. rf2-6r9j.108 removed this arm
+            # when rf2-zq34m's reduced scaffold stopped compiling against
+            # either tool, and left the rule "re-add an arm only WITH a real
+            # emitted dependency and a fixture that compiles it". rf2-1bkoc
+            # (PR #9821) supplied both: every emitted deps.edn carries
+            # `day8/re-frame2-story` under `:dev`, the emitted stories.cljs
+            # requires re-frame.story, the `:app` build's `:dev` override boots
+            # `stories/init`, and Story's shell requires Xray; the fixture is
+            # `emitted_test_run_test.clj`'s `clojure -M:shadow:dev … compile`.
+            # That compile resolves through the tools' DECLARED deps graph,
+            # which Story's and Xray's own lanes (compiled via
+            # implementation/shadow-cljs.edn's global :source-paths) cannot
+            # see — so a namespace missing from either deps.edn, or a Story
+            # API change the emitted stories.cljs calls, surfaced only at the
+            # nightly. Both tools declare `:paths ["src"]`, so `src/**` and the
+            # two deps.edn files are the whole of what a generated app can
+            # compile; test/, testbeds/, README and the rest stay off.
+            # jvm-tools-template runs ~5.5-7.3 min beside the Story/Xray
+            # critical path. The transitive artefacts Xray pulls in stay off
+            # by ruling; the nightly `Template emitted-app smoke` covers them.
+            case "$file" in
+              tools/story/src/*|tools/story/deps.edn|tools/xray/src/*|tools/xray/deps.edn)
+                template_expensive=true
+                ;;
+            esac
             ;;
         esac
         # story_xray_browser is narrowed (rf2-k9ekz): it fires ONLY when
