@@ -3499,13 +3499,19 @@
                        (ids-in-body))
                     (str "exactly ONE root and ONE overlay in the pop-out's "
                          "document. Got: " (pr-str (ids-in-body))))
-                (is (nil? (.-parentNode stale-root))
+                ;; Booleans, not DOM stubs, inside every `is` below: a failing
+                ;; `is` prints its operands, and the stubs' parentNode ↔
+                ;; children cycle overflows the printer (the RangeError the
+                ;; section (a) row warns about).
+                (is (true? (nil? (.-parentNode stale-root)))
                     "the dead realm's shell root is gone")
-                (is (nil? (.-parentNode stale-overlay))
+                (is (true? (nil? (.-parentNode stale-overlay)))
                     "and so is the overlay the reload revealed")
-                (is (identical? (:node state) (first (array-seq (.-children body))))
+                (is (true? (identical? (:node state)
+                                       (first (array-seq (.-children body)))))
                     "the root left is the live one popout! painted")
-                (is (identical? (:overlay-node state) (second (array-seq (.-children body))))
+                (is (true? (identical? (:overlay-node state)
+                                       (second (array-seq (.-children body)))))
                     "the overlay left is the fresh one popout! installed")
                 (is (= "none" (.-display (.-style (:overlay-node state))))
                     "and it is hidden — nothing covers the live shell")
