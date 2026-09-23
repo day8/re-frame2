@@ -273,9 +273,9 @@
                      ").")}
        (let [dispatches (focus-command->dispatches command)]
          ;; Fire into Xray's own shell frame (the host never sees it —
-         ;; the channel is the command, not the frame split). Mirrors
-         ;; runtime.cljs's mutation accessors, which target
-         ;; `defaults/default-frame-id` for the no-surrounding-frame case.
+         ;; the channel is the command, not the frame split). A host call
+         ;; has no surrounding frame, so target `defaults/default-frame-id`
+         ;; explicitly.
          (rf/with-frame defaults/default-frame-id
            (cond
              ;; Each `dispatch-sync` drains before the next begins, so the
@@ -323,13 +323,11 @@
      `focus-command->dispatches`). Every field optional.
 
      Dispatches each translated `:rf.xray/*` event into Xray's own
-     `:rf/xray` shell frame (via `re-frame.core/with-frame` —
-     mirroring `runtime.cljs`'s mutation accessors). The host never
+     `:rf/xray` shell frame (via `re-frame.core/with-frame`). The host never
      sees Xray's internal frame; the channel is the command, not the
      frame split.
 
-     Returns a data-shaped result (mirroring `runtime.cljs`'s
-     `{:ok? ...}` idiom):
+     Returns a data-shaped `{:ok? ...}` result:
 
          {:ok?     true
           :applied [[:rf.xray/select-frame :checkout] ...]  ; events fired, in order

@@ -477,7 +477,7 @@
 
 (deftest detach-is-idempotent
   (testing "rf2-ycrt2 — detach! is the public embed-host escape hatch
-            (Story calls it from ensure-xray-mounted! after flipping
+            (Story calls it from wire-cross-host! after flipping
             :rf.xray/keybinding-enabled? false); calling it twice in a
             row must be safe — the second call removes nothing (the
             sentinel is already false) and does not throw"
