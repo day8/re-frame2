@@ -71,7 +71,11 @@
             [re-frame.trace :as rf.trace]
             [re-frame.elision]
             [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.capture :as rf.epoch.capture]
             [re-frame.epoch.state :as rf.epoch.state]
+            ;; Publishes the registered validator a sub's `:schema` check runs
+            ;; through; inv-10's recompute emits no failure without it.
+            [re-frame.schemas]
             [re-frame.test-support :as rf.test-support]
             [re-frame.machines]))
 
@@ -2096,3 +2100,140 @@
                     (rf/epoch-history :test/main))
             "no surviving epoch was mis-spliced with the evicted target's
              back-fill")))))
+
+;; ===========================================================================
+;; INVARIANT 10 — a post-settle sub-return / sub-override SCHEMA FAILURE rides
+;;                its sub-run's epoch, not the orphan drop (rf2-3x7nj.17.4)
+;; ===========================================================================
+;;
+;; The failure sibling of inv-1. A sub's `:schema` is checked as it
+;; recomputes, so a post-settle recompute emits its `:rf.sub/run` AND, when
+;; the schema rejects the value, a `:rf.error/schema-validation-failure` with
+;; the same routing tags (`:frame`, no `:rf.trace/dispatch-id`). The run was
+;; back-filled but the failure fell through to the orphan-drop branch, so
+;; Xray showed the replaced `nil` as a clean SUBSCRIPTIONS row, outcome `:ok`.
+;;
+;; The recompute here is REAL — a `:schema`-bearing `reg-sub` derefed on the
+;; plain-atom substrate after `dispatch-sync` returned — so both traces come
+;; from the runtime's own emit sites. The `:sub-override` sibling fires only
+;; under a Story render context, so it is emitted at the capture seam instead,
+;; the technique this suite's header describes.
+
+(defn- sub-failure?
+  [where sub-id trace-event]
+  (and (= :rf.error/schema-validation-failure (:operation trace-event))
+       (= where  (get-in trace-event [:tags :where]))
+       (= sub-id (get-in trace-event [:tags :rf.sub/id]))))
+
+(defn- sub-run-trace?
+  [sub-id trace-event]
+  (and (= :rf.sub/run (:operation trace-event))
+       (= sub-id (get-in trace-event [:tags :rf.sub/id]))))
+
+(defn- count-traces
+  [pred record]
+  (count (filter pred (:trace-events record))))
+
+(defn- register-cart!
+  "A `:schema :int` sub over a value the seed event writes as a STRING, so
+  every recompute fails its schema and is replaced with nil."
+  []
+  (rf/make-frame {:id :test/main})
+  (rf/reg-sub :cart/total {:schema :int} (fn [db _] (get-in db [:cart :total])))
+  (rf/reg-event :cart/seed  (fn [{:keys [db]} _] {:db (assoc-in db [:cart :total] "12.50")}))
+  (rf/reg-event :cart/other (fn [{:keys [db]} _] {:db (assoc db :other true)})))
+
+(deftest inv-10-post-settle-sub-return-failure-rides-its-sub-run-epoch
+  (testing "rf2-3x7nj.17.4 — a recompute after the cascade settled lands its
+            :sub-return failure in the same (last-settled) epoch as its
+            :rf.sub/run, exactly once, and re-fans the corrected record"
+    (register-cart!)
+    (let [raw      (atom [])
+          notified (atom [])]
+      (rf/register-listener! :trace ::raw (fn [ev] (swap! raw conj ev)))
+      (try
+        (rf/dispatch-sync [:cart/seed] {:frame :test/main})
+        (let [seed (last-epoch :test/main)]
+          (is (not (rf.epoch.capture/in-flight-cascade? :test/main))
+              "precondition: nothing is in flight, so the deref below is post-settle")
+          (rf/register-listener! :epoch ::watch (fn [r] (swap! notified conj r)))
+          (reset! raw [])
+          (is (nil? @(rf/subscribe [:cart/total] {:frame :test/main}))
+              "precondition: the failing value is replaced with nil")
+
+          (let [failures (filter (partial sub-failure? :sub-return :cart/total) @raw)
+                runs     (filter (partial sub-run-trace? :cart/total) @raw)]
+            (is (= 1 (count failures))
+                "precondition: the recompute emitted one :sub-return failure")
+            (is (= 1 (count runs))
+                "precondition: and one sibling :rf.sub/run")
+            (is (= [[:test/main nil] [:test/main nil]]
+                   (mapv (juxt #(get-in % [:tags :frame])
+                               #(get-in % [:tags :rf.trace/dispatch-id]))
+                         (concat failures runs)))
+                "precondition: both carry the frame and no dispatch-id — identical routing tags"))
+
+          (let [seed' (epoch-by-id :test/main seed)]
+            (is (contains? seed' :trace-events)
+                "precondition: the record retained :trace-events, so a zero below is not elision")
+            (is (= 1 (count-traces (partial sub-run-trace? :cart/total) seed'))
+                "control: the sibling :rf.sub/run is back-filled into the last-settled epoch")
+            (is (= 1 (count-traces (partial sub-failure? :sub-return :cart/total) seed'))
+                "the :sub-return failure is back-filled into the SAME epoch, once"))
+
+          (is (= [(:epoch-id seed)]
+                 (->> @notified
+                      (filter #(pos? (count-traces (partial sub-failure? :sub-return :cart/total) %)))
+                      (map :epoch-id)
+                      distinct
+                      vec))
+              "listeners are re-notified with the record carrying the failure")
+
+          (rf/dispatch-sync [:cart/other] {:frame :test/main})
+          (let [other (last-epoch :test/main)]
+            (is (= :cart/other (:event-id other)))
+            (is (zero? (count-traces (partial sub-failure? :sub-return :cart/total) other))
+                "the failure does not leak into the next cascade")))
+        (finally
+          (rf/unregister-listener! :trace ::raw)
+          (rf/unregister-listener! :epoch ::watch))))))
+
+(deftest inv-10-in-flight-sub-return-failure-rides-its-own-cascade-once
+  (testing "rf2-3x7nj.17.4 — a handler that derefs the failing sub records the
+            failure in ITS cascade exactly once: buffered, not back-filled,
+            not doubled"
+    (register-cart!)
+    (rf/reg-event :cart/read
+      (fn [_ _]
+        @(rf/subscribe [:cart/total] {:frame :test/main})
+        {}))
+    (rf/dispatch-sync [:cart/seed] {:frame :test/main})
+    (let [seed (last-epoch :test/main)]
+      (rf/dispatch-sync [:cart/read] {:frame :test/main})
+      (let [read  (last-epoch :test/main)
+            seed' (epoch-by-id :test/main seed)]
+        (is (= :cart/read (:event-id read)))
+        (is (= 1 (count-traces (partial sub-failure? :sub-return :cart/total) read))
+            "the in-flight failure rides its own cascade, once")
+        (is (some? (->> (:trace-events read)
+                        (filter (partial sub-failure? :sub-return :cart/total))
+                        first :tags :rf.trace/dispatch-id))
+            "it carries the cascade's dispatch-id")
+        (is (zero? (count-traces (partial sub-failure? :sub-return :cart/total) seed'))
+            "nothing was back-filled into the previously settled epoch")))))
+
+(deftest inv-10-post-settle-sub-override-failure-is-back-filled
+  (testing "rf2-3x7nj.17.4 — the render-phase :sub-override failure, emitted
+            with the same routing tags as :sub-return, lands in the
+            last-settled epoch"
+    (register-cart!)
+    (rf/dispatch-sync [:cart/other] {:frame :test/main})
+    (let [settled (last-epoch :test/main)]
+      (rf.trace/emit-error! :rf.error/schema-validation-failure
+                            {:where     :sub-override
+                             :rf.sub/id :cart/total
+                             :recovery  :replaced-with-default
+                             :frame     :test/main})
+      (is (= 1 (count-traces (partial sub-failure? :sub-override :cart/total)
+                             (epoch-by-id :test/main settled)))
+          "the :sub-override failure is back-filled into the last-settled epoch"))))
