@@ -110,7 +110,8 @@
                     …}` style); leaves the width-aware inline decision
                     to `available-width-px` (the measured column).
   - `:max-depth` (optional, default 16) — hard cap on recursion
-                    depth; deeper levels render `{…}` collapsed.
+                    depth; deeper levels render `{…}` collapsed, and
+                    a click expands one level.
   - `:before` (optional) — the prior value to annotate against. The
                     widget has ONE rendering path keyed on value (always)
                     + before (optional): with a `:before` present the
@@ -502,22 +503,50 @@
   (let [v (get zoom-map (zoom-key panel-id mount-id))]
     (when (seq v) (vec v))))
 
+(defn- zoom-walk
+  "Walk `path` into `value`, or `::no-resolve` when any step misses.
+
+  rf2-3x7nj.25.2 — a list or seq element is keyed by its INTEGER INDEX
+  (`children-of`), but `get` answers not-found on a `List`, `IndexedSeq`
+  or `LazySeq`, which implement no `ILookup`. So a step into a sequential
+  that is not associative takes `nth` (a non-negative integer only, so a
+  stale path cannot walk an endless seq); every other step takes `get`,
+  as `get-in` did."
+  [value path]
+  (try
+    (reduce (fn [cur k]
+              (let [nxt (if (and (sequential? cur) (not (associative? cur)))
+                          (if (and (integer? k) (not (neg? k)))
+                            (nth cur k ::no-resolve)
+                            ::no-resolve)
+                          (get cur k ::no-resolve))]
+                (if (keyword-identical? ::no-resolve nxt) (reduced nxt) nxt)))
+            value path)
+    (catch :default _ ::no-resolve)))
+
+(defn- zoom-resolves?
+  "Does the stored zoom `path` still name a node of `value`? A zoom is
+  ACTIVE only when it does (rf2-3x7nj.25.2): an unresolvable path renders
+  exactly as un-zoomed, rather than painting the zoom's breadcrumbs over
+  the whole root."
+  [value path]
+  (not (keyword-identical? ::no-resolve (zoom-walk value path))))
+
 (defn resolve-zoom-into
   "Pure projection — given the original `value` and the zoom map for a
-  mount, return the value the widget should display. Walks `get-in`
-  along the stored zoom path; falls back to the original value when the
-  path is empty / nil / no-longer-resolvable (a value mutated out from
-  under a stale zoom). Public so callers can probe the resolution
-  without re-deriving the walk."
+  mount, return the value the widget should display. Walks the stored
+  zoom path (`zoom-walk`: `get`, or `nth` into a list / seq); falls back
+  to the original value when the path is empty / nil / no-longer-
+  resolvable (a value mutated out from under a stale zoom). Public so
+  callers can probe the resolution without re-deriving the walk."
   [value zoom-map panel-id mount-id]
   (let [path (resolve-zoom-path zoom-map panel-id mount-id)]
     (cond
       (nil? path)   value
       (empty? path) value
       :else
-      (let [resolved (try (get-in value path ::no-resolve)
-                          (catch :default _ ::no-resolve))]
-        (if (= resolved ::no-resolve) value resolved)))))
+      (let [resolved (zoom-walk value path)]
+        (if (keyword-identical? ::no-resolve resolved) value resolved)))))
 
 ;; =========================================================================
 ;; type classification — sentinels recognised as first-class types
@@ -1007,6 +1036,24 @@
   [v]
   (and (sequential? v) (not (counted? v))))
 
+(defn- tail-unrealised?
+  "`v` is a sequence the walker CUT at `count-bound` with elements still
+  behind it (rf2-3x7nj.25.1). `bounded-count*` cannot say so — it answers
+  `count-bound` for a sequence of exactly that length and for an endless
+  one alike — so this looks at the ONE element past the ceiling. That is
+  the element `cljs.core/bounded-count` already realises to learn whether
+  another exists, so it costs nothing the header count has not already
+  paid: the render path still realises `count-bound` plus one.
+
+  The browse-path parity of the diff path's `::unrealised`: where the
+  body stops short, the widget says so (`1001+`, and a trailing
+  `… (not realised past 1001)` row) rather than presenting the cut as
+  the whole sequence."
+  [v]
+  (and (endless-candidate? v)
+       (try (some? (seq (drop count-bound v)))
+            (catch :default _ false))))
+
 (defn- bounded-projection-pair
   "Return `[before after]` bounded so `engine/project` cannot be handed a
   pair it would compare for ever (rf2-bmed1).
@@ -1381,12 +1428,25 @@
   [:span {:style (token-style :text-tertiary)} (inline-separator kind)])
 
 (defn- record-tag
-  "Render `#user.MyRec` prefix for a defrecord instance. CLJS records
-  expose the constructor's name via `(.-name (type v))`."
+  "Render the `#my.ns.MyRec` prefix for a defrecord instance — the same
+  opening `pr-str` prints (`#my.ns.MyRec{…}`).
+
+  rf2-3x7nj.25.3 — this read `(.-name (type v))`, which is `\"\"` for
+  every CLJS type: the compiler assigns the constructor, an anonymous
+  function, to a namespace PROPERTY, where JavaScript infers no name. The
+  tag was a bare `#`, so every record opened `#{` — a set's bracket.
+  `cljs$lang$ctorStr` is no better: `deftype` sets it, `defrecord` does
+  not. `defrecord` does set `cljs$lang$ctorPrWriter`, which writes the
+  qualified `my.ns/MyRec` as a compile-time literal, so `pr-str` of the
+  TYPE carries it (`:advanced`-safe), and `/` → `.` is `pr-str`'s own
+  spelling. `#record` when there is no printable name."
   [v]
   (try
-    (let [nm (.-name (type v))]
-      (str "#" nm))
+    (let [t  (type v)
+          nm (when (and t (.-cljs$lang$type t)) (pr-str t))]
+      (if (seq nm)
+        (str "#" (str/replace nm "/" "."))
+        "#record"))
     (catch :default _ "#record")))
 
 (defn- bracket
@@ -1428,12 +1488,15 @@
     :sentinel-large           "large"
     (:map :vector :list :seq :set :map-entry :record)
     (let [{:keys [open close]} (delim (collection-kind v))
+          ;; rf2-3x7nj.25.3 — a record previews as the record it is.
+          open (if (= :record (collection-kind v)) (str (record-tag v) open) open)
           n (bounded-count* v)
           noun (case (collection-kind v)
                  :map " keys"
                  :record " keys"
                  " items")]
-      (str open "…" n noun close))
+      ;; rf2-3x7nj.25.1 — `1001+`, never a bare `1001`, for a cut sequence.
+      (str open "…" n (when (tail-unrealised? v) "+") noun close))
     (safe-pr-str v))))
 
 (defn inline-preview-string
@@ -1450,6 +1513,9 @@
   [v max-elements max-chars]
   (let [kind (collection-kind v)
         {:keys [open close]} (delim kind)
+        ;; rf2-3x7nj.25.3 — a collapsed record keeps its `#ns.Rec` tag, so
+        ;; it does not preview as a plain map.
+        open        (if (= kind :record) (str (record-tag v) open) open)
         fallback-n  (cond
                       (= kind :map) (bounded-count* v)
                       (coll? v)     (bounded-count* v)
@@ -1458,7 +1524,9 @@
                         :map     " keys"
                         :set     " items"
                         " items")
-        fallback    (str open "…" fallback-n fallback-noun close)
+        ;; rf2-3x7nj.25.1 — `(…1001+ items)` for a sequence cut at the bound.
+        fallback    (str open "…" fallback-n (when (tail-unrealised? v) "+")
+                         fallback-noun close)
         ;; Take up to max-elements + 1 to detect "more remaining".
         head-seq    (try (cond
                            (map? v)        (take (inc max-elements) v)
@@ -3242,7 +3310,15 @@
                         (diff-pair-count before value kind)
                         (child-count value kind))
         empty?        (zero? cnt)
-        depth-capped? (>= depth max-depth)
+        ;; rf2-3x7nj.25.4 — the operator's `{:expanded? true}` override
+        ;; lifts the cap for THIS node, so the capped `▸ {…}` toggle
+        ;; expands one level: its children render at `depth + 1`, capped
+        ;; again. Read with a `false` default, so only a stored open
+        ;; override lifts it. Before, the cap consulted no override and
+        ;; the click stored one nothing read.
+        depth-capped? (and (>= depth max-depth)
+                           (not (resolve-expanded? expansion-map panel-id
+                                                   mount-id path false)))
         ;; rf2-nk7w0 — op classification extracted to
         ;; `classify-container-op` (the rf2-n2jig projection lookup +
         ;; the rf2-8pfkk / rf2-0c6a3 structural overrides). Same answer
@@ -3524,6 +3600,16 @@
                         :zoomable? zoomable? :zoom-path-prefix zoom-path-prefix
                         :opts opts}))
                    child-pairs)))))
+
+     ;; ---- unrealised tail (rf2-3x7nj.25.1) -------------------------------
+     ;; A sequence the walker cut at `count-bound` says so before its close
+     ;; bracket, rather than closing after row 1000 as if that were the
+     ;; end. Outside the body div, so the body's rows are still exactly the
+     ;; rows walked.
+     (when (and (seq children) (tail-unrealised? value))
+       [:div {:data-rf-cell "unrealised-tail"
+              :style (merge body-block-style (token-style :text-tertiary))}
+        (str "… (not realised past " count-bound ")")])
 
      ;; ---- close bracket (only when expanded + body present) -------------
      ;; rf2-726ol — closing bracket sits at `padding-left 16px` so it
@@ -4864,7 +4950,14 @@
             ;; Each head reads them in its own substrate's spelling.
             zoom-path     (resolve-zoom-path zoom-map panel-id
                                              (or site-id mount-id))
-            zoom-active?  (and zoomable? (seq zoom-path))
+            ;; rf2-3x7nj.25.2 — and only while the path still RESOLVES.
+            ;; An unresolvable one (a stale path, once also any list / seq
+            ;; element) used to keep the breadcrumbs, `data-rf-zoomed` and
+            ;; the zoom prefix over a body that was the whole root, so each
+            ;; further zoom composed a meaningless path. It now renders
+            ;; exactly as un-zoomed; the stored path is left as it is.
+            zoom-active?  (and zoomable? (seq zoom-path)
+                               (zoom-resolves? value zoom-path))
             displayed-value
             (if zoom-active?
               (resolve-zoom-into value zoom-map panel-id

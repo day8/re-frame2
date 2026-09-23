@@ -806,7 +806,10 @@ one means building the renderer, not reviving the walker.
   windowing and no `… N entries …` row. What IS bounded is realisation:
   a not-`counted?` sequential is realised to `count-bound` (1001) and a
   slot past a capped side paints `::unrealised` — an explicit unknown,
-  never `:added` / `:removed` (`views/edn_inspector.cljs`).
+  never `:added` / `:removed` (`views/edn_inspector.cljs`). A sequence
+  cut at that bound says so rather than passing for a whole one: its
+  count reads `1001+`, and its expanded body closes on a muted
+  `… (not realised past 1001)` row (rf2-3x7nj.25.1).
 - **Sticky expand + zoom.** Both key off the panel's stable `:site-id`
   (rf2-pvsxs · rf2-t3fz), so a subtree the operator drilled into stays
   drilled across a tab-switch round-trip.
