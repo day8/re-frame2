@@ -139,6 +139,27 @@
       nil
       (catch #?(:clj Throwable :cljs :default) e e))))
 
+(defn- inline-address-error
+  "The throw an inline `:definition` spawn carrying NO ADDRESS — neither
+  `:id-prefix` nor `:fixed-actor-id` — earns, or nil (rf2-j1ykz). Registration
+  already refuses the declarative shapes (`validate-spawn!` /
+  `validate-spawn-all!`, same id); this is the same rule for a hand-emitted
+  `[:rf.machine/spawn …]`, which no registration sees. Without it such a spawn
+  had no prefix to allocate from and installed an actor at address `nil`.
+  Returned rather than thrown, so the caller throws it before anything
+  installs, exactly as it throws `inline-definition-error`."
+  [args]
+  (when (and (:definition args)
+             (not (or (:id-prefix args) (:fixed-actor-id args))))
+    (rf.error/thrown-ex-info
+      :rf.error/machine-spawn-bad-shape
+      're-frame.machines.lifecycle-fx.spawn
+      (str "A :rf.machine/spawn carrying an inline :definition must name an "
+           "address: :id-prefix (the base its <prefix>#<n> id is minted from) "
+           "or :fixed-actor-id (the address itself). Only a :machine-id spawn "
+           "defaults its prefix, to that registered type.")
+      {:recovery :no-recovery})))
+
 (defn- reject-unregistered-spawn!
   "Emit the always-on `:rf.error/machine-spawn-unregistered-type` and reject
   the spawn. A `:machine-id` that resolves to no registered spec is rejected
@@ -901,9 +922,11 @@
       ;; before anything installs, THROWING the validator's own typed error so
       ;; the fx runner surfaces it (`:rf.error/fx-handler-exception`, carrying
       ;; the exception). A prepared `:spawn-all` child was already validated by
-      ;; its invoke's preflight.
+      ;; its invoke's preflight. rf2-j1ykz: an UNADDRESSED inline definition
+      ;; is refused the same way, ahead of validating the definition itself.
       (let [definition-error (when-not (spawn-all-prepared? frame-id args)
-                               (inline-definition-error args))]
+                               (or (inline-address-error args)
+                                   (inline-definition-error args)))]
         (if definition-error
           (throw definition-error)
           (spawn-fx* frame-id envelope args))))))

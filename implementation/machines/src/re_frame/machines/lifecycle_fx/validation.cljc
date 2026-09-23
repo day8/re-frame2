@@ -214,6 +214,24 @@
       "declares NEITHER :machine-id nor :definition — exactly one is required"
       :else nil)))
 
+(defn- inline-spawn-address-error
+  "rf2-j1ykz — an inline `:definition` spawn-spec must carry an ADDRESS:
+  `:id-prefix` (the base its `<prefix>#<n>` id is minted from) or
+  `:fixed-actor-id` (the address itself). A `:machine-id` spawn needs
+  neither, because its prefix defaults to that registered TYPE; an inline
+  definition has no type to default to, so an unaddressed one reached the
+  id allocator with a nil prefix and crashed there, after registration had
+  accepted it. Returns a `:reason` string for an unaddressed inline spec,
+  else nil. Shared by single `:spawn` and each `:spawn-all` child, and run
+  after the XOR check."
+  [spec]
+  (when (and (contains? spec :definition)
+             (not (or (:id-prefix spec) (:fixed-actor-id spec))))
+    (str "carries an inline :definition but no address — give it :id-prefix "
+         "(the base its <prefix>#<n> id is minted from) or :fixed-actor-id (the "
+         "address itself); only a :machine-id spawn defaults its prefix, to that "
+         "registered type")))
+
 (def ^:private known-spawn-all-block-keys
   "The closed BARE key vocabulary a `:spawn-all` block map may declare. Any
   BARE key outside this set is rejected at registration with
@@ -235,7 +253,8 @@
     - `:rf.error/machine-spawn-all-bad-shape` — a child spawn-spec is
       missing `:id`; or `:spawn-all` is not a map; or the join-event
       slots are missing per the required-iff rules; or no `:machine-id`
-      / `:definition`; or the `:join` value is outside the closed
+      / `:definition`; or an inline `:definition` with neither
+      `:id-prefix` nor `:fixed-actor-id`; or the `:join` value is outside the closed
       `:all` / `:any` enum; or an unknown bare key on the block (e.g. the
       removed `:cancel-on-decision?`).
     - `:rf.error/machine-spawn-all-duplicate-id` — two children share an
@@ -296,7 +315,8 @@
           ;; `:machine-id` / `:definition` (XOR). A child carrying BOTH keys
           ;; would otherwise materialise a different machine type on restore
           ;; than the one that spawned it.
-          (when-let [reason (spawn-id-xor-definition-error c)]
+          (when-let [reason (or (spawn-id-xor-definition-error c)
+                                (inline-spawn-address-error c))]
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
                      (str "each child spawn-spec " reason)
@@ -889,13 +909,16 @@
   registration with `:rf.error/machine-spawn-bad-shape` (fail-closed) —
   without this gate a malformed spec would defer to a late actor-id
   allocation failure (neither) or a silent type mismatch on restore (both).
+  An inline `:definition` must also carry `:id-prefix` or `:fixed-actor-id`
+  (`inline-spawn-address-error`, rf2-j1ykz), refused with the same id.
   `:spawn-all` children are checked by `validate-spawn-all!`
   (the `:spawn` / `:spawn-all` mutual exclusion means at most one runs here).
   Absent `:spawn` is fine."
   [state-key state-node]
   (when-let [spawn (:spawn state-node)]
     (when (map? spawn)
-      (when-let [reason (spawn-id-xor-definition-error spawn)]
+      (when-let [reason (or (spawn-id-xor-definition-error spawn)
+                            (inline-spawn-address-error spawn))]
         (throw (validation-error
                  :rf.error/machine-spawn-bad-shape
                  (str ":spawn spec " reason ".")
@@ -1667,9 +1690,11 @@
 
   Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node`:
   every single `:spawn`-bearing state node — and every `:spawn-all` child —
-  must declare EXACTLY ONE of `:machine-id` / `:definition` (XOR). Throws
+  must declare EXACTLY ONE of `:machine-id` / `:definition` (XOR), and an
+  inline `:definition` must carry `:id-prefix` or `:fixed-actor-id`. Throws
   `:rf.error/machine-spawn-bad-shape` (single `:spawn`) /
-  `:rf.error/machine-spawn-all-bad-shape` (child) on both-set or neither-set.
+  `:rf.error/machine-spawn-all-bad-shape` (child) on both-set, neither-set,
+  or an unaddressed inline definition.
 
   Every `:spawn` / `:spawn-all` rejects the unsupported `:timeout-ms` slot;
   spawn-level `:timeout` / `:on-timeout` is supported.

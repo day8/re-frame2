@@ -381,7 +381,10 @@
                            :states
                            {:s {:spawn-all {:children        [{:id         :x
                                                                 :definition {:initial :i
-                                                                             :states  {:i {}}}}]
+                                                                             :states  {:i {}}}
+                                                                ;; an inline child must be
+                                                                ;; addressed (rf2-j1ykz)
+                                                                :id-prefix  :ok/x}]
                                              :on-all-complete [:done]}}}}))
         "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
 
@@ -425,8 +428,11 @@
     (is (some?
           (rf/reg-machine :spawnxor/def-only
                           {:initial :working
-                           :states  {:working {:spawn {:definition {:initial :i
-                                                                    :states  {:i {}}}}}
+                           :states  {:working {:spawn {:definition     {:initial :i
+                                                                        :states  {:i {}}}
+                                                       ;; an inline spawn must be
+                                                       ;; addressed (rf2-j1ykz)
+                                                       :fixed-actor-id :spawnxor/def-kid}}
                                      :done    {}}}))
         "an inline-definition spawn registers cleanly"))
   (testing "exactly-one :spawn with :fixed-actor-id / :id-prefix still accepted"
