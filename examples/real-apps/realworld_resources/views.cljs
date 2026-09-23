@@ -319,13 +319,14 @@
           pagination [{:keys [articles-count current-page on-page]}]
   (let [total-pages (rh/page-count articles-count)]
     (when (> total-pages 1)
-      (into [:nav [:ul.pagination {:data-testid "pagination"}]]
-            (for [p (range 1 (inc total-pages))]
-              ^{:key p}
-              [:li.page-item {:class (when (= p current-page) "active")}
-               [:a.page-link {:href "#" :data-testid (str "page-" p)
-                              :on-click #(do (.preventDefault %) (on-page p))}
-                p]])))))
+      [:nav
+       (into [:ul.pagination {:data-testid "pagination"}]
+             (for [p (range 1 (inc total-pages))]
+               ^{:key p}
+               [:li.page-item {:class (when (= p current-page) "active")}
+                [:a.page-link {:href "#" :data-testid (str "page-" p)
+                               :on-click #(do (.preventDefault %) (on-page p))}
+                 p]]))])))
 
 (reg-view ^{:doc "Render a list-resource state: skeleton / error / list, complete
                   with a background-refresh indicator and warning, the
