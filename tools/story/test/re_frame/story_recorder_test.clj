@@ -803,3 +803,38 @@
             "the body is the frame-only {:script :auto-run?} shape")))
     (rf.story/destroy-variant! :story.frame/target)
     (rf.story.recorder/remove-trace-listener!)))
+
+;; ---- rf2-3x7nj.30.2: a cascaded child is not a step of its own -----------
+
+(deftest trace-listener-skips-fx-cascaded-children
+  (testing "an event another event dispatched through its :fx is not recorded
+            as a step — replaying the root re-dispatches it, so the replay
+            reproduces the recorded app-db instead of running the child twice"
+    (reset-rf-state!)
+    (rf/reg-event :p/plain  (fn [{:keys [db]} _] {:db (update db :plain (fnil inc 0))}))
+    (rf/reg-event :p/submit (fn [{:keys [db]} _] {:db (update db :submits (fnil inc 0))
+                                                  :fx [[:dispatch [:p/audit]]]}))
+    (rf/reg-event :p/audit  (fn [{:keys [db]} _] {:db (update db :audits (fnil inc 0))}))
+    (rf.story/reg-variant :story.cascade/source {})
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.cascade/source) 5000)
+    (rf.story.recorder/install-trace-listener!)
+    (rf.story.recorder/start-recording! :story.cascade/source)
+    (rf/dispatch-sync [:p/plain]  {:frame :story.cascade/source})
+    (rf/dispatch-sync [:p/submit] {:frame :story.cascade/source})
+    (rf.story.recorder/stop-recording!)
+    (let [recorded-db (select-keys (rf/app-db-value :story.cascade/source)
+                                   [:plain :submits :audits])]
+      (is (= {:plain 1 :submits 1 :audits 1} recorded-db)
+          "control: the recorded session ran the :fx child once")
+      (is (= [[:p/plain] [:p/submit]] (rf.story.recorder/recorded-events))
+          "only the two root dispatches are steps")
+      (rf.story/reg-variant :story.cascade/replay
+        {:extends :story.cascade/source
+         :script  (rf.story.recorder.play-export/recording->script-body
+                    (rf.story.recorder/recorded-entries))})
+      (let [result (.get ^java.util.concurrent.CompletableFuture
+                         (rf.story/run :story.cascade/replay))]
+        (is (= recorded-db (select-keys (:app-db result) [:plain :submits :audits]))
+            "the replay reproduces the recorded app-db")))
+    (rf.story/destroy-variant! :story.cascade/source)
+    (rf.story.recorder/remove-trace-listener!)))

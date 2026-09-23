@@ -33,6 +33,10 @@
     deliberately, not recorded.
   - `:rf.story/*` / `:rf.story.*` internal events (the runtime's
     helper events like `::append-assertion`) are skipped.
+  - An event dispatched from inside another event's handler (its trace
+    carries `:rf.trace/parent-dispatch-id`, e.g. an `:fx [[:dispatch …]]`
+    child) is skipped: replaying its root re-dispatches it, so recording
+    it too would run it twice on every replay (rf2-3x7nj.30.2).
   - The listener consults `recording?` per emit — toggling off STOPS
     recording without tearing down anything else.
 
@@ -946,6 +950,9 @@
     2. Must target the recorder's `:variant-id` (skip cross-frame
        traffic — interactions in another canvas shouldn't show up).
     3. Must carry an event vector on `:tags :rf.event/v`.
+    4. Must be a ROOT dispatch — no `:rf.trace/parent-dispatch-id` tag.
+       A child its root's handler dispatched is reproduced by replaying
+       the root (rf2-3x7nj.30.2).
 
   Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED: the
   placeholder `redacted-event` vector replaces the event payload so the
@@ -992,6 +999,7 @@
                  (= operation :rf.event/dispatched)
                  (= (:frame tags) (recording-variant))
                  (vector? (:rf.event/v tags))
+                 (nil? (:rf.trace/parent-dispatch-id tags))
                  (recordable-event? (:rf.event/v tags)))
         (if (rf.story.config/suppress-sensitive? ev (:frame tags))
           (do
