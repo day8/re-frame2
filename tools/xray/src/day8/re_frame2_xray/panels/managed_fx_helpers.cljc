@@ -16,7 +16,9 @@
 
       {:surface         :http | :websocket | :machine-invoke
                                 | :ssr-fx | :flow
-       :fx-id           <id>                ;; the registered fx id
+       :fx-id           <id>                ;; the fx id the handler
+                                            ;; EMITTED (a redirect's
+                                            ;; target rides :override-to)
        :req             <request-payload>   ;; method, url, headers,
                                             ;; body (or surface-specific
                                             ;; equivalent)
@@ -58,6 +60,15 @@
        :origin-event-id <int-or-nil>        ;; trace-event :id of the
                                             ;; `:rf.fx/handled` emit —
                                             ;; the cross-link anchor
+       :overridden?     <bool>              ;; an `:fx-overrides` entry
+                                            ;; replaced the handler —
+                                            ;; read off override
+                                            ;; PROVENANCE only, never off
+                                            ;; a missing row
+       :override-to     <id-or-nil>         ;; the replacement: a redirect
+                                            ;; target, or
+                                            ;; :re-frame.fx/fn-value
+       :override-from   <id-or-nil>         ;; the id the handler emitted
        ;; HTTP only (rf2-6ooch — the cross-buffer completion join):
        :completion      :joined | :none | nil ;; see `http-adapter`
        :attempts        <int-or-nil>        ;; the terminal row's attempt
@@ -226,11 +237,31 @@
 
         :else nil))))
 
-(defn managed-fx-effect?
-  "True when a `:rf.fx/handled` (or override / skipped) trace event names
-  a managed-fx-surface fx-id. Pure predicate."
+(defn- record-fx-id
+  "The id a record is listed under: the id the handler EMITTED.
+
+  A keyword-redirected `:rf.fx/handled` row carries the redirect TARGET as
+  `:rf.fx/id` and the emitted id as `:rf.fx/from` (`re-frame.fx/emit-
+  handled!`), so the emitted id wins whenever it names a managed surface —
+  otherwise `{:rf.http/managed :app/fake-http}` keys on `:app/fake-http`,
+  which classifies as no surface, and the record vanishes. A redirect INTO
+  a managed surface from a non-managed id (`{:app/fetch :rf.http/managed}`)
+  keeps the target, so that record does not vanish either.
+
+  ONE classification: the walker's filter, its HTTP set and its adapter
+  dispatch all read this, so the three cannot disagree."
   [ev]
-  (boolean (classify-fx-id (fx-id-of ev))))
+  (let [from (tag ev :rf.fx/from)]
+    (if (classify-fx-id from) from (fx-id-of ev))))
+
+(defn managed-fx-effect?
+  "True when an effect row names a managed-fx-surface fx-id (per
+  `record-fx-id`). An `:rf.fx/override-applied` row never is one: it is
+  PROVENANCE for the handled row that follows it, not a record of its
+  own. Pure predicate."
+  [ev]
+  (and (not= :rf.fx/override-applied (:operation ev))
+       (boolean (classify-fx-id (record-fx-id ev)))))
 
 ;; ---- surface-event collectors ------------------------------------------
 
@@ -377,8 +408,8 @@
 
 (defn- fx-event->status
   "Project an fx event's `:operation` onto the panel's status taxonomy.
-  The :stub status is a UI synthesis — a `:rf.fx/override-applied`
-  event flags the row as stubbed in addition to its own outcome."
+  Override provenance is read separately (`override-of`): `common-record`
+  turns an overridden handled row's `:ok` into `:overridden`."
   [fx-ev]
   (case (:operation fx-ev)
     :rf.fx/handled                 :ok
@@ -580,11 +611,36 @@
 
 ;; ---- per-surface adapters ----------------------------------------------
 
+(defn- override-of
+  "The `:fx-overrides` entry that replaced this handled row's handler, as
+  `{:from <id the handler emitted> :to <redirect target, or
+  :re-frame.fx/fn-value>}` — or nil when the row carries no override
+  PROVENANCE (rf2-3x7nj.23.5).
+
+  Two producer shapes, and only these: a keyword redirect stamps
+  `:rf.fx/from` on the handled row itself; a function override leaves the
+  handled row plain and emits `:rf.fx/override-applied` just before the
+  function fires, which the walker pairs by position
+  (`pair-override-rows`) and records under `::override`. The ABSENCE of
+  some other row — an `:rf.http/issued` row, say — is never read as an
+  override: an issued row also goes missing when it ages out of the ring
+  or predates the capture."
+  [fx-ev]
+  (or (::override fx-ev)
+      (when-let [from (tag fx-ev :rf.fx/from)]
+        {:from from :to (fx-id-of fx-ev)})))
+
 (defn- common-record
   "Folder shared by every surface — the basic record before
   surface-specific fields are added."
   [surface fx-ev surface-events]
-  (let [status        (fx-event->status fx-ev)
+  (let [override      (override-of fx-ev)
+        handled       (fx-event->status fx-ev)
+        ;; A handled row's `:ok` only ever said "the handler returned". When
+        ;; an override replaced that handler it was the REPLACEMENT that
+        ;; returned, so the record reads `:overridden` — and cancel and
+        ;; failure evidence still win below, exactly as for any record.
+        status        (if (and override (= :ok handled)) :overridden handled)
         cancel-cause  (surface-events->cancel-cause surface-events)
         failure       (surface-events->failure surface-events)
         ;; A cancellation is its own closed reply status (Managed-Effects
@@ -596,7 +652,7 @@
                           :else        status)
         args         (fx-args-of fx-ev)]
     {:surface         surface
-     :fx-id           (fx-id-of fx-ev)
+     :fx-id           (record-fx-id fx-ev)
      :req             args
      :wire            nil
      :res             nil
@@ -619,7 +675,12 @@
      :origin-event-id (:id fx-ev)
      :dispatch-id     (dispatch-id-of fx-ev)
      :frame           (frame-id-of fx-ev)
-     :stubbed?        (= status :overridden)}))
+     ;; Read off the provenance, never off the status: a delegating
+     ;; override that really issued and completed reads `:ok`, and is
+     ;; still overridden.
+     :overridden?     (some? override)
+     :override-to     (:to override)
+     :override-from   (:from override)}))
 
 (defn- http-row-for-this-record?
   "Does a same-bundle HTTP row belong to THIS record?
@@ -949,9 +1010,16 @@
   `:joined`; `:none` when the issued row is present and no terminal row
   is in the capture (the buffer cannot tell pending from aged-out, so the
   panel never says 'in flight'); nil when there is no issued row at all
-  (a capture from before the row existed, an overridden or skipped
-  effect, or an issued row aged out of the ring), which stays an
-  unattributed `:issued`.
+  (a capture from before the row existed, a skipped effect, or an issued
+  row aged out of the ring), which stays an unattributed `:issued`.
+
+  AN OVERRIDDEN RECORD (rf2-3x7nj.23.5). An override replaces the fx
+  HANDLER; it does not say whether the replacement went to the network.
+  So the status reports what the capture EVIDENCES about the replacement:
+  with its own issued row paired it really entered the transport, starts
+  from `:issued` and joins like any other record; with none it stays
+  `:overridden` — never `:issued`, which claims a request went out. The
+  converse never holds: a missing issued row alone is not an override.
 
   In-bundle attribution. With an issued row, a same-bundle HTTP row
   belongs to this record exactly when it comes AFTER the issued row and
@@ -1000,7 +1068,10 @@
                                :attempts    nil
                                :reply-link  nil
                                :completion  nil
-                               :status      (if (= :ok (:status rec)) :issued (:status rec)))]
+                               :status      (cond
+                                              (= :ok (:status rec)) :issued
+                                              (and issued (= :overridden (:status rec))) :issued
+                                              :else (:status rec)))]
      (if (and key (some? terminal-index))
        (if-let [terminal (terminal-row-for terminal-index key (:id issued))]
          (merge base (joined-fields issued terminal reply-index
@@ -1108,11 +1179,37 @@
           (recur (rest fx) hi (if hit (assoc acc hi hit) acc)))
         acc))))
 
+(defn- pair-override-rows
+  "Pair each FUNCTION-overridden `:rf.fx/handled` row with the
+  `:rf.fx/override-applied` row that replaced its handler:
+  `{<handled row :id> -> <override-applied row>}`.
+
+  `re-frame.fx` emits override-applied immediately before the override
+  function fires and `:rf.fx/handled` after it returns, so the pair lies
+  in one window — after the previous non-override effect row, before the
+  handled row — read by POSITION over the monotonic trace `:id`, never by
+  `:time` (the discipline `pair-issued-rows` uses). The override row's
+  `:rf.fx/from` must name the handled row's `:rf.fx/id`. A keyword
+  redirect needs no pairing: its handled row carries `:rf.fx/from`."
+  [effects]
+  (loop [rows (sort-by :id (filterv #(number? (:id %)) (or effects [])))
+         pending []
+         acc     {}]
+    (if-let [r (first rows)]
+      (if (= :rf.fx/override-applied (:operation r))
+        (recur (rest rows) (conj pending r) acc)
+        (let [hit (when (and (= :rf.fx/handled (:operation r))
+                             (nil? (tag r :rf.fx/from)))
+                    (last (filter #(= (fx-id-of r) (tag % :rf.fx/from)) pending)))]
+          (recur (rest rows) [] (if hit (assoc acc (:id r) hit) acc))))
+      acc)))
+
 (defn event-bundle->managed-fx-records
   "Walk an event-bundle record (per `re-frame.trace.projection/group-by-event`)
-  and project one managed-fx record per `:rf.fx/handled` (or
-  `:rf.fx/override-applied`, etc.) event whose fx-id classifies as a
-  managed-fx surface.
+  and project one managed-fx record per `:rf.fx/handled` row whose id (per
+  `record-fx-id`, the id the handler emitted) classifies as a managed-fx
+  surface. An `:rf.fx/override-applied` row is PROVENANCE for such a
+  record — it marks it overridden — and never a record of its own.
 
   Pure fn. Returns a vector of records in event-bundle order. Each record
   carries the surface-specific projection of `req` / `wire` / `res` /
@@ -1137,10 +1234,18 @@
   ([event-bundle paths-by-dispatch-id]
    (event-bundle->managed-fx-records event-bundle paths-by-dispatch-id nil))
   ([{:keys [effects other dispatch-id] :as _event-bundle} paths-by-dispatch-id join-context]
-   (let [fx-events     (filterv managed-fx-effect? (or effects []))
+   (let [fn-overrides  (pair-override-rows effects)
+         fx-events     (into []
+                             (comp (filter managed-fx-effect?)
+                                   (map (fn [ev]
+                                          (if-let [o (get fn-overrides (:id ev))]
+                                            (assoc ev ::override {:from (fx-id-of ev)
+                                                                  :to   (tag o :rf.fx/to)})
+                                            ev))))
+                             (or effects []))
          path-touched  (when paths-by-dispatch-id
                          (vec (get paths-by-dispatch-id dispatch-id [])))
-         http-fx       (filterv #(= :http (classify-fx-id (fx-id-of %))) fx-events)
+         http-fx       (filterv #(= :http (classify-fx-id (record-fx-id %))) fx-events)
          ;; Whether an HTTP failure row in this bundle can be attributed
          ;; to a record that carries no `:request-id` is a fact about the
          ;; BUNDLE, so only this walker can answer it.
@@ -1148,7 +1253,7 @@
          issued->fx    (pair-issued-rows http-fx other)]
      (vec
        (for [fx-ev fx-events
-             :let  [surface (classify-fx-id (fx-id-of fx-ev))
+             :let  [surface (classify-fx-id (record-fx-id fx-ev))
                     adapter (get surface->adapter surface)]
              :when adapter]
          (-> (if (= surface :http)

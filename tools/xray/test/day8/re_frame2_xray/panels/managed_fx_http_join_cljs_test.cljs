@@ -739,3 +739,69 @@
                 (is (= (:second delivered) (:reply-link r2)))
                 (is (not= (:reply-link r1) (:reply-link r2)))))))
       done)))
+
+;; ===========================================================================
+;; (m) an OVERRIDDEN `:rf.http/managed` (rf2-3x7nj.23.5). An override replaces
+;; the fx HANDLER, so the record reads what the capture evidences about the
+;; replacement — OVERRIDDEN with no issued row, the ordinary joined status
+;; when it really issued — and carries the override marker either way. The
+;; walker used to drop the override row (no `:rf.fx/id`), so a no-op stub read
+;; ISSUED like a real request and a keyword redirect's record vanished.
+;; ===========================================================================
+
+(deftest m-overridden-requests-read-what-the-capture-evidences
+  (async done
+    (rf/reg-event :t/m-done (fn [_ _] {}))
+    (rf/reg-fx :t/m-fake-http (fn [_ _] nil))
+    (rf/reg-event :t/m
+      (fn [_ [_ tag]]
+        {:fx [[:rf.http/managed {:request    {:url (str "/m/" (name tag)) :method :get}
+                                 :request-id [:t/m tag]
+                                 :reply-to   [:t/m-done tag]}]]}))
+    (finish
+      (with-parked-fetch
+        (fn [release!]
+          (with-capture
+            (fn [traces]
+              (rf/dispatch-sync [:t/m :stub]
+                                {:fx-overrides {:rf.http/managed (fn [_ _] nil)}})
+              (rf/dispatch-sync [:t/m :redirect]
+                                {:fx-overrides {:rf.http/managed :t/m-fake-http}})
+              (rf/dispatch-sync [:t/m :delegate]
+                                {:fx-overrides {:rf.http/managed
+                                                (fn [ctx args]
+                                                  (rf.http.managed/managed-handler ctx args))}})
+              (rf/dispatch-sync [:t/m :plain])
+              (-> (wait-ms 5)
+                  (.then (fn [_] (release! "/m/delegate" 200)))
+                  (.then (fn [_] (release! "/m/plain" 200)))
+                  (.then (fn [_] (until #(= 2 (count (ops @traces :rf.http/replied))) "m: both replied")))
+                  (.then (fn [_] (wait-ms 20)))
+                  (.then
+                    (fn [_]
+                      (let [buffer @traces
+                            stub   (only-managed buffer [:t/m :stub])
+                            redir  (only-managed buffer [:t/m :redirect])
+                            deleg  (only-managed buffer [:t/m :delegate])
+                            plain  (only-managed buffer [:t/m :plain])]
+                        (testing "PRECONDITION — the producer's override rows sit in the bundles and carry no :rf.fx/id"
+                          (doseq [ev [[:t/m :stub] [:t/m :redirect] [:t/m :delegate]]]
+                            (let [o (ops (:effects (bundle-for buffer ev)) :rf.fx/override-applied)]
+                              (is (= 1 (count o)) (str "one override row for " (pr-str ev)))
+                              (is (nil? (get-in (first o) [:tags :rf.fx/id])))))
+                          (is (empty? (issued-in buffer [:t/m :stub])) "the no-op stub issued nothing")
+                          (is (= 1 (count (issued-in buffer [:t/m :delegate])))
+                              "the delegating override issued one real request"))
+                        (testing "a no-op function override reads OVERRIDDEN, marked"
+                          (is (= [:overridden true :re-frame.fx/fn-value]
+                                 ((juxt :status :overridden? :override-to) stub))))
+                        (testing "a keyword redirect keeps its record, under the id the handler emitted"
+                          (is (= [:overridden true :t/m-fake-http]
+                                 ((juxt :status :overridden? :override-to) redir))))
+                        (testing "a delegating override reads the joined OK, still marked"
+                          (is (= [:ok :joined true]
+                                 ((juxt :status :completion :overridden?) deleg))))
+                        (testing "CONTROL — the unoverridden request reads the joined OK, unmarked"
+                          (is (= [:ok :joined false]
+                                 ((juxt :status :completion :overridden?) plain))))))))))))
+      done)))

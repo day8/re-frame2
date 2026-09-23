@@ -660,10 +660,18 @@ it CARRIED, never the one that superseded it. What it then draws:
 - **`ISSUED · no completion in this capture`** when the issued row is in
   the buffer and no terminal row is — never "in flight", because a ring
   cannot tell a pending request from one whose completion aged out — and
-  plain `ISSUED` when there is no issued row to join from (an overridden
-  effect, an issued row aged out of the ring, a capture from before the
-  row existed). `ISSUED` is deliberately not `OK`, so `OK` can never mean
-  "completed" by accident.
+  plain `ISSUED` when there is no issued row to join from (an issued row
+  aged out of the ring, a capture from before the row existed). `ISSUED`
+  is deliberately not `OK`, so `OK` can never mean "completed" by
+  accident.
+- **An overridden effect** — one an `:fx-overrides` entry replaced —
+  carries an `OVERRIDE` marker naming the replacement (a redirect target,
+  or a function) and is listed under the id the handler emitted. Its
+  status is what the capture evidences about the replacement: the
+  statuses above when it issued a request, and `◑ OVERRIDDEN` when there
+  is no issued row. An override means the handler was replaced, not that
+  no request went out; and a missing issued row is never read as an
+  override.
 
 The record draws no APP-DB SLICE: what the reply did to app-db is the
 reply bundle's own story, and the link is the bridge to it (the
