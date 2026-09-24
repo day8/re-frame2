@@ -23,7 +23,7 @@
   - `re-frame.routing.url`            — URL %-encode / %-decode primitives
   - `re-frame.routing.match`          — pattern parsing + match-against
   - `re-frame.routing.address`        — the shared RouteAddress extraction law (closed key classes) every door resolves through (EP-0037 R0)
-  - `re-frame.routing.resolve`        — the one resolved-target / route-plan seam + its R0 diagnostic projection (EP-0037 R0)
+  - `re-frame.routing.resolve`        — the one resolved-target / route-plan seam + its plan diagnostic projection (EP-0037 R0)
   - `re-frame.routing.registry`       — reg-route + match-url + route-url + route-table cache
   - `re-frame.routing.classification` — projection-relative route data classification
   - `re-frame.routing.scroll`         — scroll-restoration helpers + :rf.nav/scroll + :rf.nav/capture-scroll fxs
@@ -63,9 +63,9 @@
             [re-frame.routing.subs :as rf.routing.subs]
             [re-frame.routing.url-bound :as rf.routing.url-bound]
             [re-frame.routing.url-change :as rf.routing.url-change]
-            ;; No require of `re-frame.routing.tooling` on EITHER runtime
-            ;; (rf2-kuky.86). The facade published JVM convenience aliases for
-            ;; the algebra views; those are retired, so every consumer — JVM
+            ;; No require of `re-frame.routing.tooling` on EITHER runtime.
+            ;; The facade publishes no aliases for the algebra views, so
+            ;; every consumer — JVM
             ;; and CLJS alike — requires the bundle-isolated tooling sibling
             ;; directly, and `re-frame.derivation.graph` reaches it through
             ;; `requiring-resolve` rather than through this facade.
@@ -76,15 +76,15 @@
 
 ;; Registry
 (def reg-route                  rf.routing.registry/reg-route)
-;; rf2-kuky.80: no public `clear-route` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :route id)`. The registry fn below stays as
+;; No public `clear-route` re-export here — the registrar inverse
+;; is the one kind-keyed `(rf/clear :route id)`. The registry fn below is
 ;; the late-bind hook target.
 (def match-url                  rf.routing.registry/match-url)
 (def route-url                  rf.routing.registry/route-url)
 (def malformed-url?             rf.routing.registry/malformed-url?)
 (def reset-counters!            rf.routing.registry/reset-counters!)
 
-;; rf2-kuky.31: no `route-ids` / `route-meta` re-exports here — static-registry
+;; No `route-ids` / `route-meta` re-exports here — static-registry
 ;; introspection is the generic registrar grammar,
 ;; `(keys (rf/registrations {:source :store :kind :route}))` and
 ;; `(rf/handler-meta {:source :store :kind :route :id id})`.
@@ -115,17 +115,17 @@
 (def reset-nav-counters!        rf.routing.nav-counters/reset-cache!)
 
 ;; Subs
-;; rf2-kuky.36: no `route-sub-fn` facade alias. `route-sub-fn` is registered
+;; No `route-sub-fn` facade alias. `route-sub-fn` is registered
 ;; DIRECTLY as the `:rf/route` runtime sub below, in this already-loaded
-;; facade, so the alias published a registration detail as an API. The
+;; facade, so an alias would publish a registration detail as an API. The
 ;; normative read is the subscription vector `[:rf/route]`; the normative
 ;; slice path is `[:rf.runtime/routing :current]` (Conventions §Reserved
 ;; runtime-db keys).
 
-;; rf2-kuky.86: no `route-algebra-view` / `route-slice-algebra-view` facade
+;; No `route-algebra-view` / `route-slice-algebra-view` facade
 ;; aliases. The static route algebra and a frame's live route-slice algebra
 ;; ship NO public accessor (Derivations §Routes expose algebra views) — the
-;; bodies stay in the bundle-isolated `re-frame.routing.tooling`, which every
+;; bodies live in the bundle-isolated `re-frame.routing.tooling`, which every
 ;; consumer requires directly: Xray statically, `re-frame.derivation.graph`
 ;; through `requiring-resolve` on the JVM.
 
@@ -152,18 +152,14 @@
 (def with-base-path             rf.routing.strategy/with-base-path)
 
 ;; Listener installation/removal follows the `:url-bound?` frame lifecycle.
-;; rf2-kuky.36: no `current-url` facade alias. It was `history-url-strategy`'s
-;; own `:decode` (`rf.routing.strategy`, published as `:decode`) re-exported
-;; under a general name, and nothing outside its two facade-pin tests called
-;; it. A caller that wants the current path-form URL reads it off the frame's
-;; strategy, or calls `rf.routing.history/current-url` directly.
+;; No `current-url` facade alias. A caller that wants the current path-form
+;; URL reads it off the frame's strategy (`history-url-strategy`'s own
+;; `:decode`), or calls `rf.routing.history/current-url` directly.
 
 ;; Route-link render fns
-;; rf2-kuky.36: no `route-link-render` facade alias. It existed "so tests can
-;; call it directly", and every one of its call sites was a test; they reach
-;; the render fn through its home, `rf.routing.link/route-link-render`, which
-;; is where the parity suite already called it. `route-link-render-ssr` STAYS:
-;; it is the value of the JVM `:routing/route-link` late-bind hook below, a
+;; No `route-link-render` facade alias: tests reach the render fn through its
+;; home, `rf.routing.link/route-link-render`. `route-link-render-ssr` IS
+;; re-exported: it is the value of the JVM `:routing/route-link` late-bind hook below, a
 ;; real publication rather than a convenience re-export.
 (def route-link-render-ssr      rf.routing.link/route-link-render-ssr)
 
@@ -187,10 +183,10 @@
 ;;
 ;; The marker is what makes that recipe work. The framework seeds these through
 ;; the internal `rf.events/reg-event` path, so the source store records them with
-;; NO `:rf.provenance/ns`; without the marker the default image selected BOTH
-;; the framework copy and the app's provenanced registration and image assembly
-;; refused to let selection order decide (`:rf.error/image-duplicate-id`,
-;; rf2-0r6q4). Image assembly reads the marker and stops projecting the
+;; NO `:rf.provenance/ns`; without the marker the default image would select
+;; BOTH the framework copy and the app's provenanced registration, and image
+;; assembly would refuse to let selection order decide
+;; (`:rf.error/image-duplicate-id`). Image assembly reads the marker and stops projecting the
 ;; framework's own copy into the app layer exactly when the app has registered
 ;; one — see `re-frame.image-assembly/superseded-framework-default-keys`.
 (def ^:private framework-default-meta
@@ -202,21 +198,15 @@
 ;; NO corpus-wide on-match error-emit listener. A synchronous `:on-match` throw
 ;; stays on the ordinary Spec 009 event error channel, attributed to the event.
 ;;
-;; Deleting the registration CALLS (the R1 cut) does NOT retire a registration
-;; a PRE-R1 generation already installed: the event registrar is `defonce`, so
-;; a dev session that loaded routing before the cut and then
-;; `(require 're-frame.routing :reload)`s under HMR retains the two retired
-;; framework EVENT registrations, and a stale `:on-match` handler could still
-;; observe a new blocking-resource `:loading` transition and resurrect the
-;; removed route `:error` / `:on-error` behaviour — a contract violation under
+;; The event registrar is `defonce`, so a dev session whose registrar holds
+;; these two retired framework EVENT ids from a routing build that registered
+;; them keeps them across `(require 're-frame.routing :reload)` under HMR, and
+;; a stale `:on-match` handler could then observe a new blocking-resource
+;; `:loading` transition and resurrect route `:error` / `:on-error`
+;; behaviour — a contract violation under
 ;; normal reload. So the façade IDEMPOTENTLY unregisters exactly these two
 ;; retired framework ids on every load/reload. This targets ONLY the framework's
 ;; own retired ids: it resets no registry and clears no user registration.
-;;
-;; The third purge — an `unregister-error-listener!` of the retired
-;; `:rf.route/on-match-error-trap` id — is GONE (rf2-kuky.19). No shipped code
-;; has registered that id since EP-0037 R1 landed, so the call only covered an
-;; HMR session spanning a change that is now months old.
 (rf.registrar/unregister! :event :rf.route.internal/settle-transition)
 (rf.registrar/unregister! :event :rf.route.internal/on-match-error)
 
@@ -270,7 +260,7 @@
 ;; application handler has any reason to restate. An application handler
 ;; REPLACING one of these defaults replaces the BEHAVIOUR only: the declaration
 ;; below rides forward and unions with anything the app declares
-;; (`image-assembly/retain-framework-default-classification`, rf2-kqxe6.20), so
+;; (`image-assembly/retain-framework-default-classification`), so
 ;; the canonical auth recipe keeps the redaction with no boilerplate.
 (def ^:private nav-carrier-sensitive
   [[:requested-url] [:destination] [:target]])
@@ -310,7 +300,7 @@
                      rf.routing.prefetch/prefetch-handler)
 
 ;; :rf.route/replan-resources — Spec 012 §Replanning the active route's
-;; resources (rf2-y8jjk). Rerun the ACTIVE route's effective resource plan
+;; resources. Rerun the ACTIVE route's effective resource plan
 ;; against the current app-db under the UNCHANGED nav-token, without navigating
 ;; — the causal door for an app-db-derived identity input (principal, tenant,
 ;; locale) that changed with no route change. It mints NO nav-token / pending-nav
@@ -347,13 +337,13 @@
                rf.routing.nav-token/nav-token-cofx-meta
                rf.routing.nav-token/nav-token-cofx)
 
-;; :rf.route/route-id cofx — rf2-ph1grf. The capture-side companion to
+;; :rf.route/route-id cofx. The capture-side companion to
 ;; `:rf.route/nav-token`: delivers the live route id FLAT under
 ;; `:rf.route/route-id` so an `:on-match`-reached loader declaring
 ;; `:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]` captures BOTH
 ;; facts the route-loader work-id `[:rf.work/route route-id nav-token
-;; loader-id]` needs at scheduling time — the documented stale-suppression path
-;; can no longer thread a nil route id into the work-id tuple. Owner-qualified
+;; loader-id]` needs at scheduling time — so the documented stale-suppression
+;; path cannot thread a nil route id into the work-id tuple. Owner-qualified
 ;; to the routing subsystem root, like its sibling `:rf.route/nav-token`.
 (rf.cofx/reg-cofx :rf.route/route-id
                rf.routing.nav-token/route-id-cofx-meta
@@ -363,14 +353,14 @@
 ;; suppression. The test-only `:rf.test/simulate-http-resolution` fixture
 ;; analogue is NOT wired here — it lives behind an explicit
 ;; `re-frame.routing.test-support` require so the `:rf.test/*` fixture
-;; event never reaches a production registry (rf2-dbiv8, mirrors the
-;; managed-HTTP canned-stub gate rf2-cdmle).
+;; event never reaches a production registry (mirroring the managed-HTTP
+;; canned-stub gate).
 (rf.fx/reg-fx :rf.route/with-nav-token
            rf.routing.nav-token/with-nav-token-meta
            rf.routing.nav-token/with-nav-token-handler)
 
 ;; :rf.nav/push-url + :rf.nav/replace-url — Spec 012 §Multi-frame
-;; routing (rf2-w50qm).
+;; routing.
 (rf.fx/reg-fx :rf.nav/push-url    rf.routing.nav-fx/push-url-meta    rf.routing.nav-fx/push-url-handler)
 (rf.fx/reg-fx :rf.nav/replace-url rf.routing.nav-fx/replace-url-meta rf.routing.nav-fx/replace-url-handler)
 
@@ -379,9 +369,9 @@
 (rf.fx/reg-fx :rf.nav/capture-scroll rf.routing.scroll/capture-scroll-meta rf.routing.scroll/capture-scroll-handler)
 (rf.fx/reg-fx :rf.nav/scroll         rf.routing.scroll/scroll-fx-meta      rf.routing.scroll/scroll-fx-handler)
 
-;; Frame (re-)registration lifecycle hook (rf2-h1vqa4: frames do not flow
-;; through `rf.registrar/register!`, so the former registrar registration hook is
-;; gone — the frame engine's `:routing/on-frame-registered!` late-bind hook is
+;; Frame (re-)registration lifecycle hook (frames do not flow
+;; through `rf.registrar/register!`, so
+;; the frame engine's `:routing/on-frame-registered!` late-bind hook is
 ;; THE lifecycle point, fired AFTER the frame container exists and, on first
 ;; registration, after `:initial-events` ran). The body is ORDERED: url-bound
 ;; exclusivity + claim maintenance FIRST (both hosts — JVM routing tests
@@ -442,12 +432,11 @@
 ;; :route/link registered view — Spec 012 §Linking from views.
 ;; Exposed on both platforms so .cljc render trees resolve identically
 ;; server- and client-side.
-;; rf2-kuky.36: the CLJS arm is a bare `reg-view*` FOR EFFECT, matching the
-;; `:clj` arm below. It previously bound the `reg-view*` return to a public
-;; `route-link` def that nothing dereferenced — `rf/route-link` reaches the
+;; The CLJS arm is a bare `reg-view*` FOR EFFECT, matching the
+;; `:clj` arm below. `rf/route-link` reaches the
 ;; view through the `:routing/route-link` late-bind hook (which carries
-;; `route-link-element`, not this value), so the def published a registration
-;; return as an API name.
+;; `route-link-element`, not this value), so binding the return to a public
+;; def would publish a registration return as an API name.
 #?(:cljs
    (rf.views/reg-view* :route/link
                     (rf.source-coords/merge-coords {})
@@ -460,7 +449,7 @@
 #?(:cljs
    (defn ^:no-doc route-link-element
      "The value published to the `:routing/route-link` hook — what
-     `rf/route-link` becomes at a call site (rf2-nvcp).
+     `rf/route-link` becomes at a call site.
 
      Returns the HICCUP ELEMENT `[<component-head> props & children]` rather
      than calling the render fn. That distinction is the whole of this fn, and
@@ -471,23 +460,23 @@
      `[rf/route-link {:to …} \"Articles\"]`, and the component the substrate
      mounts is therefore `rf/route-link` ITSELF: a plain fn, carrying no
      `{:contextType frame-context}` meta. Publishing the registered view head
-     directly made that head run INSIDE that plain-fn component instead of
-     becoming a component of its own, so the React-context tier had nothing to
-     read it from: `re-frame.views.provider/current-frame` saw React's empty
-     default on `(.-context cmp)`, resolved nil, and `route-link-render`'s
-     render-time `require-current-frame!` (rf2-o3nam4) raised
+     directly would make that head run INSIDE that plain-fn component instead of
+     becoming a component of its own, so the React-context tier would have
+     nothing to read it from: `re-frame.views.provider/current-frame` would see
+     React's empty default on `(.-context cmp)`, resolve nil, and
+     `route-link-render`'s render-time `require-current-frame!` would raise
      `:rf.error/no-frame-context` on FIRST RENDER — blanking every routed
      application, however correctly it mounted its `frame-root`.
 
      Emitting the element instead hands the head to the substrate as an
      element TYPE, so it is componentized exactly as a `reg-view` view is
-     (`[home-page]` and `[rf/route-link …]` now take the same path) and the
+     (`[home-page]` and `[rf/route-link …]` take the same path) and the
      enclosing `frame-root` / `frame-provider` context reaches it.
 
      The head is resolved through `rf.views/view-head` per render rather than
      closed over: the head is a property of (registration × installed
      substrate), and `view-head` re-derives it against the adapter installed
-     NOW and memoizes (rf2-8mkmb). Closing over the `reg-view*` return value
+     NOW and memoizes. Closing over the `reg-view*` return value
      would pin the SEED head — derived at ns-load, before `rf/init!` seats any
      adapter — which is right for Reagent and wrong for any substrate that
      publishes `:adapter/componentize-view`."
@@ -499,33 +488,29 @@
 ;; integration points without reversing that dependency.
 
 (rf.late-bind/set-fn! :routing/reg-route          reg-route)
-;; rf2-kuky.80: :routing/clear-route is BACK. The czn2m0 D1 sweep dropped it
-;; as dormant, correctly at the time; `rf/clear` is now a consumer, and
-;; routing `:route` removal through the OWNING fn is what keeps the
+;; `rf/clear` consumes :routing/clear-route, and
+;; routing `:route` removal through the OWNING fn is what emits the
 ;; :rf.route/cleared trace event. The hook target is the registry fn, not a
-;; `re-frame.routing` re-export — that re-export is deleted, because
+;; `re-frame.routing` re-export — there is none, because
 ;; `(rf/clear :route id)` is the one public door.
 (rf.late-bind/set-fn! :routing/clear-route       rf.routing.registry/clear-route)
-;; rf2-bcjpq5 / rf2-sy7zr: still no :routing/match-url, :routing/route-url or
-;; :routing/current-url hooks — none of those three is a facade export
-;; (czn2m0 D1), so core has nothing to late-bind to. Callers use
+;; No :routing/match-url, :routing/route-url or
+;; :routing/current-url hooks — none of those three is a `re-frame.core`
+;; export, so core has nothing to late-bind to. Callers use
 ;; `re-frame.routing/match-url` / `route-url` directly; a routing app requires
-;; this namespace at boot regardless. (rf2-kuky.36 then deleted the
-;; `current-url` alias this list used to name as a fourth — its home is
-;; `re-frame.routing.history/current-url`.)
+;; this namespace at boot regardless. `current-url`'s home is
+;; `re-frame.routing.history/current-url`.
 (rf.late-bind/set-fn! :routing/reset-counters!    reset-counters!)
 ;; Reset hooks clear host-side routing state that a raw frame-container reset
 ;; cannot reach.
 (rf.late-bind/set-fn! :routing/reset-nav-counters! reset-nav-counters!)
 (rf.late-bind/set-fn! :routing/reset-url-claims!  reset-url-claims!)
-;; rf2-6r9j.8: no :routing/route-sub-fn hook. `route-sub-fn` is registered
+;; No :routing/route-sub-fn hook and no `re-frame.routing/route-sub-fn`
+;; alias. `route-sub-fn` is registered
 ;; DIRECTLY as the `:rf/route` sub above, in this already-loaded facade, so
-;; core never needed to late-bind to it; the hook was mechanical residue of the
-;; artefact split (c435165251) that nothing ever read. rf2-kuky.36 then
-;; deleted the `re-frame.routing/route-sub-fn` alias too: the documentation
-;; was the only thing holding it, and the registration below is the surface.
+;; core has no need to late-bind to it, and the registration is the surface.
 
-;; Registration-time frame-config preflight (rf2-ktmto9): routing owns the
+;; Registration-time frame-config preflight: routing owns the
 ;; MEANING of `:url-strategy` (presence semantics + host-required legs), core
 ;; owns the TIMING — the frame engine (`re-frame.frame/upsert-frame!`) invokes
 ;; this hook with the
@@ -554,7 +539,7 @@
   ;; Drop the destroyed frame's URL claim FIRST so `url-owner-frame-id` resolves
   ;; to the successor claimant (or nil), THEN reconcile the browser listener via
   ;; the single strategy-aware op. Reconciliation rebinds to the successor's
-  ;; strategy when a live claimant remains (the ownership-transfer fix), tears
+  ;; strategy when a live claimant remains (ownership transfer), tears
   ;; the listener down when no successor remains, and leaves the incumbent
   ;; instance untouched when a non-owner frame is destroyed. `frame-id` is passed
   ;; as the EXCLUDED owner as defence in depth: by hook time the destroyed
@@ -583,15 +568,15 @@
 ;; route-link is exposed on both platforms so .cljc render trees
 ;; resolve identically server- and client-side. On CLJS the hook carries the
 ;; ELEMENT-emitting `route-link-element`, not the registered head itself — see
-;; its docstring (rf2-nvcp): `rf/route-link` is a `defwrapper`, so whatever
+;; its docstring: `rf/route-link` is a `defwrapper`, so whatever
 ;; this hook holds is CALLED rather than mounted, and a head that is called
 ;; never becomes a component that can read the frame context. SSR has no React
-;; context to read, so the JVM side keeps rendering the anchor directly.
+;; context to read, so the JVM side renders the anchor directly.
 #?(:cljs (rf.late-bind/set-fn! :routing/route-link route-link-element)
    :clj  (rf.late-bind/set-fn! :routing/route-link route-link-render-ssr))
 
 ;; The substrate-neutral link seam consumed by an optional view artefact's own
-;; route-link (rf2-vxgfnd.95.5). `link-model` is PURE and published on BOTH hosts
+;; route-link. `link-model` is PURE and published on BOTH hosts
 ;; (the JVM/SSR shell needs the path-form href + native? too); `activate-link!` is
 ;; the CLJS-only click op (SSR has no DOM click to intercept). A view artefact
 ;; reaches these through the late-bind directory without a static require on
@@ -599,12 +584,12 @@
 (rf.late-bind/set-fn! :routing/link-model rf.routing.link/link-model)
 #?(:cljs (rf.late-bind/set-fn! :routing/activate-link! rf.routing.link/activate-link!))
 
-;; NOTE — there is deliberately no late-bind seam for `:prefetch :intent`
-;; (rf2-6r9j.15). `rf/route-link` reaches `rf.routing.link/prefetch-payload`
+;; NOTE — there is deliberately no late-bind seam for `:prefetch :intent`.
+;; `rf/route-link` reaches `rf.routing.link/prefetch-payload`
 ;; and `prefetch-intent-keys` by direct call, and `prefetch-on-intent!` not at
 ;; all — see that fn's docstring for what composes the intent handlers in its
 ;; place. No view artefact consumes any of the three through the hook table,
-;; so publishing them only promised reachability that did not exist. Per Spec
-;; 012 §Route-plan prefetch the law still lives in `re-frame.routing.link`; a
+;; so publishing them would only promise reachability that does not exist. Per Spec
+;; 012 §Route-plan prefetch the law lives in `re-frame.routing.link`; a
 ;; view artefact that needs it should land a real reader first and publish
 ;; only the keys it reads.
