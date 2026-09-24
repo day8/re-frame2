@@ -1,7 +1,7 @@
 (ns re-frame.adapter.uix-dispatch-frame-capture-cljs-test
-  "UIx entry-point for the *current-frame*-across-dispatch contract
-  (rf2-l5q3), forwarded from the parameterised React-adapter suite
-  (`re-frame.adapter.react-shared-suite`, rf2-p4736).
+  "UIx entry-point for the *current-frame*-across-dispatch contract,
+  forwarded from the parameterised React-adapter suite
+  (`re-frame.adapter.react-shared-suite`).
 
   This is a SEPARATE entry pair from `uix_react_shared_cljs_test.cljs`
   because the async cases need a map-form `{:before :after}` fixture:
@@ -19,11 +19,10 @@
 ;; Async map-form fixture (a fn-form fixture's teardown would restore the
 ;; registrar before an `(async done)` body completes). `make-reset-runtime-
 ;; fixture` (`:async? true`) performs the snapshot/restore + frames-reset +
-;; adapter dispose/install this suite hand-rolled, and its pre-dispose reset
-;; clears the per-frame schema registry (per rf2-wkxng / rf2-6m0se: so ns-load
-;; `reg-app-schema` calls from sibling test namespaces don't fire post-commit
-;; validation rollbacks against this test's frames). `:ambient-frame nil`
-;; preserves the suite's no-ambient-scope behaviour.
+;; adapter dispose/install, and its pre-dispose reset clears the per-frame
+;; schema registry (so ns-load `reg-app-schema` calls from sibling test
+;; namespaces don't fire post-commit validation rollbacks against this test's
+;; frames). `:ambient-frame nil` gives the suite no ambient scope.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter :async? true :ambient-frame nil}))
