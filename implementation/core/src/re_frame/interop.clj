@@ -51,7 +51,7 @@
 ;; recomputes f on every deref. For the headless / SSR use cases this is fine
 ;; — they read once or twice per request, not in a hot reactive loop.
 ;;
-;; Per rf2-tnnln: on-dispose callbacks live ON the reaction object (a mutable
+;; On-dispose callbacks live ON the reaction object (a mutable
 ;; field on the `Reaction` deftype), NOT in a process-wide identity-keyed
 ;; registry. This mirrors the CLJS plain-atom adapter, whose derived-value
 ;; reify closes over an `(atom [])` of callbacks (see
@@ -61,12 +61,13 @@
 ;; exception between `add-on-dispose!` and `dispose!`) is reclaimed by GC along
 ;; with its callbacks rather than pinned forever. This is the correct
 ;; resource-lifecycle posture for the long-lived JVM SSR profile (Spec 011's
-;; frame-per-request), where the prior global strong-ref `atom`-of-map was a
-;; leak surface: it held strong references to every reaction (and its whole
-;; layer-2+ input chain + compute-fn) until `dispose!` was called with that
-;; exact object, defeating GC for any reaction that escaped its dispose path.
+;; frame-per-request), where a global strong-ref `atom`-of-map would be a
+;; leak surface: it would hold strong references to every reaction (and its
+;; whole layer-2+ input chain + compute-fn) until `dispose!` was called with
+;; that exact object, defeating GC for any reaction that escaped its dispose
+;; path.
 ;;
-;; `dispose!` semantics are unchanged: callbacks are cleared from the reaction
+;; `dispose!` semantics: callbacks are cleared from the reaction
 ;; first (re-entrancy / idempotency — a second `dispose!` is a no-op) then
 ;; fired in registration order.
 ;;
@@ -83,8 +84,8 @@
 (defprotocol IDisposeRegistry
   "JVM on-dispose callback storage carried ON the reaction object. The
   CLJS counterpart is `re-frame.disposable/IDisposable`; this is the
-  JVM-local equivalent for the plain-atom / SSR / headless host. Per
-  rf2-tnnln — keeping callbacks on the object (not a global registry)
+  JVM-local equivalent for the plain-atom / SSR / headless host.
+  Keeping callbacks on the object (not a global registry)
   is what makes an un-disposed reaction GC-reclaimable."
   (-add-on-dispose [this f]
     "Append a 0-arg on-dispose callback. Registration order is preserved.")
@@ -103,8 +104,8 @@
   (-dispose [_]
     (let [cbs callbacks]
       ;; Clear FIRST so a re-entrant dispose (or a callback that triggers
-      ;; another dispose of this same reaction) is a no-op, matching the
-      ;; prior dissoc-before-fire discipline.
+      ;; another dispose of this same reaction) is a no-op — clear before
+      ;; fire.
       (set! callbacks [])
       (doseq [cb cbs] (cb)))))
 
@@ -117,12 +118,12 @@
 
 (defn make-reaction
   "On the JVM, return a deref-able that recomputes f on every deref and
-  carries its own on-dispose callback storage (per rf2-tnnln)."
+  carries its own on-dispose callback storage."
   [f]
   (->Reaction f []))
 
 (defn activate-derived-value!
-  "The JVM twin of the CLJS hook-routed op (rf2-8cnxg / rf2-jt8vz). There is
+  "The JVM twin of the CLJS hook-routed op. There is
   no substrate here and no tracking graph: the JVM `Reaction` recomputes `f`
   on EVERY deref and has no source-capture step to perform, so there is
   nothing to activate. Present so a CLJC caller can invoke it
@@ -195,7 +196,7 @@
   relative delays). On the JVM this is already `System/currentTimeMillis`
   (epoch ms) — but the CLJS counterpart is `performance.now()` (origin-
   relative), so durable wall-clock facts MUST use `epoch-now-ms`, never this,
-  to stay cross-platform (rf2-n1rh0f / EP-0010 §Time)."
+  to stay cross-platform (EP-0010 §Time)."
   []
   (System/currentTimeMillis))
 
@@ -261,8 +262,7 @@
 ;;   "false" / "0" / "no" / "off" / "" (empty)
 ;;
 ;; case-insensitively. Anything else — including absent / unset — leaves
-;; the flag at its default (`true`, dev-on, matching the historical
-;; behaviour). Setting the flag to a recognised false-y value disables
+;; the flag at its default (`true`, dev-on). Setting the flag to a recognised false-y value disables
 ;; trace emission, trace-buffer retention, epoch-history capture,
 ;; `restore-epoch!`, `replace-app-db!`, and the source-coord trace
 ;; enrichment — the same surfaces that Closure DCE elides in CLJS
