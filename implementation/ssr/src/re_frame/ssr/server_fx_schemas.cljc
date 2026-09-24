@@ -40,18 +40,19 @@
   the dispatch site; … the fail-fast posture composes cleanly with the
   structured-fx-args schemas'.
 
-  ## What runs when (rf2-dtpfv)
+  ## What runs when
 
-  These schemas are a DEV-POSTURE boundary and always were: `validate-fx!`
+  These schemas are a DEV-POSTURE boundary: `validate-fx!`
   is `(if interop/debug-enabled? (run-validation …) true)`, read once at
   namespace-load time, so under `-Dre-frame.debug=false` the Spec 010
   §Validation order step-5 gate does not run at all and its documented
   `:skipped` recovery never happens. That is intended for USER fx —
-  trust-the-programmer, no hot-path cost — but it left the framework's own
-  wire-adjacent contract unguarded: a malformed reserved fx RAN and its args
-  landed on the response accumulator `ssr/get-response` publishes.
+  trust-the-programmer, no hot-path cost — but alone it would leave the
+  framework's own wire-adjacent contract unguarded: a malformed reserved fx
+  would RUN and its args land on the response accumulator `ssr/get-response`
+  publishes.
 
-  So the SHAPE contract is now enforced twice, deliberately, with a
+  So the SHAPE contract is enforced twice, deliberately, with a
   different job each time:
 
   - **Here, in dev** — the Malli boundary rejects BEFORE the handler runs,
@@ -76,9 +77,9 @@
   the same thing in Clojure and the always-on guards read them that way — a
   cookie assembled from an options map (`{:secure (:secure? opts)}`) writes the
   first while meaning the second. A bare `[:path {:optional true} :string]`
-  says something different: absent is fine, present-and-nil is a violation. The
-  audit of the first fix measured what that gap did — `{:secure nil}` skipped
-  in dev, persisted in production — which is the same posture-dependent
+  says something different: absent is fine, present-and-nil is a violation.
+  That gap would let `{:secure nil}` be skipped in dev and persisted in
+  production — the same posture-dependent
   accumulator this whole gate exists to close, just one key deep. REQUIRED
   slots keep the bare type: `{:value nil}` is a cookie with no value, and `nil`
   is not a status.")
@@ -149,7 +150,7 @@
 
 (def http-status
   "An HTTP status code — an int in the RFC 9110 §15 status-line range
-  100–599 (rf2-dtpfv). Named once and shared by every `:status` slot below
+  100–599. Named once and shared by every `:status` slot below
   so the three registrations cannot drift from each other, or from
   `re-frame.ssr.response/validate-status!` — the always-on guard that
   enforces the SAME range in a release build, where this schema does not
@@ -163,9 +164,8 @@
 (def set-status-args
   "Args of `:rf.server/set-status` — `:rf.fx.server/set-status-args`.
   An HTTP status code int (e.g. 200 / 404 / 500), bounded to 100–599: the
-  status line admits nothing else, and a bare `:int` let `0` / `-1` /
-  `99999` through the dev boundary that exists to catch exactly that
-  (rf2-dtpfv)."
+  status line admits nothing else, and a bare `:int` would let `0` / `-1` /
+  `99999` through the dev boundary that exists to catch exactly that."
   http-status)
 
 (def set-header-args
@@ -220,7 +220,7 @@
 
   `:location` is optional, and a redirect with no `:location` passes this
   shape gate because it is not a structural error. A
-  target-less redirect is the established
+  target-less redirect is the
   `:rf.ssr/ssr-redirect-no-target` graceful-degradation path: the
   redirect-fx accepts it (location is caller-trusted/optional at the fx
   boundary) and the adapter emits the warning trace + a 3xx with no
@@ -246,8 +246,8 @@
   defensible interpretation. The five-step URL-parse / scheme / relative-
   only? / allowlist gate lives in `re-frame.ssr.response/safe-redirect-fx`
   and emits the specific `:rf.error/safe-redirect-*` categories; this is
-  the structural SHAPE check, completing the `:schema` boundary the other
-  six `:rf.server/*` fxs already carry. A malformed argument therefore
+  the structural SHAPE check, matching the `:schema` boundary the other
+  six `:rf.server/*` fxs carry. A malformed argument therefore
   fails before the response accumulator is mutated.
 
   Only
