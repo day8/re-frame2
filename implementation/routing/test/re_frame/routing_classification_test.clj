@@ -264,8 +264,9 @@
 ;; node whose coordinate STRICTLY SHADOWS a :sensitive descendant, sensitive
 ;; DOMINATES — the walker descends-and-redacts the descendant rather than
 ;; emitting a :rf.size/large-elided marker that would leak the ancestor's
-;; :path / :bytes / :type (and, off-box-tool, a SHA-256 digest over the
-;; secret-bearing subtree).
+;; :path / :bytes / :type (and, under an explicit
+;; :rf.egress/include-digests? true, a SHA-256 digest over the secret-bearing
+;; subtree; no egress profile turns digests on since rf2-3x7nj.32.6).
 ;; ===========================================================================
 
 (deftest nested-large-ancestor-sensitive-descendant-redacts-at-egress
@@ -305,9 +306,9 @@
           "an unmarked sibling inside the large ancestor rides verbatim")
       ;; CRUCIAL: the ancestor must NOT be a :rf.size/large-elided marker —
       ;; a marker would leak the ancestor's :path / :bytes / :type (and a
-      ;; digest off-box) while a sensitive descendant is inside it. The walker
-      ;; descends the ancestor (so the descendant redacts) rather than
-      ;; collapsing it to a marker.
+      ;; digest, where one is opted in) while a sensitive descendant is
+      ;; inside it. The walker descends the ancestor (so the descendant
+      ;; redacts) rather than collapsing it to a marker.
       (is (not (rf.elision/marker? payload))
           "the :large ancestor is NOT collapsed to a marker — no path/bytes/digest leak while a sensitive descendant lives inside")
       (is (map? payload)

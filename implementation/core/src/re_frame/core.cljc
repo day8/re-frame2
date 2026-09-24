@@ -947,7 +947,13 @@
      see it. The `reg-*` fn-aliases — and any code-generated or JVM-direct
      registration — leave the macro's source-coord capture unbound, so their
      descriptors carry no `:rf.provenance/ns` and are never matched by an
-     `:include` glob: they are reachable through the DEFAULT image alone.
+     `:include` glob: an APPLICATION registration made that way is reachable
+     through the DEFAULT image alone. (One whose id sits under the reserved
+     `:rf` root is treated as framework-owned instead: it rides the framework
+     base, reported as `:rf/framework`, that every explicit composition is
+     layered over. That is how the framework's own feature handlers reach an
+     explicit image, so an app registering a reserved-root id
+     programmatically should stamp `:ns` to keep it inside its own image.)
      Nothing reports this — the zero-match guard fires per PATTERN, not per
      descriptor, so a glob that matches some other namespace stays silent
      while the programmatic registration is quietly absent from the image.
