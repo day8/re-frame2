@@ -17,8 +17,8 @@
         asserts the underlying symbol is actually defined in the framework
         source under `implementation/`. If `re-frame.core/dispatch-sync`
         were renamed, the emitted scaffold would ship stale and this fires.
-     3. Pins the hot-reload lifecycle facts of the emitted entry namespace
-        (rf2-r0kk7): one `^:dev/after-load` hook that renders, `init`
+     3. Pins the hot-reload lifecycle facts of the emitted entry namespace:
+        one `^:dev/after-load` hook that renders, `init`
         delegating to it, and exactly one retained React root.
 
    The behavioural companion (`emitted_test_run_test.clj`) compiles and
@@ -112,19 +112,18 @@
   SEGMENT boundary so `re-frame.adapter.reagent` cannot swallow
   `re-frame.adapter.reagent-slim`.
 
-  An EXPLICIT map rather than the string convention it replaces
-  (rf2-ps1u). That convention special-cased a whitelist of leaves under
-  `implementation/adapters/<leaf>` and sent everything else to core,
-  which is wrong twice over. `re-frame.fresco` and
+  An EXPLICIT map, because a string convention that special-cased a
+  whitelist of leaves under `implementation/adapters/<leaf>` and sent
+  everything else to core would be wrong twice over. `re-frame.fresco` and
   `re-frame.fresco.substrate` are published from `implementation/fresco`
-  — neither arm reaches them, so the lookup answered nil and
-  `audit-framework-symbol!` took its `(is false …)` arm: a HARD FAIL, on
-  the first emission that names them, before any API usage is evaluated.
-  And the whitelist spelled the reagent-slim file with the ns's dash
-  (`adapter/reagent-slim.cljs`) where the file on disk carries the CLJS
-  underscore (`adapter/reagent_slim.cljs`), so that arm could only ever
-  have answered nil too. Deriving the rel path once, from the namespace,
-  fixes both.
+  — neither arm would reach them, so the lookup would answer nil and
+  `audit-framework-symbol!` would take its `(is false …)` arm: a HARD FAIL,
+  on the first emission that names them, before any API usage is evaluated.
+  And a whitelist spelling the reagent-slim file with the ns's dash
+  (`adapter/reagent-slim.cljs`) misses the file on disk, which carries the
+  CLJS underscore (`adapter/reagent_slim.cljs`), so that arm would only
+  ever answer nil too. Deriving the rel path once, from the namespace,
+  avoids both.
 
   This map describes where the FRAMEWORK's own source lives, so it is
   complete for every family in `implementation/` — independent of which
@@ -148,8 +147,7 @@
   namespace itself (`re-frame.fresco`) or anything under it
   (`re-frame.fresco.substrate`) — never a longer sibling SEGMENT, so
   `re-frame.adapter.reagent` does not claim `…reagent-slim`. The bare
-  `re-frame` ns matches nothing, as under the string convention this
-  replaced: `rel` below would have nothing to slice."
+  `re-frame` ns matches nothing: `rel` below would have nothing to slice."
   [^String ns-name]
   (when (string/starts-with? ns-name "re-frame.")
     (some (fn [[family src-root]]
@@ -330,16 +328,16 @@
 
 (deftest framework-ns-file-resolves-every-family-test
   (testing "`framework-source-roots` resolves each framework family to a real
-            file (rf2-ps1u)"
-    ;; Direct coverage, because the emissions above reach only two of these
-    ;; families. The two that no emission reaches are exactly the two the
-    ;; string convention this replaced got wrong: `re-frame.fresco.*`
+            file"
+    ;; Direct coverage, because no emission above reaches two of these
+    ;; families, and they are exactly the two a leaf-whitelist string
+    ;; convention gets wrong: `re-frame.fresco.*`
     ;; (published from implementation/fresco, not implementation/adapters)
     ;; and `re-frame.adapter.reagent-slim` (whose file carries the CLJS
-    ;; underscore the whitelisted leaf spelled with a dash). Under that
-    ;; convention both answered nil, and a nil is a HARD FAIL in
+    ;; underscore a whitelisted leaf would spell with a dash). Under that
+    ;; convention both would answer nil, and a nil is a HARD FAIL in
     ;; `audit-framework-symbol!` — so the first emission naming one would
-    ;; have died on the lookup rather than on anything it was auditing.
+    ;; die on the lookup rather than on anything it was auditing.
     (let [root (repo-root)]
       (doseq [[ns-sym expected-suffix]
               '[[re-frame.core                  "implementation/core/src/re_frame/core.cljc"]
@@ -368,9 +366,9 @@
     (is (nil? (framework-ns-file (repo-root) 'uix.core))
         "a view-library ns resolves to nil, not a fabricated path")))
 
-;; --- The hot-reload lifecycle (rf2-r0kk7) ----------------------------------
+;; --- The hot-reload lifecycle -----------------------------------------------
 ;;
-;; MEASURED on shadow-cljs 3.4.10: a `:browser` build whose only entry point
+;; On shadow-cljs 3.4.10, a `:browser` build whose only entry point
 ;; is a module `:init-fn` does NOT re-render after a hot reload. shadow loads
 ;; the new code, logs "reloading code but no :after-load hooks are
 ;; configured!", and `#app` goes on painting the OLD view. The `:init-fn` is
@@ -378,11 +376,10 @@
 ;; `^:dev/after-load` hook that renders, `init` delegates to it, and the React
 ;; root is created exactly once and retained across reloads. These are the
 ;; facts pinned here, on the emitted `core.cljs` itself. On BOTH substrates
-;; the retained root is the adapter-owned client root (rf2-k5r9t): one
+;; the retained root is the adapter-owned client root: one
 ;; `<adapter>/client-root` allocation, rendered through with
-;; `<adapter>/render!`. UIx joined that shape in rf2-j908 — it used to hold
-;; a raw `uix-dom/create-root` Root itself, which is the pre-`client-root`
-;; recipe the adapter's own door replaced.
+;; `<adapter>/render!`. The UIx app holds no raw `uix-dom/create-root` Root
+;; of its own.
 
 (defn- hook-body
   "The source text of the `^:dev/after-load <hook>` form: from its metadata
@@ -397,7 +394,7 @@
 (deftest entry-namespace-hot-reload-lifecycle-test
   (testing "every emitted core.cljs carries one ^:dev/after-load mount! that
             renders, an init that delegates to it, and exactly one retained
-            React root (rf2-r0kk7)"
+            React root"
     (doseq [[substrate renders client-root]
             [[:reagent "rf.adapter.reagent/render!" "rf.adapter.reagent/client-root"]
              [:uix     "rf.adapter.uix/render!"     "rf.adapter.uix/client-root"]]]
@@ -425,7 +422,7 @@
           (finally
             (delete-recursively tmp)))))))
 
-;; --- The Story entry (rf2-1bkoc) --------------------------------------------
+;; --- The Story entry --------------------------------------------------------
 ;;
 ;; shadow-cljs.edn's `:dev` override boots `stories/init` in watch and
 ;; compile, and a release boots `core/init`. Two facts keep that honest, and
@@ -433,8 +430,8 @@
 ;; so nothing a release compiles reaches it. And `stories/init` renames the
 ;; mount node BEFORE it mounts the shell: `core/mount!` is a
 ;; `^:dev/after-load` hook that runs after every save, and on a node still
-;; called `app` it renders the counter over the shell — measured, with
-;; React's second-`createRoot` error in the console.
+;; called `app` it renders the counter over the shell, and React logs its
+;; second-`createRoot` error in the console.
 
 (deftest story-entry-lifecycle-test
   (testing "stories/init sends #/stories to the shell on a renamed node and every
