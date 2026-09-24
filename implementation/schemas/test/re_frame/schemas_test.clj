@@ -89,7 +89,7 @@
 
 (deftest dispatch-fires-app-db-validation
   (testing "live dispatch through the runtime validates the candidate :db
-            before install (rf2-uhk9ko)"
+            before install"
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
@@ -105,15 +105,14 @@
             ":failing-id names the handler whose candidate prompted the failure")
         (is (true? (-> violations first :tags :rollback?))
             "the trace carries :rollback? true — the public
-             transaction-REJECTED vocabulary (rf2-uhk9ko)")))))
+             transaction-REJECTED vocabulary")))))
 
-;; ---- rf2-uhk9ko — candidate rejection on schema-validation failure --------
-;; (formerly rf2-wkxng / rf2-6m0se install-then-rollback; the observable
-;; post-condition — app-db keeps its pre-event value, :fx skipped — is
-;; unchanged, but the container is now never written at all)
+;; ---- candidate rejection on schema-validation failure --------------------
+;; The observable post-condition — app-db keeps its pre-event value, :fx
+;; skipped — holds with the container never written at all.
 
 (deftest app-db-rejection-keeps-pre-handler-value-on-failure
-  (testing "Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko): an app-db
+  (testing "Per Spec 010 §Per-step recovery row 4: an app-db
             schema-validation failure REJECTS the candidate before install
             — app-db keeps its pre-handler value. The dispatch is treated
             as failed; the bad candidate never stands."
@@ -134,7 +133,7 @@
          {:n \"boom\"} without the candidate validation)")))
 
 (deftest app-db-rejection-skips-fx-on-failure
-  (testing "Per rf2-uhk9ko: on rejection the dispatch is 'treated as
+  (testing "On rejection the dispatch is 'treated as
             failed' — :fx does NOT walk. Sibling fx that would have
             fired do not run."
     (let [fx-calls (atom [])]
@@ -153,15 +152,15 @@
           "sibling fx did not walk — dispatch treated as failed"))))
 
 (deftest app-db-rejection-emits-no-db-changed
-  (testing "Per rf2-uhk9ko (Option B — validate before install): a rejected
+  (testing "Under validate-before-install a rejected
             candidate emits NO :rf.event/db-changed at all — the trace
             signature is EXACTLY one :rf.error/schema-validation-failure.
-            (Supersedes the retired commit-then-rollback pair: forward
+            (A commit-then-rollback pair would emit forward
             db-changed → failure → :phase :rollback db-changed.)"
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init  (fn [_ _]  {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
-    ;; rf2-bhh8my: deliberately NOT migrated to `with-trace-recorder!` — this
+    ;; Deliberately NOT `with-trace-recorder!` — this
     ;; listener PROJECTS each event to an `[operation phase]` tuple on capture
     ;; and `reset!`s the buffer mid-body (to drop :n/init's traces before
     ;; :n/break), neither of which the raw-event recorder expresses.
@@ -187,7 +186,7 @@
 (deftest validate-app-schema-returns-boolean
   (testing "validate-app-schema! returns true on conform (or no schemas /
             no validator), false on any failure. The router consumes this
-            to decide candidate rejection (rf2-uhk9ko)."
+            to decide candidate rejection."
     (rf/reg-app-schema [:n] [:int])
     (with-redefs [rf.interop/debug-enabled? true]
       (is (true?  (rf.schemas/validate-app-schema! {:n 42}))
@@ -202,10 +201,10 @@
       (is (true? (rf.schemas/validate-app-schema! {:n "boom"} :some/handler))
           "production mode (debug-enabled? false) returns true unconditionally"))))
 
-;; ---- rf2-jwm4 — event-payload validation ---------------------------------
+;; ---- event-payload validation ---------------------------------------------
 
 (deftest dispatch-validates-event-payload-pre-handler
-  (testing "Per Spec 010 §step 1 (rf2-jwm4): a malformed event vector fires
+  (testing "Per Spec 010 §step 1: a malformed event vector fires
             :rf.error/schema-validation-failure :where :event before the
             handler runs; the handler is NOT invoked"
     (let [calls (atom 0)]
@@ -232,7 +231,7 @@
             (is (= :user/register (-> v :tags :schema-id)))))))))
 
 (deftest event-payload-validation-failure-still-runs-after-pass
-  (testing "Per Spec 002 §Interceptor chain execution rule 2 (rf2-i36mm):
+  (testing "Per Spec 002 §Interceptor chain execution rule 2:
             a schema-validation failure on the event vector (Spec 010 step
             1) suppresses the HANDLER but the interceptor chain STILL runs,
             so every :after stage fires — symmetric with the cofx-failure
@@ -243,9 +242,9 @@
     (let [handler-calls (atom 0)
           before-calls  (atom 0)
           after-calls   (atom 0)]
-      ;; EP-0022 reference-only flip (rf2-0adhqs.9): chains carry refs only, so
+      ;; EP-0022: chains carry refs only, so
       ;; the probe interceptor is registered and referenced by id rather than
-      ;; dropped inline. The closures still capture the per-test atoms.
+      ;; dropped inline. The closures capture the per-test atoms.
       (rf/reg-interceptor ::after-probe
         {:before (fn [ctx] (swap! before-calls inc) ctx)
          :after  (fn [ctx] (swap! after-calls inc) ctx)})
@@ -285,10 +284,10 @@
         (is (= 1 @calls)
             "handler runs anyway — production validation is elided")))))
 
-;; ---- rf2-wcam — sub-return validation ------------------------------------
+;; ---- sub-return validation -----------------------------------------------
 
 (deftest sub-return-validation-fires-and-replaces-with-default
-  (testing "Per Spec 010 §step 6 (rf2-wcam): a sub whose return value fails
+  (testing "Per Spec 010 §step 6: a sub whose return value fails
             its :schema emits :rf.error/schema-validation-failure :where :sub-return
             and the caller sees nil (default :replaced-with-default recovery)"
     (rf/reg-event :items/init (fn [_ _] {:db {:items ["a" "b" "c"]}}))
@@ -312,7 +311,7 @@
           (is (= :sub-return (-> v :tags :where)))
           (is (= :items (-> v :tags :rf.sub/id)))
           (is (= :items (-> v :tags :schema-id)))
-          ;; rf2-9cm27 — the :frame tag must ride the trace so the
+          ;; The :frame tag must ride the trace so the
           ;; violation lands in the per-frame epoch :trace-events
           ;; (epoch/capture buffers only frame-tagged traces). The
           ;; reaction recomputed on :rf/default.
@@ -338,9 +337,9 @@
 
 ;; ---- EP-0017 recordable-cofx `:schema` validation ------------------------
 ;;
-;; EP-0017 RETIRED the ctx-mutating `inject-cofx` injection-time validation
-;; (the old `:rf.error/schema-validation-failure :where :cofx` shape, with
-;; `inject-cofx`). The LIVE cofx schema-validation contract is the
+;; Under EP-0017 there is no ctx-mutating `inject-cofx` injection-time
+;; validation (no `:rf.error/schema-validation-failure :where :cofx`
+;; shape). The LIVE cofx schema-validation contract is the
 ;; recordable-value path: a recordable coeffect declared on the handler's
 ;; `:rf.cofx/requires` is delivered FLAT into the coeffects map, and its value
 ;; (supplied / replayed / generated) is validated against the `reg-cofx`
@@ -348,13 +347,12 @@
 ;; malformed value emits `:rf.error/cofx-value-invalid` (a PRODUCTION hard
 ;; error — an out-of-contract durable value is corrupt causal state) and THROWS
 ;; during context assembly, so the handler is NOT invoked (recovery
-;; `:no-recovery`). The deftests below replace the disabled `inject-cofx`
-;; tests this file used to carry; the schemas conformance fixture
+;; `:no-recovery`). The schemas conformance fixture
 ;; `schema-cofx-validates.edn` exercises the same path through the corpus
 ;; runner.
 
 (deftest recordable-cofx-value-invalid-fires-and-skips-handler
-  (testing "EP-0017 (replaces rf2-7leq): a recordable cofx whose supplied
+  (testing "EP-0017: a recordable cofx whose supplied
             value fails its `reg-cofx` `:schema` emits
             :rf.error/cofx-value-invalid and the handler is NOT invoked"
     ;; PROVIDED recordable fact — its value rides the dispatch token's
@@ -409,7 +407,7 @@
             "no cofx-value-invalid trace fires for a conforming value")))))
 
 (deftest recordable-cofx-value-invalid-redacts-sensitive-value
-  (testing "EP-0017 / rf2-hdi6wr — a recordable cofx whose :schema marks a slot
+  (testing "EP-0017 — a recordable cofx whose :schema marks a slot
             {:sensitive? true} redacts the value-bearing slots through the
             shared `redact-validation-tags` seam: the trace's :value scrubs to
             :rf/redacted and :sensitive? true is stamped (never the raw secret)"
@@ -437,10 +435,10 @@
             "the value-bearing :value slot scrubbed to :rf/redacted — the raw
              {:token 42} never egressed off-box")))))
 
-;; ---- rf2-xp2o3 — fx-args validation (Spec 010 step 5) --------------------
+;; ---- fx-args validation (Spec 010 step 5) --------------------------------
 
 (deftest fx-args-validation-fires-and-skips-only-the-offending-fx
-  (testing "Per Spec 010 §step 5 (rf2-xp2o3): an fx whose args fail its :schema
+  (testing "Per Spec 010 §step 5: an fx whose args fail its :schema
             emits :rf.error/schema-validation-failure :where :fx-args; the
             offending fx is skipped, sibling fx in the same :fx vector
             continue to run (recovery: :skipped)"
@@ -473,7 +471,7 @@
             (is (= :my/notify (-> v :tags :schema-id)))
             (is (= :ui/announce (-> v :tags :event-id))
                 "the originating event-id threads through to the fx-args trace")
-            ;; rf2-9cm27 — the :frame tag must ride the trace so the
+            ;; The :frame tag must ride the trace so the
             ;; violation lands in the per-frame epoch :trace-events
             ;; (epoch/capture buffers only frame-tagged traces). The
             ;; dispatch ran on :rf/default.
@@ -550,22 +548,21 @@
           (is (= {:x "bad"} (-> v :tags :value)))
           (is (= {:x "bad"} (-> v :tags :received)))
           (is (= :skipped   (:recovery v)))
-          ;; rf2-9cm27 — a DIRECT call (4-arity, no frame) carries NO
+          ;; A DIRECT call (4-arity, no frame) carries NO
           ;; :frame tag. The runtime callers pass the in-flight frame via
           ;; the optional trailing arity; direct callers (probe, unit
           ;; tests) do not, exactly like validate-event!'s 3-arity.
           (is (not (contains? (:tags v) :frame))
               "direct 4-arity call emits no :frame (runtime callers supply it)"))))))
 
-;; ---- rf2-9cm27: fx / sub validation traces carry :frame ------------------
+;; ---- fx / sub validation traces carry :frame -----------------------------
 ;;
 ;; CORRECTNESS. validate-fx! / validate-sub! must stamp a :frame tag on their
 ;; :rf.error/schema-validation-failure trace — exactly like validate-event!
-;; (rf2-lo28u) and validate-app-schema! already do. (The cofx surface carries
+;; and validate-app-schema! do. (The cofx surface carries
 ;; :frame on the EP-0017 recordable path's :rf.error/cofx-value-invalid trace —
 ;; see recordable-cofx-value-invalid-attributes-named-frame below — not on a
-;; :where :cofx trace; the injection-time validate-cofx! path was retired with
-;; `inject-cofx`.) re-frame.epoch.capture/capture-event! buffers a trace into
+;; :where :cofx trace; there is no injection-time validate-cofx! path.) re-frame.epoch.capture/capture-event! buffers a trace into
 ;; the in-flight cascade ONLY when the trace's tags carry the cascade's
 ;; :frame; an untagged violation reaches the global trace stream but is
 ;; SILENTLY DROPPED from the per-frame epoch :trace-events, so the Xray Issues
@@ -580,7 +577,7 @@
 ;; schema-fires-only-on-the-frame-it-registers-against for :where :app-db).
 
 (deftest recordable-cofx-value-invalid-attributes-named-frame
-  (testing "EP-0017 (replaces rf2-9cm27 cofx case) — a recordable-cofx
+  (testing "EP-0017 — a recordable-cofx
             :schema failure on a NAMED frame stamps that frame's id on the
             :rf.error/cofx-value-invalid trace (not :rf/default), so the epoch
             capture buffers it into the right per-frame cascade."
@@ -603,7 +600,7 @@
             ":frame tag carries the named in-flight cascade frame")))))
 
 (deftest fx-args-validation-frame-tag-attributes-named-frame
-  (testing "rf2-9cm27 — an fx-args validation failure on a NAMED frame
+  (testing "an fx-args validation failure on a NAMED frame
             stamps that frame's id on the trace (not :rf/default)."
     (rf/make-frame {:id :test/fx-frame})
     (rf/reg-fx :probe/fx
@@ -621,7 +618,7 @@
             ":frame tag carries the named in-flight cascade frame")))))
 
 (deftest sub-return-validation-frame-tag-attributes-named-frame
-  (testing "rf2-9cm27 — a sub-return validation failure on a NAMED frame
+  (testing "a sub-return validation failure on a NAMED frame
             stamps the reaction's frame id on the trace (not :rf/default)."
     (rf/make-frame {:id :test/sub-frame})
     (rf/reg-event :probe/sub-break (fn [{:keys [db]} _] {:db (assoc db :items [1 2 3])})) ;; ints, not strings
@@ -640,18 +637,17 @@
         (is (= :test/sub-frame (-> v :tags :frame))
             ":frame tag carries the reaction's named frame")))))
 
-;; ---- G2 (rf2-rbbmt): direct-call shape for event / cofx / sub ------------
+;; ---- direct-call shape for event / sub -----------------------------------
 ;;
 ;; validate-fx! has a dedicated direct-invocation shape test above
-;; (fx-args-validation-direct-call-shape). The three sibling fns were
-;; exercised ONLY through live dispatch — no direct call asserting the
+;; (fx-args-validation-direct-call-shape). These pin the sibling fns'
 ;; boolean return contract (true on pass / false on fail / true on the
-;; no-`:schema` soft-pass arm at validate.cljc:250) plus the locked tag
-;; shape. These mirror the fx shape test for symmetry across the four
-;; meta-bearing wrappers.
+;; no-`:schema` soft-pass arm) plus the locked tag shape through a direct
+;; call rather than only through live dispatch, mirroring the fx shape
+;; test across the meta-bearing wrappers.
 
 (deftest event-payload-validation-direct-call-shape
-  (testing "rf2-rbbmt — validate-event! returns true on pass, false on
+  (testing "validate-event! returns true on pass, false on
             fail, true on the no-:schema soft-pass arm; emits the
             canonical :where :event trace with the locked tag shape"
     (with-trace-recorder! [traces]
@@ -662,7 +658,7 @@
                                            {:schema [:cat [:= :user/strict] :int]}))
           "malformed event vector fails")
       (is (true? (rf.schemas/validate-event! :user/strict [:user/strict "bad"] {}))
-          "no :schema on meta → soft pass (validate.cljc:250 true arm)")
+          "no :schema on meta → soft pass (the no-:schema true arm)")
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -677,15 +673,15 @@
           (is (= [:user/strict "bad"] (-> v :tags :received)))
           (is (= :no-recovery (:recovery v))))))))
 
-;; NB the cofx-validation-direct-call-shape test was REMOVED per rf2-nkf4l3:
-;; the injection-time `validate-cofx!` fn it pinned was retired (EP-0017). The
+;; There is no injection-time `validate-cofx!` (EP-0017), so there is no
+;; cofx direct-call shape test. The
 ;; live cofx schema contract is `re-frame.cofx/validate-recordable-value!` →
 ;; `:rf.error/cofx-value-invalid` (a production hard error), covered by
 ;; recordable-cofx-value-invalid-attributes-named-frame above and the cofx
 ;; satisfaction tests in the core artefact.
 
 (deftest sub-return-validation-direct-call-shape
-  (testing "rf2-rbbmt — validate-sub! returns true on pass, false on
+  (testing "validate-sub! returns true on pass, false on
             fail, true on the no-:schema soft-pass arm; emits the
             canonical :where :sub-return trace with the locked tag shape"
     (with-trace-recorder! [traces]
@@ -696,7 +692,7 @@
                                          {:schema [:vector :string]}))
           "malformed sub return fails")
       (is (true? (rf.schemas/validate-sub! :items [:items] [1 2] {}))
-          "no :schema on meta → soft pass (validate.cljc:250 true arm)")
+          "no :schema on meta → soft pass (the no-:schema true arm)")
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -711,16 +707,16 @@
           (is (= [1 2]        (-> v :tags :received)))
           (is (= :replaced-with-default (:recovery v))))))))
 
-;; ---- G3 (rf2-rbbmt): production-elision symmetry for sub ----------
+;; ---- production-elision symmetry for sub --------------------------------
 ;;
-;; debug-enabled?=false elision is pinned for app-db, event, and fx but NOT
-;; for validate-sub! (the cofx elision pin was removed with validate-cofx! per
-;; rf2-nkf4l3). The bodies share the outer `(if interop/debug-enabled? ... true)`
-;; gate, so a refactor of one wrapper that broke its gate would slip past the
-;; suite. This direct-call pin closes that asymmetry for the sub surface.
+;; debug-enabled?=false elision is pinned for app-db, event, and fx through
+;; the tests above; this direct-call pin covers validate-sub!. The bodies
+;; share the outer `(if interop/debug-enabled? ... true)` gate, so a
+;; refactor of one wrapper that broke its gate would otherwise slip past
+;; the suite.
 
 (deftest sub-return-validation-elides-when-debug-disabled
-  (testing "rf2-rbbmt — validate-sub! is a no-op (returns true, emits
+  (testing "validate-sub! is a no-op (returns true, emits
             nothing) when debug-enabled? is false (production)"
     (with-trace-recorder! [traces]
       (with-redefs [rf.interop/debug-enabled? false]
@@ -735,13 +731,13 @@
 
 (deftest fx-args-validation-redacts-when-sensitive
   (testing "validate-fx! consults the schema tree for `:sensitive?` props
-            (the fx-meta `:sensitive?` annotation has been removed); on
+            (there is no fx-meta `:sensitive?` annotation); on
             redaction it scrubs `:value`/`:received`/`:explain`/`:rf.fx/args`
-            and stamps `:sensitive? true`. Per rf2-4fbsd the earlier
-            `:malli-error` duplicate slot is gone."
+            and stamps `:sensitive? true`. There is no
+            `:malli-error` duplicate slot."
     (with-trace-recorder! [traces]
-      ;; Sensitivity is now path-marked on the schema slot (the handler/
-      ;; fx-meta `:sensitive?` annotation has been removed); a `:sensitive?
+      ;; Sensitivity is path-marked on the schema slot (there is no
+      ;; handler/fx-meta `:sensitive?` annotation); a `:sensitive?
       ;; true` prop on the failing slot's schema drives redaction.
       (is (false? (rf.schemas/validate-fx! :my/secret
                                         :ev/origin
@@ -753,7 +749,7 @@
         (is (= 1 (count violations)))
         (let [v (first violations)]
           ;; `:sensitive?` is hoisted from `:tags` to the top-level per
-          ;; Spec 009 §Trace-event field `:sensitive?` (rf2-isdwf).
+          ;; Spec 009 §Trace-event field `:sensitive?`.
           (is (true? (:sensitive? v))
               "top-level :sensitive? stamp consumers filter on")
           (is (= :rf/redacted (-> v :tags :value)))
@@ -761,7 +757,7 @@
           (is (= :rf/redacted (-> v :tags :rf.fx/args)))
           (is (= :rf/redacted (-> v :tags :explain)))
           (is (not (contains? (:tags v) :malli-error))
-              ":malli-error slot is gone (rf2-4fbsd)")
+              ":malli-error slot is absent")
           ;; Non-redacted slots survive redaction.
           (is (= :my/secret (-> v :tags :rf.fx/id)))
           (is (= :my/secret (-> v :tags :failing-id)))
@@ -778,9 +774,10 @@
 ;; ---- error projector → :rf/public-error mapping --------------------------
 
 (defn- default-error-projector
-  "The default projector contract per Spec 011 §Default projector. The
-  runtime-resident registry-backed projector isn't yet wired (rf2-6528),
-  but the mapping is locked. This fn implements the table verbatim so
+  "The default projector contract per Spec 011 §Default projector, as a
+  local table. The runtime's own default lives in the ssr artefact
+  (`re-frame.ssr/default-error-projector-fn`), which is not on this
+  artefact's classpath, so this fn implements the table verbatim and
   these tests pin the mapping contract.
 
   Returns the locked four-key public-error shape:
@@ -884,7 +881,7 @@
         (is (string? (:message public)))
         (is (boolean? (:retryable? public)))))))
 
-;; ---- rf2-xfa2 — frame-scoped app-db schemas ------------------------------
+;; ---- frame-scoped app-db schemas -----------------------------------------
 
 (deftest reg-app-schema-defaults-to-current-frame
   (testing "Per Spec 010 §Per-frame schemas — reg-app-schema with no opts
@@ -946,10 +943,10 @@
             ":frame tag carries the failing frame's id")))))
 
 (deftest app-schemas-answers-registration-metadata
-  (testing "rf2-kuky.84 — (app-schemas {:frame f}) answers
+  (testing "(app-schemas {:frame f}) answers
             {path → registration-metadata}, the same {id → meta} shape
             rf/registrations answers. The schema alone is the :schema
-            projection. The keyword-sugar arity is gone."
+            projection. The keyword-sugar arity is refused."
     (rf/make-frame {:id :test/k})
     (rf/reg-app-schema [:k] {:frame :test/k} [:int])
     (let [m (rf.schemas/app-schemas {:frame :test/k})]
@@ -962,7 +959,7 @@
                 (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
         "the keyword-sugar arity is refused")))
 
-;; ---- rf2-0z1z — app-schemas-digest --------------------------------------
+;; ---- app-schemas-digest -------------------------------------------------
 
 (deftest app-schemas-digest-is-canonical-wire-form
   (testing "Per Spec 010 §Digest algorithm — the digest is the literal
@@ -1031,7 +1028,7 @@
     (let [d (rf.schemas/app-schemas-digest {:frame :test/empty})]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d))
-      ;; rf2-rbbmt dedup D3 — the empty-set digest literal is single-
+      ;; The empty-set digest literal is single-
       ;; sourced from the parity fixtures (the namespace's own docstring
       ;; declares it the source of truth) rather than re-pinned here.
       (is (= (:expected rf.schemas.digest-parity-fixtures/empty-set) d)
@@ -1052,19 +1049,18 @@
            (rf.schemas/app-schemas-digest {:frame :test/o2}))
         "same schema set, different registration order → same digest")))
 
-;; ---- rf2-froe — the validator-install seam --------------------------------
+;; ---- the validator-install seam ------------------------------------------
 ;;
-;; Per Spec 010 §Non-Malli validators (rf2-froe) the validator and
+;; Per Spec 010 §Non-Malli validators the validator and
 ;; explainer fns are pluggable through `(set-schema-fns! {:validate ...})` /
 ;; `(set-schema-fns! {:explain ...})`. Default delegates to Malli; apps
-;; that want to drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle
-;; audit) substitute another fn (or `nil` for no-op).
+;; that want to drop the ~24 KB gzipped Malli surface substitute another
+;; fn (or `nil` for no-op).
 
 (deftest default-validator-delegates-to-malli
   (testing "Per Spec 010 §Non-Malli validators — out of the box the
             validator delegates to Malli; apps that never install a
-            validator of their own get the same behaviour they had
-            before the seam landed."
+            validator of their own get Malli validation."
     (rf/reg-app-schema [:n] [:int])
     (with-trace-recorder! [traces]
       ;; Malformed value triggers the default Malli validate to return
@@ -1100,12 +1096,11 @@
           (is (= "totally-bad" (-> violations first :tags :value))))))))
 
 (deftest nil-validator-disables-validation-on-every-surface
-  (testing "Per Spec 010 §Non-Malli validators (rf2-rbbmt dedup D1) —
+  (testing "Per Spec 010 §Non-Malli validators —
             installing an explicit nil `:validate` disables validation
             entirely; every meta-bearing validate-*! fn AND the app-db
             walker return true without inspecting the schema, and no
-            trace fires. Parameterised over the surfaces that previously
-            duplicated the no-op assertion as separate deftests."
+            trace fires. Parameterised over the surfaces."
     (rf.schemas/set-schema-fns! {:validate nil})
     (with-trace-recorder! [traces]
       (rf/reg-app-schema [:n] [:int])
@@ -1144,7 +1139,7 @@
             "no validation trace fires when validator is nil")))))
 
 (deftest set-schema-fns-bundle-installs-both-fns
-  (testing "Per Spec 010 §Non-Malli validators (rf2-13meg) — the bundle
+  (testing "Per Spec 010 §Non-Malli validators — the bundle
             setter set-schema-fns! installs validate and explain
             atomically. Apps that want a custom explainer alongside
             their custom validator use this form."
@@ -1167,7 +1162,7 @@
               "the trace's :explain key carries the custom explainer's output"))))))
 
 (deftest set-schema-fns-installs-all-three-atomically
-  (testing "rf2-13meg — the honest bundle setter set-schema-fns! installs
+  (testing "the bundle setter set-schema-fns! installs
             validator, explainer, AND printer in one atomic call. The
             name says it sets the whole schema-language-fn bundle, not
             just the validator."
@@ -1182,7 +1177,7 @@
           "printer reaches the hot path"))))
 
 (deftest a-validate-only-install-leaves-explainer-and-printer-untouched
-  (testing "rf2-13meg / rf2-kuky.39 — an install writes ONLY the keys it
+  (testing "an install writes ONLY the keys it
             carries. `{:validate f}` swaps the validator and leaves the
             explainer and printer at their defaults, which is what makes
             a per-fn setter unnecessary: the subset IS the single-purpose
@@ -1214,7 +1209,7 @@
           (is (= {:custom-said "broken"} (-> v :tags :explain))))))))
 
 (deftest nil-explainer-fires-trace-with-nil-explain
-  (testing "rf2-ynjts.12 — when the installed `:explain` is nil, the
+  (testing "when the installed `:explain` is nil, the
             VALIDATOR still catches failures and the trace still fires;
             run-explainer's nil arm returns nil so the trace's :explain
             slot is nil (the explainer seam is independent of the
@@ -1254,8 +1249,8 @@
 
 (deftest installing-default-schema-fns-restores-defaults
   (testing "`(set-schema-fns! default-schema-fns)` brings the framework
-            default back — the whole of what a reset verb used to do, as
-            an ordinary install of a public value. After it, the default
+            default back — an ordinary install of a public value, with
+            no separate reset verb. After it, the default
             Malli behaviour resumes."
     ;; Install a sabotage validator: passes everything (so a known-bad
     ;; value would slip past).
@@ -1276,10 +1271,10 @@
           "default Malli validator is back in place — bad value catches"))))
 
 (deftest validate-with-registered-fn-bypasses-debug-gate
-  (testing "Per rf2-r2uh integration — validate-with-registered-fn is the
-            public seam the boundary-validation interceptor will call. It
-            does NOT consult interop/debug-enabled? (the boundary
-            interceptor runs in production by design); it routes through
+  (testing "validate-with-registered-fn is the public seam the boundary
+            arm calls (through the `:schemas/validate-with-registered-fn`
+            late-bind hook). It does NOT consult interop/debug-enabled?
+            (the boundary arm runs in production by design); it routes through
             the registered validator the same way the dev hot path does."
     (rf.schemas/set-schema-fns! {:validate (fn [_ v] (= v :good))})
     (with-redefs [rf.interop/debug-enabled? false]
@@ -1296,9 +1291,9 @@
       (is (= my-fn @rf.schemas.validator/validator-fn)
           "the atom carries the fn the user registered"))))
 
-;; ---- rf2-pk8ur — the `:print` public-surface contract ---------------------
+;; ---- the `:print` public-surface contract --------------------------------
 ;;
-;; Per Spec 010 §Schema digest line 491 (rf2-wla45) the printer fn is the
+;; Per Spec 010 §Schema digest the printer fn is the
 ;; third leg of the validator-surface seam: substitute-Malli ports register
 ;; their own (validate, explain, print) triple so the digest reflects the
 ;; port's own serialisation contract rather than the framework's Malli-EDN
@@ -1308,12 +1303,11 @@
 ;; This file pins the PUBLIC-SURFACE contract: a `:print` install on the
 ;; public `re-frame.schemas` door reaches the artefact's printer atom +
 ;; run-printer hot path + digest pipeline. Parallel to `validator-set-via-
-;; public-api-is-visible-on-schemas-ns` above; closes the rf2-kp835 Phase-1
-;; audit gap (the public symbol had no end-to-end caller exercising the
-;; wiring).
+;; public-api-is-visible-on-schemas-ns` above, so the public symbol has an
+;; end-to-end caller exercising the wiring.
 
 (deftest printer-set-via-public-api-is-visible-on-schemas-ns
-  (testing "rf2-pk8ur — a `:print` install on the public door reaches the
+  (testing "a `:print` install on the public door reaches the
             schemas artefact's printer-fn atom. Parallels the `:validate`
             and `:explain` end-to-end pins above."
     (let [my-fn (fn [_schema-value] "::PUBLIC-SURFACE::")]
@@ -1324,12 +1318,11 @@
           "run-printer's hot path reaches the public-surface registration"))))
 
 (deftest printer-set-via-public-api-flips-digest-bytes
-  (testing "rf2-pk8ur — the canonical end-to-end use of the public surface:
+  (testing "the canonical end-to-end use of the public surface:
             a custom printer registered through the `:print` key changes
             the digest pipeline's output. This is what a non-Malli port
-            (a Zod port, a clojure.spec port) does at boot — and what the
-            existing 0-caller audit on the public symbol failed to
-            exercise. Spec 010 §Schema digest line 491: 'two ports using
+            (a Zod port, a clojure.spec port) does at boot. Spec 010
+            §Schema digest: 'two ports using
             different schema languages produce different digests by
             construction'."
     (rf/reg-app-schema [:n] :int)
@@ -1344,7 +1337,7 @@
              are what the digest pipeline hashes")))))
 
 (deftest printer-set-via-public-api-nil-restores-default
-  (testing "rf2-pk8ur — installing a nil `:print` on the public door
+  (testing "installing a nil `:print` on the public door
             reinstalls the default EDN canonicaliser. The digest is
             never undefined for a present schema set, even after a
             port-specific printer has been registered and then
@@ -1357,7 +1350,7 @@
         "nil through the public surface falls back to default-edn-print")))
 
 (deftest printer-set-via-public-set-schema-fns-installs-printer
-  (testing "rf2-pk8ur + rf2-13meg — the public rf/set-schema-fns! bundle
+  (testing "the public rf/set-schema-fns! bundle
             setter installs a `:print` printer alongside `:validate` /
             `:explain` atomically. End-to-end pin of the documented
             one-call substitute-Malli boot pattern via the public surface."
@@ -1371,21 +1364,16 @@
       (is (= "::FROM-PUBLIC-BUNDLE::" (rf.schemas.validator/run-printer :int))
           "the printer installed via the bundle setter reaches the hot path"))))
 
-;; ---- rf2-l4ljvr / rf2-kuky.39 — capture and reinstate a bundle -----------
+;; ---- capture and reinstate a bundle --------------------------------------
 ;;
 ;; The validator/explainer/printer BUNDLE companion to the registry's
 ;; snapshot-schemas-by-frame / restore-schemas-by-frame! (tested below).
-;; rf2-l4ljvr first closed the asymmetry — before it there was only a verb
-;; that restored the framework DEFAULT, so a test wanting to capture a
-;; custom bundle and later reinstate it hand-rolled the read from raw
-;; `@validator-fn` derefs (the routing/ssr/ssr-ring `with-stub-validator`
-;; fixtures). rf2-kuky.39 then dropped the dedicated snapshot/restore verbs:
 ;; `schema-fns` is the read, `set-schema-fns!` is the install, and the pair
 ;; round-trips, so capture-and-reinstate is a `let` over a value and
-;; consumers still never touch the raw atoms.
+;; consumers never touch the raw atoms (`@validator-fn`).
 
 (deftest schema-fns-captures-live-bundle
-  (testing "rf2-l4ljvr — `schema-fns` returns the live
+  (testing "`schema-fns` returns the live
             validator/explainer/printer triple in set-schema-fns! shape"
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:explained true})
@@ -1399,7 +1387,7 @@
         (is (= p-fn (:print snap))    "captures the live printer")))))
 
 (deftest installing-a-captured-bundle-reinstates-it
-  (testing "rf2-l4ljvr — a captured bundle faithfully round-trips through
+  (testing "a captured bundle faithfully round-trips through
             the installer: read a custom bundle, mutate to a different one,
             install the captured value and it is reinstated (all three fns
             + the run-printer hot path)"
@@ -1426,7 +1414,7 @@
               "the install returns the bundle it installed"))))))
 
 (deftest installing-a-bundle-with-nil-print-coerces-to-default
-  (testing "rf2-l4ljvr + rf2-ee38b.6 — installing a bundle whose :print is
+  (testing "installing a bundle whose :print is
             nil coerces it to default-edn-print (the printer-never-nil
             invariant run-printer relies on)"
     ;; A hand-built bundle with an explicit nil :print (`schema-fns`
@@ -1440,7 +1428,7 @@
         "run-printer reaches the default EDN canonicaliser, no read-site guard")))
 
 (deftest snapshot-restore-bundle-composes-with-registry-pair
-  (testing "rf2-l4ljvr — the bundle snapshot/restore pair composes with
+  (testing "the bundle snapshot/restore pair composes with
             the registry snapshot/restore pair: capturing+restoring BOTH
             reinstates the whole schema runtime (per-frame registry AND the
             pluggable bundle) through the encapsulated API, no raw atoms"
@@ -1466,14 +1454,14 @@
         (is (= [:int] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:n]})))
             "registry schema restored — the two pairs compose")))))
 
-;; ---- rf2-kuky.39 — the validator port as a value --------------------------
+;; ---- the validator port as a value ---------------------------------------
 ;;
 ;; Three names carry the whole port: `set-schema-fns!` installs,
 ;; `schema-fns` reads, `default-schema-fns` is the framework's own bundle.
-;; These pin the properties that let the other six names go.
+;; These pin the properties that make three names enough.
 
 (deftest default-schema-fns-is-a-plain-three-key-bundle
-  (testing "rf2-kuky.39 — `default-schema-fns` is an ordinary map carrying
+  (testing "`default-schema-fns` is an ordinary map carrying
             exactly the three keys the installer accepts, so it can be
             passed straight back to `set-schema-fns!` and destructured by
             a port that wants to wrap one of the defaults."
@@ -1484,7 +1472,7 @@
         "every default is a callable fn; the framework default never nils a key")))
 
 (deftest installing-default-schema-fns-restores-using-default-validator?
-  (testing "rf2-kuky.39 — `using-default-validator?` (the
+  (testing "`using-default-validator?` (the
             :rf.warning/schema-validator-unavailable discriminator) answers
             true again after installing `default-schema-fns`, because the
             value carries the SAME fn objects the atoms were seeded with.
@@ -1499,7 +1487,7 @@
         "installing the defaults value restores the identity, not just the shape")))
 
 (deftest an-omitted-key-differs-from-an-explicit-nil
-  (testing "rf2-kuky.39 — the distinction the installer is built on: an
+  (testing "the distinction the installer is built on: an
             OMITTED key leaves the live registration alone, while an
             EXPLICIT nil writes nil (disabling that fn). Collapsing the two
             would make a partial install unsafe."
@@ -1518,7 +1506,7 @@
           "an explicit nil :validate disables validation"))))
 
 (deftest schema-fns-round-trips-through-the-installer
-  (testing "rf2-kuky.39 — `(set-schema-fns! (schema-fns))` is a no-op, which
+  (testing "`(set-schema-fns! (schema-fns))` is a no-op, which
             is what makes let + finally the whole of test isolation."
     (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
                                  :explain  nil
@@ -1529,11 +1517,11 @@
       (is (= before (rf.schemas/schema-fns))
           "and leaves the live state untouched"))))
 
-;; ---- rf2-r2uh / rf2-kuky.64 - the `:boundary? true` production arm -------
+;; ---- the `:boundary? true` production arm --------------------------------
 ;;
 ;; Per Spec 010 SS-Production builds - `:boundary? true` keeps a handler's own
 ;; `:schema` check alive in production builds, where dev-time validation has
-;; been elided. It re-uses the dev-time validator seam (rf2-froe) so a
+;; been elided. It re-uses the dev-time validator seam so a
 ;; substituted validator covers both surfaces with one registration.
 ;;
 ;; The dev/prod gate is `re-frame.spec/dev-mode?` - a fn wrapping
@@ -1546,13 +1534,12 @@
 ;; In genuine `:advanced` + `goog.DEBUG=false` production both flags resolve to
 ;; false together: the boundary validates, but the trace surface elides - so
 ;; the handler-skip is silent. The tests below are JVM tests that decouple the
-;; two flags to make the emission observable. rf2-kuky.64 moved the check off
-;; the interceptor chain and onto the step-1 site, so these tests now drive it
-;; through an ORDINARY DISPATCH rather than by invoking an interceptor's
-;; `:before` directly - the production arm IS step 1.
+;; two flags to make the emission observable. The check sits at the step-1
+;; site rather than on the interceptor chain, so these tests drive it
+;; through an ORDINARY DISPATCH - the production arm IS step 1.
 
 (deftest boundary-flag-passes-valid-event-through
-  (testing "Per Spec 010 SS-Production builds (rf2-r2uh) - a valid event
+  (testing "Per Spec 010 SS-Production builds - a valid event
             against the handler's :schema passes through, the handler runs."
     (let [calls (atom 0)]
       (rf/reg-event :api/response
@@ -1572,7 +1559,7 @@
             "no validation-failure trace fired for the valid payload")))))
 
 (deftest boundary-flag-skips-handler-on-invalid-event
-  (testing "Per Spec 010 SS-Production builds (rf2-r2uh) - an invalid event
+  (testing "Per Spec 010 SS-Production builds - an invalid event
             against the handler's :schema causes the handler to be skipped,
             in a production build as in a dev one."
     (let [calls (atom 0)]
@@ -1589,15 +1576,12 @@
           "handler was skipped on the malformed payload"))))
 
 (deftest boundary-flag-emits-failure-trace-with-source-tag
-  (testing "Per Spec 010 L149 - the boundary failure trace flows through the
+  (testing "Per Spec 010 SS-Production builds - the boundary failure trace flows through the
             same `:rf.error/schema-validation-failure :where :event` path as
             dev-mode step-1 failures, and carries `:source :boundary` so
             consumers can distinguish the two emissions.
 
-            rf2-kuky.64: this is now observable through an ORDINARY DISPATCH.
-            The old ref form validated at its chain position, which the
-            router's step-1 short-circuit could pre-empt, so the shape had to
-            be asserted by invoking the interceptor's `:before` by hand. The
+            This is observable through an ORDINARY DISPATCH: the
             flag IS step 1, so the dispatch path reaches the emit body."
     (rf/reg-event :api/strict
       {:schema    [:cat [:= :api/strict] :int]
@@ -1615,7 +1599,7 @@
             "exactly one schema-validation-failure trace fired from the boundary path")
         (let [v (first violations)]
           (is (= :event (-> v :tags :where))
-              ":where is :event - same path as dev-mode step-1 failures (Spec 010 L149)")
+              ":where is :event - same path as dev-mode step-1 failures (Spec 010 SS-Production builds)")
           (is (= :api/strict (-> v :tags :event-id))
               ":event-id names the boundary-validated handler")
           (is (= :api/strict (-> v :tags :failing-id)))
@@ -1627,7 +1611,7 @@
           (is (= [:api/strict "not-an-int"] (-> v :tags :value))
               ":value mirrors :received per Spec 010 SS-`:sensitive?`")
           (is (not (contains? (:tags v) :event))
-              ":event slot is gone (rf2-4fbsd) - consumers reach for :received")
+              ":event slot is absent - consumers reach for :received")
           (is (string? (-> v :tags :reason))
               ":reason carries a human-readable explanation per Spec 009 SS-Style rubric")
           (is (= :no-recovery (:recovery v))
@@ -1638,7 +1622,7 @@
             returns the step-1 verdict: truthy to run the handler, false to
             skip it. `run-chain` turns a false into `:rf/skip-handler?` plus
             `:rf/boundary-rejected?`, which is the recovery the dev-mode
-            step-1 path already used, so the boundary failure carries through
+            step-1 path uses, so the boundary failure carries through
             with no additional plumbing."
     (rf/reg-event :api/strict
       {:schema    [:cat [:= :api/strict] :int]
@@ -1654,10 +1638,10 @@
             "a non-conforming event skips the handler")))))
 
 (deftest boundary-flag-is-a-no-op-for-unflagged-handlers
-  (testing "Per rf2-kuky.64 - the production arm reads ONE map key per
+  (testing "the production arm reads ONE map key per
             dispatch and falls straight through for a handler that did not
             declare `:boundary? true`, even when that handler carries a
-            `:schema` a production build no longer checks."
+            `:schema` a production build does not check."
     (let [calls (atom 0)]
       (rf/reg-event :api/unflagged
         {:schema [:cat [:= :api/unflagged] :int]}
@@ -1668,11 +1652,11 @@
           "an unflagged handler's :schema is a dev-only diagnostic and does not run here"))))
 
 (deftest boundary-flag-honours-custom-validator
-  (testing "Per Spec 010 SS-Boundary-validation seam (rf2-froe + rf2-r2uh) -
+  (testing "Per Spec 010 SS-Boundary-validation seam -
             the boundary arm routes through the registered validator the same
             way the dev-time hot path does. A substituted validator covers
             both surfaces with one registration, and it is called EXACTLY
-            ONCE per dispatch (rf2-kuky.64: one check, one site)."
+            ONCE per dispatch (one check, one site)."
     (let [validator-calls (atom 0)
           custom (fn [_schema value]
                    (swap! validator-calls inc)
@@ -1719,7 +1703,7 @@
             "no boundary-emitted validation trace fires when the validator is nil")))))
 
 (deftest boundary-flag-fails-closed-on-a-throwing-validator
-  (testing "Per rf2-a5kzs / rf2-gro94 - a validator that THROWS is a REFUSAL,
+  (testing "a validator that THROWS is a REFUSAL,
             never a pass. The flag exists to gate untrusted system-boundary
             payloads, so coercing the throw into a pass would run the handler
             on an unvalidated one. The router does not route the boundary arm
@@ -1738,7 +1722,7 @@
           "a throwing validator SKIPS the handler - fail closed"))))
 
 (deftest boundary-flag-throwing-explainer-leaves-the-verdict-standing
-  (testing "Per rf2-kuky.64 - the EXPLAINER is diagnosis, not verdict. When it
+  (testing "the EXPLAINER is diagnosis, not verdict. When it
             throws, the refusal stands and only the `:explain` tag is lost."
     (rf.schemas/set-schema-fns!
       {:validate (fn [_ _] false)
@@ -1762,7 +1746,7 @@
               "the diagnosis is what was lost, not the verdict"))))))
 
 (deftest boundary-flag-nil-schema-token-is-delegated-verbatim
-  (testing "Per rf2-6eh5h - `{:schema nil :boundary? true}` registers (KEY
+  (testing "`{:schema nil :boundary? true}` registers (KEY
             presence, not truthiness) and the nil token is handed to the
             backend as an opaque value rather than read as nothing-to-check.
             Reading it as a no-op would run the handler UNGUARDED on exactly
@@ -1780,10 +1764,10 @@
           "the nil token reached the backend verbatim"))))
 
 (deftest boundary-flag-is-not-removable-by-interceptor-overrides
-  (testing "Per rf2-kuky.64 - the check is no longer a chain entry, so
-            `:interceptor-overrides` cannot remove it. Before the flag,
-            `{:interceptor-overrides {<the ref> nil}}` silently disarmed the
-            production check while leaving dev refusing - the two builds
+  (testing "the check is not a chain entry, so
+            `:interceptor-overrides` cannot remove it. As a chain entry,
+            `{:interceptor-overrides {<the ref> nil}}` would silently disarm
+            the production check while leaving dev refusing - the two builds
             disagreeing about whether the gate existed at all."
     (let [calls (atom 0)]
       (rf/reg-event :api/override-probe
@@ -1797,7 +1781,7 @@
           "the boundary check still refused - no override reaches it"))))
 
 (deftest boundary-flag-noop-in-dev-mode
-  (testing "Per Spec 010 L145 - in dev builds (dev-mode? true) every handler's
+  (testing "Per Spec 010 SS-Production builds - in dev builds (dev-mode? true) every handler's
             `:schema` is checked anyway, so the boundary arm is never reached
             and emits nothing of its own. The refusal is the ordinary
             dev-mode step-1 refusal."
@@ -1817,13 +1801,12 @@
               "no boundary-tagged trace fired - only the dev-mode step-1 trace ran"))))))
 
 (deftest dev-and-prod-agree-under-an-event-transforming-interceptor
-  (testing "Per rf2-kuky.40 - THE reason the flag replaced the chain ref. The
-            old ref validated `(get-coeffect ctx :event)` at its own chain
-            position, AFTER any interceptor that had rewritten the event, and
-            re-derived the handler id from that rewritten value. Dev validated
-            the ORIGINAL vector at step 1. An event-transforming interceptor
-            therefore made the two builds check different values against
-            possibly different schemas.
+  (testing "a chain entry would validate `(get-coeffect ctx :event)` at its
+            own chain position, AFTER any interceptor that had rewritten the
+            event, and re-derive the handler id from that rewritten value,
+            while dev validates the ORIGINAL vector at step 1 - so an
+            event-transforming interceptor would make the two builds check
+            different values against possibly different schemas.
 
             The flag checks the ORIGINAL dispatched vector against the
             ALREADY-RESOLVED handler's `:schema` at step 1 in BOTH builds, so
@@ -1859,12 +1842,11 @@
               "dev and prod both refused the non-conforming original"))))))
 
 (deftest boundary-without-schema-rejected-at-registration
-  (testing "Per Spec 010 SS-Production builds + rf2-iftj4 - a registration
+  (testing "Per Spec 010 SS-Production builds - a registration
             declaring `:boundary? true` but carrying no `:schema` metadata is
             rejected at registration time with
-            `:rf.error/at-boundary-missing-schema`. Pre-rf2-iftj4 the warning
-            fired at first dispatch in production builds only; now the
-            misconfiguration surfaces immediately regardless of dev/prod gate."
+            `:rf.error/at-boundary-missing-schema`, so the misconfiguration
+            surfaces immediately regardless of dev/prod gate."
     (testing ":boundary? true without :schema"
       (let [calls (atom 0)]
         (is (thrown-with-msg?
@@ -1931,9 +1913,9 @@
                (fn [_ _] {})))
           "metadata-map without :schema is fine when :boundary? is absent"))))
 
-;; ---- snapshot / restore / clear schemas-by-frame (rf2-6lka) --------------
+;; ---- snapshot / restore / clear schemas-by-frame -------------------------
 ;;
-;; Per Spec 010 / rf2-h96i and schemas.cljc:748: the per-frame schema
+;; Per Spec 010: the per-frame schema
 ;; registry is fixture-friendly via three test-support hooks:
 ;;
 ;;   (schemas/snapshot-schemas-by-frame)  ;; capture current state
@@ -2016,7 +1998,7 @@
       (is (= {} @rf.schemas.storage/schemas-by-frame)
           "restore replaced the atom — the transient schemas are gone, not merged"))))
 
-;; ---- rf/reg-app-schemas (plural, rf2-jzs9) -------------------------------
+;; ---- rf/reg-app-schemas (plural) -----------------------------------------
 
 (deftest reg-app-schemas-bulk-registers-map
   (testing "rf/reg-app-schemas registers every entry in the supplied {path -> schema} map"
@@ -2061,17 +2043,18 @@
       (is (= {} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema))
           "no schemas registered on the active frame"))))
 
-;; ---- rf2-naihn1 #2 — bulk-input false-green --------------------------------
+;; ---- bulk-input false-green ----------------------------------------------
 ;;
-;; THE BUG (pre-fix): `reg-app-schemas` never checked that its first
-;; argument is a `{path -> schema}` map. In Clojure `(keys nil)` is `nil`
-;; and iterating `nil`/non-maps yields no entries, so `(reg-app-schemas
-;; nil)` ran the up-front path sweep as a no-op, registered nothing, and
-;; returned `[]` — INDISTINGUISHABLE from the documented `{}` no-op. A
-;; boot/config/schema-loader bug passing `nil` (or any non-map) got a
-;; FALSE GREEN: schema enforcement silently disabled for the whole batch.
+;; Without a check that its first argument is a `{path -> schema}` map,
+;; `reg-app-schemas` would treat nil as empty: in Clojure `(keys nil)` is
+;; `nil` and iterating `nil`/non-maps yields no entries, so
+;; `(reg-app-schemas nil)` would run the up-front path sweep as a no-op,
+;; register nothing, and return `[]` — INDISTINGUISHABLE from the
+;; documented `{}` no-op. A boot/config/schema-loader bug passing `nil` (or
+;; any non-map) would get a FALSE GREEN: schema enforcement silently
+;; disabled for the whole batch.
 ;;
-;; THE FIX: reject nil / non-map FIRST, before any store mutation, with
+;; So nil / non-map is rejected FIRST, before any store mutation, with
 ;; the explicit error id `:rf.error/app-schemas-bad-batch`. `{}` stays
 ;; the documented empty no-op (covered by the test above).
 ;;
@@ -2080,15 +2063,15 @@
 ;; truly atomic-reject, not half-applied.
 
 (deftest reg-app-schemas-rejects-nil-batch
-  ;; rf2-naihn1 #2 — the load-bearing regression: pre-fix `(reg-app-schemas
-  ;; nil)` returned `[]` (false green); post-fix it MUST throw.
+  ;; The load-bearing case: `(reg-app-schemas nil)` MUST throw rather than
+  ;; return `[]` (a false green).
   (testing "rf/reg-app-schemas rejects a nil first argument (not a silent no-op)"
     (let [before @rf.schemas.storage/schemas-by-frame]
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo #":rf.error/app-schemas-bad-batch"
             (rf/reg-app-schemas nil))
           (str "nil batch must reject with :rf.error/app-schemas-bad-batch, "
-               "not silently no-op to [] (the false-green this bead fixes)"))
+               "not silently no-op to [] (a false green)"))
       (is (= before @rf.schemas.storage/schemas-by-frame)
           (str "negative control: a rejected nil batch must NOT mutate the "
                "schema registry (throw fires before any swap!)")))))
@@ -2105,9 +2088,9 @@
           "ex-data echoes the rejected first argument"))))
 
 (deftest reg-app-schemas-rejects-non-map-batches
-  ;; Representative non-map first arguments. Each previously iterated to
-  ;; zero entries and returned [] (or, for a seq-of-pairs, would have
-  ;; attempted to register garbage); all must now atomically reject.
+  ;; Representative non-map first arguments. Each would iterate to zero
+  ;; entries and return [] (or, for a seq-of-pairs, attempt to register
+  ;; garbage); all must atomically reject.
   (testing "rf/reg-app-schemas rejects representative non-map first arguments"
     (doseq [bad [[]                          ; empty vector
                  [[:a] :int]                 ; flat vector that LOOKS like one entry
@@ -2127,21 +2110,21 @@
                    " must NOT mutate the schema registry")))))))
 
 (deftest reg-app-schemas-empty-map-still-no-op-post-fix
-  ;; Pin that the fix did NOT regress the documented `{}` no-op: the
-  ;; empty map is a map, so it passes the new shape gate and returns [].
+  ;; Pin the documented `{}` no-op: the empty map is a map, so it
+  ;; passes the shape gate and returns [].
   (testing "rf/reg-app-schemas {} remains the documented no-op returning []"
     (is (= [] (rf/reg-app-schemas {})))
     (is (= {} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema)))))
 
-;; ---- rf2-ieu0i — :schema canonical ---------------------------------------
+;; ---- :schema canonical --------------------------------------------------
 ;;
-;; Per Mike's decision at rf2-ieu0i the framework collapses the dual
-;; vocabulary (`:spec` / `schema` / `validation` / `violation`) under a
-;; single name — `:schema`. Alpha posture: no back-compat shims, no
-;; deprecation aliases. v1→v2 rename is recorded in MIGRATION §M-54.
+;; The framework uses a single name — `:schema` — where a dual
+;; vocabulary (`:spec` / `schema` / `validation` / `violation`) would
+;; otherwise sit. Alpha posture: no back-compat shims, no deprecation
+;; aliases. The v1→v2 rename is recorded in MIGRATION §M-54.
 
 (deftest boundary-arm-reads-schema-key
-  (testing "rf2-ieu0i — the boundary arm reads the canonical `:schema` key,
+  (testing "the boundary arm reads the canonical `:schema` key,
             never a parallel one."
     (rf/reg-event :api/schema-key
       {:schema    [:cat [:= :api/schema-key] :int]
