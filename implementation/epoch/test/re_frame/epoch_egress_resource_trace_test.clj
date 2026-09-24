@@ -1933,56 +1933,56 @@
 ;; through `[:dispatch <ev>]`. So this rides `:rf.fx/args` and `:rf.event/fx`:
 ;;
 ;;   {:status       :ok
-;;    :value        <DECODED RESPONSE BODY>      ← the leak
-;;    :params       <canonical params>           ← the leak
-;;    :scope        <resolved scope>             ← closed by rf2-425mm
-;;    :resource/key <scoped-key>                 ← closed by rf2-1kiuj
+;;    :value        <DECODED RESPONSE BODY>      ← owner payload
+;;    :params       <canonical params>           ← owner payload
+;;    :scope        <resolved scope>             ← the section above
+;;    :resource/key <scoped-key>                 ← the embedded-key walk
 ;;    :resource     <resource-id>
 ;;    :cache-hit?   <bool>
 ;;    :rf.reply/work-id …, :correlation {…}, …}
 ;;
-;; `project-embedded-keys` recognised the `:resource/key`, the key embedded in
+;; `project-embedded-keys` recognises the `:resource/key`, the key embedded in
 ;; the `:rf.reply/work-id`, the `:correlation`'s `:rf.reply/resource-key`, and
-;; (rf2-425mm) the free `:scope`. `:value` and `:params` are ordinary maps, so
-;; the walk descended them and let the owner's decoded body through in the
-;; clear — one slot from the `:resource/key` that had just redacted the very
-;; same params.
+;; the free `:scope`. `:value` and `:params` are ordinary maps, so a walk that
+;; only descended them would let the owner's decoded body through in the
+;; clear — one slot from the `:resource/key` that redacts the very same
+;; params.
 ;;
-;; WHY THIS ONE IS OWNER-CONDITIONAL AND `:scope` IS NOT. The `:scope` arm
-;; §(rf2-425mm) added fires unconditionally, because the family's own rows
-;; classify a free `:scope` unconditionally (rf2-1zc33) and the two carriers of
+;; WHY THIS ONE IS OWNER-CONDITIONAL AND `:scope` IS NOT. The `:scope` arm of
+;; the section above fires unconditionally, because the family's own rows
+;; classify a free `:scope` unconditionally and the two carriers of
 ;; one scope must agree. `:value` and `:params` are the opposite case twice
 ;; over. They belong to a NAMED owner whose `:resource/key` sits one slot away,
 ;; and the family's own rows tokenize that owner's params IFF
 ;; `whole-entry-disposition` is non-`:serialize` — so an unconditional arm would
-;; redact a PLAIN resource's reply, the over-redaction rf2-1kiuj rejected. And
+;; redact a PLAIN resource's reply: over-redaction. And
 ;; `:params` / `:value` are words the FX FAMILY uses for its own data: an app's
 ;; managed-HTTP args carry `{:request {… :params {…}}}` and
 ;; `[:rf.resource/commit-generation {:value 1}]` rides the same effect vector,
 ;; neither of which the resource family may touch. The sibling `:resource/key`
 ;; is what makes the two names safe to read — it says the map is a resource
-;; reply and names whose. `row-owner-redacts?` (the load-more cursor's read,
-;; rf2-3tysyj) already answers exactly that question, one carrier out.
+;; reply and names whose. `row-owner-redacts?` (the load-more cursor's read)
+;; answers exactly that question, one carrier out.
 ;;
 ;; READS AND MUTATIONS DIFFER HERE, and the difference is the reason this arm
-;; keys on the sibling where rf2-425mm's could not. The mutation `:reply-to`
+;; keys on the sibling where the `:scope` arm cannot. The mutation `:reply-to`
 ;; (`mutation_events/continuation-reply`) carries `:params` / `:value` with NO
 ;; `:resource/key` beside them, so this arm does not fire on it. It does not
 ;; need to: both mutation settle sites wrap their reply in
 ;; `classification/redact-continuation-reply`, which applies the mutation's own
 ;; projection-relative `:sensitive` / `:large` declarations at the SOURCE,
-;; before the reply reaches any carrier (rf2-825mzj). The read reply has no
+;; before the reply reaches any carrier. The read reply has no
 ;; such source-side redaction and must not: the coarse `:sensitive?` claim
 ;; governs OFF-BOX egress, not in-process delivery — the app's own continuation
-;; handler is entitled to the decoded body, and `:rf.egress/include-sensitive?` must still
+;; handler is entitled to the decoded body, and `:rf.egress/include-sensitive?` must
 ;; show it. Hence the egress projector, and hence the owner gate.
 
 (def ^:private reply-params
-  "The canonical params of the read whose continuation leaks — SECRET-bearing,
-  because `:params` is one of the two slots this section owns. Safe to carry
-  the secret: `:derived/profile`'s request fn does not echo its params into the
-  request map (the app's own request is the FX family's data and rides
-  untouched by design — rf2-1kiuj)."
+  "The canonical params of the read whose continuation the scans watch —
+  SECRET-bearing, because `:params` is one of the two slots this section owns.
+  Safe to carry the secret: `:derived/profile`'s request fn does not echo its
+  params into the request map (the app's own request is the FX family's data
+  and rides untouched by design)."
   {:slug secret})
 
 (def ^:private reply-value
@@ -2068,12 +2068,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest real-reply-to-read-leaks-no-decoded-body-into-fx-carriers
-  (testing "rf2-xx4ty — `project-egress` over the records a REAL
+  (testing "`project-egress` over the records a REAL
             `[:rf.resource/ensure … :reply-to …]` settles for a `:sensitive?`
             resource must carry the decoded response body and the canonical
-            params at ZERO paths, on BOTH continuation paths. Before the repair
-            each carried them at four: `:value` and `:params` under
-            `:rf.fx/args`, and again under `:rf.event/fx`."
+            params at ZERO of the four paths each rides, on BOTH continuation
+            paths: `:value` and `:params` under `:rf.fx/args`, and again under
+            `:rf.event/fx`."
     (let [records (drive-reply-to-read! :derived/profile)]
       (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
         (testing label
@@ -2096,8 +2096,8 @@
             (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
                       record"
               (is (= [] (carrier-leak-paths projected))
-                  "every leaking path is named here; before the repair this
-                   printed the [:trace-events n :tags :rf.fx/args 1 :value :email]
+                  "every leaking path is named here — a failure prints
+                   [:trace-events n :tags :rf.fx/args 1 :value :email]
                    and :params :slug shapes, once per carrier"))
 
             (testing "and each reply's payload is TOKENIZED, not merely absent"
@@ -2108,8 +2108,8 @@
                           (carrier-replies projected))
                   "both slots are opaque content-addressed tokens"))
 
-            (testing "the whole reply still reads as a reply — attribution and
-                      the sibling slots the earlier repairs own"
+            (testing "the whole reply reads as a reply — attribution and
+                      the sibling slots the other arms own"
               (let [r (first (carrier-replies projected))]
                 (is (= :derived/profile (:resource r))
                     "the resource id rides verbatim")
@@ -2117,11 +2117,11 @@
                     "and the cache-hit disposition, so a tool still reads how it settled")
                 (is (= :ok (:status r)) "and the status")
                 (is (redacted-component? (first (:resource/key r)))
-                    "rf2-1kiuj — the sibling key's scope component is still tokenized")
+                    "the sibling key's scope component is tokenized")
                 (is (= :derived/profile (second (:resource/key r)))
                     "with its resource-id intact for attribution")
                 (is (tokenized-scope? (:scope r))
-                    "rf2-425mm — and the free :scope beside it")))))))))
+                    "and the free :scope beside it")))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) the same shape assembled — deterministic, and it names the four paths
@@ -2170,7 +2170,7 @@
                              [:dispatch ev]]})])))
 
 (deftest fx-carrier-reply-payload-tokenizes-on-both-carriers
-  (testing "rf2-xx4ty — the projector, over the exact reply the runtime builds.
+  (testing "the projector, over the exact reply the runtime builds.
             Two payload slots across two carriers, every one of them tokenized;
             and the foreign `:value` on the same effect vector rides untouched,
             because the resource family speaks only for what it planted."
@@ -2180,7 +2180,7 @@
           replies   (carrier-replies projected)
           [handled do-fx] (:trace-events projected)]
       (is (= 2 (count replies))
-          "one reply per carrier — the two the bead named, four paths in all")
+          "one reply per carrier — four paths in all")
       (is (every? #(and (redacted-component? (:value %))
                         (redacted-component? (:params %)))
                   replies)
@@ -2203,7 +2203,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-carrier-keeps-plain-owners-reply-payload-verbatim
-  (testing "rf2-xx4ty guard — a PLAIN owner's read continuation reply must ride
+  (testing "over-redaction guard — a PLAIN owner's read continuation reply must ride
             BYTE-IDENTICAL through both carriers and must not stamp the row
             sensitive. This is the side that proves the arm reads the ROW'S
             OWNER rather than the two slot names: the same `:value` and
@@ -2226,7 +2226,7 @@
           "on either carrier"))))
 
 (deftest fx-carrier-leaves-the-fx-familys-own-params-verbatim
-  (testing "rf2-xx4ty guard — the OTHER half of the over-redaction control, and
+  (testing "over-redaction guard — the OTHER half of the control, and
             the sharper one: on a record carrying BOTH a `:sensitive?` owner's
             reply AND the app's own managed-HTTP args, the reply's `:params`
             tokenizes while the app's `:request` `:params` — a map under the
@@ -2256,11 +2256,11 @@
           "the request row is not"))))
 
 (deftest fx-carrier-reply-tokens-carry-no-enumerable-content
-  (testing "rf2-xx4ty / rf2-hzcv8 — a redacting owner's reply body and params
+  (testing "a redacting owner's reply body and params
             tokenize on the carrier, and the token is content-free. Two distinct
-            reads' completions are therefore no longer tellable apart off-box.
+            reads' completions are therefore not tellable apart off-box.
 
-            That join is the exact thing rf2-hzcv8 declines to buy with an
+            That join is not worth buying with an
             enumerable token: a reply body echoes submitted fields and a params
             map carries the slug, both low-entropy enough to confirm a guess
             against a 32-bit digest. The row's structural attribution — which
@@ -2268,7 +2268,7 @@
             rides verbatim beside these slots"
     (let [proj  (fn [params value]
                   (let [k (sk session-scope :derived/profile params)]
-                    ;; rf2-79fvm — carrier posture. At the off-box default both
+                    ;; Carrier posture. At the off-box default both
                     ;; replies would come back NIL (the carriers fail closed and
                     ;; `carrier-replies` finds nothing), and every assertion
                     ;; below would compare nil to nil and pass without touching
@@ -2289,9 +2289,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-reply
-  (testing "rf2-xx4ty — the trusted-local opt-ins keep the raw reply payload
+  (testing "the trusted-local opt-ins keep the raw reply payload
             (the local-raw boundary — the tokenization is the off-box default,
-            not a strip; since rf2-79fvm it takes the fx-args axis as well as
+            not a strip; it takes the fx-args axis as well as
             the sensitive one — see `project-carrier-egress`). This is
             load-bearing beyond the
             pattern: a `:reply-to` continuation is how a workflow reads a
@@ -2311,37 +2311,37 @@
 
 
 ;; ---------------------------------------------------------------------------
-;; (5) THE CARRIER'S OTHER EDGE — over-classification (rf2-1kiuj, reopened)
+;; (5) THE CARRIER'S OTHER EDGE — over-classification
 ;; ---------------------------------------------------------------------------
 ;;
-;; Sections (1)-(4) and their rf2-425mm / rf2-xx4ty siblings above all push in
-;; ONE direction: does the family's datum still egress raw? Three merged repairs
-;; answered yes and each shipped the same second-order defect on the way — the
-;; carrier arm fired on a LOCAL CUE that ordinary FX data hits by coincidence,
-;; and destroyed app-owned data off-box while stamping the row `:sensitive?`.
+;; Sections (1)-(4) and the other fx-carrier sections above all push in
+;; ONE direction: does the family's datum egress raw? The opposite edge is a
+;; carrier arm that fires on a LOCAL CUE ordinary FX data hits by coincidence,
+;; destroying app-owned data off-box while stamping the row `:sensitive?`.
+;; Three cues look sufficient and are not:
 ;;
-;;   - rf2-1kiuj — `scoped-key-shape?` alone: ANY `[<x> <keyword> <map>]`
-;;     3-vector took the fail-closed unregistered-owner arm.
-;;     `[:opaque :app/not-a-resource {:account-id 42}]` came back
+;;   - `scoped-key-shape?` alone: ANY `[<x> <keyword> <map>]` 3-vector would
+;;     take the fail-closed unregistered-owner arm, and
+;;     `[:opaque :app/not-a-resource {:account-id 42}]` would come back
 ;;     `[{:rf/redacted …} :app/not-a-resource {:rf/redacted …}]`.
-;;   - rf2-425mm — the `:scope` KEY alone, at arbitrary depth. An app's own
-;;     `{:request {… :scope {:tenant "alice"} …}}` had that map tokenized.
-;;   - rf2-xx4ty — a map-local `:resource/key` alone as the "this is a read
-;;     reply" test. Foreign `:value` / `:params` sitting beside a genuine
-;;     sensitive key were tokenized with it.
+;;   - the `:scope` KEY alone, at arbitrary depth: an app's own
+;;     `{:request {… :scope {:tenant "alice"} …}}` would have that map tokenized.
+;;   - a map-local `:resource/key` alone as the "this is a read
+;;     reply" test: foreign `:value` / `:params` sitting beside a genuine
+;;     sensitive key would be tokenized with it.
 ;;
-;; The repair is one idea applied three times: each arm now fires on PROOF that
-;; the resource RUNTIME planted the value — its reserved keyword namespace, its
-;; `[:rf.work/resource …]` work-id head, the canonical `:rf.reply/work-kind
-;; :resource` marker, or the resource registry answering "is this one of mine?".
-;; Recognition changed; the GRAIN did not — the free `:scope` still fails closed
-;; unconditionally once recognised, and `:value` / `:params` are still
-;; owner-conditional, so the two carriers of one datum still agree for a plain
-;; owner. Each deftest below therefore carries both halves: the foreign value
-;; rides verbatim AND the runtime's own still redacts, on the same shape.
+;; So each arm fires on PROOF that the resource RUNTIME planted the value — its
+;; reserved keyword namespace, its `[:rf.work/resource …]` work-id head, the
+;; canonical `:rf.reply/work-kind :resource` marker, or the resource registry
+;; answering "is this one of mine?". Recognition is strict, but the GRAIN is the
+;; same as elsewhere — the free `:scope` fails closed unconditionally once
+;; recognised, and `:value` / `:params` are owner-conditional, so the two
+;; carriers of one datum agree for a plain owner. Each deftest below therefore
+;; carries both halves: the foreign value rides verbatim AND the runtime's own
+;; redacts, on the same shape.
 
 (deftest fx-carrier-leaves-foreign-lookalike-vectors-verbatim
-  (testing "rf2-1kiuj — scoped-key SHAPE is necessary and not sufficient inside
+  (testing "scoped-key SHAPE is necessary and not sufficient inside
             a FOREIGN carrier. A 3-vector whose position 1 names no registered
             resource is application data and rides byte-for-byte; the row is not
             stamped. The two proofs that DO make a 3-vector the family's are
