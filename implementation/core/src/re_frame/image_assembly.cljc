@@ -1,16 +1,16 @@
 (ns re-frame.image-assembly
   "EP-0023 §Image Validation / §Image Patching And Overrides / §Image
-  Composition — the ASSEMBLY slice: resolve one or more image
+  Composition — image ASSEMBLY: resolve one or more image
   values into a SEALED, VALIDATED image generation and fail loud before a frame
   can run it.
 
-  This is the integration of the two merged foundation slices:
+  It integrates the two foundation namespaces:
 
-    * `re-frame.source-store` (slice .2) — the provenance-preserving registration
+    * `re-frame.source-store` — the provenance-preserving registration
       SOURCE STORE keyed `[kind id provenance-ns]`. `all-descriptors` is the
-      candidate pool this slice selects from.
-    * `re-frame.image` (slice .3) — the `rf/image` constructor + the PURE
-      `select-descriptors` selector. This slice runs that selector against the
+      candidate pool assembly selects from.
+    * `re-frame.image` — the `rf/image` constructor + the PURE
+      `select-descriptors` selector. Assembly runs that selector against the
       live source store's descriptors, then validates and seals.
 
   ## What a sealed image generation IS
@@ -22,15 +22,15 @@
        :rf.gen/images    [<normalized image value> …]
        :rf.gen/kinds     #{kind …}                    ;; kinds present, for tools
        :rf.gen/shadows   [{:registration [kind id]    ;; the cross-image shadow
-                           :image        <defined-in> ;; report (EP-0026, rf2-ke7w5j)
+                           :image        <defined-in> ;; report (EP-0026)
                            :shadowed-by  <winner>} …]}
 
-  (EP-0026, rf2-dlvmpc, retired `:rf.gen/requires` with the image-capability
-  feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j — a flat list, one
-  entry per cross-image shadow, naming the loser image + the FINAL winner.)
+  (There is no `:rf.gen/requires`: images declare no host capabilities. The
+  shadow report `:rf.gen/shadows` is a flat list, one entry per cross-image
+  shadow, naming the loser image + the FINAL winner.)
 
   `:rf.gen/resolver` is the heart: a map from a `[kind id]` pair to exactly ONE
-  descriptor. After selection + declared replacements the map is id-disjoint by
+  descriptor. After selection + image-order layering the map is id-disjoint by
   `(kind, id)` (EP-0023 §Id Spaces). The runtime resolves `(kind, id)` lookups
   through it; `resolve-descriptor` is the read API. The generation carries no
   function closures beyond the descriptors themselves and is safe to share
@@ -42,13 +42,14 @@
       2. select matching registered descriptors per image (via
          re-frame.image/select-descriptors against the source store's
          all-descriptors) PLUS each image's inline descriptors;
-      3. (slice .3 already fails any zero-match :include-ns pattern);
+      3. (the selector fails any zero-match :include-ns pattern);
       4. layer the FRAMEWORK BASE beneath an explicit composition (the loaded
          framework-owned registrations — `framework-base-descriptor?`) and add
          the framework STANDARD registrations;
-      5. validate collisions, replacements, capabilities, references, kinds;
+      5. validate collisions, standard protection, references, kinds;
       6. seal the result into an immutable [kind id] resolver;
-      7. give the frame that sealed generation (frame loading is slice .7).
+      7. give the frame that sealed generation (frame loading is
+         `re-frame.live-frame`).
 
   ## The DEFAULT image
 
@@ -60,7 +61,7 @@
   `assemble*` pipeline + the SAME resolved-generation cache as an explicit image
   — the only difference is selection (the whole pool rather than an `:include-ns`
   glob match). Crucially, the default projection FAILS LOUD on a cross-namespace
-  same-`[kind id]` collision via the same `resolve-collision` /
+  same-`[kind id]` collision via the same `resolve-within-image` /
   `:rf.error/image-duplicate-id` path (no last-write-wins on the default path).
   Entry points: `assemble-default` (both arities), and `assemble` routes its
   empty-`:images` case to it. The default generation is cached keyed on the
@@ -69,13 +70,13 @@
 
   ## Resolution is IMAGE-ORDER (EP-0026 §Layered Resolution)
 
-  EP-0026 simplifies the EP-0023 surface: composition resolves by explicit IMAGE
+  Composition resolves by explicit IMAGE
   ORDER — **the later image in `:images` wins** — and an image must resolve
   cleanly to ONE descriptor per `[kind id]`. So every override is BETWEEN images
-  (a later image SHADOWS an earlier one; the cross-image shadow is reported, not
-  failed — the shadow report is rf2-ke7w5j), and a WITHIN-image `[kind id]`
-  collision is an ERROR. The declared-`:replace`/`:replace-standard` winner model
-  is retired (its key rejection is rf2-dlvmpc).
+  (a later image SHADOWS an earlier one; the cross-image shadow is reported in
+  `:rf.gen/shadows`, not failed), and a WITHIN-image `[kind id]`
+  collision is an ERROR. There is no declared-`:replace`/`:replace-standard`
+  winner model (`re-frame.image` rejects those keys).
 
   ## Validation is FAIL-LOUD (the central guarantee)
 
@@ -100,31 +101,30 @@
 
   ## The framework-standard protection seam (documented boundary)
 
-  This slice builds the validation STRUCTURE and fails loud on every condition
-  the EP names for assembly. EP-0026 §Layered Resolution retired the EP-0023
-  declared-`:replace`/`:replace-standard` winner model (its key rejection is
-  rf2-dlvmpc); composition resolves by IMAGE ORDER (`layer-image-resolvers`).
-  Framework standards stay PROTECTED:
+  Assembly builds the validation STRUCTURE and fails loud on every condition
+  the EP names for assembly. Composition resolves by IMAGE ORDER
+  (`layer-image-resolvers`, EP-0026 §Layered Resolution).
+  Framework standards are PROTECTED:
 
     * a public app image MUST NOT shadow a framework standard
       (`check-standard-collision!` → `:rf.error/image-standard-replacement-forbidden`).
       EP-0026 §Framework Standard Registrations: a standard encodes an execution
       invariant, so shadowing it is a correctness violation, not an app policy
       choice. There is NO public `:replace-standard` opt-in.
-    * [[standard-replaceable?]] remains the predicate the standard OWNER's
+    * [[standard-replaceable?]] is the predicate the standard OWNER's
       internal define/revise path reads — the plug point for a conformance-profile
       proof that would lift an invariant-coupled lock. A public app-facing
       standard-replacement hook, if ever wanted, is a separate standards-track
       decision; EP-0026 does not add one.
 
-  A framework **DEFAULT** ([[framework-default-descriptor?]], rf2-0r6q4) is the
+  A framework **DEFAULT** ([[framework-default-descriptor?]]) is the
   opposite kind of registration and must not be confused with a standard: it is
   the framework's stand-in for a decision the APPLICATION is invited to make
   (`:rf.route/entry-denied`), so an app registration of the same id is the
   documented override rather than a violation. It is protected from nothing; it
   simply stops being projected into the app layer once the app supplies its own.
 
-  EP-0026 (rf2-dlvmpc) also removed image-declared host capabilities end-to-end:
+  Images declare no host capabilities:
   there is no `:rf.image/requires`, no `make-frame :capabilities`, and no
   `:rf.gen/requires` / capability-check seam.
 
@@ -132,8 +132,9 @@
 
   Pure data + map/seq ops over plain maps; no trace emit sites, no DEBUG-gated
   branches, no feature sentinels. The only requires are `re-frame.image`,
-  `re-frame.source-store`, `re-frame.registrar` (the closed kind set), and
-  `re-frame.error` (fail-loud diagnostics) — all already in the core spine.
+  `re-frame.source-store`, `re-frame.registrar` (the closed kind set),
+  `re-frame.late-bind` (the inline-lowering hooks), and
+  `re-frame.error` (fail-loud diagnostics) — all in the core spine.
   Assembly runs on the runtime/SSR path, not under a debug gate; an app that
   never assembles an image never reaches these fns (Closure DCE removes them)."
   (:require [re-frame.image       :as rf.image]
@@ -282,14 +283,15 @@
        (= (descriptor-impl a) (descriptor-impl b))))
 
 ;; ===========================================================================
-;; Selection — run the slice-.3 selector per image against the live source
-;; store, union the framework standards (EP-0023 §Image)
+;; Selection — run the `re-frame.image` selector per image against the live
+;; source store, union the framework standards (EP-0023 §Image)
 ;; ===========================================================================
 
 (defn- source-store-descriptors
   "Every retained registered descriptor across every kind in the active source
-  store (slice .2's `all-descriptors` flattened over `kinds-present`). The
-  candidate pool slice-.3's `select-descriptors` selects from by
+  store (`re-frame.source-store/all-descriptors` flattened over
+  `kinds-present`). The candidate pool `re-frame.image/select-descriptors`
+  selects from by
   `:rf.provenance/ns`. Pure read of the store snapshot."
   []
   (into []
@@ -315,7 +317,7 @@
 ;; flows through the SAME `assemble*` pipeline + the SAME resolved-generation
 ;; cache as an explicit image — the only difference is selection: the whole pool
 ;; rather than a glob match. Validation + sealing (collision detection via
-;; `resolve-collision` → `:rf.error/image-duplicate-id`, standard union,
+;; `resolve-within-image` → `:rf.error/image-duplicate-id`, standard union,
 ;; reference checks) are byte-identical to the explicit path, so a
 ;; cross-namespace same-`[kind id]` collision in the default projection FAILS
 ;; LOUD exactly as an explicit image's collision does — load order never decides
@@ -352,11 +354,11 @@
 ;; `select-and-lower-image` + `assemble*`. The default image (`default-image?`)
 ;; selects EVERY descriptor in the pool (no glob, no zero-match fail-loud — an
 ;; empty store is a valid empty default projection); every explicit image runs
-;; the pure `:select-ns` selector unchanged.
+;; the pure `:select-ns` selector.
 
 ;; ---- inline-registration lowering (EP-0023 §Image Fragments) ---------------
 ;;
-;; An inline `:registrations` entry lowers (in the pure `re-frame.image` slice)
+;; An inline `:registrations` entry lowers (in the pure `re-frame.image` namespace)
 ;; to a descriptor carrying its raw fn BODY under `:impl` — inert data with NO
 ;; runnable slots. A registered descriptor, by contrast, carries the RUNNABLE
 ;; shape `register!` stored (`:handler-fn` + the per-kind discriminators: an
@@ -373,11 +375,11 @@
 ;; `re-frame.events` / `.subs` / `.fx` / `.cofx`) with the authored `:id`, the
 ;; inline `:metadata` and the `:impl`, and MERGE the returned registrar shape
 ;; onto the descriptor. Each lowering runs its registrar's own metadata
-;; validators and spreads the metadata at the TOP LEVEL, as `reg-*` stores it
-;; (rf2-3x7nj.5.1). `:impl`, the provenance coordinate, `:kind` / `:id`, and
-;; `:metadata` are PRESERVED so replacement-winner coordinates, dedupe, and
-;; introspection are unchanged; the merge only ADDS what a registered
-;; descriptor of the same kind would carry.
+;; validators and spreads the metadata at the TOP LEVEL, as `reg-*` stores it.
+;; `:impl`, the provenance coordinate, `:kind` / `:id`, and
+;; `:metadata` are PRESERVED so collision / shadow coordinates, dedupe, and
+;; introspection see the authored descriptor; the merge only ADDS what a
+;; registered descriptor of the same kind would carry.
 ;;
 ;; Late-bound (not a static require) because `image-assembly` is required by
 ;; `re-frame.live-frame`, which `re-frame.subs` requires — a static require of
@@ -397,7 +399,7 @@
   resurrects no stale nested map in production. Returns the normalized descriptor.
 
   This is the ONE canonical, side-effect-free DOC-normalization boundary for every
-  supported inline kind — event, sub, fx, cofx (rf2-mt1cvi). It runs
+  supported inline kind — event, sub, fx, cofx. It runs
   `rf.registrar/strip-pure-documentation` — the SAME primitive the public `reg-*`
   registrar runs — so an inline registration pays no more production bytes than a
   namespace-authored one, and inline registration semantics are kind-INDEPENDENT.
@@ -424,24 +426,21 @@
   one), a metadata-only inline entry (no `:impl`), or a kind with no published
   lowering hook returns UNCHANGED. Pure modulo the late-bind lookup.
 
-  DOC NORMALIZATION IS UNIFORM (rf2-mt1cvi). The registrar contract makes `:doc`
+  DOC NORMALIZATION IS UNIFORM. The registrar contract makes `:doc`
   pure documentation stripped in production for every `reg-*` surface; this
   boundary applies that SAME strip (`strip-descriptor-documentation`) to EVERY
   lowered inline kind — at the descriptor TOP LEVEL and under the nested
   `:metadata` — so a production image carries dev-only `:doc` for NO kind and
-  inline registration semantics are kind-independent. (Previously only `:sub`
-  was normalized: `:reg-event` leaked `:doc` at both the top level and under
-  `:metadata`, and `:reg-fx` / `:reg-cofx` under `:metadata` — rf2-mt1cvi.) The
+  inline registration semantics are kind-independent. The
   strip is a no-op in dev, so authored documentation survives for inspection, and
   it runs AFTER selection/dedupe (`lower-inline-descriptors` is a post-selection
   map) so it never decides a collision winner.
 
-  EVERY kind lowers through its registrar's own preparation (rf2-vxgfnd.219 for
-  subs; rf2-3x7nj.5.1 for events, fx and cofx): the same metadata validators
-  `reg-*` runs, and the authored metadata spread at the descriptor TOP LEVEL,
-  where every runtime reader looks. So every hook receives the AUTHORED
-  descriptor id — a diagnostic names the author's registration (e.g.
-  `:counter/value`), never a synthetic placeholder (rf2-vxgfnd.257). Each kind
+  EVERY kind lowers through its registrar's own preparation: the same metadata
+  validators `reg-*` runs, and the authored metadata spread at the descriptor
+  TOP LEVEL, where every runtime reader looks. So every hook receives the
+  AUTHORED descriptor id — a diagnostic names the author's registration (e.g.
+  `:counter/value`), never a synthetic placeholder. Each kind
   keeps its own runnable slots and metadata semantics (the descriptor wins every
   shared key — `:impl`, provenance, `:kind` / `:id`); only the
   pure-documentation keys are elided."
@@ -509,10 +508,10 @@
 ;;
 ;; EP-0026 §Framework Standard Registrations: a PUBLIC app image MUST NOT shadow
 ;; a framework standard (the no-shadowing rule is enforced by
-;; `check-standard-collision!`). `standard-replaceable?` remains the predicate the
+;; `check-standard-collision!`). `standard-replaceable?` is the predicate the
 ;; framework standard OWNER's internal path reads (a public app-facing
 ;; standard-replacement hook, if ever wanted, is a separate standards-track
-;; decision — EP-0026 does not add one). It is retained for the standard owner's
+;; decision — EP-0026 does not add one). It exists for the standard owner's
 ;; internal define/revise path and conformance coverage.
 
 (defn standard-replaceable?
@@ -522,17 +521,17 @@
     :rf.standard/replaceable? false  -> forbidden (the DEFAULT)
     :rf.standard/replaceable? true   -> allowed
 
-  SLICE .5 SEAM: `:rf.standard/requires-conformance` invariants (e.g. the
-  `:rf.interceptor/path` `identical?`-preserving db no-op) are where the deep
-  policy plugs a conformance-profile proof in. The first version keeps the
-  simpler rule the EP mandates — an invariant-coupled standard (a non-empty
+  CONFORMANCE SEAM: `:rf.standard/requires-conformance` invariants (e.g. the
+  `:rf.interceptor/path` `identical?`-preserving db no-op) are where a
+  conformance-profile proof plugs in. The rule is the simple one the EP
+  mandates — an invariant-coupled standard (a non-empty
   `:rf.standard/requires-conformance`) is NOT replaceable regardless of the
-  flag, until a later spec provides the conformance profile. Pure."
+  flag, until a spec provides the conformance profile. Pure."
   [standard-descriptor]
   (and (boolean (:rf.standard/replaceable? standard-descriptor))
        (empty? (:rf.standard/requires-conformance standard-descriptor #{}))))
 
-;; ---- framework REPLACEABLE DEFAULTS (rf2-0r6q4) ---------------------------
+;; ---- framework REPLACEABLE DEFAULTS ---------------------------------------
 ;;
 ;; Distinct from a framework STANDARD (above), and the exact opposite policy. A
 ;; standard encodes an execution invariant and is PROTECTED — an app must not
@@ -540,7 +539,7 @@
 ;; APPLICATION is invited to make: the framework seeds one so the feature is
 ;; safe when the app registers nothing, and an app registration of the same id
 ;; is the documented, intended override. `:rf.route/entry-denied` and
-;; `:rf.route/navigation-blocked` (Spec 012 §Navigation blocking) are today's
+;; `:rf.route/navigation-blocked` (Spec 012 §Navigation blocking) are the
 ;; members — the framework ships no-op handlers so a `:can-enter` denial /
 ;; `:can-leave` block always resolves, and the auth recipe replaces them.
 ;;
@@ -550,13 +549,13 @@
 ;; would select BOTH it and the app's provenanced registration and
 ;; `resolve-within-image` would (correctly, for two app registrations) refuse to
 ;; let selection order decide: `:rf.error/image-duplicate-id`. The documented
-;; override path was therefore the broken path.
+;; override path would therefore be the broken path.
 ;;
 ;; The resolution is NOT a winner rule and NOT a precedence tier. The framework's
 ;; own no-provenance seeding is simply not an app registration, so it is not
 ;; projected into the app layer once the app has supplied its own — the same
-;; reasoning the standard-shadow filter already applies. Order still decides
-;; nothing: two APP registrations of one framework-default id remain an
+;; reasoning the standard-shadow filter applies. Order decides
+;; nothing: two APP registrations of one framework-default id are an
 ;; `:rf.error/image-duplicate-id` collision.
 
 (def framework-default-key
@@ -564,7 +563,7 @@
   REPLACEABLE DEFAULT — the framework's stand-in for an application decision,
   which an application registration of the same id supersedes (Conventions
   §Reserved registration metadata). Stamped by the owning framework registrar
-  (today: the routing façade, on `:rf.route/entry-denied` /
+  (the routing façade, on `:rf.route/entry-denied` /
   `:rf.route/navigation-blocked`); read here."
   :rf/framework-default?)
 
@@ -600,7 +599,7 @@
                   (map descriptor-kind+id))
             descriptors))))
 
-;; ---- carrier classification survives a behaviour override (rf2-kqxe6.20) --
+;; ---- carrier classification survives a behaviour override ----------------
 ;;
 ;; Replacing a framework default replaces BEHAVIOUR, not the framework's own
 ;; payload shape. `:rf.route/entry-denied` / `:rf.route/navigation-blocked` are
@@ -611,11 +610,11 @@
 ;;
 ;; That declaration is a fact about the framework's payload, not about the
 ;; application's handler — so it must NOT evaporate when the application
-;; supplies its own handler under the same id. Before rf2-kqxe6.20 it did: the
-;; app's registration metadata replaced the framework's wholesale, and every
-;; canonical auth recipe (which has no reason to know the payload's carrier
-;; shape) silently dropped the redaction. An ordinary sign-in redirect then
-;; exposed the full denied destination to trace and off-box observation.
+;; supplies its own handler under the same id. If the app's registration
+;; metadata replaced the framework's wholesale, every canonical auth recipe
+;; (which has no reason to know the payload's carrier shape) would silently
+;; drop the redaction, and an ordinary sign-in redirect would expose the full
+;; denied destination to trace and off-box observation.
 ;;
 ;; So the framework's OWN declaration rides forward across the override, unioned
 ;; with whatever the application declared. This is deliberately NOT metadata
@@ -634,8 +633,9 @@
 ;; registration arrives second brings the pair to ONE effective classification
 ;; (`retain-framework-default-classification` when the app arrives second,
 ;; `reconcile-framework-default-classification!` when the framework does).
-;; Convergence is the point: before it, the identical program leaked its URL
-;; carriers to every trace / off-box projection purely because of require order.
+;; Convergence is the point: without it, the identical program would leak its
+;; URL carriers to every trace / off-box projection purely because of require
+;; order.
 
 (def ^:private carrier-classification-keys
   "The EP-0025 path-declaration keys a framework REPLACEABLE DEFAULT owns on
@@ -688,7 +688,7 @@
   registration in an ordinary program. Called from the registration path (off
   the hot path) so the stored metadata is HONEST — `rf/handler-meta` reports the
   effective classification and every egress consumer derives it from the
-  registrar exactly as before, with no lookup added anywhere on the hot path.
+  registrar, with no lookup anywhere on the hot path.
 
   Assumes `metadata`'s own declarations are already validated (a malformed
   `:sensitive` must fail loud on its own terms, not inside this union)."
@@ -701,18 +701,19 @@
   "Union the framework REPLACEABLE DEFAULT's carrier classification for
   `(kind, id)` into every APPLICATION descriptor ALREADY recorded for the same
   `(kind, id)` in the source store — the INVERSE-LOAD-ORDER half of
-  [[retain-framework-default-classification]] (rf2-kqxe6.20).
+  [[retain-framework-default-classification]].
 
   [[retain-framework-default-classification]] can only enrich an override that
   arrives AFTER the framework seeded its default: it READS the framework's own
   source slot. In the inverse namespace-load order (an application namespace
   registering `:rf.route/entry-denied` before anything requires
-  `re-frame.routing`) that slot does not exist yet, so the app descriptor was
-  stored carrier-less and the framework's later seeding left it that way. The
-  application handler still won the frame, so the only observable difference was
-  at EGRESS — the framework's URL carriers shipped RAW to every trace / off-box
-  projection, purely because of require order. Called from the SAME registration
-  path, unconditionally, this closes that order dependence.
+  `re-frame.routing`) that slot does not exist yet, so the app descriptor is
+  stored carrier-less. Without this reconcile the framework's later seeding
+  would leave it that way: the application handler would still win the frame,
+  so the only observable difference would be at EGRESS — the framework's URL
+  carriers shipping RAW to every trace / off-box projection, purely because of
+  require order. Called from the SAME registration path, unconditionally, this
+  closes that order dependence.
 
   A NO-OP — one source-store read — for every `(kind, id)` that is not a
   framework replaceable default (every registration in an ordinary program), and
@@ -722,7 +723,7 @@
   default's `[kind id]`: this is NOT metadata inheritance and NOT a precedence
   rule. The application registration remains the frame's winner
   ([[superseded-framework-default-keys]]), and two application registrations of
-  one framework-default id still collide.
+  one framework-default id collide.
 
   Writes through `rf.source-store/record-descriptor!`, which lands each reconciled
   descriptor back in its OWN provenance slot (so sibling namespaces stay
@@ -741,28 +742,27 @@
           (rf.source-store/record-descriptor! kind id reconciled)))))
   nil)
 
-;; ---- the FRAMEWORK BASE beneath an explicit composition (rf2-3x7nj.5.2) ----
+;; ---- the FRAMEWORK BASE beneath an explicit composition --------------------
 ;;
 ;; An explicit image selects by `:rf.provenance/ns`, and the framework's own
 ;; feature handlers register through the fn-alias path (`rf.events/reg-event`,
 ;; `rf.fx/reg-fx`, `rf.subs/reg-*`, `rf.registrar/register!`), which records NO
-;; source namespace. So no `:select-ns` could ever reach routing's
+;; source namespace. So no `:select-ns` can ever reach routing's
 ;; `:rf.route/navigate`, managed HTTP's `:rf.http/managed`, Resources'
 ;; `:rf/resource`, SSR's `:rf/hydrate` or core's own `:rf/time-ms` — and none of
-;; them is a protected STANDARD, so the standard union did not supply them
-;; either. An explicit-image frame failed its first routing dispatch with
-;; `:rf.error/no-such-handler`, and the user had no remedy: the `:ns` stamp
-;; reaches only their own registrations.
+;; them is a protected STANDARD, so the standard union does not supply them
+;; either. Without the base, an explicit-image frame would fail its first
+;; routing dispatch with `:rf.error/no-such-handler`, and the user would have no
+;; remedy: the `:ns` stamp reaches only their own registrations.
 ;;
-;; The base restores EP-0023's model — "your registrations, plus the
+;; The base gives EP-0023's model — "your registrations, plus the
 ;; framework's" — without widening "standard". For an explicit composition,
 ;; assembly layers every loaded framework-owned registration BENEATH the app
 ;; images, as ordinary layer order under the reserved pseudo-image id
 ;; `:rf/framework`: any later image may shadow a base registration (a test
 ;; double, an app override of a replaceable default), and the shadow report
 ;; names `:rf/framework` as the loser. Standards stay protected and never enter
-;; the base. The default image is unchanged — it already projects the whole
-;; pool.
+;; the base. The default image needs no base — it projects the whole pool.
 ;;
 ;; OWNERSHIP IS A CONVENTION, NOT A GUARANTEE. Membership is "no source
 ;; namespace, and an id under the reserved `:rf` root" (plus `:route/link`). The
@@ -782,7 +782,7 @@
   :rf/framework)
 
 (def ^:private framework-ids-outside-reserved-root
-  "The ONE framework registration whose public id predates the `:rf`
+  "The ONE framework registration whose public id sits outside the `:rf`
   single-root scheme: routing's `:route/link` view (API.md `route-link`,
   Spec 012 §Linking from views). NOT a list to grow — every new framework
   registration goes under the reserved `:rf` root."
@@ -816,7 +816,8 @@
 (defn- retain-base-default-classification
   "Return the layered `resolver` with the carrier classification of every
   shadowed framework REPLACEABLE DEFAULT in `base-resolver` unioned into its
-  winner — the rf2-kqxe6.20 rule on the image-override path. A provenanced
+  winner — the carrier-classification rule (see its section above) on the
+  image-override path. A provenanced
   override already carries the union from registration
   ([[retain-framework-default-classification]]), so this changes nothing for
   it; it is what gives an INLINE override (whose metadata never passed through
@@ -944,14 +945,14 @@
 ;; ---- per-image resolution + image-order layering (EP-0026 §Layered
 ;;      Resolution) — \"the later image in :images wins\" -----------------------
 ;;
-;; EP-0026 replaces the EP-0023 declared-`:replace`/`:replace-standard` winner
-;; model with deterministic IMAGE-ORDER layering. Composition is ordered data:
-;; the later image in `:images` wins. Image order is the ONLY precedence, because
+;; EP-0026 composition is deterministic IMAGE-ORDER layering. Composition is
+;; ordered data: the later image in `:images` wins. Image order is the ONLY
+;; precedence, because
 ;; an image must resolve cleanly to ONE descriptor per `[kind id]` (a within-image
 ;; collision is an error — `resolve-within-image`). So every override is between
 ;; images: a later image SHADOWS an earlier one (the cross-image shadow is
-;; reported, not failed — the shadow report is rf2-ke7w5j). The one cross-image
-;; collision that still fails is an app descriptor colliding with a framework
+;; reported, not failed — see the shadow report below). The one cross-image
+;; collision that fails is an app descriptor colliding with a framework
 ;; STANDARD: standards are protected, not part of app layer order.
 
 (defn resolve-image
@@ -1003,14 +1004,15 @@
   image WINS (EP-0026 §Layered Resolution). `image-resolvers` is a seq of the
   per-image resolvers in `:images` order. A `[kind id]` present in more than one
   image resolves to the LAST image's descriptor; every earlier definition is
-  shadowed (the cross-image shadow is reported by rf2-ke7w5j, never failed here).
+  shadowed (the cross-image shadow is reported by `shadow-report`, never failed
+  here).
   Returns the layered `{[kind id] descriptor}` app resolver. Pure — `merge` is
   left-to-right, so a later resolver's entry overwrites an earlier one, which is
   exactly the later-image-wins rule."
   [image-resolvers]
   (reduce merge {} image-resolvers))
 
-;; ---- the cross-image SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) ----
+;; ---- the cross-image SHADOW REPORT (EP-0026 §Shadow Report) ----------------
 ;;
 ;; When a later image shadows an earlier image's registration, composition
 ;; RECORDS it. EP-0026 §Shadow Report fixes the entry at EXACTLY three keys —
@@ -1041,7 +1043,7 @@
 
 (defn shadow-report
   "Build the cross-image SHADOW REPORT for an ordered seq of per-image
-  `[image-id resolver]` pairs (EP-0026 §Shadow Report, rf2-ke7w5j). Each
+  `[image-id resolver]` pairs (EP-0026 §Shadow Report). Each
   `resolver` is one image's id-disjoint `{[kind id] descriptor}` map; the pairs
   are in `:images` ORDER (later wins). For every `[kind id]` defined in MORE
   THAN ONE image, the LAST image is the live winner and every EARLIER image is a
@@ -1221,10 +1223,10 @@
 
 (defn check-unique-image-ids!
   "FAIL LOUD when the images in an `:images` composition cannot each be named by a
-  DISTINCT, PRESENT id (EP-0026 §Image Keys). The shadow report (rf2-ke7w5j)
+  DISTINCT, PRESENT id (EP-0026 §Image Keys). The shadow report
   identifies every image by its `:rf.image/id`, so a MULTI-image composition must
   name each image uniquely — otherwise a cross-image shadow could not name its
-  loser + winner and the report would carry a degenerate entry (rf2-x76af2.30).
+  loser + winner and the report would carry a degenerate entry.
   Two conditions fail, both `:rf.error/image-duplicate-image-id`:
 
     * an ANONYMOUS image (no `:rf.image/id`) in a composition of MORE THAN ONE
@@ -1285,8 +1287,9 @@
   images)
 
 (defn- select-and-lower-image
-  "Select ONE image's descriptors from the candidate `descriptors` pool (via the
-  slice-.3 selector / the default-image whole-store selection) and lower its
+  "Select ONE image's descriptors from the candidate `descriptors` pool (via
+  `re-frame.image/select-descriptors` / the default-image whole-store
+  selection) and lower its
   inline `:impl` bodies into the runnable shape (EP-0023 §Image Fragments).
   Returns the image's selected + inline descriptors. Pure modulo the late-bind
   lowering + the framework-standard registry read (for the default-image filter).
@@ -1305,7 +1308,7 @@
   as an app descriptor would make the default frame fail
   `check-standard-collision!` against the very standard it shadows.
 
-  The filter is deliberately NOT a blanket `[kind id]` match (rf2-x76af2.29): a
+  The filter is deliberately NOT a blanket `[kind id]` match: a
   PROVENANCED app descriptor colliding with a framework standard MUST survive
   selection so it reaches `check-standard-collision!` and FAILS LOUD with
   `:rf.error/image-standard-replacement-forbidden` — exactly as an explicit
@@ -1314,7 +1317,7 @@
   standard-collision gate on the default path only, breaking the documented
   guarantee that the default path fails loud exactly as the explicit path.
 
-  DEFAULT-IMAGE SUPERSEDED-DEFAULT FILTER (rf2-0r6q4): the same reasoning
+  DEFAULT-IMAGE SUPERSEDED-DEFAULT FILTER: the same reasoning
   applies to the framework's REPLACEABLE DEFAULTS — see
   [[superseded-framework-default-keys]]. A framework default's own registrar
   copy is likewise nil-provenance framework seeding, not an app registration,
@@ -1338,8 +1341,8 @@
             superseded    (superseded-framework-default-keys descriptors)]
         (into []
               ;; Drop ONLY the framework's OWN no-provenance registrar copy —
-              ;; of a standard (rf2-x76af2.29), or of a REPLACEABLE DEFAULT the
-              ;; application has registered over (rf2-0r6q4). A PROVENANCED app
+              ;; of a standard, or of a REPLACEABLE DEFAULT the
+              ;; application has registered over. A PROVENANCED app
               ;; descriptor colliding with a standard must SURVIVE so it reaches
               ;; `check-standard-collision!` and fails loud — symmetric with the
               ;; explicit path — instead of being silently dropped here.
@@ -1371,7 +1374,7 @@
                               [image (select-and-lower-image image descriptors)])
                             images)
         standard      (standard-descriptors)
-        ;; (2b) The FRAMEWORK BASE (rf2-3x7nj.5.2): for an explicit composition,
+        ;; (2b) The FRAMEWORK BASE: for an explicit composition,
         ;;      the framework-owned registrations in the same pool, layered
         ;;      beneath every app image. A default-image composition already
         ;;      projects the whole pool, so it has none.
@@ -1401,13 +1404,13 @@
                                      image-resolvers)
                         base-resolver (into [[framework-base-image-id base-resolver]]))
         ;; (5) Layer the resolvers in IMAGE ORDER — the later layer wins (the
-        ;;     cross-image shadow is reported by rf2-ke7w5j, never failed). The
+        ;;     cross-image shadow is reported in (5b), never failed). The
         ;;     result is the composed APP resolver. A framework REPLACEABLE
         ;;     DEFAULT an image overrode keeps its own carrier classification.
         app-resolver  (cond->> (layer-image-resolvers (map second layers))
                         base-resolver (retain-base-default-classification base-resolver))
         ;; (5b) Build the cross-image SHADOW REPORT from the ordered layers
-        ;;      (EP-0026 §Shadow Report, rf2-ke7w5j): one flat entry per
+        ;;      (EP-0026 §Shadow Report): one flat entry per
         ;;      shadowed [kind id], naming the loser + the FINAL winner. A LONE
         ;;      anonymous image may legally shadow the base (the ordinary stub
         ;;      idiom — check-unique-image-ids! exempts a single-image
@@ -1569,8 +1572,8 @@
 
 (defn assemble
   "Resolve `images` (a seq of normalized `rf/image` values) into a SEALED,
-  VALIDATED image generation (EP-0023 §Image Validation). The integration of
-  slices .2 (source store) and .3 (selector):
+  VALIDATED image generation (EP-0023 §Image Validation), over the source store
+  (`re-frame.source-store`) and the selector (`re-frame.image`):
 
     1. select registered descriptors per image (by `:rf.provenance/ns` against
        the source store) + each image's inline descriptors;
@@ -1587,9 +1590,8 @@
     6. validate application interceptor references against the sealed resolver;
     7. seal into an immutable generation value.
 
-  EP-0026 (rf2-dlvmpc) retired the declared-`:replace`/`:replace-standard` winner
-  model (composition is image order now) and image-declared host capabilities —
-  there is no capability check and no `:rf.gen/requires` on the generation.
+  Composition is image order: there is no declared-`:replace`/`:replace-standard`
+  winner model, no capability check and no `:rf.gen/requires` on the generation.
 
   ## Resolved-generation caching (EP-0023 §Image — MUST cache)
 
@@ -1627,7 +1629,8 @@
 
     {:rf.gen/resolver {[kind id] descriptor …}
      :rf.gen/images   [<image value> …]
-     :rf.gen/kinds    #{kind …}}"
+     :rf.gen/kinds    #{kind …}
+     :rf.gen/shadows  [<shadow entry> …]}"
   ([images]
    (let [images (vec images)]
      (if (empty? images)
@@ -1637,7 +1640,7 @@
        ;; BEFORE selecting so the cached object is keyed to the store snapshot it
        ;; was assembled from.
        ;;
-       ;; SINGLE-THREADED-REGISTRATION assumption (EP-0023 co-fix F3): the
+       ;; SINGLE-THREADED-REGISTRATION assumption: the
        ;; descriptor pool and the generation are read in two separate steps with
        ;; no lock between them. This is sound only because registration mutations
        ;; (`reg-*` / `forget-*` / `clear-*`) are single-threaded relative to
@@ -1679,7 +1682,7 @@
   marker), the framework-standard union, collision validation, reference checks,
   and sealing are byte-identical. So a cross-namespace same-`(kind, id)`
   collision in the default projection FAILS LOUD with
-  `:rf.error/image-duplicate-id` (via `resolve-collision`) exactly as an explicit
+  `:rf.error/image-duplicate-id` (via `resolve-within-image`) exactly as an explicit
   image's collision does — load order NEVER silently decides the survivor on the
   default path; there is no last-write-wins. A product that intentionally wants
   same ids with different meanings must use explicit images with disjoint
@@ -1716,8 +1719,8 @@
    (assemble-cached [default-image] descriptors descriptors)))
 
 ;; ===========================================================================
-;; The resolver READ API — the surface slices .7 / .8 (frame loading,
-;; frame-derived live resolution) build on
+;; The resolver READ API — the surface frame loading and frame-derived live
+;; resolution build on
 ;; ===========================================================================
 
 (defn resolve-descriptor
@@ -1735,7 +1738,7 @@
 
 (defn generation-shadows
   "The cross-image SHADOW REPORT carried on a sealed `generation` (EP-0026
-  §Shadow Report, rf2-ke7w5j) — the flat `[{:registration [kind id] :image
+  §Shadow Report) — the flat `[{:registration [kind id] :image
   <defined-in> :shadowed-by <winner>}]` list, one entry per cross-image shadow,
   naming the loser image + the FINAL winner. An empty vector when no later image
   shadowed an earlier one (the common deliberate-no-override case). The public
