@@ -13,7 +13,7 @@ const CONFIG_MERGE = '{:output-dir "fixture" :init-fn fixture.arm/main}';
 const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
 
 // This driver merges its own `:init-fn` onto `BUILD`, so `BUILD`'s cache entry
-// was written by a different program (rf2-2rtt6.20).
+// was written by a different program.
 if (resetLaneBuildCache(IMPL, BUILD)) {
   console.error(`[fixture] cleared .shadow-cljs/builds/${BUILD}`);
 }
