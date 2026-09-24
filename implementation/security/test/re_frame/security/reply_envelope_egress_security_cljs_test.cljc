@@ -30,7 +30,7 @@
   [x]
   (rf.security.gen/contains-string? x sentinel))
 
-;; CROSS-RECORD SPELLING (rf2-l7s7b7, Managed-Effects §The reply map). Every
+;; CROSS-RECORD SPELLING (Managed-Effects §The reply map). Every
 ;; top-level REPLY ENVELOPE below single-roots the work identity as
 ;; `:rf.reply/work-id` / `:rf.reply/work-kind`. The bare `:work/id` spelling is
 ;; the DURABLE work-ledger / verification-payload fact and survives here only on
@@ -38,7 +38,7 @@
 ;; `trace-summary` projects the wire slots and otherwise preserves the supplied
 ;; map verbatim, so a fixture that modelled the ledger layer would let this
 ;; suite stay green while proving nothing about the identity that actually
-;; egresses (rf2-xy3g).
+;; egresses.
 ;;
 ;; `trace-summary` elides each wire slot rooted at its OWN value (not at the
 ;; reply-map root), so classification paths are relative to each slot value:
@@ -100,7 +100,7 @@
       (is (= :reply/framed (:rf.frame/id out)))
       (is (= 1781078400456 (:completed-at out)) "causal completion timestamp verbatim")
       (testing "TOOTH — framed egress preserves the TRANSIENT-ENVELOPE identity
-                and grows NO top-level bare ledger alias beside it (rf2-xy3g)"
+                and grows NO top-level bare ledger alias beside it"
         (is (not (contains? out :work/id))
             "no top-level bare :work/id alias survives framed trace egress")
         (is (not (contains? out :work/kind))
@@ -141,7 +141,7 @@
         (is (= [:rf.work/http :y 2] (:rf.reply/work-id out)))
         (is (= :failed (:rf.reply/work-status out)))
         (is (not (contains? out :work/id))
-            "TOOTH — frameless egress grows no top-level bare :work/id alias (rf2-xy3g)"))
+            "TOOTH — frameless egress grows no top-level bare :work/id alias"))
       ;; Explicit sensitive inclusion is the trusted-local opt-out.
       (let [out (rf.reply/trace-summary {:status :ok :value {:token sentinel}
                                       :rf.reply/work-id [:rf.work/http :z 3]
@@ -197,7 +197,7 @@
                             (not (contains-sentinel? (:correlation out)))
                             (not (contains-sentinel? (:meta out)))
                             (contains? rf.reply/statuses (:status out))
-                            ;; rf2-xy3g — across every status the canonical
+                            ;; Across every status the canonical
                             ;; TRANSIENT-ENVELOPE identity survives egress and
                             ;; no bare ledger alias appears beside it.
                             (= [:rf.work/http :gen 1] (:rf.reply/work-id out))
@@ -234,7 +234,7 @@
           "the work identity survives on the envelope spelling")
       (is (= :http (:rf.reply/work-kind reply)) ":rf.reply/work-kind survives")
       (is (not (contains? reply :work/id))
-          "TOOTH — suppression grows no top-level bare :work/id alias (rf2-xy3g)")
+          "TOOTH — suppression grows no top-level bare :work/id alias")
       (is (= :reply/stale (:rf.frame/id reply)))
       (is (= 1781078400456 (:completed-at reply)) "causal completion time survives")
       (is (rf.reply/valid-reply? reply) "the suppression reply is contract-valid")
@@ -242,8 +242,8 @@
       (let [trace (:trace outcome)]
         (is (true? (:rf.reply/suppressed? trace)))
         ;; The trace reads its work id off `:rf.reply/work-id` on the reply, so
-        ;; a fixture spelling the identity the LEDGER way left this nil while
-        ;; the suite stayed green (rf2-xy3g). This is that tooth.
+        ;; a fixture spelling the identity the LEDGER way would leave this nil
+        ;; while the suite stayed green. This is the tooth that catches it.
         (is (= [:rf.work/http :a 1] (:rf.reply/work-id trace))
             "the suppression trace carries the canonical envelope work id")
         ;; The carried/current gate maps ARE ledger correlation, so the trace
@@ -255,14 +255,14 @@
         (is (not (contains-sentinel? trace)) "the suppression trace carries no sentinel")))))
 
 (deftest app-target-cannot-obtain-stale-delivery
-  (testing "rf2-j538f7.14 — NO app reply target (built from public :rf/reply-to
-            data) can make a superseded completion deliver: `suppress` is
-            UNIVERSALLY non-delivering. A plain target, one spelling the removed
+  (testing "NO app reply target (built from public :rf/reply-to data) can
+            make a superseded completion deliver: `suppress` is
+            UNIVERSALLY non-delivering. A plain target, one spelling a
             :dispatch-stale? flag, and one forging a truthy authority datum of
             any spelling all yield :deliver? false — a stale envelope never
-            reaches app state, and there is NO app-callable issuer to obtain
-            delivery authority (`with-stale-authority` / `stale-authority?` /
-            `StaleDeliveryCapability` are deleted, not merely non-façade)."
+            reaches app state, and there is NO app-callable issuer of
+            delivery authority (no `with-stale-authority`,
+            `stale-authority?` or `StaleDeliveryCapability`)."
     (let [carried {:work/id [:rf.work/http :a 1] :generation 1}
           current {:work/id [:rf.work/http :a 1] :generation 2}]
       (doseq [app-target [[:app/on-reply]
