@@ -1,6 +1,5 @@
 (ns re-frame.init-resolver-cljs-test
-  "CLJS coverage for `(rf/init! ...)`'s explicit-adapter contract
-  (rf2-agql, replaces rf2-84po).
+  "CLJS coverage for `(rf/init! ...)`'s explicit-adapter contract.
 
   The JVM half (re-frame.boot-test) covers the boot semantics
   end-to-end. This namespace adds CLJS-specific coverage: requiring
@@ -39,7 +38,7 @@
     (is (= 10 (count (filter fn? (vals rf.adapter.reagent/adapter))))
         "the exported adapter map carries the full contract — the six required +
          subscribe-container + register-context-provider + dispose-adapter! +
-         the optional rf2-40a84 flush-render! fn")
+         the optional flush-render! fn")
     (is (= :rf.adapter/reagent (:kind rf.adapter.reagent/adapter))
         "the adapter map carries its discriminator keyword under :kind")))
 
@@ -54,8 +53,8 @@
         "(:kind (current-adapter)) is the discriminator per Spec 006")))
 
 (deftest init-no-arg-raises-arity-error
-  (testing "(rf/init!) with no args raises a language-level arity error (rf2-3ubmv — no-arg arity cut)"
-    ;; Per rf2-3ubmv the no-arg arity was cut from the fn defn entirely
+  (testing "(rf/init!) with no args raises a language-level arity error (there is no no-arg arity)"
+    ;; The fn defn has no no-arg arity at all,
     ;; so `(rf/init!)` raises before reaching the runtime ex-info path.
     ;; CLJS surfaces this as an ordinary Error / TypeError depending on
     ;; compilation mode; we assert only that *something* throws and no
@@ -66,12 +65,12 @@
                    nil
                    (catch :default e e))]
       (is (some? thrown)
-          "rf/init! with no args raises (cut arity)"))
+          "rf/init! with no args raises (no such arity)"))
     (is (nil? (rf.substrate.adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 
 (deftest init-keyword-raises
-  (testing "(rf/init! :reagent) raises — keyword form is not supported under rf2-agql"
+  (testing "(rf/init! :reagent) raises — the keyword form is not supported"
     (let [thrown (try
                    (rf/init! :reagent)
                    nil
