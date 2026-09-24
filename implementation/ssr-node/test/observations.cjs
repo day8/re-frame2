@@ -1,6 +1,6 @@
 'use strict';
-// TEST-ONLY INSTRUMENTATION — how a fixture reports what it saw, now that
-// the response contract carries body markup and nothing else.
+// TEST-ONLY INSTRUMENTATION — how a fixture reports what it saw, given
+// that the response contract carries body markup and nothing else.
 //
 // ## WHY THIS FILE EXISTS
 //
@@ -10,23 +10,22 @@
 // module actually read. All of it is knowledge the render module has and
 // the parent does not, so it has to cross the thread boundary somehow.
 //
-// It used to cross on `meta`, a free-form map the module returned and the
-// service forwarded onto the public `complete` frame. That was the
-// egress this package was reopened for: a channel the application fills
-// in, on the response leg of a contract whose stated topology is *Node
-// returns the body markup, and nothing else*. The fixtures were its
-// clearest demonstration — `readTodos` and `readRoute` are application
-// state, and they were crossing.
+// It does not cross on a free-form map the module returns and the service
+// forwards onto the public `complete` frame. That would be an egress: a
+// channel the application fills in, on the response leg of a contract
+// whose stated topology is *Node returns the body markup, and nothing
+// else*. `readTodos` and `readRoute` are application state, and they would
+// be crossing.
 //
 // ## THE CHANNEL IS THE MARKUP, AND THAT IS THE POINT
 //
-// The observations are not deleted, because they are witnesses to four of
-// the five guarantees. They come home through the one door the contract
+// The observations stay, because they are witnesses to four of the five
+// guarantees. They come home through the one door the contract
 // names: the fixture RENDERS what it observed, as an attribute on markup
 // it was emitting anyway, and the test reads it back out of the body.
 //
 // So the instrumentation is not merely *allowed* by the contract, it is a
-// standing demonstration of it. If a future change re-opened a second
+// standing demonstration of it. If a future change opened a second
 // channel, nothing here would need it; if a future change closed the
 // markup channel too, there would be no service left.
 //
