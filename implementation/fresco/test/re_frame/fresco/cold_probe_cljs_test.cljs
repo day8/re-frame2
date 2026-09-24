@@ -7,10 +7,9 @@
   the first read of a mounting boundary, every read of a render React
   will abandon, and every read taken while a cell's reaction has been
   invalidated out from under it. That is the majority of the reads this
-  runtime performs, and the package had no witness for any of it.
+  runtime performs, and this file is the package's witness for them.
 
-  The contract — the cold-probe discipline the internal observation port
-  carried before it was retired (rf2-63t1i) — is four promises in one
+  The contract — the cold-probe discipline — is four promises in one
   sentence:
 
   > reuse a live sub-cache reaction by deref alone, else compute pure
@@ -20,10 +19,10 @@
 
   ## Why the promises are worth a witness rather than a comment
 
-  The negative half is the whole design. `subscribe-once` — the door this
-  path replaced — paid a reaction build, a cache insert, an in-tick evict
-  and a dispose cascade **per read**, and a render React abandons is a
-  render whose every read did all four for nothing. So `render probes,
+  The negative half is the whole design. A `subscribe-once` door would pay
+  a reaction build, a cache insert, an in-tick evict and a dispose cascade
+  **per read**, and a render React abandons is a render whose every read
+  would do all four for nothing. So `render probes,
   commit owns` (invariant I5) is not a property of the commit path alone:
   it is equally a property of the read path, and a probe that quietly
   cached would satisfy every acquisition assertion in
@@ -60,25 +59,20 @@
   that its memo box is reset by every body run, which is the second half
   of the one-compute-per-run row below.
 
-  ## The resolution seam, and a row that was deleted and is now back
+  ## The resolution seam, witnessed on an image-loaded frame
 
   `cold-read!` computes inside `live-frame/call-with-frame-resolution`,
   which BINDS the target's resolved image generation and, before that,
   runs the read-time coalesced reprojection flush. §5 witnesses both.
 
-  It witnesses them on an IMAGE-LOADED frame, and that is the whole
-  difference from an earlier attempt. A same-tick registration row was
-  written against the default-image frame the sections above use, found
-  to red nothing under mutation, and deleted as decorative. The finding
-  was about the ROW'S CONDITIONS and not about the claim: `make-frame`
-  with no `:images` resolves the default image over the entire live
-  source store, so a read through that generation and a read around it
-  answer identically and neither half of the wrapper can be caught doing
-  anything. Deleting is right only when the claim is covered elsewhere in
-  the same artefact, and this one was covered only in the prototype
-  runtime — which is what this file exists to stop relying on. So §5
-  keeps the claim and changes the condition: a frame running an EXPLICIT
-  image, where a selection is a thing a read can get wrong."
+  It witnesses them on an IMAGE-LOADED frame, and that condition is the
+  point. `make-frame` with no `:images` resolves the default image over
+  the entire live source store, so on the default-image frame the
+  sections above use, a read through that generation and a read around
+  it answer identically, neither half of the wrapper can be caught doing
+  anything, and a same-tick registration row written there reds nothing
+  under mutation. So §5 runs on a frame with an EXPLICIT image, where a
+  selection is a thing a read can get wrong."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -215,7 +209,7 @@
 
 (deftest a-cold-read-answers-what-the-committed-path-answers
   (seeded!)
-  ;; The equivalence the port staked commit-free Tier-1 reads on: the
+  ;; The equivalence commit-free Tier-1 reads rest on: the
   ;; probe's pure compute and the reactive build share the input grammar,
   ;; so a value must not depend on which rung answered it.
   (let [cold (first (run-body! (fn [read] (read [:coldprobe/plain]))))]
@@ -355,16 +349,12 @@
 ;; coalesced reprojection flush first. Each has its own row here, because the
 ;; narrowing that reds one is green on the other.
 ;;
-;; THE ROW THIS SECTION REPLACES, and why it is worth saying. A same-tick
-;; registration row was written for the default-image frame above, found to red
-;; NOTHING under mutation, and deleted as decorative. Half right. It was
-;; decorative AS WRITTEN, because `make-frame` with no `:images` resolves the
-;; DEFAULT image over the whole live source store — so a read through that
-;; generation and a read around it answer the same, and neither half of the
-;; wrapper can be seen doing anything. But the CLAIM was real, and deleting the
-;; row left it witnessed only in the prototype runtime, which is precisely what
-;; this bead exists to stop depending on. The fix is the CONDITION, not the
-;; row: an image that SELECTS.
+;; WHY AN IMAGE THAT SELECTS. `make-frame` with no `:images` resolves the
+;; DEFAULT image over the whole live source store — so on the default-image
+;; frame above, a read through that generation and a read around it answer the
+;; same, neither half of the wrapper can be seen doing anything, and a
+;; same-tick registration row written there reds NOTHING under mutation. The
+;; claim is witnessable only under the right CONDITION: an image that SELECTS.
 
 (deftest a-cold-read-resolves-through-the-frames-own-image-and-not-the-registrar
   ;; Registered live, so its provenance namespace is this file's — which is
