@@ -183,8 +183,8 @@
     S4-PRELOOK + `(rf.frame/frame id)` + `(get @cache k)`
     RGSUB      + the ref-count attach and the post-swap re-check
 
-  Two RETIRED spellings are kept live beside their replacements as PAIRED
-  CONTROLS in one process, so each claimed saving is falsifiable:
+  Two RETIRED spellings sit beside the shipped ones as PAIRED CONTROLS in
+  one process, so each claimed saving is falsifiable:
 
     S1-EAGER   the `{:where :event-id}` payload built EAGERLY
     N-CWFRWRAP `cwfr` behind the retired `frame-resolution-target` wrapper,
@@ -1109,7 +1109,7 @@
 ;; refuses a contaminated one — a run whose arms are optimised to ~nothing
 ;; exits 2 with every one of them refused by PHASE, an identical ratio and
 ;; nothing else in common. The signature is a
-;; per-WINDOW floor: an arm that no longer allocates reads the instrument's
+;; per-WINDOW floor: an arm that allocates nothing reads the instrument's
 ;; own per-window bytes divided by its rep count, and when that floor moves
 ;; mid-run the arm's rounds split disjointly. That is not the arm's subject
 ;; moving, but the guard cannot know it from the plan alone.
@@ -1741,7 +1741,7 @@
                              "   <= FLOOR: an UPPER BOUND, not a measurement" ""))))
         (println ";;")
         ;; --- inside subscribe -----------------------------------------------
-        (println ";; rf2-j8ls2 — INSIDE subscribe's cache-HIT path (prefix ladder)")
+        (println ";; INSIDE subscribe's cache-HIT path (prefix ladder)")
         (println ";;   all figures NET of NOOP; shares are of RGSUB (= subscribe, cache hit)")
         (let [rgsub (net* "RGSUB")
               pct   (fn [v] (* 100.0 (/ v rgsub)))]
@@ -1760,10 +1760,10 @@
         (println ";; the retired spellings, as paired controls:")
         (doseq [[lbl v] [["S1-EAGER (retired eager payload)"       (net* "S1-EAGER")]
                          ["S1-CURFRM (shipped, deferred)"          (net* "S1-CURFRM")]
-                         ["rf2-a8bw0 saves (S1-EAGER - S1-CURFRM)" (- (net* "S1-EAGER") (net* "S1-CURFRM"))]
+                         ["deferral saves (S1-EAGER - S1-CURFRM)"  (- (net* "S1-EAGER") (net* "S1-CURFRM"))]
                          ["N-CWFRWRAP (retired target wrapper)"    (net* "N-CWFRWRAP")]
                          ["N-CWFRRAW  (shipped, carried target)"   (net* "N-CWFRRAW")]
-                         ["rf2-8gb3t saves (WRAP - RAW)"           (- (net* "N-CWFRWRAP") (net* "N-CWFRRAW"))]
+                         ["unwrapping saves (WRAP - RAW)"          (- (net* "N-CWFRWRAP") (net* "N-CWFRRAW"))]
                          ["  ... predicted by N-RESTGT"            (net* "N-RESTGT")]]]
           (println (gstring/format ";;   %-40s %10s B/read" lbl (fmt v))))
         (println ";; the attach, part by part (RC-CAND is the SHIPPED form):")
@@ -1777,20 +1777,20 @@
                          ["ATTACH - CAND (what the rewrite saves)"
                           (- (net* "RC-ATTACH") (net* "RC-CAND"))]]]
           (println (gstring/format ";;   %-40s %10s B/read" lbl (fmt v))))
-        (println ";; rf2-ncjyt / rf2-ezwnl — the pre-node lookups:")
+        (println ";; the pre-node lookups:")
         (doseq [l ["N-RESTGT" "N-GENREAD" "N-FLUSH" "N-BINDONLY" "N-CWFRNOG"
                    "N-CWFRBIND" "N-CWFRGEN" "N-CALLTHUNK" "N-LOOKGEN" "N-LOOKATOM"]]
           (println (gstring/format ";;   %-40s %10s B/read%s"
                            l (fmt (net* l))
                            (if (<= (net* l) floor) "   <= FLOOR (upper bound)" ""))))
         (println (gstring/format ";;   %-40s %10s B/read"
-                         "rf2-ezwnl key vector (LOOKGEN-LOOKATOM)"
+                         "the lookup key vector (LOOKGEN-LOOKATOM)"
                          (fmt (- (net* "N-LOOKGEN") (net* "N-LOOKATOM")))))
         (println ";;   ^ NOT on the cache-HIT read path: subscribe's hit branch performs no")
         (println ";;     rf.registrar/lookup. It runs per dispatch, per fx, per cofx and per")
-        (println ";;     subscribe MISS. Quoted here because rf2-ezwnl's reopen condition names it.")
+        (println ";;     subscribe MISS. Quoted here for those callers, not for the read path.")
         (println ";;")
-        ;; --- rf2-f70iq — WHERE the ambient reader's bytes go -----------------
+        ;; --- WHERE the ambient reader's bytes go ---------------------------
         (let [rng (fn [l]
                     (let [rnd (:rounds (get res l))]
                       [(/ (- (apply min rnd) noop) n) (/ (- (apply max rnd) noop) n)]))
@@ -1800,7 +1800,7 @@
                                        lbl (fmt v) (fmt lo) (fmt hi)
                                        (if (<= v floor)
                                          "   <= FLOOR (upper bound)" "")))))]
-          (println ";; rf2-f70iq — the CLJS ambient-frame reader, STEP BY STEP")
+          (println ";; the CLJS ambient-frame reader, STEP BY STEP")
           (println ";;   S0-SCOPE - S0-VAR says the React-context consult costs bytes and says")
           (println ";;   nothing about WHERE. These arms price each step of the route in the")
           (println ";;   same process against the same installed adapter. All NET of NOOP.")
@@ -1878,7 +1878,7 @@
             (println ";;   changes every adapter's routed hooks and is an operator call."))
           (println ";;"))
         ;; --- THE HEADLINE ---------------------------------------------------
-        (println ";; ==== THE TERM THIS BEAD IS ABOUT ====")
+        (println ";; ==== THE TERM THIS HARNESS IS ABOUT ====")
         (println ";;   JVM: the dynamic `binding` of rf.registrar/*generation* inside")
         (println ";;   call-with-frame-resolution reads ~760 B/call and is ~41-46% of")
         (println ";;   subscribe's cache-HIT allocation. CLJS `binding` is let + set! +")
@@ -1890,8 +1890,8 @@
               fidelity   (- (net* "N-CWFRBIND") (net* "N-CWFRRAW"))
               standalone (net* "N-BINDONLY")
               rgsub      (net* "RGSUB")
-              ;; SYMMETRY CHECK, and it is load-bearing (rf2-x0fe2). The pair is
-              ;; only symmetric while BOTH halves actually allocate their thunk.
+              ;; SYMMETRY CHECK, and it is load-bearing. The pair is only
+              ;; symmetric while BOTH halves actually allocate their thunk.
               ;; They do not always: at n=30 V8 elides `cwfr-nobind`'s thunk
               ;; while the `binding`'s try/finally blocks the same elision on the
               ;; bind side, and the difference then reads one whole closure —
@@ -1933,19 +1933,19 @@
           (println (gstring/format ";;     N-CWFRBIND (re-spelled) %s   N-CWFRRAW (shipped) %s   delta %s B/read"
                            (fmt (net* "N-CWFRBIND")) (fmt (net* "N-CWFRRAW")) (fmt fidelity)))
           (println ";;")
-          (println ";;   TWO SUBTRACTIONS THAT LOOK RIGHT AND ARE NOT — both are on record")
-          (println ";;   because each one, published, would have been a precise wrong number.")
+          (println ";;   THREE SUBTRACTIONS THAT LOOK RIGHT AND ARE NOT — all are on record")
+          (println ";;   because each one, published, would be a precise wrong number.")
           (println (gstring/format ";;     (a) the JVM harness's own (S3-S2-N-CWFRNOG)      %10s B/read"
                            (fmt jvm-style)))
           (println (gstring/format ";;         a nil target SHORT-CIRCUITS the generation read, so this residual")
                    )
           (println (gstring/format ";;         is the generation read (N-GENREAD %s B/read), not the binding."
                            (fmt (net* "N-GENREAD"))))
-          (println ";;         On the JVM the binding was ~760 B and that conflation was 2-5%,")
-          (println ";;         so it did not matter there. Here it would be the whole answer.")
+          (println ";;         On the JVM the binding is ~760 B and that conflation is 2-5%,")
+          (println ";;         so it does not matter there. Here it would be the whole answer.")
           (println ";;     (b) an INLINE re-spelling of cwfr's body — MEASURED at 64.1 B/read")
-          (println ";;         against standalone N-BINDONLY's 0.1 in this harness's own")
-          (println ";;         development, which is how it was caught. `cwfr` takes a THUNK and")
+          (println ";;         against standalone N-BINDONLY's 0.1: the harness disagreeing")
+          (println ";;         with itself. `cwfr` takes a THUNK and")
           (println ";;         its caller allocates one per call that ESCAPES; an inline")
           (println ";;         re-spelling allocates one that does not, and V8 elides what it")
           (println ";;         can prove never escapes. So the subtraction prices the CLOSURE:")
@@ -1993,14 +1993,14 @@
         ;; The figures are printed and the refusal is about what may be QUOTED,
         ;; not about throwing the measurement away — so the exit code carries it.
         ;;
-        ;; rf2-hydpy: a refusal is no longer the last word. Each refused arm is
-        ;; re-measured across a reps ladder (the rf2-tmzie sweep), and a
-        ;; refusal every one of whose arms provably reads the instrument's
+        ;; A refusal is not the last word. Each refused arm is re-measured
+        ;; across a reps ladder (the floor sweep), and a refusal every one
+        ;; of whose arms provably reads the instrument's
         ;; per-WINDOW floor — not its own subject — is downgraded to a
         ;; CERTIFIED-AT-FLOOR quote: the arm's worst round as an upper bound,
         ;; never its p50. Any arm the sweep cannot attribute, and any
         ;; :unchecked refusal (a plan defect, which no sweep can excuse),
-        ;; keeps the run at exit 2 exactly as before.
+        ;; keeps the run at exit 2.
         (let [v (rf.bench.order-guard/verdict (:order run) {:tolerance tolerance})]
           (doseq [line (rf.bench.order-guard/report-lines v "the per-arm figure, one p50 per round")]
             (println line))
@@ -2021,13 +2021,13 @@
                                  (println ";; ==== ARM ORDER: THESE FIGURES ARE NOT REPORTABLE ====")
                                  (println (str ";;   at least one arm reads differently for what preceded it, or for where "
                                                "in the run"))
-                                 (println (str ";;   it was measured (rf2-88pie). The table above stands as raw data; "
+                                 (println (str ";;   it was measured. The table above stands as raw data; "
                                                "nothing in it"))
                                  (println ";;   may be quoted.")
                                  (doseq [l extra-lines] (println l))
                                  (set! (.-exitCode js/process) 2))]
               (println ";;")
-              (println ";; ==== FLOOR ATTRIBUTION (rf2-hydpy) — is each refused arm reading its subject, or the instrument? ====")
+              (println ";; ==== FLOOR ATTRIBUTION — is each refused arm reading its subject, or the instrument? ====")
               (println ";;   each refused arm re-measured across window sizes derived from its own reps.")
               (println ";;   a REAL per-call cost is rep-INDEPENDENT in B/call; a per-WINDOW floor falls")
               (println ";;   as the window grows. attribution demands STRICTLY MORE than half the full")
@@ -2082,12 +2082,12 @@
                                              (keep #(when (not= :floor (:status %)) (:label %))
                                                    verdicts))
                                    " — what those arms read is not the per-window floor.")])))))))
-        ;; rf2-l3jv4 — the CONTROL's refusal, independent of the arm order's.
+        ;; The CONTROL's refusal, independent of the arm order's.
         ;; The order guard asks whether an arm's figure moved with where in
         ;; the plan it sat; this asks whether the instrument was measuring a
-        ;; tagged-slot copy at all. Until this bead the answer only ever
-        ;; printed, so a run could report `NEITHER` above and still exit 0
-        ;; under a `VERDICT: reportable`.
+        ;; tagged-slot copy at all. Without it the answer would only print,
+        ;; so a run could report `NEITHER` above and still exit 0 under a
+        ;; `VERDICT: reportable`.
         (doseq [line (rf.bench.calibration/report-lines cal)]
           (println line))
         (when (:refuse? cal)
