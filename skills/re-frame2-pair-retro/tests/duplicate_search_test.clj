@@ -1,5 +1,5 @@
 ;;;; tests/duplicate_search_test.clj — all-state duplicate-search contract
-;;;; for the §Issue drafts branch (rf2-2jeh5).
+;;;; for the §Issue drafts branch.
 ;;;;
 ;;;; The skill's duplicate invariant: whenever Pair-retro represents that it
 ;;;; checked for an existing owner, the candidate search covers open AND
@@ -15,7 +15,7 @@
 ;;;; models gh's documented state filtering over a three-issue fixture set,
 ;;;; and asserts the outcomes the skill's own §Issue drafts prose promises.
 ;;;; Removing `--state all` from SKILL.md makes the closed-owner case here
-;;;; fail while the no-match control keeps passing (the bead's non-vacuity
+;;;; fail while the no-match control keeps passing (the non-vacuity
 ;;;; criterion).
 ;;;;
 ;;;; Run: bb tests/duplicate_search_test.clj   (from skills/re-frame2-pair-retro/)
@@ -186,15 +186,15 @@
         "§Issue drafts must instruct saying the check was not completed on a skipped/failed query")))
 
 ;; ---------------------------------------------------------------------------
-;; Read-only surface unchanged — list/view only, no mutation grant.
+;; Read-only surface — list/view only, no mutation grant.
 ;; ---------------------------------------------------------------------------
 
 (deftest grant-stays-read-only
-  (testing "the allowed-tools grant is still exactly gh issue list/view (no create/label/write)"
+  (testing "the allowed-tools grant is exactly gh issue list/view (no create/label/write)"
     (is (str/includes? @skill-md "Bash(gh issue list *)"))
     (is (str/includes? @skill-md "Bash(gh issue view *)"))
     (is (not (str/includes? @skill-md "gh issue create *"))
-        "no mutation grant may ride along with the all-state fix")))
+        "no mutation grant may ride along with the all-state search")))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
