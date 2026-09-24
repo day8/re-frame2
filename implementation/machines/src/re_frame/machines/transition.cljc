@@ -2973,12 +2973,12 @@
     :internal?      — the EFFECTIVE internal flag: true iff the
                       transition has NO `:target` (a targetless internal
                       no-op). Per XState v5 any EXPLICIT target —
-                      even self / ancestor / current-compound on the active
-                      path — re-resolves the active descendants below the
-                      target (children reset to `:initial`), so it is NOT a
-                      configuration no-op and `internal?` is false. See
-                      `lca-len` for the four active-path geometries
-                      (self/ancestor ± `:reenter?`, descendant ± `:reenter?`).
+                      even the declaring state itself on the active
+                      path — re-resolves at least the active descendants
+                      below the target (children reset to `:initial`), so it
+                      is NOT a configuration no-op and `internal?` is false.
+                      See `lca-len` for the active-path geometries (self ±
+                      `:reenter?`, proper ancestor, descendant ± `:reenter?`).
     :lca-len        — common-prefix length of src and target.
     :cascade-steps  — the vec of cascade STEP maps in
                       execution order (`:exit` × N deepest-first → the
@@ -3050,32 +3050,32 @@
         ;; `targetless?` is the structural "no `:target` declared" predicate
         ;; — and, per `internal?` below, the ONLY internal (true
         ;; configuration no-op) case. An EXPLICIT target is NEVER internal:
-        ;; a self / proper-ancestor target on the active path re-resolves the
-        ;; active descendants below it, and a proper descendant of the
-        ;; DECLARING compound re-enters the target node itself. The `lca-len`
-        ;; case table below is the single statement of that geometry.
+        ;; a self target on the active path re-resolves the active
+        ;; descendants below it, a proper ancestor of the declaring state
+        ;; exits and re-enters, and a proper descendant of the DECLARING
+        ;; compound re-enters the target node itself. The `lca-len` case
+        ;; table below is the single statement of that geometry.
         targetless?   (nil? raw-target)
-        ;; `:reenter? true` is the EXTERNAL opt-in — it re-enters the node the
-        ;; default geometry would otherwise leave standing. WHICH node depends
-        ;; on the TARGET ↔ DECLARING-state relationship (see the `lca-len`
-        ;; case table): a SELF / proper-ANCESTOR target restarts the TARGET
-        ;; (re-run its `:exit`/`:entry`, restart its `:after` timers,
+        ;; `:reenter? true` is the EXTERNAL opt-in — it re-enters the
+        ;; DECLARING state, which the default geometry would otherwise leave
+        ;; standing (see the `lca-len` case table): a SELF target restarts the
+        ;; TARGET (re-run its `:exit`/`:entry`, restart its `:after` timers,
         ;; tear-down-and-respawn its `:spawn`/`:spawn-all` children, then
         ;; re-descend its `:initial`); a proper DESCENDANT of the declaring
         ;; compound restarts the DECLARING COMPOUND and then descends to the
         ;; NAMED target. Absent / false does NOT mean "no exit/entry churn":
         ;; the default geometry still re-resolves the descendants below a
-        ;; self/ancestor target, and still re-enters a declaring-compound
-        ;; descendant target. The flag is meaningful for a target on the
-        ;; active path OR a descendant named by the declaring compound; for a
-        ;; disjoint-subtree target the LCCA already lies above both source and
-        ;; target, so exit/entry fire regardless (the flag is a no-op there).
-        ;; Per Spec 005 §Self-transitions.
+        ;; self target, and still re-enters a declaring-compound descendant
+        ;; target. The flag is meaningful ONLY when the target is the
+        ;; declaring state or a proper descendant of it. For a proper-ANCESTOR
+        ;; or disjoint-subtree target the LCCA already lies above the
+        ;; declaring state, so its exit/entry fire regardless and the flag is
+        ;; a no-op, as XState's `reenter` is. Per Spec 005 §Self-transitions.
         reenter?      (true? (:reenter? transition))
         ;; The target BEFORE initial-cascade re-descent. Needed to detect
-        ;; the self/ancestor transition: a `:target` (the `:same-state`
-        ;; sentinel, or a keyword naming the declaring state's own key)
-        ;; that resolves onto the active path.
+        ;; a `:target` that resolves onto the active path (e.g. the
+        ;; `:same-state` sentinel, a keyword naming the declaring state's own
+        ;; key, or a vector naming one of its ancestors).
         target-base0  (target-path decl-path raw-target)
         ;; Per Spec 005 §Restoring — on transition to the pseudo-state: when
         ;; `target-base0` lands on a history pseudo-state it resolves to a
@@ -3145,7 +3145,9 @@
         ;; `target-descendant-of-decl?` below is tested FIRST in `lca-len` and
         ;; wins that overlap — a `:parent`-declared target of the already-active
         ;; leaf `[:parent :leaf]` re-enters the leaf rather than treating it as
-        ;; a survives-in-place self target.
+        ;; a survives-in-place self target. `target-ancestor-of-decl?` splits
+        ;; the rest into a proper ancestor of the declaring state and the
+        ;; declaring state itself.
         target-on-active-path? (and (not targetless?)
                                     (= (count target-base)
                                        (common-prefix-length src-path target-base)))
@@ -3196,23 +3198,35 @@
                             (> (count decl-path) (dec (count target-base0)))
                             (= (count decl-path)
                                (common-prefix-length decl-path target-base)))
+        ;; T is a PROPER ANCESTOR of the declaring state D: T and D both lie
+        ;; on the active path and T is the shorter. The transition is
+        ;; declared BELOW its target, so the LCCA of {source, T} is T's
+        ;; parent and T is in the exit set — the SCXML rule, which XState's
+        ;; `getTransitionDomain` implements and on which its `reenter` is a
+        ;; no-op. A history target never matches: it resolves to a leaf,
+        ;; which is never a proper ancestor of D.
+        target-ancestor-of-decl? (and target-on-active-path?
+                                      (< (count target-base) (count decl-path)))
         external-re-entry?     (or reenter? restores-decl?)
-        reenter-active-path?   (and target-on-active-path? external-re-entry?)
+        ;; The pull-up arm: the active-path target T exits and re-enters
+        ;; (the boundary moves to T's parent) when T is a proper ancestor of
+        ;; D, always, or when T is D and re-entry is asked for.
+        reenter-active-path?   (and target-on-active-path?
+                                    (or target-ancestor-of-decl? external-re-entry?))
         ;; The EFFECTIVE internal flag threaded to every downstream phase
         ;; (cascade-steps, `commit-snapshot` state preservation, after-fx /
         ;; after-cancel / destroy / done-raise / history-record). ONLY a
         ;; targetless transition is internal (true configuration no-op).
-        ;; XState v5: any EXPLICIT target — even self / ancestor /
-        ;; current-compound on the active path — re-resolves the active
-        ;; descendants below the target, so it is NOT a no-op. A no-`:reenter?`
-        ;; active-path target is the middle "re-resolve descendants" case, NOT
-        ;; a targetless no-op.
+        ;; XState v5: any EXPLICIT target — even the declaring state itself
+        ;; on the active path — re-resolves at least the active descendants
+        ;; below the target, so it is NOT a no-op. A no-`:reenter?` self
+        ;; target is the middle "re-resolve descendants" case, NOT a
+        ;; targetless no-op.
         internal?     targetless?
         ;; The exit/entry boundary (LCCA depth) — the count of the common
-        ;; prefix that SURVIVES (is neither exited nor entered). The geometries,
-        ;; all grounded in xstate@5.32.0, are
-        ;; discriminated by the TARGET ↔ DECLARING-state (`decl-path`)
-        ;; relationship, NOT by the active leaf.
+        ;; prefix that SURVIVES (is neither exited nor entered). The
+        ;; geometries are discriminated by the TARGET ↔ DECLARING-state
+        ;; (`decl-path`) relationship, NOT by the active leaf.
         ;;
         ;; BRANCH PRECEDENCE IS LOAD-BEARING and the `cond` order below is the
         ;; contract: `internal?` (targetless) first, then
@@ -3254,13 +3268,21 @@
         ;;          e.g. declared on :editor, target [:editor :preview] +
         ;;          :reenter? while at :draft → exit draft + editor, re-enter
         ;;          editor, descend to :preview.
-        ;;  • T is on the ACTIVE PATH but NOT a descendant of D (SELF or proper
-        ;;    ANCESTOR of D):
+        ;;  • T is a proper ANCESTOR of D on the active path (the transition
+        ;;    is declared BELOW its target) — the ordinary LCCA rule: the LCCA
+        ;;    of {source, T} is T's parent, so T is exited + re-entered
+        ;;    (restart timers/spawns) then re-descends its `:initial`, with
+        ;;    or without `:reenter?`. boundary = (count target-base) - 1.
+        ;;          e.g. declared on :step3, target [:process] at
+        ;;          [:process :step3] → exit step3 + process, re-enter
+        ;;          process, re-descend :initial (step1).
+        ;;  • T is D itself, on the ACTIVE PATH (SELF):
         ;;      WITHOUT `:reenter?` — T survives; only its active descendants
         ;;        re-resolve. boundary = (count target-base) (computed against
         ;;        target-BASE so re-resolution is not a no-op).
-        ;;          e.g. at [:process :step3], target :process → exit step3,
-        ;;          re-enter :initial (step1); :process not exited.
+        ;;          e.g. declared on :process at [:process :step3], target
+        ;;          :process → exit step3, re-enter :initial (step1);
+        ;;          :process not exited.
         ;;      WITH `:reenter?` — T is exited + re-entered (restart
         ;;        timers/spawns) then re-descends. boundary = (count target-base) - 1.
         ;;  • DISJOINT-subtree target (not a descendant of D, not on the active
