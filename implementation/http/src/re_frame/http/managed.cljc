@@ -201,8 +201,7 @@
 ;;
 ;; There is deliberately NO fx form: an interceptor's
 ;; payload is a fn, so putting it inside an fx vector makes it less
-;; data-shaped rather than more, and no shipped handler changes the
-;; interceptor chain from inside an event. An fx form earns its place only
+;; data-shaped rather than more. An fx form earns its place only
 ;; when a shipped handler must change the interceptor chain ITSELF from inside
 ;; an event; its shape is then positional per Conventions §When a
 ;; registrar has an fx form — `[:rf.fx/reg-http-interceptor [id
