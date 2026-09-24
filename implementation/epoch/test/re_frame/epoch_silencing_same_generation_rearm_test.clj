@@ -1,14 +1,13 @@
 (ns re-frame.epoch-silencing-same-generation-rearm-test
-  "rf2-qg98y — a delayed epoch silence stays coherent with a SAME-GENERATION
+  "A delayed epoch silence stays coherent with a SAME-GENERATION
   re-arm.
 
   ## The gap these tests close
 
-  rf2-8b9twg moved the `:rf.epoch.cb/silenced-on-frame-destroy` emit OUTSIDE the
-  ledger locks and kept authority through the `:observed-gen` DATA QUALIFIER. The
-  authority text that shipped with it claimed that qualifier made EVERY
-  reservation→publication mutation race-coherent, naming a `record-observation!`
-  re-arm among them. It does not.
+  The `:rf.epoch.cb/silenced-on-frame-destroy` emit runs OUTSIDE the ledger
+  locks and keeps authority through the `:observed-gen` DATA QUALIFIER. That
+  qualifier alone does NOT make every reservation→publication mutation
+  race-coherent: a `record-observation!` re-arm escapes it.
 
   `:observed-gen` names a REGISTRATION generation. A replacement or an
   unregister-drop mints a different one, so a superseded signal self-filters. But
@@ -17,8 +16,8 @@
   generation while the callback is receiving records again. The reservation's
   not-a-live-observer check (`eligible-and-reserve!` check 2) is a
   RESERVATION-time decision and cannot be re-taken across the lock-free emit.
-  Result before this bead: the documented one-fact receiver rule ACCEPTED a
-  silence for a LIVE callback.
+  A receiver rule weighing that one fact would ACCEPT a silence for a LIVE
+  callback.
 
   ## The law these tests pin
 
@@ -27,23 +26,22 @@
       (rf/epoch-silence-current? tags)
 
   Registration identity rejects a signal owed to a generation that has since been
-  replaced or dropped — the rf2-8b9twg property, unchanged. Observation continuum
-  rejects a signal superseded by a fresh DELIVERY on the SAME registration — the
-  property this bead adds. Together they are exact at read time: the silence is
-  current iff both hold.
+  replaced or dropped. Observation continuum rejects a signal superseded by a
+  fresh DELIVERY on the SAME registration. Together they are exact at read
+  time: the silence is current iff both hold.
 
-  Both facts are weighed inside ONE operation over a single ledger snapshot
-  (rf2-uhouu). They were briefly two composable public queries; that composite was
-  not linearizable, because a replacement or drop landing between the two reads
-  accepted a signal for an already-superseded registration. See
+  Both facts are weighed inside ONE operation over a single ledger snapshot.
+  Two composable public queries would not be linearizable: a replacement or
+  drop landing between the two reads would accept a signal for an
+  already-superseded registration. See
   `re-frame.epoch-silence-decision-atomicity-test`.
 
-  Nothing about the emission mechanism changes: the reservation still happens
-  under both ledger locks, the emit still runs OUTSIDE them (no ledger lock is
-  taken across foreign code), and no polling/retry machinery is introduced. The
-  fix is a SUPPORTED DECISION over ledger state that already existed
-  (`state/live-observer?` alongside the registration generation), so the receiver
-  can decide what the publisher provably cannot."
+  The emission mechanism carries none of this: the reservation happens under
+  both ledger locks, the emit runs OUTSIDE them (no ledger lock is taken across
+  foreign code), and there is no polling/retry machinery. The receiver weighs a
+  SUPPORTED DECISION over ledger state (`state/live-observer?` alongside the
+  registration generation), so it can decide what the publisher provably
+  cannot."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
@@ -65,8 +63,8 @@
   (rf/epoch-silence-current? tags))
 
 (defn- cb-generation
-  "The live generation token under `cb`. Not a public query (rf2-uhouu retired
-  it — the generation alone can only recompose the torn two-read decision);
+  "The live generation token under `cb`. There is no public query for it — the
+  generation alone could only recompose the torn two-read decision — so
   artefact-internal tests read the registry snapshot directly."
   [cb]
   (get-in (rf.epoch.state/listeners-snapshot) [cb :generation]))
@@ -101,7 +99,7 @@
   (rf.epoch.state/claim-frame-owner! frame token)
   (rf.epoch.listeners/notify-listeners! {:frame frame :epoch-id 1}))
 
-;; ---- THE BEAD CASE: same-generation re-arm inside the emit window -----------
+;; ---- THE CENTRAL CASE: same-generation re-arm inside the emit window --------
 
 (deftest same-generation-rearm-in-the-emit-window-is-rejected-by-the-supported-receiver-decision
   ;; A deferred predecessor A reserves the one silence for (F, cb, G) while cb is
@@ -149,7 +147,7 @@
             (is (true? (observing? cb frame))
                 "the successor's delivery re-armed cb's observation of the frame"))
 
-          (testing "registration identity alone is INSUFFICIENT — the rf2-qg98y gap"
+          (testing "registration identity alone is INSUFFICIENT against a same-generation re-arm"
             (is (= (:observed-gen tags) (cb-generation cb))
                 "the generation fact MATCHES, so on its own it would ACCEPT a
                  silence for a live callback"))
@@ -242,7 +240,7 @@
 (deftest a-rearm-followed-by-a-replacement-is-rejected
   ;; The compound adversarial case: the successor re-arms G (the observation
   ;; fact trips) and THEN the tool re-attaches its listener, minting H (registration
-  ;; identity trips too). The rf2-8b9twg replacement property must survive, and
+  ;; identity trips too). The replacement property must hold, and
   ;; the fresh generation H must read as observing NOTHING — it has consumed no
   ;; record.
   (let [frame        :qg98y/compound
@@ -269,7 +267,7 @@
           (is (= g (:observed-gen tags)) "the signal is still attributed to G, never to H")
           (is (not= g (cb-generation cb)) "H is current")
           (is (not= (:observed-gen tags) (cb-generation cb))
-              "registration identity (the rf2-8b9twg property) still rejects — unchanged")
+              "registration identity still rejects")
           (is (false? (observing? cb frame))
               "the fresh generation H has consumed NO record, so it observes nothing")
           (is (false? (silence-current? tags))
