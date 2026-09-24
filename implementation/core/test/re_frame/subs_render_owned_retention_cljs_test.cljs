@@ -1,24 +1,23 @@
 (ns re-frame.subs-render-owned-retention-cljs-test
-  "A render-owned holding (Spec 006 §Which lifetime governs a ratom adapter,
-  rf2-ty246) ends with EITHER end of it: the owner's dispose or the claimed
-  reaction's. This namespace pins the second half, the one rf2-3x7nj.3.1
-  found missing.
+  "A render-owned holding (Spec 006 §Which lifetime governs a ratom adapter)
+  ends with EITHER end of it: the owner's dispose or the claimed reaction's.
+  This namespace pins the second half.
 
-  THE DEFECT. `re-frame.subs/claim-render-owned-ref!` tied each holding to
-  the OWNER alone: every new claim recorded the reaction on the owner and
-  pushed one more release closure onto the owner's on-dispose callbacks, and
-  nothing removed either when the CLAIMED reaction was disposed. So a mounted
+  THE HAZARD. Were `re-frame.subs/claim-render-owned-ref!` to tie each holding
+  to the OWNER alone — every new claim recording the reaction on the owner and
+  pushing one more release closure onto the owner's on-dispose callbacks, with
+  nothing removing either when the CLAIMED reaction is disposed — a mounted
   component whose conditional read was toggled, or whose parametric query
-  changed, kept every disposed reaction it had ever read — each still closing
-  over its memo's last app-db — for as long as it stayed mounted.
+  changed, would keep every disposed reaction it had ever read — each still
+  closing over its memo's last app-db — for as long as it stayed mounted.
 
   WHICH DIRECTION EACH ROW PINS.
 
     * `...-toggled-read-...` and `...-parametric-read-...` are the RED rows:
       the owner's callbacks must not grow with claims, and no reaction the
       owner no longer reads may still be reachable from its holdings.
-    * `...-owner-churn-...` is GREEN IN BOTH DIRECTIONS on the old code and
-      pins the MIRROR failure a repair could introduce: the claimed reaction
+    * `...-owner-churn-...` is GREEN IN BOTH DIRECTIONS under owner-only
+      tying and pins the MIRROR failure: the claimed reaction
       must not accumulate a callback, or a record, per owner that ever read it.
 
   WHY THIS LANE. `claim-render-owned-ref!` is `#?(:cljs ...)`-only and fires
@@ -136,7 +135,7 @@
 ;; ---- the red rows ---------------------------------------------------------
 
 (defn- toggled-read-scenario
-  "The bead's own scenario: one sub read unconditionally, one read only while
+  "The canonical scenario: one sub read unconditionally, one read only while
   a flag is on. Each OFF render drops the conditional reaction's last
   watcher, so it disposes and leaves the cache; each ON render builds and
   claims a fresh one."
@@ -165,7 +164,7 @@
                "slot is gone"))
       (is (= callbacks-after-first-render (callback-count owner))
           (str label ": the owner's on-dispose callbacks do not grow with claims "
-               "(one per claim before the fix, each capturing a disposed reaction)"))
+               "(owner-only tying adds one per claim, each capturing a disposed reaction)"))
       (is (= #{[frame-id [::n]]} (set (keys (holdings owner))))
           (str label ": the owner holds exactly the slot it still reads"))
       (is (not-any? #(reachable? owner %) @seen)
@@ -217,8 +216,8 @@
 (defn- owner-churn-scenario
   "One long-lived owner keeps a reaction alive while short-lived owners read
   it and dispose. The reaction must not collect a callback or a record per
-  owner that ever read it — the failure a repair that registered on the
-  claimed reaction once PER CLAIM would introduce."
+  owner that ever read it — the failure registering on the claimed reaction
+  once PER CLAIM would introduce."
   [{:keys [label] :as config}]
   (testing (str label ": owners that come and go leave nothing behind on a "
                 "reaction that outlives them")
