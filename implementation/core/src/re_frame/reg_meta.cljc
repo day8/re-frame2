@@ -1,6 +1,6 @@
 (ns re-frame.reg-meta
   "Registration-metadata KEY classification — the no-silent-swallow guard for
-  the `reg-*` middle slot (rf2-x68lzo).
+  the `reg-*` middle slot.
 
   Per [Conventions §No silent swallow](../../../../spec/Conventions.md#no-silent-swallow--recognised-input-must-signal):
   a user-supplied value recognised as input but not honourable MUST signal;
@@ -28,7 +28,7 @@
                         — a soft-pass hiding bugs — so the swallow is dangerous, not
                         merely wasteful, and must fail loud in dev AND prod.
 
-  Precedent: `re-frame.routing.registry/validate-route-metadata!` (rf2-45b95)
+  Precedent: `re-frame.routing.registry/validate-route-metadata!`
   applies the same rule to `reg-route`; the retired-key redirect mirrors
   `re-frame.image/check-retired-keys!` (EP-0026) — a `{retired-key replacement}`
   table driving an actionable migration diagnostic."
@@ -105,7 +105,7 @@
 
 (defn validate-registration-metadata!
   "Classify the bare keys of a `reg-*` registration `metadata` map at
-  registration time (rf2-x68lzo). `kind` selects the per-kind vocabulary
+  registration time. `kind` selects the per-kind vocabulary
   (`known-bare-keys`); `where-sym` is the quoted public surface symbol
   (`'rf/reg-event`, …) stamped on any throw; `id` names the registration.
 
