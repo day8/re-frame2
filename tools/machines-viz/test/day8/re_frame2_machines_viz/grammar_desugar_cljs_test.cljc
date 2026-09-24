@@ -1,6 +1,6 @@
 (ns day8.re-frame2-machines-viz.grammar-desugar-cljs-test
   "EP-0029 grammar-desugar + ISO-8601 duration coverage for the shared
-  emitter ingestion boundary (rf2-7j6gtc).
+  emitter ingestion boundary.
 
   `grammar.cljc` re-states, bundle-isolated from the runtime `machines`
   artefact, the EP-0029 named-intent desugars every emitter (chart /
