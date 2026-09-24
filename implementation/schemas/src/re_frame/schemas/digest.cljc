@@ -104,9 +104,8 @@
 
   Host-native string `compare` (JVM `String.compareTo` / JS string
   comparison) is UTF-16 code-unit order, which diverges from UTF-8 byte
-  order for supplementary-plane (> U+FFFF) characters — a latent
-  cross-port gap for exotic path keywords. For ASCII the two orders
-  coincide, so this is byte-compatible with the prior pinned vectors."
+  order for supplementary-plane (> U+FFFF) characters, so it would split
+  ports on exotic path keywords. For ASCII the two orders coincide."
   [a b]
   (let [ba   (utf8-bytes a)
         bb   (utf8-bytes b)
@@ -148,12 +147,12 @@
 
   `(app-schemas-digest {:frame f})`. `:frame` is REQUIRED and accepts a
   frame-id keyword or a frame value; a frameless or non-map call raises
-  `:rf.error/no-frame-context` (rf2-kuky.84 — one frame spelling on the
-  side-table read lane).
+  `:rf.error/no-frame-context` (one frame spelling on the side-table read
+  lane).
 
   The digest is computed over the `{path → schema}` projection of
-  `app-schemas`, so its BYTES are unchanged by that fn now answering
-  registration metadata.
+  `app-schemas`, so registration metadata (source coords, `:doc`) never
+  reaches its bytes.
 
   Uses include the SSR hydration handshake (Spec 011 §The :rf/hydrate
   event), the epoch-restore schema-mismatch trace (Tool-Pair §Time-
