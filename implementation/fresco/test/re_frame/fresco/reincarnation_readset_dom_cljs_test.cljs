@@ -6,23 +6,27 @@
   commit seam, where `invalidate-cell!`'s deferred phase finds the
   successor already seated and re-wires the held cell. Its section 3
   records the other branch in a comment: *a successor seated in a later
-  task now finds the cell disposed and recovers through `cold-read!`'s
-  probe on the next render instead, which is the recovery a key that
-  never had a cell already gets*.
+  task finds the cell disposed and recovers through `cold-read!`'s probe
+  on the next render instead, which is the recovery a key that never had
+  a cell gets*.
 
-  That recovery is real and it is not enough. A probe answers a VALUE; it
-  takes no reference, records no edge and installs no watch. What the
-  disposal left behind is a committed registration attached to a table
-  slot that no longer exists — and React repairs none of it on its own,
-  because `subscribe` is cached per read-set entry: a mounted boundary
-  re-rendering the same read set is handed the same closure, React
-  compares it by identity, and no `acquire-cell!` ever runs.
+  That recovery is real and it is not enough on its own. A probe answers
+  a VALUE; it takes no reference, records no edge and installs no watch.
+  What the disposal leaves behind is a committed registration attached
+  to a table slot that no longer exists — and React repairs none of it
+  on its own, because `subscribe` is cached per read-set entry: a
+  mounted boundary re-rendering the same read set is handed the same
+  closure, React compares it by identity, and no `acquire-cell!` ever
+  runs.
 
-  So the boundary paints the successor on the render that recreated the
-  frame, and is deaf to every write after it. **The paint is what makes
-  this dangerous**: a value-only assertion on that first render reads
-  green, which is why every row below asserts the painted value as a
-  PREMISE and then goes on to ask what the runtime is holding (rf2-3awu).
+  With the probe alone the boundary would paint the successor on the
+  render that recreated the frame, and be deaf to every write after it;
+  so the disposal retires the cached entries naming the key, the next
+  render mints a fresh `subscribe`, and React's own re-subscribe
+  re-acquires. **The paint is what makes this dangerous**: a value-only
+  assertion on that first render reads green either way, which is why
+  every row below asserts the painted value as a PREMISE and then goes
+  on to ask what the runtime is holding.
 
   ## What each row is for
 
@@ -204,7 +208,7 @@
     nil))
 
 ;; ---------------------------------------------------------------------------
-;; The row the bead is about
+;; The later-task recreation
 ;; ---------------------------------------------------------------------------
 
 (deftest a-mounted-read-set-reacquires-after-a-later-task-recreation
@@ -228,7 +232,7 @@
 
                 ;; 1 — destroy, and let the invalidation microtask RUN. With
                 ;; no successor to rebuild against, the deferred phase
-                ;; disposes: the exact no-successor teardown, unchanged.
+                ;; disposes: the exact no-successor teardown.
                 (rf/destroy-frame! frame-id)
                 (-> (rf.fresco.checkpoint-support/drain-checkpoint
                       #(zero? (:cells (readers-residue))))
@@ -285,8 +289,8 @@
                               "and the cell holds a live reaction, so a write
                                has an edge to travel"))
 
-                        ;; 5 — the assertion the impact statement is about: a
-                        ;; write to the SUCCESSOR has to reach the screen.
+                        ;; 5 — the assertion that matters most: a write to
+                        ;; the SUCCESSOR has to reach the screen.
                         (rf/with-frame frame-id (rf/dispatch-sync [:readset/seed "C"]))
                         (rf.fresco.impl.mount/settle!)
                         (poll #(= "CC" (text handle))
