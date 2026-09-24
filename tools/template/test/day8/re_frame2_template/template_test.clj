@@ -13,8 +13,8 @@
         and dev-only entry, and an npm-valid name.
      3. The Story wiring is one story and one variant on the dev build,
         and `core.cljs` / `views.cljs` never name Story.
-     4. Nothing retired reappears: no advanced coordinate, no Xray
-        preload, no layout host, no variant file, no removed option in any
+     4. Nothing retired appears: no advanced coordinate, no Xray
+        preload, no layout host, no variant file, no retired option in any
         emitted text.
      5. The argument gate: Reagent is the default, `:substrate` is strict
         on value and shape, and every retired feature flag (Story, SSR,
@@ -53,24 +53,24 @@
 
 (def ^:private view-lib-coords
   {:reagent '#{reagent/reagent}
-   ;; uix.dom is deliberately ABSENT (rf2-j908): the emitted app mounts
+   ;; uix.dom is deliberately ABSENT: the emitted app mounts
    ;; through `rf.adapter.uix/client-root` + `render!`, so `uix.dom` is
    ;; not on its classpath at all.
    :uix     '#{com.pitch/uix.core}})
 
 (def ^:private retired-coords
-  "Coordinates the default scaffold no longer installs, anywhere in
+  "Coordinates the default scaffold must not install, anywhere in
    deps.edn — `:deps` or any alias.
 
    `com.pitch/uix.dom` is here because `view-lib-coords` above is a
    PRESENCE check: dropping a coordinate from it stops asserting the
    coordinate, it does not assert the coordinate is gone. This set is the
-   absence half, and rf2-j908 is what it guards — the UIx scaffold mounts
-   through the adapter's `client-root` / `render!` and must never
-   reacquire a direct DOM-mount dependency.
+   absence half: the UIx scaffold mounts through the adapter's
+   `client-root` / `render!` and must never acquire a direct DOM-mount
+   dependency.
 
    `day8/re-frame2-story` is NOT here: it rides the `:dev` alias, which the
-   contract below asserts positively (rf2-1bkoc)."
+   contract below asserts positively."
   '#{com.pitch/uix.dom
      day8/re-frame2-xray
      day8/re-frame2-ssr
@@ -198,7 +198,7 @@
           (is (not (contains? scs :source-paths))
               (str "shadow-cljs.edn names no :source-paths — under :deps the classpath is "
                    "deps.edn's (:paths + the :shadow alias's :extra-paths), and shadow "
-                   "prints a WARNING banner and ignores the key on every run (rf2-tsou)"))
+                   "prints a WARNING banner and ignores the key on every run"))
           (is (= #{:app :test} (set (keys (:builds scs))))
               "exactly the :app and :test builds")
           (is (= :browser (:target app)) ":app targets :browser")
@@ -289,7 +289,7 @@
   (testing "the template README's pure-JVM watch form names exactly the aliases
             the emitted shadow-cljs.edn hands the `npx shadow-cljs` wrapper —
             `:dev` included, since the dev build boots `stories/init`, whose
-            Story require only `:dev` puts on the classpath (rf2-3x7nj.37.2)"
+            Story require only `:dev` puts on the classpath"
     (let [tmp (tmp-dir "rf2-template-readme-")]
       (try
         (let [root    (run-template! tmp "acme/my-app" :reagent)
@@ -328,7 +328,7 @@
 ;; --- The instruments bite ------------------------------------------------
 ;;
 ;; The manifest equality, the coordinate scan and the text scan are the
-;; guards against an advanced dependency or file reappearing. Each is
+;; guards against an advanced dependency or file appearing. Each is
 ;; exercised once against an input it must flag.
 
 (deftest manifest-check-bites-test
@@ -340,7 +340,7 @@
           (io/make-parents (io/file root "dev/user.clj"))
           (spit (io/file root "dev/user.clj") "(ns user)")
           (is (not= manifest (emitted-files root))
-              "a reappearing dev/user.clj is seen by the manifest check"))
+              "an extra dev/user.clj is seen by the manifest check"))
         (finally
           (delete-recursively tmp))))))
 
@@ -373,7 +373,7 @@
                 (str (slurp (io/file root "shadow-cljs.edn"))
                      "\n;; :devtools {:preloads [day8.re-frame2-xray.preload]}\n"))
           (is (= [["shadow-cljs.edn" "day8.re-frame2-xray"]] (retired-text-in root))
-              "a reappearing preload mention is seen, and named"))
+              "a preload mention is seen, and named"))
         (finally
           (delete-recursively tmp))))))
 
