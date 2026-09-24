@@ -18,7 +18,7 @@
     registered flow read inputs the handler changed) — t2 is OMITTED:
     t1 == t2, no information.
 
-  Same-shape-as-`:fx` posture (Mike 2026-05-25): the value lives under
+  Same-shape-as-`:fx` posture: the value lives under
   `:tags :rf.event/db` as the full persistent reference. PDS structural
   sharing keeps the cost pointer-sized; `day8/de-dupe` at the wire
   boundary collapses repeated subtrees on egress."
@@ -121,7 +121,7 @@
 (deftest t1-t2-pair-captures-reshape
   (testing "the (t1, t2) pair lets Xray render the t1→t2 reshape without
    a framework-precomputed diff: t1 carries the handler's :db, t2 carries
-   the flow-augmented :db. Mike's ruling — full values, no diff."
+   the flow-augmented :db — full values, no diff."
     (rf/reg-flow :len {:inputs [[:items]] :output-path [:item-count]} (fn [items] (count items)))
     (rf/reg-event :t2/add-items (fn [{:keys [db]} _] {:db {:items [:a :b :c]}}))
     (let [acc (collect-traces! ::t1-t2-pair)]
