@@ -3,19 +3,17 @@
   exercises the full event → state → render pipeline as a real user would
   wire it, catching API ergonomics regressions that pure unit tests miss.
 
-  Per rf2-kx74 examples are grouped per substrate; the example sources
-  (`ssr.core`, `ssr-streaming.core`, `state-machine-walkthrough.core`)
-  live under
-  ../examples/capabilities/{rf.ssr/ssr,rf.ssr/ssr_streaming,rf.machines/state_machine_walkthrough}/ on
-  disk. The example source a learner reads is pure demonstrative code —
-  the example tree is test-free by convention (rf2-8cevm: no test/ or
-  *.spec.cjs under examples/).
+  Examples are grouped by concept; the example sources (`ssr.core`,
+  `ssr-streaming.core`, `resources-ssr.core`,
+  `state-machine-walkthrough.core`) live under
+  ../examples/capabilities/{ssr/ssr,ssr/ssr_streaming,ssr/resources_ssr,machines/state_machine_walkthrough}/
+  on disk. The example source a learner reads is pure demonstrative code —
+  the example tree is test-free by convention (no test/ or *.spec.cjs
+  under examples/).
 
-  rf2-cd2zo folded each example's former sibling test ns (`ssr.core-test`,
-  `ssr-streaming.core-test`, `state-machine-walkthrough.core-test`) INLINE
-  here as the `deftest` bodies, retiring the cross-`examples/` requires +
-  the `examples/.../test/` source dirs. Each test re-`require`s only the
-  production example source (so its ns-load registrations fire against the
+  Each example's tests live INLINE here as the `deftest` bodies; there is
+  no sibling test ns or test source dir under examples/. Each test
+  re-`require`s only the production example source (so its ns-load registrations fire against the
   reset registrar) and exercises it directly."
   (:require [clojure.set]
             [clojure.string]
@@ -55,18 +53,17 @@
   ;; Cold-start the adapter slot, then seat plain-atom. The destroy is load-
   ;; bearing rather than tidy-up: the SSR examples below swap in
   ;; `re-frame.ssr/adapter` (see `init-ssr!`), and `init!` is idempotent only
-  ;; for the adapter it already seated (rf2-kuky.1) — so re-seating plain-atom
-  ;; over a live SSR adapter raises `:rf.error/adapter-already-installed`
-  ;; rather than silently doing nothing, which is the whole point of that
-  ;; change. Destroying first is what makes every test in this namespace start
+  ;; for the adapter it already seated — so re-seating plain-atom over a live
+  ;; SSR adapter raises `:rf.error/adapter-already-installed` rather than
+  ;; silently doing nothing. Destroying first is what makes every test in this namespace start
   ;; from the substrate it asks for, whatever its predecessor left seated.
   (rf/destroy-adapter!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; clear-all! also drops the framework's ONE built-in coeffect registration
   ;; (`:rf/time-ms` — recordable, provided; registered by a toplevel `reg-cofx`
   ;; form in re-frame.cofx). The resources example's `handle-request` dispatches
-  ;; `:rf.resource/ensure`, whose handler now DECLARES `:rf.cofx/requires
-  ;; [:rf.resource/generation-allocation :rf/time-ms]` (rf2-601ife) — so the
+  ;; `:rf.resource/ensure`, whose handler DECLARES `:rf.cofx/requires
+  ;; [:rf.resource/generation-allocation :rf/time-ms]` — so the
   ;; framework cofx must be present in the registrar or declared-only delivery
   ;; raises `:rf.error/unregistered-cofx`. Transitive require is idempotent once
   ;; loaded, so reload here to re-fire the registration body (mirrors the
@@ -79,7 +76,7 @@
   ;; routinely route :rf.http/managed via :fx-overrides to those stubs
   ;; (Spec 014 §Testing).
   (require 're-frame.http.managed :reload)
-  ;; rf2-cdmle — the canned-stub fxs (`:rf.http/managed-canned-success`,
+  ;; The canned-stub fxs (`:rf.http/managed-canned-success`,
   ;; `:rf.http/managed-canned-failure`) register from
   ;; re-frame.http.test-support, NOT re-frame.http.managed. Reload to
   ;; re-fire the registration body after clear-all!. The transitive
@@ -108,7 +105,7 @@
   ;; firing `:ssr/on-frame-destroyed` to release the per-request request slot;
   ;; both need these resurrected. Transitive require from the example ns is
   ;; idempotent (won't re-fire the toplevel forms once loaded), so reload here
-  ;; — mirroring the http / machines reloads above (rf2-kb7zis).
+  ;; — mirroring the http / machines reloads above.
   (require 're-frame.ssr :reload)
   ;; clear-all! also drops the resources artefact's registrar kind +
   ;; `:rf.resource/*` events/subs AND its late-bind hooks
@@ -117,7 +114,7 @@
   ;; resource and its client hydrate reconciles the resource projection, so
   ;; both surfaces need resurrecting. Transitive require from the example ns
   ;; is idempotent once loaded, so reload here (mirrors the http/machines/ssr
-  ;; reloads above, rf2-2pjgiq).
+  ;; reloads above).
   (require 're-frame.resources :reload)
   ;; Reset the SSR per-frame side-channel atoms (request slots, response
   ;; accumulators, pending error traces) between tests. These are `defonce`
@@ -126,11 +123,11 @@
   ;; without destroying the frame (e.g. `ssr-example-runs-end-to-end` sets a
   ;; request slot and never tears the frame down) leak a slot that would
   ;; otherwise bleed into the per-request-lifecycle teardown assertions
-  ;; (rf2-kb7zis). Clearing here gives each test a clean side-channel slate.
+  ;; Clearing here gives each test a clean side-channel slate.
   (reset! rf.ssr.request/request-slots {})
   (reset! rf.ssr.response/response-slots {})
   (reset! rf.ssr.error-listener/pending-error-traces {})
-  ;; S5 (rf2-aorfy) — the hydration-payload install ledger is a fourth table
+  ;; The hydration-payload install ledger is a fourth table
   ;; of that same class: `defonce`, keyed by payload id (which IS a frame id,
   ;; 004C §6), outside app-db. In production a claim is released by
   ;; `re-frame.ssr/on-frame-destroyed!` off the `:ssr/on-frame-destroyed`
@@ -148,12 +145,12 @@
   (remove-ns 'ssr-streaming.core)
   (remove-ns 'resources-ssr.core)
   (remove-ns 'state-machine-walkthrough.core)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `make-frame …:initial-events` still drain synchronously — the lifecycle
+  ;; EP-0002: `init!` does not synthesise `:rf/default`; framework operation
+  ;; surfaces require a carried frame stamp. Register `:rf/default` + pin it
+  ;; as the body's ambient scope (the carried-invariant equivalent of
+  ;; `(with-frame :rf/default …)`); explicit `{:frame …}` opts in the test
+  ;; bodies win. A top-level `make-frame …:initial-events` drain
+  ;; synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/make-frame {:id :rf/default})
@@ -170,12 +167,10 @@
   binds its own `render-to-string` — rather than the plain-atom default the
   shared fixture seats for the rest of this namespace.
 
-  A bare `(rf/init! rf.ssr/adapter)` is what these tests used to call, and it
-  did NOTHING: `init!`'s guard asked only \"is anything seated?\", so with
-  plain-atom already in the slot the call returned nil and every SSR example
-  below ran on the plain-atom substrate it does not name. rf2-kuky.1 made that
-  silent swallow the error it always was, which is what surfaced this. Destroy
-  first, then seat — the swap `init!` now tells you to make."
+  A bare `(rf/init! rf.ssr/adapter)` would raise
+  `:rf.error/adapter-already-installed` with plain-atom already in the slot:
+  `init!` is idempotent only for the adapter already seated. Destroy first,
+  then seat — the swap `init!`'s error tells you to make."
   []
   (rf/destroy-adapter!)
   (rf/init! rf.ssr/adapter))
@@ -183,9 +178,7 @@
 ;; ============================================================================
 ;; ssr — exercises the server flow (per-request frame → :rf/server-init →
 ;; managed-HTTP via the canned stub → render to string → render-hash).
-;; JVM-only: the server render path runs under Clojure. Formerly the
-;; `ssr.core-test/ssr-tests` fixture (rf2-ee38b.25); folded inline by
-;; rf2-cd2zo.
+;; JVM-only: the server render path runs under Clojure.
 ;; ============================================================================
 
 (deftest ssr-example-runs-end-to-end
@@ -241,15 +234,14 @@
       (is (clojure.string/includes? html "data-rf-render-hash")))))
 
 ;; ============================================================================
-;; ssr — per-request frame lifecycle (rf2-kb7zis). The example's
+;; ssr — per-request frame lifecycle. The example's
 ;; `handle-request` wraps its render in `try`/`finally` and calls
 ;; `rf/destroy-frame!` so a long-running server leaks neither the
 ;; generated per-request frame nor its SSR request side-channel slot.
 ;; Spec 011 §Per-request frame teardown contract: the destroy step is
-;; load-bearing for memory hygiene. The pre-rf2-kb7zis example skipped it
-;; (`examples_test`'s render-only assertions were a false-green for
-;; lifecycle correctness), so these tests pin teardown on BOTH the success
-;; and throw paths.
+;; load-bearing for memory hygiene, and render-only assertions would be a
+;; false-green for lifecycle correctness, so these tests pin teardown on
+;; BOTH the success and throw paths.
 ;; ============================================================================
 
 (defn- install-canned-articles-stub!
@@ -330,32 +322,32 @@
                    "leftover slots: " (pr-str (keys @rf.ssr.request/request-slots)))))))))
 
 ;; ============================================================================
-;; ssr — per-request schema validation (rf2-i6p308, carved from rf2-9wc2ed).
+;; ssr — per-request schema validation.
 ;;
-;; The fix held the app schema as a value (`ArticlesSchema`) and registered it
-;; explicitly against EACH frame family — the per-request server frame in
-;; `handle-request` (BEFORE `:initial-events` fires `:rf/server-init`) and the
-;; fixed client hydration frame in `run`. The earlier bare ns-load
-;; registration either raised `:rf.error/no-frame-context` or (under a naive
-;; `with-frame :rf/default`) bound the schema to the client frame ONLY,
+;; The example holds the app schema as a value (`ArticlesSchema`) and
+;; registers it explicitly against EACH frame family — the per-request server
+;; frame in `handle-request` (BEFORE `:initial-events` fires `:rf/server-init`)
+;; and the fixed client hydration frame in `run`. A bare ns-load registration
+;; would either raise `:rf.error/no-frame-context` or (under a naive
+;; `with-frame :rf/default`) bind the schema to the client frame ONLY,
 ;; leaving the per-request SERVER frame — where the server-side `:articles`
-;; commit actually validates — UNSCHEMA'd, so server-side validation silently
-;; never ran (the bug was masked precisely because no schema applied).
+;; commit actually validates — UNSCHEMA'd, so server-side validation would
+;; silently never run (masked precisely because no schema applied).
 ;;
-;; The existing handle-request tests exercise this implicitly. This test
+;; The handle-request tests exercise this implicitly. This test
 ;; locks it EXPLICITLY: the per-request server frame carries the `:articles`
 ;; schema (NOT `:rf/default`), the server-init commit's articles PASS
 ;; validation on THAT frame, and a malformed `:articles` value FAILS
 ;; validation on THAT frame — proving validation is live + frame-scoped on
 ;; the per-request frame, not routed around. Requiring `re-frame.schemas`
-;; (above) wires the default Malli validator (rf2-v96fh), so validation is
+;; (above) wires the default Malli validator, so validation is
 ;; genuinely live here.
 ;; ============================================================================
 
 (deftest ssr-example-per-request-frame-carries-and-validates-articles-schema
   (testing "examples/capabilities/ssr/ssr — the per-request SERVER frame carries the
-            :articles schema (the rf2-9wc2ed per-request registration) and
-            validation runs ON THAT FRAME, not on :rf/default (rf2-i6p308)"
+            :articles schema (the per-request registration) and
+            validation runs ON THAT FRAME, not on :rf/default"
     (require 'ssr.core :reload)
     (init-ssr!)
     (install-canned-articles-stub!)
@@ -380,7 +372,7 @@
       ;; the SSR schema there — per-request scoping, not a default floor.
       (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:articles]})))
           "the SSR :articles schema is NOT bound to :rf/default — it is
-           per-request frame-scoped (the rf2-9wc2ed contract)")
+           per-request frame-scoped (the per-request registration contract)")
       ;; 3. The server-init commit landed two valid articles…
       (is (= 2 (count (:articles final-db)))
           "precondition: the canned server-init commit loaded two articles")
@@ -388,7 +380,7 @@
       ;; schema accepts both the pre-load nil and the loaded vector).
       ;; `interop/debug-enabled?` is true by default on the JVM (the dev/prod
       ;; gate), so `validate-app-schema!` actually runs — and requiring
-      ;; `re-frame.schemas` wired the default Malli validator (rf2-v96fh).
+      ;; `re-frame.schemas` wired the default Malli validator.
       (is (true? (rf.schemas/validate-app-schema! final-db :rf/server-init fid))
           "the server-init :articles commit validates on the per-request frame")
       ;; 4. A MALFORMED :articles value FAILS validation on the per-request
@@ -398,8 +390,8 @@
       (let [bad-db (assoc final-db :articles "not-a-vector-of-articles")]
         (is (false? (rf.schemas/validate-app-schema! bad-db :rf/server-init fid))
             "a malformed :articles commit FAILS validation on the per-request
-             frame — validation is live and frame-scoped (this is the gap
-             the per-request registration + [:maybe] schema closed)"))
+             frame — validation is live and frame-scoped (the per-request
+             registration + [:maybe] schema make it so)"))
       ;; 5. The same malformed value validates TRUE against :rf/default —
       ;; because no SSR schema is registered there — confirming the failure
       ;; above is attributable to the PER-REQUEST frame's schema specifically.
@@ -413,9 +405,9 @@
       (rf/destroy-frame! f))))
 
 ;; ============================================================================
-;; ssr — client hydration path (rf2-kb7zis). The example now boots the
-;; client via the framework `rf.ssr/hydrate!` helper (it relies on the
-;; framework-registered `:rf/hydrate`, no longer a stale local copy). These
+;; ssr — client hydration path. The example boots the client via the
+;; framework `rf.ssr/hydrate!` helper (it relies on the
+;; framework-registered `:rf/hydrate`, not a local copy). These
 ;; tests pin the contract the example depends on, against the example's own
 ;; registrations: a payload carrying `:rf/render-hash` stashes the server
 ;; hash under [:rf.runtime/ssr :hydration :server-hash]; a matching client
@@ -524,8 +516,7 @@
 
 ;; ============================================================================
 ;; ssr_streaming — exercises the server stream (shell render → per-card
-;; resolved chunks → final payload). JVM-only. Formerly the
-;; `ssr-streaming.core-test/streaming-tests` fixture; folded inline.
+;; resolved chunks → final payload). JVM-only.
 ;; ============================================================================
 
 (deftest ssr-streaming-example-runs-end-to-end
@@ -552,18 +543,17 @@
         (doseq [c ok-chunks]
           (is (clojure.string/includes? (:template c)
                                          "data-rf2-suspense-resolved=\"1\""))
-          ;; rf2-o4rbh: the deferred body is a Var-headed hiccup vector
+          ;; The deferred body is a Var-headed hiccup vector
           ;; (`[card-view :revenue]`), not a keyword view-ref. Pin that the
-          ;; emitter still resolves it to the rendered card — a regression
-          ;; here would emit an unresolved head instead of the card markup.
+          ;; emitter resolves it to the rendered card — otherwise it would
+          ;; emit an unresolved head instead of the card markup.
           (is (clojure.string/includes? (:template c) "class=\"card\"")
               (str "resolved chunk must carry the rendered card body; got "
                    (:template c)))))
-      ;; rf2-ycz3k — the drain's `:failed?` reaches the wire. The server has
-      ;; always known which boundaries blew up and used to DROP it, leaving
-      ;; the client to infer failure from absent state. The final payload now
-      ;; names them in its serialisable runtime slice, so the client's
-      ;; boundary re-renders the fallback it declared.
+      ;; The drain's `:failed?` reaches the wire. The server knows which
+      ;; boundaries blew up, and the final payload names them in its
+      ;; serialisable runtime slice, so the client's boundary re-renders the
+      ;; fallback it declared rather than inferring failure from absent state.
       (is (= #{:card.flaky} (:failed-boundaries result))
           "the failed boundary is reported by the drain")
       (is (= #{:card.flaky}
@@ -577,20 +567,18 @@
           "three cards' state in the final payload (revenue, signups, latency); the flaky card has no app-db slice because it threw before its data fetched"))))
 
 ;; ============================================================================
-;; SSR examples — dynamic payload path round-trip (rf2-2pjgiq).
+;; SSR examples — dynamic payload path round-trip.
 ;;
-;; The acceptance gate the review (rf2-2pjgiq) named: feed the ACTUAL dynamic
-;; example payload — the plain `handle-request` HTML payload, the resources
+;; Feed the ACTUAL dynamic example payload — the plain `handle-request` HTML payload, the resources
 ;; `handle-request` HTML payload, and the streaming `final-payload` — into the
 ;; framework `rf.ssr/hydrate!` against the example's OWN client frame
 ;; (`:rf/default`) and assert NO `:rf.error/hydration-frame-id-mismatch` plus
-;; the expected hydrated state. The earlier example tests covered server and
-;; client separately with hand-built payloads that omitted `:rf/frame-id`;
-;; these drive the real server→client wire so a drift back to stamping the
+;; the expected hydrated state. Hand-built payloads would cover server and
+;; client separately; these drive the real server→client wire so stamping the
 ;; per-request server gensym (which would conflict with the fixed
 ;; `:rf/default` client frame) fails loud here.
 ;;
-;; The fix (rf2-2pjgiq): the dynamic example payloads deliberately OMIT
+;; The dynamic example payloads deliberately OMIT
 ;; `:rf/frame-id` (an absent frame-id is no conflict; the explicit client
 ;; target stands — Spec 011 §The hydration payload), and the manual payload
 ;; `<script>` emission routes through the EDN-aware `escape-edn-script-body`
@@ -612,7 +600,7 @@
             emits feeds into `rf.ssr/hydrate!` against the example's `:rf/default`
             client frame with NO `:rf.error/hydration-frame-id-mismatch` (the
             payload omits the per-request server frame-id) and seeds the
-            client app-db with the server's articles (rf2-2pjgiq)"
+            client app-db with the server's articles"
     (require 'ssr.core :reload)
     (init-ssr!)
     (install-canned-articles-stub!)
@@ -642,8 +630,7 @@
             `</script>` (round-tripped through app-db) is escaped by the
             EDN-aware `<script>`-body encoder, so it CANNOT close the
             `__rf_payload` envelope, and the payload still round-trips through
-            the client EDN reader unchanged (security audit 2026-05-14 §P1,
-            rf2-7ksyr / rf2-2pjgiq)"
+            the client EDN reader unchanged"
     (require 'ssr.core :reload)
     (init-ssr!)
     ;; A canned stub whose article title carries a `</script>` breakout
@@ -678,21 +665,20 @@
             "the payload round-trips through the EDN reader unchanged")))))
 
 ;; ============================================================================
-;; ssr — the page load has to SETTLE before the render (rf2-gwye.43,
-;; rf2-fzbj.37 F1).
+;; ssr — the page load has to SETTLE before the render.
 ;;
 ;; `make-frame` drains the SYNCHRONOUS event work its `:initial-events` start,
 ;; and that is all it promises. The article fetch `:rf/server-init` kicks off
 ;; is not synchronous — the JVM managed transport issues it through
-;; `HttpClient/sendAsync` — so the pre-fix `handle-request` read `app-db` the
-;; instant `make-frame` returned, rendered "No articles." over a 200, and
-;; destroyed the only frame the reply could have landed in. The static
-;; `index.html` masked it (its article state is baked in) and so did every
-;; test here, because a synchronous canned stub HAS settled by then.
+;; `HttpClient/sendAsync` — so a `handle-request` that read `app-db` the
+;; instant `make-frame` returned would render "No articles." over a 200 and
+;; destroy the only frame the reply could land in. The static `index.html`
+;; would mask it (its article state is baked in), and so would a test on a
+;; synchronous canned stub, which HAS settled by then.
 ;;
-;; The fix gives the load an explicit `:articles/load-state` outcome
-;; (`:pending` → `:loaded` / `:failed`) and blocks on it, bounded, before
-;; reading anything off the frame. These two tests pin both halves: a genuinely
+;; The load has an explicit `:articles/load-state` outcome
+;; (`:pending` → `:loaded` / `:failed`) and `handle-request` blocks on it,
+;; bounded, before reading anything off the frame. These two tests pin both halves: a genuinely
 ;; DELAYED reply is waited for, and a non-`:loaded` outcome answers 503 rather
 ;; than dressing a pending request up as a finished empty page.
 ;; ============================================================================
@@ -700,12 +686,11 @@
 (deftest ssr-example-handle-request-waits-for-a-delayed-article-reply
   (testing "examples/capabilities/ssr/ssr — a reply that lands AFTER `make-frame`
             returns is still in the rendered HTML and in the hydration payload;
-            the handler waits for the page load rather than racing it
-            (rf2-gwye.43)"
+            the handler waits for the page load rather than racing it"
     (require 'ssr.core :reload)
     (init-ssr!)
     ;; The one difference from `install-canned-articles-stub!`: `:after-ms`.
-    ;; The canned stub defers its reply through `:dispatch-later` (rf2-j1mo4),
+    ;; The canned stub defers its reply through `:dispatch-later`,
     ;; so `:articles/loaded` fires on a host timer well after `make-frame`'s
     ;; synchronous drain has finished — the shape a real `sendAsync` reply has.
     (rf/reg-fx :ssr.http/delayed-canned-articles
@@ -725,8 +710,8 @@
       (is (clojure.string/includes? (:body resp) "Article A")
           "the delayed article reached the rendered HTML")
       (is (not (clojure.string/includes? (:body resp) "No articles."))
-          (str "the empty-state render is the pre-fix symptom: it means the "
-               "handler returned before the reply landed"))
+          (str "the empty-state render means the handler returned before "
+               "the reply landed"))
       (let [payload (extract-payload-edn (:body resp))]
         (is (= [{:id "a" :title "Article A" :body "Body A"}]
                (:articles (:rf/app-db payload)))
@@ -738,8 +723,7 @@
 (deftest ssr-example-handle-request-terminates-deliberately-on-failure-and-deadline
   (testing "examples/capabilities/ssr/ssr — a failed fetch and an exhausted
             deadline each answer 503 and leave no frame behind, rather than
-            presenting unresolved work as a successful empty page
-            (rf2-gwye.43)"
+            presenting unresolved work as a successful empty page"
     (require 'ssr.core :reload)
     (init-ssr!)
     (let [handle-request (resolve 'ssr.core/handle-request)]
@@ -800,7 +784,7 @@
             `:final-payload` feeds into `rf.ssr/hydrate!` against the example's
             `:rf/default` client frame with NO frame-id mismatch (it omits the
             per-request server frame-id) and seeds the client app-db with the
-            three streamed cards (rf2-2pjgiq)"
+            three streamed cards"
     (require 'ssr-streaming.core :reload)
     (init-ssr!)
     (let [handle-request (resolve 'ssr-streaming.core/handle-request)
@@ -821,24 +805,22 @@
             "the client app-db carries the three streamed cards after hydration")))))
 
 ;; ============================================================================
-;; ssr_streaming — the request frame is released on the FAILURE path too
-;; (rf2-gwye.45, rf2-fzbj.37 F3).
+;; ssr_streaming — the request frame is released on the FAILURE path too.
 ;;
-;; The streaming handler used to hold `destroy-frame!` as the last binding of
-;; one long `let`, so it ran only when every preceding binding had succeeded.
-;; The deliberate `:card.flaky` boundary was never the problem — the drain
-;; turns that into a `:failed?` chunk and returns normally. What leaked was a
-;; failure OUTSIDE that recovery: a shell walk or final-payload build that
-;; throws returns through the exception and past the destroy, stranding one
-;; frame per failed request in a long-lived host. The fix is the `try`/`finally`
-;; the non-streaming sibling already demonstrates.
+;; The deliberate `:card.flaky` boundary is not the risk — the drain turns
+;; that into a `:failed?` chunk and returns normally. The risk is a failure
+;; OUTSIDE that recovery: a shell walk or final-payload build that throws
+;; would return through the exception and past a `destroy-frame!` held as the
+;; last binding of one long `let`, stranding one frame per failed request in a
+;; long-lived host. The handler releases the frame in a `try`/`finally`, as
+;; the non-streaming sibling does.
 ;; ============================================================================
 
 (deftest ssr-streaming-example-releases-its-frame-on-an-outer-render-failure
   (testing "examples/capabilities/ssr/ssr_streaming — the happy path (including
             the intentional :card.flaky fallback) and an outer shell-render
             failure both leave the frame registry at its captured baseline, and
-            the original exception still propagates (rf2-gwye.45)"
+            the original exception still propagates"
     (require 'ssr-streaming.core :reload)
     (init-ssr!)
     (let [handle-request (resolve 'ssr-streaming.core/handle-request)
@@ -871,7 +853,7 @@
             `[]`) feeds into `rf.ssr/hydrate!` against the example's `:rf/default`
             client frame with NO frame-id mismatch and installs the SSR-
             preloaded resource entry into the client `:rf.runtime/resources`
-            slice (Spec 016 §SSR client hydration, rf2-2pjgiq)"
+            slice (Spec 016 §SSR client hydration)"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     ;; Stub the resource's managed-HTTP fetch with a canned-success reply so
@@ -897,12 +879,11 @@
       (is (some? payload))
       (is (not (contains? payload :rf/frame-id))
           "the resources payload OMITS :rf/frame-id")
-      ;; ── Response document envelope (rf2-3fc89f.30) ───────────────────────
+      ;; ── Response document envelope ─────────────────────────────────────
       ;; `handle-request` owns the ONE document shell; the app renders as a
-      ;; FRAGMENT into `<div id='app'>`. A drift back to `:doctype? true` on
-      ;; the fragment emitter nests a SECOND `<!DOCTYPE html>` inside `#app` —
-      ;; malformed HTML the old code shipped, surviving only via browser parser
-      ;; recovery. Assert exactly one doctype, envelope-owned, at byte zero,
+      ;; FRAGMENT into `<div id='app'>`. A `:doctype? true` on the fragment
+      ;; emitter would nest a SECOND `<!DOCTYPE html>` inside `#app` —
+      ;; malformed HTML, surviving only via browser parser recovery. Assert exactly one doctype, envelope-owned, at byte zero,
       ;; the fragment beginning at the child of `#app`, with the hydration hash
       ;; and the envelope's head/payload/main.js all preserved.
       (let [body     (:body resp)
@@ -958,9 +939,8 @@
             client render, the baked `:entries` are keyed on the CEDN byte
             `key-id` (each entry carrying the scoped vector as `:resource/key`,
             no legacy vector-map-key row), and the fresh entry issues NO client
-            refetch (rf2-j538f7.26). Reads the file itself — NOT a hand-built
-            payload — so a future drift back to the pre-EP-0012 vector-keyed /
-            rotting-absolute-`:stale-at` shape fails here."
+            refetch. Reads the file itself — NOT a hand-built payload — so a
+            vector-keyed / rotting-absolute-`:stale-at` payload fails here."
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     ;; Read the SHIPPED static host page off the classpath (the
@@ -977,7 +957,7 @@
       (is (some? payload)
           "the __rf_payload EDN parsed out of the static index.html body")
       ;; ── The baked payload is the CURRENT projector shape ─────────────────
-      ;; `:entries` are map-keyed on the CEDN-1 byte `key-id` (rf2-9e0tyq), each
+      ;; `:entries` are map-keyed on the CEDN-1 byte `key-id`, each
       ;; entry carrying the scoped `[scope resource-id params]` vector as its own
       ;; `:resource/key`. A legacy vector-map-key row would key by the vector and
       ;; leave `:resource/key` nil — unreachable through the byte-key lookup.
@@ -1004,7 +984,7 @@
         (is (= payload returned)
             "hydrate! applied the static payload (frame-id present-and-equal, no conflict)")
         ;; The live cache serves the baked entry through the PUBLIC read — the
-        ;; property that regressed: before the fix this returned nil.
+        ;; property under test: an unreachable entry would read nil here.
         (let [state (rf/resource-state {:resource :articles/list
                                         :scope    :rf.scope/global
                                         :params   {}
@@ -1037,7 +1017,7 @@
                 "the client cache keys the installed entry on the byte key-id")))))))
 
 ;; ============================================================================
-;; resources-ssr — THE CLIENT BOOT SEAM (rf2-h3c9)
+;; resources-ssr — THE CLIENT BOOT SEAM
 ;; ============================================================================
 ;;
 ;; The two tests above stop at `rf.ssr/hydrate!`. Hydration is a state install
@@ -1045,14 +1025,14 @@
 ;; request's `[:ssr …]` owner, and issues nothing. Everything the example
 ;; claims about liveness therefore rests on the beat that follows it — the
 ;; `:resources-ssr.app/page-opened` acquisition `run` dispatch-syncs after the
-;; hydrate and before the first render. That beat had no test at all, so its
-;; four load-bearing claims (owner attachment, request counts, first-paint
-;; state, and the release that ends the hold) were asserted in prose only.
+;; hydrate and before the first render. These tests pin its four
+;; load-bearing claims: owner attachment, request counts, first-paint state,
+;; and the release that ends the hold.
 ;;
 ;; The example's `run` is `:cljs`-only, so these tests drive the same seam a
 ;; beat lower: the example's OWN registered events against the example's OWN
 ;; `app-frame`, in `run`'s order. Everything under test is the example's
-;; production source — the example tree stays test-free (rf2-8cevm).
+;; production source — the example tree stays test-free.
 ;;
 ;; The discriminator throughout is Spec 016 §Invalidation's owner rule:
 ;; invalidation refetches a matched entry that has ACTIVE OWNERS and leaves a
@@ -1132,7 +1112,7 @@
             managed-HTTP request under the page's app-minted owner, and the
             first paint is the `:loading` skeleton — NOT the empty `<ul>` an
             absent entry projects as `:idle`, which reads as a successful answer
-            of zero articles. rf2-h3c9."
+            of zero articles."
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (let [calls (reg-counting-transport! :resources-ssr-test/pending {:reply? false})
@@ -1169,7 +1149,7 @@
             but OWNERLESS entry (the `[:ssr …]` owner belonged to the finished
             server request); the acquisition then takes `ensure`'s fresh-skip
             cache-hit path — it attaches the page owner and issues ZERO
-            requests, and the server's markup still paints. rf2-h3c9."
+            requests, and the server's markup still paints."
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
@@ -1206,8 +1186,7 @@
             §Invalidation leaves a matched OWNERLESS entry stale rather than
             refetching it — the counterfactual that makes the owner assertions
             elsewhere mean something). The acquisition then issues EXACTLY ONE
-            background request while the last-known-good data stays visible.
-            rf2-h3c9."
+            background request while the last-known-good data stays visible."
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
@@ -1223,7 +1202,7 @@
                         {:frame fid})
       (is (zero? @calls)
           "an OWNERLESS stale entry issues NOTHING — hydration alone never
-           re-establishes liveness, which is exactly the defect rf2-h3c9 names")
+           re-establishes liveness, which is exactly why the acquisition exists")
       (is (empty? (resources-ssr-owners fid))
           "still held by nothing")
       (is (clojure.string/includes? (resources-ssr-html fid) "Welcome to re-frame2")
@@ -1247,8 +1226,7 @@
             auto-releases an app-minted owner. Liveness is proved by request
             behaviour in BOTH directions: while the owner is attached an
             invalidation refetches exactly once, and after the release the same
-            invalidation issues nothing and leaves the entry GC-eligible.
-            rf2-h3c9."
+            invalidation issues nothing and leaves the entry GC-eligible."
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (let [calls      (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
@@ -1283,16 +1261,16 @@
            emptying a set"))))
 
 ;; ============================================================================
-;; resources_ssr — the preload poll reads the resource it means to await
-;; (rf2-gwye.44, rf2-fzbj.37 F2).
+;; resources_ssr — the preload poll reads the resource it means to await.
 ;;
-;; `await-resource-loaded!` used to be handed `:frame f` — the frame VALUE
+;; `await-resource-loaded!` must be handed the frame ID, not the frame VALUE
 ;; `make-frame` returns. `rf/resource-state`'s introspection target is the
-;; frame ID (it keys the frame registry directly), so every poll read nil, no
-;; poll ever saw a terminal status, and the loop ran to `preload-deadline-ms`
-;; on EVERY request, including one whose resource was already `:loaded`. The
-;; response still carried the article, so a content-only assertion passed over
-;; the top of a five-second stall and an entirely ineffective readiness check.
+;; frame ID (it keys the frame registry directly), so with a frame value every
+;; poll would read nil, no poll would see a terminal status, and the loop
+;; would run to `preload-deadline-ms` on EVERY request, including one whose
+;; resource was already `:loaded`. The response would still carry the
+;; article, so a content-only assertion would pass over the top of a
+;; five-second stall and an entirely ineffective readiness check.
 ;;
 ;; This test is keyed on the two things a content assertion cannot see: the
 ;; target the poll actually reads, and how many times it goes round.
@@ -1302,7 +1280,7 @@
   (testing "examples/capabilities/ssr/resources_ssr — a synchronously loaded
             resource exits the preload poll at once, on a terminal status read
             from the request's OWN entry, instead of exhausting
-            preload-deadline-ms against an unrecognised key (rf2-gwye.44)"
+            preload-deadline-ms against an unrecognised key"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (rf/reg-fx :resources-ssr.http/canned
@@ -1337,9 +1315,9 @@
            registry key and reads as an absent entry")
       (is (= :loaded (:status (last @polls)))
           "the poll's final read saw the request's own entry settle :loaded —
-           pre-fix every read returned nil under an unrecognised key")
-      ;; The count is the sharp instrument here: pre-fix this was ~850 polls of
-      ;; nil across the whole five-second budget. A synchronously loaded
+           a frame-value target would read nil under an unrecognised key")
+      ;; The count is the sharp instrument here: a frame-value target would
+      ;; poll nil ~850 times across the whole five-second budget. A synchronously loaded
       ;; resource settles before the first read.
       (is (< (count @polls) 20)
           (str "a settled resource exits the poll immediately rather than "
@@ -1397,8 +1375,7 @@
 ;; ============================================================================
 ;; state-machine-walkthrough — chapter §Headless testing. Two flavours:
 ;; pure machine-transition (no rf.frame/app-db) and drain-level (frame +
-;; :fx-overrides canned stub). JVM-runnable. Formerly the
-;; `state-machine-walkthrough.core-test/smoke-tests` fixture; folded inline.
+;; :fx-overrides canned stub). JVM-runnable.
 ;; The `:walkthrough.login/canned-success` / `:walkthrough.login/canned-failure` stubs the
 ;; drain tests use are registered in `state-machine-walkthrough.core` so the
 ;; browser demo and the tests share one registration point.
@@ -1439,8 +1416,8 @@
         (is (= 3 (get-in s [:data :attempts])) "the third failure records count 3")
         (is (= "bad creds" (get-in s [:data :error])) "the terminal error is retained")))
 
-    (testing "pure :error-shown exits — BOTH ways out clear the stale error and keep the retry count (rf2-hcj0)"
-      ;; rf2-283u gave :error-shown an `:exit :clear-error` so the message a
+    (testing "pure :error-shown exits — BOTH ways out clear the stale error and keep the retry count"
+      ;; :error-shown carries an `:exit :clear-error` so the message a
       ;; failure left behind cannot outlive the state that owns it. `:exit`
       ;; runs on EVERY way out, so the invariant is one line in the table but
       ;; TWO edges in behaviour — and only the behaviour is pinned here, never
