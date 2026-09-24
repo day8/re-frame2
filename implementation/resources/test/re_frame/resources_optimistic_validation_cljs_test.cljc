@@ -1,17 +1,16 @@
 (ns re-frame.resources-optimistic-validation-cljs-test
-  "EP-0019 — the 13-case optimistic-mutation VALIDATION SUITE (the
-  non-negotiable acceptance gate the ruling names), rf2-byl7bk.1 / slice 4a.
+  "EP-0019 — the 13-case optimistic-mutation VALIDATION SUITE.
 
   This is the consolidated conformance gate for the optimistic-mutation surface:
   it names and exercises EVERY one of the 13 general laws in the EP-0019
-  §Validation plan as a single suite, so a regression in any optimistic slice
+  §Validation plan as a single suite, so a regression in any optimistic layer
   (revision substrate, apply, settle, tag-addressed, subs) trips here. Each
   `deftest` below is one numbered law; the docstring of each names the EP case.
 
-  Cases 1-5, 9, 10, 13 pin laws also covered by the slice-2 APPLY and slice-3
-  SETTLE suites; they are restated here so the GATE is self-contained (one file
-  proves the whole contract). Cases 6, 7, 8 (settle), 11, and the Rider-1
-  `:optimistic?` sub flag are the laws slice 4a ADDS:
+  Cases 1-5, 9, 10, 13 pin laws also covered by the APPLY and SETTLE suites;
+  they are restated here so the GATE is self-contained (one file proves the
+  whole contract). Cases 6, 7, 8 (settle), 11, and the Rider-1 `:optimistic?`
+  sub flag are the laws this suite ADDS:
 
     6.  a STALE / superseded reply discards its inverse and never rolls back —
         the newer generation owns the entry;
@@ -76,7 +75,7 @@
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
-;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
+;; `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
 ;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
 (defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
@@ -256,7 +255,7 @@
     (testing "the stale inverse (9) was NOT restored over the concurrent write"
       (is (not= 9 (get-in (entry article-key) [:data :article :favoritesCount]))))
     (testing "the conflicted entry started an EXACT recovery refetch (read path
-              recovers truth — rf2-wcdj4: keyed by the carried :resource/key)"
+              recovers truth, keyed by the carried :resource/key)"
       (is (= {:method :get :url "/a/w"} (:request @last-managed-args))))
     (testing "the trace reports the conflict + :invalidate + refetch"
       (is (= [article-key] (:conflicted rb)))
@@ -293,7 +292,7 @@
 
 ;; ===========================================================================
 ;; CASE 6 — a STALE / superseded reply discards its inverse and NEVER rolls back;
-;;          the newer generation's apply owns the entry. (slice-4a NEW)
+;;          the newer generation's apply owns the entry.
 ;;
 ;; A re-execute under the SAME instance mints a NEW generation + work id and a
 ;; FRESH optimistic apply (re-snapshotting the entry as the optimistic value).
@@ -336,7 +335,7 @@
 ;; ===========================================================================
 ;; CASE 7 — two concurrent optimistic writes on the SAME entry each record their
 ;;          own inverse + revision; the later commit and the earlier rollback
-;;          compose deterministically per the conflict rule. (slice-4a NEW)
+;;          compose deterministically per the conflict rule.
 ;;
 ;; Two DISTINCT instances (:a then :b) both optimistically increment the same
 ;; entry. Each records its own snapshot-inverse at the revision it observed.
@@ -400,8 +399,7 @@
 ;; ===========================================================================
 ;; CASE 8 — :optimistic-tags patches every tag-matched entry across scopes; each
 ;;          matched entry ROLLS BACK INDEPENDENTLY (one restored, one conflicted
-;;          → invalidated, in a single settle). (slice-4a NEW — the tag SETTLE
-;;          nuance; slice-2 only proved tag APPLY.)
+;;          → invalidated, in a single settle).
 ;; ===========================================================================
 
 (deftest case-08-optimistic-tags-rolls-back-each-matched-entry-independently
@@ -447,7 +445,7 @@
       ;; populate of the feed key) — so on rollback the DETAIL is unmoved
       ;; (restores) while the FEED is conflicted (invalidates), each disposed
       ;; INDEPENDENTLY. The feed's conflict recovery is keyed by its EXACT
-      ;; carried :resource/key (rf2-wcdj4), so it cannot cross-stale the restore.
+      ;; carried :resource/key, so it cannot cross-stale the restore.
       (let [saved @last-managed-args]
         (rf/reg-mutation :m/touch-feed
           {:scope :rf.scope/global
@@ -531,7 +529,7 @@
 
 ;; ===========================================================================
 ;; CASE 11 — :reply-to fires ONCE, after settle, for the accepted reply only —
-;;           the optimistic apply dispatches NO continuation. (slice-4a NEW)
+;;           the optimistic apply dispatches NO continuation.
 ;; ===========================================================================
 
 (def ^:private replied (atom []))
@@ -595,8 +593,8 @@
 ;; ===========================================================================
 ;; CASE 13 — epoch restore: a :pending optimistic write dangles; its apply rolls
 ;;           back inside the restore reconciler's single pure pass. (Covered in
-;;           depth by the slice-3 settle suite's restore-dangle test; restated
-;;           here as the GATE's law 13.)
+;;           depth by the settle suite's restore-dangle test; restated here as
+;;           the GATE's law 13.)
 ;; ===========================================================================
 
 (deftest case-13-restore-dangle-rolls-back-the-optimistic-apply
@@ -679,8 +677,8 @@
     (is (= false (:optimistic? (mutation-state :f1))))))
 
 ;; ===========================================================================
-;; REGRESSION (rf2-o5ca8k) — a MALFORMED :optimistic-tags descriptor is
-;; warn-and-skipped, never an abort. The optimistic paint is reversible
+;; A MALFORMED :optimistic-tags descriptor is warn-and-skipped, never an
+;; abort. The optimistic paint is reversible
 ;; best-effort; a typo in the descriptor must NOT nuke the authoritative write
 ;; (which is strictly worse than :invalidates, settled post-write). The
 ;; well-formed descriptors in the SAME plan still apply.
@@ -755,52 +753,41 @@
       (is (some? @last-managed-args) "the request reached the transport"))))
 
 ;; ===========================================================================
-;; REGRESSION (rf2-e4y9) — an `:optimistic` EXACT target written as the
-;; `[id params]` VECTOR.
+;; An `:optimistic` EXACT target written as the `[id params]` VECTOR.
 ;;
-;; Reported second-hand as a fail-silent write: zero requests, `:idle`
-;; afterwards, "nothing logged". The first two reproduce exactly and are
-;; CORRECT — the refusal runs at phase 1.5, before the request lowers and
-;; before any instance row is committed, so "nothing was minted" is a truthful
-;; reading rather than a half-built one (the same granularity line rf2-06lp
-;; drew one registrar up, and for the same reason: an instance minted and left
-;; `:pending` with no request behind it would be a write that reports itself in
-;; flight forever).
+;; The write is refused at phase 1.5, before the request lowers and before any
+;; instance row is committed: zero requests, `:idle` afterwards, and nothing
+;; minted. "Nothing was minted" is a truthful reading rather than a half-built
+;; one: an instance minted and left `:pending` with no request behind it would
+;; be a write that reports itself in flight forever.
 ;;
-;; The third does NOT hold, and this gate is why the claim could be made at
-;; all: NOTHING in the three optimistic suites asserted a bad target, and the
-;; sibling assertions in `resources-mutation-cljs-test` prove the dispatch path
-;; only "by OBSERVING no partial cache mutation" — a claim a genuinely SILENT
-;; no-op satisfies exactly as well as a refusal does. The refusal is real and
-;; carries its reason (`:rf.error/mutation-invalid-target`, catalogued at
-;; spec/009 with `:recovery :fix-mutation-target` and the `:arm` / `:target`
-;; facets); it is simply not legible on stdout, because per Spec 009
-;; §Observability channels a listener is the only ALWAYS-ON channel and the
-;; router CAPTURES a handler throw rather than re-throwing it to
-;; `dispatch-sync`'s caller. That residual was framework-wide rather than
-;; specific to this arm, and rf2-fu75 has since SETTLED it (PR #8108): an
-;; unowned promoted record now ALSO reaches the browser console. It is a
+;; Observing no partial cache mutation cannot tell a refusal from a genuinely
+;; SILENT no-op, so this test also reads the refusal's reason
+;; (`:rf.error/mutation-invalid-target`, catalogued at spec/009 with
+;; `:recovery :fix-mutation-target` and the `:arm` / `:target` facets). The
+;; reason is not legible on stdout, because per Spec 009 §Observability
+;; channels a listener is the only ALWAYS-ON channel and the router CAPTURES a
+;; handler throw rather than re-throwing it to `dispatch-sync`'s caller. An
+;; unowned promoted record ALSO reaches the browser console, but that is a
 ;; fallback, not a channel, and none of its three conditions holds here — it
 ;; needs a dev build, a browser host (this is the Node lane, no `js/document`)
 ;; and nothing to have ROUTED the record, whereas the listener this suite
-;; installs owns it (rf2-kuky.18 added a second ownership arm — the record's
-;; frame routing it to a registered `:observability :errors` sink — which is
-;; equally absent here). So the reading below is unchanged, and the always-on axis is still
-;; the one that holds in dev AND in prod.
+;; installs owns it (as would the record's frame routing it to a registered
+;; `:observability :errors` sink, which is equally absent here). The always-on
+;; axis is the one that holds in dev AND in prod.
 ;;
 ;; So this test asserts the readable half on the always-on `:errors` axis,
 ;; which is where a refusal is legible in dev AND in a production build. The
 ;; `nil?`/`:idle` rows below are deliberately kept alongside it: they are the
 ;; hollow half, and they survive a plant that deletes the signal entirely.
 ;;
-;; NOTE the deliberate asymmetry with the `:optimistic-tags` regression
-;; directly above (rf2-o5ca8k), which warn-and-SKIPS. Tags are a best-effort
-;; broadcast that may match zero keys, so a malformed descriptor writes nothing
-;; under a wrong identity and must not nuke the authoritative write. An EXACT
-;; target is an assertion of cache identity, and the pre-write `:strict` policy
-;; (rf2-1vpbld) whole-arm-rejects it precisely because no server write has
-;; landed yet — the cost of refusing is a fixed source defect, not a stranded
-;; commit.
+;; NOTE the deliberate asymmetry with the `:optimistic-tags` case directly
+;; above, which warn-and-SKIPS. Tags are a best-effort broadcast that may match
+;; zero keys, so a malformed descriptor writes nothing under a wrong identity
+;; and must not nuke the authoritative write. An EXACT target is an assertion
+;; of cache identity, and the pre-write `:strict` policy whole-arm-rejects it
+;; precisely because no server write has landed yet — the cost of refusing is a
+;; fixed source defect, not a stranded commit.
 ;; ===========================================================================
 
 (defn- record-error-records!
@@ -811,12 +798,12 @@
   REFUSAL is legible: per Spec 009 §Observability channels a listener is the
   only ALWAYS-ON channel, so a category that fans a record here is loud in dev
   AND in a production build, while a category that fans nothing is invisible
-  everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
-  is not the always-on contract and cannot fire here: it needs a dev build, a
-  browser host — this suite is the Node lane, no `js/document` — and nothing to
-  have ROUTED the record, whereas the listener below owns it; since rf2-kuky.18
-  a frame's registered `:observability :errors` sink owns it too.) Sibling of the
-  same-named helper in `resources-mutation-cljs-test` (rf2-06lp)."
+  everywhere. (There is ALSO a browser-console fallback, but it is not the
+  always-on contract and cannot fire here: it needs a dev build, a browser
+  host — this suite is the Node lane, no `js/document` — and nothing to have
+  ROUTED the record, whereas the listener below owns it, as a frame's
+  registered `:observability :errors` sink would.) Sibling of the same-named
+  helper in `resources-mutation-cljs-test`."
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]
@@ -858,7 +845,7 @@
       (is (nil? (entry [:r/article {:slug "w"}]))
           "and the vector was NOT taken as a cache key of its own"))
 
-    ;; ---- the half the old assertions cannot make -----------------------
+    ;; ---- the half the cache-state assertions cannot make ---------------
     (testing "the refusal is READABLE — the runtime did not stay silent"
       (is (some? rec)
           ":rf.mutation/execute fanned an always-on error record")
