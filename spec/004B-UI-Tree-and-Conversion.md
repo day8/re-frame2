@@ -20,106 +20,43 @@ and fingerprints; **(c)** the DOM conversion table every emitter consumes; **(d)
 tree→`re-frame2-ssr` consumption boundary. **The optimizer/compiler AST is explicitly
 private: the public contract is this tree plus the conversion table, not the AST.**
 
-## Two modes, two emitters, one tree
+## Producers and the consumer
 
-> **No producer this section describes ships in this repository.** The
-> tree ABI below is the input contract of `re-frame.ssr/emit-ui-tree`
-> (§The SSR consumption boundary), which is why this document stands.
-
-The donor substrate had two execution modes over one semantic model — an **interpreted**
-paved path and a **compiled** hot tier selected by `{:compiled true}` on the same
-declaration — and two emitters: a **React** emitter for the browser and a
-**structural** emitter that answers the tree this contract describes. The two
-axes are independent, and the cell a declaration lands in changes only how the
-work is done:
-
-| | React emitter | structural emitter |
-|---|---|---|
-| **interpreted** | walks the view body's Hiccup and builds React elements | walks the same Hiccup and builds this tree |
-| **compiled** | lowers finite sites to direct React emission | lowers the same sites to this tree |
-
-All four consume **this one contract**. The node schema, the canonical form, the
-normalization `N`, and the conversion table are stated once, here, and never
-restated per mode or per emitter — which is what makes "the same declaration
+The tree is a value one party builds and another reads, and this contract is all the
+two share. In this repository `re-frame.fresco.test/tree` — Fresco's L2 test kit —
+builds a version-1 tree from one hook-free Fresco body, and `re-frame.ssr/emit-ui-tree`
+folds a version-1 tree into HTML (§The SSR consumption boundary). Any renderer that
+builds a version-1 tree from its own render output reaches that consumer. The node
+schema, the canonical form, the normalization `N`, and the conversion table are stated
+once, here, and never restated per producer — which is what makes "the same declaration
 means the same thing" a checkable claim rather than a slogan.
 
-The emitters are **separate implementations on purpose** (EP-0036 governing law
-7). They may share normalizers, and they do; they are not required to be one
-implementation, and they are not. Divergence between them is therefore
-*detected, not prevented* — this contract's job is to give separate code one
-table to be separate against, and the conformance corpus's job is to catch the
-day they disagree.
+**A refusal belongs to the producer.** Where a row below says "compile error", the rule
+is enforced by whatever reads the author's form: at the declaration by a producer that
+compiles it, and the first time the form is walked by a producer that walks it. The
+rule is one rule; the tier it fires in, and the id it fires under, are the producer's.
 
-### The interpreted walk
+**Author space and final space stay separate.** The tree carries the names the author
+wrote, and only a consumer projects them into final DOM or React names, through its
+half of the conversion table. That separation is what lets the JVM, which has no React,
+owe nothing to React's vocabulary — and it is why a structural assertion cannot stand
+in for a mounted one.
 
-The interpreted walk needs no compile step and admits no finite grammar: a view
-body is ordinary Clojure, and whatever Hiccup it produces is walked as it
-stands. A keyword head is a DOM or custom element, a declared-view head is an
-internal boundary the walk expands in place, `[:<> …]` is a fragment, strings
-and numbers are text, and seqs splice. That classification is **total** — it
-carries no heuristic arm and admits no fourth answer — and it was the rule the
-compiled analyzer applied too, so a head legal in one mode was legal in the
-other.
-
-Two consequences follow from interpreting rather than compiling, and both are
-contract rather than accident:
-
-- **Handler sites classify by the value present at render.** There is no
-  compile-time shape to read, so a `:events` entry is a literal event vector, an
-  options map, or the opaque marker, decided by what the site actually holds
-  (§Element fields).
-- **A rejected form is rejected at render, not at a compile step.** Where a row
-  below says "compile error", the compiled mode raises its `:rf.ui.compile/*`
-  finding at the declaration; the interpreted mode raises
-  `:rf.error/ui-tree-malformed` — the shared tree-consumer id — the first time
-  the form is walked. The *rule* is one rule; the tier it fires in, and therefore
-  the id it fires under, is what differs.
+**The tree records event intent and never materializes it.** An `:on-*` site carrying
+an event vector, an options map or an opaque marker is recorded in `:events`
+(§Element fields). What dispatches that intent, and into which frame, is not stated in
+this corpus (there is no 004 view contract); this contract owns only what the tree
+records.
 
 ### Cross-host equality
 
-The structural emitter runs on the JVM **and** in ClojureScript, and one
-declaration answers one equal value on both. That is the law the structure rows
-are proven against, and it is not a formality: the hosts disagree about number
-formatting (`(str 1.0)` is `"1.0"` on the JVM and `"1"` in JavaScript), about
-which values are callable, and about map ordering — and each of those
-disagreements reaches an ordinary view body. Every rule in this contract that
-touches a value's spelling is therefore stated in host-neutral terms and proven
-on both hosts; a rule proven on one is a gap, not a pass.
-
-### The React emitter
-
-The React emitter applies the **client half** of the conversion table: every
-author attribute name becomes React's **canonical prop** — `:class` and `:for`
-take React's reserved spellings, `data-*` and `aria-*` pass verbatim, an
-unrecognized name passes verbatim, and everything else maps through react-dom's
-`possibleStandardNames` — `:style` becomes a style object, `:key` becomes the
-element's key, and a declared-view boundary becomes a real React component so the
-boundary exists in React's tree and not only in ours.
-
-Author space and React space stay **separate**: the structural tree carries the
-names the author wrote, and only this emitter projects them. That separation is
-what lets the JVM, which has no React, owe nothing to React's vocabulary — and it
-is why a structural assertion cannot stand in for a mounted one. An emitter that
-spells a prop wrongly still produces a perfectly shaped `createElement` call.
-
-Two coverage boundaries are stated rather than implied, because an unstated gap
-in an emitter is indistinguishable from a bug:
-
-- **Event intent is materialized by the reactive contract, not here.** A `:on-*`
-  site carrying a function is attached as an ordinary React handler. A site
-  carrying an event vector or an options map is recorded in the tree
-  (§Element fields) and attached when the materializer lands. The materializer's
-  own contract — the projection, the listener options and, decisively, which
-  frame the intent dispatches into — is not stated in this corpus (there is no
-  004 view contract). This contract owns only what the tree records.
-- **The React prop vocabulary is implemented, not deferred.** The React emitter
-  writes React's canonical prop names from react-dom 19.2.0's own
-  `possibleStandardNames`, so `:stroke-width` is `strokeWidth` and `:view-box` is
-  `viewBox` wherever they are authored. A context-sensitive rule — pass
-  verbatim inside SVG, collapse hyphens outside — would be correct only where the
-  walk knew the context, so inserting a declared view would change which attribute
-  reached the DOM. A canonical prop name needs no context, so the emitter threads
-  none.
+A version-1 tree is one value on the JVM **and** in ClojureScript: one declaration
+answers one equal tree on both. That is the law the structure rows are stated against,
+and it is not a formality: the hosts disagree about number formatting (`(str 1.0)` is
+`"1.0"` on the JVM and `"1"` in JavaScript), about which values are callable, and about
+map ordering — and each of those disagreements reaches an ordinary view body. Every
+rule in this contract that touches a value's spelling is therefore stated in
+host-neutral terms and proven on both hosts; a rule proven on one is a gap, not a pass.
 
 ## The node schema — version 1
 
@@ -288,8 +225,8 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
 above) and in view-boundary `:props` (a fn-valued prop). The `:rf.ui/*`
 namespace is reserved (Conventions), so author data can never collide with the marker.
 `:fn` is the mode-neutral member — a bare function at either kind of site — and it is
-the one the interpreted walk produces; the members naming a specific authoring form
-are produced only by an emitter that implements that form.
+the one `re-frame.fresco.test/tree` produces; the members naming a specific authoring
+form are produced only by an emitter that implements that form.
 
 **The marker occupies a site, never a value inside one.** Three slots record a value
 the tree did not itself build — a view boundary's `:props`, and an element's `:events`
@@ -401,7 +338,7 @@ render; we reject earlier).
 **Forwarded children are a run, not markup.** A view that forwards the children it was
 given writes the `:children` value into its own markup, and that value is a *vector* —
 which, in child position, is otherwise markup. Vector-head classification is total and
-carries no heuristic arm ([§The interpreted walk](#the-interpreted-walk)),
+carries no heuristic arm,
 so the distinction is not inferred from the value: the emitter that placed the value
 there marks it, and a marked run splices in document order exactly as a seq does. The
 marker is invisible to the author, invisible in the tree, and does not disturb the
@@ -418,7 +355,7 @@ is what makes the tree a legitimate fingerprint input.
 
 ### Versioning
 
-The structural emitter returns the **root node** — always a
+A producer returns the **root node** — always a
 map node — carrying `:rf.ui/tree-version 1`. A form that denotes text, several nodes,
 or nothing roots in a **fragment**, which is the variant whose job is to hold a run of
 children; that is what keeps the return type total without a second shape. Interior
@@ -687,7 +624,7 @@ compatibility tier [TRANSITION]** — there is no adapter shim between the two t
 shapes.
 
 - **Owner:** the `day8/re-frame2-ssr` artifact, `re-frame.ssr` namespace — the
-  SSR artefact consumes the JVM emitter; there is no second server product. See
+  SSR artefact consumes the version-1 tree; there is no second server product. See
   [011 §Resolved decisions](011-SSR.md#resolved-decisions) and the API artefact table.
 - **Signature — the shipped seam.** `(re-frame.ssr/emit-ui-tree tree opts) → HTML
   string` — consumes a version-1 structural tree; applies the serialisation half of the
@@ -724,8 +661,8 @@ shapes.
   seam's failures by class — version-skew vs. structure — and it is the machine
   discriminator `:rf.error/id`, not ex-data sniffing, that separates them (both carry the
   same `{:got … :supported #{1}}` shape at the version gate).
-- The server-side root render pipeline (011's per-root flow) is: structural emitter →
-  tree → `emit-ui-tree`, in either execution mode; the response accumulator, error
+- The server-side root render pipeline (011's per-root flow) is: producer → tree →
+  `emit-ui-tree`; the response accumulator, error
   projection, and payload machinery are the ordinary `re-frame2-ssr` surfaces.
 
 ### Stage — the emit seam is shipped; the fingerprint is a deferred candidate
@@ -761,8 +698,8 @@ also why no shim between the two tree shapes can be written.
 is the whole of their similarity. `render-to-string` consumes a **hiccup form** and does
 the rendering itself: it walks the form, calls views through their callable head, and
 resolves each subscription against the frame's static `app-db`. `emit-ui-tree` consumes
-a **structural tree that has already been rendered** — the version-1 value the JVM
-emitter produced — and calls nothing. Every view has run, every subscription is
+a **structural tree that has already been rendered** — the version-1 value a producer
+built — and calls nothing. Every view has run, every subscription is
 resolved, and every dynamic value is already a literal in the tree.
 
 The two seams therefore sit at different points of one pipeline rather than at two ends
