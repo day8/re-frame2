@@ -32,9 +32,8 @@
   The middle claim is an emptiness claim about everything outside a
   dialog, and an emptiness claim is exactly the shape that passes
   vacuously — an instrument that reported *nothing is focusable* would
-  satisfy it perfectly. So the first row is the SEEDED VIOLATION the
-  bead's acceptance asks for, made permanent rather than run once by
-  hand: the same `<dialog>` element, holding the same controls, opened
+  satisfy it perfectly. So the first row is a SEEDED VIOLATION, made
+  permanent rather than run once by hand: the same `<dialog>` element, holding the same controls, opened
   through `show()` instead of `showModal()`. That is a legal call on the
   same element which paints the same panel and fires the same events,
   and the ONE thing it does not do is make the document behind it inert.
@@ -71,26 +70,25 @@
   presses BOTH directions, because a wrap is two edges. The same row then
   presses a real Escape and gets the page back.
 
-  It also found something no amount of asking would have, and the module
-  fixed rather than blessed it: left to itself the engine wraps through
-  the DOCUMENT, and `document.activeElement` reads `<body>` for one press
-  between the panel's last control and its first — focus resting nowhere,
-  which in a browser with UI is the browser's own UI. Inertness was never
-  in question; the WRAP was, and `impl.overlay/wrap-tab!` now closes both
-  edges. The row asserts the three-stop cycle, so it reddens the day that
-  handler stops working — and the version of it that recorded `<body>` as
-  a waypoint is what the audit of #8058 correctly refused to accept.
+  It also sees something no amount of asking would: left to itself the
+  engine wraps through the DOCUMENT, and `document.activeElement` reads
+  `<body>` for one press between the panel's last control and its first —
+  focus resting nowhere, which in a browser with UI is the browser's own
+  UI. Inertness is not in question; the WRAP is, and
+  `impl.overlay/wrap-tab!` closes both edges. The row asserts the
+  three-stop cycle, so it reddens the day that handler stops working — a
+  cycle recording `<body>` as a waypoint is a trap that leaks.
 
-  ## What that row still could not fail on, and the two below that can
+  ## What that row cannot fail on, and the two below that can
 
   Its panel is three plain controls, and over three plain controls the
   ELEMENTS a selector finds and the STOPS Tab visits are the same list in
-  the same order. A handler computing the first from document order was
+  the same order. A handler computing the first from document order is
   therefore indistinguishable, here, from one computing it correctly —
-  and the audit of #8071 measured the difference on a panel this fixture
-  could not hold: a radio group, which is three elements and ONE stop,
-  where Shift+Tab off the checked member went to `<body>` because the
-  handler had taken the unchecked one for the panel's first stop.
+  and the difference shows on a panel this fixture cannot hold: a radio
+  group, which is three elements and ONE stop, where Shift+Tab off the
+  checked member goes to `<body>` if the handler takes the unchecked one
+  for the panel's first stop.
 
   [[a-real-tab-wraps-at-the-radio-groups-edge-and-not-at-the-dom-s]] and
   [[a-real-tab-wraps-at-the-tabindex-ordered-edge]] are that missing
@@ -102,12 +100,11 @@
   and it is about the boundary itself rather than the model inside it.
   Those two rows differ from the DOM in ORDER; this panel differs in
   LENGTH, and only at the end — a `visibility:hidden` final button,
-  which reports a client rect and refuses focus. #8071's audit had
-  argued a candidate like that costs only a wrap that does not fire.
-  That is true and, at the LAST position, not free: the surplus becomes
-  the edge, so the handler declines and `<body>` gets the focus. The row
-  exists because *refuses focus* was measured and *costs nothing* was
-  inferred.
+  which reports a client rect and refuses focus. A candidate like that
+  costs only a wrap that does not fire — true and, at the LAST position,
+  not free: the surplus becomes the edge, so the handler declines and
+  `<body>` gets the focus. The row exists because *refuses focus* and
+  *costs nothing* are different claims.
 
   `overlay-dom-cljs-test` holds the synthetic-versus-trusted comparison
   for Escape itself; this file does not re-litigate it.
@@ -177,8 +174,8 @@
 ;; THE TWO SHAPES THE THREE-PLAIN-CONTROL PANEL ABOVE CANNOT CONTAIN, and
 ;; the reason they are separate pages rather than extra controls on that
 ;; one. Both are panels whose SEQUENTIAL focus order differs from their
-;; DOCUMENT order, which is the difference the audit of #8071 measured
-;; `impl.overlay` getting wrong; the rows above are about inertness and
+;; DOCUMENT order, which is the difference a wrap computed from document
+;; order gets wrong; the rows above are about inertness and
 ;; the popover contrast, and folding a radio group into their fixture
 ;; would change what every one of them reads without making any of them
 ;; measure a wrap.
@@ -278,8 +275,8 @@
   ;;
   ;; The fieldset also carries the case that says WHICH reading is
   ;; correct. `ghost.disabled` is FALSE — the IDL property reflects the
-  ;; element's own attribute and the element has none — so the property
-  ;; the predicate used to read cannot see this at all, while the
+  ;; element's own attribute and the element has none — so a predicate
+  ;; reading the property cannot see this at all, while the
   ;; `:disabled` PSEUDO-CLASS matches the effective state. The row below
   ;; asserts both halves of that, because the gap between them is the
   ;; whole defect.
@@ -295,8 +292,8 @@
     [:fieldset#later {:disabled true}
      ;; The FIRST `<legend>` of a disabled fieldset is NOT disabled, and
      ;; `legend-button` is here to hold that boundary: it is the one
-     ;; control in this subtree the engine still focuses, so a fix that
-     ;; excluded the whole fieldset by walking ancestors would drop a
+     ;; control in this subtree the engine still focuses, so a predicate
+     ;; that excluded the whole fieldset by walking ancestors would drop a
      ;; REAL stop and move the panel's last edge onto `cancel`'s
      ;; predecessor. It is written before `ghost` and is therefore not
      ;; the edge; the forward cycle names it, which is how the row
@@ -628,20 +625,19 @@
 ;; The trap over a panel whose sequential order is not its document order
 ;; ---------------------------------------------------------------------------
 ;;
-;; WHY THE ROW ABOVE COULD NOT HAVE CAUGHT THIS. Its panel is three plain
+;; WHY THE ROW ABOVE CANNOT CATCH THIS. Its panel is three plain
 ;; controls, and over three plain controls *the elements a selector finds*
 ;; and *the stops Tab visits* are the same list in the same order. So a
-;; handler that read the first and taught itself it had the second passed
-;; that row perfectly, and went on choosing the wrong edge on any panel
-;; where the two lists differ — which the audit of #8071 then measured.
+;; handler that read the first and took it for the second would pass
+;; that row perfectly, and choose the wrong edge on any panel where the
+;; two lists differ.
 ;;
-;; The two rows below are that population, added rather than argued: one
-;; panel whose sequential order is SHORTER than its document order (a
-;; radio group), one whose sequential order is a PERMUTATION of it (a
+;; The two rows below are that population: one panel whose sequential
+;; order is SHORTER than its document order (a radio group), one whose sequential order is a PERMUTATION of it (a
 ;; positive `tabindex`). Both drive both edges with trusted input, and
 ;; both name `body` explicitly, because `<body>` is where a wrap that did
-;; not fire puts focus and reading it as merely "some other control" is
-;; how #8058 shipped.
+;; not fire puts focus, and reading it as merely "some other control"
+;; would let that leak pass.
 
 (defn- both-edges!
   "Focus `start`, walk `n` trusted Tabs, re-focus `start`, walk `n` trusted
@@ -691,16 +687,16 @@
                            "member, which is where the engine's own "
                            "sequential order starts — and never on `small`, "
                            "which is an element of the panel but not a stop "
-                           "of it. Against the algorithm this row was "
-                           "written for, the third landing was `small`. "
+                           "of it. Against a handler reading document "
+                           "order, the third landing would be `small`. "
                            "Pressed: " (pr-str forward)))
                   (is (= ["reason" "ok" "large" "reason" "ok"] backward)
-                      (str "THE CYCLE, BACKWARD, and this is the edge that "
-                           "was measured broken. `large` IS the panel's "
+                      (str "THE CYCLE, BACKWARD, and this is the edge a "
+                           "document-order handler breaks. `large` IS the panel's "
                            "first stop, so Shift+Tab off it must land "
                            "directly on `reason`; a handler that took the "
-                           "panel's first ELEMENT for its first STOP found "
-                           "`small`, matched nothing, let the default action "
+                           "panel's first ELEMENT for its first STOP would find "
+                           "`small`, match nothing, let the default action "
                            "stand and put focus on `<body>`. Pressed: "
                            (pr-str backward)))
                   (is (empty? (filter #{"before" "trigger" "after" "body" "small"}
@@ -756,26 +752,24 @@
 ;; The trap over a panel whose LAST element is not a stop
 ;; ---------------------------------------------------------------------------
 ;;
-;; THE THIRD WAY THE TWO LISTS DIFFER, and the one that took a second
-;; bead to see. The two rows above are about a candidate set in the
-;; wrong ORDER. This one is about a candidate set of the wrong LENGTH at
-;; the one end where length is load-bearing.
+;; THE THIRD WAY THE TWO LISTS DIFFER. The two rows above are about a
+;; candidate set in the wrong ORDER. This one is about a candidate set of
+;; the wrong LENGTH at the one end where length is load-bearing.
 ;;
-;; `sequential-tab-stops` still counts candidates the engine skips, and
-;; #8071's audit reasoned that was affordable: they refuse `.focus()`,
-;; and `wrap-tab!` confirms the landing before taking the default action
-;; away, so a surplus candidate costs a wrap that DOES NOT FIRE rather
-;; than one that fires at the wrong place. That argument is sound and
-;; still holds — but *refuses focus* and *costs nothing* are different
-;; claims, and only the first of them was measured.
+;; A candidate the engine skips refuses `.focus()`, and `wrap-tab!`
+;; confirms the landing before taking the default action away, so a
+;; surplus candidate costs a wrap that DOES NOT FIRE rather than one that
+;; fires at the wrong place. That argument is sound — but *refuses focus*
+;; and *costs nothing* are different claims.
 ;;
 ;; A missed wrap is not free at the LAST candidate. There the surplus is
 ;; what `peek` returns, so Tab off the real final control matches no
 ;; edge at all, the handler declines, and the engine's own end-of-scope
 ;; step puts `document.activeElement` on `<body>` — the exact leak this
-;; handler was written to close, reached by a fourth route. It is
-;; measured on the one of those four cases that is ordinary markup: a
-;; conditionally-hidden final button.
+;; handler exists to close, reached by a fourth route. This row pins it
+;; with a conditionally-hidden final button, which `sequential-tab-stops`
+;; excludes; the two rows after it pin the cases the platform still
+;; calls visible.
 ;;
 ;; The row names `body` explicitly for the reason the two above do.
 
@@ -794,7 +788,7 @@
 
             ;; THE TWO PREMISES THAT MAKE THIS PANEL THE CASE IT IS, and
             ;; they pull in opposite directions — which is precisely why
-            ;; a rects-based reading counted `ghost` and a keyboard
+            ;; a rects-based reading would count `ghost` while a keyboard
             ;; never reaches it.
             (is (pos? (.-length (.getClientRects ($ m "#ghost"))))
                 "premise: `visibility:hidden` still occupies layout, so
@@ -814,18 +808,18 @@
                            "ELEMENT IS NOT ITS LAST STOP. `cancel` is the "
                            "final stop, so Tab off it must land on "
                            "`reason`. Against a predicate that counted "
-                           "`ghost`, the panel's edge was an element the "
-                           "press could never arrive at: the handler "
-                           "matched nothing, let the default action stand, "
-                           "and the third landing was `body`. Pressed: "
+                           "`ghost`, the panel's edge would be an element the "
+                           "press can never arrive at: the handler would "
+                           "match nothing, let the default action stand, "
+                           "and the third landing would be `body`. Pressed: "
                            (pr-str forward)))
                   (is (= ["cancel" "ok" "reason" "cancel" "ok"] backward)
-                      (str "THE CYCLE, BACKWARD, and it fails the other "
-                           "way for the same reason. Shift+Tab off "
+                      (str "THE CYCLE, BACKWARD, which a counted `ghost` "
+                           "breaks the other way for the same reason. Shift+Tab off "
                            "`reason` must land on `cancel`; with `ghost` "
-                           "counted, the wrap AIMED at `ghost`, `.focus()` "
-                           "declined, `preventDefault` was correctly "
-                           "withheld — and withholding it is what let the "
+                           "counted, the wrap AIMS at `ghost`, `.focus()` "
+                           "declines, `preventDefault` is correctly "
+                           "withheld — and withholding it is what lets the "
                            "engine put focus on `body`. Pressed: "
                            (pr-str backward)))
                   (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
@@ -844,21 +838,20 @@
 ;; The two the platform still calls VISIBLE
 ;; ---------------------------------------------------------------------------
 ;;
-;; SAME DEFECT, AND THE REASON THE ROW ABOVE COULD NOT REACH THEM. That
+;; SAME DEFECT, AND THE REASON THE ROW ABOVE CANNOT REACH THEM. That
 ;; row is answered by `checkVisibility`, because `visibility:hidden` and a
 ;; closed `<details>` are exactly what the platform means by not visible.
 ;; An `inert` region and a `disabled` `<fieldset>` are PAINTED — the user
 ;; can read them, they are simply switched off — so `checkVisibility`
-;; answers true for both, measured, and no amount of visibility reasoning
-;; will exclude them.
+;; answers true for both, as the premises below assert, and no amount of
+;; visibility reasoning will exclude them.
 ;;
 ;; The argument for leaving them counted is that a surplus candidate only ever
 ;; costs a wrap that does not fire. That is priced wrong at the last position
-;; — a surplus at the END is what `peek` returns — and the only thing holding
-;; it up was that no measured markup put either of them last. These two pages
-;; are that markup, and both are the ordinary kind: the wizard step not yet
-;; reached, and the form section a prior answer has not unlocked. Both were
-;; measured taking `document.activeElement` to `<body>` on BOTH edges.
+;; — a surplus at the END is what `peek` returns. These two pages put each of
+;; them last, and both are the ordinary kind: the wizard step not yet
+;; reached, and the form section a prior answer has not unlocked. Counted,
+;; either one takes `document.activeElement` to `<body>` on BOTH edges.
 
 (deftest a-real-tab-wraps-past-a-trailing-inert-region
   (if-not (browser?)
@@ -883,7 +876,7 @@
             (is (true? (.checkVisibility ($ m "#ghost")
                                          #js {"visibilityProperty" true}))
                 "premise: and the platform calls it VISIBLE, which is why
-                 the `checkVisibility` repair that answered the hidden
+                 the `checkVisibility` exclusion that answers the hidden
                  control cannot answer this one")
             (is (false? (focusable? ($ m "#ghost")))
                 "premise: the engine refuses focus on it all the same, so
@@ -895,18 +888,18 @@
                 (try
                   (is (= ["ok" "cancel" "reason" "ok" "cancel"] forward)
                       (str "THE CYCLE, FORWARD. `cancel` is the last stop, "
-                           "so Tab off it lands on `reason`. Against the "
+                           "so Tab off it lands on `reason`. Against a "
                            "predicate that counted an inert element, the "
-                           "computed edge was `ghost`, the press off "
-                           "`cancel` matched nothing, and the third landing "
-                           "was `body` — measured. Pressed: " (pr-str forward)))
+                           "computed edge would be `ghost`, the press off "
+                           "`cancel` would match nothing, and the third landing "
+                           "would be `body`. Pressed: " (pr-str forward)))
                   (is (= ["cancel" "ok" "reason" "cancel" "ok"] backward)
                       (str "THE CYCLE, BACKWARD. Shift+Tab off `reason` "
                            "lands on `cancel`. Against that predicate the "
-                           "wrap AIMED at `ghost`, `.focus()` declined, "
-                           "`preventDefault` was correctly withheld, and "
-                           "withholding it is what put the FIRST landing on "
-                           "`body` — measured. Pressed: " (pr-str backward)))
+                           "wrap would aim at `ghost`, `.focus()` would decline, "
+                           "`preventDefault` would be correctly withheld, and "
+                           "withholding it would put the FIRST landing on "
+                           "`body`. Pressed: " (pr-str backward)))
                   (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
                                       (concat forward backward)))
                       (str "and not one landing in either lap was a control "
@@ -947,11 +940,12 @@
             (is (true? (.checkVisibility ($ m "#ghost")
                                          #js {"visibilityProperty" true}))
                 "premise: and it is VISIBLE — painted and greyed, not
-                 hidden — so #8093's repair does not reach it either")
+                 hidden — so the `checkVisibility` exclusion does not
+                 reach it either")
             (is (false? (focusable? ($ m "#ghost")))
                 "premise: the engine refuses focus on it")
 
-            ;; THE OTHER DIRECTION, and it is why this fix asks the
+            ;; THE OTHER DIRECTION, and it is why `tab-stop?` asks the
             ;; pseudo-class rather than walking up to a `fieldset[disabled]`.
             (is (true? (focusable? ($ m "#legend-button")))
                 "premise: the FIRST `<legend>`'s contents are NOT disabled
@@ -967,10 +961,10 @@
                   (is (= ["ok" "cancel" "legend-button" "reason" "ok"] forward)
                       (str "THE CYCLE, FORWARD, and the last stop is "
                            "`legend-button` — not `cancel`, and not "
-                           "`ghost`. Against the predicate that read the "
-                           "`.disabled` PROPERTY, the computed edge was "
-                           "`ghost`, and the fourth landing was `body` — "
-                           "measured. A fix that excluded the fieldset "
+                           "`ghost`. Against a predicate that read the "
+                           "`.disabled` PROPERTY, the computed edge would be "
+                           "`ghost`, and the fourth landing would be `body`. "
+                           "A predicate that excluded the fieldset "
                            "wholesale reds here the other way, landing the "
                            "wrap on `cancel`. Pressed: " (pr-str forward)))
                   (is (= ["legend-button" "cancel" "ok" "reason" "legend-button"]
@@ -978,8 +972,8 @@
                       (str "THE CYCLE, BACKWARD. `reason` is the first "
                            "stop, so Shift+Tab off it lands directly on "
                            "`legend-button`. Against that predicate the "
-                           "wrap aimed at `ghost`, could not land, and the "
-                           "FIRST landing was `body` — measured. Pressed: "
+                           "wrap would aim at `ghost`, fail to land, and put the "
+                           "FIRST landing on `body`. Pressed: "
                            (pr-str backward)))
                   (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
                                       (concat forward backward)))
@@ -1000,8 +994,8 @@
 (deftest a-real-tab-a-panel-control-has-claimed-does-not-wrap
   ;; THE YIELD, measured on the flag the module actually reads.
   ;; `impl.overlay/wrap-tab!` reads the NATIVE event's `defaultPrevented`
-  ;; rather than the synthetic copy React takes at construction — a
-  ;; measured distinction: the child's `preventDefault` runs during the
+  ;; rather than the synthetic copy React takes at construction, and the
+  ;; distinction is real: the child's `preventDefault` runs during the
   ;; same dispatch the panel's handler is part of, so only the native
   ;; flag has moved by the time the wrap asks. No other row can see any
   ;; of this — every wrap row presses keys nothing claims, and the
