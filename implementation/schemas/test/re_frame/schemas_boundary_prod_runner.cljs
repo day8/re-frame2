@@ -1,6 +1,6 @@
 (ns re-frame.schemas-boundary-prod-runner
   "Custom browser-test runner for the production-mode schemas boundary
-  smoke (Spec 010 §Production builds, rf2-r2uh / rf2-84e9).
+  smoke (Spec 010 §Production builds).
 
   The default shadow-cljs `:browser-test` runner-ns `shadow.test.browser`
   uses `cljs-test-display.core/init!`, which does `(set! root-node-id …)`
@@ -18,10 +18,9 @@
   It requires no test namespace, for the reason
   `re-frame.prod-elision-runner` sets out at length: the `:browser-test`
   target injects every `:ns-regexp` match as a module entry on each compile
-  cycle, so `-boundary-prod-test$` is what puts the smoke in this lane. The
-  single require this namespace used to carry was accurate, which is the
-  trap — it read as the mechanism while being a coincidence of there being
-  exactly one match.
+  cycle, so `-boundary-prod-test$` is what puts the smoke in this lane. A
+  require naming the one matching namespace would read as the mechanism
+  while being a coincidence of there being exactly one match.
 
   ## Why `{:dev/always true}` is load-bearing, in EVERY mode
 
@@ -35,8 +34,8 @@
   leaves the stale expansion dereferencing vars that are no longer in the
   bundle: an uncaught `TypeError: Cannot read properties of undefined` in
   `init`, before any test runs, so the lane aborts with no `cljs.test`
-  summary. rf2-2ohy is that failure on the sibling
-  `re-frame.prod-elision-runner` lane, which see for the full account.
+  summary. The sibling `re-frame.prod-elision-runner` namespace gives the
+  full account.
 
   Despite its name `shadow.build.compiler/is-cache-blocked?` reads
   `:dev/always` with no mode gate, so it blocks caching under `release` too.
