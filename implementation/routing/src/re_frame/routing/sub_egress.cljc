@@ -20,7 +20,7 @@
   REGISTRATION's own declared classification (the `:rf/route` registration
   declares none — it is the route DECLARATION that owns the durable runtime-db
   classification, not the sub registration). So a `:sensitive` route query /
-  param shipped RAW on the `:rf.sub/run` dev-trace, the Pair MCP `read-sub` /
+  param would ship RAW on the `:rf.sub/run` dev-trace, the Pair MCP `read-sub` /
   `list-subscriptions :include-values` / `snapshot :sub-cache` reads, and Xray —
   contradicting [Spec 012 §Lowering and re-rooting](../../../../../../spec/012-Routing.md)
   (\"only the trace bus / Xray / MCP / off-box / SSR egress copies are
@@ -31,7 +31,7 @@
   Apply the route classification at the direct-read egress of the route's read
   surfaces, by re-seeding the egress walk at the route slice's runtime-db
   storage position so the registry's re-rooted absolute declarations match. This
-  is the direct-read sibling of the SSR `project-routing-egress` fix.
+  is the direct-read sibling of the SSR `project-routing-egress` offset.
 
   NARROW: this is NOT generic sub-output propagation. ONLY the framework-owned
   route read surfaces (`:rf/route`, `:rf.route/query`, `:rf.route/params`) are
