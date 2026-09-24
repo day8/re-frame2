@@ -1,20 +1,19 @@
 ;;;; tests/eval_corpus_shape_test.clj — the eval corpus is a REPOSITORY
 ;;;; wrapper, and evals/README.md documents the conversion to Anthropic's
-;;;; separate trigger-evaluation input (rf2-fzbj.42 F1).
+;;;; separate trigger-evaluation input.
 ;;;;
-;;;; The defect this pins: evals.json's `convention` string and the README
-;;;; both claimed the corpus was Anthropic's skill-creator trigger fixture,
-;;;; and §How to run named the description-optimisation loop as the run path
-;;;; with no conversion. Upstream has TWO formats and this file is neither:
+;;;; Upstream has TWO formats and this file is neither:
 ;;;;
 ;;;;   * task evaluation  — an OBJECT {skill_name, evals:[{id, prompt,
 ;;;;     expected_output, expectations, …}]}; no `should_trigger` at all;
 ;;;;   * trigger evaluation — a TOP-LEVEL LIST of {query, should_trigger};
 ;;;;     run_eval.py iterates the loaded document and reads item["query"].
 ;;;;
-;;;; So a maintainer following the old prose hit `TypeError: string indices
-;;;; must be integers` on the whole file, or `KeyError: 'query'` after merely
-;;;; unwrapping `evals` — a format failure before a single query was graded.
+;;;; So prose that presents the corpus as Anthropic's skill-creator trigger
+;;;; fixture, or names the description-optimisation loop as the run path with
+;;;; no conversion, sends a maintainer into `TypeError: string indices must be
+;;;; integers` on the whole file, or `KeyError: 'query'` after merely
+;;;; unwrapping `evals` — a format failure before a single query is graded.
 ;;;;
 ;;;; This suite is a DATA-SHAPE pin, not a scorer: it runs no model, starts no
 ;;;; upstream executor, and adds no dependency. It asserts (1) the premise —
@@ -74,21 +73,21 @@
   (let [parsed @corpus]
     (testing "the top level is an object, so the trigger runner's `for item in eval_set` cannot work"
       (is (map? parsed)
-          (str "evals.json is now a top-level list. If the corpus was deliberately "
-               "moved to Anthropic's native trigger shape, retire this suite and the "
+          (str "evals.json is a top-level list. If the corpus is deliberately in "
+               "Anthropic's native trigger shape, retire this suite and the "
                "conversion in evals/README.md together — do not leave both standing."))
       (is (contains? parsed :evals)
-          "the repository wrapper no longer carries an `evals` key."))
+          "the repository wrapper does not carry an `evals` key."))
     (testing "entries carry `prompt`, not the `query` the trigger runner indexes"
       (is (seq (:evals parsed)) "the corpus is empty.")
       (is (every? #(contains? % :prompt) (:evals parsed))
-          "some fixture lost its `prompt` field.")
+          "some fixture has no `prompt` field.")
       (is (not-any? #(contains? % :query) (:evals parsed))
           (str "a fixture carries `query`. The corpus is half-converted — pick one "
                "shape; a mixed corpus silently drops entries in whichever runner reads it.")))
     (testing "entries carry `should_trigger`, which upstream's TASK schema does not define"
       (is (every? #(contains? % :should_trigger) (:evals parsed))
-          "a fixture lost its `should_trigger` label."))))
+          "a fixture has no `should_trigger` label."))))
 
 ;; ---------------------------------------------------------------------------
 ;; The documentation tells the truth about the wrapper
@@ -98,38 +97,38 @@
   (testing "evals/README.md calls the wrapper a repository convention"
     (let [body @evals-readme]
       (is (contains-any? body ["repository convention" "REPOSITORY convention"])
-          (str "evals/README.md no longer says the wrapper is this repo's own "
-               "convention. Claiming upstream provenance for it is the rf2-fzbj.42 "
-               "defect: a maintainer feeds evals.json to the description-optimisation "
-               "loop and hits a format error before anything is graded."))
+          (str "evals/README.md does not say the wrapper is this repo's own "
+               "convention. Claiming upstream provenance for it sends a maintainer "
+               "who feeds evals.json to the description-optimisation loop into a "
+               "format error before anything is graded."))
       (is (not (str/includes? body "The fixtures follow Anthropic's `skill-creator` convention"))
-          "the superseded false-provenance sentence is back.")))
+          "the README carries the false-provenance sentence.")))
   (testing "evals.json's own `convention` string agrees with the README"
     (let [conv (:convention @corpus)]
-      (is (string? conv) "evals.json lost its `convention` string.")
+      (is (string? conv) "evals.json has no `convention` string.")
       (is (contains-any? conv ["REPOSITORY convention" "repository convention"])
-          (str "evals.json's `convention` still advertises an upstream schema. It is "
+          (str "evals.json's `convention` advertises an upstream schema. It is "
                "read by whoever opens the file rather than the README, so both must "
-               "carry the correction or the two disagree again."))
+               "say the same thing or the two disagree."))
       (is (contains-any? conv ["TOP-LEVEL LIST" "top-level list"])
-          "the `convention` string no longer names the trigger format it must be converted to."))))
+          "the `convention` string does not name the trigger format it must be converted to."))))
 
 (deftest readme-documents-the-conversion
   (let [body @evals-readme]
     (testing "§How to run carries the prompt→query mapping"
       (is (str/includes? body "query: .prompt")
-          (str "evals/README.md no longer documents the conversion. Naming the "
-               "description-optimisation loop as the run path WITHOUT it is exactly "
-               "the finding: the loop reads a top-level list of query/should_trigger "
+          (str "evals/README.md does not document the conversion. Naming the "
+               "description-optimisation loop as the run path WITHOUT it fails: "
+               "the loop reads a top-level list of query/should_trigger "
                "objects and this corpus is neither.")))
     (testing "it distinguishes the two upstream formats"
       (is (contains-any? body ["Task evaluation" "task evaluation"])
-          "the README no longer distinguishes upstream's task schema from its trigger format.")
+          "the README does not distinguish upstream's task schema from its trigger format.")
       (is (str/includes? body "should_trigger")
-          "the README no longer names the trigger label."))
+          "the README does not name the trigger label."))
     (testing "the upstream citations are pinned to a verifiable revision"
       (is (str/includes? body "3d59511518591fa82e6cfcf0438d68dd5dad3e76")
-          (str "the upstream links are no longer pinned to the reviewed revision. "
+          (str "the upstream links are not pinned to the reviewed revision. "
                "A `blob/main` link cannot be re-checked later against what was read.")))))
 
 ;; ---------------------------------------------------------------------------
