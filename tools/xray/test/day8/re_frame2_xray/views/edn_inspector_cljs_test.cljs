@@ -6053,6 +6053,48 @@
         "the stored path itself is left as it was")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
+;; ---- rf2-pmux4 — a diff-mode zoom into a key ADDED this epoch ------------
+;;
+;; The zoom is active because its path resolves in the AFTER value. The
+;; before side was re-rooted through `resolve-zoom-into`, whose fallback
+;; for a path it cannot walk is the WHOLE value. So the zoomed subtree
+;; was diffed against the whole before-root, and that root's own keys
+;; painted as removed ghosts inside what is a plain addition.
+
+(defn- diff-ops-in-order
+  "Every `:data-rf-diff-op` value in `tree`, in document order."
+  [tree]
+  (vec (keep (fn [n] (let [attrs (second n)]
+                       (when (map? attrs) (:data-rf-diff-op attrs))))
+             (walk-hiccup tree))))
+
+(deftest diff-mode-zoom-into-a-key-added-this-epoch-reads-as-added-rf2-pmux4
+  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
+  (let [site-id [:rf.xray/app-db "top"]
+        _       (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
+                                   :rf.xray/app-db site-id [:fresh]])
+        before  {:kept {:deep 1} :sibling 0}
+        after   {:kept {:deep 1} :sibling 0 :fresh {:x 1 :y 2}}
+        h       (invoke-edn-inspector after {:panel-id  :rf.xray/app-db
+                                             :site-id   site-id
+                                             :zoomable? true
+                                             :before    before})
+        text    (collect-text h)
+        ops     (diff-ops-in-order h)]
+    (is (= "1" (:data-rf-zoomed (second h))) "the zoom is active")
+    (is (and (str/includes? text ":x") (str/includes? text ":y"))
+        "the zoomed subtree renders")
+    (is (seq ops) "sanity: the zoomed body carries diff annotations")
+    (is (= #{"added"} (set ops))
+        "every node of the zoomed subtree reads as added")
+    (is (not (str/includes? text ":sibling"))
+        "the before-root's own keys do not ghost into the zoomed subtree")
+    (is (= ops (diff-ops-in-order
+                 (invoke-edn-inspector {:x 1 :y 2} {:panel-id :rf.xray/app-db
+                                                    :added?   true})))
+        "the same annotations the `:added?` first-run path paints")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
+
 (deftest zoom-persists-across-mount-unmount-via-site-id
   ;; Acceptance #7: two renders with the same `:site-id` see the same
   ;; zoom slot — simulating a tab-leave / tab-return cycle.
