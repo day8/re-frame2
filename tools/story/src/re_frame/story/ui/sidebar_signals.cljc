@@ -38,11 +38,14 @@
   - frame-binding → `re-frame.story.requirements/frame-bindings` + the
     default.
 
-  No signal is fabricated: a chip appears only when the variant body (or
-  the run record) carries the data behind it."
+  No signal is fabricated: a chip appears only when the variant body, the
+  world its `:extends` ancestors and composed fragments pass in
+  (`resolved-body`), or the run record carries the data behind it."
   (:require [re-frame.story.plan         :as rf.story.plan]
+            [re-frame.story.registrar    :as rf.story.registrar]
             [re-frame.story.requirements :as rf.story.requirements]
-            [re-frame.story.theme.status :as rf.story.theme.status]))
+            [re-frame.story.theme.status :as rf.story.theme.status]
+            [re-frame.story.ui.watch     :as rf.story.ui.watch]))
 
 ;; ===========================================================================
 ;; AXIS 1 — STATUS
@@ -96,10 +99,11 @@
 ;;
 ;; The evidence rung(s) a variant's render rests on, computed from its world
 ;; inputs (NOT typed by the author). Reuses `rf.story.plan/compute-fidelity` — the
-;; SAME projection the plan compiler stamps `[:world :fidelity]` with — so
-;; the sidebar chip and the plan can never disagree about what a variant
-;; leans on. `:real-setup` > `:db-seed` > `:sub-overrides` (spec/017
-;; §View-state subscription overrides — fidelity ladder).
+;; SAME projection the plan compiler stamps `[:world :fidelity]` with — over
+;; the SAME inherited and composed inputs (`variant-signals` hands it the
+;; `resolved-body`), so the sidebar chip and the plan cannot disagree about
+;; what a variant leans on. `:real-setup` > `:db-seed` > `:sub-overrides`
+;; (spec/017 §View-state subscription overrides — fidelity ladder).
 
 (def fidelity-order
   "Pure data → data: highest-fidelity-first render order for the fidelity
@@ -118,14 +122,17 @@
   "Pure data → data: the fidelity chips for a variant `body`. Derives the
   world inputs the fidelity ladder reads — setup/script (real-setup),
   `:db-seed`, `:sub-overrides` — and runs them through the canonical
-  `rf.story.plan/compute-fidelity` so the sidebar and the plan agree. Returns a
+  `rf.story.plan/compute-fidelity`. Handed a `resolved-body`, as
+  `variant-signals` does, it reads the inputs the plan compiler reads, so
+  the sidebar and the plan agree. Returns a
   vector of `{:axis :fidelity :value <kw> :label <string>}` in
   `fidelity-order`; empty for a bare render-as-mounted variant (no setup,
   seed, or overrides) — which is legitimate, not a defect."
   [body]
   (let [fidelity (rf.story.plan/compute-fidelity
                    {:setup         (:setup body)
-                    :script        (or (:script body) (:plays body))
+                    :script        (concat (::composed-script body)
+                                           (or (:script body) (:plays body)))
                     :db-seed       (:db-seed body)
                     :sub-overrides (:sub-overrides body)})]
     (into []
@@ -242,7 +249,9 @@
   runner qualifies (the headless floor — a navigation signal never refuses)."
   [body]
   (let [setup      (or (:setup body) [])
-        script     (body-script-steps body)
+        ;; A `resolved-body`'s composed-fragment script leads, as the plan
+        ;; compiler prepends it to the primary play.
+        script     (into (vec (::composed-script body)) (body-script-steps body))
         assertions (or (:assertions body) [])
         tokens     (rf.story.requirements/required-tokens setup script assertions)]
     (or (rf.story.requirements/cheapest-runner tokens) :headless)))
@@ -303,6 +312,54 @@
      :label (get frame-binding-labels value)}))
 
 ;; ===========================================================================
+;; THE RESOLVED BODY — the world `:extends` and `:compose` pass in
+;; ===========================================================================
+;;
+;; The fidelity, world-input and runner chips read world inputs, and the plan
+;; compiler does not take those from the variant's own body alone: `:extends`
+;; passes each ancestor's world down (spec/017 §`:extends`) and `:compose`
+;; folds each fragment's in. Reading the raw body lost both, so an `:extends`
+;; child of a pinned variant showed no "sub overrides" chip while its plan
+;; said `#{:sub-overrides :real-setup}` (rf2-3x7nj.28.5). Compiling a plan per
+;; row would cost the sidebar hot path, so `resolved-body` folds only the
+;; slots the chips read: one registrar lookup per ancestor (the watch hash's
+;; `extends-ancestors` walk) and one per composed id.
+
+(def ^:private folded-slots
+  "The map slots the chips read that flow down `:extends` and in through
+  `:compose`. The chips ask only whether each is non-empty, and a per-key
+  child-wins `merge` answers that exactly as the compiler's merge does."
+  [:args :db-seed :sub-overrides :network :fx-overrides])
+
+(defn resolved-body
+  "`body` with the world its chips read folded in the way
+  `re-frame.story.plan/compile-body` folds it: `:setup` appends root →
+  composed fragments → own; each `folded-slots` map merges fragments → root
+  → child, the later layer winning a key; a composed fragment's script rides
+  under `::composed-script`, which the compiler prepends to the primary play.
+  `:script` / `:plays` / `:assertions` stay the body's own, since they are
+  child-only, and so is `:compose`, so only the body's own is read. An
+  unregistered parent or fragment contributes nothing (plan construction
+  refuses both with its own error). Reads the Story side-table; never
+  compiles a plan."
+  [body]
+  (let [lineage   (reverse (map second (rf.story.ui.watch/extends-ancestors body)))
+        fragments (keep #(rf.story.registrar/handler-meta :fragment %) (:compose body))
+        layers    (concat fragments lineage [body])
+        fold      (fn [k]
+                    (reduce (fn [acc layer]
+                              (let [v (get layer k)]
+                                (cond (and (map? acc) (map? v)) (merge acc v)
+                                      (some? v)                 v
+                                      :else                     acc)))
+                            nil layers))]
+    (reduce (fn [acc k] (if-some [v (fold k)] (assoc acc k v) acc))
+            (assoc body
+                   :setup            (into [] (mapcat :setup) (concat lineage fragments [body]))
+                   ::composed-script (into [] (mapcat body-script-steps) fragments))
+            folded-slots)))
+
+;; ===========================================================================
 ;; COMPOSITE — all five axes, kept distinct
 ;; ===========================================================================
 
@@ -316,7 +373,9 @@
 (defn variant-signals
   "Pure data → data: the full per-variant signal-chip bundle, keyed by axis
   so the renderer can lay out each as a distinct group. `body` is the raw
-  variant body; `status` is the variant's run-status keyword (from the
+  variant body, read through `resolved-body` so the fidelity, world-input
+  and runner chips see what its `:extends` ancestors and composed fragments
+  pass in; `status` is the variant's run-status keyword (from the
   shell-state `[:tests :runs vid :status]` slot, or `:pending`). Returns:
 
       {:status             {:axis … :value … :label …}
@@ -331,8 +390,9 @@
   axis stays SEPARATE — the contract is that args / network / fx-overrides /
   browser / MCP-bound are never folded into fidelity (spec/018 §7.1)."
   [body status]
-  {:status             (status-signal status)
-   :fidelity           (fidelity-signals body)
-   :world-inputs       (world-input-signals body)
-   :runner-requirement (runner-requirement-signal body)
-   :frame-binding      (frame-binding-signal body)})
+  (let [resolved (resolved-body body)]
+    {:status             (status-signal status)
+     :fidelity           (fidelity-signals resolved)
+     :world-inputs       (world-input-signals resolved)
+     :runner-requirement (runner-requirement-signal resolved)
+     :frame-binding      (frame-binding-signal body)}))
