@@ -1,17 +1,20 @@
 (ns re-frame.ssr.diagnostic-cycle-cljs-test
-  "THE DIAGNOSTIC PATH ITSELF THREW (rf2-9s68n).
+  "THE DIAGNOSTIC PATH MUST NOT ITSELF THROW.
 
   `re-frame.ssr.emit` and `re-frame.ssr.ui-tree` build their rejection
-  messages with `(pr-str el)` / `(pr-str node)` over the offending runtime
-  value, and `cljs.core`'s printer descends into a plain JS object
+  messages by printing the offending runtime value, and `cljs.core`'s
+  printer descends into a plain JS object
   (`#js {…}`, over `js-keys`) and a JS array (`#js […]`, over elements)
   with no seen-set. A foreign object graph may be CYCLIC — React 19's
   `createContext` returns an object whose `Provider` key points back at the
-  context itself — so an author who wrote `[ThemeContext.Provider {…}]`, the
-  ordinary mistake `:rf.error/invalid-hiccup-head` exists to catch, got
-  `RangeError: Maximum call stack size exceeded` and NO message at all.
-  Unlike the sibling (rf2-56iys, the render-tree hash) this is reachable
-  from the shipped `re-frame.ssr/render-to-string`.
+  context itself — so an author who writes `[ThemeContext.Provider {…}]`,
+  the ordinary mistake `:rf.error/invalid-hiccup-head` exists to catch,
+  would get `RangeError: Maximum call stack size exceeded` and NO message
+  at all from a raw `pr-str`. So every site crosses the offending value
+  through `re-frame.error/safe-form` (or prints it with
+  `re-frame.error/pr-form`) before it reaches a message or ex-data. The
+  path is reachable from the shipped
+  `re-frame.ssr/render-to-string`.
 
   ## How these rows OBSERVE a stack overflow
 
@@ -23,7 +26,7 @@
   asserts on that map. A regression therefore fails with `\"RangeError\"`
   in its own failure text rather than aborting the var.
 
-  ## The three things each fixed site has to prove
+  ## The three things each guarded site has to prove
 
   1. a CYCLIC input produces the site's OWN error id, not `RangeError`;
   2. the thrown `ex-data` is `pr-str`-able, so the cyclic value cannot
@@ -35,15 +38,14 @@
   [[the-fixtures-are-genuinely-cyclic]] is the non-vacuity control. Without
   it every row below could pass on an acyclic fixture and prove nothing.
 
-  ## Where the helper lives (rf2-1aj9s)
+  ## Where the helper lives
 
-  `safe-form` / `pr-form` were `re-frame.ssr.diagnostic` when this file was
-  written; they now live in `re-frame.error`, in core, because the THIRD
-  site of the same defect sat in a SIBLING artefact of `re-frame.ssr` — both
-  depend on core, neither may
+  `safe-form` / `pr-form` live in `re-frame.error`, in core, because a
+  site of the same defect sits in a SIBLING artefact of `re-frame.ssr` —
+  both depend on core, neither may
   `:require` the other, so the shared helper can only live beneath them. The
-  helper's own unit rows stay here: this is where the contract was
-  established."
+  helper's own unit rows live here, beside the SSR sites that exercise
+  it."
   (:require ["react" :as react]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
@@ -73,8 +75,8 @@
     a))
 
 (def ^:private corpus-context
-  "A real React context, so the rows below carry the shape that was
-  reported rather than a model of it."
+  "A real React context, so the rows below carry the real shape rather
+  than a model of it."
   (react/createContext "unset"))
 
 (def ^:private provider
@@ -197,8 +199,8 @@
 (deftest a-shared-subtree-is-not-a-cycle
   (testing "The detector is PATH-scoped, not global. A foreign value
            reachable twice by different paths is a DAG, `pr-str` prints it
-           twice and terminates, and eliding it would be a diagnostic
-           regression dressed up as a fix."
+           twice and terminates, and eliding it would throw diagnostic
+           information away for no safety gain."
     (let [shared #js {"k" "v"}
           form   [:div {:a shared :b shared}]]
       (is (identical? form (rf.error/safe-form form)))
@@ -230,11 +232,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest emit-rejects-a-cyclic-hiccup-head-with-its-own-error
-  (testing "THE REPORTED DEFECT. A React provider is neither `keyword?` nor
-           `ifn?`, so it falls to `reject-invalid-hiccup-head!` — which
-           raised RangeError from its own message instead of the error it
-           exists to produce. Reverting `error/safe-form` in that
-           function reds every row here with `{:threw \"RangeError\"}`."
+  (testing "THE CENTRAL CASE. A React provider is neither `keyword?` nor
+           `ifn?`, so it falls to `reject-invalid-hiccup-head!` — which,
+           printing it raw, would raise RangeError from its own message
+           instead of the error it exists to produce. Removing
+           `error/safe-form` from that function reds every row here with
+           `{:threw \"RangeError\"}`."
     (doseq [[label el] [["a provider in head position"  [provider {:value "dark"}]]
                         ["a hand-built cycle as head"   [(self-referential-object) {}]]
                         ["a cyclic array as head"       [(self-referential-array)]]
@@ -251,8 +254,8 @@
 
 (deftest emit-rejects-a-cyclic-reserved-rf-head-with-its-own-error
   (testing "`reject-reserved-rf-hiccup-head!` prints the ELEMENT, so a
-           cyclic value anywhere in the element blew it up even though the
-           head itself is an ordinary keyword."
+           cyclic value anywhere in the element would blow it up even
+           though the head itself is an ordinary keyword."
     (rejected-with :rf.error/invalid-hiccup-head "an unrecognised :rf/* head"
                    #(rf.ssr.emit/emit-element [:rf/suspense-boundry {:ctx provider}]))))
 
@@ -277,7 +280,7 @@
 
 (deftest ui-tree-rejects-a-cyclic-malformed-node-with-its-own-error
   (testing "Every `malformed-node!` arm prints the offending node or child.
-           Reverting `error/pr-form` at any one of them reds its row
+           Removing `error/pr-form` from any one of them reds its row
            here with `{:threw \"RangeError\"}`."
     (doseq [[label t]
             [["a foreign node in child position"
@@ -305,7 +308,8 @@
 
 (deftest ui-tree-version-gate-rejects-a-cyclic-version-with-its-own-error
   (testing "The version gate runs FIRST and prints the version it got, so a
-           foreign value in that slot reached `pr-str` before any node did."
+           foreign value in that slot reaches the printer before any node
+           does."
     (rejected-with :rf.error/ssr-ui-tree-version-unsupported
                    "a cyclic :rf.ui/tree-version"
                    #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version provider}))))
@@ -317,9 +321,9 @@
 (deftest an-acyclic-diagnostic-is-byte-identical
   (testing "The expectation embeds `cljs.core/pr-str`'s OWN output, so these
            rows fail the moment a message stops being what `pr-str`
-           produced before this fix existed. The acyclic foreign object
+           produces. The acyclic foreign object
            keeps its CONTENTS in the message — eliding every foreign value
-           (what the hash walk does, and rightly) would have cost the
+           (what the hash walk does, and rightly) would cost the
            diagnostic exactly the information it exists to carry."
     (let [el [acyclic-object {:value "dark"}]
           o  (outcome #(rf.ssr.emit/emit-element el))]
