@@ -44,9 +44,8 @@
 
   The technique is `re-frame.bench.fresco.arm1.hydrate-dom-cljs-test`
   and `…arm1.hydrate-recoverable-dom-cljs-test`, reimplemented rather
-  than imported — the freeze gate forbids the package from requiring the
-  bench tree, and naming it in prose is a pointer rather than a
-  dependency. What this file adds is that every row runs TWO roots at
+  than imported — the bench tree is off the package's classpath, and
+  naming it in prose is a pointer rather than a dependency. What this file adds is that every row runs TWO roots at
   once; the bench's rows each run one."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
