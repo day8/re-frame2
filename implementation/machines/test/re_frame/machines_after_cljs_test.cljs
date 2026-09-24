@@ -251,5 +251,5 @@
                        (= :a/timeout-config   (:rf.sub/id (:tags ev)))
                        (= [:a/timeout-config] (:rf.sub/query-v (:tags ev)))))
                 @traces)
-          ":scheduled trace emitted with :delay-source :sub + canonical :rf.sub/id + :rf.sub/query-v (rf2-1b6uh5)")
+          ":scheduled trace emitted with :delay-source :sub + canonical :rf.sub/id + :rf.sub/query-v")
       (rf.trace.tooling/unregister-listener! ::sub))))
