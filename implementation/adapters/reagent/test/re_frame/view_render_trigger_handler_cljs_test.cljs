@@ -1,5 +1,5 @@
 (ns re-frame.view-render-trigger-handler-cljs-test
-  "Per rf2-npm2p — `:rf.trace/trigger-handler` rides the `:rf.view/render`
+  "`:rf.trace/trigger-handler` rides the `:rf.view/render`
   trace event with the view's own registration coord.
 
   Spec 009 §:rf.trace/trigger-handler table — 'Inside a view render:
@@ -12,7 +12,7 @@
   panel and re-frame2-pair's jump-to-source UX render click-to-jump links from
   this field for every trace in a cascade, including view renders.
 
-  Locked shape (per rf2-3nn8 / rf2-lf84g):
+  Locked shape:
 
     {:kind         :view
      :id           <registered-view-id>
@@ -61,7 +61,7 @@
   (testing ":rf.view/render rides the view's own registration coord —
    Xray / re-frame2-pair want jump-to-source on a view render trace to land
    on the reg-view site, the same way fx-handled / sub-run / machine-
-   transition tests already pin"
+   transition tests pin"
     (with-trace-recorder! [traces {:pred view-render-pred}]
       (rf/reg-view ^{:rf/id :rf2-npm2p/sample} sample-view []
         [:span "ok"])
