@@ -1,6 +1,6 @@
 (ns re-frame.http-interceptors-test
   "JVM tests for Spec 014 §Middleware — per-frame request interceptor
-  chain (rf2-6y3q).
+  chain.
 
   Invariants exercised:
 
@@ -35,15 +35,15 @@
 
 ;; ---- per-test reset --------------------------------------------------------
 
-;; EP-0002 (rf2-5q7um6): reg-http-interceptor / clear-http-interceptor are
+;; EP-0002: reg-http-interceptor / clear-http-interceptor are
 ;; context-required frame-local, and these tests dispatch managed HTTP to
 ;; exercise the chain — a bare call raises :rf.error/no-frame-context. The
 ;; canonical fixture's default `:ambient-frame :rf/default` pins :rf/default
 ;; as the established scope, so frameless registrations land there and
 ;; managed-HTTP dispatches drain; tests targeting an explicit frame pass
 ;; {:frame …}, and the fails-closed test rebinds *current-frame* to nil
-;; locally. The canonical post-dispose reset now also clears the per-frame
-;; HTTP interceptor chain (rf2-q14tde), so no explicit clear-all is needed.
+;; locally. The canonical post-dispose reset also clears the per-frame
+;; HTTP interceptor chain, so no explicit clear-all is needed.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
@@ -73,7 +73,7 @@
   (-> ex .getRequestHeaders (.getFirst name)))
 
 (defn- await-reply!
-  "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves
+  "Thin alias over `test-support/poll-until` with
   the per-file `(pred db)` arity that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
@@ -90,15 +90,12 @@
 ;; hash order, so which pair collides moves whenever a test is added or
 ;; deleted; the leak presents as an unrelated test flaking.
 ;;
-;; rf2-v3f6 CLOSED THE WORST FORM OF THAT LEAK AT THE RUNTIME, and this
-;; comment used to describe it as live: the reply tail
-;; (`middleware/run-after-then-dispatch!`) once resolved the `:after` chain
-;; from the LIVE per-frame registry at RESPONSE time, so a leaked response
-;; walked whatever the NEXT test had registered — firing a neighbour's
-;; interceptors with a middleware-ctx they had never produced. The chain is
-;; now captured at issue and carried with the ctx, so a leaked response walks
-;; its OWN chain and cannot reach a neighbour's interceptors at all. The
-;; response-side wait STAYS: it is still what keeps `stop-server!` from
+;; THE RUNTIME CLOSES THE WORST FORM OF THAT LEAK: the reply tail
+;; (`middleware/run-after-then-dispatch!`) walks the `:after` chain captured
+;; at issue and carried with the ctx, never the LIVE per-frame registry at
+;; RESPONSE time, so a leaked response walks its OWN chain and cannot fire a
+;; neighbour's interceptors with a middleware-ctx they never produced. The
+;; response-side wait is still needed: it keeps `stop-server!` from
 ;; running under a live request and a stray reply from landing mid-neighbour.
 ;;
 ;; Two request-side waits look sufficient and are NOT:
@@ -113,12 +110,11 @@
 ;; that starts a server sends its request with a `:reply-to` and awaits the
 ;; reply before it asserts and before `stop-server!`.
 ;;
-;; Measured before this rule was applied (2026-09-08): under a request-side
-;; wait the response had not completed by `stop-server!` in 20/20 runs of
-;; `clear-then-reg-appends-to-end-of-chain` and 10/10 of
-;; `re-registering-id-replaces-slot`; running either immediately before
-;; `after-less-interceptors-are-transparent` corrupted that test's `:after`
-;; order in 2 of 20 pairs. With the response-side wait, 0 of 20.
+;; Under a request-side wait the response has typically not completed by
+;; `stop-server!` in `clear-then-reg-appends-to-end-of-chain` and
+;; `re-registering-id-replaces-slot`, and running either immediately before
+;; `after-less-interceptors-are-transparent` intermittently corrupts that
+;; test's `:after` order. The response-side wait prevents both.
 
 ;; ---- 1. single interceptor transforms the outgoing request ----------------
 
@@ -148,16 +144,16 @@
             "the server saw the Authorization header the interceptor injected")
         (finally (stop-server! srv))))))
 
-;; ---- 1a. rf2-9ynwvx — reg within with-frame installs; bare reg fails closed
+;; ---- 1a. reg within with-frame installs; bare reg fails closed -----------
 ;;
-;; The RealWorld example apps (examples/real-apps/realworld_{http,resources})
-;; registered the bearer-auth interceptor with a BARE top-level
-;; `(reg-http-interceptor id {:before …})` in their boot `run` — no ambient
-;; frame scope, no `:frame` override — which raises the always-on
+;; A BARE top-level
+;; `(reg-http-interceptor id {:before …})` in an app's boot `run` — no ambient
+;; frame scope, no `:frame` override — raises the always-on
 ;; `:rf.error/no-frame-context` (EP-0002 context-required frame-local) and
-;; installs NOTHING, so every authenticated request silently lost its
-;; `Authorization` header. The fix scopes the registration to the app frame
-;; with `(with-frame :rf/default …)`. This test pins BOTH halves of that
+;; installs NOTHING, so every authenticated request would silently lose its
+;; `Authorization` header. Scoping the registration to the app frame
+;; with `(with-frame :rf/default …)` installs it, as the RealWorld example
+;; apps (examples/real-apps/realworld_{http,resources}) do. This test pins BOTH halves of that
 ;; contract end-to-end — the fixture's ambient `*current-frame* :rf/default`
 ;; masks the bare-call raise, so we strip it with `binding … nil`:
 ;;   (a) a bare reg under no scope fails closed and installs nothing;
@@ -166,9 +162,9 @@
 ;;       `Authorization` header the interceptor stamped.
 
 (deftest reg-within-with-frame-installs-and-header-reaches-wire-rf2-9ynwvx
-  (testing "rf2-9ynwvx — bare reg under no scope raises + installs nothing; a
+  (testing "bare reg under no scope raises + installs nothing; a
             (with-frame :rf/default …) registration lands the Authorization
-            header on the wire (the RealWorld example bearer-auth fix)"
+            header on the wire (the RealWorld example bearer-auth pattern)"
     (let [seen-auth (atom nil)
           {:keys [port] :as srv}
           (start-server!
@@ -176,7 +172,7 @@
               (reset! seen-auth (header-of ex "Authorization"))
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        ;; (a) reproduce the example bug: bare reg under NO ambient scope
+        ;; (a) bare reg under NO ambient scope
         ;; fails closed and installs nothing.
         (binding [rf.frame/*current-frame* nil]
           (let [thrown (try (rf/reg-http-interceptor :realworld/bearer-auth
@@ -189,7 +185,7 @@
                 "the throw is the always-on :rf.error/no-frame-context")
             (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
                 "nothing was installed on the :rf/default chain"))
-          ;; (b) the fix: with-frame supplies the frame context, so the reg
+          ;; (b) with-frame supplies the frame context, so the reg
           ;; installs on :rf/default even under no ambient scope.
           (rf/with-frame :rf/default
             (rf/reg-http-interceptor :realworld/bearer-auth
@@ -198,9 +194,9 @@
                                    "Token stub.demo.jwt"))})))
         (is (= [:realworld/bearer-auth]
                (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
-            "with-frame scoped the reg onto the app frame's chain (the fix)")
+            "with-frame scoped the reg onto the app frame's chain")
         ;; (c) an authenticated request from that frame carries the header the
-        ;; interceptor stamped — proving the fix actually decorates the wire.
+        ;; interceptor stamped — proving the scoped reg actually decorates the wire.
         (rf/reg-event :load
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -267,10 +263,10 @@
     ;; observed. Readiness is each frame's REPLY landing in its own app-db —
     ;; header values are NOT a valid readiness signal here, because
     ;; :other-frame's request is *expected* to carry a nil header, which is
-    ;; indistinguishable from "request has not yet landed" (rf2-fun38).
+    ;; indistinguishable from "request has not yet landed".
     ;;
     ;; But that same ambiguity makes the reply-landed wait insufficient on its
-    ;; OWN as the whole readiness story (rf2-5op3). A transport / error reply
+    ;; OWN as the whole readiness story. A transport / error reply
     ;; satisfies it just as well as a success, so a request that never reached
     ;; the header observer at all leaves `seen-on-other` at its initial nil and
     ;; the central `(nil? @seen-on-other)` assertion passes VACUOUSLY — the
@@ -281,7 +277,7 @@
     ;; server that answers 200 on a path the cond does not match), and the
     ;; per-reply `:status` assertions below require the expected SUCCESS rather
     ;; than merely some reply. Neither replaces the wait: it is what keeps this
-    ;; test's own responses from outliving `stop-server!` (rf2-v3f6).
+    ;; test's own responses from outliving `stop-server!`.
     (let [seen-on-default (atom nil)
           seen-on-other   (atom nil)
           observed        (atom #{})
@@ -328,15 +324,14 @@
         (rf/dispatch-sync [:load-other] {:frame :other-frame})
         ;; Await BOTH replies. A server-side "the request landed" latch is set
         ;; BEFORE `write-response!`, so returning on one leaves this test's own
-        ;; responses in flight past `stop-server!`, to be walked against the
-        ;; NEXT test's interceptor chain (rf2-v3f6).
+        ;; responses in flight past `stop-server!`.
         (rf.test-support/poll-until
           #(and (some? (:reply (rf/app-db-value :rf/default)))
                 (some? (:reply (rf/app-db-value :other-frame))))
           {:timeout-ms 5000 :label "both frames' replies landed"})
         ;; Both replies must be the EXPECTED SUCCESS, not merely present: an
         ;; error envelope satisfies the wait above without either request
-        ;; having reached the header observer (rf2-5op3).
+        ;; having reached the header observer.
         (is (= :ok (:status (:reply (rf/app-db-value :rf/default))))
             "default-frame reply is a success, not a transport/error envelope")
         (is (= :ok (:status (:reply (rf/app-db-value :other-frame))))
@@ -383,7 +378,7 @@
         ;; (b) :rf.error/http-interceptor-failed appears on the trace
         ;; stream so tools / 10x panels can attribute the failure.
         (rf/dispatch-sync [:load])
-        ;; Wait for the interceptor-failure trace to land (rf2-fun38) —
+        ;; Wait for the interceptor-failure trace to land —
         ;; the trace event IS the observable signal. server-hits is then
         ;; asserted as zero (proven absence within the trace-fired window).
         (rf.test-support/poll-until
@@ -399,13 +394,13 @@
           (rf.trace.tooling/unregister-listener! listener-id)
           (stop-server! srv))))))
 
-;; ---- 4a. rf2-1jcpm — interceptor-failure URL redaction --------------------
+;; ---- 4a. interceptor-failure URL redaction --------------------------------
 
 (deftest interceptor-failure-trace-redacts-denylisted-query-params
-  (testing "rf2-1jcpm (round-2 security audit finding 1) — when a
+  (testing "when a
   `:before` throws, the `:rf.error/http-interceptor-failed` trace MUST
-  route the request URL through the privacy composer. Previously the
-  raw URL rode the trace surface, leaking any denylisted query param
+  route the request URL through the privacy composer; a
+  raw URL on the trace surface would leak any denylisted query param
   (`?api_key=…`) into trace consumers."
     (let [traces      (atom [])
           listener-id (gensym "interceptor-redact-")]
@@ -423,7 +418,7 @@
                     :on-success nil
                     :on-failure nil}]]}))
         (rf/dispatch-sync [:load])
-        ;; Wait for the redacted-trace event to land (rf2-fun38).
+        ;; Wait for the redacted-trace event to land.
         (rf.test-support/poll-until
           #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
                  @traces)
@@ -477,19 +472,19 @@
             "after clear, the second request did NOT carry the auth header")
         (finally (stop-server! srv))))))
 
-;; ---- 5a. rf2-vl5xsp — single-arity clear FAILS CLOSED under no scope ------
+;; ---- 5a. single-arity clear FAILS CLOSED under no scope -------------------
 ;;
-;; The fixture pins an ambient `*current-frame* :rf/default`, which MASKS the
-;; old facade floor (`clear-http-interceptor` single-arity used to recurse
+;; The fixture pins an ambient `*current-frame* :rf/default`, which would MASK a
+;; facade floor (a single-arity clear that recursed
 ;; `[:rf/default id]`, synthesising the default before delegating). This test
 ;; clears the ambient scope (`*current-frame* nil`) so NO frame is carried,
 ;; then invokes the no-opts facade form and asserts it raises the always-on
 ;; `:rf.error/no-frame-context` rather than silently clearing against a
 ;; synthesised `:rf/default` chain. Proves the EP-0002 carried invariant is
-;; live on the public `(rf/clear :http-interceptor id)` surface — the floor is gone.
+;; live on the public `(rf/clear :http-interceptor id)` surface — there is no floor.
 
 (deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
-  (testing "rf2-vl5xsp — no-opts `(rf/clear :http-interceptor id)` under NO
+  (testing "no-opts `(rf/clear :http-interceptor id)` under NO
             ambient frame raises :rf.error/no-frame-context (fails closed);
             it does NOT synthesise a :rf/default target. The facade must
             delegate frame resolution to the impl's require-current-frame!,
@@ -504,20 +499,20 @@
                (:rf.error/id (ex-data thrown)))
             "the throw is the always-on :rf.error/no-frame-context — no :rf/default floor")))))
 
-;; ---- 5b. rf2-f28bno / rf2-s32bf — the public {:frame} opts form -----------
+;; ---- 5b. the public {:frame} opts form ------------------------------------
 ;;
 ;; `clear-http-interceptor`'s public 2-arity is EXACTLY the trailing
 ;; `{:frame …}` opts map (mirroring `reg-http-interceptor`'s `:frame`).
 ;; Two-scalar frame-first is not a public shape; artefact-internal cleanup
 ;; routes through the `clear-http-interceptor*` seam. Registry-level (no
 ;; server): assert the opts form targets the named frame from an ambient
-;; :rf/default scope, the misbind is closed, and the internal seam still clears.
+;; :rf/default scope without misbinding, and the internal seam clears.
 
 (deftest clear-http-interceptor-frame-arg-spelling-rf2-f28bno
-  (testing "rf2-f28bno — `(clear-http-interceptor id {:frame f})` targets frame
-            `f` from the ambient :rf/default scope (the old-shape misbind that
-            silently no-op'd now binds the frame correctly); the internal
-            `clear-http-interceptor*` seam (frame-first) still clears."
+  (testing "`(clear-http-interceptor id {:frame f})` targets frame
+            `f` from the ambient :rf/default scope (it binds the frame,
+            never silently no-op'ing); the internal
+            `clear-http-interceptor*` seam (frame-first) clears too."
     ;; The ambient scope is :rf/default (fixture). Register on BOTH frames —
     ;; the interceptor registry is a per-frame-id atom independent of the
     ;; `frames` registry, so a named frame needs no separate registration (the
@@ -527,52 +522,50 @@
     (is (= [:fa/on-other]   (mapv :id (rf.http.managed/interceptors-snapshot :fa/other))))
     (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
     ;; (1) PUBLIC opts form clears the NAMED frame from the :rf/default scope —
-    ;; the natural `(clear id {:frame f})` guess from the reg shape that USED to
-    ;; silently no-op under the old public frame-first arity. It now binds
+    ;; the natural `(clear id {:frame f})` guess from the reg shape binds
     ;; :fa/other correctly.
     (rf/clear :http-interceptor :fa/on-other {:frame :fa/other})
     (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
-        "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
+        "opts {:frame :fa/other} cleared the named frame's slot")
     (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "the :rf/default chain is untouched by the explicit-frame clear")
-    ;; (2) INTERNAL frame-first seam still clears a named frame's slot.
+    ;; (2) INTERNAL frame-first seam clears a named frame's slot.
     (rf/reg-http-interceptor :fa/again {:frame :fa/other :before (fn [c] c)})
     (is (= [:fa/again] (mapv :id (rf.http.managed/interceptors-snapshot :fa/other))))
     (rf.http.middleware/clear-http-interceptor* :fa/other :fa/again)   ;; private seam: (frame id)
     (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "internal frame-first seam (clear-http-interceptor*) cleared the slot")))
 
-;; ---- 5c. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED ----------
+;; ---- 5c. the public opts form is EXACT + FAIL-CLOSED ----------------------
 ;;
 ;; The opts map is ONLY `{:frame target}`.  A malformed one (empty, nil
-;; :frame, misspelled/unknown key, extra key), a non-map second arg, and the
-;; old two-scalar frame-first spelling all fail closed BEFORE any ambient
-;; state is touched — the old `(or (:frame opts) ambient-frame)` resolution
-;; silently mis-cleared the ambient frame on any of these.
+;; :frame, misspelled/unknown key, extra key), a non-map second arg, and a
+;; two-scalar frame-first spelling all fail closed BEFORE any ambient
+;; state is touched — an `(or (:frame opts) ambient-frame)` resolution
+;; would silently mis-clear the ambient frame on any of these.
 ;;
-;; rf2-kuky.80 put TWO doors on that rule, and this test pins both, because
+;; That rule has TWO doors, and this test pins both, because
 ;; each is reachable on its own and they raise DIFFERENT typed errors by
 ;; design.  The public front door `(rf/clear :http-interceptor id opts)`
 ;; validates in `clear` itself and raises
 ;; `:rf.error/registrar-clear-bad-request` — one error id for the one verb,
 ;; covering an unknown kind and opts on a non-frame-scoped kind as well.  The
 ;; artefact-level `re-frame.http.middleware/clear-http-interceptor`, which
-;; survives as the `:http/clear-http-interceptor` hook target that `rf/clear`
-;; dispatches to, keeps its own
-;; `:rf.error/http-bad-interceptor` for its own arg validation.  Both now
-;; share ONE validator (`re-frame.frame/frame-opts?`), which is what stopped
-;; the identically-shaped flows door carrying the tolerant destructure this
-;; one had already been fixed for.
+;; is the `:http/clear-http-interceptor` hook target that `rf/clear`
+;; dispatches to, raises its own
+;; `:rf.error/http-bad-interceptor` for its own arg validation.  Both
+;; share ONE validator (`re-frame.frame/frame-opts?`), which keeps
+;; the identically-shaped flows door from carrying a tolerant destructure.
 
 (deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
-  (testing "rf2-s32bf — the opts map must be EXACTLY {:frame target}; malformed
-            opts, a non-map second arg, and the old two-scalar frame-first
+  (testing "the opts map must be EXACTLY {:frame target}; malformed
+            opts, a non-map second arg, and the two-scalar frame-first
             shape fail closed at BOTH doors and leave the ambient interceptor
             untouched — :rf.error/registrar-clear-bad-request through the public
             (rf/clear :http-interceptor id opts), and
             :rf.error/http-bad-interceptor through the artefact-level fn the
-            :http/clear-http-interceptor hook reaches (rf2-kuky.80). The exact
-            {:frame target} form still clears."
+            :http/clear-http-interceptor hook reaches. The exact
+            {:frame target} form clears."
     (letfn [(threw-with? [error-id thunk]
               (let [ex (try (thunk) nil
                             (catch clojure.lang.ExceptionInfo e e))]
@@ -581,7 +574,7 @@
             ;; the public front door: `clear`'s own validator fires first
             (threw-bad? [thunk]
               (threw-with? :rf.error/registrar-clear-bad-request thunk))
-            ;; the artefact-level fn the late-bind hook still reaches
+            ;; the artefact-level fn the late-bind hook reaches
             (artefact-threw-bad? [opts]
               (threw-with? :rf.error/http-bad-interceptor
                            #(rf.http.middleware/clear-http-interceptor
@@ -604,7 +597,7 @@
       (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient 42))
           "non-map scalar second arg fails closed")
       (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
-          "old two-scalar frame-first is not a public shape — fails closed")
+          "two-scalar frame-first is not a public shape — fails closed")
       ;; the SECOND door — the artefact-level fn the `:http/clear-http-interceptor`
       ;; hook reaches — keeps its own typed error over the same shared validator.
       (is (artefact-threw-bad? {})
@@ -618,12 +611,12 @@
       (is (artefact-threw-bad? "not-a-map")
           "artefact door: non-map second arg fails closed")
       (is (artefact-threw-bad? :some-frame)
-          "artefact door: old two-scalar frame-first fails closed")
+          "artefact door: two-scalar frame-first fails closed")
       ;; NO rejected call touched the ambient chain
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
           "no malformed clear touched the ambient :rf/default interceptor")
-      ;; the exact opts form still clears the ambient frame
+      ;; the exact opts form clears the ambient frame
       (rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default})
       (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default)))
           "the exact {:frame target} form clears the named frame"))))
@@ -661,21 +654,20 @@
             "replaced :a's :before fired in :a's original position; no duplicate")
         (finally (stop-server! srv))))))
 
-;; ---- 6b. clear-then-reg lands at the end of the chain (rf2-kg5nw) --------
+;; ---- 6b. clear-then-reg lands at the end of the chain --------------------
 ;;
-;; Round-2 audit finding 5.5: re-registering an id replaces in place
+;; Re-registering an id replaces in place
 ;; (test 6 above), but `clear-http-interceptor` followed by a fresh
 ;; `reg-http-interceptor` of the same id has different semantics — the
 ;; slot was *removed* by clear, so re-registering appends to the end.
-;; Spec 014 §Chain order covers replace-in-place but the clear+re-reg
-;; path was unpinned. Per the spec clarification landed in this bead,
+;; Per Spec 014 §Chain order,
 ;; clear-then-reg lands at the end (the slot's prior index is forgotten
-;; on clear). Test pins that contract; a regression that started
-;; preserving position across clear would break the documented behaviour
+;; on clear). Test pins that contract; preserving position across clear
+;; would break the documented behaviour
 ;; and surprise hot-reload tools that DO want a fresh end-of-chain slot.
 
 (deftest clear-then-reg-appends-to-end-of-chain
-  (testing "rf2-kg5nw — clear-http-interceptor followed by re-reg of the same
+  (testing "clear-http-interceptor followed by re-reg of the same
             id appends to the end of the chain (the prior position is
             forgotten on clear). Spec 014 §Chain order and frame scope."
     (let [order (atom [])
@@ -721,7 +713,7 @@
         (finally (stop-server! srv))))))
 
 (deftest clear-then-reg-distinguishes-from-replace-in-place
-  (testing "rf2-kg5nw regression guard — bare `reg-http-interceptor` of an
+  (testing "regression guard — bare `reg-http-interceptor` of an
             existing id replaces in place (test 6, position preserved),
             while clear-then-reg appends to the end. These are deliberately
             different paths; the test asserts they do NOT collapse into one."
@@ -739,12 +731,12 @@
     (rf/clear :http-interceptor :a)
     (rf/reg-http-interceptor :a {:before (fn [c] c)})
     (is (= [:b :a] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
-        "clear-then-reg lands at the end (rf2-kg5nw contract)")))
+        "clear-then-reg lands at the end (Spec 014 §Chain order)")))
 
 ;; ---- 7. invalid interceptor shape raises ---------------------------------
 
 (deftest invalid-interceptor-shape-raises
-  (testing "rf2-uheqq — reg-http-interceptor (shape iii) rejects non-keyword
+  (testing "reg-http-interceptor rejects non-keyword
             id, non-map interceptor-map, non-fn :before / :after, missing
             both :before and :after, or non-keyword :frame"
     ;; non-keyword id
@@ -784,11 +776,11 @@
       (is (some? thrown))
       (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))))
 
-;; ---- 8. clear-all-http-interceptors! bulk-clear (rf2-lfvi) -----------------
+;; ---- 8. clear-all-http-interceptors! bulk-clear ---------------------------
 ;;
-;; Per rf2-lfvi: only the single-id `clear-http-interceptor` is covered by
-;; the test above (`clear-http-interceptor-unregisters`). The bulk-clear
-;; helper at `http_managed.cljc:390` is uncovered. Test fixtures and the
+;; The test above (`clear-http-interceptor-unregisters`) covers the single-id
+;; `clear-http-interceptor`; these cover the bulk-clear
+;; helper `clear-all-http-interceptors!`. Test fixtures and the
 ;; reset-runtime path use the bulk form to drop every registered chain;
 ;; a regression that left even one slot populated would only surface as
 ;; cross-test pollution.
@@ -888,7 +880,7 @@
     (is (= {} (rf.http.managed/interceptors-snapshot))
         "atom stays empty")))
 
-;; ---- rf2-rznrz — sensitivity recomputed from the POST-:before request -----
+;; ---- sensitivity recomputed from the POST-:before request -----------------
 ;;
 ;; A `:before` that MARKS the request sensitive (sets [:request :sensitive?]
 ;; true) followed by a LATER :before that throws must produce a
@@ -899,7 +891,7 @@
 ;; query-param denylist alone would leave it verbatim.
 
 (deftest before-marked-sensitive-then-throw-redacts-under-effective-sensitivity
-  (testing "rf2-rznrz — a :before sets [:request :sensitive?] true, a later
+  (testing "a :before sets [:request :sensitive?] true, a later
             :before throws; the interceptor-failed trace redacts the
             NON-denylisted query value because effective sensitivity is
             recomputed from the post-mark request (not the stale pre-chain
@@ -945,18 +937,18 @@
         (finally
           (rf.trace.tooling/unregister-listener! listener-id))))))
 
-;; ---- rf2-rznrz — CLJS-only-key check runs on the POST-:before request -----
+;; ---- CLJS-only-key check runs on the POST-:before request -----------------
 ;;
 ;; A :before that ADDS a JVM-degraded CLJS-only key (:credentials / :mode /
 ;; …) into the request must trip the :rf.http/cljs-only-key-ignored-on-jvm
-;; warning. Previously check-cljs-only-keys! ran on the ORIGINAL args before
-;; the chain, so a :before-added key proceeded on JVM with no degraded-key
+;; warning. A check-cljs-only-keys! run on the ORIGINAL args before
+;; the chain would let a :before-added key proceed on JVM with no degraded-key
 ;; warning at all.
 
 (deftest before-added-cljs-only-key-trips-degradation-warning
-  (testing "rf2-rznrz — a :before that adds a CLJS-only key (:credentials)
+  (testing "a :before that adds a CLJS-only key (:credentials)
             into the request trips :rf.http/cljs-only-key-ignored-on-jvm; the
-            check now runs against the post-:before request, not the original
+            check runs against the post-:before request, not the original
             args"
     (let [traces      (atom [])
           listener-id (gensym "rznrz-cljs-only-")
@@ -991,11 +983,10 @@
           (stop-server! srv))))))
 
 ;; ===========================================================================
-;; rf2-uheqq — `:after` response-side hook
+;; `:after` response-side hook
 ;; ===========================================================================
 ;;
-;; Per Spec 014 §Middleware (rf2-uheqq, Mike decision 2026-05-28 = rf2-omwua
-;; option b, shape iii): each HTTP interceptor may carry an optional `:after`
+;; Per Spec 014 §Middleware: each HTTP interceptor may carry an optional `:after`
 ;; fn `(fn [ctx response] response')`. The `:after` chain runs in REVERSE
 ;; registration order after the response is built and BEFORE
 ;; `:on-success` / `:on-failure` fire. `:after` sees the SAME ctx the
@@ -1020,7 +1011,7 @@
 ;; ---- 1. :after runs in REVERSE registration order ------------------------
 
 (deftest after-runs-in-reverse-registration-order
-  (testing "rf2-uheqq — three :after interceptors registered :a → :b → :c
+  (testing "three :after interceptors registered :a → :b → :c
             fire in the reverse order :c → :b → :a on the response side
             (mirror of the event-interceptor onion, Spec 002)."
     (let [order (atom [])
@@ -1048,7 +1039,7 @@
 ;; ---- 2. :after sees the request ctx (request-correlated telemetry) -------
 
 (deftest after-sees-the-request-ctx-via-wall-clock-delta
-  (testing "rf2-uheqq — `:after` receives the SAME ctx the `:before`
+  (testing "`:after` receives the SAME ctx the `:before`
             produced; a `:before` that stashes `(System/nanoTime)` and an
             `:after` that reads it can compute a non-negative wall-clock
             delta. This is the load-bearing test that ctx threads through."
@@ -1083,7 +1074,7 @@
 ;; ---- 3. response transform threads through -------------------------------
 
 (deftest after-can-transform-the-response-shape
-  (testing "rf2-uheqq — `:after` returns the (possibly-transformed)
+  (testing "`:after` returns the (possibly-transformed)
             response; the transformed shape is what reaches the
             `:on-success` event vector via `build-reply-event`."
     (let [srv (single-success-server "{\"original\":\"payload\"}")]
@@ -1114,7 +1105,7 @@
 ;; ---- 4. interceptors without :after are transparent in the response chain
 
 (deftest after-less-interceptors-are-transparent
-  (testing "rf2-uheqq — interceptors registered with only `:before` (no
+  (testing "interceptors registered with only `:before` (no
             `:after`) MUST be skipped on the response side, not nil-
             substituted. A `:before`-only :a followed by an `:after`-only
             :b means the response chain visits only :b — :a is invisible."
@@ -1143,13 +1134,13 @@
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
-;; rf2-uheqq — four motivating use cases (cited in the bead)
+;; four motivating use cases
 ;; ===========================================================================
 
 ;; ---- USE-CASE 1. Rate-limit header parsing -------------------------------
 
 (deftest motivating-rate-limit-header-parse
-  (testing "rf2-uheqq use case 1 — an `:after` interceptor parses
+  (testing "use case 1 — an `:after` interceptor parses
             `X-RateLimit-Remaining` from the response and tags the reply
             with a structured `:rate-limit` slot so a downstream
             `:on-success` handler can throttle subsequent requests
@@ -1170,7 +1161,7 @@
                      ;; can correlate; the real read happens in :after.
                      (assoc ctx ::rate-limit-aware true))
            :after  (fn [ctx resp]
-                     ;; rf2-lddbk — the successful reply carries the
+                     ;; The successful reply carries the
                      ;; response wire facts under `:meta` (`:status` /
                      ;; `:status-text` / normalized `:headers`), so the
                      ;; `:after` parses the headers the server ACTUALLY
@@ -1208,10 +1199,10 @@
 ;; ---- USE-CASE 2. Response-time telemetry --------------------------------
 
 (deftest motivating-response-time-telemetry
-  (testing "rf2-uheqq use case 2 — :before stamps a wall-clock start; the
+  (testing "use case 2 — :before stamps a wall-clock start; the
             :after reads it back via the SHARED ctx and computes the
-            response time delta. This is exactly what rf2-uheqq's
-            'ctx-carried-from-before' clause unlocks."
+            response time delta. This is exactly what the
+            ctx-carried-from-before contract unlocks."
     (let [observed (atom nil)
           srv      (single-success-server "{\"items\":3}")]
       (try
@@ -1244,7 +1235,7 @@
 ;; ---- USE-CASE 3. Cache-Control inspection -------------------------------
 
 (deftest motivating-cache-control-inspection
-  (testing "rf2-uheqq use case 3 / rf2-lddbk — an :after interceptor parses
+  (testing "use case 3 — an :after interceptor parses
             the server-emitted Cache-Control header off the reply's
             [:meta :headers] and tags the reply with a structured :cache
             slot. Downstream `:on-success` handlers consume the structured
@@ -1259,7 +1250,7 @@
       (try
         (rf/reg-http-interceptor :cache-control
           {:after (fn [_ctx resp]
-                    ;; rf2-lddbk — parse the Cache-Control header the
+                    ;; Parse the Cache-Control header the
                     ;; server ACTUALLY emitted off the reply's
                     ;; [:meta :headers] into a structured :cache slot.
                     ;; These assertions fail if the emitted header changes
@@ -1289,7 +1280,7 @@
 ;; ---- USE-CASE 4. 401 auth-token refresh ---------------------------------
 
 (deftest motivating-401-auth-refresh
-  (testing "rf2-uheqq use case 4 — an :after interceptor inspects the
+  (testing "use case 4 — an :after interceptor inspects the
             failure shape; on `:rf.http/http-4xx` with `:status 401` it
             tags the reply with `:auth-refresh-required true` so a
             downstream handler can mint a refresh-token dispatch
@@ -1326,9 +1317,9 @@
               ":after attached :auth-refresh-required so a downstream handler can mint the refresh dispatch"))
         (finally (stop-server! srv))))))
 
-;; ---- rf2-v3f6 — chain resolution is at ISSUE time --------------------------
+;; ---- chain resolution is at ISSUE time ------------------------------------
 ;;
-;; The two tests below are the LIVE-TRANSPORT arm of the rf2-v3f6 contract:
+;; The two tests below are the LIVE-TRANSPORT arm of the issue-time chain contract:
 ;; a managed request captures its frame's interceptor chain immediately
 ;; before running `:before`, and its response walks that same captured
 ;; vector — through the real handler, the real transport, and the retry
@@ -1342,7 +1333,7 @@
 ;; provably lands between attempt 1 and attempt 2.
 
 (deftest live-response-walks-its-issue-time-chain-rf2-v3f6
-  (testing "rf2-v3f6 — a response held open across a registry change walks
+  (testing "a response held open across a registry change walks
             the chain its REQUEST was issued under: the cleared :after still
             runs (holding the ctx its own :before stamped) and the newly
             registered one does not run at all"
@@ -1399,7 +1390,7 @@
           (stop-server! srv))))))
 
 (deftest retry-attempts-keep-the-issue-time-chain-rf2-v3f6
-  (testing "rf2-v3f6 — the captured chain survives the retry handoff: a
+  (testing "the captured chain survives the retry handoff: a
             registry change made BETWEEN attempt 1 and attempt 2 does not
             reach the reply, and `:before` is not re-run per attempt"
     (let [hits    (atom 0)
