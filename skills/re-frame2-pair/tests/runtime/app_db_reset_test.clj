@@ -6,10 +6,9 @@
 ;;;; Why this test exists:
 ;;;;
 ;;;; `app-db-reset!` MUST delegate to the canonical Tool-Pair write
-;;;; surface `rf/replace-frame-state!` (Tool-Pair §Pair-tool writes;
-;;;; rf2-t3lftq — API-shrink #3 consolidated the former
-;;;; `rf/replace-app-db!` into an app-only partial map,
-;;;; `{:rf.db/app v}`), so the reset mutates app-db AND appends the
+;;;; surface `rf/replace-frame-state!` (Tool-Pair §Pair-tool writes),
+;;;; called with the app-only partial map `{:rf.db/app v}`, so the
+;;;; reset mutates app-db AND appends the
 ;;;; synthetic epoch that `restore-epoch` depends on. Reaching into
 ;;;; `(rf/handler-meta {:source :store :kind :frame :id frame-id})` for an `:app-db` key instead
 ;;;; could return `{:ok? true}` without mutating state or recording the
@@ -42,14 +41,14 @@
 ;;;;
 ;;;; 1. The body invokes `rf/replace-frame-state!` (the canonical
 ;;;; Tool-Pair write surface — guarantees app-db mutation +
-;;;; synthetic-epoch append per).
+;;;; synthetic-epoch append).
 ;;;; 2. The body does NOT reach into `rf/handler-meta` to grab
 ;;;; an `:app-db` key (the forbidden no-mutation shape).
 ;;;; 3. The success branch returns `{:ok? true ...}`, the
 ;;;; soft-failure branch returns `{:ok? false :reason
 ;;;; :reset-rejected ...}`.
-;;;; 4. The body still tap>s the change so the human sees it
-;;;; (existing safety guardrail per docs/capabilities.md:86).
+;;;; 4. The body tap>s the change so the human sees it
+;;;; (the safety guardrail per docs/capabilities.md:86).
 ;;;;
 ;;;; Run: bb tests/runtime/app_db_reset_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -84,16 +83,14 @@
  (testing "app-db-reset! delegates to rf/replace-frame-state! — the canonical
  Tool-Pair §Pair-tool writes surface that mutates
  app-db, appends a synthetic :rf.epoch/db-replaced epoch,
- schema-validates, and drain-checks (rf2-t3lftq — API-shrink #3
- consolidated the former rf/replace-app-db! into an app-only partial
+ schema-validates, and drain-checks (called with an app-only partial
  map)"
  (is (calls? 'rf/replace-frame-state! app-db-reset-form)
  "(rf/replace-frame-state! frame-id {:rf.db/app v}) appears in the body")))
 
 (deftest does-not-reach-through-handler-meta
- (testing "app-db-reset! does NOT use the buggy `(rf/handler-meta {:source :store :kind :frame :id frame-id}) :app-db` path that returned {:ok? true} without
- mutating state or recording an epoch — that was 's
- offending pattern"
+ (testing "app-db-reset! does NOT use a `(rf/handler-meta {:source :store :kind :frame :id frame-id}) :app-db` path, which would return {:ok? true} without
+ mutating state or recording an epoch"
  (is (not (form-contains?
  (fn [node]
  (and (seq? node)
@@ -105,20 +102,20 @@
  (fn [node]
  (and (seq? node)
  (= 'reset! (first node))
- ;; reset! container — the only reset! the previous
- ;; impl did was on the frame container ref. Any
- ;; reset! at all here would be suspicious.
+ ;; reset! container — a direct write to the frame
+ ;; container ref. Any reset! at all here would be
+ ;; suspicious.
 ))
  app-db-reset-form))
  "no `(reset! container ...)` — delegating to rf/replace-frame-state!
  means the container is replaced inside that surface, not here")))
 
 (deftest preserves-tap-log-guardrail
- (testing "the human-visible tap> log stays in place per
+ (testing "the human-visible tap> log is in place per
  docs/capabilities.md §Safety / guardrails — Previous + next
  + timestamp tap'd so the human sees what the agent changed"
  (is (calls? 'tap> app-db-reset-form)
- "tap> call survives in the body")
+ "tap> call is in the body")
  (is (form-contains?
  (fn [node] (= :re-frame2-pair/op node))
  app-db-reset-form)
