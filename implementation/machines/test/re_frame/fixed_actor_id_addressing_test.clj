@@ -1,9 +1,9 @@
 (ns re-frame.fixed-actor-id-addressing-test
-  "The address IS the id (rf2-kuky.15 ruled A, delivered by rf2-kuky.70).
+  "The address IS the id.
 
-  With the `:system-id` family deleted, `:fixed-actor-id` is the ONE
-  stable-name mechanism. This suite pins the three claims Spec 005 now makes
-  about it, so nobody re-adds a per-frame name registry to \"restore parity\":
+  `:fixed-actor-id` is the ONE
+  stable-name mechanism. This suite pins the three claims Spec 005 makes
+  about it, so nobody adds a per-frame name registry to \"restore parity\":
 
     1. **A re-entered `:fixed-actor-id` child is a NEW INCARNATION at the
        SAME address.** The spawn reuses the id verbatim and
@@ -19,14 +19,13 @@
        second spawn-result channel.
 
     3. **Spawning onto an OCCUPIED fixed address destroys the occupant
-       CLEANLY first (rf2-dokz).** `spawn-all-address-collisions` is a
-       WITHIN-BATCH guard and stays one; the ordinary `spawn-fx*` path still
-       has no occupied-address rejection and still takes the supplied address
-       verbatim — but it now runs a LIVE occupant through the ORDINARY destroy
+       CLEANLY first.** `spawn-all-address-collisions` is a
+       WITHIN-BATCH guard only; the ordinary `spawn-fx*` path
+       has no occupied-address rejection and takes the supplied address
+       verbatim — but it runs a LIVE occupant through the ORDINARY destroy
        path (`:reason :explicit`, join preparation included) before installing
        the replacement from the post-teardown `runtime-db`. Independent CHILD
-       lifetimes are NOT reaped. The tests below are the CONTRACT, replacing
-       the characterisation that preceded them."
+       lifetimes are NOT reaped. The tests below are the CONTRACT."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -46,7 +45,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest re-entered-fixed-actor-id-is-a-new-incarnation-at-the-same-address
-  (testing "rf2-kuky.70 — leaving and re-entering a :fixed-actor-id-bearing
+  (testing "leaving and re-entering a :fixed-actor-id-bearing
             state destroys the child and spawns a fresh one at the SAME
             address; the id is reused verbatim (no #n suffix) and
             actor-generation is 1 for both incarnations"
@@ -95,7 +94,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest hand-emitted-spawn-keeps-its-child-by-choosing-the-address
-  (testing "rf2-kuky.70 Target 3 — an action that hand-emits
+  (testing "an action that hand-emits
             [:rf.machine/spawn …] derives a FRESH explicit keyword address from
             an event value, stores it in ordinary :data, passes it as
             :fixed-actor-id, dispatches to it, and destroys it explicitly. No
@@ -144,7 +143,7 @@
         "the boss dropped the address it no longer owns")))
 
 (deftest a-fresh-address-lets-a-new-worker-run-beside-a-lingering-one
-  (testing "rf2-kuky.70 Target 3 — an app that needs a fresh actor while an
+  (testing "an app that needs a fresh actor while an
             older one lingers allocates a DIFFERENT explicit address; the two
             coexist, and the old one is destroyed explicitly"
     (rf/reg-machine :fai/worker2
@@ -165,25 +164,20 @@
     (is (some? (snapshot :fai.w/two)) "the newer worker is untouched")))
 
 ;; ---------------------------------------------------------------------------
-;; (3) Spawning onto an OCCUPIED fixed address — the CONTRACT (rf2-dokz)
+;; (3) Spawning onto an OCCUPIED fixed address — the CONTRACT
 ;; ---------------------------------------------------------------------------
 ;;
-;; These replace a CHARACTERISATION suite. Its predecessor recorded that a
-;; second spawn at a live fixed address "REPLACES the occupant's snapshot in
-;; place" and said in as many words that this was "what the runtime actually
-;; does today rather than asserting a guarantee the code does not make". What it
-;; was protecting is worth keeping and is kept below: that the ordinary spawn
-;; path takes the supplied address VERBATIM (no `<type>#<n>` sidelining, no
-;; second name registry) and does NOT reject an occupied one, so nobody
-;; "restores parity" by adding a registry or an error.
+;; The ordinary spawn path takes the supplied address VERBATIM (no
+;; `<type>#<n>` sidelining, no second name registry) and does NOT reject an
+;; occupied one, so nobody "restores parity" by adding a registry or an error.
 ;;
-;; What it did NOT say — because the code did not do it — is what happened to
-;; the OCCUPANT. Liveness IS snapshot presence (Spec 005 §Liveness is derived
-;; from runtime-db), so the one unguarded `assoc-in` was simultaneously a birth
-;; and an unannounced death: the occupant's authored `:exit` never ran and none
-;; of the three framework-managed resource kinds released. rf2-dokz ruled that a
-;; replacement runs the occupant through the ORDINARY destroy path first. These
-;; tests pin THAT, and each of them goes RED against the old behaviour.
+;; What happens to the OCCUPANT matters just as much. Liveness IS snapshot
+;; presence (Spec 005 §Liveness is derived from runtime-db), so a bare
+;; `assoc-in` over it would be simultaneously a birth and an unannounced
+;; death: the occupant's authored `:exit` would never run and none of the
+;; three framework-managed resource kinds would release. A replacement
+;; therefore runs the occupant through the ORDINARY destroy path first. These
+;; tests pin THAT.
 
 (defn- capture-traces [id]
   (let [a (atom [])]
@@ -194,7 +188,7 @@
   (mapv :operation @traces))
 
 (deftest spawning-onto-an-occupied-fixed-address-destroys-the-occupant-then-installs
-  (testing "rf2-dokz — a spawn arriving at a LIVE :fixed-actor-id runs the
+  (testing "a spawn arriving at a LIVE :fixed-actor-id runs the
             occupant through the ordinary destroy path (:reason :explicit) and
             only then installs the replacement: the occupant's authored :exit
             runs exactly once, its :rf.machine/destroyed is observed BEFORE the
@@ -228,11 +222,10 @@
         ;; The replacement.
         (rf/dispatch-sync [:fai/install :second])
 
-        ;; (a) THE LEAK THIS BEAD IS ABOUT. Under the old silent overwrite this
-        ;; counter stayed at 0: the author's own teardown never ran, which also
-        ;; voids the escape hatch Spec 005 designates for every resource the
-        ;; framework cannot manage (sockets, clearInterval, workers, SDK
-        ;; subscriptions).
+        ;; (a) A silent overwrite would leave this counter at 0: the author's
+        ;; own teardown would never run, which would also void the escape hatch
+        ;; Spec 005 designates for every resource the framework cannot manage
+        ;; (sockets, clearInterval, workers, SDK subscriptions).
         (is (= 1 @exits)
             "the occupant's authored :exit ran EXACTLY once — not zero (silently
              overwritten) and not twice (destroyed twice)")
@@ -243,16 +236,14 @@
         (is (nil? (:tag (:data (snapshot :fai/slot))))
             "the snapshot is FRESH — the occupant's own :data did not survive")
 
-        ;; (c) Retained from the characterisation: the supplied address is used
-        ;; VERBATIM and an occupied one is not rejected. Both still hold, and
-        ;; both are the reason nobody should re-add a name registry.
+        ;; (c) The supplied address is used VERBATIM and an occupied one is not
+        ;; rejected, which is why nobody should add a name registry.
         (is (nil? (snapshot :fai/occupant#1))
             "no sidelined copy of either incarnation under an allocated <type>#<n> id")
 
         ;; (d) The lifecycle pairing contract: destroyed BEFORE spawned, so a
         ;; tool pairing lifecycle events never sees one address spawned twice
-        ;; with no destroy between. Under the old behaviour there was no
-        ;; :rf.machine/destroyed here at all.
+        ;; with no destroy between.
         (let [ops (filterv #{:rf.machine/destroyed
                              :rf.machine.spawn/spawned
                              :rf.machine.lifecycle/spawned}
@@ -273,7 +264,7 @@
         (finally (rf.trace.tooling/unregister-listener! ::occupied-contract))))))
 
 (deftest replacing-an-occupant-cancels-its-armed-after-timer
-  (testing "rf2-dokz — the occupant's armed :after is cancelled by the
+  (testing "the occupant's armed :after is cancelled by the
             replacement's teardown. The successor is a type with NO :after, so
             the cancellation cannot be the leading :on-supersede cancel that
             arming at the same key would produce: any timer cancellation in the
@@ -307,15 +298,15 @@
 
         (is (some #{:rf.machine.timer/cancelled} (operations traces))
             "the occupant's armed :after was CANCELLED by the replacement's
-             teardown — under the silent overwrite the entry was retained with
-             no cancellation, host clock still armed")
+             teardown — a silent overwrite would keep the entry with no
+             cancellation, host clock still armed")
         (is (= :running (:state (snapshot :fai/tslot)))
             "sanity: the address really does carry the timer-less successor, so
              the cancellation above cannot be an :on-supersede re-arm")
         (finally (rf.trace.tooling/unregister-listener! ::occupied-timer))))))
 
 (deftest a-rejected-incoming-spawn-leaves-the-occupant-intact
-  (testing "rf2-dokz — the incoming spawn is resolved and VALIDATED before the
+  (testing "the incoming spawn is resolved and VALIDATED before the
             occupant is disturbed, so a spawn that will be rejected destroys
             nothing. Replacement is not a licence to tear down on the way to
             failing"
@@ -345,7 +336,7 @@
           "and did NOT run the occupant's :exit — nothing was destroyed"))))
 
 (deftest the-occupants-teardown-writes-survive-the-replacements-install
-  (testing "rf2-dokz — the install is rebuilt from the POST-teardown runtime-db.
+  (testing "the install is rebuilt from the POST-teardown runtime-db.
             install-spawn!'s install-fn DISCARDS the swap's argument and returns
             a pre-captured value, so an install built on the pre-teardown base
             would RESTORE everything the teardown removed. Proved on a SECOND
@@ -409,11 +400,11 @@
          introduced; the author's :exit is still where children are torn down")))
 
 (deftest replacing-a-join-child-retains-its-cancellation-facts
-  (testing "rf2-dokz — a replaced :spawn-all join child goes through
-            prepare-join-child-teardown! under the EXISTING :reason :explicit,
+  (testing "a replaced :spawn-all join child goes through
+            prepare-join-child-teardown! under :reason :explicit,
             so its attempt is durably closed and its :rf.machine/destroyed
-            carries the cancelled reply facts. A bespoke :reason would have
-            skipped both gates silently"
+            carries the cancelled reply facts. A bespoke :reason would
+            skip both gates silently"
     (let [traces (capture-traces ::occupied-join)]
       (try
         (rf/reg-machine :fai/jchild
@@ -447,9 +438,9 @@
               "the replaced join child emitted :rf.machine/destroyed")
           (let [tags (:tags destroyed)]
             (is (= :explicit (:reason tags))
-                "the reason is the EXISTING :explicit — the keyword both the
+                "the reason is :explicit — the keyword both the
                  join-child cancellation gate and the cancelled-reply gate test
-                 for; a new enum member would skip both without erroring")
+                 for; any other enum member would skip both without erroring")
             (is (true? (:rf.reply/cancelled? tags))
                 "the cancelled reply facts rode the destroyed trace")
             (is (= :cancelled (:rf.reply/status tags))
@@ -470,19 +461,18 @@
 ;; DIFFERENT reasons and a fix for either alone leaves the other broken.
 ;;
 ;;   (a) FIRST spawn — there is no actor at that address at all, only the
-;;       registered type. It must install untouched. It did not: the
-;;       replacement path's occupancy probe counted the TYPE's registrar entry
-;;       as a live occupant, so the very first spawn tore the freshly
-;;       registered definition down and installed an actor whose
-;;       `:rf/machine-type` no longer resolved.
+;;       registered type. It must install untouched. An occupancy probe that
+;;       counted the TYPE's registrar entry as a live occupant would make the
+;;       very first spawn tear the freshly registered definition down and
+;;       install an actor whose `:rf/machine-type` no longer resolves.
 ;;
 ;;   (b) REPLACEMENT of a genuinely live actor there — the teardown must run
-;;       in full (this is rf2-dokz's whole point) while the shared DEFINITION
+;;       in full while the shared DEFINITION
 ;;       survives it, because the replacement resolves its own handler back
 ;;       through exactly that key and so does every sibling actor of the type.
 
 (deftest first-spawn-at-an-address-equal-to-its-machine-type-is-not-a-replacement
-  (testing "rf2-dokz residual — direction (a). An uninstantiated registered TYPE
+  (testing "Direction (a). An uninstantiated registered TYPE
             is NOT an occupant. The first spawn at a :fixed-actor-id equal to its
             own :machine-id destroys nothing, keeps the definition registered,
             and comes up FULLY BOOTSTRAPPED and addressable"
@@ -532,7 +522,7 @@
       (finally (rf.trace.tooling/unregister-listener! ::selfnamed-first))))))
 
 (deftest replacing-a-live-actor-at-its-machine-types-own-name-keeps-the-definition
-  (testing "rf2-dokz residual — direction (b). Once an actor IS live at that
+  (testing "Direction (b). Once an actor IS live at that
             address the ordinary replacement teardown runs in full (its authored
             :exit fires exactly once), but the shared machine DEFINITION survives
             it: the replacement resolves through that key, and so does a SIBLING
@@ -565,9 +555,9 @@
       (rf/dispatch-sync [:fai/install-selfnamed2 :second])
 
       (is (= 1 @exits)
-          "THE TEARDOWN STILL RAN. The occupant's authored :exit fired exactly
-           once — narrowing the occupancy probe must not turn a genuine
-           replacement back into the silent overwrite rf2-dokz removed")
+          "THE TEARDOWN RAN. The occupant's authored :exit fired exactly
+           once — the occupancy probe's TYPE exclusion must not turn a genuine
+           replacement into a silent overwrite")
       (is (:rf/machine? (rf/handler-meta {:source :store :kind :event :id :fai/selfnamed2}))
           "and the shared machine DEFINITION SURVIVED that teardown — the
            registrar entry at this address is a TYPE, not the occupant's own
