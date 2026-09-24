@@ -273,7 +273,7 @@
       (is (some? plain) "premise: the island is IN the bytes, so there is an id to read")
       (is (some? door))
       (is (not= plain door)
-          (str "premise: the hydrating shape's fork must still move the id — "
+          (str "premise: the hydrating shape's fork must move the id — "
                "if these agree, obstruction 2 has some other cause and this "
                "whole file is measuring nothing; got " (pr-str plain) " both times"))
 
