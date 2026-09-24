@@ -34,31 +34,24 @@
   for the same reason read the other way: it FOLDS Spec 009's ring rather than
   reading a current table.)
 
-  So the name is not Pair's to shorten. It is ruled rather than incidental —
-  the Fresco naming ledger read this door name by name and kept all four as
-  shipped, calling the `read-` prefix load-bearing (`rf2-hic-065`, row 51 of
-  `docs/design/fresco/product/naming-ledger.md`) — and the string below is
+  So the name is not Pair's to shorten. The Fresco naming ledger calls the
+  `read-` prefix load-bearing (row 51 of
+  `docs/design/fresco/product/naming-ledger.md`), and the string below is
   BOTH the wire tool name and the provider fn name, munged and looked up on the
   door at runtime by [[projection-form]]. A wire-only rename would either break
   that lookup or force the two names apart, which is exactly the agreement the
   paragraph above exists to keep.
 
-  ## Three reads, not five — the door answers a different question set
+  ## Three reads — the questions this door answers
 
-  This namespace replaced a five-tool family aimed at
-  `re-frame.freehand.tool` (rf2-n3mb). That was not a rename, and the
-  difference is worth stating rather than papering over, because it is a fact
-  about the PROVIDER and not a shortfall here.
-
-  Freehand published a view REGISTRY and a compiler MANIFEST, so it could
-  answer `read-view-manifest`, `read-view-dependencies` and
-  `read-view-event-sites` — static questions about a view named by its
-  declared id, answerable BEFORE mount. **Fresco mints no boundary identity
-  and keeps no registry.** A registration is its read set, React's notifier
-  and the acquired cells, so a boundary is keyed by its EDGE SET and there is
-  no id to ask about and no manifest to read: those three questions have no
-  counterpart on this door and are not shipped as tools that would answer
-  them with a fabricated emptiness. What a dev build DOES carry is `:views`
+  **Fresco mints no boundary identity and keeps no registry.** A registration
+  is its read set, React's notifier and the acquired cells, so a boundary is
+  keyed by its EDGE SET and there is no id to ask about and no manifest to
+  read. Static questions about a view named by its declared id — its
+  manifest, its dependencies, its event sites, answerable BEFORE mount — have
+  no counterpart on this door, and are not shipped as tools that would answer
+  them with a fabricated emptiness. That is a fact about the PROVIDER, not a
+  shortfall here. What a dev build DOES carry is `:views`
   on every mounted row, reader and explanation — the declared views that
   rendered that edge set, each with the source coordinate `defview` captured
   — so a row reads `app.views/todo-row` beside its key. A body minted
@@ -196,7 +189,8 @@
   producer's stamp does not define support. Every other value (a `:ok? false`
   absence/error envelope, a genuinely-empty `:ok? true` schema-matched read, or
   a blank/non-map result) defers UNCHANGED to `map-envelope-result`, so the
-  isError contract and honest-emptiness handling are unchanged."
+  isError contract and honest-emptiness handling are exactly
+  `map-envelope-result`'s."
   [v]
   (if (and (map? v)
            (true? (:ok? v))
@@ -225,34 +219,33 @@
   Every read on this door is NULLARY — the runtime has no id to narrow by — so
   there is one form shape and one nil reason. A `nil` read means exactly one
   thing here: `interop/debug-enabled?` is false, i.e. a production build, which
-  is `:evidence-tier-inactive`. (The donor door also nil-returned for an
-  undeclared VIEW ID; there is no such case to distinguish, because there is no
-  such argument.)
+  is `:evidence-tier-inactive`.
 
   The whole form is one `try` so a throwing read degrades to
   `:evidence-tier-error` rather than rejecting the eval.
 
-  ## The door is resolved, never REFERENCED (rf2-t2ec)
+  ## The door is resolved, never REFERENCED
 
   This form names `re-frame.fresco.tool` in two STRINGS and nowhere as a
   symbol, and that is the whole point rather than a stylistic preference.
-  The guard here used to be `(cljs.core/exists? re-frame.fresco.tool/<read>)`
-  around a direct call to the same fully-qualified var. `exists?` is a fair
-  test — it resolves under `no-warn` and answers `false` for an absent door —
-  but the CALL it guarded is a var reference like any other, and shadow's
-  analyzer resolves every form it compiles before any of it runs. Against
-  `:fresco/hmr-testbed` with the door not required, the emitted form came back:
+  A guard of `(cljs.core/exists? re-frame.fresco.tool/<read>)` around a
+  direct call to the same fully-qualified var would not do. `exists?` is a
+  fair test — it resolves under `no-warn` and answers `false` for an absent
+  door — but the CALL it guards is a var reference like any other, and
+  shadow's analyzer resolves every form it compiles before any of it runs.
+  With the door not required (e.g. `:fresco/hmr-testbed`), such a form comes
+  back:
 
       {:ok? false, :reason :rf.error/eval-cljs-compile-error,
        :err \"WARNING - :undeclared-var … Use of undeclared Var
              re-frame.fresco.tool/read-mounted-boundaries\"}
 
   So the one case `:evidence-tier-unavailable` names — a Reagent/UIx app, or a
-  Fresco app nothing pulled the door into — was the one case that branch could
-  not reach, and the operator got an analyzer warning where the load-the-door
-  hint belonged.
+  Fresco app nothing pulled the door into — would be the one case that branch
+  could not reach, and the operator would get an analyzer warning where the
+  load-the-door hint belongs.
 
-  `cljs.core/find-ns-obj` is the fix because it asks the question the rung is
+  `cljs.core/find-ns-obj` works because it asks the question the rung is
   actually about — *is this NAMESPACE loaded* — as a runtime lookup on
   `goog/global`, which the analyzer has nothing to reject. It takes the door's
   name in the provider's own spelling and munges it with the runtime's own
@@ -269,7 +262,7 @@
 
   A door that is loaded but INACTIVE is untouched by all of this: its namespace
   object is present, the read resolves, and it answers `nil` — the
-  `:evidence-tier-inactive` rung, exactly as before. A door that is loaded but
+  `:evidence-tier-inactive` rung. A door that is loaded but
   whose read has been RENAMED resolves to `undefined`, and calling it throws
   into the `catch` as `:evidence-tier-error` rather than claiming the door is
   absent; [[re-frame2-pair-mcp.fresco-wire-test]] is what stops that reaching
