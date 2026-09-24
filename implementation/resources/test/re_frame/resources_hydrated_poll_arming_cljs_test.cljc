@@ -1,15 +1,15 @@
 (ns re-frame.resources-hydrated-poll-arming-cljs-test
-  "rf2-2ojds — a hydrated resource entry that is OWNED once `:rf/hydrate`
+  "A hydrated resource entry that is OWNED once `:rf/hydrate`
   commits starts polling on the client.
 
-  THE DEFECT. The client's hydration rearm armed only each hydrated entry's
-  GC timer (rf2-omahf). On the client a `:poll` timer arms after a load settle
-  while the entry is owned, or on a fresh-skip that attaches an owner to a
-  previously OWNER-FREE entry. A hydrated entry whose route owner rode the
+  WHY THE REARM MUST ARM IT. On the client a `:poll` timer arms after a load
+  settle while the entry is owned, or on a fresh-skip that attaches an owner to
+  a previously OWNER-FREE entry. A hydrated entry whose route owner rode the
   wire is already owned, so the client's ensure is a fresh-skip onto an owned
   entry and arms nothing, and on the ordinary SSR boot no client ensure runs
-  at all (S4). A `:poll-interval-ms` resource that the server rendered
-  therefore never polled on the client, although it was actively owned.
+  at all (S4). A hydration rearm that armed only each hydrated entry's GC
+  timer would leave a server-rendered `:poll-interval-ms` resource never
+  polling on the client, although it is actively owned.
 
   THE RULE (Spec 016 §Polling). While an entry has at least one active owner,
   the runtime re-runs its load on the interval; the `:poll` timer is armed
