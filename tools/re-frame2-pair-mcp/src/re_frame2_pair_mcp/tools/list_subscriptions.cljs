@@ -87,8 +87,7 @@
         ;; `:include-sensitive false` when OFF (the default), mirroring
         ;; snapshot / get-path. `incl-sensitive?` threads into the
         ;; walker's `:rf.egress/include-sensitive?` opt. `elision?` is
-        ;; the size override, honoured on every launch (rf2-ealv5 /
-        ;; rf2-3x7nj.32.4): `false` overlays `include-large? true` on the
+        ;; the size override, honoured on every launch: `false` overlays `include-large? true` on the
         ;; named profile, and a verbatim value is only reachable when the
         ;; operator opted in via `--allow-sensitive-reads` AND passed
         ;; both `:elision false` and `:include-sensitive true`.
@@ -106,7 +105,7 @@
                         (pr-str frame)
                         (ef/emit (ef/rt-call 'current-frame)))
         ;; Fail-CLOSED: the door is ALWAYS called on a value-bearing read
-        ;; (rf2-kuky.88) and the NAMED profile decides the floor. A bare
+        ;; and the NAMED profile decides the floor. A bare
         ;; `:elision false` stays on `:rf.egress/off-box-tool` with a
         ;; large-inclusion overlay, so a declared-sensitive sub `:value`
         ;; still redacts to `:rf/redacted` while large content passes;
