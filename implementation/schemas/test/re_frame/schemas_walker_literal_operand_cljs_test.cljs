@@ -1,13 +1,13 @@
 (ns re-frame.schemas-walker-literal-operand-cljs-test
-  "CLJS host-parity half of the operator-aware schema-opacity walk
-  (rf2-3fc89f.12). The classification is structural and identical on CLJ + CLJS,
+  "CLJS host-parity half of the operator-aware schema-opacity walk.
+  The classification is structural and identical on CLJ + CLJS,
   so both runtimes assert the SAME shared corpus
   (`re-frame.schemas.walker-literal-operand-fixtures`) against the SAME pure
   entry points. The JVM half (`re-frame.schemas-walker-literal-operand-test`)
   additionally covers the registration-warning and dev-validate egress paths;
   this half pins the pure walker (`schema-has-opaque-child?`) and the always-on
   boundary redactor (`redact-validation-tags`) — both host-agnostic pure
-  functions — so a CLJS regression that diverged from the JVM classification is
+  functions — so a CLJS divergence from the JVM classification is
   caught here.
 
   `malli.core` — the fixtures' compiled-schema dependency — reaches the
@@ -22,7 +22,7 @@
 ;; ---- pure walker: shared cross-host corpus (parity anchor) ----------------
 
 (deftest cljs-literal-operands-are-data-not-opaque
-  (testing "rf2-3fc89f.12 — literal/config operands and their structural forms
+  (testing "literal/config operands and their structural forms
             are walkable, so schema-has-opaque-child? is FALSE on CLJS too
             (byte-identical classification with the JVM half)"
     (doseq [s rf.schemas.walker-literal-operand-fixtures/not-opaque-forms]
@@ -30,21 +30,21 @@
           (str "literal/walkable form must NOT be opaque: " (pr-str s))))))
 
 (deftest cljs-nested-compiled-values-still-fail-closed
-  (testing "rf2-3fc89f.12 — a nested compiled m/schema value in a real
-            child-schema position still fails closed (true) on CLJS"
+  (testing "a nested compiled m/schema value in a real
+            child-schema position fails closed (true) on CLJS"
     (doseq [s rf.schemas.walker-literal-operand-fixtures/opaque-forms]
       (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "nested compiled value must fail closed: " (pr-str s))))))
 
 (deftest cljs-unknown-operator-shapes-fail-closed
-  (testing "rf2-3fc89f.12 — an unclassified operator shape fails closed (true)
+  (testing "an unclassified operator shape fails closed (true)
             on CLJS"
     (doseq [s rf.schemas.walker-literal-operand-fixtures/unknown-op-forms]
       (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "unknown operator shape must fail closed: " (pr-str s))))))
 
 (deftest cljs-local-registry-forms-fail-closed
-  (testing "rf2-amgtr — a Malli local `{:registry ...}` hides its referenced
+  (testing "a Malli local `{:registry ...}` hides its referenced
             shapes (and their per-slot flags) behind keyword references the
             walk resolves nowhere, so it fails closed (true) on CLJS too —
             same classification as the JVM half"
@@ -53,17 +53,17 @@
           (str "local-registry form must fail closed: " (pr-str s))))))
 
 (deftest cljs-registry-ref-forms-fail-closed
-  (testing "rf2-3aafh — an EXPLICIT `[:ref ...]` reference form names a schema
+  (testing "an EXPLICIT `[:ref ...]` reference form names a schema
             the pure-data walk resolves nowhere, so it fails closed (true) on
             CLJS too — the SAME shared corpus the JVM half asserts, so the
             classification cannot diverge by host. This is the parity anchor
-            for the ruling"
+            for that classification"
     (doseq [s rf.schemas.walker-literal-operand-fixtures/registry-ref-forms]
       (is (true? (rf.schemas/schema-has-opaque-child? s))
           (str "explicit [:ref ...] form must fail closed: " (pr-str s))))))
 
 (deftest cljs-bare-keyword-reference-stays-walkable
-  (testing "rf2-3aafh — the carve-out the ruling relies on, pinned on CLJS: a
+  (testing "the carve-out the classification relies on, pinned on CLJS: a
             BARE keyword stays walkable because a registry reference cannot be
             told from a primitive. Only the explicit vector form fails closed"
     (doseq [s [:string :int :keyword :fixture/user :my/user-schema]]
@@ -73,7 +73,7 @@
 ;; ---- always-on redact-validation-tags (host-agnostic egress parity) -------
 
 (deftest cljs-redact-validation-tags-non-sensitive-literal-rides-verbatim
-  (testing "rf2-3fc89f.12 — the always-on boundary redactor leaves a
+  (testing "the always-on boundary redactor leaves a
             non-sensitive literal/enum schema's tags verbatim on CLJS"
     (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}]
       (doseq [schema [[:cat [:= :demo/e] [:= 42]]
@@ -87,7 +87,7 @@
               (str "no :sensitive? stamp for: " (pr-str schema))))))))
 
 (deftest cljs-redact-validation-tags-sensitive-and-opaque-still-redact
-  (testing "rf2-3fc89f.12 — the boundary redactor still fails closed for a
+  (testing "the boundary redactor fails closed for a
             :sensitive? slot AND for the nested-compiled corpus on CLJS"
     (let [tags    {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}
           ;; an explicit vector-form sensitive slot + the shared opaque corpus
@@ -103,7 +103,7 @@
               (str "no raw value survives redaction for: " (pr-str schema))))))))
 
 (deftest cljs-redact-validation-tags-registry-ref-redacts-and-stamps
-  (testing "rf2-3aafh — the always-on boundary redactor fails CLOSED for an
+  (testing "the always-on boundary redactor fails CLOSED for an
             explicit `[:ref ...]` on CLJS too: value-bearing slots scrub to
             :rf/redacted and :sensitive? is stamped, matching the JVM half"
     (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}]
@@ -117,9 +117,9 @@
               (str "no raw value survives for: " (pr-str schema))))))))
 
 (deftest cljs-redact-validation-tags-map-entry-keyed-ref-rides-verbatim
-  (testing "rf2-3aafh — the CONTROL on CLJS: a `:map` entry whose KEY is
+  (testing "the CONTROL on CLJS: a `:map` entry whose KEY is
             `:ref` is ordinary walkable data, so its tags ride verbatim with
-            no stamp, before and after the walker change"
+            no stamp"
     (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}
           out  (rf.schemas/redact-validation-tags
                  [:map [:ref {:optional true} :string]] tags)]
