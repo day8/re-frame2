@@ -19,9 +19,8 @@
 
   ## The screen is local, and it has to be
 
-  The freeze gate seals `implementation/fresco/**` against requiring a
-  benchmark-tree namespace, so the dogfood screen itself cannot be
-  imported here. What is re-expressed is therefore the CLAIMS, over a
+  The benchmark tree is off `implementation/fresco`'s classpath, so the
+  dogfood screen itself cannot be imported here. What is re-expressed is therefore the CLAIMS, over a
   screen of the same shape: a filtered to-do list with per-instance
   drafts, a keyed row list, a controlled new-item field, a submitting
   form and a data key-map. Every row below names the bench witness it
