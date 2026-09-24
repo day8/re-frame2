@@ -8,8 +8,8 @@
   Pinning these in one ns (rather than scattered literal strings on each
   side of the wire) makes the protocol discoverable and renameable: a
   rename of an attribute name is a one-edit change here, not a grep-driven
-  sweep across server, client, and tests. The same single-source convention
-  `re-frame.ssr.constants` already established for the non-streaming
+  sweep across server, client, and tests. It is the single-source convention
+  `re-frame.ssr.constants` uses for the non-streaming
   hydration-payload script id (per Spec 011 §Hydration payload script id),
   applied to the streaming surface.
 
@@ -17,7 +17,7 @@
   these strings are streaming-specific machinery (the `:rf/suspense-boundary`
   protocol, Spec 011 §Streaming SSR), so they co-locate with the streaming
   namespaces and stay off the lean `constants` ns that the non-streaming
-  boot helper (`re-frame.ssr.boot`) already depends on. Renaming a constant here
+  boot helper (`re-frame.ssr.boot`) depends on. Renaming a constant here
   changes the on-wire token — see the `attr-*` docstrings for the
   server↔client matching contract before changing a value.")
 
