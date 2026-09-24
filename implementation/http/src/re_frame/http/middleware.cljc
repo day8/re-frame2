@@ -138,8 +138,8 @@
   `:rf.http/managed` args), `:frame` (the frame-id), and `:event` (the
   originating event vector). `:before` returns a (possibly-modified)
   ctx. `:after` receives the ctx unchanged plus the canonical reply
-  envelope (`{:status :ok :value v …}` or `{:status :error :error f …}`,
-  rf2-ibksxg) and returns the (possibly-transformed) response.
+  envelope (`{:status :ok :value v …}` or `{:status :error :error f …}`)
+  and returns the (possibly-transformed) response.
 
   Source-coords (`:ns` / `:line` / `:column` / `:file`) are auto-captured
   at the `rf/reg-http-interceptor` call site by the JVM-emitted macro in
@@ -153,7 +153,7 @@
   After `clear-http-interceptor` removes a slot, a subsequent
   `reg-http-interceptor` of the same id is a fresh registration and
   appends to the end of the chain — the prior position is forgotten on
-  clear (per Spec 014 §Chain order and frame scope, rf2-kg5nw).
+  clear (per Spec 014 §Chain order and frame scope).
 
   Throws `:rf.error/http-bad-interceptor` if any arg shape is invalid.
 
@@ -212,7 +212,7 @@
   `re-frame.core` surface (only `clear-http-interceptor` is late-bound to
   core). Internal cleanup that already holds a resolved frame — frame
   teardown, actor destroy — routes through here directly rather than the
-  public opts form (rf2-s32bf).
+  public opts form.
   Both public arities also funnel through it once they have resolved a frame.
   Returns `id`."
   [frame id]
@@ -231,12 +231,10 @@
 (def ^:private valid-clear-opts?
   "The public two-arity opts map must be EXACTLY `{:frame target}`.
 
-  rf2-kuky.80 replaced the private copy that used to live here with the ONE
-  shared validator in `re-frame.frame`, which `rf/clear` and the flows arm now
-  use as well. The rule (map, sole key `:frame`, value a frame-id keyword or a
-  live frame value) is unchanged; only the number of copies is. That the copy
-  WAS private here is why the identically-shaped flows door still carried the
-  tolerant destructure this one had already been fixed for (rf2-s32bf)."
+  This is the ONE shared validator in `re-frame.frame`, which `rf/clear` and
+  the flows arm use as well: a map whose sole key is `:frame`, its value a
+  frame-id keyword or a live frame value. One shared copy keeps the
+  identically-shaped doors from drifting apart."
   rf.frame/frame-opts?)
 
 (defn clear-http-interceptor
@@ -260,10 +258,10 @@
   target. A missing `:frame`, a nil target, a misspelled/unknown or extra
   key, and a non-map second argument all raise the typed
   `:rf.error/http-bad-interceptor` (mirroring `reg-http-interceptor`'s arg
-  validation) BEFORE any ambient frame is resolved or touched. This closes
-  the silent mis-clear the old `(or (:frame opts) ambient-frame)` resolution
-  carried (rf2-s32bf): `(clear-http-interceptor id {})` or a typo'd
-  `{:fram f}` used to silently clear the AMBIENT frame instead of failing.
+  validation) BEFORE any ambient frame is resolved or touched. An
+  `(or (:frame opts) ambient-frame)` resolution would silently mis-clear:
+  `(clear-http-interceptor id {})` or a typo'd `{:fram f}` would clear the
+  AMBIENT frame instead of failing.
 
   Two-scalar frame-first `(clear-http-interceptor frame id)` is NOT a public
   shape. Artefact-internal cleanup that already holds a resolved frame routes
@@ -276,10 +274,10 @@
        {:where 'rf/clear :event-id id})
      id))
   ([id opts]
-   ;; rf2-s32bf — the PUBLIC two-arity is ONLY `(id {:frame target})`.
+   ;; The PUBLIC two-arity is ONLY `(id {:frame target})`.
    ;; Fail-closed: reject anything that is not exactly `{:frame target}`
    ;; (present, non-nil) BEFORE resolving or touching the ambient frame. This
-   ;; also rejects the old two-scalar frame-first shape — a keyword or other
+   ;; also rejects a two-scalar frame-first shape — a keyword or other
    ;; scalar second arg is not a valid opts map. The explicit target names the
    ;; frame; the opts form never falls back to the ambient scope.
    (when-not (valid-clear-opts? opts)
@@ -306,12 +304,12 @@
   atom directly. Not part of the user-facing API — application code routes
   through `reg-http-interceptor` / `clear-http-interceptor`. Mirrors the
   registry's `in-flight-snapshot` / `actor-in-flight-snapshot` test-observability
-  helpers (rf2-hp772l)."
+  helpers."
   ([] @interceptors)
   ([frame-id] (get @interceptors frame-id)))
 
 (defn capture-chain
-  "rf2-v3f6 — snapshot `frame-id`'s interceptor chain for ONE request, at
+  "Snapshot `frame-id`'s interceptor chain for ONE request, at
   ISSUE time. Returns the registration-order vector of function-bearing
   slots; that same vector drives the request's `:before` walk, its
   `:after` walk and every retry attempt.
@@ -335,7 +333,7 @@
   [frame-id]
   (or (get @interceptors frame-id) []))
 
-;; rf2-jkake.9 — the `:before` (`run-interceptor-chain!`) and `:after`
+;; The `:before` (`run-interceptor-chain!`) and `:after`
 ;; (`run-after-chain!`) chains share one walk shape: reduce over the
 ;; per-frame chain, skip interceptors lacking the relevant slot, run the
 ;; slot fn, reject a non-map return with `:rf.error/http-interceptor-bad-
@@ -347,7 +345,7 @@
 ;; (registration / reverse), the `:where` symbol + optional `:phase`, the
 ;; URL source (the threaded `acc` for `:before`; the fixed middleware-ctx
 ;; for `:after`), and the bad-return sentence. The load-bearing comments
-;; on each wrapper preserve the per-path rationale.
+;; on each wrapper carry the per-path rationale.
 (defn- run-chain*
   [{:keys [chain frame-id slot-key invoke sensitive-of where phase url-of slot-noun]} init]
   (reduce
@@ -359,12 +357,12 @@
             (let [out (invoke slot acc)]
               (if (map? out)
                 out
-                ;; Canonical thrown-error shape (Spec 009 / rf2-vvixub): the
+                ;; Canonical thrown-error shape (Spec 009): the
                 ;; central builder derives the message from :reason + the
                 ;; [:rf.error/<id>] token, so the human sentence (naming the
                 ;; offending interceptor id) leads the message. The outer
                 ;; wrapper carries :interceptor-id so a chain failure is
-                ;; locatable via ex-data; the :id key here is kept for
+                ;; locatable via ex-data; the :id key here serves
                 ;; programmatic consumers.
                 (rf.error/throw-error!
                   :rf.error/http-interceptor-bad-return 'rf/reg-http-interceptor
@@ -393,18 +391,18 @@
                                               :cause          cause}
                                        phase (assoc :phase phase))})]
                 (when rf.interop/debug-enabled?
-                  ;; rf2-1jcpm — route through the privacy composer so a
+                  ;; Route through the privacy composer so a
                   ;; denylisted query param (`?api_key=…`) is scrubbed
                   ;; and `:sensitive?` is stamped on the trace event when
                   ;; either the handler/per-call sensitivity OR the URL's
                   ;; query string carries a denylisted param name.
                   ;;
-                  ;; rf2-rznrz — `sensitive-of` recomputes the EFFECTIVE
+                  ;; `sensitive-of` recomputes the EFFECTIVE
                   ;; sensitivity from the CURRENT accumulator (the evolving
                   ;; ctx a prior `:before` may have MARKED sensitive), not a
-                  ;; flag captured before the chain ran. Previously a
-                  ;; `:before` that set `[:request :sensitive?] true`
-                  ;; followed by a later `:before` that threw emitted this
+                  ;; flag captured before the chain ran. With a captured
+                  ;; flag, a `:before` that set `[:request :sensitive?] true`
+                  ;; followed by a later `:before` that threw would emit this
                   ;; diagnostic with the stale non-sensitive flag, leaking
                   ;; non-denylisted query values for a now-sensitive request.
                   (rf.trace/emit-error! :rf.error/http-interceptor-failed
@@ -422,7 +420,7 @@
   `:rf.error/http-interceptor-failed` if any `:before` throws.
 
   `chain` is the caller's issue-time capture (`capture-chain`), NOT a live
-  registry read — rf2-v3f6. The same vector must drive this request's
+  registry read. The same vector must drive this request's
   `:after` walk, so a registration made from inside a `:before` joins only
   LATER requests.
 
@@ -430,12 +428,12 @@
   chain (acc passes through unchanged).
 
   `ctx` carries a top-level `:sensitive?` flag (resolved by
-  `managed-handler` from per-call args + handler-registration metadata)
+  `managed-handler` from the per-call args)
   so the failure-path trace event redacts the request URL via the
   query-param denylist before it reaches the trace surface. Without
   this gate, an `Authorization`-token-bearing query string (e.g.
-  `?access_token=…`) leaked into traces whenever an interceptor
-  threw — rf2-1jcpm (round-2 security audit finding 1)."
+  `?access_token=…`) would leak into traces whenever an interceptor
+  threw."
   [frame-id chain ctx]
   (run-chain*
     {:chain      chain
@@ -447,7 +445,7 @@
      ;; interceptor actually saw it.
      :invoke     (fn [before acc] (before acc))
      :url-of     #(get-in % [:request :url])
-     ;; rf2-rznrz — recompute effective sensitivity from the CURRENT
+     ;; Recompute effective sensitivity from the CURRENT
      ;; accumulator at the failure site, not a flag fixed before the
      ;; chain ran. A `:before` may MARK the request sensitive (set
      ;; `[:request :sensitive?] true`) — mirrors `privacy/request-
@@ -462,12 +460,12 @@
     ctx))
 
 (defn run-after-chain!
-  "Per rf2-uheqq + Spec 014 §Middleware. Walk this request's CAPTURED
+  "Per Spec 014 §Middleware. Walk this request's CAPTURED
   interceptor `chain` in REVERSE registration order, threading
   `response` through each `:after`. Returns the (possibly-transformed)
   response map.
 
-  rf2-v3f6 — `chain` is the vector the request captured at ISSUE time
+  `chain` is the vector the request captured at ISSUE time
   (`capture-chain`), carried forward by the transport alongside the
   middleware-ctx. It is deliberately NOT a fresh registry read: the ctx
   and the chain that consumes it are frozen together, so an `:after` only
@@ -478,8 +476,7 @@
   middleware-ctx the `:before` chain produced for THIS request (carried
   forward by the transport so the `:after` sees the exact same shape
   the `:before` ended with). `response` is the canonical reply envelope
-  (`{:status :ok :value v …}` or `{:status :error :error f …}`,
-  rf2-ibksxg).
+  (`{:status :ok :value v …}` or `{:status :error :error f …}`).
 
   Interceptors without an `:after` slot are transparent in the response
   chain (acc passes through unchanged). Throws by `:after` propagate
@@ -489,7 +486,7 @@
   [frame-id chain middleware-ctx response]
   (run-chain*
     {;; Reverse order — mirror of the event-interceptor onion (Spec 002).
-     ;; rf2-v3f6 — reversed over the request's CAPTURED chain, never a
+     ;; Reversed over the request's CAPTURED chain, never a
      ;; response-time deref of the live registry.
      :chain      (reverse chain)
      :frame-id   frame-id
@@ -497,12 +494,12 @@
      ;; `:after` always sees the fixed middleware-ctx the `:before` chain
      ;; produced (the response, not the ctx, is what threads through the
      ;; reduce), so the URL is read from that ctx rather than the acc.
-     ;; rf2-v3f6 — and it is the SAME captured chain that produced that
+     ;; And it is the SAME captured chain that produced that
      ;; ctx: both halves of the pairing are frozen at issue, so an
      ;; `:after` is never handed a ctx its own `:before` never touched.
      :invoke     (fn [after acc] (after middleware-ctx acc))
      :url-of     (fn [_acc] (get-in middleware-ctx [:request :url]))
-     ;; rf2-rznrz — the `:after` chain threads the RESPONSE through `acc`;
+     ;; The `:after` chain threads the RESPONSE through `acc`;
      ;; the request ctx is the fixed `middleware-ctx` the `:before` chain
      ;; ended with, so effective sensitivity is recomputed from THAT
      ;; (constant across `:after` steps), not the evolving response acc.
@@ -520,8 +517,8 @@
   `:after` interceptor chain, then hand the result to the late-bind
   reply router (`encoding/dispatch-reply-via-late-bind!`).
 
-  Single source of truth for the two reply paths that were previously
-  byte-identical save for the `:after`-guard:
+  Single source of truth for the two reply paths, which differ only in
+  the `:after`-guard:
    - `http-transport/dispatch-reply!` — the real-transport completion
      path. Synthetic / test-path callers may carry NO `:middleware-ctx`
      (they built a ctx directly without going through `managed-handler`);
@@ -530,17 +527,18 @@
      see the `:before`'s ctx, not a synthesised one.
    - `http-test-support/dispatch-canned-reply!` — the canned-stub test
      path, which always produces a `:middleware-ctx` via
-     `run-request-chain` and therefore always runs the `:after` chain.
+     `capture-and-run-request-chain` and therefore always runs the `:after`
+     chain.
 
-  `opts` carries `:frame`, `:middleware-ctx`, `:chain` (rf2-v3f6 — the
+  `opts` carries `:frame`, `:middleware-ctx`, `:chain` (the
   request's issue-time chain capture, which travels with the ctx), the
   three keys `dispatch-reply-via-late-bind!` consumes (`:origin-event`,
   `:explicit-on`, `:kind`), and the EP-0010 `:completed-at` causal
   completion time threaded onto the reply dispatch's `:rf.cofx`
-  (rf2-n1rh0f / rf2-alc1lf). No-op when the router is absent / the reply is silenced
+  No-op when the router is absent / the reply is silenced
   (delegated to `dispatch-reply-via-late-bind!`).
 
-  rf2-v3f6 — the `:after` walk is still keyed off the presence of
+  The `:after` walk is keyed off the presence of
   `:middleware-ctx`, which is the synthetic-caller guard above; a caller
   carrying a ctx carries its captured chain with it, and an EMPTY chain
   runs no `:after` rather than falling back to the live registry."
