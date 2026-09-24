@@ -8,7 +8,7 @@
   the qualified selector `--test=<this-ns>/a-passing-test` must run exactly
   ONE (`Ran 1 tests`); that difference is the only end-to-end proof that the
   runner's simple-symbol and qualified-symbol selector branches are distinct,
-  and a one-test namespace makes them indistinguishable (rf2-6r9j.76).
+  and a one-test namespace makes them indistinguishable.
   Adding or removing a test here moves both counts.
 
   The quiet-shape regression additionally asserts the green stdout collapses
