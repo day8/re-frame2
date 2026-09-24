@@ -28,30 +28,28 @@
   by `compute-and-cache!`'s reaction construction (one allocation, no
   perf-hot work).
 
-  **The one thrash that is NOT accepted (rf2-2rtt6.25).** A React-hook
-  render and the commit that owns it are two moments, and a first-mount
-  read used to build a reaction in the first, drop it to zero on the way
-  out, and rebuild it in the second — TWO constructions, and for a
-  layer-2+ sub a second walk of the whole input chain, on every cold
-  read. That was not a re-mount; it was ONE mount paying twice. The
-  React-hook spine carries its render-phase +1 across that gap in a
-  hook-scoped escrow so the commit can ADOPT the same reaction (Spec 006
-  §Render-phase provisional acquisition and commit adoption); the release
-  is `unsubscribe-if-reaction!` below. Nothing here changes: the +1 is an
-  ordinary ref-count held by an ordinary owner, the cache never holds a
-  ref-count-0 entry, and 1 → 0 still disposes in-tick with no grace
+  **The one thrash that is NOT accepted.** A React-hook render and the
+  commit that owns it are two moments, and a first-mount read that built
+  a reaction in the first, dropped it to zero on the way out, and rebuilt
+  it in the second would pay TWO constructions, and for a layer-2+ sub a
+  second walk of the whole input chain, on every cold read. That is not a
+  re-mount; it is ONE mount paying twice. The React-hook spine carries its
+  render-phase +1 across that gap in a hook-scoped escrow so the commit
+  can ADOPT the same reaction (Spec 006 §Render-phase provisional
+  acquisition and commit adoption); the release is
+  `unsubscribe-if-reaction!` below. The cache itself is indifferent: the
+  +1 is an ordinary ref-count held by an ordinary owner, the cache never
+  holds a ref-count-0 entry, and 1 → 0 disposes in-tick with no grace
   period. What moves is only WHO holds the reference during the gap.
 
-  **Still paid, on the mount path that ships (rf2-2rtt6.25, audit of
-  #7305).** Measured through the public adapter render slot with no
-  `act` / `flushSync`: the escrow's macrotask reaper fires before React's
-  passive `useSyncExternalStore` subscribe, so the gap is crossed by
-  nobody, this eviction runs, and the commit rebuilds — two constructions
-  per cold read, as before. The cache side is unaffected either way (it
-  sees an ordinary release and an ordinary 1 → 0), and the horizon that
-  would change the outcome is an operator decision on rf2-2rtt6.14. Read
-  the paragraph above as the mechanism, not as a claim about what a
-  shipped mount currently costs.
+  **Paid anyway, on the mount path that ships.** Through the public
+  adapter render slot with no `act` / `flushSync`, the escrow's macrotask
+  reaper fires before React's passive `useSyncExternalStore` subscribe, so
+  the gap is crossed by nobody, this eviction runs, and the commit
+  rebuilds — two constructions per cold read. The cache side is unaffected
+  either way (it sees an ordinary release and an ordinary 1 → 0), and the
+  reaper's horizon decides the outcome. Read the paragraph above as the
+  mechanism, not as a claim about what a shipped mount costs.
 
   The `swap-vals!`-after-CAS patterns (in `dispose-entry-now!`,
   `unsubscribe!`, and `invalidate-sub-on-replace!`) all encode the same
@@ -91,15 +89,14 @@
 
 ;; ---- intrinsic disposal cause (late-bound out to a node-disposed hook) ----
 ;;
-;; NO READER TODAY (rf2-63t1i). The internal observation port's node-disposed
-;; hook was the only one, and the port was retired on 2026-08-21. The var and
+;; NO READER. There is no node-disposed hook reading it. The var and
 ;; its bindings are RETAINED for the reason Spec 009 gives for
 ;; `rf.frame/guard-open-drain!` at zero call sites: the CAUSE is knowable only
 ;; here, so a hook that ever needs it can only be served from here. Removing
 ;; the bindings would make the information unrecoverable rather than merely
 ;; unused.
 ;;
-;; rf2-r8jmdb / rf2-x76af2.34 FINDING 1: a former-owner disposal notification
+;; A former-owner disposal notification
 ;; must be tagged with the cause the node ACTUALLY
 ;; died of (`:hmr` = re-registered, will rebuild → re-acquire; `:disposed` =
 ;; gone), NOT with whichever drain boundary happens to fire first. That cause is
@@ -119,7 +116,7 @@
 (def ^:dynamic *disposal-cause*
   "The INTRINSIC `:rf.sub/dispose` reason for the reaction(s) being disposed in
   the current synchronous `rf.interop/dispose!` extent — bound by each eviction
-  site, read late-bound by a node-disposed hook. ZERO READERS TODAY; see the
+  site, read late-bound by a node-disposed hook. ZERO READERS; see the
   section comment above for why it is retained. nil outside any eviction
   extent."
   nil)
@@ -128,8 +125,8 @@
 ;;
 ;; Per Spec 009 §:op-type vocabulary §`:rf.sub/dispose` — every cache
 ;; eviction site funnels through this helper so the emit tag-shape is
-;; single-sourced. `k` is the cache-key (currently the query-vector
-;; itself, per `re-frame.subs/cache-key`); `query-id` is `(first k)`.
+;; single-sourced. `k` is the cache-key (the query-vector itself, per
+;; `re-frame.subs/cache-key`); `query-id` is `(first k)`.
 ;; The whole call sits behind `rf.interop/debug-enabled?` so production
 ;; CLJS bundles DCE the tag-map allocation + the emit call along with
 ;; the rest of the trace surface.
@@ -144,7 +141,7 @@
                   :rf.sub/reason  reason})))
 
 (defn ^:no-doc emit-no-more-derefers!
-  "INTERNAL (rf2-ty246). Emit the `:no-more-derefers` dispose trace for a slot
+  "INTERNAL. Emit the `:no-more-derefers` dispose trace for a slot
   evicted by the RATOM FAMILY'S OWN teardown route rather than by a ref-count
   decrement taken here.
 
@@ -212,7 +209,7 @@
        (when-let [r (get-in old [k :reaction])]
          ;; Tag a synchronous node-disposed notification
          ;; with the INTRINSIC cause (→ :disposed) so it can never be mislabelled
-         ;; :hmr by a co-pending HMR drain (rf2-r8jmdb).
+         ;; :hmr by a co-pending HMR drain.
          (binding [*disposal-cause* :no-more-derefers]
            (try (rf.interop/dispose! r)
                 (catch #?(:clj Throwable :cljs :default) _ nil)))))
@@ -232,18 +229,17 @@
   same subscription, the recomputed value is `=` to the disposed one
   so the new render observes no value change.
 
-  That churn is accepted between two DIFFERENT owners. It was never
-  meant to be paid inside ONE mount, and rf2-2rtt6.25 gave the React-hook
-  spine a way to avoid it: hold the render-phase reference until the
-  commit adopts it, so a cold first mount need not drive 1 → 0 between its
-  own render and its own commit (see `unsubscribe-if-reaction!` below and
-  Spec 006 §Render-phase provisional acquisition and commit adoption).
-  On the mount path consumers actually use, the escrow's macrotask reaper
-  beats React's passive subscribe and that release lands here anyway
-  (measured — the audit of #7305), so the cold first mount still reaches
-  this edge and still rebuilds. The rule this docstring states is
-  unchanged either way; only who reaches the edge, and how often, is at
-  issue, and the horizon that decides it is an operator call.
+  That churn is accepted between two DIFFERENT owners. It is not meant to
+  be paid inside ONE mount, and the React-hook spine has a way to avoid
+  it: hold the render-phase reference until the commit adopts it, so a
+  cold first mount need not drive 1 → 0 between its own render and its
+  own commit (see `unsubscribe-if-reaction!` below and Spec 006
+  §Render-phase provisional acquisition and commit adoption). On the
+  mount path consumers actually use, the escrow's macrotask reaper beats
+  React's passive subscribe and that release lands here anyway, so the
+  cold first mount reaches this edge and rebuilds. The rule this
+  docstring states holds either way; only who reaches the edge, and how
+  often, is at issue, and the reaper's horizon decides it.
 
   Called from the public `re-frame.subs/unsubscribe` after `cache-key`
   + `cache` resolution; the facade fn holds the public API shape.
@@ -281,7 +277,7 @@
      nil)))
 
 (defn ^:no-doc unsubscribe-if-reaction!
-  "INTERNAL (rf2-2rtt6.25). `unsubscribe!` with an IDENTITY GUARD: decrement
+  "INTERNAL. `unsubscribe!` with an IDENTITY GUARD: decrement
   the ref-count for `k` **only while the slot still holds `reaction`**, then
   take the ordinary 1 → 0 in-tick disposal. Not part of the public API —
   `re-frame.subs/unsubscribe` remains the teardown every consumer calls.
@@ -339,14 +335,14 @@
 ;; transitive dependent closure, a downstream slot like `[:sum]` over `[:a]`
 ;; keeps its stale input reaction and serves the old `:a` body's value.
 ;;
-;; rf2-4lp1 — THE REGISTRAR IS NOT THE ONLY REGISTRY A SUB'S DEFINITION CAN
+;; THE REGISTRAR IS NOT THE ONLY REGISTRY A SUB'S DEFINITION CAN
 ;; MOVE IN. An image-loaded frame resolves `(kind, id)` through its OWN sealed
 ;; generation (EP-0023), so a same-id `make-frame` re-construction or a
 ;; source-store reprojection changes what `[:some-sub]` MEANS in that frame
 ;; without any `register!` call firing — the replacement hook below never
 ;; runs, and the cache (durable frame state, deliberately preserved across the
-;; swap) kept serving the previous generation's body until the caller thought
-;; to `clear-sub-cache!` by hand. Both triggers are one event seen from two
+;; swap) would keep serving the previous generation's body until the caller
+;; thought to `clear-sub-cache!` by hand. Both triggers are one event seen from two
 ;; registries, so both funnel through the ONE primitive below
 ;; (`invalidate-frame-subs!`); the generation-side trigger lives in
 ;; `re-frame.live-frame`, which owns `generation-diff` and can therefore name
@@ -367,9 +363,9 @@
 
   Clause (a) is what reaches a cached PARENT whose declared input has NO slot
   of its own — the input was unregistered when the parent was built, so the
-  miss was deliberately not cached (rf2-l9u5) while the parent WAS, holding
+  miss was deliberately not cached while the parent WAS, holding
   the nil-yielding input reaction by closure. `ids` is a SET rather than one
-  id (rf2-4lp1) because a frame-generation change condemns a whole BATCH of
+  id because a frame-generation change condemns a whole BATCH of
   sub-ids at once — `:added` / `:changed` / `:removed` between two
   generations — and running the fixpoint once over the batch is not the same
   as running it per-id: a chain condemned through two different ids
@@ -407,8 +403,8 @@
       frame, with a one-element `sub-ids` (Spec 001 §Hot-reload semantics);
     * a frame's resolved image GENERATION changing — `re-frame.live-frame`'s
       `invalidate-subs-for-generation-change!`, over the ONE frame that moved,
-      with the `:sub` ids the two generations differ on (rf2-4lp1, EP-0023
-      §Hot Reload).
+      with the `:sub` ids the two generations differ on (EP-0023 §Hot
+      Reload).
 
   Both are the SAME event seen from two registries, so both emit
   `:rf.sub/dispose` with the closed-enum `:rf.sub/reason :hot-reload` (Spec
@@ -443,11 +439,11 @@
       ;; (`:cache-clear`).
       (doseq [k evicted-keys]
         (emit-dispose! frame-id k :hot-reload))
-      ;; Tag the observation port's synchronous node-disposed notifications
-      ;; with the INTRINSIC :hot-reload cause (→ :hmr) so a former owner is
-      ;; told the node WILL rebuild (re-acquire), not that it is gone
-      ;; (rf2-r8jmdb). Nested `dispose-entry-now!` cascades (a downstream
-      ;; input losing its last derefer) correctly shadow this to :disposed.
+      ;; Tag any synchronous node-disposed notification with the
+      ;; INTRINSIC :hot-reload cause (→ :hmr) so a former owner is told
+      ;; the node WILL rebuild (re-acquire), not that it is gone. Nested
+      ;; `dispose-entry-now!` cascades (a downstream input losing its last
+      ;; derefer) correctly shadow this to :disposed.
       (binding [*disposal-cause* :hot-reload]
         (doseq [k evicted-keys]
           (when-let [r (get-in old [k :reaction])]
@@ -480,16 +476,16 @@
   scope it raises `:rf.error/no-frame-context` rather than clearing an
   invented default. One-arity targets the named frame (the right shape
   for fixtures / tools outside any scope). Returns nil. See also:
-  `re-frame.subs/clear-sub` (registrar-side counterpart).
+  `(rf/clear :sub id)` (registrar-side counterpart).
 
-  Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
+  The cache atom is reset to `{}` BEFORE any
   `rf.interop/dispose!` call, not after. A layer-2+ slot's on-dispose
   callback releases its declared-input refs via `unsubscribe!`, which — if
   the input's slot were still present in the cache atom mid-walk — could
   drive its ref-count to 0 and fire `dispose-entry-now!`, re-emitting a
   SECOND `:rf.sub/dispose` (reason `:no-more-derefers`) for a slot this
   same walk is about to visit with reason `:cache-clear`; the resulting
-  double-emit's ORDER (and thus which reason lands first) depended on
+  double-emit's ORDER (and thus which reason lands first) would depend on
   hash-map iteration order over the cache. Clearing the atom first means
   every cascade-driven `unsubscribe!` finds nothing to evict, so it can
   never re-fire — every slot in the pre-clear snapshot gets exactly one
@@ -499,17 +495,16 @@
                           {:where 're-frame.subs.cache/clear-sub-cache!})))
   ([frame-id]
    (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-     ;; Evict the whole cache BEFORE any dispose! call — see the rf2-awhtpc
+     ;; Evict the whole cache BEFORE any dispose! call — see the docstring
      ;; note above — and do it in ONE atomic take, disposing exactly the map
-     ;; it removed (rf2-gwye.4). A separate `@cache` read and `reset!` left a
-     ;; JVM window in which an entry acquired between them was erased without
-     ;; being in the batch, so it was never disposed, and two overlapping
+     ;; it removed. A separate `@cache` read and `reset!` would leave a JVM
+     ;; window in which an entry acquired between them is erased without
+     ;; being in the batch, so it is never disposed, and two overlapping
      ;; clears could each condemn the same entry.
      (let [[snapshot _] (reset-vals! cache {})]
-       ;; Tag the observation port's synchronous node-disposed notifications
-       ;; with the INTRINSIC :cache-clear cause (→ :disposed) so an explicit
-       ;; teardown is never mislabelled :hmr by a co-pending HMR drain
-       ;; (rf2-r8jmdb).
+       ;; Tag any synchronous node-disposed notification with the
+       ;; INTRINSIC :cache-clear cause (→ :disposed) so an explicit
+       ;; teardown is never mislabelled :hmr by a co-pending HMR drain.
        (binding [*disposal-cause* :cache-clear]
          (doseq [[k entry] snapshot]
            ;; Emit dispose per evicted key BEFORE the per-
@@ -572,7 +567,7 @@
   009 §`:rf.sub/dispose` reason enum + Spec 006 §Disposal on frame
   destroy.
 
-  Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
+  The cache atom is reset to `{}` BEFORE any
   `rf.interop/dispose!` call — same rationale as `clear-sub-cache!` above.
   Without pre-clearing, disposing a layer-2+ slot cascades (via its
   on-dispose callback) into `unsubscribe!` on its declared inputs; if an
@@ -585,12 +580,12 @@
   deterministically reasoned `:frame-destroy`. Returns nil."
   [cache frame-id]
   (when cache
-    ;; One atomic take, as in `clear-sub-cache!` (rf2-gwye.4): the batch
+    ;; One atomic take, as in `clear-sub-cache!`: the batch
     ;; disposed is exactly the map this call removed.
     (let [[snapshot _] (reset-vals! cache {})]
-      ;; Tag the observation port's synchronous node-disposed notifications with
-      ;; the INTRINSIC :frame-destroy cause (→ :disposed) so a frame teardown is
-      ;; never mislabelled :hmr by a co-pending HMR drain (rf2-r8jmdb).
+      ;; Tag any synchronous node-disposed notification with the
+      ;; INTRINSIC :frame-destroy cause (→ :disposed) so a frame teardown is
+      ;; never mislabelled :hmr by a co-pending HMR drain.
       (binding [*disposal-cause* :frame-destroy]
         (doseq [[k entry] snapshot]
           (emit-dispose! frame-id k :frame-destroy)
