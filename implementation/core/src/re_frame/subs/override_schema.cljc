@@ -1,6 +1,5 @@
 (ns re-frame.subs.override-schema
-  "The ONE Story `:sub-overrides` schema-validation primitive
-  (rf2-vxgfnd.21).
+  "The ONE Story `:sub-overrides` schema-validation primitive.
 
   A Story render's lowest-fidelity rung pins a view into an
   `:error`/`:loading`/`:empty` state by naming subscription query-vectors
@@ -33,7 +32,7 @@
   "Validate a resolved Story override HIT and RECOVER to nil on a violation.
 
   When `sub-meta` declares an output `:schema` — declaration is KEY-presence,
-  not value truthiness (rf2-6eh5h); a present nil / false token is delegated
+  not value truthiness; a present nil / false token is delegated
   verbatim — validate `value` against it
   via the registered validator (`:schemas/validate-with-registered-fn`). On
   a mismatch, emit `:rf.error/schema-validation-failure` tagged `:where
@@ -53,7 +52,7 @@
   generation (a multi-image frame validates against its own image's schema);
   this primitive takes the already-resolved metadata."
   [value query-v sub-meta frame-id]
-  ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil / false
+  ;; KEY-presence, not value truthiness: a present nil / false
   ;; `:schema` is a declaration whose exact token is delegated to the
   ;; registered validator; only an ABSENT key means no declaration.
   ;; (`contains?` on a nil sub-meta is false, covering the frameless case.)
