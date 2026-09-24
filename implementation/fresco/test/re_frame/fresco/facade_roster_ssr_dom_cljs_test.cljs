@@ -1,15 +1,12 @@
 (ns re-frame.fresco.facade-roster-ssr-dom-cljs-test
-  "**The facade names that had no inventory row** — dispositions.md
-  §2.1 row HS-40 and §2.2 row HS-42.
+  "**Two facade names and their inventory rows** — dispositions.md
+  §2.1 row HS-40 (`h/route-link`) and §2.2 row HS-42 (`h/reg-state`).
 
-  CHECKPOINT 4 read §3's second constraint — *a surface
-  that reaches the facade without a row has escaped the inventory, and
-  the Phase 4 exit silently stops meaning anything* — against
-  `re-frame.fresco`'s own alias block, and three public names came back
-  with no row anywhere: `h/route-link`, `h/use-subs` and `h/reg-state`.
-  This file is what those rows now point at. The middle one, HS-41, was
-  the grouped read door; it was removed under rf2-6c12m.15 and its rows
-  went with it.
+  §3's second constraint says *a surface that reaches the facade without
+  a row has escaped the inventory, and the Phase 4 exit silently stops
+  meaning anything*. Read against `re-frame.fresco`'s own alias block,
+  these two public names owe rows, and this file is the witness those
+  rows point at.
 
   ## The roster, derived MECHANICALLY
 
@@ -19,10 +16,10 @@
 
       grep -nE '^   \\(defmacro [a-z]' \\
         implementation/fresco/src/re_frame/fresco.cljc
-      grep -nE '^ +[a-z][a-zA-Z0-9!?*<>=-]* +impl-[a-z-]+/[a-zA-Z0-9!?*<>=-]+\\)+$' \\
+      grep -nE '^ +[a-z][a-zA-Z0-9!?*<>=-]* +rf\\.fresco\\.impl\\.[a-z-]+/[a-zA-Z0-9!?*<>=-]+\\)+$' \\
         implementation/fresco/src/re_frame/fresco.cljc
 
-  That is 3 + 12 = 15 names as of this bead. A name added tomorrow shows
+  That is 3 + 12 = 15 names. A name added tomorrow shows
   up in the second grep the day it lands, and §3's constraint says it
   owes a row.
 
@@ -32,7 +29,7 @@
   server bytes — a plain function answering `[:a {:href …}]`, where the
   href is routing's own synthesis. `requirements-mine.md`'s census counts
   106 sites and licenses them to stay href-real and visible to the server
-  renderer. No fresco suite had ever server-rendered one.
+  renderer, and this file server-renders one.
 
   **`h/reg-state` (HS-42)** is §2.2's, not §2.1's, and this file's one
   row for it says why in the only way that is not an assumption: the
