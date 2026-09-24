@@ -452,13 +452,13 @@
 ;; the RETIRED spellings, held here verbatim as paired controls
 ;;
 ;; Each is deliberately NOT a call into the shipped source: the whole point is
-;; to keep the retired EXPRESSION measurable beside the one that replaced it,
+;; to keep the retired EXPRESSION measurable beside the shipped one,
 ;; in the same process, against the same live frame — so a claimed saving is a
 ;; prediction the instrument can falsify rather than a before/after story.
 
 (defn- retired-resolution-target
-  "rf2-8gb3t. `rf.live-frame/frame-resolution-target` as it stood before the
-  wrapper was retired: a frame VALUE verbatim, a frame-id keyword through
+  "The retired `rf.live-frame/frame-resolution-target` wrapper: a frame VALUE
+  verbatim, a frame-id keyword through
   `live-frame` (which MINTS a fresh frame value), anything else nil."
   [target]
   (cond
@@ -467,7 +467,7 @@
     :else                            nil))
 
 (defn- retired-current-frame!
-  "rf2-a8bw0. `subscribe`'s 1-arity before the payload was deferred: the
+  "The EAGER spelling of `subscribe`'s 1-arity: the
   `{:where :event-id}` extra map built on EVERY call, read only on the
   `:rf.error/no-frame-context` path."
   [query-v]
@@ -477,7 +477,7 @@
      :event-id (first query-v)}))
 
 (defn- shipped-current-frame!
-  "The SHIPPED spelling (rf2-a8bw0): the scope reader first, and the payload —
+  "The SHIPPED spelling: the scope reader first, and the payload —
   with `require-current-frame!` building it — only when the reader found
   nothing."
   [query-v]
@@ -531,7 +531,7 @@
 
 ;; ---- inside subscribe: the prefix ladder ----------------------------------
 
-;; rf2-x0fe2 — the ambient reader, PAIRED, because this is the one place the
+;; The ambient reader, PAIRED, because this is the one place the
 ;; CLJS read path does MORE than the JVM one rather than less.
 ;;
 ;; `rf.frame/resolve-current-frame` is a plain `*current-frame*` var read on the
@@ -671,8 +671,8 @@
 ;; object prepared once, because a persistent map's `assoc` short-circuits and
 ;; returns `this` when the new value is `identical?` to the old — assoc-ing an
 ;; entry back over itself measures the no-op path and would badly understate
-;; the copy this arm exists to price. (On the JVM that mistake understated it
-;; by 22x before it was caught.)
+;; the copy this arm exists to price. (On the JVM that mistake understates it
+;; by 22x.)
 (defn- arm-rc-assoc []
   (let [{:keys [n qs snap bumped]} @rig]
     (dotimes [k n]
@@ -685,7 +685,7 @@
       (keep! (assoc (get snap (nth qs k)) :ref-count 2)))
     nil))
 
-;; ---- rf2-ncjyt / rf2-ezwnl — the pre-node lookups -------------------------
+;; ---- the pre-node lookups -------------------------------------------------
 
 (defn- arm-n-restgt []
   (let [{:keys [n]} @rig]
@@ -733,19 +733,19 @@
 ;; as `S3-CWFR - S2-TGTID - N-CWFRNOG`. That assumes the only difference between
 ;; `cwfr` on a real target and `cwfr` on `nil` is the binding — but a nil target
 ;; SHORT-CIRCUITS `frame-resolution-generation`, so the difference also contains
-;; the generation read. On the JVM the binding was ~760 B and the generation read
-;; 16-40 B, so the conflation was 2-5% and invisible. Here the binding is
+;; the generation read. On the JVM the binding is ~760 B and the generation read
+;; 16-40 B, so the conflation is 2-5% and invisible. Here the binding is
 ;; predicted to be ZERO, so that residual would be ENTIRELY the generation read —
 ;; a subtraction that reports the generation read AS the binding and manufactures
 ;; a "CLJS binding cost" that does not exist.
 ;;
-;; FAULT 2, in the obvious repair, and it was caught by this harness disagreeing
+;; FAULT 2, in the obvious repair, and this harness catches it by disagreeing
 ;; with itself. Re-spelling cwfr's body INLINE and subtracting reads 64 B/read
 ;; where standalone `N-BINDONLY` reads 0.1 — because `call-with-frame-resolution`
 ;; takes a THUNK and its caller allocates a fresh closure per call, while an
 ;; inline re-spelling allocates none and lets V8 elide what never escapes. The
-;; subtraction then prices the CLOSURE, and would have been published as the
-;; binding. Same shape of error as fault 1, opposite sign.
+;; subtraction then prices the CLOSURE, and would publish it as the binding.
+;; Same shape of error as fault 1, opposite sign.
 ;;
 ;; So the pair below is SYMMETRIC: two sibling functions of identical arity and
 ;; identical shape, each taking a thunk the arm allocates fresh, differing in
@@ -778,16 +778,16 @@
     (thunk)
     (thunk)))
 
-;; rf2-x0fe2 — `thunk-escape` exists because the ARM-ORDER GUARD REFUSED the
-;; arm below, and it was right to.
+;; `thunk-escape` exists because without it the ARM-ORDER GUARD refuses the
+;; arm below, and rightly.
 ;;
-;; `call-thunk` was originally `(defn- call-thunk [thunk] (thunk))`. Closure
-;; inlines a private one-liner, so the thunk never escaped, so V8's escape
-;; analysis elided it — and the arm read 16.0 B/call, the instrument floor,
-;; which is to say it measured NOTHING. Except in some windows, where it read
-;; 19,219 B/call: exactly 64 B per inner iteration, one closure each. The guard
-;; refused it by PHASE in three separate configurations (6 warm windows, 12 warm
-;; windows, 8 rounds) with BIT-IDENTICAL values every time, so it is not a
+;; A bare `(defn- call-thunk [thunk] (thunk))` is a private one-liner Closure
+;; inlines, so the thunk never escapes, so V8's escape analysis elides it — and
+;; the arm reads 16.0 B/call, the instrument floor, which is to say it measures
+;; NOTHING. Except in some windows, where it reads 19,219 B/call: exactly 64 B
+;; per inner iteration, one closure each. The guard refuses it by PHASE in
+;; three separate configurations (6 warm windows, 12 warm windows, 8 rounds)
+;; with BIT-IDENTICAL values every time, so it is not a
 ;; settling curve and more warm-up does not touch it — it is escape analysis
 ;; succeeding or failing according to V8's optimization tier at that point in
 ;; the plan.
@@ -798,17 +798,17 @@
 ;; reading V8's optimization state as much as its own allocation.
 ;;
 ;; So the thunk is made to ESCAPE for real — stored where nothing can prove it
-;; dead. The arm then prices one closure, which is what it was always supposed
-;; to do. This repairs the ARM; the guard's tolerance is untouched.
+;; dead. The arm then prices one closure, which is its job. The repair is to
+;; the ARM; the guard's tolerance stays as it is.
 ;;
 ;; It is also why the binding is isolated by a SYMMETRIC PAIR and not by any
 ;; subtraction between differently-shaped arms: whatever V8 does to a closure it
 ;; does to both halves, and cancels.
 ;;
-;; rf2-ktrvw — AND IT PRICES ONE CLOSURE *BIMODALLY*, WHICH NO ARM CAN FIX.
+;; AND IT PRICES ONE CLOSURE *BIMODALLY*, WHICH NO ARM CAN FIX.
 ;;
-;; The escape repair above removed the ELISION. It did not, and could not,
-;; remove the remaining ~64 B/read step, because that step is not the arm's:
+;; Making the thunk escape removes the ELISION. It cannot remove the
+;; remaining ~64 B/read step, because that step is not the arm's:
 ;; `N-NEWFN` creates one closure per inner iteration and does NOTHING else —
 ;; no callee, no binding, not even a call — and it carries the step too.
 ;;
@@ -827,7 +827,7 @@
 ;; when a third straddles both, which is the house rule working correctly on a
 ;; factor that does not describe the phenomenon. Widening the tolerance would
 ;; hide a real bimodality; narrowing it would refuse runs at random. Neither is
-;; the repair, and the guard is left alone.
+;; the repair, so the guard stays as it is.
 ;;
 ;; WHAT THESE ARMS THEREFORE MEASURE: one closure, in whichever of two modes
 ;; V8's closure site is in — 64 B or 128 B. They are quotable as a RANGE and as
@@ -847,7 +847,7 @@
   (vreset! thunk-escape thunk)
   (thunk))
 
-;; rf2-ktrvw — THE CLOSURE, PRICED ON ITS OWN, because every arm that hands a
+;; THE CLOSURE, PRICED ON ITS OWN, because every arm that hands a
 ;; thunk to another function is dominated by it and none of them could say what
 ;; the thunk cost without assuming it.
 ;;
@@ -864,7 +864,7 @@
 ;;      property of CLOSURE CREATION rather than of any arm's subject, this
 ;;      arm — which is nothing but closure creation — must show the SAME step.
 ;;
-;; The second is the one the bead is about. An arm cannot be re-shaped out of a
+;; The second is the one that matters here. An arm cannot be re-shaped out of a
 ;; cost its own subject carries, so if the step is here it is not a defect in
 ;; `N-CALLTHUNK` and no repair of `N-CALLTHUNK` can remove it.
 
