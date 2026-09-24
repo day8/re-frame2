@@ -94,7 +94,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.projection :as rf.projection]
             [re-frame.trace :as rf.trace]
-            ;; rf2-3x7nj.13.3 — the numeric crossing rule, JVM-only: on CLJS
+            ;; The numeric crossing rule, JVM-only: on CLJS
             ;; every number already crosses, and the client bundle (which
             ;; reaches this ns through `re-frame.ssr.hydrate`) never loads it.
             #?(:clj [re-frame.ssr.manifest :as rf.ssr.manifest])))
@@ -123,11 +123,11 @@
   are keywords; this validator therefore requires EVERY element to be a
   keyword.
 
-  rf2-hzttr finding 2 — the prior element-shape gap: a check of
-  `(and (sequential? x) (seq x))` only verified the OUTER shape, so a
+  A check of
+  `(and (sequential? x) (seq x))` alone verifies only the OUTER shape, so a
   malformed allowlist — a string typo for a keyword (`[\"public/articles\"]`),
-  a stray `nil` (`[:a nil]`), or a nested coll (`[[:a :b]]`) — passed
-  construction-time validation and was caught only later by `select-keys`,
+  a stray `nil` (`[:a nil]`), or a nested coll (`[[:a :b]]`) — would pass
+  construction-time validation and be caught only later by `select-keys`,
   silently shipping an empty or wrong hydration slice instead of failing
   closed at boot. Validating each element to a keyword closes that gap.
 
@@ -155,7 +155,7 @@
   `:rf.error/ssr-malformed-payload-allowlist` (which element is bad)
   rather than dumping the caller into the generic missing-policy bucket
   — the developer clearly INTENDED an allowlist; telling them which entry
-  is wrong is the fail-loud, masterpiece outcome (rf2-hzttr finding 2).
+  is wrong is the fail-loud, masterpiece outcome.
   An empty `[]` / `'()` is NOT malformed — it is the documented `no-allowlist`
   shape that falls into the missing-policy bucket per Spec 011.
 
@@ -169,13 +169,13 @@
        (not (every? keyword? x))))
 
 (defn- valid-policy-keyword?
-  "Currently the only explicit-policy keyword recognised is the
+  "The only explicit-policy keyword recognised is the
   whole-app-db opt-in — the keyword shape of the `:payload` opt. New
   policies (e.g. schema-driven projections) would extend this set."
   [x]
   (= x whole-app-db-policy))
 
-;; ---- the sensitive permit (rf2-hjz4r) ------------------------------------
+;; ---- the sensitive permit ------------------------------------------------
 ;;
 ;; `:payload-include-sensitive` — an optional vector of concrete app-db PATHS
 ;; whose RAW value may cross to the hydrating browser although the frame
@@ -225,7 +225,7 @@
     - `:payload :rf.ssr.payload/whole-app-db`   → OK (whole-app-db opt-in)
     - `:payload [<… non-keyword element …>]` (non-empty SEQUENTIAL with a
       string/nil/nested entry) → `:rf.error/ssr-malformed-payload-allowlist`
-      (rf2-hzttr — a clear allowlist attempt with a bad element, surfaced
+      (a clear allowlist attempt with a bad element, surfaced
       distinctly with the offending entries so a `\"public/articles\"`
       string-typo fails loud at boot instead of silently shipping an empty
       slice)
@@ -240,7 +240,7 @@
   With a valid `:payload`, the optional `:payload-include-sensitive` permit
   must be a vector of non-empty path vectors, or
   `:rf.error/ssr-malformed-payload-allowlist` names it (`:opt
-  :payload-include-sensitive`, rf2-hjz4r).
+  :payload-include-sensitive`).
 
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."
@@ -257,7 +257,7 @@
     ;; (string typo, stray nil, nested coll). Surface the offending entries
     ;; so the fix is obvious; do NOT let it slide into the generic
     ;; missing-policy bucket where a `select-keys` would otherwise ship a
-    ;; wrong/empty slice (rf2-hzttr finding 2).
+    ;; wrong/empty slice.
     (malformed-allowlist? payload)
     (rf.error/throw-error!
       :rf.error/ssr-malformed-payload-allowlist
@@ -370,7 +370,7 @@
   Anything else — an absent coordinate, a scalar in the way, a `:rf/redacted`
   ancestor, a dead frame's whole-slice sentinel — leaves the projection
   untouched: a permit never creates a key or a container, and never pierces a
-  classified ancestor (rf2-hjz4r)."
+  classified ancestor."
   [projected raw [k & more]]
   (if (descendable? projected raw k)
     (assoc projected k (if more
@@ -384,7 +384,7 @@
   frame-classified `:sensitive` path inside an allowlisted (or whole-app-db)
   slice redacts as defense-in-depth before it serializes into the hydration
   `:rf/app-db` (EP-0015 §14). The profile applies no size elision: the payload
-  is the browser's live state (rf2-hjz4r). Defers to
+  is the browser's live state. Defers to
   `re-frame.projection/project-egress` (over the shared `elide-wire-value`
   walker) — never a family-private elider.
 
@@ -395,7 +395,7 @@
   fail-closed case (no frame policy ⇒ whole-value redaction).
 
   The 3-arity also takes the host's `:payload-include-sensitive` `permits` — a
-  vector of concrete app-db paths whose raw value may cross (rf2-hjz4r). After
+  vector of concrete app-db paths whose raw value may cross. After
   the projection, each permitted path gets its raw value back from `db-slice`
   (the allowlisted slice, never the frame, so a permit off the allowlist does
   nothing), per `restore-permitted`: it never pierces a classified ancestor, and
@@ -427,14 +427,14 @@
 ;; `[:rf.runtime/routing :current …]` and lowered into the per-frame elision
 ;; registry (`re-frame.routing.classification/apply-route-classification`,
 ;; `:source :route`) — the SAME `[:rf.runtime/elision …]` slot the
-;; `:rf.egress/ssr-hydration` egress walk reads. But the prior
-;; `project-runtime-db` shipped the routing `:current` slice via a bare
-;; `select-keys`, so a route declaring `:sensitive [[:query :token]]` installed
-;; the registry decl yet serialised the raw `:query` / `:params` value into the
-;; hydration `:rf/runtime-db` payload (the leak rf2-4xut98 names). This mirrors
-;; the IDENTICAL leak class machines fixed under rf2-jm2u63 (snapshots shipped
-;; raw before the `:machines/project-ssr-runtime-db` hook), and the app-db slice
-;; fixed under rf2-bt9kct (`project-app-db-egress` above).
+;; `:rf.egress/ssr-hydration` egress walk reads. Shipping the routing
+;; `:current` slice via a bare
+;; `select-keys` would let a route declaring `:sensitive [[:query :token]]` install
+;; the registry decl yet serialise the raw `:query` / `:params` value into the
+;; hydration `:rf/runtime-db` payload. It is the
+;; IDENTICAL leak class the machines snapshot hook
+;; (`:machines/project-ssr-runtime-db`) and the app-db slice projection
+;; (`project-app-db-egress` above) close.
 ;;
 ;; The routing decls are stored as ABSOLUTE runtime-db paths
 ;; (`[:rf.runtime/routing :current :query :token]`), so the slice is walked
@@ -455,8 +455,8 @@
   `[:rf.runtime/routing :current …]` at route activation — redacts / elides the
   classified `:query` / `:params` value before it serialises into the hydration
   `:rf/runtime-db` (Spec 012 §Route data classification, Spec 015 §SSR,
-  EP-0025). Mirrors `project-app-db-egress` (app-db slice, rf2-bt9kct) and the
-  machines `:machines/project-ssr-runtime-db` hook (snapshot `:data`, rf2-jm2u63).
+  EP-0025). Mirrors `project-app-db-egress` (app-db slice) and the
+  machines `:machines/project-ssr-runtime-db` hook (snapshot `:data`).
 
   The route decls are stored as ABSOLUTE runtime-db paths
   (`[:rf.runtime/routing :current :query :token]`), so the walk is seeded at the
@@ -466,19 +466,19 @@
   `re-frame.projection/project-egress` (over the shared `elide-wire-value`
   walker) — never a family-private elider.
 
-  Fail-closed on a lost frame (rf2-j538f7.15): an EXPLICIT `frame-id` is handed
+  Fail-closed on a lost frame: an EXPLICIT `frame-id` is handed
   STRAIGHT to `project-egress`, which is PATH-precise under a LIVE frame (an
   unclassified route slice rides verbatim — only the declared `:query` /
   `:params` slots redact / elide) and FAILS CLOSED under a destroyed /
   re-registered / unresolvable one (the whole `:current` slice redacts to
   `:rf/redacted`). This is the SAME fail-closed posture as
   `project-app-db-egress`. It closes the teardown-race leak: a `:current` route
-  slice captured while its frame was live no longer rides RAW once that frame is
+  slice captured while its frame was live does not ride RAW once that frame is
   torn down (or re-registered under the same id) between capture and projection —
   its classification authority is gone, so the slice fails closed rather than
-  serialising declared `:query` / `:params` under no policy. The PRIOR guard
-  rode the slice VERBATIM whenever the frame was not live, which is exactly the
-  leak: a stale explicit target shipped the raw classified route state.
+  serialising declared `:query` / `:params` under no policy. Riding the slice
+  VERBATIM whenever the frame is not live would be exactly that
+  leak: a stale explicit target shipping the raw classified route state.
 
   A nil `frame-id` is the frameless / ambient-nil convenience (the one-arity
   `project-runtime-db` called outside any frame): there is no frame policy to
@@ -491,8 +491,8 @@
   (if (some? frame-id)
     ;; Explicit target: project-egress is precise under a live frame and fails
     ;; closed (redacts whole) under a destroyed / re-registered / unresolvable
-    ;; one — no longer routed around (the former verbatim else-branch was the
-    ;; rf2-j538f7.15 leak).
+    ;; one; routing around it with a verbatim branch would be the
+    ;; teardown-race leak.
     (rf.projection/project-egress
       slice
       {:frame             frame-id
@@ -504,8 +504,8 @@
 
 ;; ---- runtime-db hydration projection --------------------------------------
 ;;
-;; Per Spec 011 §The hydration payload (`:rf/runtime-db`) + §Off-box redaction
-;; (Mike ruling #13): the optional `:rf/runtime-db` payload slice carries ONLY
+;; Per Spec 011 §The hydration payload (`:rf/runtime-db`) + §Off-box
+;; redaction: the optional `:rf/runtime-db` payload slice carries ONLY
 ;; the SERIALIZABLE DURABLE runtime-db facts the client needs to reconstitute
 ;; a coherent frame-state — machine snapshots / spawn registry, the active
 ;; route slice, elision declarations, and SSR hydration metadata. Transient
@@ -537,25 +537,25 @@
   the two agree so storage / SSR / docs can never silently drift — see
   `re-frame.ssr.payload-policy-cljs-test`.
 
-  The nav-token / pending-nav COUNTERS are no longer runtime-db keys at all
-  — they live in a host-side transient cache per rf2-oosjmh (as do saved
-  scroll positions, rf2-1hncp2) — but the fail-closed allowlist would strip
+  The nav-token / pending-nav COUNTERS are not runtime-db keys at all
+  — they live in a host-side transient cache (as do saved
+  scroll positions) — and the fail-closed allowlist would strip
   them regardless."
   [:current])
 
 (defn project-runtime-db
   "Project a frame's runtime-db value to the SERIALIZABLE durable slice that
-  rides the `:rf/hydration-payload`'s optional `:rf/runtime-db` key (EP-0001
-  rf2-30kzz2, Mike ruling #13). Allowlist-shaped per subsystem child:
+  rides the `:rf/hydration-payload`'s optional `:rf/runtime-db` key
+  (EP-0001). Allowlist-shaped per subsystem child:
 
     - `:rf.runtime/machines` — shipped whole (snapshots + spawn registry are
       durable serializable facts the client re-materialises actors from);
     - `:rf.runtime/routing`  — only the durable `:current` route slice
       (`:pending-navigation` is local-subscribable client state; the
       scroll / nav-token / pending-nav caches are host-side transient
-      state, not runtime-db at all — rf2-1hncp2 / rf2-oosjmh), PROJECTED
-      against the frame's route classification (rf2-4xut98 — see below);
-    - `:rf.runtime/elision`  — OMITTED from the wire (rf2-ybn1yb — see below);
+      state, not runtime-db at all), PROJECTED
+      against the frame's route classification (see below);
+    - `:rf.runtime/elision`  — OMITTED from the wire (see below);
     - `:rf.runtime/ssr`       — the SSR hydration metadata.
 
   Returns nil for a nil / empty runtime-db OR when no durable subsystem fact
@@ -563,7 +563,7 @@
   (the client-only / no-server-runtime fallback). nil-pruned: a subsystem
   whose durable slice is absent contributes no key.
 
-  rf2-jm2u63 — the `:rf.runtime/machines` slice is NOT shipped raw: each
+  The `:rf.runtime/machines` slice is NOT shipped raw: each
   durable machine snapshot's `:data` is projected per the owning FRAME's
   elision-registry `:sensitive` / `:large` classification for that actor —
   declared projection-relative by top-level `:sensitive` / `:large` on the
@@ -579,7 +579,7 @@
   unchanged (a runtime-db with `:rf.runtime/machines` but no machines artefact
   loaded cannot carry actor snapshots anyway).
 
-  rf2-4xut98 — the `:rf.runtime/routing` slice is NOT shipped raw either: the
+  The `:rf.runtime/routing` slice is NOT shipped raw either: the
   allowlisted durable `:current` route slice is run through
   `project-routing-egress` under the `:rf.egress/ssr-hydration` boundary, so a
   route's projection-relative `:sensitive` / `:large` `:query` / `:params`
@@ -589,7 +589,7 @@
   projection and the app-db slice projection. An unclassified route slice rides
   verbatim (the walk is path-precise).
 
-  rf2-ybn1yb — the `:rf.runtime/elision` per-frame DECLARATION REGISTRY is NOT
+  The `:rf.runtime/elision` per-frame DECLARATION REGISTRY is NOT
   shipped at all: it is OMITTED from the hydration wire. Its declaration KEYS are
   themselves app-db / runtime-db PATHS, and a classified path can embed a
   sensitive id (`[:by-id \"user-secret\" :token]`), so shipping the raw registry
@@ -606,21 +606,21 @@
   so their redaction is baked into the wire value and does not need the
   declarations to re-derive it.
 
-  ## The projection frame is the EXPLICIT carried target (rf2-3fc89f.15)
+  ## The projection frame is the EXPLICIT carried target
 
   The two-arity `[runtime-db frame-id]` is the canonical form: it projects
   every runtime-db slice under the EXPLICIT `frame-id` the caller carries — the
   same target the payload is stamped `:rf/frame-id`, and the same target
-  `build-final-payload` / the non-streaming builder already thread to the app-db
+  `build-final-payload` / the non-streaming builder thread to the app-db
   projection. A hydration payload therefore projects BOTH partitions under ONE
   frame, regardless of ambient scope.
 
   This matters because the runtime-db projectors fail in OPPOSITE directions on
   a missing frame: `project-routing-egress` fails OPEN (no frame ⇒ the
   classified route `:current` slice rides RAW) while the machines projector
-  skips `:data` redaction. Resolving the frame AMBIENTLY (the pre-3fc89f.15
-  one-arity behaviour) meant a builder called outside `rf/with-frame`, or under
-  a DIFFERENT ambient frame, serialized classified route / machine / resource
+  skips `:data` redaction. Resolving the frame AMBIENTLY would mean a builder
+  called outside `rf/with-frame`, or under
+  a DIFFERENT ambient frame, serializes classified route / machine / resource
   state under nil or the WRONG frame's policy — a serialization privacy leak.
 
   The one-arity `[runtime-db]` is a convenience that projects under the ambient
@@ -629,18 +629,18 @@
   the explicit target.
 
   The late-bound `:ssr/extend-runtime-db-projection` hook (resources) takes the
-  explicit target as a second parameter (`[runtime-db frame-id]`, rf2-f02diw);
+  explicit target as a second parameter (`[runtime-db frame-id]`);
   the two-arity threads the same `frame-id` into it so the extension projects
   under the SAME frame as every other slice — never a borrowed / mismatched
   ambient scope."
   ([runtime-db]
    ;; Convenience: project under the AMBIENT scope frame. Correct only when the
    ;; call site is inside the frame's own `with-frame` (ambient == the target).
-   ;; The security-critical builders pass the explicit target (rf2-3fc89f.15).
+   ;; The security-critical builders pass the explicit target.
    (project-runtime-db runtime-db (rf.frame/resolve-current-frame)))
   ([runtime-db frame-id]
    (when (map? runtime-db)
-    (let [;; rf2-j538f7.15 — an EXPLICIT `frame-id` that no longer resolves to a
+    (let [;; An EXPLICIT `frame-id` that no longer resolves to a
           ;; LIVE frame (destroyed, or re-registered under the same id, between
           ;; the caller's state capture and this projection) has lost the
           ;; per-frame elision registry that classifies every user-bearing
@@ -653,7 +653,7 @@
           ;; invoke them: the machines slice redacts whole and the resource slice
           ;; is omitted. A nil `frame-id` is the frameless / ambient-nil
           ;; convenience (no frame policy to lose) and stays precise, matching the
-          ;; established one-arity contract.
+          ;; one-arity contract.
           stale-target?    (and (some? frame-id) (nil? (rf.frame/frame frame-id)))
           project-machines (rf.late-bind/get-fn :machines/project-ssr-runtime-db)
           machines-slice   (when (contains? runtime-db :rf.runtime/machines)
@@ -665,7 +665,7 @@
           ;; transient `:pending-navigation` / counter siblings stay off the
           ;; wire — fail-closed), THEN project the surviving slice against the
           ;; frame's route classification so a `:sensitive` / `:large` query /
-          ;; param redacts / elides (rf2-4xut98) before it serialises raw.
+          ;; param redacts / elides before it serialises raw.
           routing-allowed  (select-keys (:rf.runtime/routing runtime-db) durable-routing-keys)
           routing-slice    (when (seq routing-allowed)
                              (project-routing-egress routing-allowed frame-id))
@@ -676,12 +676,12 @@
                   (some? routing-slice)
                   (assoc :rf.runtime/routing routing-slice)
 
-                  ;; rf2-ybn1yb — `:rf.runtime/elision` is intentionally OMITTED
+                  ;; `:rf.runtime/elision` is intentionally OMITTED
                   ;; (no `(contains? … :rf.runtime/elision)` clause): the per-frame
                   ;; declaration registry must not cross the hydration wire (its
                   ;; keys ARE classified paths that can embed a sensitive id; the
                   ;; client rebuilds its own registry from its registrations on
-                  ;; mount — see the docstring's rf2-ybn1yb note).
+                  ;; mount — see the docstring's elision note).
 
                   (contains? runtime-db :rf.runtime/ssr)
                   (assoc :rf.runtime/ssr (:rf.runtime/ssr runtime-db)))
@@ -693,18 +693,17 @@
           ;; takes the full runtime-db value and returns a `{subsystem-key
           ;; durable-projection}` map merged into the slice; absent hook
           ;; (no extension artefact loaded) contributes nothing, so an
-          ;; app without resources sees no behaviour change. Resources is
-          ;; the first publisher (rf2-p10npe): it projects ONLY the
+          ;; app without resources is unaffected. Resources is
+          ;; its publisher: it projects ONLY the
           ;; durable `:entries` of `:rf.runtime/resources` (the
           ;; `:tag-index` / `:owner-index` are recomputable-from-entries
           ;; and need not ride the wire — Spec 016 §Restore and replay).
           slice (if-let [extend-fn (rf.late-bind/get-fn :ssr/extend-runtime-db-projection)]
                   ;; The extension hook (resources) takes the EXPLICIT target as a
-                  ;; second parameter (rf2-f02diw — finishing the clean break: the
-                  ;; hook is re-signatured `[runtime-db frame-id]`), so it projects
+                  ;; second parameter (`[runtime-db frame-id]`), so it projects
                   ;; under the same frame as every other slice, never a borrowed /
                   ;; mismatched ambient one — no `binding` rebind of ambient scope.
-                  ;; rf2-j538f7.15 — but under a STALE explicit target its derived
+                  ;; But under a STALE explicit target its derived
                   ;; `:entries` would ride verbatim under absent policy, so fail
                   ;; closed by OMITTING the resource slice (do not invoke the hook
                   ;; with a dead frame).
@@ -734,7 +733,7 @@
 (defn- coerce-version
   "Coerce a candidate `:rf/version` source value to the canonical INTEGER
   pattern-protocol version (per Spec-Schemas §`:rf/hydration-payload` —
-  `:rf/version` is `:int`, explicitly NOT a semver-style string; rf2-g00l2t).
+  `:rf/version` is `:int`, explicitly NOT a semver-style string).
 
   Returns:
     - the integer itself when `v` is already an int;
@@ -781,7 +780,7 @@
   via `coerce-version`: an int is taken verbatim, a whole-number string is
   parsed, and any other value (semver string, float, keyword) is REJECTED
   (with a `:rf.ssr/invalid-version` warning) so resolution falls through to
-  the next source rather than shipping a schema-violating value (rf2-g00l2t).
+  the next source rather than shipping a schema-violating value.
 
   The resolution order is:
 
@@ -797,14 +796,12 @@
        `:version` supplied a coercible integer (absent, or rejected).
 
   Both wire ends read the SSR-owned constant, so a host that doesn't pass
-  `:version` explicitly still pins the value the client agrees with (the
-  inline `(or version 1)` it replaced silently defeated the version-mismatch
-  check; rf2-asmj1 S8 / rf2-l8fi6 non-streaming, rf2-via0g streaming)."
+  `:version` explicitly still pins the value the client agrees with."
   [explicit-version]
   (or (coerce-version explicit-version)
       pattern-protocol-version))
 
-;; ---- the numeric crossing rule (rf2-3x7nj.13.3) ---------------------------
+;; ---- the numeric crossing rule --------------------------------------------
 ;;
 ;; The payload is `pr-str`'d on the JVM and read back by the browser's EDN
 ;; reader, and for a handful of JVM number types that read SUCCEEDS WITH A
@@ -814,7 +811,7 @@
 ;; reads its own value back perfectly, same-host tests pass, and the render
 ;; hash agrees whenever the view prints the value identically or carries it
 ;; only into an event. The root manifest and the ssr-node render-state wire
-;; already refuse exactly these numbers; this is the same rule on the third
+;; refuse exactly these numbers; this is the same rule on the third
 ;; wire (Spec 011 §Payload scope).
 ;;
 ;; FAIL CLOSED, ALWAYS ON, JVM ONLY. The failure is data-dependent, so a
@@ -890,7 +887,7 @@
    (defn check-portable-numbers!
      "Refuse a hydration-payload slice carrying a number the browser's EDN
      reader would read back as a DIFFERENT value — see the section comment
-     above (rf2-3x7nj.13.3). Walks every number in `slice`, map keys and set
+     above. Walks every number in `slice`, map keys and set
      members included, and throws `:rf.error/ssr-hydration-payload-invalid` on
      the first outside `manifest/portable-number?`, naming `partition`
      (`:rf/app-db` / `:rf/runtime-db`), the path from the partition root (for
@@ -908,7 +905,7 @@
   `:rf/runtime-db`, `:rf/schema-digest`, and `:rf/head-hash`.
 
   **The first arg `wire-frame-id` is the WIRE `:rf/frame-id`, decoupled
-  from the projection frame (rf2-lm2yzy).** It is stamped only when
+  from the projection frame.** It is stamped only when
   non-nil, and MUST be a STABLE frame id both server and client agree on
   ahead of time — NEVER a per-request server gensym. Callers project the
   app-db / runtime-db slices under the REAL (per-request) frame BEFORE
@@ -920,19 +917,19 @@
   conflict, so the client's explicit `:frame` target stands). Stamping a
   per-request gensym here would guarantee `:rf.error/hydration-frame-id-
   mismatch` on every real page (the client hydrates a stable id, never
-  the gensym) — the defect rf2-lm2yzy closed.
+  the gensym).
 
   The `:rf/app-db` slice is the already-projected `db-slice` — callers
-  run `apply-policy` (the fail-closed allowlist / whole-app-db contract,
-  rf2-gtgf9) and hand the result here. `:rf/version` is resolved via
+  run `apply-policy` (the fail-closed allowlist / whole-app-db contract)
+  and hand the result here. `:rf/version` is resolved via
   `resolve-version` (caller's `:version` opt → the SSR-owned
   `pattern-protocol-version` constant). `render-hash` is the BODY-ONLY structural hash
-  (rf2-1oxjxk Option B) — see `re-frame.ssr.ring.lifecycle/render-document-
-  hash` — and is OPTIONAL: nil omits the key (rf2-2rtt6.91, below).
+  — see `re-frame.ssr.ring.lifecycle/render-document-
+  hash` — and is OPTIONAL: nil omits the key (below).
   Schema-digest is supplied by the caller when their app
   participates in the schema-digest check; nil otherwise.
 
-  rf2-2rtt6.91 — a nil `render-hash` OMITS `:rf/render-hash` rather than
+  A nil `render-hash` OMITS `:rf/render-hash` rather than
   stamping a nil-valued key. The slot is `{:optional true} :string` in
   [Spec-Schemas §`:rf/hydration-payload`], not `[:maybe :string]`, so a
   present-and-nil key is not a legal spelling of absence; and absence is
@@ -944,41 +941,41 @@
   has — an unresolved `[<component> {props}]` root, whose canonical EDN is
   `[#fn[] {props}]` — which is a constant, not a fingerprint.
 
-  EP-0001 (rf2-30kzz2): the optional `:runtime-db` opt carries the
+  EP-0001: the optional `:runtime-db` opt carries the
   already-projected SERIALIZABLE runtime-db slice (callers run
   `project-runtime-db` on the frame's runtime-db value and hand the result
   here). When non-nil it rides the payload as `:rf/runtime-db` so the client
   `:rf/hydrate` handler installs a coherent frame-state (app-db + runtime-db);
   nil omits the optional key (the client-only / no-server-runtime shape).
 
-  rf2-1oxjxk — the optional `:head-hash` opt carries the SEPARATE
+  The optional `:head-hash` opt carries the SEPARATE
   client-reconstructible head-model hash (`re-frame.ssr.ring.lifecycle/
   render-head-hash`), NOT covered by `render-hash`. It rides the payload
   as `:rf/head-hash` when the caller supplied one; omitted (no key) when
   nil — the explicit-`:head`-STRING or degraded-head-resolution shape
   where the server knows the head is not client-reconstructible.
 
-  rf2-3x7nj.13.3 — both slices obey the numeric crossing rule first
+  Both slices obey the numeric crossing rule first
   (`check-portable-numbers!`): on a JVM host a number the browser's EDN reader
   would read back as a DIFFERENT value throws
   `:rf.error/ssr-hydration-payload-invalid` rather than shipping.
 
-  Shared verbatim by both SSR paths (rf2-8wrzz.4): the non-streaming
+  Shared verbatim by both SSR paths: the non-streaming
   `re-frame.ssr.ring.payload/build-payload` and the streaming
   `re-frame.ssr.streaming/build-final-payload`, which differ only in how
   they source `app-db` + runtime-db before projecting them."
   [wire-frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
-  ;; rf2-3x7nj.13.3 — on a JVM host both partitions obey the numeric crossing
+  ;; On a JVM host both partitions obey the numeric crossing
   ;; rule before they are assembled. One site covers both SSR paths.
   #?(:clj (do (check-portable-numbers! :rf/app-db db-slice)
               (check-portable-numbers! :rf/runtime-db runtime-db)))
   (cond-> {:rf/version (resolve-version version)
            :rf/app-db  db-slice}
-    ;; rf2-2rtt6.91 — the hash channel is HICCUP-TIER-ONLY, so a nil
+    ;; The hash channel is HICCUP-TIER-ONLY, so a nil
     ;; `render-hash` omits the key instead of stamping a nil-valued one that
     ;; the `:string` schema slot does not admit. See the docstring.
     (some? render-hash)   (assoc :rf/render-hash render-hash)
-    ;; rf2-lm2yzy — stamp `:rf/frame-id` ONLY for a stable, ahead-of-time
+    ;; Stamp `:rf/frame-id` ONLY for a stable, ahead-of-time
     ;; agreed wire id; a nil wire id omits it (anonymous per-request server
     ;; frame → the documented no-conflict shape). Never a per-request gensym.
     (some? wire-frame-id) (assoc :rf/frame-id wire-frame-id)
