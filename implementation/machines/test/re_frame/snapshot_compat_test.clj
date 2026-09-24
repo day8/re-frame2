@@ -26,7 +26,7 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support. The bespoke
-;; `capture-error-traces` below stays local — it is an intentional
+;; `capture-error-traces` below is local because it is an intentional
 ;; manual-stop idiom (returns a `:stop!` thunk the call sites invoke
 ;; explicitly) rather than a `finally`-scoped block.
 (def ^:private snapshot rf.machines.test-support/snapshot)
@@ -98,7 +98,7 @@
 ;; key-parity violation resets through :rf.error/machine-state-not-in-definition.
 
 (deftest parallel-missing-region-resets-to-initial
-  (testing "a parallel snapshot MISSING a declared region resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2 / x4s9t.2)"
+  (testing "a parallel snapshot MISSING a declared region resets to :initial and emits :rf.error/machine-state-not-in-definition"
     (let [{:keys [captured stop!]} (capture-error-traces)
           spec {:type    :parallel
                 :data    {}
@@ -131,7 +131,7 @@
         (finally (stop!))))))
 
 (deftest parallel-extra-region-resets-to-initial
-  (testing "a parallel snapshot carrying an EXTRA/stale region resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2 / x4s9t.2)"
+  (testing "a parallel snapshot carrying an EXTRA/stale region resets to :initial and emits :rf.error/machine-state-not-in-definition"
     (let [{:keys [captured stop!]} (capture-error-traces)
           spec {:type    :parallel
                 :data    {}
@@ -163,7 +163,7 @@
 ;; alone is not occupiability. The reconciler rejects it and resets.
 
 (deftest occupied-history-pseudo-state-resets-to-initial
-  (testing "a flat/compound snapshot whose active leaf is a :type :history pseudo-state resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2)"
+  (testing "a flat/compound snapshot whose active leaf is a :type :history pseudo-state resets to :initial and emits :rf.error/machine-state-not-in-definition"
     (let [{:keys [captured stop!]} (capture-error-traces)
           spec {:initial :playing
                 :data    {}
@@ -268,7 +268,7 @@
 
 ;; ---- compatibility recovery on a SPAWNED ACTOR ---------------------------
 ;;
-;; rf2-2dk0. The two reconciler checks above fire at handler-entry against
+;; The two reconciler checks above fire at handler-entry against
 ;; ANY existing snapshot — including a spawned actor's. Recovery replaces the
 ;; snapshot with a fresh initial derivative, which is right for authored
 ;; state/data but must NOT discard the framework-owned identity envelope the
@@ -328,7 +328,7 @@
   (get-in (:data (snapshot parent-id)) [:rf/spawned invoke-id]))
 
 (deftest spawned-actor-survives-version-mismatch-recovery
-  (testing "rf2-2dk0 — a version-mismatch reset on a SPAWNED actor keeps the
+  (testing "a version-mismatch reset on a SPAWNED actor keeps the
             runtime identity envelope, so the actor stays addressable"
     (let [{:keys [captured stop!]}                   (capture-error-traces)
           {nsh :captured stop-nsh! :stop!}           (capture-no-handler-traces)]
@@ -353,8 +353,8 @@
 
           ;; First event: discovers the drift, resets, then runs.
           (rf/dispatch-sync [actor [:bump]])
-          ;; Second event to the SAME actor: this is the one that used to
-          ;; fall through to :rf.error/no-such-handler.
+          ;; Second event to the SAME actor: a recovery that dropped the
+          ;; identity envelope would send this one to :rf.error/no-such-handler.
           (rf/dispatch-sync [actor [:bump]])
 
           (let [after (snapshot actor)
@@ -390,7 +390,7 @@
         (finally (stop-nsh!) (stop!))))))
 
 (deftest spawned-actor-survives-state-not-in-definition-recovery
-  (testing "rf2-2dk0 — the state-not-in-definition branch is the second entry
+  (testing "the state-not-in-definition branch is the second entry
             path into the same recovery, and keeps the identity envelope too"
     (let [{:keys [captured stop!]}         (capture-error-traces)
           {nsh :captured stop-nsh! :stop!} (capture-no-handler-traces)]
@@ -428,7 +428,7 @@
         (finally (stop-nsh!) (stop!))))))
 
 (deftest spawn-all-child-keeps-join-membership-across-recovery
-  (testing "rf2-2dk0 — a :spawn-all child's private :rf/join-child
+  (testing "a :spawn-all child's private :rf/join-child
             exact-attempt record survives compatibility recovery, so its
             completion still folds into the join it belongs to"
     (let [{:keys [captured stop!]}         (capture-error-traces)
