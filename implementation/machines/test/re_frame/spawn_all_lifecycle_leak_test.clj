@@ -1,29 +1,27 @@
 (ns re-frame.spawn-all-lifecycle-leak-test
-  "rf2-qb1j5z — two related `:spawn-all` lifecycle leaks.
+  "Two `:spawn-all` lifecycle leak shapes the runtime closes.
 
   (a) MIXED registered/unregistered `:spawn-all`. When any child names an
-      UNREGISTERED TYPE, `spawn-all-init-fx` rejects the join. Previously it
-      seeded NO join-state and returned nil WITHOUT aborting the entry `:fx`
-      vector, so the registered siblings' per-child `:rf.machine/spawn` fxs
-      still ran and installed LIVE actors that no seeded join ever tore down
-      — orphans leaking until frame-destroy. The fix seeds a reject sentinel
-      so the registered siblings suppress themselves: the whole malformed
-      invoke spawns NOTHING (the atomic-reject analogue of a single `:spawn`).
+      UNREGISTERED TYPE, `spawn-all-init-fx` rejects the join by seeding a
+      reject sentinel, so the registered siblings' per-child
+      `:rf.machine/spawn` fxs later in the same entry `:fx` vector suppress
+      themselves: the whole malformed invoke spawns NOTHING (the atomic-reject
+      analogue of a single `:spawn`). Without the sentinel those siblings
+      would install LIVE actors that no seeded join ever tears down — orphans
+      leaking until frame-destroy.
 
-  (b) COMPLETED-children leak at join resolution. A 'completed' child used to
-      stay a LIVE actor — it signalled completion by dispatching from a PLAIN
-      terminal state — and relied on the parent's resolution transition EXITING
-      the `:spawn-all` state to be torn down by the exit cascade. An
+  (b) COMPLETED children at join resolution. A completed child that stayed a
+      LIVE actor would rely on the parent's resolution transition EXITING the
+      `:spawn-all` state to be torn down by the exit cascade, so an
       INTERNAL/self resolution handler (or a parent with no `:on` for the
-      resolution event) leaked all N completed children.
+      resolution event) would leak all N completed children.
 
-      That precondition is GONE: completion is finality, so a child that folds
-      into a join destroyed itself at its own completion with `:reason
-      :rf.machine/finished` (Spec 005 §Final states, D4). The leak class is now
-      structurally unreachable rather than fixed, and only SURVIVORS remain for
-      the join to cancel at resolution. The (b) test below pins the OUTCOME —
-      no child snapshot survives an internal/self resolution — because that is
-      the invariant a future change could still break.
+      Completion is finality, so a child that folds into a join destroys
+      itself at its own completion with `:reason :rf.machine/finished`
+      (Spec 005 §Final states, D4). The leak is structurally unreachable, and
+      only SURVIVORS remain for the join to cancel at resolution. The (b) test
+      below pins the OUTCOME — no child snapshot survives an internal/self
+      resolution — because that is the invariant a future change could break.
 
   JVM plain-atom, mirroring `spawn_all_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -71,7 +69,7 @@
 ;; ===========================================================================
 
 (deftest mixed-registered-unregistered-spawn-all-rejects-whole-invoke-atomically
-  (testing "rf2-qb1j5z(a): a :spawn-all naming an unregistered sibling TYPE
+  (testing "a :spawn-all naming an unregistered sibling TYPE
             spawns NOTHING — the registered sibling is suppressed atomically,
             leaving no orphan actor to leak"
     ;; Only :qb/registered is registered; :qb/never-registered is NOT.
@@ -111,7 +109,7 @@
 ;; ===========================================================================
 
 (deftest internal-self-join-resolution-destroys-completed-children
-  (testing "rf2-qb1j5z(b): when the join resolves but the resolution transition
+  (testing "when the join resolves but the resolution transition
             does NOT exit the :spawn-all state (no :on for the resolution
             event), NO child snapshot survives — the decisive child destroyed
             itself at its own finality, the survivor was cancelled at
