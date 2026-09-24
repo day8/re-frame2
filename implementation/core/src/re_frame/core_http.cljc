@@ -12,17 +12,17 @@
    :maven         "day8/re-frame2-http"
    :require-ns    "re-frame.http.managed"})
 
-;; rf2-kuky.13 — the whole stub family (`with-request-stubs` and the raw
+;; The whole stub family (`with-request-stubs` and the raw
 ;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair)
 ;; is NOT re-exported from `re-frame.core`: it is test-support infrastructure,
 ;; not app-facing core surface. Tests reach all three directly through the home
 ;; namespace `re-frame.http.test-support`, so there is no core wrapper and no
 ;; late-bind hook for any of them.
 
-;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
+;; ---- Spec 014 §Middleware — per-frame request interceptors ---------------
 
 (defwrapper reg-http-interceptor
-  "Spec 014 §Middleware (rf2-uheqq shape iii) — register an HTTP
+  "Spec 014 §Middleware — register an HTTP
   interceptor on a frame's `:rf.http/managed` middleware chain.
   Signature: `(reg-http-interceptor id interceptor-map)` — `id` is a
   keyword; `interceptor-map` carries at least one of:
@@ -49,7 +49,7 @@
   `:after` receives `(ctx, response)` — `ctx` is the SAME ctx the
   `:before` chain ended with (enables request-correlated handling) and
   `response` is the canonical reply envelope: `{:status :ok :value v …}`
-  or `{:status :error :error f …}` (rf2-ibksxg). Returns the
+  or `{:status :error :error f …}`. Returns the
   (possibly-transformed) response.
 
   Late-bound via `:http/reg-http-interceptor`. When the http artefact
@@ -76,8 +76,8 @@
   FAIL-CLOSED: it must be EXACTLY `{:frame target}` with a present, non-nil
   target. A missing `:frame`, a nil target, a misspelled/unknown or extra
   key, and a non-map second argument all raise the typed
-  `:rf.error/http-bad-interceptor` before any ambient frame is touched
-  (rf2-s32bf). Two-scalar frame-first `(frame id)` is NOT a public shape.
+  `:rf.error/http-bad-interceptor` before any ambient frame is touched.
+  Two-scalar frame-first `(frame id)` is NOT a public shape.
   Both arities delegate to the late-bound impl, which performs the frame
   resolution.
 
