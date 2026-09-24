@@ -1,13 +1,11 @@
 (ns re-frame.fresco.test
-  "`ht` — FRESCO'S SUPPORTED TESTING SURFACE, L0 to L2 (rf2-hic-020).
+  "`ht` — FRESCO'S SUPPORTED TESTING SURFACE, L0 to L2.
 
-  The machinery a Fresco witness needs was, until this namespace, private
-  to the benchmark tree: the canonical-DOM comparator that made two
-  renderings comparable, the intent capture that said what a page MEANS,
-  and the body-run door the read-extent matrix asserts through. All three
-  were reachable only by a test that lived inside the bench lane. This is
-  that machinery, extracted, named and documented — the same instruments,
-  now a product surface.
+  This namespace publishes the machinery a Fresco witness needs: the
+  canonical-DOM comparator that makes two renderings comparable, the
+  intent capture that says what a page MEANS, and the body-run door the
+  read-extent matrix asserts through — named and documented as a product
+  surface.
 
       (:require [re-frame.fresco :as h]
                 [re-frame.fresco.test :as ht])
@@ -30,7 +28,7 @@
             [[intents]], and the accessibility trio [[role]] /
             [[accessible-name]] / [[unnamed-controls]].
       L3  React lifecycle, context, hooks, refs, errors, foreign hosts
-          → the mounted facade (rf2-hic-027). NOT here.
+          → the mounted facade (`re-frame.fresco.test.mounted`). NOT here.
       L4  IME, caret, focus, hydration, layout, performance
           → real browsers.
 
@@ -73,13 +71,9 @@
   discrimination order, the same `:rf.ui/tree-version` root gate, the
   same `{:rf.ui/opaque :fn}` sentinel — so the tree a Fresco body answers
   is 004B's own VALUE KIND, read with 004B's vocabulary rather than one
-  invented here. That was a CROSS-SUBSTRATE claim when it was written: a
-  tree from a Freehand declaration was the same kind, until rf2-0yp7w
-  removed that substrate on 2026-08-16. rf2-hic-020 audited that schema
-  before writing anything and reuses it whole; the projections below carry
-  `re-frame.freehand.test`'s semantics for the same reason.
+  invented here.
 
-  Two things the audit found are stated rather than left to be
+  Two consequences are stated rather than left to be
   discovered:
 
   - **[[attrs]] values are author-space and unnormalized.** 004B §Attr
@@ -132,8 +126,8 @@
   **The minted `h/defview` head is accepted too, at the ROOT of the
   form**, and either spelling runs the body AS WRITTEN.
   `re-frame.fresco.impl.collector/mint-view!` attaches the body to the
-  head it mints under one dev-only own property (`codec/retain-body!`,
-  rf2-kjf5) — no registry and no map, just a second own property beside
+  head it mints under one dev-only own property (`codec/retain-body!`)
+  — no registry and no map, just a second own property beside
   the boundary marker `boundary-head?` already reads — so a harness
   that runs no hook can still reach the body. An `:advanced` build with
   `goog.DEBUG=false`
@@ -152,8 +146,8 @@
   — so a keyword child is the text the runtime renders it as, `[:<> …]`
   is a fragment because it is React's Fragment there, and a `true` child
   raises `:rf.error/fresco-true-child` because the runtime raises it.
-  rf2-hic-020's audit found nine places where this walk had its own
-  opinion; a branch that exists twice agrees once.
+  The walk keeps no second opinion: a branch that exists twice agrees
+  once.
 
   **A form the runtime REFUSES is refused here with the runtime's own
   id.** `codec/vector-kind` is the preflight and not merely the head
@@ -162,9 +156,9 @@
   `[:> nil]` — raises `:rf.error/fresco-raw-not-a-component`, carrying
   the runtime's reason rather than one of this namespace's. **Opacity is a claim
   about a form L2 cannot read, and it is honest only where the runtime
-  CAN read it**: a second audit found `[:> :div]` answered with a
-  pointer to L3, which tells the programmer to mount, in a browser,
-  a form that will not mount anywhere.
+  CAN read it**: `[:> :div]` answered with a pointer to L3 would tell
+  the programmer to mount, in a browser, a form that will not mount
+  anywhere.
 
   - A **nested body function** is refused: a plain function in head
     position is a loud error in Fresco itself (HD-016), and a kit that
@@ -181,20 +175,19 @@
     escape is not: Fresco itself refuses it at a boundary crossing, so
     it carries the runtime's id and the runtime's own reason — hand a
     function, or deref the delay in the body that wrote it — rather
-    than a pointer to a tier where the identical refusal is waiting
-    (rf2-llps1).
+    than a pointer to a tier where the identical refusal is waiting.
   - The same id at the position it is NAMED for: **an unforced `delay`
     reachable from a BOUNDARY's props**, which is the one form
     `codec/realize-deep` genuinely refuses rather than repairs and the
-    trigger Spec 009's row states in those words. This walk answered its
-    own generic `:rf.error/ui-tree-malformed` there for a release, telling
-    the author to hoist the value to a site of its own — vaguer than the
-    runtime at exactly the crossing the refusal exists for, and advice
-    with no exit, since a delay written at a prop site is already at its
-    own site (rf2-dr0ad). At a NATIVE attribute the runtime refuses
-    nothing, so the generic id stays: see [[opaque-prop]].
-  - **The generic arm's own reason splits on the same reasoning**
-    (rf2-6xhxu). \"Give it a prop of its own\" is kept for the one value
+    trigger Spec 009's row states in those words. The walk's own generic
+    `:rf.error/ui-tree-malformed`, telling the author to hoist the value
+    to a site of its own, would be vaguer than the runtime at exactly the
+    crossing the refusal exists for, and advice with no exit, since a
+    delay written at a prop site is already at its own site. At a NATIVE
+    attribute the runtime refuses nothing, so the generic id applies
+    there: see [[opaque-prop]].
+  - **The generic arm's own reason splits on the same reasoning.**
+    \"Give it a prop of its own\" is reserved for the one value
     that has a site of its own to be hoisted TO — a **function**, which
     the opaque marker is for. Every other non-data value is refused at a
     prop of its own exactly as it was where it stood, so its reason names
@@ -219,7 +212,7 @@
 
   Dev/test only. Nothing in a production bundle may `:require` this
   namespace — it is its own source root (`fresco/test_kit/src`) and is
-  absent from the artefact's published `:paths`, so it is reachable when
+  absent from the artefact's `:paths`, so it is reachable when
   used and unreachable otherwise."
   (:refer-clojure :exclude [find])
   (:require [clojure.string :as str]
@@ -287,7 +280,7 @@
     :mechanism "re-frame.fresco.test/tree under injected read fixtures"}
    {:tier :l3 :here? false
     :proves    "React lifecycle, context, hooks, refs, errors, foreign hosts"
-    :mechanism "the mounted React DOM facade (rf2-hic-027) with Testing Library"}
+    :mechanism "the mounted React DOM facade (re-frame.fresco.test.mounted) with Testing Library"}
    {:tier :l4 :here? false
     :proves    "IME, caret, focus, hydration, layout, performance"
     :mechanism "Chromium, Firefox and WebKit witnesses"}])
@@ -309,9 +302,9 @@
 ;; expansion DECIDES is observable on the value it hands back: the marker
 ;; the expansion's target minted. Asserting the marker rather than the
 ;; expanded form is what keeps a safe refactor quiet and a changed
-;; contract loud — the discipline `public-door-macros-cljs-test` already
-;; established for this package, published here so a consumer's own
-;; declarations can be held to it.
+;; contract loud — the discipline `public-door-macros-cljs-test` holds
+;; this package to, published here so a consumer's own declarations can be
+;; held to it.
 
 (defn boundary?
   "Is `v` a minted Fresco boundary — the value `h/defview` defines?
@@ -534,14 +527,13 @@
   renderings can be declared equivalent while building different pages,
   which is the whole reason a comparison needs a canonical form at all.
 
-  Extracted from the measurement lane's own gate
-  (`re-frame.bench.fresco.lane/canonical`), which it now differs from in
-  one respect: **the data a node carries is escaped, so it cannot imitate
-  the serialiser's own structure** (rf2-kovp). A text node reading
-  `<p>x</p>` and a real `<p>` element holding `x` are visibly different
-  pages, and the lane's form emitted the same bytes for both — which made
-  this equality answer *equal* for a wrong page, and a parity assertion
-  taken through it vacuous. `&`, `<` and `>` are entity-escaped in text,
+  It differs from the measurement lane's own gate
+  (`re-frame.bench.fresco.lane/canonical`) in one respect: **the data a
+  node carries is escaped, so it cannot imitate the serialiser's own
+  structure**. A text node reading `<p>x</p>` and a real `<p>` element
+  holding `x` are visibly different pages, and the lane's form emits the
+  same bytes for both — which would make this equality answer *equal* for
+  a wrong page, and a parity assertion taken through it vacuous. `&`, `<` and `>` are entity-escaped in text,
   and `\"` as well inside an attribute value, where a quote would
   otherwise split one value into two attributes. Escaping is per
   character, so the adjacent-text normalisation below is untouched: a
@@ -612,11 +604,11 @@
   The capture is taken at **`re-frame.event-emit`, the substrate's own
   event-observation registry**, so the witness holds no hook into the
   rendering under test and reads the same events whichever substrate
-  produced them. That is what let one script judge a Fresco rendering, a
+  produced them. That is what lets one script judge a Fresco rendering, a
   raw UIx rendering and a hydrated page against ONE stated expectation.
-  The registry is implementation-tier since rf2-kuky.69 retired `:events`
-  from the public `rf/register-listener!` vocabulary — a spelling change
-  under this helper, not a change to what it promises callers.
+  The registry is implementation-tier — `:events` is not in the public
+  `rf/register-listener!` vocabulary — which is a fact under this helper,
+  not part of what it promises callers.
 
   Events from other frames are ignored, so a capture taken while another
   frame is live is still this frame's. The listener is registered when
@@ -625,15 +617,15 @@
 
   **State the expectation.** Comparing two captures to each other is
   green for a drift they SHARE; comparing each to a written-out vector is
-  not. That is a merged-PR audit's finding, kept here because the helper
-  is what makes the cheap comparison easy:
+  not. It is stated here because the helper is what makes the cheap
+  comparison easy:
 
       (let [{:keys [intents]} (ht/capture-intents ::app #(run-the-script!))]
         (is (= expected-intents intents)))
 
   Synchronous: it captures what `f` dispatches before it returns. A
   script whose steps span turns is the mounted tier's driver
-  (rf2-hic-027), and this is the port that one arms too."
+  (`re-frame.fresco.test.mounted`), and this is the port that one arms too."
   [frame-kw f]
   (let [log (atom [])
         k   (keyword "re-frame.fresco.test"
@@ -745,8 +737,8 @@
 ;; whatever the host's collection and number predicates happen to admit. The
 ;; two predicates below are that grammar, and they are what makes the
 ;; namespace docstring's "plain, serialisable Clojure data" a checked claim
-;; rather than an advertised one: before rf2-hic-020's audit a host object
-;; and a function used as a MAP KEY both walked into the tree unremarked.
+;; rather than an advertised one: a host object or a function used as a MAP
+;; KEY is refused rather than walked into the tree unremarked.
 
 (defn- edn-scalar?
   "Is `x` one of EDN's scalars — the values an EDN reader takes back as
@@ -781,7 +773,7 @@
     ;; `reduce-kv` over a vector answers index/element — exactly the path
     ;; segment wanted — so maps and vectors share one arm. A KEY is
     ;; checked as well as a value: it is inside the recorded value just
-    ;; as much, and it was the hole the audit found.
+    ;; as much.
     (or (and (map? x) (not (record? x))) (vector? x))
     (reduce-kv (fn [_ k v]
                  (if-some [found (or (when (non-data k) [[] k])
@@ -839,7 +831,7 @@
 
   **The generic refusal's REASON turns on whether the offending value
   has a site of its own anywhere in the tree, and exactly one kind of
-  value does: a FUNCTION** (rf2-6xhxu). Hoisting a nested function to a
+  value does: a FUNCTION**. Hoisting a nested function to a
   prop of its own is a real exit, because the marker is waiting for it
   there. Hoisting a host object, a record, a `Delay`, a queue or `##NaN`
   is not: the tree refuses it at the new site for the same reason it
@@ -868,8 +860,7 @@
   attribute is not walked and the runtime refuses nothing there. So the
   crossing borrows the runtime's id and the runtime's reason, and the
   attribute keeps this namespace's own — the rule §Children already
-  states for a child, applied at the position the id is NAMED for
-  (rf2-dr0ad).
+  states for a child, applied at the position the id is NAMED for.
 
   Only an **unforced** delay, because that is the runtime's own
   narrowing: one the author already deref'd carries a computed value and
@@ -1120,10 +1111,10 @@
   the two shapes that are malformed rather than opaque — a headless
   vector, and a `[:> …]` whose Component slot holds nothing React will
   mint a fiber for — so those arrive here already refused, with the
-  runtime's id, reason and recovery. Before rf2-hic-020's second audit
-  this walk asked `head-kind` directly and answered `[]` with a generic
-  malformed HEAD, and `[:> :div]` with a pointer to L3: an instruction to
-  go mount, in a browser, a form that cannot mount anywhere."
+  runtime's id, reason and recovery. Asking `head-kind` directly would
+  answer `[]` with a generic malformed HEAD, and `[:> :div]` with a
+  pointer to L3: an instruction to go mount, in a browser, a form that
+  cannot mount anywhere."
   [form ns-ctx]
   (case (rf.fresco.impl.codec/vector-kind form)
     :tag      (element-node form ns-ctx)
@@ -1195,8 +1186,8 @@
     :text   (str x)
     ;; The runtime renders a keyword or symbol child as its `name`
     ;; (`codec/as-element`), so the tree records the text it renders.
-    ;; This arm used to refuse, which taught that a legal spelling was a
-    ;; mistake — the sharpest way an instrument can be wrong.
+    ;; Refusing here would teach that a legal spelling is a mistake — the
+    ;; sharpest way an instrument can be wrong.
     :named  (name x)
     :markup (walk-vector x ns-ctx)
 
@@ -1315,13 +1306,13 @@
 
   **Closed, because an option that is quietly ignored is a setting its
   author believes is in force.** Map destructuring validates neither the
-  options map nor its key set, so before rf2-0ckh a misspelled key — and
-  `{:reads …}`, the spelling this option carried until naming-ledger row
-  23 settled it — was accepted in silence: a body with no reads rendered
-  outright, and a reading body ignored the fixtures it was handed and
-  refused with `:rf.error/fresco-test-missing-read-fixture`, naming the
-  wrong problem. Pre-alpha there is no alias and no deprecation path; the
-  retired spelling is simply an unknown key, and it is refused as one.
+  options map nor its key set, so without the roster check a misspelled
+  key — `{:reads …}` among them — would be accepted in silence: a body
+  with no reads would render outright, and a reading body would ignore the
+  fixtures it was handed and refuse with
+  `:rf.error/fresco-test-missing-read-fixture`, naming the wrong problem.
+  `:subs` is naming-ledger row 23's spelling and there is no alias:
+  `:reads` is an unknown key like any other, and it is refused as one.
 
   ## What it is
 
@@ -1343,11 +1334,11 @@
   `[some-view {…}]` is accepted with the `h/defview` head written where
   the call site writes it. A minted head is a React component whose body
   runs only inside the shell, so it carries that body on itself for this
-  kit to find (`codec/retain-body!`, rf2-kjf5) — and what runs here is
+  kit to find (`codec/retain-body!`) — and what runs here is
   the body AS WRITTEN, with no hook, no element and no React.
 
   The retention is **dev only**. In an `:advanced` + `goog.DEBUG=false`
-  build the property was never written, and a minted head refuses with
+  build the property is never written, and a minted head refuses with
   `:rf.error/fresco-test-boundary-body-not-retained` pointing at L3 —
   which costs nothing, because a production bundle may not `:require`
   this namespace at all.
@@ -1373,12 +1364,10 @@
               (str "tree takes a hiccup form `[body-fn props & children]`; "
                    "it was given " (pr-str form) ".")
               {:value form}))
-   ;; THE CLOSED ROSTER (rf2-0ckh). The destructuring above reads `:subs`
+   ;; THE CLOSED ROSTER. The destructuring above reads `:subs`
    ;; off anything and ignores everything else, so without these two an
-   ;; unknown key is accepted in silence — and `{:reads …}`, the spelling
-   ;; this option carried until row 23 settled it, would still "work" for
-   ;; a body with no reads. `:where` and the tier are the same door's;
-   ;; only the roster is new.
+   ;; unknown key is accepted in silence — and `{:reads …}` would "work"
+   ;; for a body with no reads. `:where` and the tier are the same door's.
    (when-not (map? opts)
      (refuse! :rf.error/fresco-test-bad-option
               (str "tree's options are a map; they were " (pr-str opts) ".")
@@ -1393,15 +1382,15 @@
    (let [minted (nth form 0)
          ;; A minted head runs its body inside the shell and nowhere else,
          ;; so the mint attaches that body to the head under a DEV-ONLY
-         ;; property (rf2-kjf5). Substituting it here is the whole of L2's
+         ;; property. Substituting it here is the whole of L2's
          ;; support for `[some-view …]`: everything below then reads the
          ;; body function, and the view runs AS WRITTEN.
          head   (if (rf.fresco.impl.codec/boundary-head? minted)
                   (or (rf.fresco.impl.codec/retained-body minted)
                       ;; Reachable in one build only — `:advanced` with
-                      ;; `goog.DEBUG=false`, where the property was never
+                      ;; `goog.DEBUG=false`, where the property is never
                       ;; written. There is genuinely nothing to run, so the
-                      ;; refusal stands exactly as it did.
+                      ;; door refuses.
                       (refuse! :rf.error/fresco-test-boundary-body-not-retained
                                (str "`" (view-name minted) "` is a minted boundary "
                                     "and this is a production build, where a "
@@ -1460,9 +1449,9 @@
          ;; in it; a body that answered text, several nodes, or NOTHING
          ;; roots in a fragment, which is the variant whose job is to hold
          ;; a run. The empty case is `{:children []}` and not `{}`:
-         ;; `:children` is the fragment's required discriminator, so the
-         ;; bare version map the kit used to answer was a malformed node
-         ;; every projection had to special-case.
+         ;; `:children` is the fragment's required discriminator, so a
+         ;; bare version map would be a malformed node every projection
+         ;; had to special-case.
          (let [children @!tree]
            (if (and (= 1 (count children)) (map? (nth children 0)))
              (assoc (nth children 0) tree-version-key tree-version)
@@ -1471,8 +1460,7 @@
            (swap! rf.fresco.impl.collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
 
 ;; ---------------------------------------------------------------------------
-;; L2 — the projections (004B §Projections; `re-frame.freehand.test`'s
-;; semantics, over the same schema)
+;; L2 — the projections (004B §Projections)
 ;; ---------------------------------------------------------------------------
 
 (defn- node-kind
@@ -1613,7 +1601,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — accessibility: the role, the name, and the controls that have neither
-;; (rf2-hic-043)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Data-first markup is what makes this tier possible at all. A role is an
