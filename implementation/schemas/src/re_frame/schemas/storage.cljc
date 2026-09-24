@@ -190,7 +190,7 @@
   — a keyword in the reserved `:rf.runtime/*` namespace (`:rf.runtime/
   machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, …), the
   runtime-db CONTAINER root `:rf.db/runtime` (the epoch / restore path
-  prefix), OR the retired legacy app-db `:rf/runtime` root. Such a path is
+  prefix), OR the legacy app-db `:rf/runtime` root. Such a path is
   a category error for `reg-app-schema`, which validates only app-db.
 
   Mirrors the canonical runtime-path detection used across the core
@@ -298,7 +298,7 @@
 (defn read-frame-id
   "Resolve the REQUIRED `:frame` target of a side-table READ's opts map.
 
-  ONE FRAME SPELLING (rf2-kuky.84). Every schema read entry point
+  ONE FRAME SPELLING. Every schema read entry point
   (`app-schemas` / `app-schema-meta` / `app-schemas-digest`) takes a single
   opts MAP whose `:frame` names the frame, accepting the same target shapes
   `rf/registrations` accepts — a frame-id keyword or a frame value. There is
@@ -312,7 +312,7 @@
   rather than throwing. Story computes a variant frame's identity BEFORE that
   frame is allocated and depends on that.
 
-  The `reg-*` WRITE entry points keep their own `coerce-opts` sugar: that is
+  The `reg-*` WRITE entry points have their own `coerce-opts` sugar: that is
   a Spec 010 registration contract, not a read."
   [opts where-sym]
   (let [target (when (map? opts) (:frame opts))]
@@ -389,10 +389,10 @@
   opaque — at its ROOT or at any NESTED child — to the pure-data walker
   (a compiled `m/schema` object / other non-vector, non-keyword value,
   anywhere in the tree; a local `{:registry ...}`; or an explicit
-  `[:ref ...]` reference form, rf2-3aafh). Vector forms with no opaque
-  descendant and bare keywords do not warn — see `walker-introspectable?`.
+  `[:ref ...]` reference form). Vector forms with no opaque descendant and
+  bare keywords do not warn — see `walker-introspectable?`.
 
-  `:schema-kind` gains NO new value for the reference form: a root
+  `:schema-kind` has no value of its own for the reference form: a root
   `[:ref ...]` reports `:unknown`, exactly as a nested opaque value does.
   The `:reason` string is what names the shape.
 
@@ -409,11 +409,10 @@
                 ;; Root-shape classification, same reach as the
                 ;; `:compiled-schema-object` arm beside it: a NESTED opaque
                 ;; value or a nested local registry leaves the root a plain
-                ;; vector form and so reports `:unknown`, which is what the
-                ;; nested-compiled case has always reported.
+                ;; vector form and so reports `:unknown`, as the
+                ;; nested-compiled case does.
                 :schema-kind (cond
                                (map? schema) :compiled-schema-object
-                               ;; rf2-amgtr
                                (rf.schemas.walker/schema-local-registry? schema)
                                :local-registry
                                :else :unknown)
@@ -494,8 +493,8 @@
 ;; cannot introspect: `schema-has-sensitive?` returns false on an opaque
 ;; value even though Malli may honour a `{:sensitive? true}` slot inside it for
 ;; the violation. Without the fail-closed arm a hot-reload violation against an
-;; opaque schema carrying a sensitive slot leaked `:mismatching-value` verbatim
-;; — the same asymmetry the validation-failure redactor closes
+;; opaque schema carrying a sensitive slot would leak `:mismatching-value`
+;; verbatim — the same asymmetry the validation-failure redactor closes
 ;; (`re-frame.schemas.validate`, the
 ;; `(or schema-has-sensitive? schema-opaque?)` posture). This is the redaction
 ;; half of the same fail-closed posture for the hot-reload egress edge.
@@ -511,15 +510,15 @@
   `prior-registered?` is whether the registry held an ENTRY for
   `(frame-id, path)` before this registration, and `prior-schema` is the
   exact token that entry stored. The two are separate arguments on
-  purpose (rf2-4thn): a schema value is opaque to re-frame, so `nil` is a
+  purpose: a schema value is opaque to re-frame, so `nil` is a
   legitimate token a custom validator may interpret, and Spec 010
   §The `:schema` value is opaque makes \"registered\" a question about
-  DECLARATION PRESENCE rather than token truthiness (the rf2-6eh5h law
-  the validation seams already follow). Inferring presence from
-  `(some? prior-schema)` conflated a real entry carrying a nil token with
-  no entry at all, so re-registering that path emitted nothing and the
-  schema-evolution diagnostic went silent on exactly the state it exists
-  to explain.
+  DECLARATION PRESENCE rather than token truthiness (the law the
+  validation seams follow). Inferring presence from
+  `(some? prior-schema)` would conflate a real entry carrying a nil token
+  with no entry at all, so re-registering that path would emit nothing
+  and the schema-evolution diagnostic would go silent on exactly the
+  state it exists to explain.
 
   Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
@@ -566,7 +565,7 @@
 
 ;; Schemas describe shape and validation-failure egress. They do not populate
 ;; durable app-db classification, which is owned by commit-plane effects.
-;; Schema props remain available to owner-local transient egress projectors.
+;; Schema props are available to owner-local transient egress projectors.
 
 ;; ---- app-db schema registration -------------------------------------------
 
@@ -631,7 +630,7 @@
          ;; Capture before replacement for the dev-only hot-reload check.
          ;; Presence and token come from ONE deref so they cannot disagree,
          ;; and presence is `contains?` on the frame's path map rather than
-         ;; the truthiness of the stored token (rf2-4thn): a schema value is
+         ;; the truthiness of the stored token: a schema value is
          ;; opaque to re-frame, so a registered nil is a real declaration a
          ;; custom validator may interpret, and only an ABSENT entry means
          ;; "no schema" (Spec 010 §The `:schema` value is opaque).
@@ -675,9 +674,9 @@
   under no scope and no explicit `:frame` raises
   `:rf.error/no-frame-context` (the up-front path-shape sweep still runs
   first).
-  The singular form `reg-app-schema` remains available and is used
-  internally for each entry — every entry stamps its own per-frame side-
-  table entry with source-coords captured from this call site.
+  Each entry registers through the singular `reg-app-schema`, so every
+  entry stamps its own per-frame side-table entry with source-coords
+  captured from this call site.
 
   A bulk entry has no slot for a per-path `:doc`, so this form never emits
   `:rf.warning/missing-doc`. To document a path, register it with
@@ -712,8 +711,8 @@
   hook. Returns the `{path → schema-meta}` map for a frame, or `{}`.
 
   Takes a resolved frame-id KEYWORD, not an opts map: it is the private twin
-  of the public `app-schemas`, which is the same fact behind the one
-  `{:frame f}` spelling (rf2-kuky.84 deleted the public var of this name)."
+  of the public `app-schemas`, which reads the same fact through the one
+  `{:frame f}` spelling. There is no public var of this name."
   [frame-id]
   (get @schemas-by-frame frame-id {}))
 
