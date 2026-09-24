@@ -72,7 +72,7 @@
 
 (defn- init! []
   (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "rf2-hzcv8 enumerable-token trace-egress suite frame."})
+                  :doc "Enumerable-token trace-egress suite frame."})
   (rf/reg-resource :sealed/feed
     {:scope         :rf.scope/global
      :sensitive?    true
