@@ -1,8 +1,8 @@
 (ns re-frame.substrate.spine-glitch-free-cljs-test
   "Single-recompute + single-notification coverage for the substrate-
-  spine's derived-value epoch scheduler (rf2-i21f5).
+  spine's derived-value epoch scheduler.
 
-  The bug: a naive spine wires one `add-watch` per source that recomputes
+  The hazard: a naive spine wires one `add-watch` per source that recomputes
   and notifies INLINE. A layer-2+ derived value with N changed inputs then
   recomputes once per changed input — the first input's notify drives the
   downstream recompute, the second input's notify drives it AGAIN, etc.
@@ -17,8 +17,8 @@
   Note on values: the spine's derived value is PULL-BASED — `-deref`
   recomputes fresh from current sources — so every recompute during the
   cascade reads settled source state and the notified VALUE is always
-  coherent (never a half-updated intermediate). The load-bearing defect
-  the fix removes is therefore the redundant-recompute storm + over-
+  coherent (never a half-updated intermediate). The load-bearing property
+  is therefore the absence of a redundant-recompute storm + over-
   notification, which these tests assert via per-derived recompute and
   notification counters.
 
@@ -51,14 +51,13 @@
      :replace!     replace!
      :root         root}))
 
-;; ---- laziness (rf2-ee38b.1 P2) --------------------------------------------
+;; ---- laziness -------------------------------------------------------------
 
 (deftest make-derived-value-is-lazy-no-compute-at-construction
   (testing "constructing a derived value does NOT invoke compute-fn until
             the first deref — matching Reagent's lazy make-reaction and the
-            plain-atom recompute-on-deref adapters (rf2-ee38b.1 P2). The
-            React-hook spine formerly seeded prev-state eagerly with
-            `(recompute)`, running the user sub body (and emitting
+            plain-atom recompute-on-deref adapters. Seeding prev-state
+            eagerly with `(recompute)` would run the user sub body (and emit
             :rf.sub/run) at subscribe-time rather than deref-time."
     (let [{:keys [make-derived root]} (build-graph)
           runs (atom 0)
@@ -70,7 +69,7 @@
       ;; A second deref is pull-based (recompute) — also runs the body, but
       ;; the point of the contract is ZERO runs before the first read.
       @d
-      (is (= 2 @runs) "subsequent derefs recompute (pull-based), as before"))))
+      (is (= 2 @runs) "subsequent derefs recompute (pull-based)"))))
 
 ;; ---- single-input layer-1 (regression guard) ------------------------------
 
@@ -80,7 +79,7 @@
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1     (make-derived [root] (fn [db] (:a db)))
           notes  (atom [])]
-      ;; rf2-ee38b.1: derived values are LAZY — the first deref establishes
+      ;; Derived values are LAZY — the first deref establishes
       ;; the baseline (the sub-cache always reads the value on subscribe).
       ;; Deref before the change so the notification carries the real prior
       ;; derived value rather than the `unset` sentinel.
@@ -97,7 +96,7 @@
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1     (make-derived [root] (fn [db] (:a db)))
           notes  (atom 0)]
-      ;; rf2-ee38b.1: deref to establish the lazy baseline before watching,
+      ;; Deref to establish the lazy baseline before watching,
       ;; mirroring the sub-cache's read-on-subscribe.
       (is (= 1 @l1) "baseline deref establishes prev-state")
       (add-watch l1 :w (fn [_ _ _ _] (swap! notes inc)))
@@ -111,7 +110,7 @@
 (deftest layer-2-multi-input-recomputes-once-and-notifies-once
   (testing "a multi-input layer-2 derived value over TWO layer-1 inputs
             recomputes EXACTLY ONCE and notifies its watcher at most once
-            per replace-container!, even when BOTH inputs change (rf2-i21f5)"
+            per replace-container!, even when BOTH inputs change"
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1a    (make-derived [root] (fn [db] (:a db)))
           l1b    (make-derived [root] (fn [db] (:b db)))
@@ -173,7 +172,7 @@
             spine is pull-based, so a downstream `-deref` of layer-2
             during layer-3's recompute legitimately re-runs layer-2's
             body. That deref-driven recompute is independent of the
-            rf2-i21f5 source-watch-storm — which is pinned by the
+            source-watch storm — which is pinned by the
             standalone `layer-2-multi-input-recomputes-once-and-notifies-
             once` test above.)"
     (let [{:keys [make-derived replace! root]} (build-graph)
@@ -195,7 +194,6 @@
       (is (= 2200 @l3)))))
 
 ;; ---- dispose mid-cascade does NOT recompute the disposed reaction ---------
-;; (rf2-jgzica)
 
 (deftest disposed-layer-2-flush-mid-cascade-does-not-recompute
   (testing "a layer-2 derived value disposed AFTER it is marked dirty but
@@ -206,7 +204,7 @@
             guard the memo wrapper recomputes and (in dev) emits a spurious
             :rf.sub/run for a reaction whose watchers are already cleared —
             the redundant-recompute class the epoch scheduler exists to
-            prevent (rf2-i21f5). (rf2-jgzica)"
+            prevent."
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1a    (make-derived [root] (fn [db] (:a db)))
           l1b    (make-derived [root] (fn [db] (:b db)))
@@ -242,7 +240,7 @@
             Drives the dispose deterministically by nesting it inside the
             same open epoch via a re-entrant replace! on an unrelated source
             watch — keeping the queued l1 flush pending until the outer epoch
-            closes. (rf2-jgzica)"
+            closes."
     (let [{:keys [make-derived replace! root scheduler]} (build-graph)
           body-runs (atom 0)
           l1     (make-derived [root]
@@ -260,7 +258,6 @@
           "the disposed reaction's flush did not recompute on drain"))))
 
 ;; ---- throw mid-drain: drains the tail (no strand) AND surfaces ------------
-;; (rf2-l3lelt + rf2-qcmzc)
 
 (deftest throwing-thunk-mid-drain-does-not-strand-downstream
   (testing "a derived value whose compute-fn THROWS during the epoch drain
@@ -268,7 +265,7 @@
             the surviving sibling drains its flush in the SAME epoch (BEFORE
             the throw surfaces), its dirty? guard is cleared so a LATER source
             change can re-enqueue it (no stuck-dirty strand), AND the throw is
-            SURFACED to the caller after the drain completes (rf2-qcmzc)
+            SURFACED to the caller after the drain completes
             rather than swallowed by the per-thunk guard.
 
             Wiring mirrors the real graph: both layer-1 values watch the root
@@ -277,8 +274,7 @@
             thunk is drained FIRST — meaning the surviving sibling is the
             still-queued downstream entry a bare (rethrowing) drain would
             strand (its flush never running, its dirty? stuck true, never
-            re-markable by `mark-dirty!`'s `(when-not @dirty? …)` guard).
-            (rf2-l3lelt)"
+            re-markable by `mark-dirty!`'s `(when-not @dirty? …)` guard)."
     (let [{:keys [make-derived replace! root]} (build-graph)
           boom?      (atom false)
           ;; Thrower: reads :a, throws on demand. Constructed FIRST so its
@@ -301,7 +297,7 @@
              (catch :default e (reset! caught e)))
         (is (instance? js/Error @caught)
             "the mid-drain recompute throw is SURFACED to the caller AFTER the
-             drain (rf2-qcmzc) — no longer swallowed by the per-thunk guard")
+             drain — not swallowed by the per-thunk guard")
         (is (= "boom" (.-message @caught))
             "the surfaced value is the original thrown error (identity carried
              through the drain's caller/error channel)"))
@@ -310,10 +306,11 @@
            surfaced — it was not stranded behind the throwing thunk")
       (is (= 20 @survivor) "survivor deref reflects the settled value")
       ;; The load-bearing strand assertion: disarm the throw and change the
-      ;; survivor's slice AGAIN. With the bug its dirty? was stuck true (its
-      ;; flush never ran on the first write), so this second change could
-      ;; never re-enqueue it and the watcher would NOT fire. With the fix the
-      ;; survivor drained cleanly the first time, so it re-marks and notifies.
+      ;; survivor's slice AGAIN. A stranding drain would leave its dirty? stuck
+      ;; true (its flush never running on the first write), so this second
+      ;; change could never re-enqueue it and the watcher would NOT fire. Here
+      ;; the survivor drained cleanly the first time, so it re-marks and
+      ;; notifies.
       (reset! boom? false)
       (reset! notes [])
       (replace! root {:a 99 :b 30})
@@ -325,7 +322,7 @@
   (testing "the THROWING derived value itself leaves no stuck-dirty guard:
             flush! resets dirty? BEFORE recompute, so even though its
             recompute threw, a later (non-throwing) source change re-enqueues
-            and flushes it normally. (rf2-l3lelt)"
+            and flushes it normally."
     (let [{:keys [make-derived replace! root]} (build-graph)
           boom?    (atom false)
           thrower  (make-derived [root]
@@ -340,7 +337,7 @@
         (try (replace! root {:a 2 :b 10})
              (catch :default e (reset! caught e)))
         (is (instance? js/Error @caught)
-            "the throw is SURFACED to the caller after the drain (rf2-qcmzc)"))
+            "the throw is SURFACED to the caller after the drain"))
       (is (= [] @notes)
           "the throwing flush did not notify (its recompute never returned)")
       ;; Disarm; a fresh change must re-enqueue + flush the (formerly
@@ -362,7 +359,7 @@
           src          (atom 5)
           l1     (make-derived [src] (fn [x] (* x 10)))
           notes  (atom [])]
-      ;; rf2-ee38b.1: deref to establish the lazy baseline before watching.
+      ;; Deref to establish the lazy baseline before watching.
       (is (= 50 @l1) "baseline deref establishes prev-state")
       (add-watch l1 :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
       (reset! src 6)
@@ -371,21 +368,20 @@
            once with the recomputed value"))))
 
 ;; ---- direct source mutation: earlier dependent throw does NOT suppress -----
-;; ---- the later sibling's derived work (rf2-2u4rw depth-zero entry) ---------
+;; ---- the later sibling's derived work -------------------------------------
 
 (deftest direct-source-earlier-throw-still-drains-later-sibling
   (testing "a DIRECT raw source reset (depth zero, bypassing replace-container!)
             with TWO derived dependents; the EARLIER (first-registered)
             dependent's recompute throws. The source's per-source fan-out
-            coordinator (rf2-7ryt0) brackets the whole fan-out in ONE with-epoch:
+            coordinator brackets the whole fan-out in ONE with-epoch:
             both dependents mark inside the epoch, the outermost close drains
             both flushes once, and the earliest failure surfaces via
             surface-escaped! AFTER the later sibling's derived work has run. Net:
             the later sibling's derived work runs, THEN the original first
             failure surfaces once, with identity preserved, and the scheduler
-            recovers cleanly. (Before rf2-2u4rw the depth-zero drain re-raised
-            inline and stranded the later sibling; #6210's deferral fixed the
-            exactly-two case only — rf2-7ryt0 gives every arity a real terminal.)"
+            recovers cleanly. (A depth-zero drain that re-raised inline would
+            strand the later sibling.)"
     (let [scheduler    (rf.substrate.spine/make-scheduler)
           make-derived (rf.substrate.spine/make-derived-value-fn "rf-b1-" scheduler)
           src          (atom 1)
@@ -433,7 +429,7 @@
   (testing "when BOTH direct dependents throw (earlier first), the EARLIEST
             escape is the one surfaced (presence capture across the single
             coordinator-bracketed drain) — the later dependent's own throw is
-            dropped in favour of the first. (rf2-2u4rw + rf2-7ryt0)"
+            dropped in favour of the first."
     (let [scheduler    (rf.substrate.spine/make-scheduler)
           make-derived (rf.substrate.spine/make-derived-value-fn "rf-b1b-" scheduler)
           src          (atom 1)
@@ -451,26 +447,26 @@
             "the earliest (first-firing dependent's) failure surfaced by
              identity; the later dependent's throw was superseded")))))
 
-;; ---- direct-source fan-out terminal for ARBITRARY arity (rf2-7ryt0) --------
-;; #6210's "surface at the next sibling drain" deferral only terminated the
+;; ---- direct-source fan-out terminal for ARBITRARY arity -------------------
+;; Deferring a fresh escape to "the next sibling drain" terminates only the
 ;; exactly-two earlier-throw case: a SOLE / LAST-firing throwing dependent has
-;; NO later drain (the failure parked on :escaped until an unrelated mutation),
-;; and 3+ dependents with an EARLY throw surfaced at the second dependent's
-;; drain, aborting the atom notify loop and stranding the tail. The per-source
-;; fan-out coordinator brackets the whole fan-out in ONE with-epoch, so every
-;; arity attempts all owned dependents then surfaces the earliest at a real
-;; terminal. These tests are RED against #6210 (sole/last park; early-of-3+
-;; strands) and GREEN with the coordinator.
+;; NO later drain (the failure would park on :escaped until an unrelated
+;; mutation), and with 3+ dependents an EARLY throw would surface at the second
+;; dependent's drain, aborting the atom notify loop and stranding the tail. The
+;; per-source fan-out coordinator brackets the whole fan-out in ONE with-epoch,
+;; so every arity attempts all owned dependents then surfaces the earliest at a
+;; real terminal. These tests are RED against that deferral (sole/last park;
+;; early-of-3+ strands) and GREEN with the coordinator.
 
 (deftest direct-source-sole-throwing-dependent-surfaces-at-terminal
   (testing "a DIRECT raw source reset whose SOLE derived dependent throws
             surfaces that failure SYNCHRONOUSLY at the fan-out's own terminal,
             exactly once, by identity — not parked on :escaped until an
-            unrelated later drain. #6210 deferred a fresh escape to 'the next
-            sibling drain', which never comes for a sole dependent, so reset!
-            returned successfully and the failure was lost until an unrelated
-            mutation. The per-source coordinator gives the bare reset a real
-            with-epoch terminal. (rf2-7ryt0 — RED against #6210: parked.)"
+            unrelated later drain. Deferring a fresh escape to 'the next
+            sibling drain' never terminates for a sole dependent: reset! would
+            return successfully and the failure would be lost until an
+            unrelated mutation. The per-source coordinator gives the bare reset
+            a real with-epoch terminal."
     (let [scheduler    (rf.substrate.spine/make-scheduler)
           make-derived (rf.substrate.spine/make-derived-value-fn "rf-sole-" scheduler)
           src          (atom 1)
@@ -497,8 +493,7 @@
 (deftest direct-source-sole-dependent-falsey-throw-surfaces-by-presence
   (testing "sole-dependent surfacing preserves a FALSEY throw (`false`/`nil`,
             both legal CLJS throws) by PRESENCE — the caller observes the exact
-            falsey value, never masked by a truthiness test (rf2-7ryt0 +
-            rf2-2u4rw)."
+            falsey value, never masked by a truthiness test."
     (doseq [thrown-val [false nil]]
       (let [scheduler    (rf.substrate.spine/make-scheduler)
             make-derived (rf.substrate.spine/make-derived-value-fn "rf-solef-" scheduler)
@@ -520,12 +515,12 @@
 (deftest direct-source-three-plus-dependents-attempt-all-then-surface-earliest
   (testing "with THREE dependents on one raw source, a throw at the FIRST,
             MIDDLE, or LAST position attempts EVERY dependent's flush exactly
-            once, then surfaces the earliest failure by exact identity. #6210
-            surfaced an early throw at the SECOND dependent's drain, aborting
-            the atom notify loop and stranding the remaining dependents (RED for
-            :first — d2 never ran; RED for :last — parked, never surfaced); the
+            once, then surfaces the earliest failure by exact identity.
+            Surfacing an early throw at the SECOND dependent's drain would
+            abort the atom notify loop and strand the remaining dependents
+            (:first — d2 never runs; :last — parked, never surfaced); the
             per-source coordinator brackets the whole fan-out in one with-epoch
-            so all attempt, then the earliest surfaces. (rf2-7ryt0)"
+            so all attempt, then the earliest surfaces."
     (doseq [throw-at [:first :middle :last]]
       (let [scheduler    (rf.substrate.spine/make-scheduler)
             make-derived (rf.substrate.spine/make-derived-value-fn "rf-3-" scheduler)
@@ -562,7 +557,7 @@
   (testing "when MULTIPLE of three dependents throw (first + last), the EARLIEST
             (first-registered) failure is surfaced — presence capture across the
             single bracketed drain — and every dependent is still attempted once;
-            the later thrower does not abort the fan-out. (rf2-7ryt0)"
+            the later thrower does not abort the fan-out."
     (let [scheduler    (rf.substrate.spine/make-scheduler)
           make-derived (rf.substrate.spine/make-derived-value-fn "rf-3m-" scheduler)
           src          (atom 1)
@@ -589,8 +584,8 @@
   (testing "after a direct-source fan-out failure surfaces, the scheduler's
             depth/flushing?/queue/queued cells are all clean, :escaped retains
             NO failure, and the next unrelated clean mutation flushes normally
-            with no retained earlier failure. (rf2-7ryt0 acceptance — clean
-            state after every path.)"
+            with no retained earlier failure. (Clean state after every
+            path.)"
     (let [scheduler    (rf.substrate.spine/make-scheduler)
           make-derived (rf.substrate.spine/make-derived-value-fn "rf-clean-" scheduler)
           src          (atom 1)
@@ -605,10 +600,9 @@
       ;; Scheduler cells clean after the failed fan-out.
       (is (= 0 @(:depth scheduler)) "depth clean")
       (is (false? @(:flushing? scheduler)) "flushing? clean")
-      ;; rf2-jr76s — the drain's scratch is a JS array + `js/Set` mutated in
-      ;; place, not a volatile over persistent collections. The CONTRACT this
-      ;; asserts is unchanged: both are empty after the failed fan-out, so no
-      ;; thunk is stranded and no `queued` entry survives to block a re-mark.
+      ;; The drain's scratch is a JS array + `js/Set` mutated in place. Both
+      ;; are empty after the failed fan-out, so no thunk is stranded and no
+      ;; `queued` entry survives to block a re-mark.
       (is (zero? (alength (:queue scheduler))) "queue empty")
       (is (zero? (.-size (:queued scheduler))) "queued empty")
       (is (not (instance? js/Error @(:escaped scheduler)))
@@ -625,14 +619,14 @@
         (is (= [[100 200]] @notes)
             "the unrelated source flushed normally")))))
 
-;; ---- with-epoch body/finally failure ordering (rf2-2u4rw epoch entry) ------
+;; ---- with-epoch body/finally failure ordering -----------------------------
 
 (deftest with-epoch-body-throw-wins-over-drain-throw
   (testing "a `with-epoch` body that QUEUES work and then throws E1, whose
             queued drain then throws E2, surfaces E1 (the earliest escape) to
             the caller — NOT E2. A bare try/finally would let JavaScript's
             finally-replaces-try semantics surface E2 and lose the primary E1.
-            rf2-2u4rw seeds the body escape onto :escaped BEFORE draining so the
+            with-epoch seeds the body escape onto :escaped BEFORE draining so the
             drain's E2 cannot displace it; the drain still attempts the queued
             tail, and E1 surfaces once with exact identity, scheduler clean."
     (let [scheduler    (rf.substrate.spine/make-scheduler)
@@ -659,7 +653,7 @@
              (catch :default e (reset! caught e)))
         (is (identical? e1 @caught)
             "E1 (the body's earliest escape) surfaced with exact identity — the
-             drain's E2 did not displace it (rf2-2u4rw)"))
+             drain's E2 did not displace it"))
       ;; Scheduler recovered: a normal replace! after the failure flushes
       ;; cleanly (queue/flushing?/:escaped all clean).
       (reset! boom? false)
@@ -673,7 +667,7 @@
 
   (testing "the body-over-drain primary is preserved by PRESENCE: a body that
             throws a FALSEY value (`nil` / `false`, both legal CLJS throws)
-            still wins over a truthy drain E2, with exact identity. (rf2-2u4rw)"
+            still wins over a truthy drain E2, with exact identity."
     (doseq [thrown-val [false nil]]
       (let [scheduler    (rf.substrate.spine/make-scheduler)
             make-derived (rf.substrate.spine/make-derived-value-fn "rf-b2f-" scheduler)
@@ -697,16 +691,15 @@
                    "truthiness, over the truthy drain E2")))))))
 
 ;; ---- native derived fan-out: rf= movement law ----------------------------
-;; (rf2-vxgfnd.203)
 
 (deftest nan-to-nan-derived-does-not-fan-out-on-no-move
   (testing "a derived value that stays ##NaN across a source tick reports NO
             movement under the frozen rf= law and fans out ZERO direct
-            callbacks. Raw `not=` treated `(not= ##NaN ##NaN)` as true and
-            fired a false invalidation — disagreeing with the observation
+            callbacks. Raw `not=` treats `(not= ##NaN ##NaN)` as true and
+            would fire a false invalidation — disagreeing with the observation
             port and ViewCell layer, which are both rf=-gated. An ordinary
-            value movement still notifies exactly once, so the gate is a
-            movement test, not a blanket suppression. (rf2-vxgfnd.203)"
+            value movement notifies exactly once, so the gate is a
+            movement test, not a blanket suppression."
     (let [{:keys [make-derived replace! root]} (build-graph)
           nan-d     (make-derived [root] (fn [_db] js/NaN))
           ord-d     (make-derived [root] (fn [db] (:a db)))
@@ -728,16 +721,15 @@
           "an ordinary value movement produces exactly one direct callback"))))
 
 ;; ---- native derived fan-out: throwing-subscriber containment --------------
-;; (rf2-vxgfnd.203)
 
 (deftest throwing-first-subscriber-does-not-suppress-later-sibling
   (testing "with the throwing subscriber registered FIRST (drained first), a
-            later sibling still receives the same movement. Bare `run!`
-            aborted at the throw and skipped every later subscriber; the fan-
-            out now attempts each independently, then re-raises the captured
-            failure AFTER delivery — the drain surfaces it to the caller
-            (rf2-qcmzc), so replace-container! throws the primary value while
-            every sibling still fired. (rf2-vxgfnd.203 + rf2-qcmzc)"
+            later sibling still receives the same movement. A bare `run!`
+            would abort at the throw and skip every later subscriber; the fan-
+            out attempts each independently, then re-raises the captured
+            failure AFTER delivery — the drain surfaces it to the caller, so
+            replace-container! throws the primary value while every sibling
+            still fired."
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1      (make-derived [root] (fn [db] (:a db)))
           a-fired (atom 0)
@@ -758,15 +750,14 @@
         (is (and (instance? js/Error @caught)
                  (= "subscriber A boom" (.-message @caught)))
             "A's throw is SURFACED to the caller AFTER B was delivered
-             (rf2-qcmzc) — not swallowed inside the fan-out")))))
+             — not swallowed inside the fan-out")))))
 
 (deftest throwing-subscriber-delivery-is-order-independent
   (testing "a throwing subscriber in the MIDDLE of the registration order does
             not prevent EITHER an earlier or a later sibling from receiving the
             movement — delivery depends on ownership + movement, not iteration
             order. Covers the reversed registration order relative to the
-            throwing-first test (a sibling registered BEFORE the thrower).
-            (rf2-vxgfnd.203)"
+            throwing-first test (a sibling registered BEFORE the thrower)."
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1    (make-derived [root] (fn [db] (:a db)))
           fired (atom #{})]
@@ -786,16 +777,16 @@
         (is (and (instance? js/Error @caught)
                  (= "middle subscriber boom" (.-message @caught)))
             "the middle subscriber's throw is SURFACED to the caller after ALL
-             siblings were delivered (rf2-qcmzc)")))))
+             siblings were delivered")))))
 
 (deftest falsey-subscriber-throws-are-surfaced-by-presence
   (testing "a subscriber that throws a FALSEY value (`false` / `nil` — both
             legal CLJS throws) is captured by PRESENCE, so a later sibling
             still fires AND the primary failure is SURFACED to the caller with
-            its exact identity — never masked by a truthiness test. Against
-            #5961 the falsey value was captured but the whole failure was then
-            swallowed by the drain, so the caller saw nil either way; this pins
-            that the caller observes the ORIGINAL falsey throw. (rf2-qcmzc)"
+            its exact identity — never masked by a truthiness test. A drain
+            that swallowed the captured failure would leave the caller seeing
+            nil either way; this pins that the caller observes the ORIGINAL
+            falsey throw."
     (doseq [thrown-val [false nil]]
       (let [{:keys [make-derived replace! root]} (build-graph)
             l1      (make-derived [root] (fn [db] (:a db)))
@@ -818,23 +809,20 @@
                    "` throw — captured by presence, delivered before surfacing")))))))
 
 ;; ---- native derived subscriber failures SURFACE after fan-out -------------
-;; (rf2-qcmzc)
 ;;
-;; #5961 contained a throwing derived subscriber (every sibling still
-;; delivers) and re-raised the captured value AFTER delivery — but that
-;; re-raise escaped `flush!` straight into `drain-scheduler!`'s per-thunk
-;; `(catch :default _ nil)`, which DISCARDED it. So the primary failure
-;; vanished silently: `replace-container!` returned normally and the
-;; programmer error never surfaced. These tests observe the ORIGINAL thrown
-;; value at the caller (identity preserved), which is exactly what the
-;; swallowing #5961 path could not deliver — they are RED against #5961.
+;; Containing a throwing derived subscriber (every sibling still delivers) and
+;; re-raising the captured value AFTER delivery is not enough on its own: a
+;; per-thunk `(catch :default _ nil)` in `drain-scheduler!` would DISCARD that
+;; re-raise, so the primary failure would vanish silently —
+;; `replace-container!` returning normally and the programmer error never
+;; surfacing. These tests observe the ORIGINAL thrown value at the caller
+;; (identity preserved), which a swallowing drain cannot deliver.
 
 (deftest primary-subscriber-throw-surfaces-with-object-identity
   (testing "the FIRST subscriber's thrown value is SURFACED to the caller with
             EXACT object identity preserved, AFTER every later sibling has been
-            delivered. #5961 delivered the siblings but the drain swallowed the
-            primary, so the caller never observed the thrown object; rf2-qcmzc
-            surfaces it through the drain's caller/error channel. (rf2-qcmzc)"
+            delivered. The drain surfaces it through its caller/error channel
+            rather than swallowing it."
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1       (make-derived [root] (fn [db] (:a db)))
           ;; A distinct object — assert IDENTITY, not just class/message, so
@@ -861,8 +849,7 @@
             one watcher there is no sibling to protect, so the fan-out invokes
             it directly (no capture volatile) and its throw propagates through
             flush! into the drain, which surfaces it to the caller. Guards
-            against the fast path silently dropping the sole subscriber's throw.
-            (rf2-qcmzc common-path preservation)"
+            against the fast path silently dropping the sole subscriber's throw."
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1       (make-derived [root] (fn [db] (:a db)))
           sentinel (js/Error. "solo boom")]
@@ -876,7 +863,7 @@
              allocation-free fast path")))))
 
 ;; ---- watcher add/remove during fan-out lands on the NEXT wave --------------
-;; (rf2-qcmzc — snapshot semantics)
+;; (snapshot semantics)
 
 (deftest watcher-add-remove-during-fan-out-snapshots-to-next-wave
   (testing "the fan-out iterates a SNAPSHOT of the watcher map (@watchers is an
@@ -884,8 +871,7 @@
             watches DURING fan-out therefore lands on the NEXT movement, not the
             current one: a watcher REMOVED mid-fan-out still fires this wave (it
             is in the snapshot), and a watcher ADDED mid-fan-out does NOT fire
-            this wave (it is not). On the following movement the roles flip.
-            (rf2-qcmzc)"
+            this wave (it is not). On the following movement the roles flip."
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1      (make-derived [root] (fn [db] (:a db)))
           a-count (atom 0)
@@ -921,8 +907,8 @@
           "wave 2: :d NOW fires — the mid-fan-out add took effect on this wave"))))
 
 ;; ---- re-entrant write from a subscriber during fan-out --------------------
-;; (rf2-qcmzc — pins current behavior; full re-entrant-write ordering is a
-;; later pass per the bead)
+;; (pins the coalescing behaviour; full re-entrant-write ordering is out of
+;; this suite's scope)
 
 (deftest re-entrant-write-from-subscriber-coalesces-into-outer-drain
   (testing "a subscriber that performs a re-entrant replace! during fan-out has
@@ -930,9 +916,9 @@
             drain is a no-op while the outer drain still holds `flushing?`, so
             the re-enqueued flush is picked up by the running outer loop. The
             derived value settles to the re-entrant value and the subscriber
-            observes BOTH movements in order. Pins the current behavior — the
-            bead scopes full queued / re-entrant-write ordering to a later pass.
-            (rf2-qcmzc)"
+            observes BOTH movements in order. Pins this coalescing behaviour;
+            full queued / re-entrant-write ordering is out of this test's
+            scope."
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1    (make-derived [root] (fn [db] (:a db)))
           seen  (atom [])
