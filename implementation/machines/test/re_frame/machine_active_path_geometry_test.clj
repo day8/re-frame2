@@ -1,6 +1,6 @@
 (ns re-frame.machine-active-path-geometry-test
   "Exact exit / action / entry IDENTITIES for every TARGET ↔ DECLARING-state
-  transition geometry (rf2-xkr5r3).
+  transition geometry.
 
   Per Spec 005 §Self-transitions the discriminator is the target's
   relationship to the state the transition is DECLARED on — NOT merely
@@ -26,15 +26,15 @@
   The load-bearing pin is the (1)-vs-(3) contrast at the SAME leaf: a
   `:parent`-declared target of the already-active leaf produces
   exit-leaf/action/enter-leaf, while the targetless control on `:parent`
-  produces the action ALONE. Stale prose in `transition.cljc` once claimed an
-  active-path target was `internal` and that targeting a LEAF necessarily
-  equalled targetless; both are false for the declaring-compound descendant
-  relationship, and `lca-len`'s `cond` has always ordered
-  `target-descendant-of-decl?` AHEAD of `target-on-active-path?` to say so.
-  Reordering those two arms must fail `parent-declared-active-leaf-*` below.
+  produces the action ALONE. An active-path target is NOT `internal`, and
+  targeting a LEAF does not necessarily equal targetless: both would be false
+  for the declaring-compound descendant relationship, which is why
+  `lca-len`'s `cond` orders `target-descendant-of-decl?` AHEAD of
+  `target-on-active-path?`. Reordering those two arms must fail
+  `parent-declared-active-leaf-*` below.
 
-  The leaf SELF-target cases pin the genuine coincidence the stale prose
-  over-generalised FROM: a transition declared ON the leaf targeting itself
+  The leaf SELF-target cases pin the genuine coincidence that is easy to
+  over-generalise FROM: a transition declared ON the leaf targeting itself
   has no descendants to re-resolve, so it really does collapse to the
   targetless log — the distinction is the DECLARING state, not leaf-ness."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -72,7 +72,7 @@
    @log))
 
 ;; ===========================================================================
-;; (1) vs (3) — the parent-declared ACTIVE LEAF regression.
+;; (1) vs (3) — the parent-declared ACTIVE LEAF.
 ;; ===========================================================================
 
 (defn- parent-declared-leaf-machine [log]
@@ -154,7 +154,7 @@
 (deftest leaf-self-target-without-reenter-coincides-with-targetless
   (testing "a SELF target declared ON the leaf has no descendants to
             re-resolve, so it genuinely collapses to the targetless log. This
-            is the real coincidence the stale prose over-generalised from —
+            is the real coincidence that is easy to over-generalise from —
             it is licensed by the DECLARING-state relationship (self, not
             descendant), NOT by leaf-ness alone"
     (let [log (atom [])]
