@@ -2,9 +2,8 @@
   "Node-test coverage for `re-frame2-pair.pure` — the genuinely-pure core the
    SHIPPED preload (`re-frame2-pair.runtime`) delegates to. These tests exercise
    the EXACT code the runtime calls (runtime `:require`s this ns and threads the
-   live gates into these fns), so they replace the retired Babashka mirrors that
-   re-derived the algorithms and could silently drift from the shipped preload
-   (rf2-etsj8p).
+   live gates into these fns), so, unlike a Babashka mirror that re-derives the
+   algorithms, they cannot silently drift from the shipped preload.
 
    Run: `npm run test:pure` from tests/fixture/
         (`shadow-cljs compile pure-test && node target/pure-test.js`)."
@@ -142,9 +141,9 @@
 ;;
 ;; These pins exercise the EXACT logic `re-frame2-pair.runtime`'s assembled-
 ;; epoch listener (`attribute-pair-epoch!`) and `last-pair-epoch` delegate to.
-;; They demonstrate the three defects the old bare-id / sync-only attribution
-;; carried (rf2-3fc89f.39): a queued pair epoch never attributed, a bare id
-;; colliding across frames, and unbounded growth.
+;; They pin the three defects a bare-id / sync-only attribution would carry:
+;; a queued pair epoch never attributed, a bare id colliding across frames,
+;; and unbounded growth.
 
 (defn- dispatched-epoch
   "An assembled epoch record carrying the `:rf.event/dispatched` origin trace
