@@ -1,5 +1,5 @@
 (ns re-frame.story-mcp.login-form-testbed-test
-  "The Story tutorial's flagship subject holds on the JVM (rf2-fmrgj).
+  "The Story tutorial's flagship subject holds on the JVM.
 
   `tools/story/testbeds/login_form` is the testbed every `docs/story` chapter
   teaches. Its machine, subs, events and variants are `.cljc`; only its views
