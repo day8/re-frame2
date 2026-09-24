@@ -1,5 +1,5 @@
 (ns re-frame.http-set-cookie-parity-cljs-test
-  "rf2-wmdmou — cross-host response-headers SHAPE parity for `Set-Cookie`
+  "Cross-host response-headers SHAPE parity for `Set-Cookie`
   (Spec 014 §Request envelope: `string → string`, or `string → vector of
   strings` for a multi-valued header).
 
@@ -8,19 +8,18 @@
   ns-regexp) discover it — the contract under test is host-symmetric BY
   DESIGN, so a single source asserted on both runtimes is the right shape.
 
-  The defect (a CONFIRMED MEDIUM from the tap2r6 http correctness review):
-  the JVM transport's `jvm-headers->map` (rf2-0xvm1) rides every wire line
+  The JVM transport's `jvm-headers->map` rides every wire line
   of a multi-valued response header as a vector element — so two
   `Set-Cookie` lines decode to a 2-element vector, each cookie preserved
-  verbatim. The CLJS transport's `fetch-headers->map` used a bare
-  `Headers.forEach` + `js->clj`, and `forEach` keeps `Set-Cookie` OUT of
-  its combined view: it yields ONLY THE LAST `Set-Cookie` line, silently
-  DROPPING the earlier one(s). A two-cookie 2xx/4xx response therefore
-  decoded to a 2-element vector on the JVM but a single (last-only) string
-  on CLJS — an undocumented, untraced cross-host divergence that LOSES a
-  cookie and contradicts the JVM's RFC-6265-§3-correct shape.
+  verbatim. A bare `Headers.forEach` + `js->clj` on CLJS would not match:
+  `forEach` keeps `Set-Cookie` OUT of its combined view and yields ONLY
+  THE LAST `Set-Cookie` line, silently DROPPING the earlier one(s). A
+  two-cookie 2xx/4xx response would then decode to a 2-element vector on
+  the JVM but a single (last-only) string on CLJS — an untraced cross-host
+  divergence that LOSES a cookie and contradicts the JVM's
+  RFC-6265-§3-correct shape.
 
-  rf2-wmdmou recovers the unfolded lines on CLJS via
+  The CLJS transport's `fetch-headers->map` recovers the unfolded lines via
   `Headers.getSetCookie()` so a multi-valued `Set-Cookie` decodes
   IDENTICALLY on both hosts (single → string; multi → a vector of the
   verbatim wire lines, every line preserved)."
@@ -78,7 +77,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest single-set-cookie-is-string-cross-host
-  (testing "rf2-wmdmou — a single Set-Cookie line decodes to a plain STRING
+  (testing "a single Set-Cookie line decodes to a plain STRING
             on both hosts (the single-valued fast path; no spurious
             1-element vector)"
     (let [out (decode-headers {"Set-Cookie" ["only=1; Path=/"]})]
@@ -88,11 +87,10 @@
           "shape is string, not a 1-element vector"))))
 
 (deftest multi-set-cookie-is-vector-of-verbatim-lines-cross-host
-  (testing "rf2-wmdmou — TWO Set-Cookie lines decode to a 2-element vector of
-            the verbatim wire lines on BOTH hosts. Pre-fix the CLJS host
-            dropped the FIRST cookie and returned only the last as a string;
-            the JVM already rode both as a vector. This is the headline
-            cross-host parity regression."
+  (testing "TWO Set-Cookie lines decode to a 2-element vector of
+            the verbatim wire lines on BOTH hosts. A forEach-folded CLJS
+            host would drop the FIRST cookie and return only the last as a
+            string. This is the headline cross-host parity case."
     (let [cookies ["session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT"
                    "csrf=xyz; Path=/; Expires=Thu, 22 Oct 2026 07:28:00 GMT"]
           out     (decode-headers {"Set-Cookie" cookies})
@@ -107,7 +105,7 @@
            not interpreted as a separator, and the first line is not lost"))))
 
 (deftest no-set-cookie-leaves-map-untouched-cross-host
-  (testing "rf2-wmdmou — a response with no Set-Cookie decodes its other
+  (testing "a response with no Set-Cookie decodes its other
             headers unchanged (the recovery is surgical to Set-Cookie); a
             single non-cookie header stays a string on both hosts"
     (let [out (decode-headers {"Content-Type" ["application/json"]})]
@@ -116,7 +114,7 @@
           "no spurious set-cookie key is synthesised"))))
 
 (deftest success-reply-meta-rides-host-normalized-headers-verbatim-cross-host
-  (testing "rf2-lddbk — the host transport's normalized header map (built here
+  (testing "the host transport's normalized header map (built here
             from the host's REAL native headers object) rides the canonical
             success reply's [:meta :headers] VERBATIM on both hosts — the
             multi-valued vector shape included. One header representation,
