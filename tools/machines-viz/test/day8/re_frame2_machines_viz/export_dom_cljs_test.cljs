@@ -1,44 +1,43 @@
 (ns day8.re-frame2-machines-viz.export-dom-cljs-test
-  "Browser-side CLJS regression for the chart IMAGE exporters (rf2-sr6l3).
+  "Browser-side CLJS regression for the chart IMAGE exporters.
 
   ## Why this exists
 
-  The PNG / SVG image exporters were EDGE-ONLY: they cloned the first
-  xyflow `<svg>` (the edge layer) and rasterised THAT. But the chart's
-  visual grammar — boxed state nodes, compound/region containers, event
-  chips, final rings, labels, AND the active-state border/glow — renders
-  as inline-styled DOM divs inside `.react-flow__viewport`, AROUND the
-  edge svg. So `chart-as-svg` / `chart-as-png!` could not faithfully
-  export the topology and in particular MISSED the active-state
-  highlight the `API.md` §PNG / §SVG contract promises.
+  The chart's visual grammar — boxed state nodes, compound/region
+  containers, event chips, final rings, labels, AND the active-state
+  border/glow — renders as inline-styled DOM divs inside
+  `.react-flow__viewport`, AROUND the xyflow edge `<svg>`. An exporter
+  that cloned only that first `<svg>` (the edge layer) and rasterised
+  THAT could not faithfully export the topology, and in particular would
+  MISS the active-state highlight the `API.md` §PNG / §SVG contract
+  promises.
 
-  rf2-sr6l3 reworks the exporters to capture the WHOLE rendered viewport
-  via a `<foreignObject>` (the node bodies' inline styles carry the
-  grammar + the active-affordance) and to resolve the export root off the
-  `_rfMvChartState` SEAM rather than the hard-coded default `data-testid`
+  So the exporters capture the WHOLE rendered viewport via a
+  `<foreignObject>` (the node bodies' inline styles carry the grammar +
+  the active-affordance) and resolve the export root off the
+  `_rfMvChartState` SEAM rather than a hard-coded default `data-testid`
   (so export works from the root / a descendant / a wrapper, for the
   default AND a custom `:testid`).
 
-  This suite FAILS against the prior edge-only / testid-keyed
-  implementation:
+  This suite FAILS against an edge-only / testid-keyed implementation:
 
-    - the SVG no longer carries any state-box text (edge-only svg has no
-      node bodies) → `svg-includes-state-boxes-and-active-affordance`
+    - an edge-only svg carries no state-box text (it has no node
+      bodies) → `svg-includes-state-boxes-and-active-affordance`
       fails;
-    - the active-affordance attr never appears in the edge-only svg →
+    - the active-affordance attr never appears in an edge-only svg →
       same test fails;
-    - a custom-`:testid` chart's export from a wrapper threw
-      `:no-chart-state` under the hard-coded selector →
+    - a custom-`:testid` chart's export from a wrapper throws
+      `:no-chart-state` under a hard-coded selector →
       `export-resolves-root-from-wrapper-and-custom-testid` fails.
 
-  The share-url + Mermaid lanes are unchanged and stay covered by
-  `export_cljs_test.cljs` (the node-runtime seam tests).
+  The share-url + Mermaid lanes are covered by `export_cljs_test.cljs`
+  (the node-runtime seam tests).
 
   ## Target
 
   ns ends in `-dom-cljs-test` so it runs under the `:browser-test`
   build (real DOM + headless Chromium, real canvas / Image / SVG
-  rasterisation) per `shadow-cljs.edn` (rf2-2hrj8). Under `:node-test`
+  rasterisation) per `shadow-cljs.edn`. Under `:node-test`
   (no DOM) every test short-circuits via `(browser?)` and asserts a
   trivial truth so the suite stays green on both targets.
 
@@ -61,7 +60,7 @@
             [day8.re-frame2-machines-viz.export :as export]
             [day8.re-frame2-machines-viz.share :as share]))
 
-;; `share-url` has no default host (rf2-8m344) — every caller names the
+;; `share-url` has no default host — every caller names the
 ;; viewer page it hosts, tests included.
 (def ^:private test-host "https://x/viewer.html")
 
@@ -184,12 +183,12 @@
 ;; ---- 1. SVG carries the node grammar + active-state affordance ----------
 
 (deftest svg-includes-state-boxes-and-active-affordance
-  (testing "rf2-sr6l3 — chart-as-svg captures the FULL viewport: the
+  (testing "chart-as-svg captures the FULL viewport: the
             exported SVG carries the state-box text (state labels), is a
             `<foreignObject>`-wrapped capture (not the bare edge svg), and
             includes the active-state affordance (`data-active-affordance`
-            on the highlighted `:loading` node). The prior edge-only
-            exporter carried NONE of these."
+            on the highlighted `:loading` node). An edge-only exporter
+            would carry NONE of these."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -202,7 +201,7 @@
             (is (str/includes? svg "foreignObject")
                 "the SVG embeds the viewport via foreignObject")
             ;; State BOX text — the node labels render in the captured
-            ;; node bodies (edge-only svg had no node text).
+            ;; node bodies (an edge-only svg has no node text).
             (is (str/includes? svg "loading")
                 "the SVG carries state-box text (the :loading label)")
             (is (str/includes? svg "idle")
@@ -215,14 +214,14 @@
                 "the SVG includes the active-state affordance attr")
             (is (str/includes? svg "box-shadow")
                 "the active node's inline box-shadow glow survives the capture")
-            ;; <title>/<desc> machine summary (accessibility) preserved.
+            ;; The <title>/<desc> machine summary (accessibility) survives.
             (is (str/includes? svg "<title>")
                 "the SVG carries the <title> machine summary")
             (is (str/includes? svg "<desc>")
                 "the SVG carries the <desc> machine summary")))))))
 
 (deftest svg-without-active-state-has-no-affordance
-  (testing "rf2-sr6l3 — without :current-state the export carries the
+  (testing "without :current-state the export carries the
             state boxes but NO active-affordance attr set true (control:
             proves the affordance assertion above is signal, not noise)."
     (if-not (browser?)
@@ -278,10 +277,10 @@
         (set! (.-src img) url)))))
 
 (deftest png-rasterises-full-chart-with-content
-  (testing "rf2-sr6l3 — chart-as-png! resolves to an image/png Blob whose
+  (testing "chart-as-png! resolves to an image/png Blob whose
             raster is NON-EMPTY (the laid-out node boxes + the
-            active-state glow actually drew onto the canvas). The prior
-            edge-only PNG on a transparent background carried no node
+            active-state glow actually drew onto the canvas). An
+            edge-only PNG on a transparent background would carry no node
             boxes. Proves the foreignObject viewport capture rasterises
             end to end — once the elkjs layout has settled (nodes are
             `visibility:hidden` until then, so we await layout)."
@@ -311,8 +310,8 @@
                 (fn [e]
                   (is false (str "chart-as-png! rejected: " e))
                   nil))
-              ;; `finish` is shared and symmetric — both arms unmounted and
-              ;; removed the host — so it belongs here, written once and still
+              ;; `finish` unmounts and removes the host on BOTH paths —
+              ;; resolved and rejected — so it belongs here, written once and
               ;; run once per path, ahead of the single trailing `done`.
               (.then
                 (fn [_]
@@ -327,7 +326,7 @@
 ;;        for default AND custom :testid (seam-keyed, not testid-keyed)
 
 (deftest export-resolves-root-from-root-descendant-and-wrapper
-  (testing "rf2-sr6l3 — chart-as-svg resolves the export root off the
+  (testing "chart-as-svg resolves the export root off the
             `_rfMvChartState` seam, so it works when called with the chart
             ROOT, a DESCENDANT node inside it, or a WRAPPER element around
             it. All three must produce the same node-bearing SVG."
@@ -355,10 +354,10 @@
                 "export from a wrapper resolves the root via the seam descendant-search")))))))
 
 (deftest export-resolves-root-from-wrapper-and-custom-testid
-  (testing "rf2-sr6l3 — the seam-keyed lookup works for a CUSTOM `:testid`
-            too. The prior hard-coded `[data-testid='rf-mv-chart']`
-            selector found NOTHING for a custom-testid chart, so export
-            from a wrapper / descendant threw `:no-chart-state`. With the
+  (testing "the seam-keyed lookup works for a CUSTOM `:testid`
+            too. A hard-coded `[data-testid='rf-mv-chart']` selector
+            would find NOTHING for a custom-testid chart, so export from a
+            wrapper / descendant would throw `:no-chart-state`. With the
             seam-keyed lookup, export from the wrapper (host node) AND from
             a descendant resolves the custom-testid chart and carries the
             node grammar."
@@ -385,14 +384,14 @@
             (is (str/includes? (export/chart-as-svg root) "loading")
                 "export from the custom-testid root carries node text")))))))
 
-;; ---- 4. share-url + mermaid lanes stay unchanged (regression guard) -----
+;; ---- 4. share-url + mermaid lanes on the live chart (regression guard) --
 
 (deftest share-url-and-mermaid-unchanged-on-live-chart
-  (testing "rf2-sr6l3 — reworking the IMAGE exporters leaves the share-url
-            + Mermaid lanes intact: both still derive off the live chart's
-            seam, from the root AND a wrapper. (The node-runtime seam tests
-            in export_cljs_test cover the stub-element path; this guards
-            the live-DOM path stays equivalent.)"
+  (testing "beside the IMAGE exporters, the share-url + Mermaid
+            lanes derive off the live chart's seam, from the root AND a
+            wrapper. (The node-runtime seam tests in export_cljs_test cover
+            the stub-element path; this guards that the live-DOM path is
+            equivalent.)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -412,17 +411,17 @@
             ;; share-url from the WRAPPER resolves the same root.
             (is (str/includes? (export/share-url node {:host test-host}) "#machine=")
                 "share-url resolves from a wrapper via the seam too")
-            ;; Mermaid lane still emits a fenced stateDiagram from the seam.
+            ;; The Mermaid lane emits a fenced stateDiagram from the seam.
             (let [md (export/chart-as-mermaid root)]
               (is (str/includes? md "stateDiagram-v2")
-                  "chart-as-mermaid still emits a stateDiagram from the live seam")
+                  "chart-as-mermaid emits a stateDiagram from the live seam")
               (is (str/includes? md "mermaid")
-                  "chart-as-mermaid still fences the block"))))))))
+                  "chart-as-mermaid fences the block"))))))))
 
-;; ---- 5. EP-0015 — live Context band redacts before export (rf2-27e38h) --
+;; ---- 5. EP-0015 — live Context band redacts before export --------------
 
 (deftest svg-export-redacts-sensitive-live-context
-  (testing "rf2-27e38h — chart-as-svg of a chart fed LIVE :context-band with
+  (testing "chart-as-svg of a chart fed LIVE :context-band with
             a schema-marked sensitive slot does NOT carry the raw secret in
             the serialised SVG (the band is local-redacted by default); the
             :rf/redacted sentinel appears instead and a non-sensitive slot
@@ -449,7 +448,7 @@
                   "the non-sensitive :count slot still renders"))))))))
 
 (deftest svg-export-redacts-a-runtime-only-key-under-whole-data-sensitivity
-  (testing "rf2-k7i6y — a machine declaring its WHOLE :data sensitive, with an
+  (testing "a machine declaring its WHOLE :data sensitive, with an
             EMPTY initial :data, later writes a token. Fed through the API.md
             recipe, the exported SVG does not carry it."
     (if-not (browser?)
@@ -473,7 +472,7 @@
                   "the redaction sentinel appears in its place"))))))))
 
 (deftest svg-export-passes-live-context-when-raw-opted-in
-  (testing "rf2-27e38h — :context-band-raw? true is the explicit
+  (testing ":context-band-raw? true is the explicit
             trusted-local opt-in: the raw value IS serialised (local-raw)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
