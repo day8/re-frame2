@@ -21,9 +21,8 @@
   between cases (via `make-reset-runtime-fixture` and the chained
   `:adapter/clear-warn-once-caches!` hook) so a sibling test's first-
   encounter warning cannot silently swallow a later test's same-id
-  warning. The cache is a process-wide `defonce` so the user-facing
-  warn-once UX is unchanged in production; test-time clearing is the
-  only effect."
+  warning. The cache is a process-wide `defonce` so production keeps the
+  user-facing warn-once UX; test-time clearing is the only effect."
   []
   (reset! warned-non-dom-roots #{})
   nil)
