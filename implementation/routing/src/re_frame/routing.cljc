@@ -43,7 +43,7 @@
             [re-frame.events :as rf.events]
             [re-frame.fx :as rf.fx]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.registrar :as rf.registrar]
+            #?(:clj [re-frame.registrar :as rf.registrar])
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.subs :as rf.subs]
             [re-frame.routing.decisions :as rf.routing.decisions]
@@ -191,24 +191,6 @@
 ;; one — see `re-frame.image-assembly/superseded-framework-default-keys`.
 (def ^:private framework-default-meta
   (assoc framework-authority-meta :rf/framework-default? true))
-
-;; EP-0037 R1: `:on-match` is fire-and-forget and route readiness is the
-;; resource-derived projection, so there is NO `:rf.route.internal/
-;; settle-transition` event, NO `:rf.route.internal/on-match-error` event, and
-;; NO corpus-wide on-match error-emit listener. A synchronous `:on-match` throw
-;; stays on the ordinary Spec 009 event error channel, attributed to the event.
-;;
-;; The event registrar is `defonce`, so a dev session whose registrar holds
-;; these two retired framework EVENT ids from a routing build that registered
-;; them keeps them across `(require 're-frame.routing :reload)` under HMR, and
-;; a stale `:on-match` handler could then observe a new blocking-resource
-;; `:loading` transition and resurrect route `:error` / `:on-error`
-;; behaviour — a contract violation under
-;; normal reload. So the façade IDEMPOTENTLY unregisters exactly these two
-;; retired framework ids on every load/reload. This targets ONLY the framework's
-;; own retired ids: it resets no registry and clears no user registration.
-(rf.registrar/unregister! :event :rf.route.internal/settle-transition)
-(rf.registrar/unregister! :event :rf.route.internal/on-match-error)
 
 ;; The two recordable allocation coeffects read host-side high-water marks and
 ;; record the selected id on the causal token. The effect installs the
