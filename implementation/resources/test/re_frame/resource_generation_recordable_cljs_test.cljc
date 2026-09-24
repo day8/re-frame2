@@ -1,6 +1,7 @@
 (ns re-frame.resource-generation-recordable-cljs-test
-  "rf2-abyycr (EP-0017 §Recordable coeffects + Spec 016 §Restore and replay /
-  §Durable join keys are recordable) — the resource/mutation `generation` is
+  "Recordable generations (EP-0017 §Recordable coeffects + Spec 016 §Restore
+  and replay / §Durable join keys are recordable) — the resource/mutation
+  `generation` is
   a DURABLE JOIN KEY (it is written onto the entry / instance and stamped on
   the reply token as the stale-suppression correlation), so the minted VALUE
   must be RECORDABLE even though the host allocator stays transient.
@@ -140,7 +141,7 @@
      (body))))
 
 (deftest generation-allocation-is-recorded-so-replay-keeps-the-reply-current
-  (testing "rf2-abyycr — the resource generation is a RECORDABLE allocation:
+  (testing "the resource generation is a RECORDABLE allocation:
             a recorded managed reply that was accepted at record time replays
             as accepted (NOT stale-suppressed) because replay reproduces the
             identical generation from the recorded allocation, even when the
@@ -214,19 +215,19 @@
             (reply-success! {:title "Welcome"})
             (is (= :loaded (:status (live-entry)))
                 "the recorded reply (generation 1) is ACCEPTED on replay — the
-                 recordable allocation kept it current (the fix)")
+                 recordable allocation kept it current")
             (is (= {:title "Welcome"} (:data (live-entry)))
                 "replay installed the same durable value as the record")))
 
-        ;; ===== 3. REPLAY-DIVERGENT (the bug, control) — same allocator, =====
+        ;; ===== 3. REPLAY-DIVERGENT (the hazard, control) — same allocator, ==
         ;; =====    NO recorded allocation ⇒ generator re-mints; reply stale ==
         (with-fresh-runtime
           (fn []
             (register-resource!)
             (rf.resources.state/commit-generation! frame-id 10)
             ;; replay the ensure WITHOUT the recorded allocation — the
-            ;; generator re-mints from the live high-water (the old ambient
-            ;; behaviour): generation 11.
+            ;; generator re-mints from the live high-water (the un-recorded
+            ;; ambient path): generation 11.
             (ensure!)
             (is (= 11 (:generation (live-entry)))
                 "without the recorded allocation the generation is RE-MINTED
@@ -248,7 +249,7 @@
                  non-vacuous")))))))
 
 (deftest mutation-generation-allocation-is-recorded
-  (testing "rf2-abyycr — the mutation writer mints `generation` from the SAME
+  (testing "the mutation writer mints `generation` from the SAME
             recordable allocation cofx (one root), so a recorded mutation
             replay reproduces an identical generation (and the derived
             instance-id / work-id) regardless of the live host high-water."
