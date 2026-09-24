@@ -1,14 +1,15 @@
 (ns re-frame.update-snapshot-data-merge-cljs-test
-  "rf2-0hi3x — the `:rf.machine/update-snapshot` escape hatch's `:data` leg
+  "The `:rf.machine/update-snapshot` escape hatch's `:data` leg
   MERGES onto the actor's existing `:data` rather than REPLACING it, which is
   exactly what an action's `{:data ...}` return already does.
 
   Why this needs pinning at all. `:data` is not only the user's working
   memory: the runtime keeps framework-owned reserved `:rf/*` slots in there
   that the programmer never sees and could not carry forward by hand even if
-  they wanted to. A wholesale replace dropped them SILENTLY, so the documented
-  idiom `{:rf/patch {:data {:status :degraded}}}` — a patch that mentions one
-  user key and nothing else — broke the actor's runtime in two ways at once.
+  they wanted to. A wholesale replace would drop them SILENTLY, so the
+  documented idiom `{:rf/patch {:data {:status :degraded}}}` — a patch that
+  mentions one user key and nothing else — would break the actor's runtime in
+  two ways at once.
 
   The two failures are pinned separately below because they FAIL DIFFERENTLY,
   and a test covering one leaves the other free to regress unnoticed:
@@ -100,8 +101,8 @@
                         [:data :rf/after-epoch [:loading]])]
       ;; Preconditions. The epoch MUST be non-zero for this pin to bite: a
       ;; timer armed at epoch 0 would still match the `(or ... 0)` fallback a
-      ;; wipe leaves behind, and the test would pass vacuously against the
-      ;; unfixed tree.
+      ;; wipe leaves behind, and the test would pass vacuously against a
+      ;; replacing :data leg.
       (is (= :loading (:state (snapshot :rf2-0hi3x/timer)))
           "precondition: the :after-bearing state is occupied")
       (is (= 1 epoch)
@@ -115,16 +116,16 @@
           "the user-domain patch landed")
       (is (= epoch (get-in (snapshot :rf2-0hi3x/timer)
                            [:data :rf/after-epoch [:loading]]))
-          "the reserved :rf/after-epoch map SURVIVED the patch (the defect: a
-           replacing :data leg dropped it, and node-epoch then read 0)")
+          "the reserved :rf/after-epoch map SURVIVED the patch (a replacing
+           :data leg would drop it, and node-epoch would then read 0)")
 
       ;; The observable consequence — the timer fires rather than going silent.
       (rf/dispatch-sync [:rf2-0hi3x/timer
                          [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
       (is (= :timeout (:state (snapshot :rf2-0hi3x/timer)))
-          "the in-flight :after timer ARRIVED after the patch — under the
-           defect it was suppressed as stale and the machine sat in :loading
-           for ever with nothing reported"))))
+          "the in-flight :after timer ARRIVED after the patch — a replacing
+           :data leg would suppress it as stale and leave the machine in
+           :loading for ever with nothing reported"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (b) a spawned child still completes to its PARENT after a `:data` patch
@@ -164,12 +165,13 @@
       (is (= :degraded (:status (:data (snapshot child-id))))
           "the user-domain patch landed on the child")
       (is (= :rf2-0hi3x/parent (:rf/parent-id (:data (snapshot child-id))))
-          "the reserved :rf/parent-id SURVIVED the patch (the defect: a
-           replacing :data leg dropped it, orphaning a live child)")
+          "the reserved :rf/parent-id SURVIVED the patch (a replacing :data
+           leg would drop it, orphaning a live child)")
 
       ;; The observable consequence — the parent is notified of completion.
       (rf/dispatch-sync [child-id [:finish :auth/token]])
       (is (= :auth/token (get-in (snapshot :rf2-0hi3x/parent) [:data :token-from-child]))
-          "the parent's :spawn :on-done folded the child's output — under the
-           defect the child finalized with :parent-id nil (the singleton path)
-           and the parent was never told its child had finished"))))
+          "the parent's :spawn :on-done folded the child's output — a
+           replacing :data leg would finalize the child with :parent-id nil
+           (the singleton path) and the parent would never be told its child
+           had finished"))))
