@@ -1,20 +1,19 @@
 ;;;; tests/runtime/post_mortem_transition_test.clj
 ;;;;
-;;;; rf2-fzbj.15 F2 — the post-mortem recipe must attribute the bad state
+;;;; The post-mortem recipe must attribute the bad state
 ;;;; to the epoch that CAUSED it, not to the newest epoch that happens to
 ;;;; carry it.
 ;;;;
 ;;;; Why this test exists:
 ;;;;
 ;;;; `find-where` returns the NEWEST matching record — the right general
-;;;; contract, and it does not change. The published post-mortem recipe
-;;;; paired it with a predicate testing `:db-after` ALONE. Every epoch
-;;;; after the fault still carries the bad value (nothing repaired it), so
-;;;; the newest match is whatever dispatched most recently — on an active
-;;;; UI, an unrelated event. Step 4 then tells the agent to report that
-;;;; record as the culprit, so an apparently evidence-based forensic
-;;;; answer blames the wrong handler, and the suggested edits land in
-;;;; unrelated source.
+;;;; contract. Paired with a predicate testing `:db-after` ALONE, it
+;;;; misattributes: every epoch after the fault still carries the bad value
+;;;; (nothing repaired it), so the newest match is whatever dispatched most
+;;;; recently — on an active UI, an unrelated event. The recipe's step 4
+;;;; tells the agent to report that record as the culprit, so an apparently
+;;;; evidence-based forensic answer would blame the wrong handler, and the
+;;;; suggested edits would land in unrelated source.
 ;;;;
 ;;;; This is an EXECUTABLE pin, not a prose pin: it lifts the predicate
 ;;;; out of recipes.md and RUNS it over a contrasting epoch sequence. A
@@ -82,9 +81,9 @@
   (let [text (str @recipes-md)
         ;; Anchor inside the post-mortem section's eval-cljs example.
         i    (str/index-of text "(re-frame2-pair.runtime/find-where")
-        _    (assert i "recipes.md no longer contains a find-where post-mortem example")
+        _    (assert i "recipes.md contains no find-where post-mortem example")
         j    (str/index-of text "(fn [e]" i)
-        _    (assert j "the post-mortem example no longer carries a (fn [e] ...) predicate")]
+        _    (assert j "the post-mortem example carries no (fn [e] ...) predicate")]
     (eval (read-string (subs text j)))))
 
 (deftest post-mortem-recipe-selects-the-transition-not-the-latest-holder
@@ -94,7 +93,7 @@
           (str "the published post-mortem predicate must select the epoch that CHANGED "
                ":auth-state to :expired. Selecting [:ui/tick] / [:ui/hover] means it is "
                "matching on :db-after alone, so it reports the newest epoch that merely "
-               "CARRIES the bad value — the wrong-culprit report (rf2-fzbj.15 F2).")))
+               "CARRIES the bad value — the wrong-culprit report.")))
 
     (testing "a second genuine transition into the bad value selects the LATEST one"
       (let [repaired-then-broken
