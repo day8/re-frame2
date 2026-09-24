@@ -21,10 +21,10 @@
   (`rf.resources.classification/project-entry-params`). One value, two carriers, one rule
   applied.
 
-  `tooling.cljc` documents that `:serialize` \"applies the resource's per-slot
-  `:params` projection-relative declarations\" and \"projects per-slot
-  `:params-schema` marks\". §1 below is the standing statement that the prose
-  is true of the code, and §5 is the standing statement that it holds
+  `tooling.cljc` documents that `:serialize` applies the resource's per-slot
+  `:params` / `:scope` projection-relative declarations. §1 below is the
+  standing statement that the prose is true of the code, and §5 is the
+  standing statement that it holds
   WITHOUT widening `project-scoped-key`, whose `:serialize` deferral is
   deliberate (the SSR durable path resolves the same declaration from the
   per-frame elision REGISTRY, which a frameless trace boundary cannot read).
