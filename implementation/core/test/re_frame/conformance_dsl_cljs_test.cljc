@@ -1,13 +1,12 @@
 (ns re-frame.conformance-dsl-cljs-test
   "Focused, host-neutral unit tests for the conformance handler-body DSL
-  evaluator (rf2-xurchk consolidation).
+  evaluator.
 
   The `re-frame.conformance` DSL interpreter is `.cljc`, so `resolve-value*`,
   `realise-event-handler`, and `realise-event-fx-handler` MUST behave
-  identically on both hosts. Before rf2-xurchk this coverage was DUPLICATED
-  and DRIFTED across `conformance_dsl_test.clj` (JVM, fuller) and
-  `conformance_dsl_cljs_test.cljs` (CLJS, a strict subset that dropped
-  several cases). This single `.cljc` carries the SUPERSET and runs on both.
+  identically on both hosts. This single `.cljc` carries the whole coverage
+  and runs on both, so no per-host copy can drift into a subset that drops
+  cases.
 
   Naming note: the `-cljs-test` suffix is a test-DISCOVERY constraint, not a
   host restriction — the CLJS `:node-test` build discovers `cljs-test$`, and
@@ -18,9 +17,9 @@
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.conformance :as rf.conformance]))
 
-;; ---- :event-arg / :get-event-arg split (rf2-xb5o / rf2-pz9f) -------------
+;; ---- :event-arg / :get-event-arg split ------------------------------------
 ;;
-;; Per Mike's resolution of rf2-pz9f:
+;; The DSL splits event-arg access into two forms:
 ;;   [:event-arg n]                  — n-th event arg
 ;;   [:event-arg n default-val]      — n-th event arg, default-val if nil
 ;;                                     (UNCONDITIONAL: no type-dispatch even
@@ -29,8 +28,8 @@
 ;;   [:get-event-arg n :key]         — key-access into n-th event arg
 ;;   [:get-event-arg n :key default] — key-access with default if missing/nil
 ;;
-;; The regression-guard below ensures we never re-introduce the prior
-;; type-dispatch overload where a keyword 3rd arg + map value silently meant
+;; The regression-guard below pins that there is no type-dispatch overload
+;; where a keyword 3rd arg + map value would silently mean
 ;; "(get value keyword)" instead of "default-for-nil".
 
 (deftest event-arg-no-key-access-overload
@@ -39,9 +38,9 @@
     ;; index 0 is the event-id).
     (let [ctx {:event [:some-id {:foo 99}]}]
       (testing "with a non-nil map arg, returns the arg verbatim"
-        ;; Pre-rf2-xb5o: this returned 99 (key-access overload).
-        ;; Post-rf2-xb5o: the keyword 3rd arg is a default-for-nil and never
-        ;; fires because the value is non-nil — so the map is returned as-is.
+        ;; The keyword 3rd arg is a default-for-nil and never fires because
+        ;; the value is non-nil — so the map is returned as-is (a key-access
+        ;; overload would return 99).
         (is (= {:foo 99}
                (rf.conformance/resolve-value* [:event-arg 1 :foo] ctx))
             "[:event-arg n :foo] with a map arg must NOT do key-access")))
@@ -89,7 +88,7 @@
 
 ;; ---- :return-raw — verbatim (possibly-malformed) effect-map return --------
 ;;
-;; Per rf2-xqt6v: the proactive fx shape-policing categories
+;; The proactive fx shape-policing categories
 ;; (:rf.error/effect-map-shape cases a/b/c, :rf.error/effect-handler-bad-return)
 ;; need a handler that RETURNS a malformed effect-map. The :set / :update / :fx
 ;; ops always build a well-shaped map, so :return-raw is the only DSL path
@@ -150,12 +149,12 @@
              (handler {:db {}} [:evt 42]))
           "[:event-arg n] resolves even inside a :return-raw literal"))))
 
-;; ---- shared harness primitives (rf2-wy414k) -------------------------------
+;; ---- shared harness primitives --------------------------------------------
 ;;
 ;; `normalize-event-handler`, `collect-cofx-keys`, `realise-cofx-supplier`,
-;; `submap?`, `check-trace-emissions`, and `resolve-sub` moved OUT of the
-;; per-runner private copies (the core corpus runner + the schemas artefact
-;; runner both duplicated them) INTO this `.cljc` shared owner so they run once,
+;; `submap?`, `check-trace-emissions`, and `resolve-sub` live in the shared
+;; `.cljc` owner `re-frame.conformance` rather than as private copies in the
+;; core corpus runner and the schemas artefact runner, so they run once,
 ;; identically, on both hosts. These target the primitives directly.
 
 (deftest normalize-event-handler-collapses-body-shape
