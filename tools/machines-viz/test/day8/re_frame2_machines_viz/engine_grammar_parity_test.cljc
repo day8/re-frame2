@@ -1,19 +1,18 @@
 (ns day8.re-frame2-machines-viz.engine-grammar-parity-test
-  "ENGINE-GRAMMAR PARITY tests (rf2-ir5nah, Mike-ruled option (b)).
+  "ENGINE-GRAMMAR PARITY tests.
 
   machines-viz HAND-MIRRORS the runtime engine's machine-definition
   grammar walk + target resolution: `grammar/normalise-root-targets`,
   `grammar/reenter?`, `grammar/transition-candidates`, and the chart's
   `resolve-target-path` each re-implement, in plain JVM-portable data,
   what `re-frame.machines.parallel` / `re-frame.machines.transition` /
-  `re-frame.machines.grammar` do at runtime. Mike ruled the mirror is
-  BY-DESIGN — the viz tool is bundle-isolated from production
+  `re-frame.machines.grammar` do at runtime. The mirror is BY-DESIGN —
+  the viz tool is bundle-isolated from production
   (`check-bundle-isolation` pins that nothing under implementation/ may
   `:require` this jar, and this jar's SRC never `:require`s the engine)
   and `grammar.cljc` is deliberately dep-free (`clojure.string` only), so
-  a shared `:require` would punch a hole through the very isolation
-  boundary the sentinel exists to protect. A shared grammar-codec ns
-  (option (a)) was REJECTED.
+  a shared `:require` — or a shared grammar-codec ns — would punch a hole
+  through the very isolation boundary the sentinel exists to protect.
 
   Because the copies are kept in sync only by hand, a silent drift — the
   viz tool re-wiring an edge the engine resolves differently — is the
@@ -172,17 +171,13 @@
 ;; the divergent shapes are asserted separately below so a future change
 ;; that accidentally ALIGNS or further DIVERGES them is also caught.
 ;;
-;; rf2-oy49f1 — `nil` USED to be listed here as a documented divergence
-;; (viz → `[]` drop; engine → `[{}]` the forbidden-transition / internal
-;; no-op form, rf2-16gxd). That was actually a BUG, not a deliberate
-;; scope choice: Spec 005 §Forbidden transitions declares `nil` and `{}`
-;; RUNTIME-EQUIVALENT, so the viz walker silently dropping a nil-spelled
-;; forbidden transition (while rendering the `{}` spelling as a blocking
-;; chip) made a reader believe an event was still inherited/reachable
-;; when the engine actually blocks it. `grammar/transition-candidates`
-;; now special-cases `(nil? spec) [{}]`, matching the engine — `nil` has
-;; MOVED into `shared-grammar-spec-fixtures` below as a genuine parity
-;; case, not a divergence.
+;; `nil` is NOT a divergence: Spec 005 §Forbidden transitions declares
+;; `nil` and `{}` RUNTIME-EQUIVALENT, so a viz walker silently dropping a
+;; nil-spelled forbidden transition (while rendering the `{}` spelling as a
+;; blocking chip) would make a reader believe an event was inherited /
+;; reachable when the engine actually blocks it. `grammar/transition-candidates`
+;; special-cases `(nil? spec) [{}]`, matching the engine, and `nil` sits in
+;; `shared-grammar-spec-fixtures` below as a genuine parity case.
 
 (def ^:private shared-grammar-spec-fixtures
   "Transition specs on which the viz walker and the engine normaliser
@@ -198,7 +193,7 @@
    {:target :a :guard :g}
    ;; a single transition map (internal / action-only)
    {:action :log}
-   ;; rf2-oy49f1 — nil ≡ {} (Spec 005 §Forbidden transitions): a
+   ;; nil ≡ {} (Spec 005 §Forbidden transitions): a
    ;; forbidden transition spelled nil normalises identically to the
    ;; empty-map spelling on BOTH sides.
    nil])
@@ -295,7 +290,7 @@
    "pt5s" "p1d"
    ;; non-positive / non-integer numbers → nil
    0 -5 1.5
-   ;; XState shorthand → nil (operator-ruled divergence)
+   ;; XState shorthand → nil (a documented divergence from XState)
    "5s" "10ms" "2m"
    ;; degenerate / malformed ISO → nil
    "P" "PT" "PT0S" "P0D" "soon" ""
@@ -400,7 +395,7 @@
           (str ":choice desugar drifted for " (pr-str m))))))
 
 ;; ---------------------------------------------------------------------------
-;; PARITY 8 — definition VALIDATION (rf2-j538f7.18)
+;; PARITY 8 — definition VALIDATION
 ;;
 ;; PARITY: `grammar/valid-definition?` (via `definition-defect`) must give the
 ;; SAME accept/reject answer as the runtime
@@ -408,7 +403,7 @@
 ;; PROJECTABLE structural grammar. If this fails, the viz recursive validator
 ;; drifted from the engine — re-sync, do not delete.
 ;;
-;; The pre-fix shallow `valid-definition?` blessed every deeply-invalid
+;; A shallow `valid-definition?` would bless every deeply-invalid
 ;; definition (nested compound missing `:initial`, dangling target, unknown
 ;; bare node key, …). The recursive walker mirrors the engine so a definition
 ;; the runtime rejects at `reg-machine` is rejected at EVERY viz ingestion /
@@ -430,10 +425,10 @@
                    `toString` that refused. Neither answer, and not a thing
                    either side is permitted to do.
 
-  The two-valued probe this replaced could not express that third outcome, and
-  on CLJS actively HID it: its `(catch :default … false)` recorded a host crash
-  as a clean `:reject`, so a definition that made the engine explode looked
-  exactly like one it had validated and rejected (rf2-dhl4d)."
+  A two-valued probe cannot express that third outcome, and on CLJS actively
+  HIDES it: a `(catch :default … false)` records a host crash as a clean
+  `:reject`, so a definition that made the engine explode would look exactly
+  like one it had validated and rejected."
   [m]
   (try (rf.machines.lifecycle-fx.validation/validate-machine! m) :accept
        (catch #?(:clj Throwable :cljs :default) t
@@ -461,7 +456,7 @@
    :valid-timeout    {:initial :a :states {:a {:timeout 1000 :on-timeout :b} :b {}}}
    :valid-choice     {:initial :g :states {:g {:type :choice :choice [{:target :a} {:target :b}]} :a {} :b {}}}
    :valid-spawn      {:initial :a :states {:a {:spawn {:machine-id :child} :on {:go :b}} :b {}}}
-   ;; rf2-0oy7d — an inline :definition is addressed by :id-prefix or
+   ;; An inline :definition is addressed by :id-prefix or
    ;; :fixed-actor-id (the controls for `:spawn-inline-unaddressed` below).
    :valid-spawn-inline-prefix {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}
                                                                  :id-prefix  :kid}}}}
@@ -513,8 +508,8 @@
    :spawn-neither    {:initial :a :states {:a {:spawn {}}}}
    :spawn-both       {:initial :a :states {:a {:spawn {:machine-id :m :definition {:initial :x :states {:x {}}}}}}}
    :spawn-unknown    {:initial :a :states {:a {:spawn {:machine-id :m :bogus 1}}}}
-   ;; rf2-0oy7d — the engine refuses an UNADDRESSED inline :definition (neither
-   ;; :id-prefix nor :fixed-actor-id) since rf2-j1ykz; the viz must too.
+   ;; The engine refuses an UNADDRESSED inline :definition (neither
+   ;; :id-prefix nor :fixed-actor-id); the viz must too.
    :spawn-inline-unaddressed {:initial :a :states {:a {:spawn {:definition {:initial :x :states {:x {}}}}}}}
    :par-nested       {:type :parallel :regions {:r {:initial :a :states {:a {:type :parallel :regions {:x {:initial :y :states {:y {}}}}}}}}}
    :par-no-init      {:type :parallel :regions {:r {:states {:a {}}}}}
@@ -544,13 +539,13 @@
    :timeout-without-on-timeout {:initial :a :states {:a {:timeout 1000} :b {}}}
    :on-timeout-without-timeout {:initial :a :states {:a {:on-timeout :b} :b {}}}
    :timeout-after-collision    {:initial :a :states {:a {:after {2000 :b} :timeout "PT2S" :on-timeout :b} :b {}}}
-   ;; ---- non-Named KEYS (rf2-dhl4d / rf2-oztox) ----
+   ;; ---- non-Named KEYS ----
    ;;
-   ;; Every entry above spells its keys as keywords, so until now the corpus
-   ;; could not see either side's treatment of a key that is not `Named` —
-   ;; and both sides had the same defect there, a bare `(namespace k)` that
-   ;; THREW rather than rejecting. The ratchet exists to stop the two drifting
-   ;; and it could not fail on the one axis they were both wrong about. A
+   ;; Every entry above spells its keys as keywords, so without these rows the
+   ;; corpus could not see either side's treatment of a key that is not
+   ;; `Named` — where a bare `(namespace k)` on both sides would THROW rather
+   ;; than reject, and a ratchet built to stop the two drifting could not fail
+   ;; on the one axis they were both wrong about. A
    ;; definition merged from config, decoded from transit, or read off a share
    ;; URL carries a string key as readily as a hand-written map carries a
    ;; keyword, so this is corpus, not exotica. Both sides must REJECT.
@@ -569,10 +564,10 @@
                "(engine " (engine-answer m) ", viz " (viz-answer m) ")")))))
 
 ;; Agreement alone is not the contract — two validators that BOTH explode on
-;; the same input agree, and `definition-validation-parity` passes them. That
-;; is not a hypothetical: a bare `(namespace k)` on a non-`Named` key threw on
-;; both sides at once, which is precisely why the divergence hid (rf2-dhl4d).
-;; Neither side may answer `:host-throw` for anything in the corpus.
+;; the same input agree, and `definition-validation-parity` passes them: a bare
+;; `(namespace k)` on a non-`Named` key would throw on both sides at once and
+;; hide the divergence exactly that way. Neither side may answer `:host-throw`
+;; for anything in the corpus.
 
 (deftest definition-validation-is-total
   (testing "neither validator answers a corpus definition with a host throw"
