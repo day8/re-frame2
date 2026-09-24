@@ -1,9 +1,9 @@
 (ns re-frame.resources-reply-to-reads-cljs-test
   "Read completion continuations — call-site `:reply-to` on `:rf.resource/ensure`
-  / `:rf.resource/refetch` (rf2-p1yri7, EP-0016 D1 extended to reads; Spec 016
+  / `:rf.resource/refetch` (EP-0016 D1 applied to reads; Spec 016
   §Read completion continuations).
 
-  A read the runtime causes now gets the SAME acceptance-keyed, exactly-once,
+  A read the runtime causes gets the SAME acceptance-keyed, exactly-once,
   stale-suppressed completion continuation a mutation does. These JVM+CLJS unit
   tests pin the load-bearing semantics:
 
@@ -18,16 +18,15 @@
        their own `:reply-to`; the ONE accepted terminal reply fans out to BOTH
        targets exactly once;
     4. SUPERSESSION — a stale REPLY that no longer correlates with the live entry
-       NEVER fires the continuation (suppression is unchanged and mandatory), but
-       a superseded ATTEMPT HANDS its `:reply-to` to its successor, which delivers
-       it exactly once from the fresher attempt (rf2-0czaw — a RULED change to a
-       previously specified behaviour, not a bug fix; the hand-over goes through
+       NEVER fires the continuation (suppression is mandatory), but a superseded
+       ATTEMPT HANDS its `:reply-to` to its successor, which delivers it exactly
+       once from the fresher attempt (the hand-over goes through
        `add-reply-target`, so a refetch repeating the same target still fires
        once);
     5. failure — an accepted terminal failure fires the continuation with
        `:status :error` (so a machine learns the read it caused failed);
     6. the `:rf.resource/replied` trace mirrors `:rf.mutation/replied`;
-    7. INFINITE feed (rf2-c64uiz) — the fresh-skip cache-hit path and the async
+    7. INFINITE feed — the fresh-skip cache-hit path and the async
        page-succeeded fetch path deliver the SAME `:value` shape (the merged
        `:rf.resource/items` list), never the raw page vector (cache-hit) vs a
        single decoded page (fetch); the merged value flattens EVERY accumulated
@@ -106,11 +105,11 @@
 (def ^:private article-request
   (fn [{:keys [slug]} _ctx] {:request {:method :get :url (str "/api/articles/" slug)}}))
 
-;; ---- infinite-feed helpers (rf2-c64uiz) -----------------------------------
+;; ---- infinite-feed helpers ------------------------------------------------
 ;;
 ;; An infinite feed's page reply settles through `page-succeeded-handler` (the
 ;; async fetch path), while a fresh-skip second ensure serves cache through the
-;; `ensure-load` fresh-skip branch. rf2-c64uiz pins that BOTH deliver the SAME
+;; `ensure-load` fresh-skip branch. Section 7 pins that BOTH deliver the SAME
 ;; `:reply-to` `:value` SHAPE — the MERGED / flattened `:rf.resource/items`
 ;; list — rather than the raw page vector (cache-hit) vs a single decoded page
 ;; (fetch). Pages are ENVELOPED (`{:items [...] :page-info {...}}`) with a
@@ -273,21 +272,14 @@
 
 ;; ===========================================================================
 ;; 4. Supersession — the stale REPLY delivers nothing, but the superseded
-;;    ATTEMPT hands its continuation to its successor (rf2-0czaw)
+;;    ATTEMPT hands its continuation to its successor
 ;; ===========================================================================
 ;;
-;; MOVED PIN, NOT A DELETED ONE. This replaces
-;; `reply-to-stale-superseded-never-delivered`, which pinned the OLD contract:
-;; a superseded attempt's `:reply-to` was voided and the continuation never
-;; arrived at all. That test was CORRECT against the spec of its day — it is
-;; re-pointed here because Mike RULED the behaviour changed (option A), not
-;; because it was broken. Spec 016 §Read completion continuations now reads
-;; "a superseded attempt hands its continuation to its successor".
-;;
-;; What does NOT change, and is still pinned below: the stale reply itself
-;; delivers nothing. Stale suppression is untouched and remains mandatory —
-;; the continuation arrives from the FRESHER attempt, never from the
-;; superseded one, so it can never carry data older than the target expects.
+;; Spec 016 §Read completion continuations: "a superseded attempt hands its
+;; continuation to its successor". The stale reply itself delivers nothing:
+;; stale suppression is mandatory, and the continuation arrives from the
+;; FRESHER attempt, never from the superseded one, so it can never carry data
+;; older than the target expects.
 
 (deftest reply-to-superseded-attempt-hands-continuation-to-successor
   (rf/reg-resource :rr/article (article-spec) article-request)
@@ -314,7 +306,7 @@
           (is (nil? (:reply-targets
                       (rf.resources.work-ledger/get-record (runtime-db) gen1-work)))
               "and the superseded row no longer advertises a target it can never deliver")))
-      (testing "the STALE gen-1 reply STILL fires nothing (suppression unchanged)"
+      (testing "the STALE gen-1 reply fires nothing (stale suppression)"
         (reply-success! gen1-args {:title "stale"})
         (is (= 0 (count @replied)) "a superseded reply delivers nothing"))
       (testing "the live gen-2 reply DELIVERS the handed-over continuation exactly once"
@@ -329,8 +321,8 @@
   ;; The hand-over goes through `add-reply-target` — the ONE dedupe definition —
   ;; rather than concatenating onto the successor's own seed. A refetch that
   ;; repeats the superseded read's target must still fire EXACTLY ONCE off the
-  ;; one settle; a naive concat would record it twice and fan out twice, which
-  ;; is the exactly-once guarantee the delivery rule promises.
+  ;; one settle; a naive concat would record it twice and fan out twice,
+  ;; breaking the exactly-once guarantee the delivery rule promises.
   (rf/reg-resource :rr/article (article-spec) article-request)
   (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
@@ -405,7 +397,7 @@
 ;; ===========================================================================
 ;; 7. INFINITE feed — cache-hit and async fetch deliver the IDENTICAL :value
 ;;    SHAPE (the merged items list), NOT page-vector (cache-hit) vs single
-;;    page (fetch). rf2-c64uiz.
+;;    page (fetch).
 ;; ===========================================================================
 
 (deftest infinite-reply-to-cache-hit-and-fetch-value-shape-identical
@@ -414,8 +406,7 @@
   ;; SAME feed from cache. BOTH `:reply-to` `:value`s MUST be the merged items
   ;; list — never the raw page vector (a map inside a vector) nor a single page
   ;; (a bare map). Because both observe the identical feed state, the values
-  ;; are byte-identical (rf2-c64uiz — the shape must not depend on how the read
-  ;; settled).
+  ;; are byte-identical (the shape must not depend on how the read settled).
   (rf/reg-resource :cf/feed (feed-spec) feed-request)
   (let [rkey  (feed-key :cf/feed)
         pg    (feed-page [{:id 1} {:id 2}] nil)          ;; terminal (nil next)
@@ -433,7 +424,7 @@
       (is (false? (:cache-hit? fetch-reply)) "an async page settle is not a cache hit")
       (testing "the FETCH :value is the merged items list — not a single page, not the page vector"
         (is (= items fetch-value))
-        (is (not= pg fetch-value) "NOT the single decoded page (the pre-fix fetch shape)")
+        (is (not= pg fetch-value) "NOT the single decoded page")
         (is (not= [pg] fetch-value) "NOT the raw page vector"))
       ;; ---- fresh-skip CACHE-HIT path: a second ensure serves cache ---------
       (reset! last-managed-args nil)
@@ -446,8 +437,8 @@
         (is (true? (:cache-hit? hit-reply)) "a fresh-skip is a cache hit")
         (testing "the CACHE-HIT :value is the merged items list — not the raw page vector"
           (is (= items hit-value))
-          (is (not= [pg] hit-value) "NOT the raw page vector (the pre-fix cache-hit shape)"))
-        (testing "rf2-c64uiz — cache-hit and fetch deliver the IDENTICAL :value"
+          (is (not= [pg] hit-value) "NOT the raw page vector"))
+        (testing "cache-hit and fetch deliver the IDENTICAL :value"
           (is (= fetch-value hit-value)
               "an infinite-feed :reply-to :value must not depend on cache-hit vs fetch"))))))
 
