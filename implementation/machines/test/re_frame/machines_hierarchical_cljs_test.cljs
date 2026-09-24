@@ -12,10 +12,11 @@
       exit/entry (LCA cascade).
     - Deepest-wins: leaf overrides parent for the same event id.
     - Wildcard precedence: leaf `:*` shadows parent's explicit
-      handler at the same event; parent fallthrough still works when the
+      handler at the same event; parent fallthrough works when the
       leaf declares neither explicit nor `:*`.
 
-  Counterpart to the non-hierarchical coverage in `machines_cljs_test.cljs`."
+  Counterpart to the non-hierarchical coverage in the sibling
+  `machines_*_cljs_test` namespaces."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -151,7 +152,7 @@
       (is (not (some #{:parent-explicit} @log))
           "parent's explicit handler must NOT fire when leaf :* matched")))
 
-  (testing "parent fallthrough still works when leaf has neither explicit nor :*"
+  (testing "parent fallthrough works when leaf has neither explicit nor :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -259,14 +260,13 @@
       (is (= :idle (:state (snapshot :self/flat-internal)))
           "internal self-transition leaves the configuration unchanged")
       (is (= [:poke] @log)
-          "ONLY the action fired — no exit, no entry (internal semantics preserved)")))
+          "ONLY the action fired — no exit, no entry (internal semantics)")))
 
   ;; ---- the v5 internal-default --------------------------------------------
-  ;; A self/own-keyword `:target` WITHOUT `:reenter?` is INTERNAL. This is the
-  ;; regression guard: a `:target :same-state` with no `:reenter?` must NOT
-  ;; fire exit/entry.
+  ;; A self/own-keyword `:target` WITHOUT `:reenter?` is INTERNAL: a
+  ;; `:target :same-state` with no `:reenter?` must NOT fire exit/entry.
   (testing "DEFAULT-INTERNAL self-transition (:target :same-state, NO
-            :reenter?) — action ONLY, no exit/entry (XState-v5 flip, rf2-eicq0)"
+            :reenter?) — action ONLY, no exit/entry (XState-v5 semantics)"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -287,7 +287,7 @@
       (is (= :idle (:state (snapshot :self/flat-default-internal)))
           "default self-target leaves the configuration unchanged")
       (is (= [:poke] @log)
-          "ONLY the action fired — :target :same-state is INTERNAL by default (v5 flip); the old external-default is GONE")))
+          "ONLY the action fired — :target :same-state is INTERNAL by default (XState v5)")))
 
   (testing "EXTERNAL self-transition on a COMPOUND state (:same-state +
             :reenter? true) — re-runs the state's :entry AND its :initial-child
@@ -324,8 +324,7 @@
             :reenter?) RE-RESOLVES its descendants — the compound itself is NOT
             exited/re-entered, but its active child is exited and the compound's
             :initial re-descends. XState v5: 'an explicit target re-resolves
-            child states to their initial' (rf2-gt1pu, correcting an earlier
-            rf2-eicq0 over-collapse). Verified against xstate@5.32.0."
+            child states to their initial'. Verified against xstate@5.32.0."
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
