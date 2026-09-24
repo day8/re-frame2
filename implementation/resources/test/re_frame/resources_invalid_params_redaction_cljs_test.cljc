@@ -72,7 +72,7 @@
 ;; ===========================================================================
 
 (deftest resource-invalid-params-redacts-sensitive-sibling
-  (testing "rf2-99j4e4: a resource params-schema failure on a NON-sensitive
+  (testing "a resource params-schema failure on a NON-sensitive
             field must NOT leak a conforming `:sensitive?` sibling param in the
             thrown ex-data — neither under `:params` nor under the explainer
             `:error`"
@@ -95,7 +95,7 @@
           "the raw sensitive param value does not ride ANYWHERE in the ex-data"))))
 
 (deftest resource-invalid-params-elides-large-sibling
-  (testing "rf2-99j4e4: a resource params-schema failure elides a `:large?`
+  (testing "a resource params-schema failure elides a `:large?`
             sibling param consistently with resource params egress"
     (let [big  (apply str (repeat 500 "x"))
           spec {:params-schema large-params-schema}
@@ -109,7 +109,7 @@
           "the raw large param value does not ride in :params"))))
 
 (deftest resource-invalid-params-no-marks-rides-verbatim
-  (testing "rf2-99j4e4: with NO classified params slot the error data is
+  (testing "with NO classified params slot the error data is
             unchanged — the canonicalization / nil-vs-missing behavior for
             ordinary invalid params is preserved (the raw failing value rides
             so the failure stays diagnostic)"
@@ -128,7 +128,7 @@
 ;; ===========================================================================
 
 (deftest mutation-invalid-params-redacts-sensitive-sibling
-  (testing "rf2-99j4e4: the analogous mutation params-schema failure must NOT
+  (testing "the analogous mutation params-schema failure must NOT
             leak a conforming `:sensitive?` sibling param in the thrown ex-data"
     (let [spec {:params-schema sensitive-params-schema}
           data (ex->data
@@ -146,7 +146,7 @@
           "the raw sensitive param value does not ride ANYWHERE in the ex-data"))))
 
 (deftest mutation-invalid-params-no-marks-rides-verbatim
-  (testing "rf2-99j4e4: an unclassified mutation params failure rides verbatim
+  (testing "an unclassified mutation params failure rides verbatim
             (canonicalization preserved for ordinary invalid params)"
     (let [spec {:params-schema [:map [:age :int]]}
           data (ex->data
