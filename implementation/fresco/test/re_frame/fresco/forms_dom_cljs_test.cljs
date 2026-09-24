@@ -11,11 +11,10 @@
   The recipes' own mounted suite builds a session whose draft ends EQUAL
   to the committed value, because in that application ending a session
   moves nothing else the field reads. **That arrangement does not
-  transplant**: this module
-  holds the draft in a record the field's own subscription reads, so
-  ending a session always moves that read, always re-renders, and always
-  re-commits. The recipes' experiment would test green here while proving
-  nothing.
+  transplant**: this module holds the draft in a record the field's own
+  subscription reads, so ending a session always moves that read, always
+  re-renders, and always re-commits. The recipes' experiment would test
+  green here while proving nothing.
 
   What is left is the case nothing else on the page can repair:
   [[a-foreign-write-with-no-session-open-is-repaired-by-the-revision-and-by-nothing-else]].
