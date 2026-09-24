@@ -1,39 +1,35 @@
 (ns re-frame.story-mcp.rendered-hiccup-retirement-test
-  "The rf2-6r9j.13 ACCEPTANCE gate — `run-variant` produces NO rendered
-  output, and no consumer may re-advertise one.
+  "The acceptance gate — `run-variant` produces NO rendered output, and no
+  consumer may advertise one.
 
   ## Why this namespace exists
 
-  Story once staged a `:render?` run-variant option whose result slot,
-  `:rendered-hiccup`, was written unconditionally `nil`. The option was
-  never read and the slot was never filled, but the public API docs, the
-  normative spec and the Story-MCP tool descriptors all described it as a
-  live screenshot-test input. It was retired: rendering is
-  `re-frame.story.render/render-variant`'s, and its result carries the
-  host render under `:rendered`.
+  There is no `:render?` run-variant option and no `:rendered-hiccup`
+  result slot: rendering is `re-frame.story.render/render-variant`'s, and
+  its result carries the host render under `:rendered`. An unread option
+  beside a permanently-nil slot would describe a screenshot-test input
+  that does not exist.
 
-  Every Story-MCP test that named the retired slot MANUFACTURED it in a
-  stubbed `rf.story/run-variant` outcome map (`tools_test.clj`'s
-  `secret-bearing-run-result`, `dedup_test.clj`'s ratio fixture). A stub
-  proves the scrubber; it cannot prove that a REAL Story run never emits
-  the slot — so none of them would have reddened had the retirement been
-  reverted. That is the hole this namespace closes.
+  A test that stubs `rf.story/run-variant`'s outcome map proves the
+  scrubber; it cannot prove that a REAL Story run never emits the slot, so
+  a stub-only suite would stay green if the slot came back. That is the
+  hole this namespace closes.
 
   ## What is pinned
 
   The REAL Story-to-consumer path, end to end, with NO `with-redefs`:
 
   1. `rf.story/run-variant` on a really-registered variant returns a result
-     map carrying no rendering slot — and passing the retired `:render?`
-     option changes nothing about that.
+     map carrying no rendering slot — and passing a `:render?` option
+     changes nothing about that.
   2. The `run-variant` and `preview-variant` MCP handlers, driven through
      the live `rf.story-mcp.tools.wire-pipeline/invoke-tool` boundary, project a payload
      carrying no rendering slot.
   3. No advertised tool descriptor's prose or input schema promises
      rendered output or a `:render?` knob.
-  4. `render-variant` remains the rendering authority and names its
-     result `:rendered` — so the retirement removed a false contract
-     rather than a capability.
+  4. `render-variant` is the rendering authority and names its result
+     `:rendered` — so what `run-variant` lacks is a false contract, not a
+     capability.
 
   Companion: `run_result_roundtrip_test.clj` pins the unified result
   language across the same three surfaces."
@@ -50,8 +46,8 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; ---------------------------------------------------------------------------
-;; The retired names. Kept as data so every assertion below probes the SAME
-;; set, and so a partial revert (the slot back but not the option, or vice
+;; The absent names, held as data so every assertion below probes the SAME
+;; set, and so a partial reintroduction (the slot but not the option, or vice
 ;; versa) reddens rather than slipping through one arm.
 ;; ---------------------------------------------------------------------------
 
@@ -103,8 +99,8 @@
   (deref (rf.story/run-variant :story.cart/full opts) 15000 ::timed-out))
 
 ;; ===========================================================================
-;; 1 — the REAL Story boundary emits no rendering slot, with or without the
-;;     retired option.
+;; 1 — the REAL Story boundary emits no rendering slot, with or without a
+;;     `:render?` option.
 ;; ===========================================================================
 
 (deftest real-run-variant-emits-no-rendering-slot
@@ -115,22 +111,22 @@
       (is (not (contains? outcome retired-result-slot))
           (str "run-variant MUST NOT carry " retired-result-slot
                " — rendering is render-variant's, and a permanently-nil "
-               "compatibility slot is the retired false contract (rf2-6r9j.13). "
+               "compatibility slot would be a false contract. "
                "Result keys: " (pr-str (sort (keys outcome)))))
       (is (rf.story/valid-run-result? outcome)
           (str "the real result still conforms to the frozen run-result schema: "
                (rf.story/explain-run-result outcome)))))
-  (testing "supplying the RETIRED :render? option changes nothing"
-    ;; The option is not merely ignored — the point is that no branch can
-    ;; resurrect the slot from it. Feeding it the truthy value the old docs
-    ;; advertised is the strongest form of that check.
+  (testing "supplying a :render? option changes nothing"
+    ;; The point is not merely that the option is ignored — no branch can
+    ;; produce the slot from it. Feeding it a truthy value is the strongest
+    ;; form of that check.
     (let [outcome (run-real! {retired-run-opt true})]
       (is (not= ::timed-out outcome) "the real run must settle")
       (is (not (contains? outcome retired-result-slot))
           (str "run-variant MUST NOT populate " retired-result-slot
-               " even when handed the retired " retired-run-opt
-               " option — the old API promised exactly this and could not "
-               "deliver it. Result keys: " (pr-str (sort (keys outcome))))))))
+               " even when handed a " retired-run-opt
+               " option — run-variant has no rendered output to deliver. "
+               "Result keys: " (pr-str (sort (keys outcome))))))))
 
 ;; ===========================================================================
 ;; 2 — the REAL MCP handlers project no rendering slot.
@@ -155,12 +151,12 @@
         (is (not (contains? s retired-result-slot))
             (str tool " MUST NOT project " retired-result-slot
                  " — Story emits no rendering slot, so projecting one could only "
-                 "ever ship a permanently-nil compatibility field (rf2-6r9j.13). "
+                 "ever ship a permanently-nil compatibility field. "
                  "Payload keys: " (pr-str (sort (keys s)))))))))
 
 ;; ===========================================================================
-;; 3 — no descriptor re-advertises the retirement.
-;;     This is the arm a prose-only revert would trip.
+;; 3 — no descriptor advertises rendered output.
+;;     This is the arm a prose-only reintroduction would trip.
 ;; ===========================================================================
 
 (deftest no-tool-descriptor-advertises-rendered-output
@@ -169,19 +165,19 @@
       (is (not (string/includes? (str description) "rendered-hiccup"))
           (str name "'s description promises `rendered-hiccup`, a slot no "
                "story-mcp payload carries — point rendering guidance at "
-               "`rf.story/render-variant` and its `:rendered` result instead "
-               "(rf2-6r9j.13)"))
+               "`rf.story/render-variant` and its "
+               "`:rendered` result instead"))
       (is (not (contains? (:properties inputSchema) :render?))
-          (str name " advertises the retired `:render?` input knob")))))
+          (str name " advertises a `:render?` input knob no tool honours")))))
 
 ;; ===========================================================================
-;; 4 — the retirement removed a false contract, not a capability.
+;; 4 — rendering is a capability of render-variant, not of run-variant.
 ;; ===========================================================================
 
 (deftest render-variant-remains-the-rendering-authority
-  (testing "render-variant's terminal status vocabulary still names :rendered"
+  (testing "render-variant's terminal status vocabulary names :rendered"
     (is (contains? rf.story.render/statuses :rendered)
-        "render-variant must still be able to report a completed render"))
+        "render-variant must be able to report a completed render"))
   (testing "the rendering authority is a distinct fn, not a run-variant option"
     (is (some? (resolve 're-frame.story.render/render-variant))
         "render-variant is the single explicit visual-rendering API")))
