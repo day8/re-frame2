@@ -1589,9 +1589,15 @@
   + the machines-viz custom node/edge components) still layer their own
   theming on top of this baseline; this only fixes the chrome xyflow
   paints itself (Controls buttons, the default-node fallback, attribution
-  backplate, edge fallback stroke)."
+  backplate, edge fallback stroke).
+
+  Every rule sits under `[data-rf-xray-mode]` (rf2-3x7nj.25.7), the
+  attribute the shell root and every mount root carry. `install!` appends
+  this sheet to the HOST document's `<head>`, so an unscoped rule
+  re-themed, and hid the attribution of, every React Flow the host
+  renders itself."
   (str
-    ".react-flow {\n"
+    "[data-rf-xray-mode] .react-flow {\n"
     "  --xy-edge-stroke-default: " (:border-default tokens/tokens) ";\n"
     "  --xy-edge-stroke-selected-default: " (:accent tokens/tokens) ";\n"
     "  --xy-node-background-color-default: " (:bg-2 tokens/tokens) ";\n"
@@ -1610,7 +1616,7 @@
     "}\n"
     ;; xyflow renders no attribution (proOptions hideAttribution true) but
     ;; belt-and-braces hide it so it never flashes against the dark canvas.
-    ".react-flow__attribution { display: none !important; }\n"))
+    "[data-rf-xray-mode] .react-flow__attribution { display: none !important; }\n"))
 
 (defn- inject-react-flow-style!
   "Append the React Flow base stylesheet + the Xray palette override to
