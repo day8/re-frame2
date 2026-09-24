@@ -1,6 +1,6 @@
 (ns day8.re-frame2-machines-viz.export
-  "Client-side exporters for a rendered `MachineChart` (rf2-8d7w1 ·
-  v1.0). PNG / SVG rasterisers, the Mermaid markdown wrapper, and the
+  "Client-side exporters for a rendered `MachineChart`. PNG / SVG
+  rasterisers, the Mermaid markdown wrapper, and the
   share-URL convenience — plus the four `copy-*-to-clipboard!` fns.
 
   ## How the payload is derived
@@ -26,7 +26,7 @@
     boxed state nodes, compound/region containers, event chips, final
     rings, labels, AND the active-state border/glow affordance, plus
     the edge layer — by embedding the live viewport DOM in a
-    `<foreignObject>` (rf2-sr6l3). The node bodies render with inline
+    `<foreignObject>`. The node bodies render with inline
     styles, so the foreignObject paints the same visual grammar a
     sighted user sees, not just the edge `<svg>`. Fonts are referenced BY
     NAME (JetBrains Mono, with a system-monospace fallback) — the glyph
@@ -34,21 +34,21 @@
     fallback. `<title>` / `<desc>` summarise the machine for a screen-reader.
   - **PNG** rasterises that complete SVG to a 2x-DPR `image/png` Blob
     on a transparent background; a `text/plain` alt-text sidecar rides
-    the clipboard alongside the image. Because the SVG now carries the
+    the clipboard alongside the image. Because the SVG carries the
     whole viewport, the PNG includes the state boxes + the current-state
     highlight (the contract `API.md` §PNG promises).
   - **Share URL** is the full-topology lossless lane — see
     `day8.re-frame2-machines-viz.share`.
 
-  ## Export-root discovery (rf2-sr6l3)
+  ## Export-root discovery
 
   The export-root lookup is keyed on the `_rfMvChartState` SEAM, not the
   default `data-testid`. `MachineChart` stamps the seam on its root via
   `:ref` regardless of the host's `:testid` prop, so export works from
   the chart root, a descendant node, OR a wrapping element, for the
-  default AND any custom `:testid`. (The prior implementation hard-coded
-  `[data-testid='rf-mv-chart']`, which broke export from a wrapper /
-  descendant of a custom-`:testid` chart.)
+  default AND any custom `:testid`. (A hard-coded
+  `[data-testid='rf-mv-chart']` selector would break export from a
+  wrapper / descendant of a custom-`:testid` chart.)
 
   Per [`API.md`](../../spec/API.md) §Exporters."
   (:require [clojure.string :as str]
@@ -59,13 +59,13 @@
 ;; ---------------------------------------------------------------------------
 ;; Reading the chart-state seam off the DOM
 ;;
-;; rf2-sr6l3 — export-root discovery is SEAM-DRIVEN, not testid-driven.
+;; Export-root discovery is SEAM-DRIVEN, not testid-driven.
 ;; `MachineChart` stamps `_rfMvChartState` on its root via `:ref` no
 ;; matter what `:testid` the host passed, so keying on the seam means
 ;; export resolves the same root for the default AND a custom `:testid`,
 ;; and whether the caller hands us the root, a descendant node, or a
-;; wrapper. The former hard-coded `[data-testid='rf-mv-chart']` selector
-;; missed a custom-testid chart entirely.
+;; wrapper. A hard-coded `[data-testid='rf-mv-chart']` selector would
+;; miss a custom-testid chart entirely.
 
 (defn- has-seam?
   "True when `el` is an element carrying the `_rfMvChartState` chart-state
@@ -113,7 +113,7 @@
   descendant carrying it (caller passed a wrapper). Returns nil when no
   chart root is reachable.
 
-  rf2-sr6l3 — keyed on the SEAM, not the default `data-testid`, so it
+  Keyed on the SEAM, not the default `data-testid`, so it
   works for the default AND a custom `:testid`, from the root, a
   descendant, or a wrapper."
   [^js el]
@@ -152,7 +152,7 @@
   - parallel region-map               → `\"data=loading, form=neutral\"`
 
   Guards against `(name …)` blowing up on the vector/map arms (the seam
-  now legitimately carries compound + parallel configurations)."
+  carries compound + parallel configurations)."
   [state]
   (cond
     (keyword? state) (name state)
@@ -187,7 +187,7 @@
   escaped first so the entity-introducing ampersands the others emit are
   not double-escaped.
 
-  rf2-85a9do — the `<foreignObject>` viewport clone is serialised by
+  The `<foreignObject>` viewport clone is serialised by
   `XMLSerializer` (which escapes for us), but `chart-as-svg` builds the
   `<title>`/`<desc>` by hand from raw machine ids + the alt-text summary,
   bypassing that escaping. A programmatic machine id or state label
@@ -210,7 +210,7 @@
   is node-testable (the image exporters themselves are browser-DOM-only).
   The `<title>` is the machine id (defaulting to `:machine`); the
   `<desc>` is the `alt-text` summary. Both are run through `xml-escape`
-  (rf2-85a9do) so XML-significant characters in a programmatic machine id
+  so XML-significant characters in a programmatic machine id
   or current-state label cannot inject markup into — or malform — the
   exported SVG. Returns the concatenated `<title>…</title><desc>…</desc>`
   string."
@@ -221,15 +221,15 @@
 ;; ---------------------------------------------------------------------------
 ;; SVG
 ;;
-;; rf2-sr6l3 — the SVG export captures the WHOLE rendered React Flow
-;; viewport, not just the edge `<svg>`. The chart's visual grammar — the
-;; boxed state nodes, compound/region containers, event chips, final
-;; rings, labels, AND the active-state border/glow — renders as DOM
-;; (div) nodes inside `.react-flow__viewport`, AROUND xyflow's edge
-;; `svg.react-flow__edges`. The prior exporter cloned only that edge svg,
-;; so every node body + the current-state highlight were lost.
+;; The SVG export captures the WHOLE rendered React Flow viewport, not
+;; just the edge `<svg>`. The chart's visual grammar — the boxed state
+;; nodes, compound/region containers, event chips, final rings, labels,
+;; AND the active-state border/glow — renders as DOM (div) nodes inside
+;; `.react-flow__viewport`, AROUND xyflow's edge `svg.react-flow__edges`,
+;; so cloning only that edge svg would lose every node body + the
+;; current-state highlight.
 ;;
-;; The fix embeds the live viewport DOM in a `<foreignObject>` inside a
+;; The export embeds the live viewport DOM in a `<foreignObject>` inside a
 ;; standalone SVG. Two facts make this faithful AND STYLE-self-contained
 ;; (the layout + grammar need no external stylesheet; fonts are referenced
 ;; BY NAME, not embedded — see `viewport-css`):
@@ -252,9 +252,9 @@
   inside the export SVG so the `<foreignObject>` lays the chart out
   correctly. NOTE: the font is NAMED (`'JetBrains Mono',… ,monospace`), not
   embedded — no `@font-face` with glyph data is emitted, so a host without
-  the named font renders the system-monospace fallback (rf2-mx6u22).
+  the named font renders the system-monospace fallback.
 
-  rf2-sr6l3 — xyflow positions the `.react-flow__node` wrappers via its
+  xyflow positions the `.react-flow__node` wrappers via its
   EXTERNAL stylesheet (`@xyflow/react/dist/base.css` —
   `position:absolute; transform-origin:0 0`), NOT inline styles. The node
   BODIES carry inline styles (box, border, header wash, box-shadow glow),
@@ -280,7 +280,7 @@
        ;; position:absolute + full-size. WITHOUT this the cloned viewport
        ;; has no box, so `.react-flow__nodes`/`.react-flow__edges`
        ;; (width/height:100%) collapse to 0×0 and the whole capture
-       ;; rasterises BLANK (rf2-sr6l3 — the silent-blank root cause).
+       ;; rasterises BLANK, silently.
        ".react-flow__container{position:absolute;width:100%;height:100%;"
        "top:0;left:0;}"
        ".react-flow__node{position:absolute;transform-origin:0 0;"
@@ -302,8 +302,8 @@
   "Locate the rendered xyflow edge `<svg>` inside `root` (the
   `svg.react-flow__edges`, or the first `<svg>` as a fallback). Returns
   the SVG element or nil. Used only to detect that the chart has
-  rendered (the EXPORT no longer clones this svg alone — see
-  `chart-as-svg`)."
+  rendered (the EXPORT clones the whole viewport, not this svg alone —
+  see `chart-as-svg`)."
   [^js root]
   (when (and root (.-querySelector root))
     (or (.querySelector root "svg.react-flow__edges")
@@ -367,7 +367,7 @@
   transform is re-based. The clone's inline styles carry the full visual
   grammar.
 
-  rf2-sr6l3 — serialised with `XMLSerializer`, NOT `.-outerHTML`. A
+  Serialised with `XMLSerializer`, NOT `.-outerHTML`. A
   `<foreignObject>` parses its contents as XML, and Chromium SILENTLY
   RENDERS THE FOREIGNOBJECT BLANK when that subtree isn't well-formed XML
   (HTML's `.outerHTML` can emit void elements unclosed + leave some
@@ -398,10 +398,10 @@
   fonts referenced BY NAME (system-monospace fallback, not embedded glyph
   data) + a `<title>` / `<desc>` machine summary.
 
-  rf2-sr6l3 — captures the live `.react-flow__viewport` DOM inside a
+  Captures the live `.react-flow__viewport` DOM inside a
   `<foreignObject>` (the visual grammar renders as inline-styled divs
-  AROUND the edge `<svg>`, so cloning only that edge svg — the prior
-  behaviour — lost every node body + the current-state highlight). The
+  AROUND the edge `<svg>`, so cloning only that edge svg would lose
+  every node body + the current-state highlight). The
   viewport's own pan/zoom is neutralised and the SVG is sized to the
   union node-box, so the export frames the whole topology at 1:1
   regardless of the live zoom.
@@ -425,7 +425,7 @@
         {:recovery :export-after-the-chart-renders}))
     (let [{:keys [width height] :as bounds} (viewport-content-bounds viewport)
           inner      (clone-viewport-html viewport bounds)
-          ;; rf2-85a9do — <title>/<desc> are built by hand (not via
+          ;; <title>/<desc> are built by hand (not via
           ;; XMLSerializer), so XML-escape the machine id + summary.
           title+desc (svg-title+desc cs)
           w          (max 1 (js/Math.ceil width))
@@ -477,13 +477,12 @@
   embedded viewport — `chart-as-svg`) → load it into an `<img>` via a
   data-URL → draw onto a 2x-DPR `<canvas>` → `canvas.toBlob`.
 
-  rf2-sr6l3 — the SVG now carries the WHOLE rendered viewport (boxed
-  state nodes, event chips, containers, labels) INCLUDING the
-  current-state affordance (the active node's accent BORDER + box-shadow
-  GLOW ring, rendered as inline-styled DOM), so the PNG includes the
-  state boxes + the current-state highlight the API.md §PNG contract
-  promises — not just the edge layer the prior implementation captured.
-  The canvas size is the SVG's framed-topology box (the union node-box
+  The SVG carries the WHOLE rendered viewport (boxed state nodes, event
+  chips, containers, labels) INCLUDING the current-state affordance (the
+  active node's accent BORDER + box-shadow GLOW ring, rendered as
+  inline-styled DOM), so the PNG includes the state boxes + the
+  current-state highlight the API.md §PNG contract promises, not just
+  the edge layer. The canvas size is the SVG's framed-topology box (the union node-box
   from the viewport, NOT the edge-svg bbox)."
   [chart-element]
   (let [svg-str  (chart-as-svg chart-element)
@@ -621,10 +620,10 @@
 
   `opts` REQUIRES `:host` — the URL of the viewer page you host, passed
   straight to `share/encode-share-url` and subject to its rules: there is
-  no default host (rf2-8m344), so there is no `opts`-free arity (a
+  no default host, so there is no `opts`-free arity (a
   share-URL that does not name a real viewer is a dead link), and the host
   must carry no URL fragment of its own, since the machine payload IS the
-  fragment (`:reason :host-carries-fragment`, rf2-xld5m). `opts` may also carry `:frame-id`
+  fragment (`:reason :host-carries-fragment`). `opts` may also carry `:frame-id`
   (the chart element doesn't know its frame; a host that does can supply a
   frame-target id for payload provenance). `:frame-id` is OPTIONAL
   (v2 / EP-0023) — omit it to share a topology that does not name a live
