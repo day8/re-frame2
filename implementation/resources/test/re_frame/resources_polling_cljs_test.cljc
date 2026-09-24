@@ -1,18 +1,18 @@
 (ns re-frame.resources-polling-cljs-test
-  "Active-owner POLLING for the Resources artefact (rf2-byl7bk.2 / EP-0020).
+  "Active-owner POLLING for the Resources artefact (EP-0020).
   Per Spec 016 §Polling.
 
   Polling is the third member of the cache-freshness timer family (beside
   `:stale-after-ms` and `:gc-after-ms`): a resource declares `:poll-interval-ms`
   and, while an entry has at least one active owner and the tab is visible, the
-  runtime re-runs its load every N ms by event. It reuses two landed,
-  battle-tested substrates wholesale — the host advisory timer side-table
-  (`re-frame.resources.timers`, the new `:poll` kind beside `:stale` / `:gc`)
+  runtime re-runs its load every N ms by event. It reuses two substrates
+  wholesale — the host advisory timer side-table
+  (`re-frame.resources.timers`, its `:poll` kind beside `:stale` / `:gc`)
   and the focus/reconnect scan-and-refetch core (the `:rf.resource/refetch`
   causal path + the `entry-revalidation-in-flight?` coalescing gate).
 
-  These JVM+CLJS unit tests pin the EP-0020 contract (the recommended cut —
-  resource-level `:poll-interval-ms`, unconditional active-owner tick,
+  These JVM+CLJS unit tests pin the EP-0020 contract
+  (resource-level `:poll-interval-ms`, unconditional active-owner tick,
   default-pause-when-hidden, `:poll` cause):
 
     1. ARMING — a settled active-owner poll-enabled entry arms a `:poll` timer
@@ -210,13 +210,13 @@
         (is (= 9000 (get-in args [:timers :gc])) "GC timer armed as usual")))))
 
 (deftest fresh-skip-re-arms-polling-on-new-owner
-  ;; rf2-k9u4h3 — an entry that settled `:loaded` while OWNER-FREE armed no poll
+  ;; An entry that settled `:loaded` while OWNER-FREE armed no poll
   ;; timer (a poll never pins an owner-free entry). A later `ensure` from a NEW
   ;; live owner serves the cached value via the fresh-skip path (the entry is
-  ;; still fresh — no `:stale-after-ms`, never invalidated). BEFORE the fix that
-  ;; fresh-skip attached the owner but emitted NO schedule-timers, so the
-  ;; `refetchInterval` analogue never started. It MUST now (re)arm polling,
-  ;; mirroring the success-path arming.
+  ;; still fresh — no `:stale-after-ms`, never invalidated). That fresh-skip
+  ;; MUST (re)arm polling, mirroring the success-path arming: attaching the
+  ;; owner without emitting schedule-timers would never start the
+  ;; `refetchInterval` analogue.
   (rf/reg-resource :fs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (rf.resources.state/scoped-resource-key scope :fs/poll {:slug "w"})]
@@ -254,7 +254,7 @@
     ;; a SECOND owner ensures the SAME fresh entry — fresh-skip, but the entry
     ;; was already owned, so no re-arm fires here.
     (ensure! :fa/poll scope "w" [:app :x 1])
-    (testing "rf2-k9u4h3 — a fresh-skip onto an already-OWNED entry adds the
+    (testing "a fresh-skip onto an already-OWNED entry adds the
               owner but re-arms NO timer (avoids double-arm; the prior settle
               already armed the poll)"
       (is (= #{[:route :r 1] [:app :x 1]} (:active-owners (entry k)))
@@ -268,7 +268,7 @@
 
 (deftest poll-tick-refetches-unconditionally-and-rearms
   ;; The entry is FRESH (no stale policy → never stale). The poll tick MUST
-  ;; STILL refetch — the interval IS the cadence (Q3 ruling (a)), not gated on
+  ;; STILL refetch — the interval IS the cadence (EP-0020 Q3(a)), not gated on
   ;; :stale?.
   (rf/reg-resource :pt/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
