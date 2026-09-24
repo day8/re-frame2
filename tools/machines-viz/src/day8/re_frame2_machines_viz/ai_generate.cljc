@@ -11,7 +11,7 @@
   Callers that need repeatable output can inject a deterministic resolver."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
-            ;; rf2-egupfk — the SHARED definition-shape validators + value-free
+            ;; The SHARED definition-shape validators + value-free
             ;; summary (`valid-definition?` / `parallel-definition?` /
             ;; `definition-summary`) + the EP-0029 desugar seam, so this emitter
             ;; accepts EXACTLY the shapes the Mermaid + SCXML emitters do.
@@ -20,7 +20,7 @@
                :cljs [cljs.reader :as edn])))
 
 ;; ---------------------------------------------------------------------------
-;; Value-free error diagnostics (rf2-8nzxib)
+;; Value-free error diagnostics
 
 (defn- response-summary
   "EP-0015 / Spec 015 §exception-path residual — a value-FREE diagnostic
@@ -34,7 +34,7 @@
     {:type (cond (nil? s) :nil (keyword? s) :keyword (map? s) :map
                  (vector? s) :vector (sequential? s) :seq :else :value)}))
 
-;; rf2-egupfk — the parsed-spec summary is the SHARED
+;; The parsed-spec summary is the SHARED
 ;; `grammar/definition-summary` (value-free structural facts only), so the AI
 ;; emitter's invalid-spec diagnostic matches Mermaid + SCXML. Stashed under this
 ;; surface's `:spec-summary` ex-data key.
@@ -135,7 +135,7 @@
 ;; either {:initial K :states {non-empty}} or {:type :parallel
 ;; :regions {non-empty maps each with :initial + :states}}.
 ;;
-;; rf2-egupfk — the shape check itself is the SHARED
+;; The shape check itself is the SHARED
 ;; `grammar/valid-definition?` so this emitter accepts EXACTLY what Mermaid +
 ;; SCXML do (keyword `:initial`, well-formed parallel regions). We desugar
 ;; (`grammar/desugar-grammar`) first, exactly as the other two emitters do, so
@@ -245,7 +245,7 @@
                                 "a string (the LLM's EDN response); it returned a "
                                 "non-string value.")
                            {:recovery :return-a-string-from-the-resolver
-                            ;; rf2-8nzxib — value-FREE; never the raw response.
+                            ;; Value-FREE; never the raw response.
                             :extra    {:response-summary (response-summary response)}}))
          stripped      (strip-fences response)
          [stage spec-or-reason] (parse-edn stripped)]
@@ -258,13 +258,13 @@
               "EDN (" spec-or-reason "). The resolver must return a single EDN "
               "machine-spec map, optionally inside a ```edn fenced block.")
          {:recovery :return-valid-edn-from-the-resolver
-          ;; rf2-8nzxib — value-FREE; the raw response/stripped text can
+          ;; Value-FREE; the raw response/stripped text can
           ;; carry prompt artefacts or LLM-returned secrets.
           :extra    {:response-summary (response-summary response)
                      :stripped-summary (response-summary stripped)}})
 
        :else
-       ;; rf2-egupfk — validate the DESUGARED form (as Mermaid + SCXML do) but
+       ;; Validate the DESUGARED form (as Mermaid + SCXML do) but
        ;; return the ORIGINAL authored spec so `:timeout` / `:choice` intent
        ;; survives to `reg-machine`.
        (let [[stage2 reason] (validate-definition (g/desugar-grammar spec-or-reason))]
@@ -278,7 +278,7 @@
                   "resolver return a spec with a keyword :initial + :states (or "
                   ":type :parallel + :regions).")
              {:recovery :return-a-valid-machine-spec
-              ;; rf2-8nzxib — value-FREE; the response + parsed spec can
+              ;; Value-FREE; the response + parsed spec can
               ;; embed LLM-returned secrets / runtime :data.
               :extra    {:response-summary (response-summary response)
                          :spec-summary     (g/definition-summary spec-or-reason)}})))))))
