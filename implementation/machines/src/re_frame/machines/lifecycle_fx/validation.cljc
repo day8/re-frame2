@@ -26,7 +26,7 @@
     - `validate-spawn-spec-keys!` — reject unknown BARE `:spawn` /
       `:spawn-all`-child keys (`:rf.error/machine-unknown-spawn-key`).
     - `validate-tags!` — reject a non-set `:tags` slot
-      (`:rf.error/machine-bad-tags`); the silent coercion is removed.
+      (`:rf.error/machine-bad-tags`) rather than silently coercing it.
     - `validate-machine!` — top-level dispatch + guard/action ref
       resolution.
 
@@ -71,7 +71,7 @@
                          {:recovery :fix-registration :extra extras})))
 
 ;; ---------------------------------------------------------------------------
-;; Key totality (rf2-dhl4d)
+;; Key totality
 ;;
 ;; A machine definition is not always hand-written. It can be merged from
 ;; config, decoded from JSON or transit, or emitted by a generator, so its KEYS
@@ -86,23 +86,23 @@
   "Is `k` the NAMESPACED open-extension carve-out that every no-silent-swallow
   key check honours?
 
-  TOTAL over any key a map can carry. This used to be a bare `(namespace k)`,
-  and `namespace` THROWS on a key that is not `Named`, so a definition as
+  TOTAL over any key a map can carry. A bare `(namespace k)` is not:
+  `namespace` THROWS on a key that is not `Named`, so a definition as
   ordinary as
 
     {:initial :a :states {:a {}} \"x\" 1}
 
-  raised a host `ClassCastException` (a `js/Error` on CLJS) out of
+  would raise a host `ClassCastException` (a `js/Error` on CLJS) out of
   `validate-machine!` in place of the `:rf.error/machine-unknown-node-key` that
-  `reg-machine`'s registration gate promises (rf2-dhl4d).
+  `reg-machine`'s registration gate promises.
 
   Testing `Named`-ness FIRST also makes the answer the RIGHT one rather than
   merely non-throwing: a key that is not a keyword or a symbol is not a legal
   node / spawn-spec key under any reading of the grammar, so it is not carved
   out — it lands in the offending set and earns the same rejection a misspelt
-  `:on-entry` earns. `tools/machines-viz`'s hand-mirror of this walk was made
-  total the same way under rf2-oztox; the engine-grammar parity ratchet pins
-  the two answers together."
+  `:on-entry` earns. `tools/machines-viz`'s hand-mirror of this walk is
+  total the same way; the engine-grammar parity ratchet pins the two answers
+  together."
   [k]
   (and (or (keyword? k) (symbol? k))
        (some? (namespace k))))
@@ -127,7 +127,7 @@
   renders as its `rf.error/diag-value-summary` shape tag (`<scalar>`, `<vector>`,
   …). `pr-str` on such a value reaches `toString`, and a `toString` that throws
   would replace the structured rejection with a host exception: the same defect
-  one level down from the one `namespaced-key?` fixes."
+  one level down from the one `namespaced-key?` prevents."
   [k]
   (let [{tag :type} (rf.error/diag-value-summary k)]
     (if (literally-printable-types tag)
@@ -171,8 +171,8 @@
       :else                  false)))
 
 (defn- validate-no-spawn-timeout-ms!
-  "Per Spec 005 §`:timeout` / `:on-timeout` — the legacy `:timeout-ms` slot
-  on `:spawn` / `:spawn-all` is REMOVED: registration throws
+  "Per Spec 005 §`:timeout` / `:on-timeout` — a `:timeout-ms` slot on
+  `:spawn` / `:spawn-all` is NOT accepted: registration throws
   `:rf.error/spawn-timeout-ms-removed`. Use the spawn-level `:timeout` /
   `:on-timeout` grammar validated by `rf.machines.timeout/validate-timeouts!`."
   [state-key state-node]
@@ -215,13 +215,13 @@
       :else nil)))
 
 (defn- inline-spawn-address-error
-  "rf2-j1ykz — an inline `:definition` spawn-spec must carry an ADDRESS:
+  "An inline `:definition` spawn-spec must carry an ADDRESS:
   `:id-prefix` (the base its `<prefix>#<n>` id is minted from) or
   `:fixed-actor-id` (the address itself). A `:machine-id` spawn needs
   neither, because its prefix defaults to that registered TYPE; an inline
-  definition has no type to default to, so an unaddressed one reached the
-  id allocator with a nil prefix and crashed there, after registration had
-  accepted it. Returns a `:reason` string for an unaddressed inline spec,
+  definition has no type to default to, so an unaddressed one would reach
+  the id allocator with a nil prefix and crash there, after registration
+  had accepted it. Returns a `:reason` string for an unaddressed inline spec,
   else nil. Shared by single `:spawn` and each `:spawn-all` child, and run
   after the XOR check."
   [spec]
@@ -255,8 +255,8 @@
       slots are missing per the required-iff rules; or no `:machine-id`
       / `:definition`; or an inline `:definition` with neither
       `:id-prefix` nor `:fixed-actor-id`; or the `:join` value is outside the closed
-      `:all` / `:any` enum; or an unknown bare key on the block (e.g. the
-      removed `:cancel-on-decision?`).
+      `:all` / `:any` enum; or an unknown bare key on the block (e.g.
+      `:cancel-on-decision?`).
     - `:rf.error/machine-spawn-all-duplicate-id` — two children share an
       `:id` keyword inside the same `:spawn-all` block.
     - `:rf.error/machine-spawn-all-with-spawn` — a state node declares
@@ -275,7 +275,7 @@
                  ":spawn-all slot must be a map"
                  {:state state-key})))
       ;; No-silent-swallow on the block keys: reject any unknown bare key
-      ;; (e.g. the removed `:cancel-on-decision?`) so a retired / misspelt
+      ;; (e.g. `:cancel-on-decision?`) so a retired / misspelt
       ;; key fails loud rather than being silently ignored. `:timeout-ms`
       ;; is excluded — it carries its OWN dedicated retired-key rejection
       ;; (`validate-no-spawn-timeout-ms!` → `:rf.error/spawn-timeout-ms-
@@ -332,10 +332,10 @@
       ;; The join grammar is a closed two-member enum: `:all` (default)
       ;; and `:any`.
       ;; Quorum cases use the data-only `:after` + `:done-guard` idiom
-      ;; (Spec 005 §Composition with hierarchy and `:after`); re-adding
+      ;; (Spec 005 §Composition with hierarchy and `:after`); adding
       ;; `{:n}` later is a compatible widening. Any other `:join` value —
-      ;; including a now-removed `{:n N}` / `{:fn ...}` — is rejected as an
-      ;; unknown join spec.
+      ;; `{:n N}` / `{:fn ...}` included — is rejected as an unknown join
+      ;; spec.
       (let [join (:join spawn-all-spec :all)]
         (cond
           (= :all join)
@@ -548,7 +548,7 @@
 ;; `:after` — is caught via its lowered form in the SAME check as a
 ;; directly-authored root `:after`.
 ;;
-;; A parallel machine's REGION-ROOT `:after` (rf2-x76af2.10) has the SAME
+;; A parallel machine's REGION-ROOT `:after` has the SAME
 ;; unscheduled shape: it sits on the region body itself (decl-path `[]` WITHIN
 ;; the region), not on an entered leaf. `bootstrap-step` schedules only the
 ;; region's entered initial LEAVES; `schedule-root-after-fx` schedules only the
@@ -557,12 +557,12 @@
 ;; a flat/compound mini-machine, so its root `:after` is the exact analog of a
 ;; flat machine-root `:after` and is rejected with the SAME category — keeping
 ;; the runtime honest (no accept-but-inert path) and consistent with the
-;; machine-root rejection. (The machine's OWN parallel-root `:after` remains
+;; machine-root rejection. (The machine's OWN parallel-root `:after` is
 ;; the one supported, scheduled root-`:after` form.) Reject-vs-schedule is a
-;; genuine design call; REJECT was chosen for consistency with the existing
-;; machine-root rejection + fail-loud (a per-region root scheduler would be a
-;; feature expansion), so a region-root deadline moves onto the region's
-;; `:initial` state's own `:after` / `:timeout` instead.
+;; genuine design call; this REJECTS, for consistency with the machine-root
+;; rejection + fail-loud (a per-region root scheduler would be a feature
+;; expansion), so a region-root deadline belongs on the region's `:initial`
+;; state's own `:after` / `:timeout` instead.
 
 (defn- validate-non-parallel-root-after!
   "Reject an UNSCHEDULED root-level `:after` — whether hand-authored or lowered
@@ -910,7 +910,7 @@
   without this gate a malformed spec would defer to a late actor-id
   allocation failure (neither) or a silent type mismatch on restore (both).
   An inline `:definition` must also carry `:id-prefix` or `:fixed-actor-id`
-  (`inline-spawn-address-error`, rf2-j1ykz), refused with the same id.
+  (`inline-spawn-address-error`), refused with the same id.
   `:spawn-all` children are checked by `validate-spawn-all!`
   (the `:spawn` / `:spawn-all` mutual exclusion means at most one runs here).
   Absent `:spawn` is fine."
@@ -934,7 +934,8 @@
   action ref resolution is checked by the top-level pass (alongside `:on` /
   `:on-done`). Absent `:on-error` is fine: the failure event still reaches
   the parent, where an explicit `:on {:rf.machine.spawn/error …}` may take it,
-  else it is a no-op (rf2-3x7nj.41.1); the trace + escape-hatch remain."
+  else it is a no-op, with the trace and the escape hatch available either
+  way."
   [state-key state-node]
   (when-let [spawn (:spawn state-node)]
     (when (contains? spawn :on-error)
@@ -1083,7 +1084,7 @@
   The region name is carried for DIAGNOSTICS only — it never widens
   resolution. It lets an unresolved vector target whose head names a SIBLING
   REGION be diagnosed as the cross-region mistake it is rather than as a
-  generic missing state (rf2-ovhj)."
+  generic missing state."
   [machine]
   (letfn [(walk [scope region path nodes]
             (mapcat
@@ -1134,7 +1135,7 @@
   rf.machines.grammar/candidate-targets)
 
 (defn- cross-region-note
-  "Per Spec 005 §Cross-region coordination (rf2-ovhj): the region-aware tail of
+  "Per Spec 005 §Cross-region coordination: the region-aware tail of
   an `:rf.error/machine-unresolved-target` message.
 
   A `:type :parallel` machine drives each region through a SYNTHETIC
@@ -1334,10 +1335,10 @@
   `:target` resolves as a TOP-LEVEL sibling (`target-path`'s
   `(drop-last [])` → `[]`) exactly like `resolves-to-state?` with an empty
   `owning-path`. `walk-state-nodes-with-scope` only yields nodes INSIDE
-  `:states` (region or flat), so the root's own `:on` was UNCHECKED — an
-  invalid root `:on` target registered cleanly and committed an unresolved
-  `:state` at the first dispatch that fell through to it instead of failing
-  fast here. (A non-parallel root's `:after` cannot reach this point — it is
+  `:states` (region or flat), so the root's own `:on` needs its own check —
+  unchecked, an invalid root `:on` target would register cleanly and commit
+  an unresolved `:state` at the first dispatch that fell through to it
+  instead of failing fast here. (A non-parallel root's `:after` cannot reach this point — it is
   rejected outright by `validate-non-parallel-root-after!`, called earlier —
   so only `:on` needs checking here.)
 
@@ -1346,12 +1347,12 @@
   in the region handles the event, and it fires (`build-region-machine` hands
   the body to the engine as a synthetic flat machine, root `:on` included).
   The scope walker yields only nodes INSIDE `:states`, so a region-root `:on`
-  target went entirely unchecked: ANY target registered cleanly there and the
-  runtime committed the unresolved vector verbatim into the region's state slot
-  — `{:a [:b :two], :b :one}`, a nonsense configuration with no error (rf2-ovhj
-  measured both a cross-region `[:b :two]` and a plainly-missing `[:nowhere]`
-  registering silently). It is checked here now, region-scoped exactly as a
-  region state-node's target is. A region-root `:after` cannot reach this point
+  target needs its own check — unchecked, ANY target would register cleanly
+  there (a cross-region `[:b :two]` and a plainly-missing `[:nowhere]` alike)
+  and the runtime would commit the unresolved vector verbatim into the
+  region's state slot — `{:a [:b :two], :b :one}`, a nonsense configuration
+  with no error. It is checked here, region-scoped exactly as a region
+  state-node's target is. A region-root `:after` cannot reach this point
   either — `validate-non-parallel-root-after!` rejects it — so, as at the flat
   root, only `:on` needs checking."
   [machine]
@@ -1538,8 +1539,7 @@
   prevent — so it falls through to the ordinary
   `:rf.error/machine-unknown-spawn-key`, which names the valid set. `:on-done`
   IS honoured on a child spec: it folds the parent's `:data` at that child's
-  successful finality, before the join fold; a failed child skips it
-  (rf2-3x7nj.41.1)."
+  successful finality, before the join fold; a failed child skips it."
   (-> known-spawn-spec-keys
       (disj :on-error)
       (conj :id)))
@@ -1549,7 +1549,7 @@
   no-silent-swallow discriminator. A namespaced key is the open extension
   carve-out and is never flagged; see `namespaced-key?` for why that test is
   spelt the way it is and why a non-`Named` key is flagged rather than carved
-  out (rf2-dhl4d)."
+  out."
   [m known]
   (->> (keys m)
        (remove namespaced-key?)
@@ -1631,10 +1631,10 @@
   "Reject a NON-SET `:tags` slot on a state node at registration with
   `:rf.error/machine-bad-tags` — mirroring `:rf.error/machine-bad-internal-events`
   (its sibling set-valued slot). Per Spec-Schemas `:rf/state-node` (`:tags` is
-  strict `[:set :keyword]`) + the 2026-07-03 self-consistency review: the runtime
-  used to silently COERCE a vector / single keyword to a set, in violation of
-  naming rule 2 (\"never a silently-normalised alias\") and inconsistent with
-  `:internal-events`, which HARD-REJECTS exactly that non-set shape. A set with a
+  strict `[:set :keyword]`): silently COERCING a vector / single keyword to a
+  set would violate naming rule 2 (\"never a silently-normalised alias\") and
+  be inconsistent with `:internal-events`, which HARD-REJECTS exactly that
+  non-set shape. A set with a
   non-keyword member is likewise rejected. Absent `:tags` is fine (elided slot)."
   [state-key state-node]
   (when (contains? state-node :tags)
@@ -1734,8 +1734,8 @@
   and every `:spawn` / `:spawn-all`-child spawn-spec rejects an unknown BARE key
   with `:rf.error/machine-unknown-spawn-key` (namespaced keys pass — the open
   extension carve-out). A non-set `:tags` slot is rejected with
-  `:rf.error/machine-bad-tags` (the silent vector/keyword→set coercion is
-  removed), mirroring `:rf.error/machine-bad-internal-events`."
+  `:rf.error/machine-bad-tags` (never silently coerced to a set), mirroring
+  `:rf.error/machine-bad-internal-events`."
   [machine]
   ;; Validate the `:timeout` / `:on-timeout` grammar on the raw
   ;; spec FIRST, so diagnostics name the `:timeout` / `:on-timeout` keys the

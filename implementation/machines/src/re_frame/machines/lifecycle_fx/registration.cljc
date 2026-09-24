@@ -140,10 +140,10 @@
   THROWING actor is a single-`:spawn` child of a live parent, route the
   failure to the parent as the failure event via
   `rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!`, whether or not
-  the parent declares `:spawn :on-error` (rf2-3x7nj.41.1). The parent's engine
+  the parent declares `:spawn :on-error`. The parent's engine
   resolves it: `:on-error`, else an explicit `:on {:rf.machine.spawn/error …}`,
-  else nothing. That is additive to (not a replacement for) the trace above,
-  which still fires for every action exception. `ctx` carries the failing
+  else nothing. That routing is in addition to the trace above, which fires
+  for every action exception. `ctx` carries the failing
   actor's runtime-db and snapshot (whose `:data` was stamped with
   `:rf/parent-id` / `:rf/invoke-id` at spawn time); the exception envelope
   rides as the parent transition's `:event` payload so a guard / action can
@@ -186,7 +186,7 @@
     ;; `:exception-data` (redacted downstream at the marks chokepoint) all
     ;; included — away under :advanced + goog.DEBUG=false. Leaving the direct
     ;; call ungated beside the live always-on call above would leak the prose.
-    ;; `:state-path` is retained for the dev-trace shape.
+    ;; `:state-path` rides beside `:state` in the dev-trace shape.
     (when rf.interop/debug-enabled?
       (rf.trace/emit-error! :rf.error/machine-action-exception
         {:actor-id          machine-id
@@ -203,20 +203,20 @@
          :exception-data    ex-data
          :reason            reason
          :recovery          :no-recovery}))
-    ;; Additive control-flow routing. Read the spawning
+    ;; Control-flow routing, in addition to the traces. Read the spawning
     ;; parent / invoke-id off the child's stamped `:data`; if the child is a
     ;; single-`:spawn` child (it carries `:rf/invoke-id`) and its parent is
     ;; still LIVE, dispatch the failure into it. The error payload carries the
     ;; exception envelope so the parent transition's guard / action can branch
     ;; on it.
     ;;
-    ;; rf2-3x7nj.41.1 — whether the parent declares `:spawn :on-error` is NOT
-    ;; asked. That question used to gate this dispatch, which left spec 005
-    ;; §`:on-error` arm 2 (an explicit `:on {:rf.machine.spawn/error …}` with
-    ;; no `:on-error`) unreachable. The parent's engine resolves both arms,
-    ;; exactly as it does for the error-leaf twin in `finalize`.
+    ;; Whether the parent declares `:spawn :on-error` is NOT asked. Gating
+    ;; this dispatch on it would leave spec 005 §`:on-error` arm 2 (an
+    ;; explicit `:on {:rf.machine.spawn/error …}` with no `:on-error`)
+    ;; unreachable. The parent's engine resolves both arms, exactly as it
+    ;; does for the error-leaf twin in `finalize`.
     ;;
-    ;; rf2-xjee — LIVENESS IS ASKED FIRST. The parent's `reg-machine`
+    ;; LIVENESS IS ASKED FIRST. The parent's `reg-machine`
     ;; DEFINITION survives its teardown, so anything that resolves through it
     ;; keeps answering for a parent that no longer exists, and the dispatch
     ;; below would then be answered by D5 lazy re-creation at the dead
@@ -224,7 +224,7 @@
     ;; initial snapshot in order to hand it a dead child's exception. This is
     ;; the action-exception twin of the error-leaf route in `finalize`, and it
     ;; reads the SAME `parent-instance-live?` predicate so the two cannot
-    ;; drift. D5 itself is untouched — an ordinary AUTHORED event still
+    ;; drift. D5 itself is not fenced — an ordinary AUTHORED event
     ;; re-creates the address; what is fenced is framework-owned failure
     ;; delivery.
     (let [child-data (:data snapshot)
@@ -242,7 +242,7 @@
            :exception-message ex-msg
            :exception-data    ex-data
            :reason            reason}
-          ;; rf2-3x7nj.8.2 — the spawn attempt, for the parent's currency gate.
+          ;; The spawn attempt, for the parent's currency gate.
           (:rf/invoke-attempt child-data))))
     {}))
 
@@ -259,8 +259,8 @@
   `:rf.error/machine-action-exception` here would be a misleading second
   signal. For a depth-abort we therefore SKIP `trace-action-failure!`
   (which also routes the spawn-`:on-error` control flow — irrelevant to a
-  depth trip) and return `{}` directly. A thrown-action `:fail` keeps the
-  existing `trace-action-failure!` routing (the action-exception trace +
+  depth trip) and return `{}` directly. A thrown-action `:fail` takes the
+  `trace-action-failure!` routing (the action-exception trace +
   the spawn-`:on-error` dispatch). Both paths short-circuit the handler to
   `{}`, so neither writes the post-event snapshot — the pre-event snapshot
   stays committed in runtime-db (the atomic-rollback contract)."
@@ -312,7 +312,7 @@
 ;; restarting the machine, not patching it. A SPAWNED actor's identity
 ;; envelope (`:rf/machine-type` + its `:data` lineage) is carried across
 ;; the reset, though: restarting an actor must not un-address it
-;; (rf2-2dk0; see `lifecycle-fx.resolver/carry-actor-identity`).
+;; (see `lifecycle-fx.resolver/carry-actor-identity`).
 ;;
 ;; The reconciler verifies the snapshot's state still exists in the (possibly
 ;; hot-reloaded) definition AND that the version stamps agree before driving
@@ -330,15 +330,15 @@
 
   For PARALLEL machines this requires EXACTLY the declared region key set
   (no missing region, no extra/stale region) AND every region's path to
-  resolve to a real non-history leaf — `rf.machines.parallel/parallel-state-valid?`
-  (bz0ox.2 / x4s9t.2). A partial map like `{:left :done}` for a 2-region
+  resolve to a real non-history leaf — `rf.machines.parallel/parallel-state-valid?`.
+  A partial map like `{:left :done}` for a 2-region
   machine fails to resolve, so it can never run a partial configuration that
   vacuously fires root `:on-done` / auto-destroy.
 
   For FLAT / COMPOUND machines the path must resolve to a real, OCCUPIABLE
   leaf — `rf.machines.transition/state-occupiable?` rejects both a missing state AND a
-  `:type :history` pseudo-state, which is targetable but never occupied
-  (bz0ox.2). A malformed `:state` shape is caught inside `state-occupiable?`
+  `:type :history` pseudo-state, which is targetable but never occupied.
+  A malformed `:state` shape is caught inside `state-occupiable?`
   and surfaces as not-resolving, so the same reset path covers shape-error,
   missing-state, AND occupied-history alike."
   [machine state]
@@ -364,7 +364,7 @@
   initial snapshot (with `:rf/bootstrap-pending? true` so the new
   initial state's `:entry` cascade fires on this same handler call),
   carrying `existing-snap`'s spawned-actor identity envelope across so a
-  reset actor stays addressable (rf2-2dk0).
+  reset actor stays addressable.
   `kind` is `:state-not-in-definition` or `:version-mismatch`."
   [kind machine-id frame-id machine existing-snap base-initial]
   (case kind
@@ -389,7 +389,7 @@
   ;; this same handler call.
   ;;
   ;; The framework-owned spawned-actor IDENTITY envelope is carried across,
-  ;; though (rf2-2dk0): resetting an actor's definition must not silently
+  ;; though: resetting an actor's definition must not silently
   ;; un-address the actor. `:rf/machine-type` is the only key the lazy
   ;; resolver can re-materialise a spawned actor's handler from, so dropping
   ;; it leaves a snapshot that is physically present in runtime-db yet
@@ -675,19 +675,19 @@
   completion carrier buys: the parent's `:always` guards and `:on` clauses run
   in the SAME macrostep against the already-folded `:data`, so a parent can
   SEQUENCE on a child's completion (`:configuring` → `:loading-deps`) without
-  the child dispatching anything. The fold used to be a direct write into the
-  parent's snapshot from the child's cascade, which mutated `:data` the parent
-  could never react to.
+  the child dispatching anything. A direct write into the parent's snapshot
+  from the child's cascade would mutate `:data` the parent could never react
+  to.
 
   The `:spawn` map is resolved from the parent's OWN spec at `invoke-id`
   (`resolver/spawn-spec-at`). It runs only for a CURRENT carrier: one from a
   spawn attempt the parent has since left or re-entered was already dropped by
-  `suppress-stale-spawn-carrier` (rf2-3x7nj.9.3). A parent that declares no
+  `suppress-stale-spawn-carrier`. A parent that declares no
   `:on-done` rides through untouched — the carrier then simply reaches the
   engine as an ordinary reserved event the parent may or may not have a
   transition for.
 
-  No failure guard is needed here (rf2-3x7nj.41.1): a single-`:spawn` child's
+  No failure guard is needed here: a single-`:spawn` child's
   failure never rides this carrier. `finalize` sends it as
   `[:rf.machine.spawn/error …]` whether or not the parent declares
   `:on-error`."
@@ -705,7 +705,7 @@
       ctx)))
 
 (defn- suppress-stale-spawn-carrier
-  "rf2-3x7nj.9.3 / .8.2 — the single-`:spawn` currency gate, run at the
+  "The single-`:spawn` currency gate, run at the
   parent's handler boundary BEFORE the `:on-done` fold and BEFORE the engine
   step. A runtime-minted carrier — `[:rf.machine.spawn/done <invoke-id>
   <completion> <attempt>]` or `[:rf.machine.spawn/error <invoke-id> <error>
@@ -850,7 +850,7 @@
       ;; `:microstep` step (carrying nested `:steps`) per `:always`
       ;; iteration, with per-region structure for parallel machines.
       ;;
-      ;; rf2-nb8nj — plus one `:raised-transition` step per HANDLED dequeue
+      ;; Plus one `:raised-transition` step per HANDLED dequeue
       ;; off the internal-event queue, in FIFO order, carrying that internal
       ;; `:event` and its own nested `:steps`. The walk therefore spans the
       ;; WHOLE macrostep: every hop between `:before` and `:after` is
@@ -1044,8 +1044,8 @@
       ;; honours an effect-carried registry VERBATIM, so a stale coeffect copy
       ;; would clobber any claim written live during this handler). Two such
       ;; live writes exist: the singleton first-boot `lower-at-spawn!` below
-      ;; (rf2-dr0pfi) and the `:final?` auto-destroy's `drop-at-destroy!`
-      ;; (rf2-3x7nj.9.2, whose finalize commit re-installed the dropped claims).
+      ;; and the `:final?` auto-destroy's `drop-at-destroy!`, whose dropped
+      ;; claims a stale copy would re-install on the finalize commit.
       (let [runtime-db  (dissoc (or rt {}) :rf.runtime/elision)
             ctx         (prepare-machine-ctx db runtime-db frame cofx mint-policy event machine base-initial)
             ;; THE CHILD-COMPLETION BOUNDARY (Spec 005 §Child completion
@@ -1070,7 +1070,7 @@
                           (rf.machines.lifecycle-fx.join/intercept-spawn-done-event
                             (:machine ctx) runtime-db (:machine-id ctx)
                             (second (:inner-event ctx)) completion))
-            ;; rf2-3x7nj.9.3 / .8.2 — a single-`:spawn` carrier (done OR error)
+            ;; A single-`:spawn` carrier (done OR error)
             ;; from a spawn attempt the parent has since left or re-entered is
             ;; dropped HERE, before the fold and before the engine step.
             stale       (when-not intercepted
@@ -1126,21 +1126,21 @@
                     ;; spawned actor carries a pre-seeded snapshot ⇒
                     ;; `:existing-snap? true`, already lowered at spawn).
                     boot? (and (:needs-bootstrap? ctx) (not (:existing-snap? ctx)))]
-                ;; DURABLE-CLAIM guard (rf2-dr0pfi): the boot commit below omits
+                ;; DURABLE-CLAIM guard: the boot commit below omits
                 ;; `:rf.runtime/elision` (dropped at the handler's top), so the
                 ;; claim `lower-at-spawn!` writes LIVE here survives it and unions
                 ;; with any effect owner that pre-classified the same path
-                ;; (the multi-owner union contract, rf2-wdm1vg).
+                ;; (the multi-owner union contract).
                 ;;
                 ;; Value-independent + idempotent, dropped at destroy / finalize.
-                ;; A spec declaring no classification is a no-op. rf2-i4aj9c — the
+                ;; A spec declaring no classification is a no-op. The
                 ;; singleton first-boot classification lowering rides the EXACT
                 ;; elision write: `maybe-boot` above fired the initial-entry
                 ;; `:entry` actions (authored callbacks that can destroy A /
                 ;; publish same-id B), so a mid-write container watch must not
                 ;; re-root this singleton's `:sensitive` / `:large` declarations
                 ;; onto B or bump B's commit epoch. nil token (no event owner)
-                ;; falls back to the historical bare write.
+                ;; falls back to the bare write.
                 (when boot?
                   (rf.machines.classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
                                                   (:machine ctx)
@@ -1446,7 +1446,7 @@
   Enumeration filters the `:event` registry by `:rf/machine?`; the
   `:rf/machine` registrar projection reads the spec back out. Both go
   through the standard registrar query API — there is no per-kind
-  `machines` / `machine-meta` accessor (retired, rf2-kuky.31).
+  `machines` / `machine-meta` accessor.
 
   Per Spec 001 §Source-coordinate capture, the call-site `:ns` /
   `:line` / `:file` carried by `re-frame.source-coords/*pending-coords*`
