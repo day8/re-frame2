@@ -1,9 +1,8 @@
 (ns re-frame.resources-runtime-cljs-test
-  "Runtime behaviour for the Resources artefact (rf2-pbxj48, Spec 016
-  §EP-0003 slice 4 — the resource RUNTIME).
+  "Runtime behaviour for the Resources artefact (Spec 016 — the resource
+  RUNTIME).
 
-  These JVM+CLJS unit tests pin the cache-entry runtime this slice
-  implements:
+  These JVM+CLJS unit tests pin the cache-entry runtime:
 
     1. canonical params + scope identity (key-order-independent;
        serializable-EDN-only; nil-vs-missing schema-defined);
@@ -23,9 +22,8 @@
        newer entry);
     9. owner / tag indexes, exact tag invalidation, scope clear, remove.
 
-  HTTP transport execution, the serializable work-ledger records, host
-  side tables, abort, GC timers, route/SSR/Xray are LATER slices; this
-  test does not exercise them. The transport is decoupled by overriding
+  HTTP transport execution, abort, GC timers and route/SSR/Xray are
+  pinned by their own suites. The transport is decoupled by overriding
   the `:rf.http/managed` fx with a capturing no-op so ensure's entry write
   and reply-handler semantics are tested deterministically without a live
   fetch."
@@ -71,7 +69,7 @@
   second `use-fixtures :each` would REPLACE, not accumulate)."
   [f]
   (reset! last-managed-args nil)
-  ;; rf2-yuc8o0: the shared `make-reset-runtime-fixture` reset-hook-table now
+  ;; The shared `make-reset-runtime-fixture` reset-hook-table
   ;; fires `:resources/reset-resources!` (which clears the host-side
   ;; generation high-water marks) in its `:post-dispose` phase before each
   ;; test body, so no per-suite generation-cache reset is needed here.
@@ -97,8 +95,7 @@
 
 (defn- entries-table
   "The frame's whole live resource-instance table, read at its reserved
-  runtime-db path (Spec 016 §Introspection) — the whole-table read that
-  replaced the retired `rf/resources` bundle."
+  runtime-db path (Spec 016 §Introspection)."
   ([] (entries-table :rf/default))
   ([frame-id]
    (or (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
@@ -137,17 +134,16 @@
   REFUSAL is legible: per Spec 009 §Observability channels a listener is the
   only ALWAYS-ON channel, so a category that fans a record here is loud in dev
   AND in a production build, while a category that fans nothing is invisible
-  everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
+  everywhere. (There is ALSO a browser-console fallback, but it
   is not the always-on contract and cannot fire here: it needs a dev build, a
   browser host — this suite is the Node lane, no `js/document` — and nothing to
-  have ROUTED the record, whereas the listener below owns it. Since rf2-kuky.18
-  a record its frame routed to a registered `:observability :errors` sink is
+  have ROUTED the record, whereas the listener below owns it. A record its
+  frame routed to a registered `:observability :errors` sink is
   owned too; neither arm changes this Node-lane reading.)
   A refusal that reaches NO channel is indistinguishable from a
-  silent no-op at the call site, which is exactly the gap rf2-06lp closed on
-  the mutation path; this is the copy that lets the read path assert the same
-  way (rf2-w67y, sibling of `record-error-records!` in
-  `resources_mutation_cljs_test.cljc`)."
+  silent no-op at the call site; this helper lets the read path assert on
+  the channel the way the mutation path does (a sibling of
+  `record-error-records!` in `resources_mutation_cljs_test.cljc`)."
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]
@@ -180,12 +176,13 @@
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
           (rf.resources.state/reject-non-edn! {:f (fn [])} 'test :params :r/x)))))
 
-;; rf2-rplgkw — the redundant scope/params re-canonicalization on the resource
-;; sub re-key hot path is collapsed: a trusted `scoped-resource-key*` for
+;; The resource sub re-key hot path skips redundant scope/params
+;; re-canonicalization: a trusted `scoped-resource-key*` for
 ;; already-canonical inputs (the sub / event / route resolution paths feed it
 ;; values that already passed canonicalize-scope + validate+canonicalize-params)
 ;; and a single-walk `canonicalize-or-rethrow` folding the reject-non-edn! +
-;; canonicalize pair inside canonicalize-scope. Behaviour MUST be preserved.
+;; canonicalize pair inside canonicalize-scope. Both MUST behave exactly like
+;; the defensive path.
 (deftest trusted-scoped-key-matches-defensive-on-canonical-input
   (testing "scoped-resource-key* (no re-canonicalize) yields the SAME key as
             the defensive scoped-resource-key when handed ALREADY-canonical
@@ -196,10 +193,10 @@
           defens  (rf.resources.state/scoped-resource-key cscope :article/by-slug cparams)]
       (is (= defens trusted) "same key vector")
       (is (= (rf.resources.state/key-id defens) (rf.resources.state/key-id trusted)) "same byte key-id")))
-  (testing "the defensive constructor still canonicalizes RAW (key-order-
+  (testing "the defensive constructor canonicalizes RAW (key-order-
             varying) input to the same identity scoped-resource-key* produces
-            from the canonical value — so RAW direct/test/mutation callers keep
-            working"
+            from the canonical value — so RAW direct/test/mutation callers get
+            the same key"
     (let [raw-a (rf.resources.state/scoped-resource-key {:user "u-42" :tenant "acme"}
                                            :article/by-slug {:rev 1 :slug "x"})
           raw-b (rf.resources.state/scoped-resource-key {:tenant "acme" :user "u-42"}
@@ -228,14 +225,13 @@
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
           (rf.resources.state/canonicalize-or-rethrow {:ratio 1.5} 'test :params :r/x)))))
 
-;; rf2-wgutc2 (EP-0012 correctness review item 1): resource params + scopes
-;; use the SHARED CEDN-1 identity rule (`re-frame.identity/canonical`), not a
-;; resource-local dialect. This closes three divergences the prior
-;; resource-local canonicalizer carried:
-;;   - it accepted broad `number?` (floats / ratios / decimals / out-of-safe-
+;; Resource params + scopes use the SHARED CEDN-1 identity rule
+;; (`re-frame.identity/canonical`, EP-0012), not a resource-local dialect.
+;; A resource-local canonicalizer would diverge from it in three ways:
+;;   - accepting broad `number?` (floats / ratios / decimals / out-of-safe-
 ;;     range integers) — CEDN-1 admits only portable safe-range integers;
-;;   - it collapsed lists → vectors, erasing the list-vs-vector EDN distinction;
-;;   - it sorted keys under a bespoke comparator the CEDN-1 byte order subsumes.
+;;   - collapsing lists → vectors, erasing the list-vs-vector EDN distinction;
+;;   - sorting keys under a bespoke comparator the CEDN-1 byte order subsumes.
 (deftest resource-identity-uses-shared-cedn1-rule
   (testing "non-portable NUMBERS are rejected at the cache-key boundary
             (CEDN-1 admits only portable safe-range integers)"
@@ -257,15 +253,15 @@
              "a ratio param is rejected")
          (is (false? (rf.resources.state/serializable-edn? {:d 1.5M}))
              "a bigdecimal param is rejected"))))
-  (testing "a plain safe-range integer param is STILL accepted (the common case)"
+  (testing "a plain safe-range integer param is accepted (the common case)"
     (is (true? (rf.resources.state/serializable-edn? {:rev 1 :page 42})))
     (is (= {:rev 1 :page 42} (rf.resources.state/canonicalize {:page 42 :rev 1}))))
   (testing "list vs vector are DISTINCT EDN facts — never collapsed
             (Conventions §Sequences and sets)"
-    ;; The prior resource-local canonicalize ACTIVELY COERCED lists to vectors
-    ;; (`(sequential? x) (mapv …)`), erasing the kind entirely — a vector and a
-    ;; list params value became byte-identical, silently sharing one cache
-    ;; entry. CEDN-1 PRESERVES the kind, so the two stay distinct EDN identities.
+    ;; Coercing lists to vectors (`(sequential? x) (mapv …)`) would erase the
+    ;; kind entirely — a vector and a list params value would become
+    ;; byte-identical, silently sharing one cache entry. CEDN-1 PRESERVES the
+    ;; kind, so the two stay distinct EDN identities.
     ;;
     ;; Note: Clojure value `=` does NOT discriminate a vector from a list
     ;; (`(= [1 2 3] '(1 2 3))` is true), so the distinction is at the
@@ -285,14 +281,13 @@
     (is (vector? (:xs (rf.resources.state/canonicalize {:xs [1 2 3]})))
         "a vector value stays a vector")
     (is (seq? (:xs (rf.resources.state/canonicalize {:xs '(1 2 3)})))
-        "a list value stays a list (not coerced to a vector — the prior
-         resource-local canonicalizer's silent collapse is gone)"))
+        "a list value stays a list (not coerced to a vector)"))
   (testing "key-order independence is preserved through the shared rule"
     (is (= (rf.resources.state/canonicalize {:a 1 :b 2})
            (rf.resources.state/canonicalize {:b 2 :a 1})))))
 
 ;; ===========================================================================
-;; rf2-du585y — resource :params present-nil vs missing boundary
+;; Resource :params present-nil vs missing boundary
 ;; ===========================================================================
 ;;
 ;; EP-0012 §Missing vs present nil: an absent key differs from a key present
@@ -329,8 +324,8 @@
                  (rf.resources.state/scoped-resource-key :rf.scope/global :r/x absent)))
           "the scoped resource keys differ — present-nil is its own cache fact"))))
 
-;; rf2-hgy5kf (EP-0012) — the WHOLE-slot case the prior `(or params {})` at the
-;; validation boundary silently collapsed: a PAYLOAD with `:params` PRESENT and
+;; The WHOLE-slot case (EP-0012), which a blanket `(or params {})` at the
+;; validation boundary would silently collapse: a PAYLOAD with `:params` PRESENT and
 ;; explicitly `nil` (`{:params nil}`) vs `:params` ABSENT (`{}`). Spec 016:70 +
 ;; EP-0012:1316 say present-nil and absent are DISTINCT unless explicitly
 ;; elided; the schema (not a blanket boundary default) decides whether the
@@ -340,7 +335,7 @@
 
 (deftest resource-explicit-nil-params-slot-distinct-from-omitted
   (testing "the presence helper distinguishes an explicit nil :params slot from
-            an absent one (the distinction the old (or params {}) destroyed)"
+            an absent one (the distinction a blanket (or params {}) destroys)"
     (is (= nil (rf.resources.state/params-present? {:params nil}))
         "a PRESENT explicit nil slot threads nil")
     (is (= rf.resources.state/missing-params (rf.resources.state/params-present? {}))
@@ -370,7 +365,7 @@
           "the scoped resource keys differ — explicit-nil params is its own fact"))))
 
 (deftest resource-explicit-nil-params-slot-rejected-when-schema-rejects-nil
-  (testing "rf2-hgy5kf — under a schema that REJECTS a nil params value
+  (testing "under a schema that REJECTS a nil params value
             ([:map], a non-nilable map), an explicit whole-slot {:params nil}
             fails closed with :rf.error/resource-invalid-params and the
             structured error reports the offending nil (NOT a coerced {})"
@@ -389,7 +384,7 @@
           "the reported params preserve the offending nil (not coerced away)"))))
 
 (deftest mutation-explicit-nil-params-slot-rejected-when-schema-rejects-nil
-  (testing "rf2-hgy5kf — the mutation registry applies the SAME presence-aware
+  (testing "the mutation registry applies the SAME presence-aware
             policy: an explicit whole-slot {:params nil} reaches a non-nilable
             :params-schema and fails closed (not coerced to {})"
     (let [spec {:scope         :rf.scope/global
@@ -412,7 +407,7 @@
 (deftest resource-present-nil-rejected-when-schema-rejects-nil
   (testing "under a schema that REJECTS nil ([:map [:x :string]]), an explicit
             {:x nil} fails closed with :rf.error/resource-invalid-params and
-            the structured error data reports the offending params (rf2-du585y)"
+            the structured error data reports the offending params"
     (let [spec {:scope         :rf.scope/global
                 :params-schema [:map [:x :string]]   ;; :x is required + non-nil
                 :request       (fn [_ _] {:request {:method :get :url "/x"}})}
@@ -430,37 +425,35 @@
         (is (nil? (get (:params data) :x))
             "the reported params preserve the nil value (not coerced away)")))))
 
-;; rf2-9e0tyq (full fix; was the rf2-o84qq2 deferred-edge pin): the scoped
-;; resource key carries a kind-PRESERVING canonical VECTOR `[scope rid params]`
-;; (a list value stays a list, distinct from a vector — rf2-wgutc2), but it is
-;; NO LONGER used directly as a Clojure map key. The `:entries` map, the
+;; The scoped resource key carries a kind-PRESERVING canonical VECTOR
+;; `[scope rid params]` (a list value stays a list, distinct from a vector —
+;; the test above), but it is not used directly as a Clojure map key. The
+;; `:entries` map, the
 ;; reverse indexes, and the work-ledger map are keyed on the CEDN-1 byte
 ;; `key-id` (`rf.resources.state/key-id` / `rf.resources.work-ledger/work-id-id`), so the map-key
 ;; comparison is EXACTLY the CEDN-1 byte identity. Clojure `=` collapses
 ;; `(= [1 2 3] '(1 2 3))` to TRUE, but two distinct `canonical-bytes` strings
 ;; never collapse — so a list-params key and a vector-params key get DISTINCT
-;; entries AND distinct work-ids. This flips the former rf2-o84qq2 pin from
-;; documenting-the-collapse to asserting-distinctness (the bead's acceptance
-;; criterion). The fix is NOT a list→vector normalize (that would re-erase the
-;; CEDN-1 kind distinction rf2-wgutc2 introduced — the test above).
+;; entries AND distinct work-ids. A list→vector normalize would not do: it
+;; would re-erase the CEDN-1 kind distinction the test above pins.
 (deftest list-vs-vector-params-get-distinct-entries-rf2-9e0tyq
   (testing "list-vs-vector params keys carry DISTINCT CEDN-1 identities..."
     (let [kv (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
           kl (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})]
       (is (not (rf.identity/identical-identity? kv kl))
           "the authoritative identities differ (v[...] vs l(...))")
-      ;; Clojure `=` still treats the VECTORS as equal — but the cache no longer
-      ;; keys on the vector; it keys on the byte `key-id`, which is DISTINCT.
+      ;; Clojure `=` treats the VECTORS as equal — but the cache does not
+      ;; key on the vector; it keys on the byte `key-id`, which is DISTINCT.
       (is (= kv kl)
           "Clojure value = treats the vector- and list-params VECTORS as equal …")
-      (testing "...and now resolve to DISTINCT :entries entries (the byte key-id
-                comparison is exactly the CEDN-1 identity — the fix)"
+      (testing "...and resolve to DISTINCT :entries entries (the byte key-id
+                comparison is exactly the CEDN-1 identity)"
         (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
             "their byte key-ids differ (v[…] vs l(…)) — the map-key identity")
         (is (= 2 (count (-> {}
                             (assoc (rf.resources.state/key-id kv) :v)
                             (assoc (rf.resources.state/key-id kl) :l))))
-            "both keys map to TWO distinct entries — the =-collapse is closed")
+            "both keys map to TWO distinct entries — no =-collapse")
         (is (= :v (get (-> {}
                            (assoc (rf.resources.state/key-id kv) :v)
                            (assoc (rf.resources.state/key-id kl) :l))
@@ -479,8 +472,8 @@
                               (assoc (rf.resources.work-ledger/work-id-id wv) :v)
                               (assoc (rf.resources.work-ledger/work-id-id wl) :l))))
               "both work-ids map to TWO distinct work-ledger slots")))))
-  ;; The other CEDN-distinct params kinds were already `=`-distinct and stay
-  ;; keyed correctly (the fix never regresses them).
+  ;; The other CEDN-distinct params kinds are `=`-distinct too, and key
+  ;; distinctly.
   (testing "every other CEDN-distinct params kind also keys distinctly"
     (let [k (fn [params] (rf.resources.state/key-id (rf.resources.state/scoped-resource-key :rf.scope/global :r/x params)))]
       (is (= 3 (count (-> {} (assoc (k {:v "1"}) :s) (assoc (k {:v 1}) :i) (assoc (k {:v :a}) :k))))
@@ -526,7 +519,7 @@
           (rf.resources.subs/resolve-scoped-key {:resource :ss/derived :params {:slug "x"}} {})))))
 
 ;; ===========================================================================
-;; 2b. The registration guard on the READ path (rf2-w67y)
+;; 2b. The registration guard on the READ path
 ;; ===========================================================================
 ;;
 ;; `rf.resources.registry/require-resource-spec!` is the read-path twin of the mutation
@@ -536,18 +529,14 @@
 ;; arm in `events.cljc`), the route integration (`route.cljc`), and the
 ;; subscription (`subs.cljc`).
 ;;
-;; The guard was real and NOTHING in the corpus asserted it: `git grep
-;; resource-not-registered` over `implementation/` returned the throw site,
-;; the docs page and the Spec 009 catalogue row — no test. That is the same
-;; shape rf2-06lp repaired one registrar over, where the mutation path's
-;; `execute-unregistered-is-loud` asserted only `(nil? @last-managed-args)` —
-;; a claim a SILENT NO-OP satisfies exactly as well as a refusal does, so it
-;; could not fail. These three rows are written so a no-op FAILS them: each
+;; Asserting only `(nil? @last-managed-args)` is a claim a SILENT NO-OP
+;; satisfies exactly as well as a refusal does, so it cannot fail. These
+;; three rows are written so a no-op FAILS them: each
 ;; asserts the POSITIVE PRESENCE of the error record, not merely the absence
 ;; of an effect.
 
 (deftest ensure-unregistered-refuses-and-names-the-id
-  ;; rf2-w67y. `require-resource-spec!` runs as the FIRST statement of the
+  ;; `require-resource-spec!` runs as the FIRST statement of the
   ;; ensure handler's `let` — before scope resolution, before params
   ;; canonicalization, before any entry write, work-ledger row or transport
   ;; lowering. So "nothing was written" is a truthful reading of the abort
@@ -567,9 +556,9 @@
         ;; Read off the always-on `:errors` axis, not stderr: per Spec 009
         ;; §Observability channels a listener is the only ALWAYS-ON channel, so
         ;; this listener is where a refusal is legible in dev AND in prod. The
-        ;; browser-dev console fallback (#8108) is not a second reading here —
+        ;; browser-dev console fallback is not a second reading here —
         ;; it needs nothing to have ROUTED the record, and this listener owns it
-        ;; (rf2-kuky.18: a frame's registered `:observability :errors` sink owns
+        ;; (a frame's registered `:observability :errors` sink owns
         ;; it too; neither arm fires here).
         ;; Without this half the two rows above are satisfied by a silent
         ;; no-op and the test cannot fail.
@@ -587,15 +576,14 @@
             "the human message names the id too")))))
 
 (deftest ensure-registered-under-another-kind-still-refuses
-  ;; rf2-w67y, the identity half. `require-resource-spec!` keys on the
+  ;; The identity half. `require-resource-spec!` keys on the
   ;; `:resource` REGISTRAR KIND, not on "is this keyword registered
   ;; somewhere" — a mutation id reads as a perfectly well-formed keyword and
   ;; resolves in a sibling registrar, so a guard widened to any known id
-  ;; would sail past here. rf2-06lp's sabotage proved this is the direction
-  ;; that silently lowers the WRONG THING: widening the mutation guard to
-  ;; the resource registrar made the runtime lower a resource's GET as a
-  ;; mutation write. The mirror hazard here is a mutation's POST lowered as
-  ;; a cache read.
+  ;; would sail past here. This is the direction that silently lowers the
+  ;; WRONG THING: a mutation guard widened to the resource registrar would
+  ;; lower a resource's GET as a mutation write, and the mirror hazard here
+  ;; is a mutation's POST lowered as a cache read.
   (rf/reg-mutation :m/save
                    {:params-schema [:map [:slug :string]]}
                    (fn [{:keys [slug]} _ctx]
@@ -617,8 +605,8 @@
           "and the refusal names the id the caller typed"))))
 
 (deftest ensure-registered-resource-is-not-refused
-  ;; rf2-w67y, the restraint half — the direction a guard is almost never
-  ;; tested for. A REGISTERED resource must run exactly as before: entry
+  ;; The restraint half — the direction a guard is almost never
+  ;; tested for. A REGISTERED resource must run normally: entry
   ;; written, request lowered, and the always-on `:errors` axis SILENT. An
   ;; over-eager guard shows up here as a spurious record on an otherwise
   ;; working read, which no other assertion in this suite would notice.
@@ -669,7 +657,7 @@
       (is (some? @last-managed-args))
       (is (= [:rf.resource.internal/succeeded] (subvec (:on-success @last-managed-args) 0 1)))
       (is (some? (:request-id @last-managed-args))))
-    ;; simulate the transport reply (the managed-HTTP slice will dispatch
+    ;; simulate the transport reply (the managed-HTTP transport dispatches
     ;; this for real; here we feed the internal reply directly)
     (let [work-id (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
@@ -878,7 +866,7 @@
       (is (true? @(rf/subscribe [:rf.resource/stale? q]))))))
 
 (deftest succeeded-loaded-at-stale-at-from-reply-completed-at
-  ;; rf2-n1rh0f / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+  ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
   ;; the resource :loaded-at IS the successful reply's completion time
   ;; (carried on the reply token as the host :completed-at, which the managed
   ;; transport threads onto the reply event's :rf.cofx :time-ms), and
@@ -903,7 +891,7 @@
     (testing ":stale-at = :loaded-at + the :stale-after-ms policy"
       (is (= (+ completed-at 60000) (:stale-at (entry scoped-key)))))))
 
-;; rf2-95b0lc / EP-0010 §The World-Input Rule: the ensure FRESH-SKIP gate is a
+;; EP-0010 §The World-Input Rule: the ensure FRESH-SKIP gate is a
 ;; freshness DECISION that gates a durable runtime-db write (serve-cache vs
 ;; start-new-work). Its basis MUST be the ensure token's causal
 ;; `(:time-ms (:rf.cofx cofx))`, NOT an ambient host-clock read — so a
@@ -943,8 +931,8 @@
                 — no new work, no transport call, generation unchanged"
         (is (nil? @last-managed-args)
             "no managed-HTTP fetch fired — the ensure served cache (fresh-skip),
-             NOT a new load (a pre-fix ambient (now-ms) read would have seen the
-             live clock far past :stale-at and started a divergent fetch)")
+             NOT a new load (an ambient (now-ms) read would see the live clock
+             far past :stale-at and start a divergent fetch)")
         (is (= gen0 (:generation (entry scoped-key)))
             "generation unchanged — no new work-ledger generation was minted")
         (is (= :loaded (:status (entry scoped-key)))
@@ -1046,7 +1034,7 @@
       (is (= #{k1}    (get-in rebuilt [:tag-index :t1])))
       (is (= #{k1 k2} (get-in rebuilt [:owner-index [:app 1]]))))))
 
-;; ---- rf2-2c2mkh: incremental reindex == full rebuild (the safety net) ------
+;; ---- incremental reindex == full rebuild (the safety net) -----------------
 ;;
 ;; `reindex-keys` maintains :tag-index / :owner-index INCREMENTALLY at the hot
 ;; mutation sites (a settle / release / remove / GC / clear / optimistic
@@ -1054,10 +1042,10 @@
 ;; `recompute-indexes` on every op. The indexes are a PURE projection of
 ;; :entries, so the incremental result MUST equal the full rebuild after every
 ;; op — these tests are the round-trip pin that stops incremental drift creeping
-;; in (the audit's CORRECTNESS GUARD).
+;; in.
 
 (deftest reindex-keys-equals-full-rebuild-on-crafted-transitions
-  (testing "rf2-2c2mkh — reindex-keys over the touched keys yields EXACTLY what
+  (testing "reindex-keys over the touched keys yields EXACTLY what
             recompute-indexes would produce, across create / tag-change /
             owner-change / multi-key / remove transitions"
     (let [ka "id-a" kb "id-b" kc "id-c"
@@ -1106,7 +1094,7 @@
                [ka kb])))))
 
 (deftest reindex-keys-equals-full-rebuild-under-random-mutation-sequence
-  (testing "rf2-2c2mkh — across a long randomised sequence of single-key
+  (testing "across a long randomised sequence of single-key
             mutations (create / retag / re-own / remove), the incrementally
             maintained indexes equal the full rebuild after EVERY step"
     (let [;; small deterministic LCG so the property runs identically on every
@@ -1157,20 +1145,20 @@
     (is (not (rf.registrar/valid-kind? :query)))))
 
 ;; ===========================================================================
-;; 13. Concrete-scope typo rejection at resolution boundaries (rf2-pd7akw)
+;; 13. Concrete-scope typo rejection at resolution boundaries
 ;; ===========================================================================
 
 (deftest reserved-scope-typo-rejected-at-concrete-boundaries
   (rf/reg-resource :tp/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
   (let [spec (rf.resources.registry/resource-meta :tp/article)]
-    (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on an
+    (testing "a misspelled reserved :rf.scope/* keyword on an
               EVENT payload is rejected fail-closed (never a silent wrong
               cache scope)"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
             (rf.resources.registry/resolve-scope-for-event
               :tp/article spec {:payload-scope :rf.scope/glabal} 'test))))
-    (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on a
+    (testing "a misspelled reserved :rf.scope/* keyword on a
               SUBSCRIPTION payload is rejected fail-closed too"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
@@ -1190,21 +1178,20 @@
 
 ;; ===========================================================================
 ;; 14. Singleton-vector [:rf.scope/global] is rejected fail-closed — the
-;;     global scope IS the bare keyword (rf2-bwwk6l; was rf2-vv87xz's
-;;     back-compat normalize alias, removed pre-alpha)
+;;     global scope IS the bare keyword
 ;; ===========================================================================
 
 (deftest singleton-vector-global-rejected-fail-closed
-  (testing "rf2-bwwk6l — the bare :rf.scope/global is the canonical concrete
+  (testing "the bare :rf.scope/global is the canonical concrete
             global scope and canonicalizes unchanged"
     (is (= :rf.scope/global (rf.resources.state/canonicalize-scope :rf.scope/global 'test :r/x))))
-  (testing "rf2-bwwk6l — the singleton-vector [:rf.scope/global] spelling is
-            NO LONGER accepted as a global alias; it fails closed at the shared
+  (testing "the singleton-vector [:rf.scope/global] spelling is
+            not a global alias; it fails closed at the shared
             canonicalize boundary, naming the canonical bare spelling"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
           (rf.resources.state/canonicalize-scope [:rf.scope/global] 'test :r/x))))
-  (testing "rf2-bwwk6l — a sub payload carrying the wrapped [:rf.scope/global]
+  (testing "a sub payload carrying the wrapped [:rf.scope/global]
             spelling fails closed too (never a silent read of the bare global
             entry)"
     (rf/reg-resource :gv/article (article-spec) article-spec-request)
@@ -1216,7 +1203,7 @@
                                    {})))))
 
 ;; ===========================================================================
-;; 15. clear-resource disposes live runtime state (rf2-m9h5iq)
+;; 15. clear-resource disposes live runtime state
 ;; ===========================================================================
 
 (deftest clear-resource-disposes-runtime-state
@@ -1238,11 +1225,11 @@
     (is (seq (get-in (runtime-db) (rf.resources.state/tag-index-path))) "tag index populated")
     (is (seq (get-in (runtime-db) (rf.resources.state/owner-index-path))) "owner index populated")
     (let [inflight-wid (:current-work (entry inflight-key))]
-      ;; PRECONDITION for the ledger claim below (rf2-6gzdb): the row must
+      ;; PRECONDITION for the ledger claim below: the row must
       ;; genuinely be present and NON-terminal before the clear, or "the row is
-      ;; gone afterwards" is satisfied by a ledger that never held it. This is
-      ;; the same anti-vacuity concern EP-0012 raised here, asserted on the
-      ;; INPUT side now that the contract is removal rather than settlement.
+      ;; gone afterwards" is satisfied by a ledger that never held it. The
+      ;; anti-vacuity check sits on the INPUT side because the contract is
+      ;; removal rather than settlement.
       (is (some? (rf.resources.work-ledger/get-record (runtime-db) inflight-wid))
           "precondition: the in-flight row is readable through its byte-keyed address")
       (is (not (rf.resources.work-ledger/terminal?
@@ -1250,29 +1237,29 @@
           "precondition: it is in-flight, not already terminal")
       ;; CLEAR the resource (registration-lifecycle + runtime disposal)
       (rf.resources.registry/clear-resource :cr/article)
-      (testing "rf2-m9h5iq — clear-resource removes the registrar entry"
+      (testing "clear-resource removes the registrar entry"
         (is (nil? (rf.resources.registry/resource-meta :cr/article))))
-      (testing "rf2-m9h5iq — every live entry for the id is removed from
+      (testing "every live entry for the id is removed from
                 :rf.runtime/resources :entries"
         (is (nil? (entry loaded-key)))
         (is (nil? (entry inflight-key))))
-      (testing "rf2-m9h5iq — reverse indexes are recomputed/pruned"
+      (testing "reverse indexes are recomputed/pruned"
         (is (empty? (get-in (runtime-db) (rf.resources.state/tag-index-path))))
         (is (empty? (get-in (runtime-db) (rf.resources.state/owner-index-path)))))
-      (testing "rf2-m9h5iq / rf2-6gzdb — the disposed entries' ledger rows are
+      (testing "the disposed entries' ledger rows are
                 DROPPED, and no row is ever left in-flight"
-        ;; Read through the byte-keyed work-ledger API (rf2-hgy5kf): the row is
-        ;; addressed by `rf.resources.work-ledger/work-id-id`, NOT the stale
+        ;; Read through the byte-keyed work-ledger API: the row is
+        ;; addressed by `rf.resources.work-ledger/work-id-id`, NOT the
         ;; vector key.
         ;;
-        ;; rf2-6gzdb CHANGED THIS CONTRACT from "settled terminal :suppressed"
-        ;; to "dropped": `clear-resource` deregisters the resource, so nothing
-        ;; can ever join those rows to an entry again and a retained terminal
-        ;; tail (plus its inverse-index bucket) is pure unbounded growth in
-        ;; serializable frame-state. The handler still marks the row terminal
-        ;; BEFORE dropping it, so the invariant EP-0012 cared about — a row is
-        ;; never left readable-and-in-flight — holds either way, and is
-        ;; asserted directly below rather than inferred from the status.
+        ;; The rows are DROPPED rather than settled terminal: `clear-resource`
+        ;; deregisters the resource, so nothing can ever join those rows to an
+        ;; entry again and a retained terminal tail (plus its inverse-index
+        ;; bucket) would be pure unbounded growth in serializable frame-state.
+        ;; The handler marks the row terminal BEFORE dropping it, so the
+        ;; invariant — a row is never left readable-and-in-flight — holds
+        ;; either way, and is asserted directly below rather than inferred from
+        ;; the status.
         (is (nil? (rf.resources.work-ledger/get-record (runtime-db) inflight-wid))
             "the disposed entry's row is dropped with it")
         (is (empty? (into {} (filter (fn [[_wid-id r]]
@@ -1289,7 +1276,7 @@
                              (not (rf.resources.work-ledger/terminal? (:status r)))))
                       (get-in (runtime-db) [:rf.runtime/work-ledger]))
             "and nothing for a disposed key is left readable-and-in-flight"))
-      (testing "rf2-m9h5iq — a LATE reply for a cleared in-flight entry cannot
+      (testing "a LATE reply for a cleared in-flight entry cannot
                 recreate it (its existence check finds the entry gone)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
                            {:resource/key inflight-key :work/id inflight-wid
@@ -1298,47 +1285,47 @@
             "late reply suppressed — no resurrected entry")))))
 
 ;; ===========================================================================
-;; 16. mutation scope routes through shared validation (rf2-lzv9xc)
+;; 16. mutation scope routes through shared validation
 ;; ===========================================================================
 
 (deftest mutation-scope-routes-through-shared-validation
-  (testing "rf2-lzv9xc — a mutation execute-payload scope that is a reserved
+  (testing "a mutation execute-payload scope that is a reserved
             :rf.scope/* typo is rejected through the same path resources use"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
           (rf.resources.mutation-registry/resolve-scope :m/x {} :rf.scope/glabal {}))))
-  (testing "rf2-lzv9xc — a host / opaque mutation scope value is rejected"
+  (testing "a host / opaque mutation scope value is rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
           (rf.resources.mutation-registry/resolve-scope :m/x {} {:fn (fn [])} {}))))
-  (testing "rf2-lzv9xc — the default global scope still resolves to the bare
+  (testing "the default global scope resolves to the bare
             :rf.scope/global"
     (is (= :rf.scope/global (rf.resources.mutation-registry/resolve-scope :m/x {} nil {}))))
-  (testing "rf2-bwwk6l — the wrapped [:rf.scope/global] singleton is rejected
-            fail-closed (no back-compat alias); supply the bare keyword"
+  (testing "the wrapped [:rf.scope/global] singleton is rejected
+            fail-closed (not an alias); supply the bare keyword"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
           (rf.resources.mutation-registry/resolve-scope :m/x {} [:rf.scope/global] {})))))
 
 ;; ===========================================================================
-;; 17. resource-state fails closed without an explicit frame (rf2-c8lgy3)
+;; 17. resource-state fails closed without an explicit frame
 ;; ===========================================================================
 
 (deftest resource-state-fails-closed-without-frame
   (rf/reg-resource :rs/article (article-spec) article-spec-request)
-  (testing "rf2-c8lgy3 — a frameless resource-state call raises
+  (testing "a frameless resource-state call raises
             :rf.error/no-frame-context (never a silent nil that is
             indistinguishable from an absent entry)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"no-frame-context"
           (re-frame.resources/resource-state
             {:resource :rs/article :scope :rf.scope/global :params {:slug "w"}}))))
-  (testing "rf2-c8lgy3 — a valid explicit frame returns nil ONLY for a
+  (testing "a valid explicit frame returns nil ONLY for a
             genuinely absent entry"
     (is (nil? (re-frame.resources/resource-state
                 {:resource :rs/article :scope :rf.scope/global
                  :params {:slug "absent"} :frame :rf/default}))))
-  (testing "rf2-c8lgy3 — a valid explicit frame returns the entry when present"
+  (testing "a valid explicit frame returns the entry when present"
     (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :rs/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :rs/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:app 1]}])
@@ -1351,20 +1338,20 @@
                     :params {:slug "w"} :frame :rf/default}))))))
 
 ;; ===========================================================================
-;; 17b. `resources` introspection keys `:entries` on the CEDN-1 byte `key-id`
-;;      (rf2-jtlq7l intent, rf2-ka2nkx correction) — callers destructure /
-;;      filter via each entry's kind-preserving `:resource/key` vector
+;; 17b. The live entries table keys `:entries` on the CEDN-1 byte `key-id` —
+;;      callers destructure / filter via each entry's kind-preserving
+;;      `:resource/key` vector
 ;; ===========================================================================
 
 (deftest resources-introspection-keys-by-byte-key-id
-  (testing "rf2-ka2nkx (supersedes the rf2-jtlq7l vector-rekey): `(resources
-            {:frame f})` returns `:entries` keyed on the CEDN-1 byte `key-id`
+  (testing "the live entries table, read at its reserved runtime-db path, is
+            keyed on the CEDN-1 byte `key-id`
             STRING (the same key the runtime storage / SSR wire / indexes use,
             which CANNOT collapse CEDN-distinct sequential-params entries); each
             entry carries its kind-preserving `:resource/key` VECTOR `[scope
             resource-id params]` for destructure / filter. Rekeying onto the
-            `=`-colliding scoped-key vector (the original rf2-jtlq7l approach)
-            collapsed a list-params and a vector-params entry onto one map key"
+            `=`-colliding scoped-key vector would collapse a list-params and a
+            vector-params entry onto one map key"
     (rf/reg-resource :intro/article (article-spec) article-spec-request)
     (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:slug "one"})
           k2 (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:slug "two"})]
@@ -1375,7 +1362,7 @@
                                               :params {:slug "two"} :owner [:app :intro 2]}])
       (let [resource-ids (keys (rf/registrations {:source :store :kind :resource}))
             entries      (entries-table :rf/default)]
-        (testing "the static registry still lists the registered id"
+        (testing "the static registry lists the registered id"
           (is (contains? (set resource-ids) :intro/article)))
         (testing "entry keys are the CEDN-1 byte key-id STRINGS (collapse-proof)"
           (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (set (keys entries)))
@@ -1385,8 +1372,8 @@
           (is (contains? entries (rf.resources.state/key-id k1))
               "the byte key-id IS the public entry key"))
         (testing "each entry carries its kind-preserving :resource/key VECTOR for
-                  destructure + scope/resource filtering (the rf2-jtlq7l goal,
-                  served via the entry not the map key)"
+                  destructure + scope/resource filtering (served via the
+                  entry, not the map key)"
           (is (= #{k1 k2} (set (map :resource/key (vals entries))))
               "every entry exposes its scoped-key vector")
           (is (every? vector? (map :resource/key (vals entries)))
@@ -1411,10 +1398,10 @@
                 "internal runtime storage remains byte-keyed (string key-ids)")))))))
 
 (deftest resources-introspection-keeps-cedn-distinct-scoped-keys-distinct
-  (testing "rf2-ka2nkx ADVERSARIAL: the reserved-path read of the live
+  (testing "ADVERSARIAL: the reserved-path read of the live
             entries table keeps ONE entry per byte-keyed runtime entry when two
             entries have CEDN-distinct but Clojure-= scoped-key vectors (vector
-            params vs list params). A vector-rekeying accessor `assoc`'d one
+            params vs list params). A vector-rekeying accessor would `assoc` one
             entry OVER the other (the `=`-collapse), reporting ONE entry for
             TWO live ones"
     (rf/reg-resource :intro/article (article-spec) article-spec-request)
@@ -1444,7 +1431,7 @@
               "list-params entry preserves list kind on :resource/key"))))))
 
 (deftest resources-static-registry-read-is-frameless
-  (testing "rf2-kuky.85 — the static half is the frameless `{:source :store}`
+  (testing "the static half is the frameless `{:source :store}`
             registry query; the live half is the reserved runtime-db path read,
             which needs a frame. There is no ambient-frame fallback and no
             bundle returning both"
@@ -1456,37 +1443,36 @@
         "an unknown frame's live entries table reads empty, never an ambient frame's")))
 
 ;; ===========================================================================
-;; 18. param canonicalization is total over mixed EDN key types (rf2-ptz7z8)
+;; 18. param canonicalization is total over mixed EDN key types
 ;; ===========================================================================
 
 (deftest param-canonicalization-total-over-mixed-keys
-  (testing "rf2-ptz7z8 — a params map mixing keyword and string keys
+  (testing "a params map mixing keyword and string keys
             canonicalizes deterministically (no raw ClassCastException)"
     (let [c1 (rf.resources.state/canonicalize {:b 1 "a" 2 :a 3 "z" 4})
           c2 (rf.resources.state/canonicalize {"z" 4 :a 3 "a" 2 :b 1})]
       (is (= c1 c2) "key-order-independent over mixed key types")
       (is (= {:b 1 "a" 2 :a 3 "z" 4} c1) "values preserved")))
-  (testing "rf2-ptz7z8 — mixed nil / number / boolean / keyword / string keys
+  (testing "mixed nil / number / boolean / keyword / string keys
             all order deterministically"
     (let [m {nil 0 1 :one true :t :kw :k "s" :str}]
       (is (= (rf.resources.state/canonicalize m) (rf.resources.state/canonicalize (into {} (shuffle (seq m))))))))
-  (testing "rf2-ptz7z8 — a scoped key built from mixed-key params is stable"
+  (testing "a scoped key built from mixed-key params is stable"
     (is (= (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:a 1 "b" 2})
            (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {"b" 2 :a 1})))))
 
 ;; ===========================================================================
-;; 19. Shared reset contract (rf2-784223) — `make-reset-runtime-fixture` plus
+;; 19. Shared reset contract — `make-reset-runtime-fixture` plus
 ;;     `re-frame.resources.test-support` clears the resource + mutation
 ;;     registrars AND every resources host-side side table.
 ;; ===========================================================================
 
 (deftest reset-resources-clears-registrars-and-host-side-tables
-  ;; This is the contract the per-suite fixtures now RELY on (rf2-784223):
-  ;; instead of each fixture redundantly re-resetting these caches, the
+  ;; This is the contract the per-suite fixtures RELY on:
+  ;; rather than each fixture re-resetting these caches, the
   ;; shared `make-reset-runtime-fixture` fires `:resources/reset-resources!`
   ;; (published at `re-frame.resources.test-support` ns-load). Prove that one
-  ;; thunk clears the whole surface, so the redundant per-suite resets were
-  ;; safe to remove.
+  ;; thunk clears the whole surface, so no per-suite reset is needed.
   (testing "the late-bind reset hook IS published (the fixture's mechanism)"
     (is (some? (rf.late-bind/get-fn :resources/reset-resources!))
         ":resources/reset-resources! hook published at test-support ns-load")
@@ -1511,10 +1497,10 @@
     (is (contains? (rf.registrar/registrations rf.resources.mutation-registry/mutation-kind) :rst/save))
     (is (= 7 (rf.resources.state/generation-snapshot :rf/default)))
     (is (some? (rf.resources.work-ledger/get-handle :rf/default work-id)))
-    ;; rf2-9e0tyq — the timer side-table key's resource-key element is the byte key-id.
+    ;; The timer side-table key's resource-key element is the byte key-id.
     (is (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
     (is (contains? @rf.resources.revalidate-listeners/listener-table :rf/default))
-    (testing "rf2-784223 — `reset-resources!` clears the resource + mutation
+    (testing "`reset-resources!` clears the resource + mutation
               registrars AND the generation / work-ledger-handle / timer /
               revalidate-listener host side tables in ONE call"
       (rf.resources.test-support/reset-resources!)
