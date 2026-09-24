@@ -1,7 +1,7 @@
 (ns re-frame.reprojection-install-race-jvm-test
   "A PARTIALLY-INSTALLED reprojection must never be observable as INSTALLED.
 
-  THE DEFECT CLASS. An `re-frame.live-frame/ensure-reprojection-installed!`
+  THE DEFECT CLASS. A `re-frame.live-frame/ensure-reprojection-installed!`
   that published its once-flag with `compare-and-set!` FIRST and performed the
   three side effects the flag PROMISES afterwards
 
