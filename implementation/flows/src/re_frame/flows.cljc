@@ -18,6 +18,7 @@
             [re-frame.flows.topo :as rf.flows.topo]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
             ;; No require of `re-frame.flows.tooling` on EITHER runtime
             ;; (rf2-kuky.86). The JVM-only require existed solely to back the
             ;; `flow-algebra-view` facade alias; that is retired, so tooling is
@@ -97,6 +98,25 @@
         (:inputs flow)
         input-values))
 
+(defn- sensitive-output?
+  "True when the frame's elision registry classifies anything inside `output`,
+  written at the flow's `:output-path`, as sensitive (rf2-3x7nj.18.1).
+
+  The wire walker that redacts the failure trace's `:value` slot decides. It
+  runs here with `:large` left alone, and the output is sensitive exactly when
+  that walk changes it. So every declaration the walker honours counts here as
+  it does for `:value`: the flow's own `:sensitive` marks; another source's
+  declaration at an ancestor or a descendant of the output path; one that
+  reaches the output only through an index-free or `:map-of` coordinate, which
+  no path-prefix test can see; and the fail-closed whole-value redaction of a
+  frame the registry cannot resolve."
+  [frame-id flow output]
+  (not= output
+        (rf.elision/elide-wire-value
+          output {:frame                    frame-id
+                  :path                     (:output-path flow)
+                  :rf.egress/include-large? true})))
+
 (defn- validate-output!
   "Validate a computed output through the optional schemas artefact.
 
@@ -145,7 +165,20 @@
                                                (pr-str schema) ".")
                               :recovery   :no-recovery
                               :frame      frame-id}
-                      tags   (if redact (redact schema tags) tags)]
+                      tags   (if redact (redact schema tags) tags)
+                      ;; `:explain` re-ships the checked value whole (Malli's
+                      ;; `:value` and every `:errors[*].:value`) and is not
+                      ;; path-anchored, so it cannot be walked like `:value`.
+                      ;; The seam above reads only `:sensitive?` props in the
+                      ;; SCHEMA, so an output the frame's registry classifies
+                      ;; is redacted whole here, and the trace is stamped so
+                      ;; the egress gate drops it. This runs after the seam,
+                      ;; so sensitive wins over any size marker it substituted.
+                      tags   (if (sensitive-output? frame-id flow new-output)
+                               (assoc tags
+                                      :explain    rf.privacy/redacted-sentinel
+                                      :sensitive? true)
+                               tags)]
                   (if-not (live?)
                     false
                     (do
