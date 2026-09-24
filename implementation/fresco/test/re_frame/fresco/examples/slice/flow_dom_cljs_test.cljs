@@ -10,7 +10,7 @@
 
   ## This file reaches no internal namespace either
 
-  The bead's acceptance fences the APPLICATION, and a test is allowed
+  The `:require` fence is on the APPLICATION, and a test is allowed
   more — `re-frame.fresco.test.mounted`'s own witnesses reach
   `impl.collector` and `impl.mount` for good reasons. This one does not,
   and the two helpers below are why: `browser?` and `skip!` are one line
@@ -18,7 +18,7 @@
   here keeps the whole slice — application and suite — readable as
   something a consumer could have written.
 
-  ## TWO CLICKS, TWO SETTLING RULES — the report's findings 6 and 7
+  ## TWO CLICKS, TWO SETTLING RULES
 
   A Fresco intent dispatches through the runtime's own **synchronous**
   frame-locked door, so after a real click on `.save` or `.discard` the
@@ -41,16 +41,14 @@
 
   So the rows below wait on the CONDITION rather than on a duration:
   `hm/settle-until!`, the facade's door for the enqueued kind — a
-  bounded `re-frame.test-support/poll-until` with the flush this file
-  used to pair by hand — returning a promise that composes with
-  `async done`.
+  bounded `re-frame.test-support/poll-until` paired with a flush —
+  returning a promise that composes with `async done`.
 
   ## Why there is no virtual clock here, although the facade offers one
 
   `hm/mount!`'s `{:clock true}` would fire the stand-in server's
-  `setTimeout` on demand, and it was the first thing tried. It cannot
-  work, for a reason worth recording: the clock **replaces the global
-  `setTimeout`**, and `poll-until`'s own interval is a `js/setTimeout`.
+  `setTimeout` on demand, and it cannot work here: the clock **replaces
+  the global `setTimeout`**, and `poll-until`'s own interval is a `js/setTimeout`.
   Under a virtual clock the poll never gets a second probe. And the clock
   alone is not enough either — firing the server's timer only ENQUEUES
   the reply, and the drain that delivers it is a macrotask the clock
@@ -372,16 +370,14 @@
 ;; The two rows below are a PAIR, and the second is the reason the first can
 ;; say what it says.
 ;;
-;; This section used to be one row, and it claimed the reset law: "the model
-;; moved back to a value the field was already showing, so React alone sees
-;; nothing to do — the changed `::h/revision` is what re-baselines it". The
-;; claim was measured by deleting the counter's bump from `::discard`, and the
-;; row stayed green. It had never witnessed the revision; it witnesses the
-;; MODEL MOVING, which is a different fact and a true one.
+;; The first row witnesses the MODEL MOVING, not a revision: a discard moves
+;; the model back to a value the field was not handed last render, which is
+;; all React's own commit needs, so a claim that "the changed `::h/revision`
+;; is what re-baselines it" would pass here with no revision at all.
 ;;
-;; So the counter came out of the application, and the second row is what
-;; keeps it out: it drifts the DOM by a route React cannot see and shows the
-;; discard repairing that too. `impl.codec`'s `revision-key` says why — the
+;; The second row is what keeps a revision counter out of the application:
+;; it drifts the DOM by a route React cannot see and shows the discard
+;; repairing that too. `impl.codec`'s `revision-key` says why — the
 ;; whole of a revision's delivery is that its change re-runs the body, and a
 ;; discard re-runs this body three times over.
 ;; ---------------------------------------------------------------------------
@@ -512,7 +508,7 @@
         ;; census is page-wide — a standing peer's cells are inside the
         ;; reading — so unmounting `a` and asserting it while `b` is still
         ;; up reports `b`'s live subscriptions as `a`'s leak. The facade
-        ;; says so in the failure it raises, which is how this was found.
+        ;; says so in the failure it raises.
         (rf.fresco.test.mounted/unmount! a)
         (rf.fresco.test.mounted/unmount! b)
         (-> (rf.fresco.test.mounted/assert-clean! a)
