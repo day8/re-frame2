@@ -818,7 +818,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 |---|---|---|
 | `:error` | Any `:rf.error/*` operation — a failure the runtime halted or recovered. Refines into `:rf/error-event` (below) | 009 |
 | `:warning` | Non-error advisories the runtime emitted alongside continuing default behaviour (e.g. `:rf.warning/plain-fn-under-non-default-frame-once`, `:rf.fx/skipped-on-platform`, `:rf.cofx/skipped-on-platform`). Refines into `:rf/error-event` | 009 |
-| `:info` | Informational advisories without warning/error severity (e.g. `:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, `:rf.http.interceptor/registered`, `:rf.http.interceptor/cleared`) | 009 / 014 |
+| `:info` | Informational advisories without warning/error severity (e.g. `:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, `:rf.http/aborted`, `:rf.http.interceptor/registered`, `:rf.http.interceptor/cleared`) | 009 / 014 |
 
 **Run-body discriminators** (the success-path / lifecycle traces emitted inside the run-to-completion drain):
 

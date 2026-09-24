@@ -906,18 +906,33 @@
 
 (deftest jvm-transport-failure
   (testing "connection-refused classifies as :rf.http/transport"
-    (rf/reg-event :load
-      (fn [{:keys [db]} [_ msg reply]]
-        (if reply
-          {:db (assoc db :reply reply)}
-          {:fx [[:rf.http/managed
-                 ;; Pick a port we expect to be closed.
-                 {:reply-to [:load msg] :request {:url "http://127.0.0.1:1/never"}
-                  :decode  :json}]]})))
-    (rf/dispatch-sync [:load])
-    (let [db (await-reply! #(some? (:reply %)) 5000)]
-      (is (= :error (get-in db [:reply :status])))
-      (is (= :rf.http/transport (get-in db [:reply :error :kind]))))))
+    (let [rows  (atom [])
+          cb-id ::transport-trace]
+      (try
+        (rf.trace.tooling/register-listener! cb-id
+                                  (fn [ev]
+                                    (when (= :rf.http/transport (:operation ev))
+                                      (swap! rows conj ev))))
+        (rf/reg-event :load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     ;; Pick a port we expect to be closed.
+                     {:reply-to [:load msg] :request {:url "http://127.0.0.1:1/never"}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:load])
+        (let [db (await-reply! #(some? (:reply %)) 5000)]
+          (is (= :error (get-in db [:reply :status])))
+          (is (= :rf.http/transport (get-in db [:reply :error :kind]))))
+        ;; rf2-s8kcj control — only an ABORT is `:info`. A genuine failure
+        ;; kind keeps the `:error` trace row, through the same shared
+        ;; failure tail the abort-wins-a-race reclassification uses.
+        (is (= [:error]
+               (mapv :op-type @rows))
+            "rf2-s8kcj — a :rf.http/transport failure still emits exactly one :error row")
+        (finally
+          (rf.trace.tooling/unregister-listener! cb-id))))))
 
 ;; ---- 8b. abort on unknown request-id is a silent no-op (rf2-kdwnq) -------
 ;;
@@ -1867,6 +1882,7 @@
             keep visibility"
     (let [latch    (CountDownLatch. 1)
           events   (atom [])
+          stale    (atom [])
           cb-id    ::lxd3-trace
           {:keys [port] :as srv}
           (start-server!
@@ -1876,8 +1892,10 @@
       (try
         (rf.trace.tooling/register-listener! cb-id
                                   (fn [ev]
-                                    (when (= :rf.http/aborted (:operation ev))
-                                      (swap! events conj ev))))
+                                    (case (:operation ev)
+                                      :rf.http/aborted          (swap! events conj ev)
+                                      :rf.http/stale-suppressed (swap! stale conj ev)
+                                      nil)))
         ;; This test asserts the supersede TRACE, not the reply; a benign
         ;; no-op recorder satisfies the mandatory reply addressing (rf2-et4c1s).
         (rf/reg-event :search/recorder (fn [_ _] {}))
@@ -1910,7 +1928,20 @@
           (is (= :request-id-superseded (:reason tags))
               ":reason :request-id-superseded distinguishes supersede from :user / :actor-destroyed")
           (is (= :search (:request-id tags))
-              ":request-id rides on the trace event"))
+              ":request-id rides on the trace event")
+          ;; rf2-s8kcj — a supersession is the designed replacement, not a
+          ;; failure: the row is `:info`, so it never paints the superseding
+          ;; event as an error. It still says why (`:reason`) and still carries
+          ;; its `:recovery`.
+          (is (= :info (:op-type ev))
+              "rf2-s8kcj — the supersede :rf.http/aborted row is :info, never :error")
+          (is (= :no-recovery (:recovery ev))
+              ":recovery still rides on the :info row"))
+        ;; Control: the canonical stale-suppression row that records the
+        ;; superseded attempt still fires beside the aborted row.
+        (is (= [:rf.http/request-id-superseded]
+               (mapv #(get-in % [:tags :rf.reply/stale-reason]) @stale))
+            "the superseded attempt's :rf.http/stale-suppressed row still fires")
 
         (.countDown latch)
         (finally
@@ -1924,12 +1955,18 @@
     (let [latch        (CountDownLatch. 1)
           reply-fired? (atom false)
           reply-data   (atom nil)
+          aborted-rows (atom [])
+          cb-id        ::user-abort-trace
           {:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (.await latch 5 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{}")))]
       (try
+        (rf.trace.tooling/register-listener! cb-id
+                                  (fn [ev]
+                                    (when (= :rf.http/aborted (:operation ev))
+                                      (swap! aborted-rows conj ev))))
         (rf/reg-event :slow/load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -1965,9 +2002,17 @@
               "failure kind is :rf.http/aborted")
           (is (not= :request-id-superseded (-> reply :error :reason))
               ":reason is NOT :request-id-superseded (this is the regression guard)"))
+        ;; rf2-s8kcj — the cancel button is a deliberate act, not a failure:
+        ;; its `:rf.http/aborted` row is `:info` for `:reason :user` too, while
+        ;; the reply above is still the live `:cancelled` delivery.
+        (is (= [[:info :user]]
+               (mapv (juxt :op-type (comp :reason :tags)) @aborted-rows))
+            "rf2-s8kcj — exactly one :rf.http/aborted row, at :info, for the :user abort")
 
         (.countDown latch)
-        (finally (stop-server! srv))))))
+        (finally
+          (rf.trace.tooling/unregister-listener! cb-id)
+          (stop-server! srv))))))
 
 ;; ===========================================================================
 ;; rf2-ohwgm — end-to-end coverage for the three untested spec contracts the

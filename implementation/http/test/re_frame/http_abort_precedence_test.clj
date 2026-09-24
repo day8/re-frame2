@@ -41,7 +41,8 @@
             [re-frame.http.transport :as rf.http.transport]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support])
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -276,7 +277,14 @@
 
 (deftest transport-classification-loses-to-recorded-abort-precedence-seam
   (testing "rf2-12r1dn — finalise-failure! driven with a :rf.http/transport failure on a handle whose :aborted? is ALREADY flipped reclassifies the reply to :rf.http/aborted; this pins the exact precedence the flaky same-dispatch-vs-async-transport race was probing, with no cross-thread timing"
-    (let [replies (atom [])]
+    (let [replies (atom [])
+          ;; rf2-s8kcj — every `:rf.http/*` failure-kind row this seam emits.
+          rows    (atom [])
+          cb-id   ::precedence-seam-trace]
+      (rf.trace.tooling/register-listener! cb-id
+        (fn [ev]
+          (when (#{:rf.http/aborted :rf.http/transport} (:operation ev))
+            (swap! rows conj ev))))
       (rf/reg-event :reply/recorder
         (fn [_ [_ payload]] (swap! replies conj payload) {}))
       ;; A handle stamped exactly as run-attempt!'s record-in-flight! would:
@@ -304,7 +312,17 @@
         ;; classification in the bead's failing CI run). finalise-failure!
         ;; samples the already-flipped :aborted? cell after winning the CAS
         ;; and replaces the failure with the canonical aborted shape.
-        (finalise-failure!* ctx {:kind :rf.http/transport :message "Connection refused" :cause "java.net.ConnectException"})
+        (try
+          (finalise-failure!* ctx {:kind :rf.http/transport :message "Connection refused" :cause "java.net.ConnectException"})
+          (finally
+            (rf.trace.tooling/unregister-listener! cb-id)))
+        ;; rf2-s8kcj — this is the abort-wins-a-race tail
+        ;; (`emit-and-dispatch-failure!`), not the direct abort choke: the
+        ;; reclassified row is an `:info` `:rf.http/aborted`, and no
+        ;; `:rf.http/transport` error row survives the reclassification.
+        (is (= [[:rf.http/aborted :info :user]]
+               (mapv (juxt :operation :op-type (comp :reason :tags)) @rows))
+            "rf2-s8kcj — the reclassified abort emits one :info :rf.http/aborted row and no :error row")
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]
           (is (= :cancelled (:status reply))

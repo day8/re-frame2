@@ -111,9 +111,10 @@
   `dispatch-aborted!` builds the failure `{:kind :rf.http/aborted :reason
   <reason> :actor-id …}` through `self-identify` (`:request-id` and the
   other identity slots), adds `:url`, and emits it with
-  `(rf.trace/emit-error! :rf.http/aborted …)`. `build-event` then stamps
-  `:op-type :error`, merges `:category`, hoists `:recovery`, and stamps the
-  in-scope `:rf.trace/dispatch-id` + `:frame` into `:tags`. On an actor
+  `(rf.trace/emit! :info :rf.http/aborted …)` — every abort reason is `:info`
+  (rf2-s8kcj). `build-event` then stamps `:op-type :info` (no merged
+  `:category`, which only the `:error` branch adds), hoists `:recovery`, and
+  stamps the in-scope `:rf.trace/dispatch-id` + `:frame` into `:tags`. On an actor
   destroy the registry's `abort-on-actor-destroy` emits
   `:rf.http/aborted-on-actor-destroy` and THEN calls the abort-fn with
   `:actor-destroyed`, so this row lands beside that one in the same drain."
@@ -126,11 +127,10 @@
          id          301}}]
   {:id         id
    :operation  :rf.http/aborted
-   :op-type    :error
+   :op-type    :info
    :time       time
    :recovery   :no-recovery
-   :tags       (cond-> {:category   :rf.http/aborted
-                        :kind       :rf.http/aborted
+   :tags       (cond-> {:kind       :rf.http/aborted
                         :reason     reason
                         :actor-id   actor-id
                         :request-id request-id

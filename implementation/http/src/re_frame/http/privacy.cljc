@@ -575,9 +575,9 @@
     (stamp-sensitive tags'' stamp?)))
 
 (defn prepare-emit-failure
-  "Compose `redact-failure` + `stamp-sensitive` for an error-side trace
-  event (`emit-error!` on a `:rf.http/*` failure kind). The whole
-  failure map is the tags map for `emit-error!`.
+  "Compose `redact-failure` + `stamp-sensitive` for a failure-kind trace
+  event (`emit-error!` on a `:rf.http/*` failure kind, or the `:info` row
+  of an `:rf.http/aborted` abort). The whole failure map is the tags map.
 
   Two distinct decisions, matching `prepare-emit-
   tags`: URL redaction uses the explicit `sensitive?` arg; `:sensitive?`

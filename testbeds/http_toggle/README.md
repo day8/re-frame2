@@ -37,12 +37,15 @@ origin. No CI environment refuses it.
 
 ## Trace shape per click (per [spec/009 §:op-type vocabulary](../../spec/009-Instrumentation.md))
 
-Every failure click emits one category-attributed error-trace event
+Every failure click emits one category-attributed trace event
 whose `:operation` is the failure `:kind`, matching the live failure
-path's emit from `re-frame.http.transport/finalise-failure!`:
+path's emit from `re-frame.http.transport/finalise-failure!`. It is an
+error row for every kind except the aborted click, whose
+`:rf.http/aborted` row is `:info` like the live producer's (rf2-s8kcj):
 
 ```
 :operation :rf.http/<:kind>    ;; :op-type :error, e.g. :rf.http/http-4xx
+                               ;; (:op-type :info for :rf.http/aborted)
                                ;; :tags {:kind :rf.http/<kind>
                                ;;        :request-id ...
                                ;;        :url ...
