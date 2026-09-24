@@ -1,34 +1,29 @@
 (ns re-frame.adapter.ssr-emitter-replay-atomic-cljs-test
-  "rf2-h9szm — the `install-adapter!` SSR-emitter replay is FAILURE-ATOMIC,
-  ROUTED, and PRECEDENCE-SAFE.
+  "The `install-adapter!` SSR-emitter replay is FAILURE-ATOMIC, ROUTED, and
+  PRECEDENCE-SAFE.
 
-  PR #6028 (rf2-vxgfnd.204) added install-time replay of the retained SSR
-  hiccup emitter, but the lifecycle transaction was neither failure-atomic nor
-  cleanly routed:
-
-    * `install-adapter!` SEATED the new generation, THEN called
-      `rearm-hiccup-emitter!`, whose `:reagent/set-hiccup-emitter!` BROADCAST
-      re-armed every loaded adapter. A throwing setter (for the active adapter,
-      OR any loaded inactive adapter) propagated out of the broadcast and made
-      the install throw AFTER the target generation was already seated — a
-      failed boot that nonetheless left the process installed / partial-armed.
-    * The broadcast re-armed the retained default over an already-armed slot,
-      silently clobbering a pre-init explicit custom emitter / reset.
-
-  The fix makes seat + re-arm ONE failure-atomic transaction (a throwing re-arm
-  rolls the exact generation back and rethrows the re-arm exception as primary,
-  leaving a clean never-installed state for an immediate retry), routes the
-  re-arm through the `:adapter/arm-hiccup-emitter-if-unarmed!` hook (installed
+  `install-adapter!` replays the retained SSR hiccup emitter at install time.
+  Seat + re-arm is ONE failure-atomic transaction (a throwing re-arm rolls the
+  exact generation back and rethrows the re-arm exception as primary, leaving
+  a clean never-installed state for an immediate retry). The re-arm routes
+  through the `:adapter/arm-hiccup-emitter-if-unarmed!` hook (installed
   adapter ALONE, so an inactive adapter's throwing setter cannot break the
   active boot), and arms only an otherwise-unarmed slot (explicit override
-  wins).
+  wins). The hazards this rules out:
+
+    * Seating the new generation and THEN re-arming through the
+      `:reagent/set-hiccup-emitter!` BROADCAST, which re-arms every loaded
+      adapter: a throwing setter (for the active adapter, OR any loaded
+      inactive adapter) would propagate out of the broadcast and make the
+      install throw AFTER the target generation was seated — a failed boot
+      that nonetheless leaves the process installed / partial-armed.
+    * Re-arming the retained default over an already-armed slot, silently
+      clobbering a pre-init explicit custom emitter / reset.
 
   Substrate-agnostic (JVM + the :node-test CLJS gate, via .cljc). It injects the
   durable emitter slot and the arm hook directly, so it pins the
   `install-adapter!` lifecycle seam independently of any one substrate's real
-  emitter wiring; the real-adapter end-to-end coverage (custom override survives
-  a real ui-adapter install) lives in
-  the retired compiled tier's own lifecycle suite."
+  emitter wiring."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.late-bind :as rf.late-bind]
@@ -74,8 +69,8 @@
 (deftest a-throwing-replay-rolls-the-install-back-atomically
   ;; Durable emitter present + the (active) arm throws → install is a no-op on
   ;; the process slot: it rethrows the arm exception as PRIMARY and leaves no
-  ;; generation seated. Before rf2-h9szm the generation stayed seated and
-  ;; `current-adapter` reported the "failed" install as installed.
+  ;; generation seated. Without the rollback the generation would stay seated
+  ;; and `current-adapter` would report the "failed" install as installed.
   (rf.late-bind/set-fn! :ssr/current-hiccup-emitter (fn [_ _] "<html/>"))
   (rf.late-bind/set-fn! :adapter/arm-hiccup-emitter-if-unarmed!
                      (fn [_] (throw (ex-info "replay boom" {:marker ::boom}))))
@@ -134,8 +129,8 @@
   ;; The replay routes through `:adapter/arm-hiccup-emitter-if-unarmed!`, NOT the
   ;; `:reagent/set-hiccup-emitter!` broadcast a loaded inactive adapter also
   ;; contributes to. So a throwing broadcast setter never runs during install and
-  ;; the active adapter boots cleanly. Before rf2-h9szm the replay used the
-  ;; broadcast and this throw broke the install.
+  ;; the active adapter boots cleanly. Replaying through the broadcast would
+  ;; let this throw break the install.
   (rf.late-bind/set-fn! :ssr/current-hiccup-emitter (fn [_ _] "<html/>"))
   (let [broadcast-ran (atom false)
         arm-ran       (atom false)]
