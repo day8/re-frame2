@@ -455,7 +455,7 @@ writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling /
   the host-side stale + GC + poll timers for one or more removed resource entries
   (their durable facts are gone, so an advisory nudge would no-op anyway —
   but the host handles must be released so they don't leak)."
-  {:doc "Cancel the host-side stale / GC timers for removed resource entries,
+  {:doc "Cancel the host-side stale / GC / poll timers for removed resource entries,
 keyed by `[frame-id resource-key]`. Args:
 `{:frame-id … :resource/keys [<scoped-key> …]}`. Emitted when entries are
 removed (`:rf.resource/remove` / `:rf.resource/clear-scope` / a fired GC) so
