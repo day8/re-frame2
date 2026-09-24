@@ -904,8 +904,8 @@
     ;; request dispatch against a live frame — NOT an :initial-events setup
     ;; step. Construction-time :initial-events is STRICT (EP-0027
     ;; §Failure): a THROWN setup step tears the partial frame
-    ;; down and is the OUTER :on-error transport path (Spec 011 §810), NOT a
-    ;; projector-catches-it case. The error projector covers errors INSIDE
+    ;; down and is the OUTER :on-error transport path (Spec 011 §`:on-error`
+    ;; vs `:error-view`), NOT a projector-catches-it case. The error projector covers errors INSIDE
     ;; the render/cascade drain — exactly what a post-construction request
     ;; dispatch models. So :rf/server-init is a clean no-op setup step; the
     ;; throwing :load/article fires afterward, in the projector's domain.
@@ -1513,7 +1513,8 @@
                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
                             :dev-error-detail? false}})]
         ;; Emit a synthetic view-time-style error trace directly. Per
-        ;; the listener contract (`error_listener.cljc:103-115`) it
+        ;; the listener contract (`error-projection-listener` in
+        ;; `error_listener.cljc`) it
         ;; gates on :op-type :error and the frame being a server frame;
         ;; either condition failing → silent.
         (rf.trace/emit! :error :rf.error/view-time-exception
@@ -1631,7 +1632,8 @@
 ;; Redirect short-circuits projector status overwrite
 ;; ===========================================================================
 ;;
-;; Per `error_listener.cljc:96-101` and Spec 011 §Redirect precedence:
+;; Per `apply-error-projection!` in `error_listener.cljc` and Spec 011
+;; §Redirect precedence:
 ;; when the response carries a `:redirect`, `apply-error-projection!`
 ;; must NOT overwrite the redirect's `:status` with the projector's
 ;; status.
@@ -2694,7 +2696,7 @@
 ;; ===========================================================================
 ;; ssr-server-fx-args-schema-boundary
 ;;
-;; Spec 011 §Standard fx (line 438) + [Spec-Schemas §Standard fx args
+;; Spec 011 §Standard fx + [Spec-Schemas §Standard fx args
 ;; schemas] declare the `:rf.fx.server/*-args` / `:rf.server/cookie`
 ;; schemas as REGISTERED, and assert "args validation runs as part of the
 ;; standard `:schema` boundary check" (per Spec 010 §Validation order step
