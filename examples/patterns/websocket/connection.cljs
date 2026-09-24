@@ -408,6 +408,16 @@
       (fn action-send-now [{data :data [_ msg] :event}]
         {:fx [[:dispatch [(socket-id data) [:send msg]]]]})
 
+      :record-subscription
+      ;; Subscribe while we're not connected? Just note the topic down; the
+      ;; next `:connected` entry sends it (`:flush-queue-and-resubscribe`).
+      ;; Bound on every state but `:connected` — `:disconnected`,
+      ;; `:reconnecting` and `:failed` as well as `:active` — so a subscribe
+      ;; issued mid-reconnect is kept rather than silently lost, exactly as
+      ;; a `:ws/send` is queued.
+      (fn action-record-subscription [{data :data [_ topic] :event}]
+        {:data (update data :subscriptions conj topic)})
+
       :register-subscription
       (fn action-register-subscription [{data :data [_ topic] :event}]
         {:data (update data :subscriptions conj topic)
@@ -579,7 +589,8 @@
       {:on {:ws/connect {:target :active
                          :action :record-connection-opts}
             :ws/send    {:action :enqueue-message}
-            :ws/request {:action :enqueue-message}}}
+            :ws/request {:action :enqueue-message}
+            :ws/subscribe {:action :record-subscription}}}
 
       :active
       {;; Spawn the socket actor here, on the parent, so one socket lives
@@ -628,8 +639,7 @@
                ;; Subscribe before we're fully connected? Just note the
                ;; topic down; the next :connected entry will actually send
                ;; the subscribe.
-               :ws/subscribe {:action (fn [{data :data [_ topic] :event}]
-                                        {:data (update data :subscriptions conj topic)})}}
+               :ws/subscribe {:action :record-subscription}}
 
        :initial :connecting
 
@@ -718,6 +728,7 @@
                                    :action :record-and-reset}
                 :ws/send          {:action :enqueue-message}
                 :ws/request       {:action :enqueue-message}
+                :ws/subscribe     {:action :record-subscription}
                 :ws/rotate-cred   {:action :rotate-cred}
                 :ws/disconnect    {:target :disconnected
                                    :action :reset-retries}}}
@@ -736,8 +747,11 @@
               ;; :connected and the :always :flush-queue drains whatever was
               ;; buffered here. Without these, a send in :failed is
               ;; unhandled and silently dropped — user-visible message loss.
+              ;; A :ws/subscribe is kept on the same terms: recorded, and
+              ;; sent by the next :connected entry.
               :ws/send          {:action :enqueue-message}
               :ws/request       {:action :enqueue-message}
+              :ws/subscribe     {:action :record-subscription}
               :ws/rotate-cred   {:action :rotate-cred}
               :ws/disconnect    {:target :disconnected
                                  :action :reset-retries}}}}})
