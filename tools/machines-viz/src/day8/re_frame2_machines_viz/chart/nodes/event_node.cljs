@@ -165,15 +165,15 @@
     :internal      — internal self-transition (no :target). Visual
                      hint: dashed border ring under the header (the
                      'this action runs and we hang here' affordance).
-    :reenter       — the EXTERNAL restart axis (`:reenter? true`, Spec
-                     005 §Self-transitions / XState v5). A targeted
-                     transition is internal by DEFAULT; only
-                     `:reenter?` re-runs the target's `:exit`/`:entry` +
-                     restarts its `:after` timers / `:spawn` children.
+    :reenter       — the explicit `:reenter? true` flag (Spec 005
+                     §Self-transitions / XState v5), which restarts the
+                     DECLARING state — re-runs its `:exit`/`:entry` +
+                     restarts its `:after` timers / `:spawn` children —
+                     for a self or proper-descendant target.
                      Visual hint: a `↻` reenter chip on the header so a
-                     `:reenter? true` transition reads DISTINCTLY from its
-                     internal default (which is otherwise topologically
-                     identical).
+                     `:reenter? true` transition reads DISTINCTLY from the
+                     same transition without the flag (which is otherwise
+                     topologically identical).
     :chart         — resolved visual-constants for the active density."
   [^js props]
   (let [d           (.-data props)

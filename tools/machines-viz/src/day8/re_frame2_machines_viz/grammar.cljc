@@ -426,18 +426,24 @@
        (= :history (:type state-node))))
 
 (defn reenter?
-  "rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
-  restart axis (`:reenter? true`). Spec 005 §Self-transitions + XState v5:
-  a TARGETED transition is INTERNAL by default — its own `:exit`/`:entry`
-  do not re-run — and only `:reenter? true` makes a self /
-  compound-declared-descendant target EXTERNAL (re-run `:exit`+`:entry`,
-  restart the target's `:after` timers + tear-down-and-respawn its
-  `:spawn` children). Matches the engine's `(true? (:reenter?
-  transition))` read (`re-frame.machines.transition`). Only a map
-  candidate can carry it; a bare keyword / vector-path target never does.
-  Carried onto every emitter's edge so a `:reenter? true` transition
-  renders DISTINCTLY from its internal default (otherwise two
-  runtime-distinct machines project IDENTICALLY)."
+  "True when a transition candidate carries the explicit `:reenter? true`
+  flag. Matches the engine's `(true? (:reenter? transition))` read
+  (`re-frame.machines.transition`). Per Spec 005 §Self-transitions the flag
+  restarts the DECLARING state — re-runs its `:exit`/`:entry`, restarts its
+  `:after` timers and tears down and respawns its `:spawn` children — which
+  the default geometry leaves standing, so it matters only for a self or
+  proper-descendant target:
+  - a self target survives without the flag (only its active descendants
+    re-resolve); with it, the target restarts and re-descends its
+    `:initial`;
+  - a proper-descendant target re-enters without the flag (its own
+    `:exit`/`:entry` run) while the declaring compound survives; with it,
+    the declaring compound restarts and then descends to the named target.
+  A proper-ancestor target exits and re-enters with or without the flag.
+  Only a map candidate can carry it; a bare keyword / vector-path target
+  never does. Carried onto every emitter's edge so a `:reenter? true`
+  transition renders DISTINCTLY from the same transition without it
+  (otherwise two runtime-distinct machines project IDENTICALLY)."
   [candidate]
   (and (map? candidate)
        (true? (:reenter? candidate))))

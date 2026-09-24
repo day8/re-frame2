@@ -241,20 +241,20 @@
     :else                   nil))
 
 (def ^{:arglists '([candidate])
-       :doc "rf2-b2ygd2 — re-export of `grammar/reenter?`.
+       :doc "Re-export of `grammar/reenter?`.
 
-  rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
-  restart axis (`:reenter? true`). Spec 005 §Self-transitions + XState v5:
-  a TARGETED transition is INTERNAL by default — its own `:exit`/`:entry`
-  do not re-run — and only `:reenter? true` makes a self /
-  compound-declared-descendant target EXTERNAL (re-run `:exit`+`:entry`,
-  restart the target's `:after` timers + tear-down-and-respawn its `:spawn`
-  children). This matches the engine's `(true? (:reenter? transition))`
-  read (`re-frame.machines.transition`). Only a map candidate can carry it;
-  a bare keyword / vector-path target never does. Carried onto the edge so
-  the chart / Mermaid / SCXML emitters render a `:reenter? true` transition
-  distinct from its internal default (otherwise two runtime-distinct
-  machines chart + export IDENTICALLY)."}
+  True when a transition candidate carries the explicit `:reenter? true`
+  flag. This matches the engine's `(true? (:reenter? transition))` read
+  (`re-frame.machines.transition`). Per Spec 005 §Self-transitions the flag
+  restarts the DECLARING state, which the default geometry leaves standing,
+  so it matters only for a self or proper-descendant target: without it a
+  self target survives while its active descendants re-resolve, and a
+  proper-descendant target re-enters while the declaring compound survives.
+  A proper-ancestor target restarts with or without it. Only a map
+  candidate can carry it; a bare keyword / vector-path target never does.
+  Carried onto the edge so the chart / Mermaid / SCXML emitters render a
+  `:reenter? true` transition distinct from the same transition without it
+  (otherwise two runtime-distinct machines chart + export IDENTICALLY)."}
   reenter? g/reenter?)
 
 (defn- transition-edge
@@ -343,13 +343,14 @@
   self-anchors and is flagged `:internal? true` so the renderer can
   distinguish it (no exit/entry re-trigger).
 
-  rf2-9dj21r — a TARGETED transition is INTERNAL BY DEFAULT (XState v5 /
-  Spec 005 §Self-transitions): a self / compound-declared-descendant
-  target does NOT re-run the target's own `:exit`/`:entry`
-  unless the candidate opts in with `:reenter? true`. That EXTERNAL
-  restart axis (`reenter?`) is carried onto every edge so a `:reenter?
-  true` transition charts + exports DISTINCTLY from its internal default
-  (pre-fix the two produced identical topology / Mermaid / SCXML).
+  `:reenter? true` restarts the DECLARING state (Spec 005
+  §Self-transitions). Without it a self target survives while its active
+  descendants re-resolve, and a proper-descendant target re-enters while
+  the declaring compound survives; a proper-ancestor target restarts with
+  or without it. That flag (`reenter?`) is carried onto every edge so a
+  `:reenter? true` transition charts + exports DISTINCTLY from the same
+  transition without it, which would otherwise produce identical topology
+  / Mermaid / SCXML.
 
   rf2-41goo — a compound node's `:on-done` (XState `onDone`) emits the
   completion edge (sibling target, or a terminal affordance for the
