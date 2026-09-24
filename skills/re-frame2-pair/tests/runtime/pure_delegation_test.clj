@@ -1,7 +1,7 @@
 ;;;; tests/runtime/pure_delegation_test.clj
 ;;;;
 ;;;; Structural (AST) pin that the SHIPPED preload `re-frame2-pair.runtime`
-;;;; DELEGATES to the tested pure core `re-frame2-pair.pure` (rf2-etsj8p).
+;;;; DELEGATES to the tested pure core `re-frame2-pair.pure`.
 ;;;;
 ;;;; The genuinely-pure decision logic — the cascade / consequence projections,
 ;;;; the multi-frame operating-frame resolver, the id-validation core, the
@@ -12,8 +12,8 @@
 ;;;; the shipped code" half. This file is the WIRING half: it parses the
 ;;;; runtime source and asserts every stateful/framework-touching wrapper
 ;;;; actually threads its live gate into the corresponding `pure/*` fn — so a
-;;;; refactor that forked the logic back into the runtime (re-introducing the
-;;;; drift the retired Babashka mirrors suffered) trips RED here.
+;;;; refactor that forks the logic into the runtime (and with it the drift a
+;;;; re-derived copy suffers) trips RED here.
 ;;;;
 ;;;; Run: bb tests/runtime/pure_delegation_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -46,7 +46,7 @@
 
 (deftest runtime-requires-the-pure-core
   (is (form-contains? #(= 're-frame2-pair.pure %) (ns-form))
-      "runtime.cljs must `:require` re-frame2-pair.pure — the SHIPPED pure core it delegates to (rf2-etsj8p)."))
+      "runtime.cljs must `:require` re-frame2-pair.pure — the SHIPPED pure core it delegates to."))
 
 ;; ---------------------------------------------------------------------------
 ;; Delegation pairs — each runtime name must reference its `pure/*` counterpart
@@ -86,7 +86,7 @@
             (str "runtime.cljs must define `" rt-name "`."))
         (is (form-contains? #(= pure-sym %) form)
             (str "`" rt-name "` MUST delegate to `" pure-sym
-                 "` — the SHIPPED pure helper the node-test exercises (rf2-etsj8p)."))))))
+                 "` — the SHIPPED pure helper the node-test exercises."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate injection — the parameterised fns must thread the LIVE session gate in
@@ -95,7 +95,7 @@
 (deftest raw-state-gate-is-threaded-into-the-redaction-fns
   (doseq [rt-name '[redact-sensitive-event-vector cascade-summary restore-cascade-summary]]
     (is (form-contains? #(= :allow-raw-state? %) (named-form rt-name))
-        (str "`" rt-name "` MUST thread the live `:allow-raw-state?` gate into the pure fn (rf2-etsj8p)."))))
+        (str "`" rt-name "` MUST thread the live `:allow-raw-state?` gate into the pure fn."))))
 
 (let [{:keys [fail error]} (run-tests 'pure-delegation-test)]
   (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
