@@ -1,6 +1,5 @@
 (ns re-frame.epoch-depth-transition-race-test
-  "rf2-f8wu (post-merge audit) — the `:depth` transition is ONE atomic step
-  against the stores it bounds.
+  "The `:depth` transition is ONE atomic step against the stores it bounds.
 
   ## The invariant
 
@@ -11,33 +10,30 @@
   `re-frame.epoch-test`. This namespace pins the half a single thread cannot
   reach.
 
-  ## The defect these tests close
+  ## The race these tests close
 
-  The depth reduction and the ring append were two independent sequences over
-  three atoms:
+  The depth reduction and the ring append are two sequences over three atoms:
 
       record!         reads `(depth)`, THEN swaps `histories`
       merge-config!   swaps `config`, THEN prunes `histories`,
                       THEN reconciles the anchors
 
-  Nothing held the stores still between those steps, so a writer that had
+  If nothing held the stores still between those steps, a writer that had
   already captured the PREVIOUS depth could commit its append after
-  `configure!` had returned. The excess record was then queryable through
+  `configure!` had returned. The excess record would then be queryable through
   `epoch-history` (and its off-box projection) and — for a full runtime record —
-  a live `restore-epoch!` / `replay-epoch!` target: exactly the two failures
-  the original bead named, re-entered through a door the boundary fix left
-  open.
+  a live `restore-epoch!` / `replay-epoch!` target.
 
-  Config-swap-before-prune made the escape TRANSIENT for a positive depth (the
-  next append re-caps the ring) but PERMANENT at depth 0, because `record!`
-  skips `append-record` entirely at depth 0 — no later append ever arrives to
-  repair it. \"Transient\" is also the wrong bar for a positive reduction: the
-  promise is about the state at `configure!`'s return, not about some later
-  event.
+  Config-swap-before-prune alone would make the escape TRANSIENT for a
+  positive depth (the next append re-caps the ring) but PERMANENT at depth 0,
+  because `record!` skips `append-record` entirely at depth 0 — no later append
+  ever arrives to repair it. \"Transient\" is also the wrong bar for a positive
+  reduction: the promise is about the state at `configure!`'s return, not about
+  some later event.
 
-  The anchors have the same shape. `enforce-depth!` computed its retained-id
-  set from the pruned snapshot and reconciled `last-settled-epoch` in a
-  SEPARATE swap, so a record committed at that seam could have its own,
+  The anchors have the same shape. An `enforce-depth!` that computed its
+  retained-id set from the pruned snapshot and reconciled `last-settled-epoch`
+  in a SEPARATE swap would let a record committed at that seam have its own,
   correct anchor discarded as unretained.
 
   ## How these tests establish it deterministically
@@ -111,7 +107,8 @@
   return its future, having first waited for it to reach a settled position:
   either it PUBLISHED its result, or it is waiting on the parked writer.
 
-  The wait is a determinism device for the UNFIXED code, not an assertion.
+  The wait is a determinism device for code WITHOUT the retention
+  serialization, not an assertion.
   Without it the configure could still be ahead of its config swap when the
   test releases the writer, and the interleaving under test would simply not
   have happened — a green that proved nothing. With the retention
