@@ -9,9 +9,9 @@
   >
   > — `implementation/fresco/spec/invariants.md`, I5
 
-  This is the **node half** of the bead's witnesses, and it exists because
-  of where the gates are. The five *real* React abandonment mechanisms the
-  bead names — Suspense retry, StrictMode double-invoke, transition abort,
+  This is the **node half** of I5's witnesses, and it exists because of
+  where the gates are. The five *real* React abandonment mechanisms —
+  Suspense retry, StrictMode double-invoke, transition abort,
   error-then-retry, delayed commit — need a real concurrent root, so they
   live in [[re-frame.fresco.kernel-commit-owns-dom-cljs-test]] and run on
   the browser lane. **That lane is not in the fast-PR spine.** This file is
@@ -45,10 +45,9 @@
 
   Every acquisition law here is asserted on **reader membership** —
   `runtime/cell-readers`, `runtime/residue` — and never on the value a
-  body rendered. That is deliberate, and it is the lesson a sibling
-  witness paid for on the controlled-input surface the same night: a value
-  assertion stays green under a real leak, because a leaked subscription
-  does not change what is painted. It changes what is **retained** and
+  body rendered. That is deliberate: a value assertion stays green under
+  a real leak, because a leaked subscription does not change what is
+  painted. It changes what is **retained** and
   what will be **notified**. One extra reader slot on a cell is invisible
   to the markup and fatal to the invariant, so the reader slot is what is
   read.
@@ -63,14 +62,13 @@
   rely on. Nothing here reads it, waits a multiple of it, or assumes a
   reaper has run at any point the runtime has not said it has.
 
-  ## The negative control is in the suite, not only in the report
+  ## The negative control is in the suite
 
   [[the-residue-census-can-answer-false]] performs, by hand, the exact
-  mutation the bead's sabotage control describes — it leaks one
+  mutation a render-phase acquisition would be — it leaks one
   abandoned-read registration — and asserts the census reports it. Without
   that row every zero above could be a zero the instrument is incapable of
-  making non-zero, which is the failure mode this repo has been bitten by
-  twice."
+  making non-zero."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -440,9 +438,8 @@
   ;;
   ;; What it leaks is exactly one abandoned-read registration — the entry
   ;; of a render that was never selected, committed by hand and its cleanup
-  ;; discarded. That is the mutation the bead's sabotage clause describes,
-  ;; and it is what a render-phase acquisition would produce on every
-  ;; abandoned attempt.
+  ;; discarded. That is what a render-phase acquisition would produce on
+  ;; every abandoned attempt.
   (async done
     (seeded!)
     (let [entry (probe! (fn [_] [:p (rf.fresco/sub [:kco/left])]))]
