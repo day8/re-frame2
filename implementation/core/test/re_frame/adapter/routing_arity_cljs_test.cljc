@@ -1,12 +1,11 @@
 (ns re-frame.adapter.routing-arity-cljs-test
-  "Arity fidelity of `substrate-adapter/route-hook!`'s routed closure
-  (rf2-2ix22).
+  "Arity fidelity of `substrate-adapter/route-hook!`'s routed closure.
 
-  The wrapper used to be spelled `(fn routed-hook [& args] … (apply impl-fn
-  args) …)`: one `apply` site shared by every routed hook in the bundle,
-  hence callee-POLYMORPHIC and never inlined. It is now spelled with
-  explicit 0/1/2-argument paths that call `impl-fn` (or the chained
-  `previous` handler) DIRECTLY, plus a variadic tail for 3-and-up.
+  The wrapper is spelled with explicit 0/1/2-argument paths that call
+  `impl-fn` (or the chained `previous` handler) DIRECTLY, plus a variadic
+  tail for 3-and-up. A single `(fn routed-hook [& args] … (apply impl-fn
+  args) …)` would be one `apply` site shared by every routed hook in the
+  bundle, hence callee-POLYMORPHIC and never inlined.
 
   The generated shape is not a contract; what IS contract is that the routed
   closure forwards the SAME arguments, answers the SAME value, chains in the
@@ -19,15 +18,15 @@
     * FALLBACK     — nothing is installed and there is no previous handler,
                      so `(fallback-fn)` runs with no arguments at all
 
-  Splitting one variadic body into four is exactly the kind of change that
-  silently drops an argument or mis-routes an arity, so each route is
+  Per-arity bodies are exactly the shape that can silently drop an argument
+  or mis-route an arity, so each route is
   exercised at 0, 1, 2, 3 and 4 arguments: the three explicit paths and two
   that must reach the variadic tail. Repository call sites use 0, 1 or 2
   args routinely and `:adapter/wrap-view` uses 3.
 
   `.cljc`, so the pin runs on the JVM (`clojure -M:test`) AND in the
-  `:node-test` CLJS lane where the `apply` this change removes was actually
-  costing bytes. The per-substrate hook wiring is pinned by the adapter
+  `:node-test` CLJS lane, where a shared `apply` would cost bytes. The
+  per-substrate hook wiring is pinned by the adapter
   suites; this ns pins the routing MECHANISM against the plain-atom adapter,
   substrate-agnostically — the same division of labour as
   `routing_token_cljs_test`."
