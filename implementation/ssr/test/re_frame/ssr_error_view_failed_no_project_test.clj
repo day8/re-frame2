@@ -1,18 +1,17 @@
 (ns re-frame.ssr-error-view-failed-no-project-test
-  "Per rf2-sccp5 — `:rf.error/ssr-ring-error-view-failed` is a RECOVERABLE
-  DEGRADATION, not a request failure, and MUST NOT project a non-200
-  status onto the response accumulator. It is the SECOND member of the
-  `non-projection-eligible-errors` skip set (the first being
-  `:rf.error/ssr-head-resolution-failed`, rf2-lia3i); this suite is the
-  sibling tripwire that pins the new member at the same core-level
-  chokepoint.
+  "`:rf.error/ssr-ring-error-view-failed` is a RECOVERABLE DEGRADATION,
+  not a request failure, and MUST NOT project a non-200 status onto the
+  response accumulator. It is a member of the
+  `non-projection-eligible-errors` skip set, beside
+  `:rf.error/ssr-head-resolution-failed`; this suite is the sibling
+  tripwire that pins it at the same core-level chokepoint.
 
-  CONTRACT (ssr-ring's `resolve-error-body`, pipeline.clj:228): when a
-  caller's registered `:error-view` itself THROWS, the host must NOT let
-  the buggy error page bypass the error boundary — it falls back to the
-  locked default error template AND emits
-  `:rf.error/ssr-ring-error-view-failed` (frame-stamped, via
-  `trace/emit-error!`) for observability. The wire status was already
+  CONTRACT (ssr-ring's `resolve-error-body`): when a caller's registered
+  `:error-view` itself THROWS, the host must NOT let the buggy error page
+  bypass the error boundary — it falls back to the locked default error
+  template AND emits `:rf.error/ssr-ring-error-view-failed`
+  (frame-stamped, on the dev trace bus via `trace/emit-error!` and on the
+  always-on error-emit axis) for observability. The wire status was already
   stamped by `project-render-exception!` for the ORIGINAL render-time
   throw that drove us into the error path; the error-view's own failure
   is a degradation of the error PRESENTATION, not a second request
@@ -22,20 +21,19 @@
   render-time catch, AFTER `project-render-exception!` has already
   stamped the projected status and cleared the buffer
   (`consume-pending-traces!`). Without the skip the frame-stamped trace
-  is re-buffered into `pending-error-traces` and left there until
-  frame-destroy. Safe TODAY only because nothing re-reads
+  would be re-buffered into `pending-error-traces` and left there until
+  frame-destroy. That would be harmless only while nothing re-reads
   `get-response` / `flush-response!` on the frame after that point —
-  the rf2-c0bq1 post-render re-flush (pipeline.clj:331) lives on the
-  HAPPY path inside `build-full-response*`, which the error-view-failed
-  catch arm never reaches, so the skip composes with c0bq1: the re-flush
-  cannot re-read this category because the category never co-occurs with
-  the re-flush. But a CUSTOM projector that mapped the render exception
-  to a 4xx, plus a future post-error re-flush, would let the buffered
-  trace re-project → its generic 5xx and silently flip 4xx→5xx — the
-  exact 'incidental to call ordering, not enforced' property rf2-lia3i
-  declared unacceptable.
+  the post-render re-flush lives on the HAPPY path inside
+  `build-full-response*`, which the error-view-failed catch arm never
+  reaches, so the skip composes with it: the re-flush cannot re-read
+  this category because the category never co-occurs with the re-flush.
+  But a CUSTOM projector that mapped the render exception to a 4xx, plus
+  a post-error re-flush, would let the buffered trace re-project → its
+  generic 5xx and silently flip 4xx→5xx — correctness incidental to call
+  ordering rather than enforced.
 
-  rf2-sccp5 ENFORCES the contract at the projection BUFFERING chokepoint:
+  The skip ENFORCES the contract at the projection BUFFERING chokepoint:
   `re-frame.ssr.error-listener` lists the category in
   `non-projection-eligible-errors` and both projection listeners (the
   dev-only `error-projection-listener` AND the always-on
@@ -46,14 +44,14 @@
   `re-frame.ssr.ring-test/handler-error-view-throw-falls-back-to-default-
   template`; this suite pins the SKIP directly at the core level.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
   Tests (1) and (2) drive the DEV bus through `trace/emit-error!`, whose
   emit site sits inside the load-time `interop/debug-enabled?` gate. Under
   `-Dre-frame.debug=false` nothing is emitted, so (1) — a NEGATIVE, 'not
   buffered, still 200' — passes for the wrong reason (it would pass with
   the listener deleted) and (2)'s control reds on an empty buffer. Both
-  are kept VERBATIM inside `(when interop/debug-enabled? …)` arms: they
+  sit inside `(when interop/debug-enabled? …)` arms: they
   are assertions ABOUT the dev listener, which is the surface their names
   and docstrings claim.
 
@@ -93,13 +91,13 @@
 ;; ===========================================================================
 
 (deftest dev-path-error-view-failed-trace-is-not-buffered-or-projected
-  (testing "rf2-sccp5: firing `:rf.error/ssr-ring-error-view-failed` the
+  (testing "firing `:rf.error/ssr-ring-error-view-failed` the
             same way `resolve-error-body` does (frame-stamped, via
             `trace/emit-error!`) does NOT buffer the trace for projection
             and does NOT flip the response status off 200 — the dev-only
             `error-projection-listener` skips the category by design."
     (let [fid (make-server-frame)]
-      ;; rf2-lwtlk — DEV ARM. `trace/emit-error!` no-ops under
+      ;; DEV ARM. `trace/emit-error!` no-ops under
       ;; `-Dre-frame.debug=false`, so both assertions below would hold with
       ;; the listener ripped out: a negative over a bus that emitted
       ;; nothing. The production counterpart is test (3), which calls the
@@ -128,14 +126,14 @@
 ;; ===========================================================================
 
 (deftest dev-path-genuine-drain-time-error-still-projects-non-200
-  (testing "rf2-sccp5 (no over-skip): a frame-stamped GENUINE drain-time
+  (testing "no over-skip: a frame-stamped GENUINE drain-time
             failure (`:rf.error/sub-exception` — a reactive sub throwing
-            mid-render is unusable-page, fail-closed per rf2-vvwmi) fired
+            mid-render is unusable-page, fail-closed) fired
             through the same dev listener IS buffered and projects a
             non-200 — confirming the error-view-failed skip is targeted,
             not a listener that silently drops everything."
     (let [fid (make-server-frame)]
-      ;; rf2-lwtlk — DEV ARM: the emit is `trace/emit-error!`, so under the
+      ;; DEV ARM: the emit is `trace/emit-error!`, so under the
       ;; production gate this control observes an empty buffer. The category
       ;; itself DOES reach production, so the control is not lost — it is
       ;; re-run on the always-on axis by test (4).
@@ -152,28 +150,27 @@
              does NOT over-skip a real failure's fail-closed status")))))
 
 ;; ===========================================================================
-;; (3) Always-on substrate — symmetry guard. The error-view-failed trace
-;;     rides only the dev bus today (`trace/emit-error!`), but non-Ring
-;;     host adapters MUST emit the same recoverable-degradation categories
-;;     (Spec 011 §1070), and a future change could route it through the
-;;     always-on `register-error-listener!` substrate. The skip is
+;; (3) Always-on substrate — symmetry guard. `resolve-error-body` emits the
+;;     error-view-failed record on the always-on error-emit axis as well as
+;;     the dev bus, and non-Ring host adapters MUST emit the same
+;;     recoverable-degradation categories (Spec 011 §1070). The skip is
 ;;     symmetric, so the degraded-200 contract holds under production
-;;     hardening too — mirroring rf2-lia3i's always-on head-category pin.
+;;     hardening too — mirroring the always-on head-category pin in
+;;     `re-frame.ssr-head-resolution-no-project-test`.
 ;; ===========================================================================
 
 (deftest always-on-path-error-view-failed-record-is-not-buffered-or-projected
-  (testing "rf2-sccp5: an error-view-failed record delivered to the
+  (testing "an error-view-failed record delivered to the
             ALWAYS-ON `error-emit-projection-listener` (the production-
             survivable substrate, exercised under
             `interop/debug-enabled? = false`) is ALSO skipped — neither
             buffered nor projected. Symmetric with the dev path so the
             contract holds whichever substrate carries the trace."
     (let [fid (make-server-frame)]
-      ;; rf2-lwtlk — the `with-redefs [interop/debug-enabled? false]` this
-      ;; test used to wrap has been dropped, not replaced. `debug-enabled?`
-      ;; is read ONCE at namespace-load time, so a rebind cannot reach the
-      ;; gate, and this test calls the always-on listener DIRECTLY anyway —
-      ;; there is no gate on the path. The namespace now runs in
+      ;; No `with-redefs [interop/debug-enabled? false]` wraps this test:
+      ;; `debug-enabled?` is read ONCE at namespace-load time, so a rebind
+      ;; cannot reach the gate, and this test calls the always-on listener
+      ;; DIRECTLY anyway — there is no gate on the path. The namespace runs in
       ;; `scripts/test-ssr-prod-gate.sh`, where the property is false for
       ;; real; that is the evidence.
       ;;
@@ -194,15 +191,15 @@
 
 ;; ===========================================================================
 ;; (4) Always-on NO-OVER-SKIP control — the production counterpart of (2).
-;;     rf2-lwtlk. On a `-Dre-frame.debug=false` JVM the dev bus is silent,
+;;     On a `-Dre-frame.debug=false` JVM the dev bus is silent,
 ;;     so "the error-view-failed record was not buffered" is only meaningful
 ;;     next to "a genuine drain-time record on the SAME listener WAS".
 ;; ===========================================================================
 
 (deftest always-on-path-genuine-drain-time-error-still-projects-non-200
-  (testing "rf2-sccp5 / rf2-lwtlk (no over-skip, always-on):
+  (testing "no over-skip, always-on:
             `:rf.error/sub-exception` — a reactive sub throwing mid-render,
-            fail-closed per rf2-vvwmi — delivered to the ALWAYS-ON
+            fail-closed — delivered to the ALWAYS-ON
             `error-emit-projection-listener` IS buffered and projects a
             non-200. The category rides `dispatch-on-error!` in production,
             so unlike the dev control this one has a live producer in the
