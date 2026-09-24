@@ -1,14 +1,12 @@
 (ns re-frame.adapter.reagent-slim-make-derived-value-arity-spec-cljs-test
-  "reagent-slim adapter — per-arity pin for `make-derived-value`
-  (rf2-eoy63).
+  "reagent-slim adapter — per-arity pin for `make-derived-value`.
 
-  Pre-rf2-eoy63 this adapter's `make-derived-value` was naive
+  The fn routes through `spine/build-recompute-fn`, so reagent-slim
+  shares the arity-spec with Reagent and UIx instead of a naive
   `(apply compute-fn (map deref source-containers))` — `apply` cost on
-  every recompute and a lazy `map` cons chain that defers derefs. The
-  fn now routes through `spine/build-recompute-fn` so reagent-slim
-  shares the arity-spec with Reagent and UIx. These tests pin
-  the observable contract so an inadvertent regression to the naive
-  shape would break the suite.
+  every recompute and a lazy `map` cons chain that defers derefs. These
+  tests pin the observable contract so an inadvertent slide back to the
+  naive shape would break the suite.
 
   Pins:
 
