@@ -2,8 +2,8 @@
 
 > Status: v1-required. The public ABI for a substrate's structural render tree and
 > the DOM conversion table every emitter consumes — the tree/conversion half of
-> the portability law. Consumers: the structural render surface's return value (per
-> [008](008-Testing.md), where the surface is conventionally aliased `t`), tree
+> the portability law. Consumers: the projections of Fresco's test kit
+> (`re-frame.fresco.test`, usually aliased `ht` — §Projections), tree
 > traversal (ordinary Clojure — `(tree-seq map? :children tree)`),
 > parity/fingerprints (per [008](008-Testing.md) and [011](011-SSR.md)), and the
 > `day8/re-frame2-ssr` artifact (§The SSR consumption boundary). The
@@ -377,33 +377,25 @@ ABI. But **attribute reads go through the projection**:
 `(:on-click node)` is a *field miss*, never an attribute read — attrs and events live
 under their own keys.
 
-- **`(t/attrs node)`** — the merged projection:
+The projections ship in Fresco's test kit, `re-frame.fresco.test` (usually aliased
+`ht`), and read the tree its `ht/tree` builds: element, fragment and view-boundary
+nodes, and text. The kit refuses a `h/defhost` crossing and a raw React escape as
+opaque, so the trees it builds hold no host or trusted-HTML node.
+
+- **`(ht/attrs node)`** — the merged projection:
     - element → `:attrs` merged with `:events` (collision-free by construction; event
       slots carry vectors/options-maps/opaque markers as data);
-    - view-boundary **and host** → `:props` (so attr-map selectors match views by prop
-      values for free, via the same `rf=` relation; on a host these are the authored
-      ordinary props, each filled callback position recorded as its opaque role marker);
-    - fragment / trusted-HTML → `{}` (no attributes exist; total, not an error);
-    - `nil` → `nil` (nil-punning threads through a missed `find`);
-    - a string (text content) → typed error (text is not a node).
-- **`(t/text node)`** — concatenation of text descendants in document order,
-  descending through elements, fragments, view boundaries and hosts; **trusted-HTML
-  nodes contribute nothing** (their content is unparsed markup, not text data — by
-  design); `nil` → `nil`.
-
-**A host is a real arm, not a fragment that happens to have props, and the difference is
-the whole point of giving it one.** A host node carries `:children` and no `:tag`, so a
-consumer that omits the host arm reaches the fragment
-arm and answers `{}` — a total, harmless-looking, wrong answer, delivered silently
-because the fragment arm is documented total rather than an error. `:rf.ui/presence` and
-`:rf.ui/boundary` are deliberately **not** in the same position: those genuinely are
-fragments carrying diagnostic metadata (§Reserved `:rf.ui/*` keys), so `{}` is their true
-answer and their metadata is an ordinary field read. What `t/text` descends into on a
-host is the **SSR projection** — the declared fallback, or nothing — never the registered
-React component's own text, which no structural consumer can see.
+    - view-boundary → the `:props` the call site passed;
+    - fragment → `{}` (no attributes exist; total, not an error);
+    - `nil` → `nil` (nil-punning threads through a missed `ht/find`);
+    - a string (text content) → `:rf.error/ui-tree-malformed` (text is not a node).
+- **`(ht/text node)`** — concatenation of text descendants in document order,
+  descending through elements, fragments and view boundaries; `nil` → `nil`; a string →
+  `:rf.error/ui-tree-malformed`. A view-boundary node records the call rather than the
+  child's rendering, so its text is the children the call site wrote.
 
 Intent assertion, respelled to this contract:
-`(is (= [:cart/add 42] (:on-click (t/attrs (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree))))))`.
+`(is (= [:cart/add 42] (:on-click (ht/attrs (ht/find tree #(= :button (:tag %)))))))`.
 
 ## Semantic normalization `N` — the parity/fingerprint input
 
