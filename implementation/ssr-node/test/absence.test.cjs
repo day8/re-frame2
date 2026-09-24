@@ -1,6 +1,6 @@
 'use strict';
-// CLIENT v0 IS UNAFFECTED WHEN THIS SERVICE IS ABSENT — the acceptance
-// clause on rf2-hic-056 that asks for a witness rather than an assertion.
+// CLIENT v0 IS UNAFFECTED WHEN THIS SERVICE IS ABSENT — a witness rather
+// than an assertion.
 //
 //     node implementation/ssr-node/test/absence.test.cjs
 //
@@ -37,16 +37,14 @@
 // can hand them a different tree.
 //
 // AND THE PLANT MUST NOT BE ARRANGED SO THE BUG CANNOT REACH IT. That is
-// one level deeper than "the check has a control", and it is the failure
-// this file actually shipped. The ns control planted the forbidden
-// namespace as the FIRST AND ONLY libspec of a `:require`, while the
-// scanner read only the first form after the key — so every realistic ns
-// form, two libspecs with the second forbidden, passed. The control could
-// not see that, because a single-libspec plant exercises exactly the path
-// that worked. Reading 1 was green about a class it did not cover and the
-// proof of coverage was itself the blind spot (rf2-6ovv, from the
-// merged-PR audit of #8049). So the plants below are realistic files, and
-// where a position can vary the control SWEEPS it instead of picking one.
+// one level deeper than "the check has a control". An ns control planting
+// the forbidden namespace as the FIRST AND ONLY libspec of a `:require`
+// cannot see a scanner that reads only the first form after the key — so
+// every realistic ns form, two libspecs with the second forbidden, would
+// pass, because a single-libspec plant exercises exactly the path that
+// works. The proof of coverage would itself be the blind spot. So the
+// plants below are realistic files, and where a position can vary the
+// control SWEEPS it instead of picking one.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -72,9 +70,8 @@ const SCANNED = ['implementation', 'examples', 'tools', 'scripts', '.github'];
  * namespace.
  *
  * THE BOUNDARIES ARE NOT DECORATION. A bare `ssr-node` substring is a
- * FALSE POSITIVE generator, and it fired on the first run: the SSR spike
- * driver's header explains at length that it deliberately did NOT mint a
- * `:fresco-ssr-node` build id, and a substring scan reads that sentence
+ * FALSE POSITIVE generator: a sentence explaining that a build deliberately
+ * does NOT mint a `:fresco-ssr-node` build id reads, to a substring scan,
  * as the very coupling it is disclaiming. So the pattern refuses a
  * preceding word character, colon or hyphen, and a following word
  * character or hyphen — which still matches every form that would be a
@@ -87,79 +84,60 @@ const CODE_NAMESPACE = /(?<![\w-]):rf\.ssr-node\//g;
 const REFERENCES = [PATH_REFERENCE, CODE_NAMESPACE];
 
 /**
- * THERE IS STILL NO ALLOWANCE LIST. THE READING MOVED INSTEAD — rf2-6ovv.
+ * THERE IS NO ALLOWANCE LIST. READING 1 IS TAKEN AT LOADER POSITIONS.
  *
- * ## What this block used to say, and why it could not survive contact
+ * ## Why not an absolute zero over raw text
  *
- * Reading 1 was once an absolute zero over raw file text: nothing outside
- * this package MENTIONS it, full stop. An earlier draft had added a
- * `test:ssr-node` script to `implementation/package.json` and carried a
- * pinned one-string exception for it. The script was dropped for an
- * unrelated and better reason — it arms eleven expensive CI lanes that the
- * package's own files arm none of — and the exception went with it, because
- * an allowance mechanism with nothing in it is the first entry of an
- * allowance list. This block then ruled that if the npm script were ever
- * wired up, the answer was one PINNED EXACT STRING deleted from that file
- * before the remainder was scanned — never a broadened pattern and never a
- * skipped file.
- *
- * That ruling anticipated the right event and mis-sized it. The CI lane
- * (rf2-n8vp, PR #8042) arrived armed by this package's own surface, exactly
- * as wanted, and it necessarily writes the package's path into FOUR files:
- * `implementation/package.json`, `.github/workflows/test.yml`,
+ * "Nothing outside this package MENTIONS it" is a PROXY for the claim, and
+ * a costly one. The package's CI lane necessarily writes its path into FOUR
+ * files: `implementation/package.json`, `.github/workflows/test.yml`,
  * `.github/scripts/report-changed-surfaces.sh` and
- * `implementation/scripts/_changed-surfaces.test.cjs`. Not one line but 23
- * of them, most of which are the prose that explains WHY the lane has its
- * own output. Pinning 23 exact lines would red this suite on every comment
- * reflow in four files nobody here owns — a gate people learn to route
- * around, which is the failure this block was written to prevent.
+ * `implementation/scripts/_changed-surfaces.test.cjs` — many lines, most of
+ * them the prose that explains WHY the lane has its own output. Pinning
+ * those lines as exact-string exceptions would red this suite on every
+ * comment reflow in four files nobody here owns — a gate people learn to
+ * route around — and any allowance mechanism is the first entry of an
+ * allowance list.
  *
- * ## What moved
+ * What the claim needs is that no client can LOAD this package — that no
+ * resolver, compiler or classpath can be led here. That no file may NAME it
+ * is a much larger statement, and the extra territory is prose, shell
+ * `case` arms, CI job names and an npm script that spawns a separate `node`
+ * process. None of those is a way into a module graph.
  *
- * The absolute zero was a PROXY, and the collision showed which part of it
- * was load-bearing. What the claim needs is that no client can LOAD this
- * package — that no resolver, compiler or classpath can be led here. What
- * the old scan asserted was that no file may NAME it, which is a much
- * larger statement, and the extra territory is prose, shell `case` arms, CI
- * job names and an npm script that spawns a separate `node` process. None
- * of those is a way into a module graph.
- *
- * So Reading 1 now tests the needles at LOADER POSITIONS: the static
+ * So Reading 1 tests the needles at LOADER POSITIONS: the static
  * specifier of a `require` / `import`, the body of a ClojureScript ns
  * `:require`, the classpath and coordinate keys of an EDN build config, and
  * the linking fields of a package manifest. A format that cannot resolve a
  * module — YAML, shell, Markdown — offers no loader position and therefore
  * cannot host a hit.
  *
- * ## Why this is not the widened pattern the old ruling forbade
+ * ## Why this is not a widened pattern
  *
- * Because it is the same move this file had ALREADY made, one paragraph
- * down, and for the same reason. `DOC_EXT` excludes Markdown on the ground
- * that "a Markdown file cannot be required, compiled, or put on a source
- * path" — a statement about what the FORMAT can do, never about which paths
- * are forgiven. `.yml` and `.sh` cannot be required, compiled or put on a
- * source path either. The old reading had carried the category error for
- * every format except the one that forced the issue; this finishes the
- * move rather than starting a new one.
+ * Because it is the same move `DOC_EXT` makes, below, and for the same
+ * reason. `DOC_EXT` excludes Markdown on the ground that "a Markdown file
+ * cannot be required, compiled, or put on a source path" — a statement
+ * about what the FORMAT can do, never about which paths are forgiven.
+ * `.yml` and `.sh` cannot be required, compiled or put on a source path
+ * either.
  *
- * The prohibitions it was guarding are both intact. There is no allowance
- * list: no file, path or string is named as forgiven, and the four wiring
- * files are read exactly as any other file of their format. And the needles
- * were not widened by a character — `PATH_REFERENCE` and `CODE_NAMESPACE`
- * are unchanged, and the rows below plant a fault at every loader position
- * this file knows about and require each one to be found.
+ * There is no allowance list: no file, path or string is named as
+ * forgiven, and the four wiring files are read exactly as any other file of
+ * their format. And the needles are not widened by a character —
+ * `PATH_REFERENCE` and `CODE_NAMESPACE` are the needles the raw-text scan
+ * uses, and the rows below plant a fault at every loader position this file
+ * knows about and require each one to be found.
  *
- * ## What did NOT move
+ * ## What keeps the absolute zero
  *
  * `CODE_NAMESPACE` keeps the absolute zero, over raw text, everywhere. A
  * path is a token that legitimately appears in prose and in commands; the
  * refusal-code namespace is a token that only code producing or consuming
  * this service's refusals has any use for, so a client that names it has
  * been changed by this package's existence — which is precisely the claim
- * under test. Nothing inert has ever spelled it: at the time of writing it
- * appears in three files inside this package and zero outside.
+ * under test. Nothing inert in the scanned trees spells it.
  *
- * Readings 2 and 3 are untouched and remain the strong net.
+ * Readings 2 and 3 are the strong net.
  */
 
 const SKIP_EXT = new Set([
@@ -168,8 +146,8 @@ const SKIP_EXT = new Set([
 ]);
 
 /**
- * DOCUMENTATION IS OUT OF SCOPE — the code finally matching the stated
- * scope above, rather than an exception being carved out under pressure.
+ * DOCUMENTATION IS OUT OF SCOPE — the code matching the stated scope
+ * above, not an exception carved out under pressure.
  *
  * A Markdown file cannot be required, compiled, or put on a source path,
  * so it is not a way this package could reach a client artefact. Naming
@@ -177,13 +155,11 @@ const SKIP_EXT = new Set([
  *
  * The argument is not merely that it is harmless. `implementation/
  * README.md` is REQUIRED to name this directory: `scripts/
- * check_readme_inventories.py` (rf2-198k3) reds when a directory appears
- * under `implementation/` without a line in that README's layout map, and
- * it did exactly that when this package landed. A scan that then reds on
- * the line the other gate demands is not a strict scan, it is two repo
- * invariants pulling against each other — and the one that has to give is
- * the one whose own header already said documentation was not its
- * subject.
+ * check_readme_inventories.py` reds when a directory appears under
+ * `implementation/` without a line in that README's layout map. A scan
+ * that reds on the line the other gate demands is not a strict scan, it is
+ * two repo invariants pulling against each other — and the one that has to
+ * give is the one whose own header says documentation is not its subject.
  *
  * The exclusion is by EXTENSION and not by path, so it cannot quietly
  * cover a source file; the control row below puts the same text in a
@@ -436,7 +412,7 @@ function scanLoaderPositions(cwd, files, needles, excludePrefix) {
 
 /**
  * Files under `files` mentioning any of `needles` ANYWHERE in their raw
- * text — the older, broader shape, kept for `CODE_NAMESPACE`.
+ * text — the broader shape, used for `CODE_NAMESPACE`.
  */
 function scanForReferences(cwd, files, needles, excludePrefix) {
   const hits = [];
@@ -481,12 +457,12 @@ function foreignRequires(files) {
  *
  * `foreignRequires` cannot see one, and `src/` HAS one: `worker.cjs` loads
  * the application bundle it was pointed at, which is the entire design.
- * So Reading 3 was asserting "every require here is a builtin or a sibling"
- * over a set that excluded its only counter-example, and the row would have
- * stayed green if that line had computed a package name instead. Same shape
- * as the ns fail-open this file was reopened for (rf2-6ovv): a check green
- * about a case it could not reach. Reading 1 had already drawn this
- * distinction for itself — see `DYNAMIC_SPECIFIER` — and Reading 3 had not.
+ * Without this, Reading 3 would assert "every require here is a builtin or
+ * a sibling" over a set that excludes its only counter-example, and the row
+ * would stay green if that line computed a package name instead — a check
+ * green about a case it cannot reach, the same shape as a single-libspec ns
+ * control. Reading 1 draws the same distinction for itself — see
+ * `DYNAMIC_SPECIFIER`.
  */
 function computedRequires(files) {
   const hits = [];
@@ -534,7 +510,7 @@ test('no loader in a client-building tree can reach this package', () => {
 });
 
 test('the refusal-code namespace appears nowhere outside the package', () => {
-  // The absolute zero that survives, and the reason the narrowing above is
+  // The absolute zero this file keeps, and the reason the narrowing above is
   // safe rather than merely smaller — see the long note on REFERENCES.
   const files = trackedFiles(REPO_ROOT, SCANNED);
   const hits = scanForReferences(REPO_ROOT, files, [CODE_NAMESPACE], 'implementation/ssr-node/');
@@ -563,10 +539,10 @@ test('the layout map DOES name the package, as the README ratchet requires', () 
  * only way a narrowed reading can fail quietly.
  *
  * EVERY PLANT HERE IS A REALISTIC FILE, and that is a correctness property
- * rather than a matter of taste. `app/core.cljs` used to carry the forbidden
- * namespace as the ns form's FIRST AND ONLY libspec, and a scanner that read
- * only the first form passed it (rf2-6ovv). A minimal plant does not merely
- * under-test: it can be the one arrangement the bug does not reach.
+ * rather than a matter of taste. `app/core.cljs` carries the forbidden
+ * namespace as the LAST of three libspecs, because a scanner that read only
+ * the first form would pass a single-libspec plant. A minimal plant does not
+ * merely under-test: it can be the one arrangement the bug does not reach.
  */
 const PLANTED_LOADER_FAULTS = {
   'app/boot.cjs': "require('../../implementation/ssr-node/src/service.cjs');\n",
@@ -626,18 +602,17 @@ const NS_CLAUSE_FAULTS = {
 };
 
 test('CONTROL — an ns clause is scanned WHOLE, and not just its first form', () => {
-  // THE ROW rf2-6ovv EXISTS FOR, AND THE SHAPE THE PROJECT SHOULD FEAR MOST.
-  // Reading 1 read the ONE form after `:require`, so
+  // THE SHAPE THE PROJECT SHOULD FEAR MOST. A scanner reading the ONE form
+  // after `:require` would take
   // `(:require [app.first :as first] [rf.ssr-node/service :as svc])` — an
-  // unremarkable two-line ns form — yielded `[app.first :as first]` and
-  // passed. The gate was green about a class it did not cover.
+  // unremarkable two-line ns form — as `[app.first :as first]` and pass it:
+  // green about a class it does not cover.
   //
-  // What made it survive a merged-PR review is that the CONTROL could not
-  // fail: the planted fault sat FIRST AND ALONE, which is precisely the
-  // position the broken scan handled. So this row does not plant one
-  // arrangement. It sweeps the fault through EVERY position of EVERY clause
-  // key the file claims, and a scanner that reads one form fails it at
-  // position 2 of the very first key.
+  // And a control planting the fault FIRST AND ALONE could not fail against
+  // that scanner, because that is precisely the position it handles. So
+  // this row does not plant one arrangement. It sweeps the fault through
+  // EVERY position of EVERY clause key the file claims, and a scanner that
+  // reads one form fails it at position 2 of the very first key.
   for (const [key, neighbours] of Object.entries(NS_CLAUSE_NEIGHBOURS)) {
     const fault = NS_CLAUSE_FAULTS[key];
     for (let i = 0; i <= neighbours.length; i += 1) {
@@ -662,8 +637,8 @@ test('CONTROL — the whole-clause walk stops at the clause, not at the file', (
   // The counterpart the sweep above cannot give: reading MORE than one form
   // is only right if it stops reading at the closing paren. A walk that ran
   // on would drag the whole file into the `:require` position and red on any
-  // mention anywhere — the absolute zero this reading was narrowed away from,
-  // reintroduced by accident.
+  // mention anywhere — the absolute zero this reading deliberately does not
+  // assert, reintroduced by accident.
   const dir = scratch({
     'app/core.cljs':
       '(ns app.core\n  (:require [app.first :as first])) ; not (ssr-node) either\n\n'
@@ -698,7 +673,7 @@ test('CONTROL — a format that cannot resolve a module hosts no loader position
 });
 
 /**
- * THE SHAPES A CI LANE WRITES (rf2-n8vp, PR #8042), copied by shape rather
+ * THE SHAPES A CI LANE WRITES, copied by shape rather
  * than referenced by path: an npm script, a workflow job name and run step,
  * a shell `case` arm classifying a changed path, and a gate test asserting
  * on that mapping. All four name this package. None of the four is a way to
@@ -726,9 +701,9 @@ const CI_WIRING_SHAPES = {
 };
 
 test('CONTROL — a CI lane naming the package is inert, and IS NOT inert once it links', () => {
-  // BOTH DIRECTIONS IN ONE ROW, because the reconciliation is only correct
-  // if both hold. A reading that stopped failing would be worse than the
-  // collision it was narrowed to resolve.
+  // BOTH DIRECTIONS IN ONE ROW, because the loader-position reading is only
+  // correct if both hold. A reading that stopped failing would be worse than
+  // the raw-text collision it avoids.
   const files = Object.keys(CI_WIRING_SHAPES);
 
   const inert = scratch(CI_WIRING_SHAPES);
@@ -759,8 +734,8 @@ test('CONTROL — a CI lane naming the package is inert, and IS NOT inert once i
       CI_WIRING_SHAPES['implementation/scripts/_changed-surfaces.test.cjs']
       + "require('../ssr-node/src/service.cjs');\n",
     // Multi-libspec on purpose: a single-libspec ns is the one arrangement
-    // the pre-rf2-6ovv scanner handled, so pinning it here would have made
-    // this row green for the wrong reason too.
+    // a first-form-only scanner handles, so pinning it here would make this
+    // row green for the wrong reason too.
     'implementation/scripts/boot.cljs':
       '(ns boot\n  (:require [clojure.string :as str]\n            [rf.ssr-node/service]))\n',
   });
@@ -797,13 +772,13 @@ test('CONTROL — the exclusion really is what keeps the package itself quiet', 
 });
 
 test('CONTROL — the refusal-code needle finds a refusal code, and only that', () => {
-  // THE SECOND NEEDLE HAD NO CONTROL AT ALL, and the audit that found the ns
-  // fail-open (rf2-6ovv) is the reason to say so here. This file's header
-  // promises every reading a row that plants the exact fault it must see, but
-  // `CODE_NAMESPACE`'s absolute zero had none: the row above runs both
-  // needles together and `assert.ok(unexcluded.length > 0)` is satisfied by
-  // `PATH_REFERENCE` alone, so nothing ever required `CODE_NAMESPACE` to
-  // match anything. A typo in it would have read as a clean scan.
+  // THE SECOND NEEDLE NEEDS ITS OWN CONTROL. This file's header promises
+  // every reading a row that plants the exact fault it must see, and the row
+  // above does not do that for `CODE_NAMESPACE`: it runs both needles
+  // together and `assert.ok(unexcluded.length > 0)` is satisfied by
+  // `PATH_REFERENCE` alone. Without this row nothing would require
+  // `CODE_NAMESPACE` to match anything, and a typo in it would read as a
+  // clean scan.
   //
   // The near-miss is the point of the pairing. `[rf.ssr-node/service]` is a
   // PATH_REFERENCE hit with no leading colon, so it proves the two needles
@@ -839,41 +814,40 @@ test('CONTROL — the refusal-code needle finds a refusal code, and only that', 
 const BUILD_CONFIGS = ['implementation/shadow-cljs.edn', 'implementation/deps.edn'];
 
 /**
- * READ AT LOADER POSITIONS, NOT OVER RAW TEXT — rf2-8arzr.9, and the same
- * move Reading 1 made under rf2-6ovv rather than a second, softer one.
+ * READ AT LOADER POSITIONS, NOT OVER RAW TEXT — the same move Reading 1
+ * makes, not a second, softer one.
  *
- * This row was a raw-text scan of two EDN files, so it asserted that these
- * configs may not MENTION the package. That is not the reading its own
- * failure message states: "the package would be on a build's source path"
- * is a claim about `:source-paths`, `:deps` and their siblings, and a `;;`
- * comment is none of them. `implementation/shadow-cljs.edn` earned the red
- * by explaining, in a comment above `:examples/login-fresco-server`,
- * which sidecar loads the module that build emits — prose about the
- * package, in the file where prose about a build belongs.
+ * A raw-text scan of these two EDN files would assert that they may not
+ * MENTION the package. That is not the reading this row's failure message
+ * states: "a build config puts this package on a source path or a
+ * classpath" is a claim about `:source-paths`, `:deps` and their siblings,
+ * and a `;;` comment is none of them. `implementation/shadow-cljs.edn`
+ * explains, in a comment above `:examples/login-fresco-server`, which
+ * sidecar loads the module that build emits — prose about the package, in
+ * the file where prose about a build belongs.
  *
- * Reading 1 had already drawn exactly this line and given the argument for
- * it: a position that cannot resolve a module cannot host a hit, and the
- * scope is what the FORMAT can do rather than which files are forgiven. A
- * comment is not a source path in an EDN build config any more than it is
- * in an ns form. So this row now reads `loaderPositions` — for `.edn`,
- * the value form after each of `EDN_LOAD_KEYS` — and the narrowing is the
- * sibling of one already made, not a new allowance.
+ * Reading 1 draws exactly this line and gives the argument for it: a
+ * position that cannot resolve a module cannot host a hit, and the scope is
+ * what the FORMAT can do rather than which files are forgiven. A comment is
+ * not a source path in an EDN build config any more than it is in an ns
+ * form. So this row reads `loaderPositions` — for `.edn`, the value form
+ * after each of `EDN_LOAD_KEYS` — and the narrowing is the sibling of
+ * Reading 1's, not a new allowance.
  *
- * Nothing was widened and nothing is forgiven. The needles are untouched,
- * no path or string is named as an exception, and the row below plants a
- * real source path AND the comment that is not one, requiring the first to
- * be found and the second not to be. What kept this row honest — that a
- * build reaching this package is caught — is exactly what is still tested.
+ * Nothing is widened and nothing is forgiven. No path or string is named as
+ * an exception, and the row below plants a real source path AND the comment
+ * that is not one, requiring the first to be found and the second not to
+ * be. What keeps this row honest — that a build reaching this package is
+ * caught — is exactly what is tested.
  *
- * Reading 1's whole-repo scan already covers these two files as ordinary
- * `.edn`; this row survives it because it is the one that FAILS CLOSED on
- * a config that has gone missing or unparseable, which a repo-wide scan
- * cannot say anything about.
+ * Reading 1's whole-repo scan covers these two files as ordinary `.edn`;
+ * this row stays because it FAILS CLOSED on a config that has gone missing
+ * or unparseable, which a repo-wide scan cannot say anything about.
  */
 test('no shadow-cljs build and no classpath entry reaches this package', () => {
-  // A missing or key-less config must not read as a clean scan: the raw
-  // scan this replaced threw on a missing file, and `scanLoaderPositions`
-  // skips one silently. Same shape as Reading 3's computed-require guard.
+  // A missing or key-less config must not read as a clean scan:
+  // `scanLoaderPositions` skips a missing file silently. Same shape as
+  // Reading 3's computed-require guard.
   for (const rel of BUILD_CONFIGS) {
     const text = readTracked(REPO_ROOT, rel);
     assert.ok(text !== null, `${rel} is missing — the scan has nothing to read`);
@@ -897,7 +871,7 @@ test('CONTROL — a doctored build config is caught, and a comment about one is 
     // Both spellings, at both kinds of loader position an EDN config has.
     'shadow-cljs.edn': '{:builds {:app {:target :browser :source-paths ["ssr-node/src"]}}}\n',
     'deps.edn': '{:deps {day8/ssr-node {:local/root "../ssr-node"}}}\n',
-    // The near-miss, and the whole of what this row stopped asserting: the
+    // The near-miss, and the whole of what this row does not assert: the
     // shape `implementation/shadow-cljs.edn` actually carries.
     'commented.edn':
       ';; the module `implementation/ssr-node`\'s sidecar loads — prose, not a\n'
@@ -991,7 +965,7 @@ test('CONTROL — a third-party require is caught, spelled out or computed', () 
 });
 
 // ---------------------------------------------------------------------------
-// 3b. The manifest — what it makes checkable, now that there is one
+// 3b. The manifest — what it makes checkable
 // ---------------------------------------------------------------------------
 
 /**
@@ -1043,14 +1017,12 @@ function manifestFaults(manifest, packageDir) {
 }
 
 test('the manifest declares no dependency of any kind, and links only to files it ships', () => {
-  // THE MANIFEST IS WHERE A DEPENDENCY WOULD APPEAR FIRST, which is why
-  // this package carried none at all until it grew an exports map, a serve
-  // bin and an engines pin (rf2-8arzr.2). This row used to assert the file
-  // did not exist. That was the weaker reading dressed as the stronger one:
-  // nothing can be declared in a file that is not there, but nothing can be
-  // SHOWN about one either, and the property the README states — no
-  // dependency, nothing reachable outside the tree — is only checkable now
-  // that there is a manifest to check it against.
+  // THE MANIFEST IS WHERE A DEPENDENCY WOULD APPEAR FIRST. It carries an
+  // exports map, a serve bin and an engines pin, and the property the
+  // README states — no dependency, nothing reachable outside the tree — is
+  // checked against it here. Asserting that no manifest exists would be the
+  // weaker reading dressed as the stronger one: nothing can be declared in a
+  // file that is not there, but nothing can be SHOWN about one either.
   const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_DIR, 'package.json'), 'utf8'));
   assert.deepStrictEqual(
     manifestFaults(manifest, PACKAGE_DIR),
@@ -1060,8 +1032,7 @@ test('the manifest declares no dependency of any kind, and links only to files i
 });
 
 test('nothing in implementation/package.json reaches this package', () => {
-  // The rows from before this package had a manifest, kept as they were:
-  // the top-level manifest is the one a client install reads. Reading 1
+  // The top-level manifest is the one a client install reads. Reading 1
   // already scans its link fields for the path; this pins the two
   // spellings a dependency on this package would actually take there.
   const pkg = JSON.parse(
