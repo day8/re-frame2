@@ -1,18 +1,16 @@
 (ns re-frame.resources-http-completed-at-clock-cljs-test
-  "rf2-2elcw3 — LIVE-path regression: the managed-HTTP transport's reply-ctx
+  "LIVE-path test: the managed-HTTP transport's reply-ctx
   `:completed-at` must be WALL-CLOCK epoch ms (`interop/epoch-now-ms` =
   `js/Date.now()`), NOT the perf clock (`interop/now-ms` =
   `performance.now()`, origin-relative).
 
-  WHY A NEW SUITE: every existing `:completed-at` test (e.g.
-  `resources-managed-http-cljs-test`, `http-reply-lowering`) SCRIPTS the
+  WHY A SEPARATE SUITE: the other `:completed-at` tests (e.g.
+  `resources-managed-http-cljs-test`, `http-reply-lowering`) SCRIPT the
   reply token's `:completed-at` / `:rf.cofx` `:rf/time-ms` with an
   explicit epoch value, bypassing the live `reply-ctx` clock read in
-  `re-frame.http.transport`. So the wall-clock-vs-perf-clock bug (the
-  transport boundary the router's fresh-token fix 427f260d3 / rf2-n1rh0f
-  deliberately preserves as THE host-clock read) was untested on the live
-  CLJS chain. JVM is benign (`now-ms` == `epoch-now-ms` there), so the JVM
-  suites never caught it.
+  `re-frame.http.transport` — THE host-clock read at the transport
+  boundary. JVM cannot tell the two clocks apart (`now-ms` ==
+  `epoch-now-ms` there), so only the live CLJS chain exercises it.
 
   This suite drives the REAL transport: it stubs ONLY `js/fetch` (the
   production `:rf.http/managed` fx is NOT overridden), dispatches a resource
@@ -21,9 +19,9 @@
   meaningful — specifically that a JUST-loaded entry is NOT immediately stale
   when freshness is checked against `js/Date.now` (the exact clock the
   freshness readers in `resources/events.cljc`, `resources/subs.cljc`, and
-  `resources/ssr.cljc` use). Pre-fix `:stale-at` ≈ `performance.now()` +
-  window (~tens of thousands) is dwarfed by `js/Date.now()` (~1.78e12), so
-  `entry-stale?` returns true the instant the load completes."
+  `resources/ssr.cljc` use). A perf-clock `:stale-at` ≈ `performance.now()` +
+  window (~tens of thousands) would be dwarfed by `js/Date.now()` (~1.78e12),
+  so `entry-stale?` would return true the instant the load completes."
   (:require
    [cljs.test :refer-macros [deftest is testing async]]
    [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -66,22 +64,23 @@
     {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (deftest live-completed-at-is-wall-clock-not-immediately-stale
-  (testing "rf2-2elcw3 — a resource loaded through the LIVE managed-HTTP
+  (testing "a resource loaded through the LIVE managed-HTTP
             transport gets a wall-clock-epoch :loaded-at / :stale-at, so it
-            is NOT stale immediately against `js/Date.now`. Pre-fix the
-            reply-ctx :completed-at read `interop/now-ms` (performance.now()
-            on CLJS), so :stale-at was ~perf-clock + window — far below
-            `js/Date.now()` — and the entry read STALE the instant it loaded."
+            is NOT stale immediately against `js/Date.now`. A reply-ctx
+            :completed-at read from `interop/now-ms` (performance.now() on
+            CLJS) would put :stale-at at ~perf-clock + window — far below
+            `js/Date.now()` — and the entry would read STALE the instant it
+            loaded."
     (async done
-      ;; rf2-qj4g — COLD-START the slot: destroy, then seat. `init!` is idempotent
-      ;; only for the adapter ALREADY SEATED (rf2-kuky.1) — handed a DIFFERENT one
+      ;; COLD-START the slot: destroy, then seat. `init!` is idempotent
+      ;; only for the adapter ALREADY SEATED — handed a DIFFERENT one
       ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
       ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
-      ;; and the SSR adapter, so a bare `init!` here was a no-op whenever one of
-      ;; them ran first, and every test below ran on a substrate it never named.
+      ;; and the SSR adapter, so a bare `init!` here would meet another suite's
+      ;; adapter whenever one of them ran first.
       (rf/destroy-adapter!)
       (rf/init! rf.adapter.reagent/adapter)
-      ;; EP-0002 (rf2-nn0jqa): `init!` does not synthesise a `:rf/default`
+      ;; EP-0002: `init!` does not synthesise a `:rf/default`
       ;; frame, and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; the dispatch below carries `{:frame
       ;; :rf/default}` so the sync dispatch AND the async reply continuation
@@ -133,11 +132,11 @@
                       ":stale-at is :loaded-at + :stale-after-ms")
                   (is (> stale-at now-epoch)
                       ":stale-at is in the future against js/Date.now (window not elapsed)"))))
-            ;; Reports and releases; it never finishes (rf2-fyba). The fetch
-            ;; restore both arms duplicated rides the single trailing step.
+            ;; Reports and releases; it never finishes. The fetch restore
+            ;; rides the single trailing step, which both arms reach.
             (.catch
               (fn [err]
-                (is false (str "rf2-2elcw3 — unexpected: " err))
+                (is false (str "unexpected: " err))
                 nil))
             (.then
               (fn [_]
