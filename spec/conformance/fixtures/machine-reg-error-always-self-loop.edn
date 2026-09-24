@@ -21,7 +21,7 @@
 {:fixture/id           :machine/reg-error-always-self-loop
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/eventless-always :fsm/registration-validation}
- :fixture/doc          "An :always entry whose :target resolves to its own declaring state is rejected at registration with :rf.error/machine-always-self-loop. Keyword and vector self-targets both throw; an internal (no-:target) :always and a sibling-target :always validate silently."
+ :fixture/doc          "An :always entry whose :target resolves to its own declaring state is rejected at registration with :rf.error/machine-always-self-loop. Keyword and vector self-targets both throw; a targetless :always is not a self-loop (an unguarded one is refused under its own id, :rf.error/machine-always-unguarded-targetless), and a sibling-target :always validates silently."
 
  :fixture/registry {}
  :fixture/handlers  {}
@@ -50,13 +50,15 @@
                                     :states  {:inner {:always [{:target [:outer :inner]}]}}}}}
    :expect-error :rf.error/machine-always-self-loop}
 
-  ;; (3) Control: internal :always (no :target) is the canonical
-  ;; action-microstep pattern — NOT a self-loop, validates silently. The
-  ;; action is left implicit (no :action ref) so the raw definition needs
-  ;; no handler resolution; the no-:target shape is what the control pins.
-  {:call       :reg-machine
-   :definition {:initial :working
-                :states  {:working {:always [{}]}}}}
+  ;; (3) Control: a targetless :always is NOT a self-loop — it is refused
+  ;; under its OWN id instead. With neither :guard nor :target it is enabled
+  ;; on every settle and changes no state, so registration rejects it as
+  ;; unguarded-targetless (the fixture stays guard-free, as noted above; the
+  ;; canonical targetless form carries a :guard its action flips false).
+  {:call         :reg-machine
+   :definition   {:initial :working
+                  :states  {:working {:always [{}]}}}
+   :expect-error :rf.error/machine-always-unguarded-targetless}
 
   ;; (4) Control: an :always targeting a DIFFERENT sibling validates silently.
   {:call       :reg-machine
