@@ -107,8 +107,8 @@
 ;; pre-dispatch boundary — BEFORE `ensure-connection!` — when writes are
 ;; off, so the "default-safe write posture is observably true at the MCP
 ;; boundary" contract holds (spec/Tool-Pair.md §Pair-tool writes;
-;; tools/writes.cljs §Default-safe). The tool-body gates STAY (defence in
-;; depth + the direct-call test surface); this is the outer ring.
+;; tools/writes.cljs §Default-safe). The tool-body gates are defence in
+;; depth and the direct-call test surface; this is the outer ring.
 
 (def gated-write-tools
   "Tool names refused at the server boundary when `--allow-writes` is OFF.
@@ -124,7 +124,7 @@
   discovery / elicitation triggered). Returns `nil` for any tool that
   must proceed to normal dispatch (a non-write tool, or a write tool when
   writes are enabled — the latter falls through to its body, which then
-  needs the connection). The tool-body gates remain as defence in depth."
+  needs the connection). The tool-body gates are defence in depth."
   [tool]
   (when (and (contains? gated-write-tools tool)
              (not (writes-allowed?)))
