@@ -68,9 +68,9 @@
 ;; `(keys (:regions …))` / state-map iteration: a `:regions` map with more
 ;; than eight entries is a PersistentHashMap whose key iteration is HASH order
 ;; (source order is already gone at read time, and hash order even differs
-;; between CLJ and CLJS), so map iteration cannot carry authored order. This
-;; changes the apply-ordering REPRESENTATION only; the frozen select-then-apply
-;; SELECTION semantics are unchanged.
+;; between CLJ and CLJS), so map iteration cannot carry authored order. The
+;; canonical vector governs the apply-ordering REPRESENTATION only; the frozen
+;; select-then-apply SELECTION semantics do not depend on it.
 
 (defn- order-preserving-map?
   "True iff `m`'s key-iteration order equals its authored/insertion order —
@@ -168,8 +168,8 @@
       (:region-order (normalise-region-order machine))))
 
 (defn parallel-state-valid?
-  "The ONE parallel-region snapshot-shape predicate (bz0ox.2 / x4s9t.2 —
-  XState v5 / SCXML parity: a parallel state's configuration is EVERY region
+  "The ONE parallel-region snapshot-shape predicate (XState v5 / SCXML
+  parity: a parallel state's configuration is EVERY region
   active simultaneously, never a subset). True iff `state` is:
 
    1. a map, AND
@@ -207,8 +207,8 @@
   region present + occupiable — `parallel-state-valid?`) AND EVERY region's
   active leaf is `:final?`. Walk each region's body + active path and check
   the leaf node's `:final?` flag. Returns false when the snapshot is not a
-  valid parallel configuration (missing/extra region, occupied-history leaf
-  — bz0ox.2 / x4s9t.2), or when ANY present region's leaf isn't final. The
+  valid parallel configuration (missing/extra region, occupied-history
+  leaf), or when ANY present region's leaf isn't final. The
   validity gate means a partial map like `{:left :done}` for a 2-region
   machine can NEVER vacuously read as all-final and fire root `:on-done` /
   auto-destroy.
@@ -244,14 +244,15 @@
   `apply-transition-once` directly (`bootstrap-step`, `apply-root-region-target`
   — which BYPASS the per-dispatch `machine-transition` desugar seam) and the
   event path see identically-lowered region bodies. Without this, a
-  region-initial `:timeout` never armed at birth and a region-initial
-  `:type :choice` stayed stuck at its transient node (rf2-x76af2.7): the raw
-  region body was faulted into the cache during `build-initial-snapshot`'s tag
-  computation, then served — still raw — on those direct-apply paths. Both
+  region-initial `:timeout` would never arm at birth and a region-initial
+  `:type :choice` would stay stuck at its transient node: the region body is
+  faulted into the cache during `build-initial-snapshot`'s tag computation,
+  and a raw one would then be served — still raw — on those direct-apply
+  paths. Both
   desugars are idempotent and short-circuit for the common rf.machines.timeout/choice-free
   region, so this costs one structural scan on the once-per-region cache miss.
   A region-ROOT `:after` / `:timeout` is rejected at registration
-  (`validate-non-parallel-root-after!`, rf2-x76af2.10), so only region STATE
+  (`validate-non-parallel-root-after!`), so only region STATE
   nodes carry lowerable `:timeout` / `:choice` by the time a body reaches here."
   [parent-machine region-name]
   (let [region-body (rf.machines.choice/desugar-choices
@@ -413,8 +414,8 @@
   `:rf/spawn-all-id` (its join-slot key — deliberately NOT `:rf/invoke-id`,
   which would make `spawn-fx` track the child in a per-child slot). It must
   be region-prefixed IDENTICALLY, or the child-side join reads
-  (`spawn-all-invoke-rejected?`, the `:rf/join-child` membership record —
-  rf2-nvxehu) address a slot the region's `spawn-all-init-fx` never seeded."
+  (`spawn-all-invoke-rejected?`, the `:rf/join-child` membership record)
+  address a slot the region's `spawn-all-init-fx` never seeded."
   [region-name fx]
   (let [[fx-id args] fx
         prefix-path  #(vec (cons region-name %))]
@@ -569,12 +570,11 @@
         ;; `parallel-state-valid?`) is enforced UPSTREAM at handler entry
         ;; (`registration/state-resolves?` -> `reconcile-snapshot`), so a live
         ;; snapshot reaching here always carries every declared region; the
-        ;; `contains?` filter is then a no-op. It is retained as a defensive
+        ;; `contains?` filter is then a no-op. It stays as a defensive
         ;; guard against a pure-fn caller that synthesises a partial map
         ;; directly — skipping an absent region is safer than a `state-path
-        ;; nil` throw, and `all-regions-final?` now independently rejects a
-        ;; partial map so a skipped region can never vacuously read as done
-        ;; (bz0ox.2 / x4s9t.2).
+        ;; nil` throw, and `all-regions-final?` independently rejects a
+        ;; partial map so a skipped region can never vacuously read as done.
         ordered     (filterv #(contains? state-map %)
                              (region-order parent-machine))
         ;; FROZEN pre-broadcast cross-region snapshot. The
@@ -593,8 +593,8 @@
         ;; a dedicated SELECT pass FIRST, resolving every region's match against
         ;; a frozen pre-event view that ALSO freezes `:data`, so a region's
         ;; event guard never sees an earlier region's same-macrostep `:data`
-        ;; write; this fold only APPLIES the pre-selected transitions
-        ;; (rf2-lq5yo3). `commit-snapshot` preserves the `:all-state` / `:tags`
+        ;; write; this fold only APPLIES the pre-selected transitions.
+        ;; `commit-snapshot` preserves the `:all-state` / `:tags`
         ;; slots through each preselected transition's cascade, so actions read
         ;; one frozen sibling view while shared `:data` accumulates.
         ;;
@@ -621,7 +621,7 @@
            ;; snapshot (so a prior epoch's recordings survive) and merged
            ;; back below.
            cur-history  (:rf/history snapshot)
-           ;; rf2-3x7nj.9.3 — the per-invoke `:spawn` attempt tokens, threaded
+           ;; The per-invoke `:spawn` attempt tokens, threaded
            ;; like `:rf/history` (region-qualified keys, so no collision).
            cur-attempts (:rf/spawn-attempts snapshot)
            new-states   state-map
@@ -812,7 +812,7 @@
 
 (declare machine-transition)
 ;; `drain-parent-queue` consults the parallel root `:on` ancestor fallback for a
-;; re-broadcast raise declined by every region (rf2-x76af2.8); `root-fallback-
+;; re-broadcast raise declined by every region; `root-fallback-
 ;; seed` is defined below it (alongside the external-seed path it mirrors).
 (declare root-fallback-seed)
 
@@ -858,7 +858,7 @@
   FROZEN pre-event view) against `region-snap`, whose `:data` has ACCUMULATED
   earlier regions' same-macrostep writes in declaration order — so the
   transition's ACTION sees the evolving `:data` while its GUARD selection was
-  already frozen (rf2-lq5yo3).
+  already frozen.
 
   Crucially this applies ONE transition WITHOUT a region-local `:always`
   drain. The parallel parent owns eventless select-then-apply rounds across
@@ -883,7 +883,7 @@
     `:all-state` and `:tags` are all taken from `snapshot` BEFORE any region
     applies. So a later region's guard SELECTION never observes an earlier
     region's same-macrostep `:data` write — selection is DECLARATION-ORDER-
-    INDEPENDENT (rf2-lq5yo3). Guard bodies run here, so their
+    INDEPENDENT. Guard bodies run here, so their
     `:rf.machine/guard-evaluated` traces cluster ahead of the APPLY-phase
     action traces within the macrostep.
 
@@ -907,8 +907,8 @@
         ordered   (filterv #(contains? state-map %)
                            (region-order machine))
         ;; FROZEN pre-event SELECTION view — computed ONCE, shared by every
-        ;; region's SELECT. `:data` joins `:all-state` / `:tags` in the freeze
-        ;; (rf2-lq5yo3): the pre-event `:data` is what every region's guard
+        ;; region's SELECT. `:data` joins `:all-state` / `:tags` in the
+        ;; freeze: the pre-event `:data` is what every region's guard
         ;; resolves against regardless of declaration order.
         frozen-data      (:data snapshot)
         frozen-all-state state-map
@@ -1349,8 +1349,8 @@
                     ;; framework traffic; when the root fires it applies the
                     ;; transition without local settling. The next parent-loop
                     ;; iteration selects `:always` across the complete moved
-                    ;; configuration before any surfaced raises drain FIFO
-                    ;; (rf2-x76af2.8). A `rf.machines.result/fail` short-circuits.
+                    ;; configuration before any surfaced raises drain FIFO.
+                    ;; A `rf.machines.result/fail` short-circuits.
                     step  (if (rf.machines.result/fail? bstep)
                             bstep
                             (root-fallback-seed m' cur-snap ev bstep))]
@@ -1358,18 +1358,18 @@
                   step
                   (rf.machines.result/with-ok [snap2 fx2] step
                     (let [[new-raises real-fx] (split-raises fx2)
-                          ;; rf2-nb8nj — group the rebroadcast's rows under ONE
-                          ;; `:kind :raised-transition` boundary instead of
+                          ;; Group the rebroadcast's rows under ONE
+                          ;; `:kind :raised-transition` boundary rather than
                           ;; flattening them straight into the accumulator.
-                          ;; The geometry always survived here, but with no
-                          ;; boundary and no trigger event its exit / action /
-                          ;; entry rows were indistinguishable from the EXTERNAL
-                          ;; event's — which is worse than losing them, because
-                          ;; Xray's `handled-regions-from-cascade` treats any
+                          ;; Flattened, with no boundary and no trigger event,
+                          ;; its exit / action / entry rows would be
+                          ;; indistinguishable from the EXTERNAL event's — worse
+                          ;; than losing them, because Xray's
+                          ;; `handled-regions-from-cascade` treats any
                           ;; non-`:microstep` row's `:region` as evidence that
-                          ;; the region handled the DISPATCHED event. A region
+                          ;; the region handled the DISPATCHED event, so a region
                           ;; that declined the external event and moved only on
-                          ;; the raise was therefore misattributed and lit a
+                          ;; the raise would be misattributed and light a
                           ;; phantom event edge.
                           ;;
                           ;; Identical shape and gate to the flat/compound drain
@@ -1428,8 +1428,8 @@
 ;; (`:rf.error/machine-parallel-on-done-target`). The machine stays in the
 ;; all-final configuration — the natural stable "complete" resting state.
 ;;
-;; D7 reconciliation. A parallel root that declares NO `:on-done` keeps the
-;; existing whole-machine finality (the lifecycle boundary's
+;; D7 reconciliation. A parallel root that declares NO `:on-done` keeps
+;; whole-machine finality (the lifecycle boundary's
 ;; `commit-or-finalize` recomputes `all-regions-final?` and routes to
 ;; `finalize-machine` — singleton auto-destroy, or the SPAWNING parent's
 ;; `:spawn :on-done`). The parallel root's OWN `:on-done` is the transitionable
@@ -1449,7 +1449,7 @@
   unchanged (the whole-machine finalize path then runs at the lifecycle
   boundary).
 
-  `newly-reached?` is the false→true EDGE guard (h3wca.1 — XState v5 `onDone`
+  `newly-reached?` is the false→true EDGE guard (XState v5 `onDone`
   / SCXML `done.state.<parallelId>` fire EXACTLY ONCE, on ENTERING the done
   configuration, never re-firing on a later event delivered while resting
   there). The caller passes `true` only when this macrostep CROSSED into the
@@ -1502,7 +1502,7 @@
    - the applied root-transition Result (handled, region targets moved, root
      `:action` run once) when the root `:on` matches; or
    - `first-r` UNCHANGED when no region handled the event and the root has no
-     matching `:on` (the existing all-regions-declined no-op path then runs).
+     matching `:on` (the all-regions-declined no-op path then runs).
 
   Eventless stabilization is deliberately NOT run here. The parent loop sees
   the complete post-root configuration and owns the same frozen
@@ -1742,7 +1742,7 @@
   `entry-r` is the WHOLE `run-initial-cascade` Result — its snapshot AND its
   fx. The entry fx is the drain SEED so a `[:raise ...]` emitted by an
   initial `:entry` action drains to a fixed point INSIDE the birth macrostep
-  (bz0ox.1 / x4s9t — XState v5 / SCXML internal-event-queue parity; Spec 005
+  (XState v5 / SCXML internal-event-queue parity; Spec 005
   §birth includes region-emitted raises). The settle therefore returns the
   entry's NON-raise fx (preserved in order) ++ any settle/raise-target fx;
   the caller (`apply-initial-entry-cascade`) does NOT re-prepend the entry fx.
@@ -1781,7 +1781,7 @@
         ;; at start). No `:on-done` ⇒ the lifecycle boundary's birth finalize
         ;; runs. `newly-reached? true`: birth is the single macrostep that
         ;; ENTERS the initial configuration, so a born-all-final machine crosses
-        ;; the done edge here (h3wca.1) — fired once, never re-fired (a born
+        ;; the done edge here — fired once, never re-fired (a born
         ;; machine settles in one macrostep; subsequent events route through
         ;; `parallel-machine-transition`'s edge guard).
         (fire-parallel-on-done machine
@@ -1791,7 +1791,7 @@
         machine
         ;; Seed with the entry Result's fx so an initial-`:entry` `[:raise ...]`
         ;; drains FIFO inside the birth macrostep instead of escaping to the
-        ;; outbound fx layer (bz0ox.1).
+        ;; outbound fx layer.
         (rf.machines.result/ok boot-snapshot (vec entry-fx))
         0
         false))))
@@ -1819,7 +1819,7 @@
   `settle-birth` is seeded with the WHOLE `run-initial-cascade` Result so any
   `[:raise ...]` emitted by an initial `:entry` action drains FIFO inside this
   birth macrostep rather than escaping to the outbound fx layer as a reserved
-  `:raise` fx (bz0ox.1 — would otherwise trip `:rf.error/no-such-fx`). The
+  `:raise` fx (which would trip `:rf.error/no-such-fx`). The
   returned `settle-fx` therefore ALREADY carries the entry's non-raise fx (in
   order) ++ the settle/raise-target fx — so this fn does NOT re-prepend
   `entry-fx`.
@@ -1865,7 +1865,7 @@
           settle-r
           (rf.machines.result/with-ok [settled-snap settle-fx] settle-r
             ;; `settle-fx` already = entry (non-raise) fx ++ settle fx, with
-            ;; the initial-`:entry` raises drained internally (bz0ox.1).
+            ;; the initial-`:entry` raises drained internally.
             ;; Cascade: entry cascade ++ the `:always` microstep cascade.
             ;; `::microsteps` rides from the settle (the entry cascade ran no
             ;; `:always`). The settle's `parallel-done-handled?`
