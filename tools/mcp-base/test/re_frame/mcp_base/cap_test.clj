@@ -341,8 +341,8 @@
 
 (deftest reported-count-is-always-in-token-units
   ;; The `reported = (if (> tokens cap) tokens (quot chars 4))` selector,
-  ;; pinned either side of the TOKEN gate — the arm it keys on
-  ;; (rf2-3x7nj.35.2). Both arms are live —
+  ;; pinned either side of the TOKEN gate — the arm it keys on.
+  ;; Both arms are live —
   ;; `apply-cap-many-short-strings-trips-char-gate` reaches the chars/4
   ;; arm through the real pipeline.
   (let [cap-tokens 100
@@ -364,8 +364,8 @@
   ;; Consistency pin: the extracted predicates are exactly what
   ;; `apply-cap` uses. A single big string about 2x over budget trips
   ;; BOTH gates (1002 tokens > 500, 4010 chars > 500*8), and the marker
-  ;; must still carry the TOKEN estimate — not the char count, which is
-  ;; what it carried before rf2-3x7nj.35.2. (The char-only arm is reached
+  ;; must carry the TOKEN estimate — not the char count, which would
+  ;; overstate it ~4x. (The char-only arm is reached
   ;; through the live path by `apply-cap-many-short-strings-trips-char-gate`.)
   (let [big (big-string 4000)        ;; 4000 chars ⇒ 1000 tokens
         r   (ok-text-result {:huge big})
