@@ -46,7 +46,7 @@
   policy. Reached via the `:error-emit/dispatch-on-error` late-bind hook
   (this diagnostics ns cannot static-require `re-frame.error-emit`
   without a load cycle). The `:frame`-stampable record carries the target
-  `frame` + attempted `event` for 7d30s + shipper attribution.
+  `frame` + attempted `event` for shipper attribution.
 
   The dev `rf.trace/emit-error!` below stays dev-only (it DCEs under
   `goog.DEBUG=false`); the always-on listener fan-out is what survives."
@@ -118,7 +118,7 @@
     :rf.cofx                EP-0017 flat recordable-coeffect map
                             (caller-supplied `:rf/time-ms` + owner-qualified
                             facts; the router fills `:rf/time-ms` when absent)
-    :rf.cofx/mint-policy    EP-0017 §6 / slice-B.8 per-call cofx mint policy
+    :rf.cofx/mint-policy    EP-0017 §6 per-call cofx mint policy
                             (`:live` / `:strict` / `:explicit-live`); the
                             most-specific binding point — a Tool-Pair replay
                             supplies `:strict`, a nondeterminism-declaring test
@@ -140,7 +140,7 @@
                             `build-envelope` and carried onto the dispatched
                             trace as `:rf.frame/init-step-index`
     :rf.frame/expected-incarnation
-                            rf2-dlld6 — the EXACT incarnation token
+                            the EXACT incarnation token
                             (`:drain-lock`) a `capture-frame` op pinned at
                             capture, threaded by `re-frame.core/capture-dispatch!`.
                             `build-envelope` reads it and carries it onto the
@@ -164,9 +164,9 @@
   (`emit-unknown-dispatch-opts-warning!`), but with a specific replacement
   suggestion appended so the fix stays actionable:
 
-    :rf.world/inputs → :rf.cofx  (EP-0017 renamed the recordable-coeffect
-                                  envelope field; the flat `fact-name → value`
-                                  map is now supplied under `:rf.cofx`)
+    :rf.world/inputs → :rf.cofx  (the recordable-coeffect envelope field is
+                                  `:rf.cofx` (EP-0017); the flat
+                                  `fact-name → value` map is supplied under it)
     :dispatched-at   → the durable causal-time fact
                        `(:rf/time-ms (:rf.cofx envelope))` (EP-0010 —
                        there is no caller-supplied dispatch-time field)
@@ -190,16 +190,16 @@
   Issue 9 — structural EDN always, hard errors in production as well as dev):
   a supplied recordable value that is a host handle folds a non-EDN value into
   the durable causal record (epoch ledger, replay, SSR payload, Xray) — corrupt
-  durable state, not a dev nicety, the same `:dispatched-at` causal-token
-  precedent the map-shape / `:rf/time-ms` checks above already enforce
-  always-on. The walk runs only when a `:rf.cofx` was supplied (no allocation
+  durable state, not a dev nicety, for the same reason `validate-cofx!`'s
+  map-shape and `:rf/time-ms` checks run always-on. The walk runs only when a
+  `:rf.cofx` was supplied (no allocation
   on the override-free hot path), and the recordable predicate short-circuits
   at the first non-EDN leaf. The declared-`:schema` check (cofx.cljc) is the
   complementary always-on per-supplier contract; this is the structural
   always-EDN floor that fires even when no `:schema` was declared.
 
   The `:supplied` arm of the shared `rf.cofx.value-check/check-edn-value!`
-  — its generated-value twin (slice B) lives at the generator write-back site
+  — its generated-value twin lives at the generator write-back site
   (`re-frame.cofx`). The always-on listener carries the triggering `event` (the
   supplied path runs at the dispatch boundary, before any frame is owned)."
   [supplied event]
@@ -248,9 +248,9 @@
   that follows; this is the structural always-EDN floor that catches the author
   error at the dispatch source.
 
-  ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?`: like
-  `reject-retired-dispatch-opts!`, a corrupt causal token is a correctness
-  contract that must fail fast in `:advanced` + `goog.DEBUG=false`
+  ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?`: a corrupt causal
+  token is a correctness contract that must fail fast in `:advanced` +
+  `goog.DEBUG=false`
   production too (a non-integer `:rf/time-ms` folded into a durable timestamp
   is a production data-integrity bug, not a dev nicety). The cost is a
   `contains?` + a `map?` / `int?` check on the dispatch path — no allocation
@@ -258,8 +258,7 @@
 
   Checked at the causal boundary in `re-frame.router/build-envelope` BEFORE
   `ensure-cofx` stamps `:rf/time-ms`, so an invalid token fails fast WITHOUT
-  first reading the clock for a dispatch that cannot proceed (the same
-  fail-before-clock-read ordering as the retirement check). Per Spec 002
+  first reading the clock for a dispatch that cannot proceed. Per Spec 002
   §Recordable coeffects + EP-0010 §Time + EP-0017 §The envelope field."
   [opts event]
   (when (contains? opts :rf.cofx)
@@ -321,9 +320,9 @@
   the recognised `known-dispatch-opts` set. The runtime reads only the
   known keys in `build-envelope`; an unrecognised key (almost always a
   typo — `:fram` instead of `:frame`) is otherwise silently swallowed and
-  changes nothing, producing wrong behaviour with no signal. Pre-alpha
-  posture: surface it loudly rather than ship a quiet footgun (aligns with
-  the no-silent-swallow principle).
+  changes nothing, producing wrong behaviour with no signal. It is surfaced
+  loudly rather than left as a quiet footgun (the no-silent-swallow
+  principle).
 
   One warning per dispatch call carrying unknown keys: the message names
   every bad key and the full known set so the fix is obvious. The dispatch
@@ -406,7 +405,7 @@
                   :reason       reason
                   :recovery     :no-recovery})))
 
-;; ---- rf2-70h9wn: event-payload serialisability lint -----------------------
+;; ---- event-payload serialisability lint -----------------------------------
 ;;
 ;; Per Conventions §Event payloads SHOULD be serialisable data: event vectors
 ;; SHOULD contain recordable, serialisable data (the same causal-tokens-are-
