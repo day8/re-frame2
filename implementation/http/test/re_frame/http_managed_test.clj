@@ -2025,7 +2025,7 @@
   (testing "a 200 JSON response that parses but FAILS a Malli
             :decode schema classifies as :rf.http/decode-failure with
             :schema-validation-failure? true (Spec 014 §Classification
-            order step 3; http_transport.cljc:721-726)"
+            order step 3)"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -2155,7 +2155,7 @@
   (testing "an :accept fn that returns {:failure ..} on a 2xx
             response produces a :rf.http/accept-failure reply carrying the
             user :detail and the pre-accept :decoded value
-            (http_transport.cljc:523-530; Spec 014 §`:accept` +
+            (Spec 014 §`:accept` +
             §Classification order step 4)"
     (let [{:keys [port] :as srv}
           (start-server!
@@ -2195,7 +2195,7 @@
 (deftest jvm-request-params-encoded-into-query-string
   (testing ":params is encoded onto the request URL as a query
             string (keyword keys → name, values escaped) and arrives at
-            the server (http_encoding.cljc:50-67 via run-attempt!)"
+            the server (via run-attempt!)"
     (let [seen-query (atom nil)
           {:keys [port] :as srv}
           (start-server!
@@ -2227,7 +2227,7 @@
 (deftest jvm-request-content-type-encodes-body-and-sets-header
   (testing ":request-content-type :json encodes the body and
             sets the Content-Type header; the server observes both
-            (http_encoding.cljc:76-102 + the header-set in run-attempt!)"
+            (`encode-body` + the header-set in run-attempt!)"
     (let [seen-ct   (atom nil)
           seen-body (atom nil)
           {:keys [port] :as srv}
@@ -2258,8 +2258,8 @@
 (deftest jvm-explicit-content-type-header-wins-clash-guard
   (testing "when the request already carries a Content-Type
             header, run-attempt! does NOT overwrite it with the
-            encode-body content-type (the clash guard at
-            http_transport.cljc:755-757)"
+            encode-body content-type (the clash guard in
+            `prepare-body!`)"
     (let [seen-cts (atom nil)
           {:keys [port] :as srv}
           (start-server!
