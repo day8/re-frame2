@@ -66,10 +66,10 @@
       (finally
         (aset js/globalThis "location" orig)))))
 
-;; ---- rf2-r40km — :rf.http/cors retry-set membership ----------------------
+;; ---- :rf.http/cors retry-set membership ----------------------------------
 
 (deftest cors-is-a-valid-retry-on-member
-  (testing "rf2-r40km / rf2-apwkm — `:rf.http/cors` is a valid member of
+  (testing "`:rf.http/cors` is a valid member of
   `:retry :on`. CORS sits in the closed retryable set documented at
   Spec 014 §Closed-set `:retry :on` validation
   (#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx
@@ -80,10 +80,10 @@
     (is (contains? rf.http.handlers/retryable-categories :rf.http/cors)
         ":rf.http/cors is in the shipped closed retryable set")))
 
-;; ---- rf2-r40km — classify-cljs-error CORS branch -------------------------
+;; ---- classify-cljs-error CORS branch -------------------------------------
 
 (deftest classify-cors-typeerror-cross-origin
-  (testing "rf2-r40km — a TypeError on a cross-origin URL classifies as
+  (testing "a TypeError on a cross-origin URL classifies as
   `:rf.http/cors` per Spec 014 §Failure categories. The heuristic is
   conservative: TypeError + parseable cross-origin URL = CORS; anything
   else falls through to `:rf.http/transport`.
@@ -104,7 +104,7 @@
         (is (some? (:message out)) ":message tag rides the failure shape")))))
 
 (deftest classify-typeerror-relative-url-is-transport
-  (testing "rf2-r40km — a TypeError on a relative URL (always same-origin
+  (testing "a TypeError on a relative URL (always same-origin
   by definition) stays at `:rf.http/transport`. The conservative path
   must not misclassify a same-origin network drop as CORS."
     (let [err (js/TypeError. "Failed to fetch")
@@ -113,7 +113,7 @@
           "relative URL never classifies as CORS"))))
 
 (deftest classify-non-typeerror-stays-transport
-  (testing "rf2-r40km — a non-TypeError (e.g. a generic JS Error) on a
+  (testing "a non-TypeError (e.g. a generic JS Error) on a
   cross-origin URL still classifies as `:rf.http/transport`. CORS
   rejections are always TypeErrors."
     (let [err (js/Error. "connection-reset")
@@ -122,7 +122,7 @@
           "non-TypeError stays at :rf.http/transport regardless of URL"))))
 
 (deftest classify-transport-cause-is-edn-serializable-string
-  (testing "rf2-6pcz0d — the generic-rejection `:rf.http/transport` branch
+  (testing "the generic-rejection `:rf.http/transport` branch
   stores `:cause` as the rejection CLASS-NAME STRING (`(.-name err)`), NOT the
   raw js/Error object. The failure map rides `:error` on the canonical reply
   (reply.cljc's EDN-serializable contract) and the `:rf.http/transport` trace;
@@ -139,21 +139,21 @@
       (is (= "Error" (:cause out))
           ":cause is `(.-name err)` — \"Error\" for a plain js/Error")
       (is (= "connection-reset" (:message out))
-          ":message still carries the human message")
+          ":message carries the human message")
       ;; Adversarial EDN round-trip: a raw js/Error `:cause` prints as an
       ;; unreadable `#object[…]` tag, so `read-string` would THROW (or not
-      ;; round-trip) before the fix. A string `:cause` round-trips cleanly,
+      ;; round-trip). A string `:cause` round-trips cleanly,
       ;; proving the whole failure map is EDN-serializable end to end.
       (is (= out (edn/read-string (pr-str out)))
           "the transport failure map round-trips through EDN (pr-str → read-string)"))))
 
-;; ---- rf2-u5xwa — `cross-origin?` heuristic under a deterministic origin --
+;; ---- `cross-origin?` heuristic under a deterministic origin --------------
 
 (deftest cross-origin-classification-under-injected-origin
-  (testing "rf2-u5xwa — the load-bearing positive CORS branch
+  (testing "the load-bearing positive CORS branch
   (`cross-origin?` returning true → `:rf.http/cors`) runs DETERMINISTICALLY
   under the node gate by injecting a known `js/globalThis.location.origin`.
-  The pre-existing `classify-cors-typeerror-cross-origin` silently no-ops in
+  The sibling `classify-cors-typeerror-cross-origin` silently no-ops in
   node (the ambient `location.origin` is absent), so this exercises the real
   `classify-cljs-error` → `cross-origin?` → `js/URL.` → origin-comparison
   path that otherwise ships dark on `npm run test:cljs`. Both the positive
@@ -196,10 +196,10 @@
               (is (= :rf.http/transport (:kind out))
                   (str url " is relative/same-origin, never CORS")))))
 
-        ;; rf2-azrcs — protocol-relative URLs inherit the page SCHEME but
-        ;; carry their OWN host, so the host decides cross-origin. The
-        ;; pre-fix single-slash short-circuit (`starts-with? url "/"`)
-        ;; misclassified BOTH a different-host and a same-host
+        ;; Protocol-relative URLs inherit the page SCHEME but
+        ;; carry their OWN host, so the host decides cross-origin. A
+        ;; single-slash short-circuit (`starts-with? url "/"`)
+        ;; would classify BOTH a different-host and a same-host
         ;; protocol-relative URL as same-origin.
         (testing "a protocol-relative URL with a DIFFERENT host → :rf.http/cors"
           (let [err (js/TypeError. "Failed to fetch")
@@ -215,8 +215,8 @@
             (is (= :rf.http/transport (:kind out))
                 "//app.example/x resolves to https://app.example (same-origin)")))
 
-        ;; rf2-azrcs — URL schemes are case-insensitive (RFC 3986 §3.1).
-        ;; The pre-fix lowercase-only prefix check let `DATA:`/`FILE:` fall
+        ;; URL schemes are case-insensitive (RFC 3986 §3.1).
+        ;; A lowercase-only prefix check would let `DATA:`/`FILE:` fall
         ;; through to `js/URL.`, where their parsed origin is the literal
         ;; string "null" (≠ page origin) → false-classified as CORS.
         (testing "uppercase / mixed-case non-http schemes are scheme-excluded
@@ -229,7 +229,7 @@
               (is (= :rf.http/transport (:kind out))
                   (str url " is scheme-excluded case-insensitively, never CORS")))))))))
 
-;; ---- rf2-5zj6t — binary decode reads the native Fetch body ---------------
+;; ---- binary decode reads the native Fetch body ---------------------------
 
 (defn- fake-response
   "A minimal Fetch `Response` stand-in. Each body-reader resolves to a
@@ -258,10 +258,10 @@
         (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
 
 (deftest binary-decode-reads-native-blob
-  (testing "rf2-5zj6t — `:decode :blob` reads the response via `.blob()`,
+  (testing "`:decode :blob` reads the response via `.blob()`,
   riding the native Blob under `:body-binary` (NOT the lossy `.text()`
-  string under `:body-text`). The pre-fix transport always read `.text`,
-  so a `:blob` decode resolved to the body-TEXT string."
+  string under `:body-text`). A transport that always read `.text` would
+  resolve a `:blob` decode to the body-TEXT string."
     (async done
       (let [blob (js-obj "__kind" "blob")
             resp (fake-response {:status       200
@@ -284,7 +284,7 @@
             (.then (fn [_] (done))))))))
 
 (deftest array-buffer-and-form-data-read-native-bodies
-  (testing "rf2-5zj6t — `:array-buffer` reads via `.arrayBuffer()` and
+  (testing "`:array-buffer` reads via `.arrayBuffer()` and
   `:form-data` reads via `.formData()`, each riding `:body-binary`."
     (async done
       (let [ab (js-obj "__kind" "ab")
@@ -310,9 +310,9 @@
             (.then (fn [_] (done))))))))
 
 (deftest text-and-auto-text-still-read-body-text
-  (testing "rf2-5zj6t — non-binary decodes (`:text`, `:json`, omitted/`:auto`
-  over a text Content-Type) still read `.text()` into `:body-text`. The
-  binary-reader change must not regress the common path."
+  (testing "non-binary decodes (`:text`, `:json`, omitted/`:auto`
+  over a text Content-Type) read `.text()` into `:body-text`: the
+  binary readers must not regress the common path."
     (async done
       (let [resp (fake-response {:status 200 :content-type "application/json"
                                  :text-val "{\"ok\":true}" :blob-val (js-obj)})]
@@ -328,7 +328,7 @@
             (.then (fn [_] (done))))))))
 
 (deftest non-2xx-binary-decode-still-reads-text
-  (testing "rf2-5zj6t — a non-OK response (e.g. 404) ALWAYS reads `.text()`
+  (testing "a non-OK response (e.g. 404) ALWAYS reads `.text()`
   regardless of `:decode`, because decode never runs on non-2xx and the
   4xx/5xx failure paths carry the raw body-text."
     (async done
@@ -346,14 +346,14 @@
             (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
             (.then (fn [_] (done))))))))
 
-;; ---- rf2-ee38b.7 — `:timeout-ms 0` is the opt-out, not a near-instant abort ----
+;; ---- `:timeout-ms 0` is the opt-out, not a near-instant abort ------------
 
 (defn- with-deferred-fetch
   "Like `with-stub-fetch` but `js/fetch` resolves `resp` on the NEXT
   macrotask (`setTimeout 0`) rather than synchronously. This is the
-  trap that exposes the pre-fix timeout-0 bug: pre-fix `:timeout-ms 0`
-  armed its own `setTimeout(…, 0)` that would race this resolution and
-  abort+reject the request. Post-fix the `(pos? timeout-ms)` guard arms
+  trap for a timeout-0 bug: a `:timeout-ms 0` that
+  armed its own `setTimeout(…, 0)` would race this resolution and
+  abort+reject the request. The `(pos? timeout-ms)` guard arms
   no timeout, so the deferred fetch resolution always wins."
   [resp f]
   (let [orig (.-fetch js/globalThis)]
@@ -364,7 +364,7 @@
     (-> (f)
         (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
 
-;; ---- rf2-ee38b.7 — CLJS Fetch threads `:redirect` into the init ----------
+;; ---- CLJS Fetch threads `:redirect` into the init ------------------------
 
 (defn- with-init-capturing-fetch
   "Run `f` with `js/fetch` stubbed to resolve `resp` while recording the
@@ -379,8 +379,8 @@
         (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
 
 (deftest cljs-fetch-passes-redirect-into-init
-  (testing "rf2-ee38b.7 — the CLJS transport threads `:redirect` into the
-  Fetch `init` (cross-host parity with the JVM redirect-policy fix).
+  (testing "the CLJS transport threads `:redirect` into the
+  Fetch `init` (cross-host parity with the JVM redirect policy).
   Explicit `:error` rides through name-stringified."
     (async done
       (let [captured-init (atom nil)
@@ -399,14 +399,14 @@
             (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
             (.then (fn [_] (done))))))))
 
-;; ---- rf2-rznrz — CLJS multi-valued request headers -----------------------
+;; ---- CLJS multi-valued request headers -----------------------------------
 
 (deftest cljs-fetch-multi-valued-request-header-appends-each-value
-  (testing "rf2-rznrz — a request header whose value is a vector of strings
+  (testing "a request header whose value is a vector of strings
   is normalised into a Fetch `Headers` object with one APPEND per element,
   so the multi-valued wire form (`X-Multi: alpha` + `X-Multi: beta`) is
-  produced. The pre-fix transport `aset` the vector straight into a plain
-  JS object, serialising it as a single malformed `[\"alpha\" \"beta\"]`
+  produced. `aset`-ing the vector straight into a plain
+  JS object would serialise it as a single malformed `[\"alpha\" \"beta\"]`
   value."
     (async done
       (let [captured-init (atom nil)
@@ -435,19 +435,19 @@
             (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
             (.then (fn [_] (done))))))))
 
-;; ---- rf2-f5pguu — invalid request headers stay on the managed path -------
+;; ---- invalid request headers stay on the managed path --------------------
 ;;
 ;; The Fetch `Headers.append` throws a `TypeError` on an invalid header
 ;; name (empty / control chars) or a value carrying `\r`/`\n` (the
-;; response-splitting guard). Pre-fix, that throw fired SYNCHRONOUSLY
+;; response-splitting guard). Uncaught, that throw would fire SYNCHRONOUSLY
 ;; inside `cljs-fetch` — after the in-flight handle was registered but
-;; before any Promise existed — and propagated up through `run-attempt!`'s
+;; before any Promise existed — and propagate up through `run-attempt!`'s
 ;; CLJS branch (no try/catch there) as a generic `:rf.error/fx-handler-
 ;; exception`, bypassing `:on-failure`, retry, abort precedence, trace
-;; privacy, and registry cleanup. The fix mirrors the JVM
-;; `jvm-build-request`: catch PER `.append`, emit a redacted
-;; `:rf.warning/http-header-invalid` trace, omit the bad pair, and
-;; continue with the valid headers. These tests pin the managed-path
+;; privacy, and registry cleanup. So, mirroring the JVM
+;; `jvm-build-request`, the transport catches PER `.append`, emits a redacted
+;; `:rf.warning/http-header-invalid` trace, omits the bad pair, and
+;; continues with the valid headers. These tests pin the managed-path
 ;; behaviour so a regression re-opening the unmanaged escape is caught.
 
 (defn- with-trace-capture
@@ -464,12 +464,12 @@
         (.finally (fn [] (rf.trace.tooling/unregister-listener! cb-key))))))
 
 (deftest cljs-fetch-invalid-header-name-surfaces-managed-warning-not-escape
-  (testing "rf2-f5pguu — an EMPTY header name (which `Headers.append`
+  (testing "an EMPTY header name (which `Headers.append`
   rejects with a TypeError) is caught inside the managed CLJS path: a
   redacted `:rf.warning/http-header-invalid` trace fires naming the bad
   header, the bad pair is OMITTED, the valid header still rides, and the
   `cljs-fetch` Promise RESOLVES normally rather than rejecting / throwing
-  synchronously (which pre-fix escaped as `:rf.error/fx-handler-exception`)."
+  synchronously (an escape as `:rf.error/fx-handler-exception`)."
     (async done
       (let [captured-init (atom nil)
             resp (fake-response {:status 200 :content-type "application/json"
@@ -507,22 +507,22 @@
                         "a Fetch Headers object is still built and passed to fetch")
                     (is (= "kept" (.get h "X-Good"))
                         "the valid header rides; only the bad pair was dropped")))))
-            ;; A rejection / synchronous throw here is the PRE-FIX bug — the
+            ;; A rejection / synchronous throw here means the
             ;; invalid header escaped the managed path. The handler sits
-            ;; UPSTREAM of the single trailing `done` (rf2-qpns): `done` runs
+            ;; UPSTREAM of the single trailing `done`: `done` runs
             ;; the whole remainder of the run synchronously, so a `.catch`
             ;; after it claims a foreign throw as this row's and fires `done`
             ;; a second time.
             (.catch (fn [e]
                       (is false
-                          (str "rf2-f5pguu regression — invalid header ESCAPED "
+                          (str "regression — invalid header ESCAPED "
                                "the managed CLJS path (threw/rejected) instead "
                                "of surfacing a managed warning: " e))
                       nil))
             (.then (fn [_] (done))))))))
 
 (deftest cljs-fetch-crlf-header-value-surfaces-managed-warning-not-escape
-  (testing "rf2-f5pguu — a header VALUE carrying a CR (`\\r`) is the
+  (testing "a header VALUE carrying a CR (`\\r`) is the
   classic response-splitting vector; `Headers.append` rejects it with a
   TypeError. It is caught inside the managed path (warning emitted, pair
   omitted, valid headers preserved, Promise resolves) — not escaped."
@@ -556,18 +556,18 @@
                     (is (nil? (.get h "X-Bad"))
                         "the response-splitting header was omitted, not sent")))))
             ;; Handler upstream of the single trailing `done` — see the
-            ;; sibling row above (rf2-qpns).
+            ;; sibling row above.
             (.catch (fn [e]
                       (is false
-                          (str "rf2-f5pguu regression — CR/LF header value escaped "
+                          (str "regression — CR/LF header value escaped "
                                "the managed path: " e))
                       nil))
             (.then (fn [_] (done))))))))
 
 (deftest cljs-fetch-invalid-header-warning-redacts-denylisted-query-param
-  (testing "rf2-f5pguu — the managed CLJS header-validation warning routes
-  its `:url` through `re-frame.http.privacy/prepare-emit-tags` (same as the JVM path,
-  rf2-1jcpm): a denylisted query param (`?api_key=…`) is scrubbed and
+  (testing "the managed CLJS header-validation warning routes
+  its `:url` through `re-frame.http.privacy/prepare-emit-tags` (same as the JVM
+  path): a denylisted query param (`?api_key=…`) is scrubbed and
   `:sensitive?` is stamped at the top level of the trace event."
     (async done
       (let [captured-init (atom nil)
@@ -594,16 +594,16 @@
                         ":sensitive? stamped at top level — a denylisted param name is a signal")
                     (is (= rf.http.url/redacted-sentinel :rf/redacted)
                         "sanity: the redaction sentinel is the reserved keyword")))))
-            ;; Handler upstream of the single trailing `done` (rf2-qpns).
+            ;; Handler upstream of the single trailing `done`.
             (.catch (fn [e]
                       (is false (str "unexpected reject: " e))
                       nil))
             (.then (fn [_] (done))))))))
 
 (deftest cljs-fetch-valid-headers-emit-no-invalid-warning
-  (testing "rf2-f5pguu — a request with only VALID headers emits NO
+  (testing "a request with only VALID headers emits NO
   `:rf.warning/http-header-invalid` trace (the catch arm never fires) and
-  resolves normally — the multi-valued behaviour (rf2-rznrz) is preserved."
+  resolves normally — the multi-valued behaviour holds."
     (async done
       (let [captured-init (atom nil)
             resp (fake-response {:status 200 :content-type "application/json"
@@ -626,21 +626,21 @@
                 (let [h (aget @captured-init "headers")]
                   (is (= "alpha, beta" (.get h "X-Multi"))
                       "valid multi-valued header still accumulates per-element"))))
-            ;; Handler upstream of the single trailing `done` (rf2-qpns).
+            ;; Handler upstream of the single trailing `done`.
             (.catch (fn [e]
                       (is false (str "unexpected reject: " e))
                       nil))
             (.then (fn [_] (done))))))))
 
 (deftest zero-timeout-ms-does-not-arm-near-instant-abort
-  (testing "rf2-ee38b.7 — `:timeout-ms 0` is an explicit opt-out (no
+  (testing "`:timeout-ms 0` is an explicit opt-out (no
   per-attempt timeout) per Spec 014 §`:timeout-ms` security defaults,
-  semantically identical to `:timeout-ms nil`. Pre-fix `0` was truthy,
-  so `(when (and timeout-ms internal-controller) …)` armed a
-  `setTimeout(…, 0)` that aborted the request on the next macrotask and
-  rejected with the timeout ex-info. This test defers the fetch
-  resolution by one macrotask: pre-fix the timeout abort would win and
-  reject; post-fix the request resolves successfully."
+  semantically identical to `:timeout-ms nil`. `0` is truthy,
+  so a `(when (and timeout-ms internal-controller) …)` guard would arm a
+  `setTimeout(…, 0)` that aborts the request on the next macrotask and
+  rejects with the timeout ex-info. This test defers the fetch
+  resolution by one macrotask: such a timeout abort would win and
+  reject; the request must resolve successfully."
     (async done
       (let [resp (fake-response {:status 200 :content-type "application/json"
                                  :text-val "{\"ok\":true}"})]
@@ -656,21 +656,21 @@
                          ":timeout-ms 0 must NOT abort — the deferred fetch resolves normally")
                      (is (true? (:ok? result)))))
             (.catch (fn [e]
-                      (is false (str "rf2-ee38b.7 regression — :timeout-ms 0 "
+                      (is false (str "regression — :timeout-ms 0 "
                                      "armed a near-instant abort and rejected: " e))
                       nil))
             (.then (fn [_] (done))))))))
 
-;; ---- rf2-4zldh — `:timeout-ms` bounds the BODY read, not just headers ----
+;; ---- `:timeout-ms` bounds the BODY read, not just headers ----------------
 ;;
 ;; A slow-loris upstream can resolve the Fetch Response (headers) promptly
 ;; and then stall the body reader (`.text()` / `.blob()` / …) indefinitely.
 ;; Spec 014 §`:timeout-ms` security defaults (:323) requires the per-attempt
-;; timeout to protect against exactly this. The pre-fix transport cleared
+;; timeout to protect against exactly this. A transport that cleared
 ;; the timer the instant the Response resolved and only THEN began the body
-;; read, so a stalled body left the body-reader promise pending forever and
-;; the in-flight handle live. The fix races the timer against the FULL
-;; fetch→body-read chain and disarms it only when that chain settles.
+;; read would leave a stalled body's reader promise pending forever and
+;; the in-flight handle live. So the timer races the FULL
+;; fetch→body-read chain and is disarmed only when that chain settles.
 
 (defn- fake-response-stalled-body
   "A Fetch `Response` stand-in whose HEADERS resolve immediately (the
@@ -692,10 +692,10 @@
        :formData    (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))})
 
 (deftest cljs-timeout-bounds-stalled-body-read
-  (testing "rf2-4zldh — `cljs-fetch` REJECTS with the canonical
+  (testing "`cljs-fetch` REJECTS with the canonical
   :rf.error/http-timeout ex-info when the Response resolves (headers) but
-  the selected body reader never settles past `:timeout-ms`. Pre-fix the
-  timer was cleared on header arrival, so this promise hung forever."
+  the selected body reader never settles past `:timeout-ms`. A
+  timer cleared on header arrival would leave this promise hanging forever."
     (async done
       (let [read-fired (atom false)
             resp       (fake-response-stalled-body
@@ -710,14 +710,14 @@
                             :internal-controller (js/AbortController.)}))
             ;; The REJECTION is this row's success path, so the two handlers are
             ;; SIBLINGS of one two-arg `.then` rather than a `.catch` downstream
-            ;; of a `.then` (rf2-fyba). Downstream, the fulfilment arm's `(done)`
+            ;; of a `.then`. Downstream, the fulfilment arm's `(done)`
             ;; would run the whole remainder of the run synchronously and any
             ;; foreign throw out there would unwind into the `.catch`, which
             ;; would assert this row's timeout claims against a stranger's error
             ;; and fire `done` a second time. Exactly one arm runs; the single
             ;; trailing `done` is the only one.
             (.then (fn [result]
-                     (is false (str "rf2-4zldh regression — a stalled body "
+                     (is false (str "regression — a stalled body "
                                     "read RESOLVED instead of timing out: " (pr-str result))))
                    (fn [err]
                       (is (true? @read-fired)
@@ -728,18 +728,18 @@
                         (is (true? (:rf.http/timeout? data))
                             "the registry-hook timeout signal is co-stamped")
                         (is (= 40 (:limit-ms data)))
-                        ;; rf2-6ecc6 — CLJS `:elapsed-ms` is now a MEASURED
+                        ;; CLJS `:elapsed-ms` is a MEASURED
                         ;; wall-clock delta (~:limit-ms by the scheduling
                         ;; margin), the SAME value-semantics the JVM path
-                        ;; reports — not the synthetic constant == :limit-ms
-                        ;; it used to be. (The timer fires at ~40ms, so the
+                        ;; reports — not a synthetic constant == :limit-ms.
+                        ;; (The timer fires at ~40ms, so the
                         ;; measured elapsed is in that neighbourhood.)
                         (is (number? (:elapsed-ms data))
                             ":elapsed-ms is a measured number, not absent")
-                        ;; rf2-xu0sl — jitter-tolerant bound: `elapsed` must
+                        ;; Jitter-tolerant bound: `elapsed` must
                         ;; land within `elapsed-jitter-ms` BELOW `limit` (the
                         ;; timer can fire a hair early under rounding/CI
-                        ;; scheduling jitter — an exact `>= limit` flaked by
+                        ;; scheduling jitter — an exact `>= limit` flakes by
                         ;; ~1ms). This still rejects a synthetic/absent value
                         ;; and any wildly-wrong measurement, just not 1ms noise.
                         (is (>= (:elapsed-ms data) (- (:limit-ms data) elapsed-jitter-ms))
@@ -749,14 +749,14 @@
             (.then (fn [_] (done))))))))
 
 (deftest cljs-timeout-stalled-body-finalises-as-timeout-and-clears-registry
-  (testing "rf2-4zldh — driven through the full `:rf.http/managed` pipeline,
+  (testing "driven through the full `:rf.http/managed` pipeline,
   a response whose body reader stalls past `:timeout-ms` finalises as a
-  :rf.http/timeout failure reply AND clears the in-flight registry. This is
-  the end-to-end acceptance: the slow-loris no longer pins an in-flight
+  :rf.http/timeout failure reply AND clears the in-flight registry. End
+  to end, the slow-loris does not pin an in-flight
   handle indefinitely."
     (async done
       (rf/init! rf.adapter.reagent/adapter)
-      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; `init!` does not synthesise `:rf/default` (EP-0002),
       ;; and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; each dispatch below carries `{:frame
       ;; :rf/default}` (the override) so the sync dispatch AND the async
@@ -795,23 +795,23 @@
                      (is (empty? (rf.http.registry/in-flight-snapshot))
                          "the in-flight registry is cleared — the slow-loris handle is not pinned")))
             (.catch (fn [e]
-                      (is false (str "rf2-4zldh — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             ;; Teardown rides the single trailing step, so it runs on both paths
-            ;; exactly once and `done` is the last thing this row does (rf2-fyba).
+            ;; exactly once and `done` is the last thing this row does.
             (.then (fn [_]
                      (set! (.-fetch js/globalThis) orig)
                      (done))))))))
 
-;; ---- rf2-wj8vv — the retry backoff window is cancellable (CLJS) -----------
+;; ---- the retry backoff window is cancellable (CLJS) -----------------------
 ;;
 ;; The JVM suite (re-frame.http-backoff-cancellation-test) covers all three
 ;; cancellation paths against a real server with real threads. This CLJS
 ;; counterpart pins the same invariant on the `js/setTimeout`-backed backoff
 ;; timer + `js/clearTimeout` cancellation primitive: an abort issued DURING
 ;; the backoff window cancels the pending retry (no second fetch) and clears
-;; the in-flight registry. Pre-fix the request was invisible to the abort
-;; path for the whole backoff, so the retry fetched again regardless.
+;; the in-flight registry. A request invisible to the abort path for the
+;; whole backoff would let the retry fetch again regardless.
 
 (defn- with-counting-500-fetch
   "Stub `js/fetch` to always resolve a 500 and increment `count-atom` on
@@ -827,14 +827,14 @@
     (fn [] (set! (.-fetch js/globalThis) orig))))
 
 (deftest cljs-abort-during-backoff-cancels-pending-retry
-  (testing "rf2-wj8vv — a :rf.http/managed-abort issued while the request sleeps in the `js/setTimeout` backoff window cancels the pending retry (no second fetch) and clears the registry"
+  (testing "a :rf.http/managed-abort issued while the request sleeps in the `js/setTimeout` backoff window cancels the pending retry (no second fetch) and clears the registry"
     (async done
       ;; Self-contained runtime setup — this ns also carries `async`
       ;; pure-transport tests, so cljs.test forbids a wrap-style
       ;; `use-fixtures` reset here (it would tear down before the async
       ;; body completes). Install the adapter + clear the registry inline.
       (rf/init! rf.adapter.reagent/adapter)
-      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; `init!` does not synthesise `:rf/default` (EP-0002),
       ;; and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; each dispatch below carries `{:frame
       ;; :rf/default}` (the override) so the sync dispatch AND the async
@@ -869,8 +869,8 @@
         ;; handle is distinguishable from the in-flight-fetch handle by the
         ;; ABSENCE of the `:finalised?` cell (the fetch handle carries it;
         ;; the backoff handle does not) — gating on this ensures we abort
-        ;; the BACKOFF state, not a still-in-flight attempt #1. The defect
-        ;; emptied the registry entirely during this window.
+        ;; the BACKOFF state, not a still-in-flight attempt #1. A registry
+        ;; left empty during this window would hide the request from abort.
         (-> (rf.test-support/poll-until
               #(let [handle (get (rf.http.registry/in-flight-snapshot) :race)]
                  (and (= 1 @fetch-count)
@@ -906,11 +906,11 @@
                      (is (= 1 (count @replies))
                          "exactly one reply — the cancelled retry never produced a second outcome")))
             (.catch (fn [e]
-                      (is false (str "rf2-wj8vv — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
-;; ---- rf2-j538f7.8 — frame destroy aborts + suppresses managed HTTP (CLJS) --
+;; ---- frame destroy aborts + suppresses managed HTTP (CLJS) ----------------
 ;;
 ;; The CLJS counterpart of `re-frame.http-frame-destroy-abort-test` (the JVM
 ;; CompletableFuture path). Proves the Fetch/backoff path: a plain managed
@@ -918,12 +918,12 @@
 ;; is destroyed has its pending retry cancelled (no attempt N+1 fetch) and its
 ;; outcome SUPPRESSED — unlike a `:rf.http/managed-abort` (which delivers a live
 ;; `:cancelled` reply, reason `:user`), frame destroy fires the reply-suppressing
-;; `:reason :frame-destroyed`, so NO reply reaches the destroyed frame. Before the
-;; destroy-frame! → :http/on-frame-destroyed! wiring the backoff timer survived
-;; destroy and fired a second fetch into the dead frame.
+;; `:reason :frame-destroyed`, so NO reply reaches the destroyed frame. Without the
+;; destroy-frame! → :http/on-frame-destroyed! wiring the backoff timer would survive
+;; destroy and fire a second fetch into the dead frame.
 
 (deftest cljs-destroy-frame-cancels-backoff-and-suppresses-reply
-  (testing "rf2-j538f7.8 — destroying a frame with a managed request sleeping in
+  (testing "destroying a frame with a managed request sleeping in
             the backoff window cancels the pending retry (no second fetch) and
             SUPPRESSES the reply (nothing delivered into the destroyed frame)"
     (async done
@@ -977,20 +977,20 @@
                      (is (empty? @replies)
                          "frame destroy SUPPRESSES the reply — nothing delivered into the destroyed frame")))
             (.catch (fn [e]
-                      (is false (str "rf2-j538f7.8 — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
-;; ---- rf2-fzbj.11 — an ANONYMOUS request is still frame-owned (CLJS) --------
+;; ---- an ANONYMOUS request is frame-owned too (CLJS) ----------------------
 ;;
-;; The test above names a `:request-id`, so the frame sweep could always find its
+;; The test above names a `:request-id`, so the frame sweep can always find its
 ;; handle. `:request-id` is optional, and an ordinary event-handler request
-;; without one has no owning actor either — before rf2-fzbj.11 neither registry
-;; index held it, so frame destroy could not reach it and its backoff timer went
+;; without one has no owning actor either — a registry index must still hold
+;; it, or frame destroy could not reach it and its backoff timer would go
 ;; on retrying into the destroyed frame.
 
 (deftest cljs-destroy-frame-cancels-anonymous-backoff-and-suppresses-reply
-  (testing "rf2-fzbj.11 — destroying a frame cancels an ANONYMOUS managed request
+  (testing "destroying a frame cancels an ANONYMOUS managed request
             (no :request-id, no owning actor) sleeping in its backoff window: no
             second fetch, and no reply"
     (async done
@@ -1032,11 +1032,11 @@
                      (is (empty? @replies)
                          "frame destroy SUPPRESSES the anonymous request's reply")))
             (.catch (fn [e]
-                      (is false (str "rf2-fzbj.11 — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
-;; ---- rf2-065xo — managed body-prep failure delivery (CLJS) ----------------
+;; ---- managed body-prep failure delivery (CLJS) ----------------------------
 ;;
 ;; The JVM suite (re-frame.http-body-prep-failure-test) pins the same
 ;; contract against Cheshire encode failures + real threads. This CLJS
@@ -1059,14 +1059,14 @@
     (set! (.-fetch js/globalThis)
           (fn [_url _init]
             (js/Promise.reject
-              (js/Error. "rf2-065xo — fetch must NOT be reached: body-prep threw before any network call"))))
+              (js/Error. "fetch must NOT be reached: body-prep threw before any network call"))))
     (fn [] (set! (.-fetch js/globalThis) orig))))
 
 (deftest cljs-throwing-body-thunk-delivers-managed-transport-failure
-  (testing "rf2-065xo — a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception) and clears the registry"
+  (testing "a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception) and clears the registry"
     (async done
       (rf/init! rf.adapter.reagent/adapter)
-      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; `init!` does not synthesise `:rf/default` (EP-0002),
       ;; and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; each dispatch below carries `{:frame
       ;; :rf/default}` (the override) so the sync dispatch AND the async
@@ -1102,15 +1102,15 @@
                      (is (empty? (rf.http.registry/in-flight-snapshot))
                          "the in-flight registry is cleared — the failed-prep request is not pinned")))
             (.catch (fn [e]
-                      (is false (str "rf2-065xo — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-unencodable-body-delivers-managed-transport-failure
-  (testing "rf2-065xo — a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
+  (testing "a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
     (async done
       (rf/init! rf.adapter.reagent/adapter)
-      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; `init!` does not synthesise `:rf/default` (EP-0002),
       ;; and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; each dispatch below carries `{:frame
       ;; :rf/default}` (the override) so the sync dispatch AND the async
@@ -1148,15 +1148,15 @@
                        (is (= :request-prep (get-in reply [:error :stage]))))
                      (is (empty? (rf.http.registry/in-flight-snapshot)))))
             (.catch (fn [e]
-                      (is false (str "rf2-065xo — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-throwing-body-thunk-retries-when-configured
-  (testing "rf2-065xo — with `:retry {:on #{:rf.http/transport} …}` a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
+  (testing "with `:retry {:on #{:rf.http/transport} …}` a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
     (async done
       (rf/init! rf.adapter.reagent/adapter)
-      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; `init!` does not synthesise `:rf/default` (EP-0002),
       ;; and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; each dispatch below carries `{:frame
       ;; :rf/default}` (the override) so the sync dispatch AND the async
@@ -1196,11 +1196,11 @@
                            "the final reply carries the :rf.http/transport prep-failure category"))
                      (is (empty? (rf.http.registry/in-flight-snapshot)))))
             (.catch (fn [e]
-                      (is false (str "rf2-065xo — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
-;; ---- rf2-3fc89f.9 — lifecycle-owned external AbortSignal cancellation ------
+;; ---- lifecycle-owned external AbortSignal cancellation --------------------
 ;;
 ;; The external `:abort-signal` is a REQUEST-lifecycle cancellation source. It
 ;; must route to whichever canonical handle owns the CURRENT phase (live-fetch
@@ -1208,10 +1208,10 @@
 ;; same `:aborted?` / `:finalised?` precedence cells `:rf.http/managed-abort` /
 ;; supersede / actor-destroy use — and DETACH on ownership transfer + every
 ;; terminal path so a shared / parent controller never accumulates
-;; completed-attempt listeners. The pre-fix binding wired the signal only to an
-;; attempt-local `internal-controller`, so it bypassed abort precedence (a
-;; settled success could still land), never cancelled a sleeping backoff, and
-;; leaked its `{once:true}` listener on ordinary completion.
+;; completed-attempt listeners. A binding that wired the signal only to an
+;; attempt-local `internal-controller` would bypass abort precedence (a
+;; settled success could still land), never cancel a sleeping backoff, and
+;; leak its `{once:true}` listener on ordinary completion.
 
 ;; ---- (a) binding-helper unit contract (fake AbortSignal / EventTarget) -----
 
@@ -1242,7 +1242,7 @@
                        (doseq [f @listeners] (f #js {})))}))
 
 (deftest external-abort-binding-attaches-one-listener-and-routes-to-current-handle
-  (testing "rf2-3fc89f.9 — `bind-external-abort!` attaches exactly ONE listener
+  (testing "`bind-external-abort!` attaches exactly ONE listener
   on a non-aborted signal; firing the signal invokes the bound `cancel!`."
     (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
           binding (rf.http.transport-cljs/make-external-abort signal)
@@ -1255,7 +1255,7 @@
       (is (= [:phase-1] @fired) "firing the signal invokes the bound cancel!"))))
 
 (deftest external-abort-rebind-detaches-prior-phase-listener
-  (testing "rf2-3fc89f.9 — rebinding on phase-ownership transfer DETACHES the
+  (testing "rebinding on phase-ownership transfer DETACHES the
   prior phase's listener (never a second concurrent listener) and routes the
   signal to the NEW phase handle's cancel!."
     (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
@@ -1271,7 +1271,7 @@
           "the signal routes to the CURRENT (backoff) handle, not the stale live-fetch one"))))
 
 (deftest external-abort-detach-is-idempotent-and-removes-listener
-  (testing "rf2-3fc89f.9 — `detach-external-abort!` removes the listener and is
+  (testing "`detach-external-abort!` removes the listener and is
   idempotent (a shared/parent signal retains no listener after terminal)."
     (let [{:keys [signal listener-count]} (fake-abort-signal)
           binding (rf.http.transport-cljs/make-external-abort signal)]
@@ -1283,7 +1283,7 @@
       (is (= 0 (listener-count)) "detach is idempotent — no throw, still zero"))))
 
 (deftest external-abort-already-aborted-fires-synchronously-attaches-nothing
-  (testing "rf2-3fc89f.9 — binding an ALREADY-aborted signal fires cancel!
+  (testing "binding an ALREADY-aborted signal fires cancel!
   synchronously and attaches NO listener (the caller then short-circuits)."
     (let [{:keys [signal listener-count pre-abort!]} (fake-abort-signal)
           binding (rf.http.transport-cljs/make-external-abort signal)
@@ -1294,7 +1294,7 @@
       (is (= 0 (listener-count)) "no listener attached — nothing to leak"))))
 
 (deftest external-abort-nil-signal-is-a-noop
-  (testing "rf2-3fc89f.9 — a nil `:abort-signal` yields a nil binding; bind /
+  (testing "a nil `:abort-signal` yields a nil binding; bind /
   detach are no-ops (the common no-external-signal request path)."
     (is (nil? (rf.http.transport-cljs/make-external-abort nil)))
     (is (nil? (rf.http.transport-cljs/bind-external-abort! nil (fn [] (is false "must not fire")))))
@@ -1307,7 +1307,7 @@
   but whose `.text()` body reader returns a promise the TEST settles via the
   returned `:resolve-body!`. `read-fired` is set true the moment `.text()` is
   invoked (the framework has received the Response and is mid-finalisation,
-  reading the body). Models the acceptance-2 window: host promise about to
+  reading the body). Models the settle-before-finalise window: host promise about to
   fulfil, framework not yet finalised. Returns `{:restore :resolve-body!}`."
   [read-fired]
   (let [orig         (.-fetch js/globalThis)
@@ -1326,15 +1326,15 @@
 (defn- next-macrotask
   "A promise that resolves on the next `setTimeout 0` macrotask — used to let
   every queued microtask (handle-response! → finalise-*) drain so a
-  suppressed second reply would have landed if the fix were wrong."
+  suppressed second reply would have landed if suppression failed."
   []
   (js/Promise. (fn [resolve _] (js/setTimeout resolve 0))))
 
 (deftest cljs-external-abort-after-settle-before-finalise-cancels-once
-  (testing "rf2-3fc89f.9 acceptance 2 — an external signal that fires after the
+  (testing "an external signal that fires after the
   host body promise fulfils but BEFORE framework finalisation reclassifies the
   in-flight success to exactly one `:rf.http/aborted :reason :user` reply; no
-  success/decode/status/accept outcome lands (pre-fix the settled success won)."
+  success/decode/status/accept outcome lands."
     (async done
       (rf/init! rf.adapter.reagent/adapter)
       (rf.frame/ensure-default-frame!)
@@ -1377,11 +1377,11 @@
                        (is (= :user (get-in reply [:error :reason]))))
                      (is (empty? (rf.http.registry/in-flight-snapshot))
                          "the live-fetch handle is cleared")))
-            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
             (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-during-backoff-cancels-retry-and-does-not-reinvoke-thunk
-  (testing "rf2-3fc89f.9 acceptance 3 — an external signal that fires while the
+  (testing "an external signal that fires while the
   request sleeps in the backoff window cancels the pending retry immediately
   (timer cleared, registry emptied, one :rf.http/aborted :reason :user reply);
   attempt N+1 is never issued and the per-attempt body thunk is not re-invoked."
@@ -1450,14 +1450,14 @@
                      (is (= 1 (count @replies))
                          "exactly one reply — the cancelled retry produced no second outcome")))
             (.catch (fn [e]
-                      (is false (str "rf2-3fc89f.9 — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_]
                      (set! (.-fetch js/globalThis) orig)
                      (done))))))))
 
 (deftest cljs-already-aborted-signal-short-circuits-attempt-setup
-  (testing "rf2-3fc89f.9 acceptance 3 — a request whose `:abort-signal` is
+  (testing "a request whose `:abort-signal` is
   ALREADY aborted before attempt setup dispatches one :rf.http/aborted
   :reason :user reply WITHOUT running the body thunk or issuing any fetch."
     (async done
@@ -1496,11 +1496,11 @@
                      (is (= 0 @thunk-calls)
                          "the body thunk was NEVER invoked — attempt setup short-circuited")
                      (is (empty? (rf.http.registry/in-flight-snapshot)))))
-            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
             (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-racing-supersede-suppression-authoritative
-  (testing "rf2-3fc89f.9 acceptance 4 — when a same-id supersede WINS the race,
+  (testing "when a same-id supersede WINS the race,
   suppression stays authoritative: the superseded request delivers NO app reply
   even though its external signal ALSO fires afterwards (once-only CAS)."
     (async done
@@ -1544,11 +1544,11 @@
             (.then (fn [_]
                      (is (empty? @replies-1)
                          "the superseded request delivered NO app reply — supersede suppression is authoritative even though the external signal fired")))
-            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
             (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-racing-managed-abort-single-outcome
-  (testing "rf2-3fc89f.9 acceptance 4 — an external signal and a
+  (testing "an external signal and a
   :rf.http/managed-abort fired against the SAME in-flight request route through
   the one canonical handle; the once-only CAS yields exactly one :cancelled
   outcome regardless of which fires first."
@@ -1590,11 +1590,11 @@
                      (is (= :cancelled (:status (first @replies))))
                      (is (= :user (get-in (first @replies) [:error :reason])))
                      (is (empty? (rf.http.registry/in-flight-snapshot)))))
-            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
             (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-listener-detached-on-natural-success-and-failure
-  (testing "rf2-3fc89f.9 acceptance 5 — after a NATURAL success and a natural
+  (testing "after a NATURAL success and a natural
   terminal failure that share ONE signal, no completed-attempt listeners
   accumulate: the binding detaches on every terminal path."
     (async done
@@ -1640,13 +1640,13 @@
                      (is (= 0 (listener-count))
                          "the failure terminal also detached — a shared signal retains no completed-attempt listeners")))
             (.catch (fn [e]
-                      (is false (str "rf2-3fc89f.9 — unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_]
                      (set! (.-fetch js/globalThis) orig)
                      (done))))))))
 
-;; ---- rf2-lddbk -- a successful CLJS request exposes response metadata -----
+;; ---- a successful CLJS request exposes response metadata ------------------
 ;;
 ;; The CLJS counterpart of the JVM real-transport-success-reply-carries-
 ;; response-meta: a successful request driven through the FULL :rf.http/managed
@@ -1657,7 +1657,7 @@
 ;; lane has no network); the transport code path is the production one.
 
 (deftest cljs-success-reply-carries-response-meta
-  (testing "rf2-lddbk -- a successful managed request delivers the actual
+  (testing "a successful managed request delivers the actual
             response status/status-text/normalized headers at [:meta ...]"
     (async done
       (rf/init! rf.adapter.reagent/adapter)
@@ -1702,7 +1702,7 @@
                            "normalized (lower-cased) response headers ride [:meta :headers]")
                        (is (= "application/json" (get-in reply [:meta :headers "content-type"]))))))
             (.catch (fn [e]
-                      (is false (str "rf2-lddbk -- unexpected: " e))
+                      (is false (str "unexpected: " e))
                       nil))
             (.then (fn [_]
                      (set! (.-fetch js/globalThis) orig)
