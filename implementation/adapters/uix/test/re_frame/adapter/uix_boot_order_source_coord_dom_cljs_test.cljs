@@ -1,21 +1,23 @@
 (ns re-frame.adapter.uix-boot-order-source-coord-dom-cljs-test
-  "rf2-8mkmb — the substrate WRAP under the canonical boot order.
+  "The substrate WRAP under the canonical boot order.
 
-  `:adapter/wrap-view` (rf2-00li) is routed
-  (`substrate-adapter/route-hook!`), so it answers only while ITS adapter is
-  the `rf/init!`-installed one. `views/reg-view*` asked it at REGISTRATION,
-  and `docs/core/how-to/boot-and-mount-an-app.md` has the registration
+  `:adapter/wrap-view` is routed (`substrate-adapter/route-hook!`), so it
+  answers only while ITS adapter is the `rf/init!`-installed one.
+  `views/reg-view*` asks it at REGISTRATION, and
+  `docs/core/how-to/boot-and-mount-an-app.md` has the registration
   namespaces load FIRST, at ns-load, with `run` calling `rf/init!`
-  afterwards. A top-level `reg-view*` therefore got nil back, `wrap-applied?`
-  was false, and `build-frame-aware-view` fell through to the inline hiccup
-  walk — which classes a React element as a non-DOM root. The rendered root
-  carried no `data-rf2-source-coord` and no `data-rf-view`, and the walk
-  emitted a one-shot warning saying so, about a view whose root is a perfectly
+  afterwards. A top-level `reg-view*` therefore gets nil back and stores an
+  unwrapped composition, and the head that `(rf/view id)` hands back after
+  init re-derives against the adapter `rf/init!` seated. Rendered from the
+  stored composition, `wrap-applied?` would be false and
+  `build-frame-aware-view` would fall through to the inline hiccup walk —
+  which classes a React element as a non-DOM root. The rendered root would
+  carry no `data-rf2-source-coord` and no `data-rf-view`, and the walk would
+  emit a one-shot warning saying so, about a view whose root is a perfectly
   ordinary `span`.
 
-  This is the sibling of rf2-oz7wr one layer down, and the coverage has the
-  same blind spot: every existing React-hook row installs the adapter BEFORE
-  it registers, so none of them can see the ordering that ships.
+  A row that installs the adapter BEFORE it registers cannot see the
+  ordering that ships, so this file registers at ns-load.
 
   What each row is for:
 
@@ -33,10 +35,10 @@
       `data-*` attribute is a statement about the document.
 
     - `post-init-control-*` — the non-vacuity control. The SAME render fn,
-      registered AFTER `rf/init!`, mounted through the same driver. It was
-      green before the fix and must stay green after it: that is what makes
-      the boot-order row's verdict a statement about registration ORDER
-      rather than about this file's harness.
+      registered AFTER `rf/init!`, mounted through the same driver. It is
+      green whether or not the lookup re-derives: that is what makes the
+      boot-order row's verdict a statement about registration ORDER rather
+      than about this file's harness.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
   (ns-regexp `-dom-cljs-test$`) discovers it. `:node-test`'s `cljs-test$`
@@ -54,9 +56,9 @@
 
 ;; The `use-fixtures` call is NOT here. It sits below the ns-load registration
 ;; further down, and the position is load-bearing: `make-reset-runtime-fixture`
-;; snapshots the registrar AT CALL TIME as its ns-load baseline (rf2-7hwnu),
-;; and this file's whole premise is a registration that already exists when the
-;; fixture is built.
+;; snapshots the registrar AT CALL TIME as its ns-load baseline, and this
+;; file's whole premise is a registration that already exists when the fixture
+;; is built.
 
 ;; ---- the render fn ---------------------------------------------------------
 ;;
@@ -142,7 +144,7 @@
 (def ^:private non-dom-root-re #"data-rf2-source-coord skipped")
 
 (defn- seed-frame! []
-  (rf/make-frame {:id probe-frame :doc "rf2-8mkmb boot-order source-coord probe"})
+  (rf/make-frame {:id probe-frame :doc "boot-order source-coord probe"})
   nil)
 
 (defn- mount-and-read
@@ -202,7 +204,7 @@
 (deftest reg-time-composition-is-unwrapped-while-the-lookup-is-not
   (testing "UIx — the composition registration stored, invoked directly, still
             yields an UNANNOTATED root, while the head (rf/view id) hands back
-            after init! yields an annotated one (rf2-8mkmb)"
+            after init! yields an annotated one"
     ;; Premise. Without this the row proves nothing about ordering.
     (is (nil? adapter-at-registration)
         (str "premise: no adapter was installed when this ns registered its"
@@ -217,9 +219,9 @@
            missing annotation below is about the wrap and not about the shape")
       (is (nil? (element-attr registration-output "data-rf2-source-coord"))
           "ABSENT: registration ran before rf/init!, so :adapter/wrap-view
-           declined and nothing stamped the root — this is the defect, and the
-           registrar slot deliberately keeps it (rewriting the slot would
-           publish a phantom hot-reload to devtools)")
+           declined and nothing stamped the root — the registrar slot
+           deliberately keeps this unwrapped composition (rewriting the slot
+           would publish a phantom hot-reload to devtools)")
 
       (let [head (rf/view boot-row-id)]
         (is (not (identical? head head-at-registration))
@@ -235,14 +237,14 @@
           (is (string? (element-attr lookup-output "data-rf2-source-coord"))
               "PRESENT: the re-derivation re-asked :adapter/wrap-view with the
                adapter installed, so the substrate's cloneElement pass stamped
-               the root (rf2-8mkmb)"))))))
+               the root"))))))
 
 ;; ---- the PRESENT half as a real-DOM fact -----------------------------------
 
 (deftest boot-order-registration-annotates-the-mounted-root
   (testing "UIx — a view registered at ns-load, BEFORE rf/init! installed the
             adapter, carries data-rf2-source-coord and data-rf-view on its
-            committed DOM node (rf2-8mkmb)"
+            committed DOM node"
     (is (nil? adapter-at-registration)
         (str "premise: no adapter was installed at registration; got "
              (pr-str adapter-at-registration)))
@@ -259,7 +261,7 @@
 (deftest post-init-control-annotates-the-mounted-root
   (testing "UIx — the SAME render fn registered AFTER rf/init! passes the
             identical harness, so the boot-order row's verdict is about
-            registration order and not about this file (rf2-8mkmb)"
+            registration order and not about this file"
     (with-browser-act
       (fn [act-fn]
         (seed-frame!)
