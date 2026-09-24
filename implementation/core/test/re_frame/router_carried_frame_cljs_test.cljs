@@ -1,5 +1,5 @@
 (ns re-frame.router-carried-frame-cljs-test
-  "Per rf2-9wa0lf (EP-0002 §Dispatch And Router / Reference Impl Plan §3)
+  "Per EP-0002 §Dispatch And Router / Reference Impl Plan §3
   — the CLJS-side router frame-resolution tier: dispatch under a
   frame-provider (React-context) scope works.
 
@@ -7,12 +7,12 @@
   dynamic-var scope / hold / override / absence matrix. This file pins
   the remaining EP §3 case that is platform-specific: when no dynamic
   `*current-frame*` binding and no explicit `:frame` opt are present, the
-  router still resolves a frame from the enclosing frame-provider via the
+  router resolves a frame from the enclosing frame-provider via the
   React-context tier of `rf.frame/resolve-current-frame` (the
   `:adapter/current-frame` late-bind hook).
 
-  A full React mount + `frame-provider` render is the root/view bead's
-  (rf2-69r7ui) territory; here we exercise the router's consumption of
+  A full React mount + `frame-provider` render is the root/view suites'
+  territory; here we exercise the router's consumption of
   the React-context tier directly by publishing a context-returning
   `:adapter/current-frame` hook (exactly what an adapter's frame-provider
   installs), then asserting (a) a bare dispatch resolves the provider
