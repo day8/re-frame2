@@ -1,37 +1,36 @@
 (ns re-frame.epoch-silencing-lineage-285-test
-  "rf2-vxgfnd.285 — make the delayed predecessor-silencing lineage EXACT,
-  LINEARIZABLE, and BOUNDED, the exact audit follow-up to the merged .265
-  per-callback-generation work.
+  "The delayed predecessor-silencing lineage is EXACT, LINEARIZABLE, and
+  BOUNDED.
 
-  .265 decided each delayed `:rf.epoch.cb/silenced-on-frame-destroy` PER
-  callback-generation identity, but snapshot, eligibility, publication and
-  retention were still split across non-linearizable reads/writes. .285 closes
-  three residual gaps, each pinned here (red before the fix; the noted mutation
-  re-reddens it):
+  Each delayed `:rf.epoch.cb/silenced-on-frame-destroy` is decided PER
+  callback-generation identity, and snapshot, eligibility, publication and
+  retention must not split across non-linearizable reads/writes. Three
+  properties are pinned here (the noted mutation re-reddens each):
 
-    EXACT — `snapshot-terminal-destroy-evidence!` validated a generation through
-      the observation ledger, then RE-READ the registry to build cb→generation.
-      A replacement between the two reads recorded a fresh generation as having
-      observed A. The fix derives the generation from ONE consistent read, taking
-      it from the observation STAMP. Mutation: restore the second registry read.
+    EXACT — `snapshot-terminal-destroy-evidence!` derives the generation from
+      ONE consistent read, taking it from the observation STAMP. Validating a
+      generation through the observation ledger and then RE-READING the
+      registry to build cb→generation would let a replacement between the two
+      reads record a fresh generation as having observed A. Mutation: add a
+      second registry read.
 
-    LINEARIZABLE — the publish loop snapshotted live observers ONCE, then for
-      each identity separately checked eligibility, emitted, and only afterward
-      recorded the mark. Two publishers could both pass before either mark; a
-      trace listener could re-arm a later identity against the stale pre-loop
-      set; a callback replaced between predicate and emit inherited an unqualified
-      silence. The fix makes eligibility-recheck + mark-reservation ONE atomic
-      claim before delivery, over a deterministic identity order, rolling back
-      only on delivery failure. Mutations: split predicate→emit→mark; reuse a
+    LINEARIZABLE — eligibility-recheck + mark-reservation is ONE atomic
+      claim before delivery, over a deterministic identity order, rolled back
+      only on delivery failure. Snapshotting live observers ONCE and then, per
+      identity, checking eligibility, emitting, and only afterward recording
+      the mark would let two publishers both pass before either mark; a trace
+      listener could re-arm a later identity against the stale pre-loop set; a
+      callback replaced between predicate and emit would inherit an unqualified
+      silence. Mutations: split predicate→emit→mark; reuse a
       stale pre-loop observer set.
 
-    BOUNDED — `terminal-silence-marks` grew one tombstone per unique destroyed
-      frame until that id/cb was reused; `reset-listeners!` left marks; and
-      `reset-frame-silences!` recycled the monotonic seq below an outstanding
-      baseline. The fix brackets each frame's deferred window with a per-frame
+    BOUNDED — each frame's deferred window is bracketed with a per-frame
       outstanding-predecessor count, reclaiming the frame's marks when its last
-      predecessor resolves, clears marks on `reset-listeners!`, and never recycles
-      the seq. Mutations: retain marks past resolution; recycle the seq on reset.
+      predecessor resolves; `reset-listeners!` clears marks; and the monotonic
+      seq is never recycled. Without these, `terminal-silence-marks` would grow
+      one tombstone per unique destroyed frame until that id/cb was reused, and
+      a recycled seq could fall below an outstanding baseline. Mutations: retain
+      marks past resolution; recycle the seq on reset.
 
   JVM fixtures compose the successor lineage at the epoch-state seam (a single
   real fan-out re-arms every listener uniformly and cannot diverge them) and use
@@ -226,10 +225,8 @@
   ;; back and propagates, releasing the one signal so it can be legitimately
   ;; re-attempted; a reservation whose publish SUCCEEDED stays claimed.
   ;;
-  ;; rf2-6r9j.78: exercised through the shipped
-  ;; `claim-and-publish-delayed-silence!` — the reserve-only
-  ;; `claim-delayed-silence!` / `rollback-delayed-silence!` pair this used to
-  ;; drive is retired, so there is no shipped reserve-only API to stage against.
+  ;; Exercised through `claim-and-publish-delayed-silence!`: there is no
+  ;; reserve-only API to stage a claim against.
   (let [id :vxgfnd285/rollback
         cb ::vxgfnd285-rollback-cb]
     (rf/register-listener! :epoch cb (fn [_] nil))
@@ -371,8 +368,8 @@
         (rf/unregister-listener! :trace ::vxgfnd285-held-silencing)))))
 
 (deftest reset-listeners-clears-the-silence-lineage
-  ;; A full listener wipe must clear the terminal-silence marks too — the old
-  ;; `reset-listeners!` left a tombstone per destroyed frame behind.
+  ;; A full listener wipe must clear the terminal-silence marks too — otherwise
+  ;; `reset-listeners!` would leave a tombstone per destroyed frame behind.
   (let [id :vxgfnd285/reset-listeners
         cb ::vxgfnd285-reset-listeners-cb]
     (rf/register-listener! :epoch cb (fn [_] nil))
