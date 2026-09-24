@@ -1,5 +1,5 @@
 (ns re-frame.resources-mutation-scope-mismatch-cljs-test
-  "Write-side mutation-scope-mismatch diagnostic (rf2-byl7bk.4 — Spec 016
+  "Write-side mutation-scope-mismatch diagnostic (Spec 016
    §Mutation scope is two distinct scopes / §Dev-mode write-side tripwire).
 
   Mandatory resource scope is a strength, but mutation invalidation becomes an
