@@ -1,9 +1,9 @@
 (ns re-frame.after-delay-validation-test
-  "`:after` delay KEYS are validated at registration. The schema
-  (Spec-Schemas §`:rf/state-node` `:after`, 1699-1705) constrains an
-  `:after` map key to one of three closed forms: a positive integer
-  (literal ms), a non-empty subscription vector (`[sub-id & args]`), or a
-  function. An invalid STATIC key (`-1`, `0`, `\"soon\"`, `nil`, `[]`) is
+  "`:after` delay KEYS are validated at registration. An `:after` map key
+  takes one of four closed forms: a positive integer (literal ms), an
+  ISO-8601 duration string (`\"PT5S\"`, the `:timeout` duration grammar), a
+  non-empty subscription vector (`[sub-id & args]`), or a function. An
+  invalid STATIC key (`-1`, `0`, `\"soon\"`, the `\"5s\"` shorthand, `nil`, `[]`) is
   rejected by `validate-machine!` with `:rf.error/machine-bad-after-delay`,
   giving authoring-time feedback rather than letting tools/conformance treat
   an invalid machine as valid.
@@ -15,6 +15,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -63,6 +64,12 @@
       (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown))))
       (is (= "soon" (:delay-key (ex-data thrown)))))))
 
+(deftest shorthand-duration-delay-key-rejected
+  (testing "the \"5s\" shorthand is refused on :after, as it is on :timeout"
+    (let [thrown (registration-throws? :adv/shorthand (mk-machine "5s"))]
+      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown))))
+      (is (= "5s" (:delay-key (ex-data thrown)))))))
+
 (deftest nil-delay-key-rejected
   (testing "an :after key of nil fails registration"
     (let [thrown (registration-throws? :adv/nil (mk-machine nil))]
@@ -81,6 +88,23 @@
   (testing "a positive-integer :after key registers without error"
     (is (nil? (registration-throws? :adv/pos (mk-machine 5000)))
         "literal pos-int ms is a valid :after delay key")))
+
+(deftest iso-8601-delay-key-accepted
+  (testing "an ISO-8601 duration string registers, as it does on :timeout"
+    (is (nil? (registration-throws? :adv/iso (mk-machine "PT1S"))))
+    (is (nil? (registration-throws? :adv/iso-hm (mk-machine "PT1H30M"))))))
+
+(deftest iso-8601-delay-key-arms-its-ms
+  (testing "entering the state arms the timer at the string's milliseconds —
+            the parser :timeout uses, applied where the key lowers to ms"
+    (rf/reg-machine :adv/iso-run (mk-machine "PT1H"))
+    (rf/dispatch-sync [:adv/iso-run [:go]])
+    (let [entries (vals (get @rf.machines.timer/after-timers :rf/default))
+          entry   (first (filter #(= :running (:state %)) entries))]
+      (is (= 1 (count entries)) "one timer is armed")
+      (is (= 3600000 (:resolved-ms entry)) "\"PT1H\" arms at 3600000 ms")
+      (is (= #{"PT1H"} (set (map :delay (keys (get @rf.machines.timer/after-timers :rf/default)))))
+          "the timer stays keyed by the key the author wrote"))))
 
 (deftest subscription-vector-delay-key-accepted
   (testing "a non-empty subscription-vector :after key registers without error"

@@ -5,7 +5,8 @@
   On entry to an `:after`-bearing state node, the pure transition engine
   (`re-frame.machines.transition`) emits one `:rf.machine/after-schedule`
   fx per `:after` entry. The fx handler here resolves the delay (pos-int?
-  literal / subscription vector / fn-form), schedules a real timer via
+  literal / ISO-8601 duration string / subscription vector / fn-form),
+  schedules a real timer via
   `rf.interop/schedule-after!` (the Spec 005 §Clock abstraction primitive —
   `set-timeout!`'s spec-named machines surface), and (for sub-vec delays)
   installs a watcher
@@ -40,6 +41,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.timeout :as rf.machines.timeout]
             [re-frame.machines.transition :as rf.machines.transition]
             [re-frame.managed-timer :as rf.managed-timer]
             [re-frame.subs :as rf.subs]
@@ -109,9 +111,10 @@
 
 (defn- resolve-delay-ms
   "Resolve an :after map key to a positive-integer ms delay. For pos-int?
-  literal: returns the value. For subscription vector: subscribes via the
-  late-bound subscribe-once hook and uses the resolved value. For fn:
-  invokes (f snapshot) once.
+  literal: returns the value. For an ISO-8601 duration string (\"PT5S\"):
+  its milliseconds, read by the parser the `:timeout` duration uses. For
+  subscription vector: subscribes via the late-bound subscribe-once hook and
+  uses the resolved value. For fn: invokes (f snapshot) once.
 
   Returns [resolved-ms reaction-or-nil]. The reaction is non-nil only for
   subscription-vector delays; the caller installs an add-watch on it to
@@ -120,6 +123,9 @@
   (cond
     (number? delay-key)
     [delay-key nil]
+
+    (string? delay-key)
+    [(rf.machines.timeout/resolve-duration-ms delay-key) nil]
 
     (fn? delay-key)
     ;; A throwing fn-form `:after` emits `:rf.error/machine-after-fn-threw`
@@ -971,7 +977,7 @@
   "fx handler for `:rf.machine/after-schedule`. Per Spec 005 §Delayed
   `:after` transitions, on entry to an :after-bearing state node the
   runtime emits one of these per :after entry. The handler
-  resolves the delay (literal pos-int? / subscription vector / fn),
+  resolves the delay (literal pos-int? / ISO-8601 string / subscription vector / fn),
   schedules a real wall-clock timer via `rf.interop/schedule-after!` (Spec
   005 §Clock abstraction), and (for
   subscription delays) installs an add-watch that triggers
