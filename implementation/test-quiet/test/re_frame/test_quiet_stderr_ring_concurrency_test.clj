@@ -7,13 +7,13 @@
   a `PrintWriter`, and raw process-global `System.err` through a
   `System/setErr` `PrintStream` over an `OutputStream` bridge. Those two
   wrappers each serialize only their OWN calls, under DISTINCT locks — so
-  before this fix a write from each channel could interleave inside
+  without a shared lock a write from each channel could interleave inside
   `buffering-stderr-writer`'s append-plus-front-trim transaction and tear
   the StringBuilder's internal count/array, throwing
   `ArrayIndexOutOfBoundsException` from an otherwise-valid test (a reporter
-  bug reddening a passing suite). `make-summary-replay-method` also read
-  the ring (`.length`/`.toString`) with no coordination, so a red replay
-  could snapshot a half-applied mutation.
+  bug reddening a passing suite). A `make-summary-replay-method` that read
+  the ring (`.length`/`.toString`) with no coordination could likewise
+  snapshot a half-applied mutation on a red replay.
 
   These tests reconstruct the EXACT production wiring in-process (the
   private ring writer + a `PrintWriter` for `*err*` + the same
@@ -26,9 +26,9 @@
   real `:summary` hook is covered end-to-end by the subprocess red fixture
   in `re-frame.test-quiet-runner-contract-test`.
 
-  On the pre-fix (unsynchronized) runner these trials throw
-  `ArrayIndexOutOfBoundsException` intermittently (~1 in 5 trials in the
-  originating audit); the trial counts here make that detection reliable."
+  Against an unsynchronized ring these trials throw
+  `ArrayIndexOutOfBoundsException` intermittently (about 1 in 5 trials);
+  the trial counts here make that detection reliable."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [re-frame.test-quiet.runner]))
@@ -70,7 +70,7 @@
 (def ^:private big-line
   "A single write comfortably larger than the 256 KiB ring cap, so every
   write drives the front-trim `.delete` — the mutation the concurrent
-  `.append` races. 400,000 chars matches the audit's repro payload."
+  `.append` races."
   (apply str (repeat 400000 \x)))
 
 (deftest concurrent-dual-channel-writes-do-not-corrupt-the-ring
