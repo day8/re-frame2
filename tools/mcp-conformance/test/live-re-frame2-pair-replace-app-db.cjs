@@ -40,8 +40,10 @@
 //   1. `replace-app-db {db}` — the ONE-arity (no `frame`) call path.
 //   2. `get-path` read-back of each injected slot.
 //   3. `replace-app-db {db frame}` — the TWO-arity (frame-targeted) call path,
-//      with the frame id read live off the runtime. Both arities emit through
-//      `rt-quote`; both are covered because the repair had to touch both.
+//      with the frame id read live off the runtime and a payload whose values
+//      differ from the one-arity arm's, so only this call's own commit can
+//      satisfy its read-back. Both arities emit through `rt-quote`; both are
+//      covered because the repair had to touch both.
 //   4. Teardown: the fixture's boot db is restored so inner tests ordered
 //      after this one in `scripts/live-test-inventory.cjs` see the state they
 //      expect. (The hermetic orchestrator runs every inner test sequentially
@@ -104,6 +106,14 @@ const FIXTURE_BOOT_DB = '{:count 5}';
 const PAYLOAD_DB =
   '{:count 5 ' + EXPR_KEY + ' (inc 41) ' + SYM_KEY + ' js/window}';
 
+// The frame-targeted arm's payload: the same two slots with values the
+// one-arity arm cannot have left behind. Nothing resets app-db between the
+// arms, so an identical payload let a two-arity call that committed nothing
+// (or committed to another frame) read back the one-arity values and pass
+// (rf2-3x7nj.36.2).
+const FRAME_PAYLOAD_DB =
+  '{:count 5 ' + EXPR_KEY + ' (inc 99) ' + SYM_KEY + ' js/document}';
+
 async function callOrThrow(client, name, args, what) {
   const resp = await client.callTool({ name, arguments: args });
   if (resp.isError) {
@@ -149,38 +159,42 @@ async function readSlot(client, key, what) {
 // Both readings are asserted below. Either bracketing is accepted for the
 // first; only the second can tell quotation from evaluation, which is why it
 // is kept as a separate assertion rather than folded into the first.
-function assertQuotedDatumSurvived(text, where) {
-  // POSITIVE: the datum came back as the datum — unevaluated `inc` and `41`,
+// `n` is the argument the payload handed `inc` (41 on the one-arity arm, 99
+// on the frame-targeted one), so each arm reads back only its own values.
+function assertQuotedDatumSurvived(text, where, n = 41) {
+  // POSITIVE: the datum came back as the datum — unevaluated `inc` and `n`,
   // in either bracketing (see the note above on seq -> vector normalisation).
-  if (!/:value\s+[[(]inc 41[\])]/.test(text)) {
+  if (!new RegExp(':value\\s+[[(]inc ' + n + '[\\])]').test(text)) {
     throw new Error(
       where + ': the injected list MUST read back with its elements intact — ' +
-        '`[inc 41]` (get-path\'s elision walk normalises a quoted list to a ' +
-        'vector) or `(inc 41)`. A `:value 42` here is the ' +
-        'print-is-not-quotation regression rf2-olqo fixed — the runtime ' +
-        'evaluated the caller\'s DATA. Got: ' +
-        text.slice(0, 400),
+        '`[inc ' + n + ']` (get-path\'s elision walk normalises a quoted list ' +
+        'to a vector) or `(inc ' + n + ')`. A `:value ' + (n + 1) + '` here ' +
+        'is the print-is-not-quotation regression rf2-olqo fixed — the ' +
+        'runtime evaluated the caller\'s DATA. Any other value means this ' +
+        'call did not commit its own payload to the frame get-path reads. ' +
+        'Got: ' + text.slice(0, 400),
     );
   }
   // NEGATIVE (the control): had the db been PRINTED rather than QUOTED into
   // the emitted form, the runtime would have evaluated it and this is what we
   // would see instead. Asserted separately so a partially-matching payload
   // cannot pass on the positive alone.
-  if (/:value\s+42\b/.test(text)) {
+  if (new RegExp(':value\\s+' + (n + 1) + '\\b').test(text)) {
     throw new Error(
-      where + ': `:value 42` means the emitted form EVALUATED `(inc 41)` — ' +
-        'the db argument reached the runtime via `pr-str`, not `rt-quote`. ' +
-        'Got: ' + text.slice(0, 400),
+      where + ': `:value ' + (n + 1) + '` means the emitted form EVALUATED ' +
+        '`(inc ' + n + ')` — the db argument reached the runtime via ' +
+        '`pr-str`, not `rt-quote`. Got: ' + text.slice(0, 400),
     );
   }
 }
 
-function assertQuotedSymbolSurvived(text, where) {
-  if (!/:value\s+js\/window/.test(text)) {
+function assertQuotedSymbolSurvived(text, where, sym = 'js/window') {
+  if (!new RegExp(':value\\s+' + sym).test(text)) {
     throw new Error(
-      where + ': the injected symbol MUST read back as the SYMBOL ' +
-        '`js/window`. An `#object[Window ...]` here means the symbol was ' +
-        'RESOLVED rather than quoted. Got: ' + text.slice(0, 400),
+      where + ': the injected symbol MUST read back as the SYMBOL `' + sym +
+        '`. An `#object[...]` here means the symbol was RESOLVED rather ' +
+        'than quoted; any other value means this call did not commit its ' +
+        'own payload to the frame get-path reads. Got: ' + text.slice(0, 400),
     );
   }
   if (/#object\[/.test(text)) {
@@ -277,14 +291,12 @@ runWithWatchdog(
     const frameId = frameMatch[1];
     console.log('OK   current-frame -> ' + frameId);
 
-    // A DIFFERENT expression on the second arm, so a stale read of the
-    // one-arity injection cannot pass for the frame-targeted one.
-    const frameDb =
-      '{:count 5 ' + EXPR_KEY + ' (inc 41) ' + SYM_KEY + ' js/window}';
+    // DIFFERENT values on the second arm (`FRAME_PAYLOAD_DB`), so a stale
+    // read of the one-arity injection cannot pass for the frame-targeted one.
     await callOrThrow(
       client,
       'replace-app-db',
-      { db: frameDb, frame: frameId },
+      { db: FRAME_PAYLOAD_DB, frame: frameId },
       'replace-app-db {db frame} (two-arity, writes enabled)',
     );
     console.log('OK   replace-app-db {db frame} -> committed (two-arity)');
@@ -292,18 +304,20 @@ runWithWatchdog(
     assertQuotedDatumSurvived(
       await readSlot(client, EXPR_KEY, 'get-path ' + EXPR_KEY + ' (two-arity)'),
       'two-arity (frame-targeted) replace-app-db',
+      99,
     );
     console.log(
-      'OK   get-path ' + EXPR_KEY + ' -> `(inc 41)` survives as DATA ' +
-        '(not 42) — two-arity',
+      'OK   get-path ' + EXPR_KEY + ' -> `(inc 99)` survives as DATA ' +
+        '(not 100) — two-arity',
     );
 
     assertQuotedSymbolSurvived(
       await readSlot(client, SYM_KEY, 'get-path ' + SYM_KEY + ' (two-arity)'),
       'two-arity (frame-targeted) replace-app-db',
+      'js/document',
     );
     console.log(
-      'OK   get-path ' + SYM_KEY + ' -> `js/window` survives as a SYMBOL ' +
+      'OK   get-path ' + SYM_KEY + ' -> `js/document` survives as a SYMBOL ' +
         '(not resolved) — two-arity',
     );
 
