@@ -117,7 +117,7 @@
     (build-overflow-result [_ marker original]
       ;; An over-cap FAILED call stays a failure: the error path reaches
       ;; the cap on purpose (see `invoke-tool`), and a marker without
-      ;; `isError` reads exactly like an over-cap success (rf2-3x7nj.35.3).
+      ;; `isError` reads exactly like an over-cap success.
       (cond-> {:content          [{:type "text" :text (rf.story-mcp.tools.result/pr-edn marker)}]
                :structuredContent marker}
         (true? (:isError original)) (assoc :isError true)))))
@@ -394,7 +394,7 @@
                             ;; an un-encodable `:data` slot here would
                             ;; escape this catch as a `-32603` server fault
                             ;; — the belt-and-braces catch failing exactly
-                            ;; when it is needed (rf2-2z9u3). This is the
+                            ;; when it is needed. This is the
                             ;; GENERIC arm: it guards every handler, not
                             ;; just the two write surfaces.
                             (rf.story-mcp.tools.result/error-result (str "Tool handler threw: " (ex-message e))
