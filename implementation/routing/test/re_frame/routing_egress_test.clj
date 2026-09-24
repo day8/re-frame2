@@ -2,22 +2,22 @@
   "EP-0015 (Spec 015 §Registration-owned transient classification) routing
   egress-projection regressions.
 
-  Three findings from the EP-0015 review wave, all on the routing surface:
+  Three routing surfaces carry raw route values toward egress:
 
-    - rf2-1wmni6 / rf2-pbbo68 — the rf.routing.scroll/history fx (`:rf.nav/scroll`,
+    - the rf.routing.scroll/history fx (`:rf.nav/scroll`,
       `:rf.nav/capture-scroll`, `:rf.nav/push-url`, `:rf.nav/replace-url`)
       build args carrying raw route params/query/fragment/URLs, and the core
-      fx trace records `:rf.fx/args` verbatim onto `:rf.fx/handled`. Fixed by
+      fx trace records `:rf.fx/args` verbatim onto `:rf.fx/handled`. Covered by
       `:sensitive` path-marks on the fx registrations so the marks chokepoint
       redacts the carrier slots on the trace egress copy (handler input
       unaffected).
-    - rf2-n1f4rh — the route-miss diagnostics (`:rf.warning/malformed-url`,
-      `:rf.error/no-such-handler`) emit the raw requested URL under a custom
-      `:url` slot the marks chokepoint does not walk. Fixed by a default-on
+    - the route-miss diagnostics (`:rf.warning/malformed-url`,
+      `:rf.error/no-such-handler`) carry the requested URL under a custom
+      `:url` slot the marks chokepoint does not walk. Covered by a default-on
       URL-carrier scrub (`re-frame.privacy.url/redact-url-carriers`) at the
       emit site — no schema to consult on a route miss, so query/fragment
       values are redacted by default.
-    - rf2-jfaucw — the blocked-navigation record keeps raw route carriers:
+    - the blocked-navigation record carries raw route carriers:
       the `:rf.route/navigation-blocked` TRACE carries `:requested-url`
       (custom slot → emit-site scrub) and the DISPATCHED event payload carries
       the pending-nav map with `:requested-url` + `:destination` / `:target`
@@ -27,7 +27,7 @@
   (the handler / pending-nav sub / continue-cancel resume need it), only the
   EGRESS copy (trace bus / Xray / MCP / log / epoch) is projected.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   Read this before adding a case here: the answer to \"is this leg
   production-real?\" is NOT uniform across this namespace, and getting it
@@ -40,23 +40,22 @@
     * the pure carrier scrub `rf.privacy.url/redact-url-carriers` /
       `rf.privacy.url/redact-url-tag` — plain functions the emit sites call
       unconditionally, no `rf.interop/debug-enabled?` anywhere near them (they
-      live in core since rf2-6l2nc; their own unit battery moved with them to
+      live in core; their own unit battery lives in
       `re-frame.privacy-url-test`, and what is asserted here is that routing's
       emit sites reach them);
     * the `:sensitive` RETENTION itself (`rf/handler-meta`, both the
       positional and the frame-targeted public arities) — registrar state,
-      posture-independent, and the mechanism every projection rides on. This
-      is the rf2-kqxe6.20 fix proper;
+      posture-independent, and the mechanism every projection rides on;
     * the IN-PROCESS rawness — handlers, the durable pending-nav slot,
       continue/cancel resume;
     * the `:rf/route` SUB-EGRESS half (`rf.routing.sub-egress/route-sub-seed-path`, the
-      `rf.elision/elide-wire-value` projections). rf2-u2x6w established that
-      sub-classification genuinely egresses in production, and its always-on
+      `rf.elision/elide-wire-value` projections).
+      Sub-classification genuinely egresses in production, and its always-on
       witnesses live in `re-frame.routing-sub-egress-production-test`, which
       is separately IN the lane.
 
-  DEV-ONLY, and kept VERBATIM inside `(when rf.interop/debug-enabled? …)` arms
-  marked `rf2-o5dbf`: every assertion read off the TRACE BUS — the
+  DEV-ONLY, and inside `(when rf.interop/debug-enabled? …)` arms
+  marked as dev-instrumentation arms: every assertion read off the TRACE BUS — the
   `:rf.fx/handled` `:rf.fx/args` copy, the `:rf.error/no-such-handler` and
   `:rf.route/navigation-blocked` tag maps, and the dispatched-event payload
   copies. `trace/emit!` sits behind `rf.interop/debug-enabled?`, read once at
@@ -67,7 +66,7 @@
   `(not (re-find …))` pair in the route-miss case. With no trace, `payload` is
   nil and the assertion passes VACUOUSLY: it would report a privacy guarantee
   the framework never executed. They are inside the arm for that reason
-  specifically. Nothing was deleted or weakened."
+  specifically."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
@@ -93,7 +92,7 @@
 ;; The spec defaults the scroll / history fx to :platforms #{:client}, so on
 ;; the JVM they emit `:rf.fx/skipped-on-platform` rather than running. The
 ;; routing tests re-register them #{:server :client} to exercise the drain.
-;; CRUCIAL for EP-0015 (rf2-1wmni6/rf2-pbbo68): a bare re-registration would
+;; CRUCIAL for EP-0015: a bare re-registration would
 ;; REPLACE the marks entry (register-marks! replaces in full), wiping the
 ;; `:sensitive` declarations under test — so each override MERGES the
 ;; production meta (carrying `:sensitive`) and only OVERRIDES `:platforms`.
@@ -106,21 +105,21 @@
   [fx-id prod-meta handler]
   ;; FN form (no source-coord capture): the override REPLACES the framework's
   ;; nil-provenance source-store slot instead of colliding as a cross-ns
-  ;; duplicate at default-image assembly (rf2-h1vqa4).
+  ;; duplicate at default-image assembly.
   (rf.fx/reg-fx fx-id (assoc prod-meta :platforms #{:server :client}) handler))
 
 ;; ===========================================================================
-;; The pure URL-carrier scrub itself is CORE's (rf2-6l2nc). Its unit cases —
-;; the happy path plus the rf2-vh4lbf adversarial-input battery — moved to
-;; `re-frame.privacy-url-test` when `redact-url-carriers` moved to
+;; The pure URL-carrier scrub itself is CORE's. Its unit cases —
+;; the happy path plus an adversarial-input battery — live in
+;; `re-frame.privacy-url-test`, beside `redact-url-carriers` in
 ;; `re-frame.privacy.url`, so the policy is pinned where it is defined rather
-;; than in one of the two artefacts that call it. What stays here is what is
-;; about ROUTING: which emit sites reach the scrub, and what the egress copy
-;; of each looks like.
+;; than in one of the two artefacts that call it. What this namespace covers is
+;; what is about ROUTING: which emit sites reach the scrub, and what the egress
+;; copy of each looks like.
 ;; ===========================================================================
 
 ;; ===========================================================================
-;; rf2-1wmni6 / rf2-pbbo68 — rf.routing.scroll/history fx :sensitive marks project the
+;; rf.routing.scroll/history fx :sensitive marks project the
 ;; :rf.fx/args carrier slots on the :rf.fx/handled trace egress copy.
 ;; ===========================================================================
 
@@ -142,7 +141,7 @@
          :rf.fx/args)))
 
 (deftest scroll-fx-handled-trace-redacts-route-descriptor-carriers
-  (testing "rf2-1wmni6/rf2-pbbo68: :rf.nav/scroll's :rf.fx/handled trace has
+  (testing ":rf.nav/scroll's :rf.fx/handled trace has
             :from/:to :params/:query and :fragment redacted; :strategy + the
             route :id ride verbatim"
     (rf/reg-route :route/articles {} "/articles")
@@ -153,14 +152,14 @@
     (reg-jvm-fx! :rf.nav/push-url rf.routing.nav-fx/push-url-meta     (fn [_ _] nil))
     ;; Land on a route WITH params so the next nav's :from carries :params.
     (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "secret-doc-id"}}])
-    ;; SEMANTIC, posture-independent (rf2-o5dbf): the projection the trace copy
+    ;; SEMANTIC, posture-independent: the projection the trace copy
     ;; rides on is the fx registration's own `:sensitive` declaration, which is
     ;; registrar state and survives -Dre-frame.debug=false. If the mark is lost,
     ;; the trace assertions below could not hold in ANY posture.
     (is (= [[:from :params] [:from :query] [:to :params] [:to :query] [:fragment]]
            (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/scroll})))
         ":rf.nav/scroll declares the route-descriptor carrier slots :sensitive")
-    ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+    ;; Dev-instrumentation arm (see ns docstring).
     (when rf.interop/debug-enabled?
       (let [args (handled-trace-for
                    :rf.nav/scroll
@@ -180,7 +179,7 @@
         (is (contains? args :strategy) ":strategy rides verbatim")))))
 
 (deftest scroll-fx-handler-still-receives-raw-args-in-process
-  (testing "rf2-1wmni6/rf2-pbbo68: the marks projection touches ONLY the trace
+  (testing "the marks projection touches ONLY the trace
             egress copy — the in-process handler still receives the raw args
             (scroll restoration / fragment scrolling unaffected)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
@@ -196,7 +195,7 @@
           "the handler receives the RAW :fragment (scrolling needs it)"))))
 
 (deftest push-url-not-marked-routes-real-url
-  (testing "rf2-1wmni6/rf2-pbbo68: :rf.nav/push-url is deliberately NOT
+  (testing ":rf.nav/push-url is deliberately NOT
             `:sensitive` — the pushed URL is the navigation's behavioural
             identity (the open-redirect gate already cleared it), and the
             `:effects-routed` conformance contract + epoch :effects projection
@@ -206,14 +205,14 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (reg-jvm-fx! :rf.nav/scroll   rf.routing.scroll/scroll-fx-meta (fn [_ _] nil))
     (reg-jvm-fx! :rf.nav/push-url rf.routing.nav-fx/push-url-meta  (fn [_ _] nil))
-    ;; SEMANTIC, posture-independent (rf2-o5dbf): the DELIBERATE ABSENCE of a
+    ;; SEMANTIC, posture-independent: the DELIBERATE ABSENCE of a
     ;; `:sensitive` mark is registrar state, so it is assertable under the
     ;; production gate — and it is the fact the trace expectation below rests
     ;; on. A mark added here by accident would fail this, in both postures.
     (is (nil? (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/push-url})))
         ":rf.nav/push-url declares NO :sensitive marks — the pushed URL is the
          navigation's behavioural identity, not a diagnostic carrier")
-    ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+    ;; Dev-instrumentation arm (see ns docstring).
     (when rf.interop/debug-enabled?
       (let [args (handled-trace-for
                    :rf.nav/push-url
@@ -224,18 +223,18 @@
             "the push-url URL routes/traces the real same-origin URL")))))
 
 ;; ===========================================================================
-;; rf2-n1f4rh — route-miss diagnostics redact the raw requested URL.
+;; Route-miss diagnostics redact the raw requested URL.
 ;; ===========================================================================
 
 (deftest route-miss-no-such-handler-redacts-url-carriers
-  (testing "rf2-n1f4rh: an unmatched URL with query/fragment token carriers →
+  (testing "an unmatched URL with query/fragment token carriers →
             :rf.error/no-such-handler trace has the carrier VALUES redacted
             (path + :reason kept for app error handling)"
     ;; No route registered for /oauth → route-miss → fallback to not-found.
     (rf/reg-route :rf.route/not-found {} "/404")
     (let [raw "/oauth/callback?code=topsecret&state=xyz#access_token=leak"
           traces (atom [])]
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the scrub the emit site
+      ;; SEMANTIC, posture-independent: the scrub the emit site
       ;; applies is `rf.privacy.url/redact-url-tag`, an ALWAYS-ON pure function — no
       ;; `rf.interop/debug-enabled?` between it and the caller. Assert it on the
       ;; exact tag map the route-miss telemetry builds, so the scrub itself is
@@ -250,7 +249,7 @@
       (rf/register-listener! :trace ::miss (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/handle-url-change raw {:rf.route/cause :link}])
       (rf/unregister-listener! :trace ::miss)
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The two
+      ;; Dev-instrumentation arm (see ns docstring). The two
       ;; `(not (re-find …))` legs are NEGATIVE: with no trace `url` is nil and
       ;; they would pass vacuously, which is why they live in here rather than
       ;; beside the semantics.
@@ -270,7 +269,7 @@
           (is (= :route (-> err :tags :kind)) ":kind :route discriminator kept"))))))
 
 ;; ===========================================================================
-;; rf2-jfaucw — blocked-navigation record keeps no raw route carriers on
+;; The blocked-navigation record keeps no raw route carriers on
 ;; egress, while continue/cancel resume still work in-process.
 ;; ===========================================================================
 
@@ -289,7 +288,7 @@
   (rf/dispatch-sync [:editor/dirty true]))
 
 (deftest navigation-blocked-trace-redacts-requested-url-carriers
-  (testing "rf2-jfaucw: the :rf.route/navigation-blocked TRACE redacts the
+  (testing "the :rf.route/navigation-blocked TRACE redacts the
             :requested-url query/fragment carriers"
     (block-fixture!)
     (let [traces (atom [])]
@@ -297,8 +296,8 @@
       ;; Try to leave to a URL carrying a query secret → blocked.
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100&ref=x"}])
       (rf/unregister-listener! :trace ::blocked)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the `:requested-url` scrub
-      ;; the emit site applies (decisions.cljc §301-309) is the ALWAYS-ON
+      ;; SEMANTIC, posture-independent: the `:requested-url` scrub
+      ;; the emit site applies (in `re-frame.routing.decisions`) is the ALWAYS-ON
       ;; `rf.privacy.url/redact-url-tag` on the `:requested-url` slot. Assert it
       ;; there, so the scrub itself is proven under the production gate.
       (let [scrubbed (:requested-url
@@ -309,7 +308,7 @@
         (is (re-find #"^/cart" scrubbed) "the path is preserved")
         (is (not (re-find #"SECRET100" scrubbed)) "the query secret is NOT raw")
         (is (re-find (re-pattern sentinel-str) scrubbed) "carrier value redacted"))
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (let [blocked (->> @traces
                            (filter #(= :rf.route/navigation-blocked (:operation %)))
@@ -324,7 +323,7 @@
               ":rejecting-guard kept"))))))
 
 (deftest navigation-blocked-dispatched-event-payload-redacts-carriers
-  (testing "rf2-jfaucw: the DISPATCHED [:rf.route/navigation-blocked pending-nav]
+  (testing "the DISPATCHED [:rf.route/navigation-blocked pending-nav]
             event trace redacts the pending-nav :requested-url +
             :destination / :target carrier slots via event marks"
     (block-fixture!)
@@ -332,14 +331,14 @@
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
       (rf/unregister-listener! :trace ::nb)
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the marks chokepoint reads
+      ;; SEMANTIC, posture-independent: the marks chokepoint reads
       ;; the event registration's `:sensitive` declaration, which is registrar
       ;; state. That declaration is what the redaction below IS — assert it
       ;; where the production gate can see it.
       (is (= [[:requested-url] [:destination] [:target]]
              (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked})))
           "the framework declares the pending-nav carrier slots :sensitive")
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+      ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         ;; Find a dispatched-event trace carrying the navigation-blocked event vec.
         (let [dispatched (->> @traces
@@ -363,7 +362,7 @@
             (is (contains? pending-nav :id) ":id (pending-nav handle) kept")))))))
 
 (deftest navigation-blocked-pending-nav-slot-keeps-raw-in-process
-  (testing "rf2-jfaucw: the DURABLE pending-nav runtime-db slot keeps the RAW
+  (testing "the DURABLE pending-nav runtime-db slot keeps the RAW
             :requested-url / :destination / :target so continue/cancel resume
             still work (marks/scrub touch only the egress copy)"
     (block-fixture!)
@@ -384,7 +383,7 @@
         "continue cleared the pending slot (resume completed from the raw value)")))
 
 ;; ===========================================================================
-;; rf2-kqxe6.20 — the carrier classification SURVIVES a public behaviour
+;; The carrier classification SURVIVES a public behaviour
 ;; override of a replaceable framework default.
 ;;
 ;; `:rf.route/entry-denied` / `:rf.route/navigation-blocked` are replaceable
@@ -392,8 +391,8 @@
 ;; `rf/reg-event` under the same id is the documented auth recipe. The payload
 ;; those events carry is FRAMEWORK-constructed, so its URL carriers are the
 ;; framework's own `:sensitive` declaration — and it must not evaporate because
-;; the application supplied its own handler. Before rf2-kqxe6.20 it did: the
-;; canonical auth recipe (which declares no metadata at all) silently shipped
+;; the application supplied its own handler. If it did, the
+;; canonical auth recipe (which declares no metadata at all) would silently ship
 ;; the full denied destination to trace / off-box observation.
 ;;
 ;; These cases drive the PUBLIC `rf/reg-event` spelling every doc, example and
@@ -428,7 +427,7 @@
          first)))
 
 (deftest public-entry-denied-override-still-redacts-carriers-on-egress
-  (testing "rf2-kqxe6.20: the canonical auth recipe — a bare public
+  (testing "the canonical auth recipe — a bare public
             `rf/reg-event :rf.route/entry-denied` with NO :sensitive
             boilerplate — still redacts :requested-url / :destination / :target
             in the dispatched-event trace, while the handler itself receives the
@@ -440,7 +439,7 @@
                     (fn [{:keys [db]} [_ {:keys [destination] :as denial}]]
                       (swap! seen conj denial)
                       {:db (assoc-in db [:auth :return-to] destination)}))
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): rf2-kqxe6.20's actual fix is
+      ;; SEMANTIC, posture-independent: the property under test is
       ;; the RETENTION — the framework's carrier declaration survives a bare
       ;; public override that declares no metadata at all. That is registrar
       ;; state, so it is provable under the production gate, and it is the
@@ -454,7 +453,7 @@
                       :rf.route/entry-denied
                       #(rf/dispatch-sync
                          [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
-        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+        ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
           (is (some? payload) "the entry-denied event vector was traced")
           (is (= rf.privacy/redacted-sentinel (:requested-url payload))
@@ -464,7 +463,7 @@
           (is (= rf.privacy/redacted-sentinel (:target payload))
               ":target redacted on the egress copy after the override")
           (is (= :auth/signed-in? (:guard payload)) "the structural :guard slot kept")))
-      ;; Handler invocation is unchanged — called exactly once, with RAW values.
+      ;; The handler is called exactly once, with RAW values.
       (is (= 1 (count @seen)) "the app handler ran exactly once")
       (let [denial (first @seen)]
         (is (= "/account?invite=SECRET100" (:requested-url denial))
@@ -474,14 +473,14 @@
              recipe stashes it and replays it after a successful sign-in")))))
 
 (deftest public-navigation-blocked-override-still-redacts-carriers-on-egress
-  (testing "rf2-kqxe6.20: the leave half behaves identically — a bare public
+  (testing "the leave half behaves identically — a bare public
             override of :rf.route/navigation-blocked keeps the pending-nav
             carrier redaction on the dispatched-event trace"
     (block-fixture!)
     (let [seen (atom [])]
       (rf/reg-event :rf.route/navigation-blocked
                     (fn [_ [_ pending]] (swap! seen conj pending) {}))
-      ;; SEMANTIC, posture-independent (rf2-o5dbf): the retention itself — see
+      ;; SEMANTIC, posture-independent: the retention itself — see
       ;; the entry-denied twin above.
       (is (= [[:requested-url] [:destination] [:target]]
              (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked})))
@@ -490,7 +489,7 @@
                       :rf.route/navigation-blocked
                       #(rf/dispatch-sync
                          [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}]))]
-        ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+        ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
           (is (some? payload) "the navigation-blocked event vector was traced")
           (is (= rf.privacy/redacted-sentinel (:requested-url payload)))
@@ -502,7 +501,7 @@
           "the in-process handler saw the RAW requested URL (resume needs it)"))))
 
 (deftest an-app-classification-is-additive-over-the-retained-carriers
-  (testing "rf2-kqxe6.20: an override that DOES declare :sensitive gets both —
+  (testing "an override that DOES declare :sensitive gets both —
             its own paths AND the framework's carriers. The retention is a
             union, not a replacement in the other direction"
     (entry-fixture!)
@@ -516,7 +515,7 @@
                     :rf.route/entry-denied
                     #(rf/dispatch-sync
                        [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The UNION
+      ;; Dev-instrumentation arm (see ns docstring). The UNION
       ;; itself — the property this deftest is named for — is asserted above on
       ;; `rf/handler-meta`, posture-independently.
       (when rf.interop/debug-enabled?
@@ -526,7 +525,7 @@
             "the app's own declared path redacts too")))))
 
 (deftest the-retained-carriers-survive-a-hot-reload-re-registration
-  (testing "rf2-kqxe6.20: re-evaluating the app namespace re-registers the
+  (testing "re-evaluating the app namespace re-registers the
             override. The framework's own copy is retained in the source store,
             so the carriers ride the SECOND registration too — the classification
             does not decay across a hot reload"
@@ -540,7 +539,7 @@
                     :rf.route/entry-denied
                     #(rf/dispatch-sync
                        [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
-      ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;; Dev-instrumentation arm (see ns docstring). The
       ;; no-duplication / no-decay property is asserted above on
       ;; `rf/handler-meta`, posture-independently.
       (when rf.interop/debug-enabled?
@@ -548,8 +547,7 @@
             "still redacted after the re-registration")))))
 
 ;; ===========================================================================
-;; rf2-kqxe6.20 (reopened by the merged-PR audit of #6949) — the retention is
-;; ORDER-INDEPENDENT.
+;; The retention is ORDER-INDEPENDENT.
 ;;
 ;; Every case above loads `re-frame.routing` FIRST, which is only one of the two
 ;; legal orders. `re-frame.core` does not pull the routing artefact in, so an
@@ -559,11 +557,12 @@
 ;;
 ;; Registration-time retention alone cannot cover that order: when the app
 ;; registration is recorded there is no framework descriptor in the source store
-;; to read, so the app descriptor was stored carrier-less and the framework's
-;; later seeding did not reconcile it. The app handler still won the frame, so
-;; the ONLY observable difference was at egress — the framework's URL carriers
-;; shipped RAW to every trace / off-box projection, purely because of require
-;; order. The seam therefore reconciles both ways.
+;; to read, so without reconciliation the app descriptor would be stored
+;; carrier-less and the framework's later seeding would leave it so. The app
+;; handler would still win the frame, so the ONLY observable difference would
+;; be at egress — the framework's URL carriers shipping RAW to every trace /
+;; off-box projection, purely because of require order. The seam therefore
+;; reconciles both ways.
 ;; ===========================================================================
 
 (defn- restage-app-registered-before-routing!
@@ -610,7 +609,7 @@
   (:sensitive (frame-targeted-meta kind id)))
 
 (deftest app-registered-before-routing-still-redacts-framework-carriers
-  (testing "rf2-kqxe6.20: the application namespace registers
+  (testing "the application namespace registers
             :rf.route/entry-denied BEFORE re-frame.routing seeds its replaceable
             defaults. The app handler is still the frame's winner, and the
             classification the frame EFFECTIVELY resolves is the same union the
@@ -665,7 +664,7 @@
             "the two public arities answer DIFFERENTLY under this load order —
              which is exactly why the frame-targeted form is the effective read"))
       ;; (2) TRACE PROJECTION — the egress the classification exists for.
-      ;;     rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+      ;;     Dev-instrumentation arm (see ns docstring). The
       ;;     RECONCILIATION this deftest exists for is assertion (1) above,
       ;;     which is registrar state and posture-independent. Note the final
       ;;     leg is NEGATIVE over the trace copy: with no trace `payload` is
@@ -699,18 +698,19 @@
             "the in-process handler saw the RAW replayable destination")))))
 
 ;; ===========================================================================
-;; rf2-mtzv5m — route classification applied at :rf/route SUB-EGRESS surfaces.
+;; Route classification applied at :rf/route SUB-EGRESS surfaces.
 ;;
 ;; A route declares projection-relative `:sensitive` / `:large` paths; at
 ;; activation they re-root ABSOLUTE under `[:rf.runtime/routing :current …]`
 ;; in the per-frame elision registry. But the `:rf/route` sub returns the BARE
 ;; slice (`{:route-id :params :query …}`), so a whole-value-rooted egress walk
-;; of the sub value never matched the re-rooted decls — a `:sensitive` query /
-;; param shipped RAW on the trace bus / Pair MCP / Xray wire, contradicting
-;; Spec 012 §Lowering and re-rooting. The fix is a routing-owned / late-bound
+;; of the sub value would never match the re-rooted decls — a `:sensitive` query /
+;; param would ship RAW on the trace bus / Pair MCP / Xray wire, contradicting
+;; Spec 012 §Lowering and re-rooting. A routing-owned / late-bound
 ;; route-sub egress projector with a sub-id → runtime-path SEED TABLE
-;; (`re-frame.routing.sub-egress`) that re-seeds the egress walk at the slice's
-;; storage position — the direct-read sibling of the SSR #4896 fix.
+;; (`re-frame.routing.sub-egress`) re-seeds the egress walk at the slice's
+;; storage position — the direct-read sibling of the SSR
+;; `project-routing-egress` projection.
 ;;
 ;; The invariant under test: a `:sensitive [[:query :token]]` route redacts in
 ;; BOTH the `:rf.sub/run` trace (`re-frame.classification/project-trace-event`)
@@ -768,7 +768,7 @@
       :rf.sub/value))
 
 (deftest sub-run-trace-redacts-route-sensitive-query
-  (testing "rf2-mtzv5m: the :rf.sub/run trace of [:rf/route] redacts the
+  (testing "the :rf.sub/run trace of [:rf/route] redacts the
             :sensitive query value and elides the :large one — the bare slice
             value is re-seeded at [:rf.runtime/routing :current]"
     (nav-to-sensitive-oauth!)
@@ -781,7 +781,7 @@
           "non-classified slice fields ride verbatim"))))
 
 (deftest sub-run-trace-redacts-rf-route-query-and-params-subs
-  (testing "rf2-mtzv5m: :rf.route/query (the bare :query map) redacts at egress —
+  (testing ":rf.route/query (the bare :query map) redacts at egress —
             its value carries no route seed without the projector"
     (rf/reg-route :route/oauth
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
@@ -791,7 +791,7 @@
           projected (project-sub-run-trace :rf.route/query query-map)]
       (is (= rf.privacy/redacted-sentinel (:token projected))
           ":rf.route/query value redacts the :token at egress")))
-  (testing "rf2-mtzv5m: :rf.route/params (the bare :params map) redacts at egress"
+  (testing ":rf.route/params (the bare :params map) redacts at egress"
     (rf/reg-route :route/upload
                   {:sensitive [[:params :secret]]}
                   "/upload/:secret")
@@ -812,7 +812,7 @@
 ;; mechanism.
 
 (deftest read-sub-elide-wire-value-redacts-route-sub-via-query-v
-  (testing "rf2-mtzv5m: elide-wire-value with :query-v [:rf/route] re-seeds at
+  (testing "elide-wire-value with :query-v [:rf/route] re-seeds at
             the slice storage position and redacts the :sensitive query value
             (the Pair MCP read-sub server-side call shape)"
     (nav-to-sensitive-oauth!)
@@ -822,7 +822,7 @@
           "the route :sensitive query value redacts on the read-sub wire")
       (is (= :route/oauth (:route-id elided))
           "non-classified slice fields ride verbatim")))
-  (testing "rf2-mtzv5m: WITHOUT :query-v the bare slice ships raw (the whole-value
+  (testing "WITHOUT :query-v the bare slice ships raw (the whole-value
             root never matches the re-rooted decl) — confirms the re-seed is
             load-bearing, and that NON-route values are untouched"
     (nav-to-sensitive-oauth!)
@@ -832,7 +832,7 @@
           "no :query-v ⇒ no route re-seed ⇒ the bare slice walks at the root and rides raw"))))
 
 (deftest read-sub-elide-wire-value-redacts-query-and-params-subs
-  (testing "rf2-mtzv5m: :rf.route/query / :rf.route/params re-seed via :query-v"
+  (testing ":rf.route/query / :rf.route/params re-seed via :query-v"
     (rf/reg-route :route/oauth
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
@@ -851,7 +851,7 @@
 ;; ---- the IN-PROCESS read stays RAW (the NARROW invariant) ------------------
 
 (deftest in-process-route-read-stays-raw
-  (testing "rf2-mtzv5m: classification is read ONLY at egress — the in-process
+  (testing "classification is read ONLY at egress — the in-process
             durable slice (what @(rf/subscribe [:rf/route]) returns) keeps the
             RAW :token / :payload so the handler / views / app subs see real
             values"
@@ -869,13 +869,13 @@
 
 ;; ---- the snapshot :sub-cache per-entry re-seed shape -----------------------
 ;;
-;; The Pair MCP snapshot :sub-cache slice is `{query-v {:value v …}}`; the fix
-;; walks it PER ENTRY threading each entry's query-v. This pins the per-entry
+;; The Pair MCP snapshot :sub-cache slice is `{query-v {:value v …}}`; the
+;; egress walks it PER ENTRY threading each entry's query-v. This pins the per-entry
 ;; semantics directly against the projector (the MCP eval-form-string shape is
 ;; gated by the JS-side egress-elision tests).
 
 (deftest snapshot-sub-cache-per-entry-reseed-redacts-route-entry
-  (testing "rf2-mtzv5m: a :sub-cache entry keyed by [:rf/route] redacts its
+  (testing "a :sub-cache entry keyed by [:rf/route] redacts its
             :value's :sensitive query when walked per-entry with its query-v,
             while a non-route entry rides raw"
     (nav-to-sensitive-oauth!)
