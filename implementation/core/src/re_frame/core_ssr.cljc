@@ -7,8 +7,7 @@
   QUERY surface (`render-to-string`, `render-tree-hash`, `project-error`,
   `head-model`, `head-model->html`) is NOT re-exported: loading
   `re-frame.ssr` is what installs the SSR runtime, so every SSR app
-  already names the artefact namespace and reaches those reads at home
-  (rf2-kuky.44 / rf2-kuky.87 / rf2-kuky.89).
+  already names the artefact namespace and reaches those reads at home.
 
   See [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention)."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
@@ -35,7 +34,7 @@
   ([id projector-fn]          [id {} projector-fn])
   ([id metadata projector-fn] :delegate))
 
-;; ---- Head/meta contract — rf2-4dra9 --------------------------------------
+;; ---- Head/meta contract --------------------------------------------------
 ;;
 ;; Per Spec 011 §Head/meta contract. `re-frame.ssr.head` ships the impl;
 ;; the registrar below looks the producing fn up through the late-bind
