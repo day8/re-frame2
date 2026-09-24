@@ -47,15 +47,14 @@
   the input — `(reduce + 0 (map #(+ (count (:effects %)) ...) ...))`
   equals the input event count when every event is grouped.
 
-  ## Future hooks
+  ## Consumers
 
-  - Xray (rf2-5aw5v) will consume `group-by-event` in its event-detail
-    panel and causality-graph node renderer; the `:ungrouped` slot covers
-    free-floating traces (e.g. registry events emitted at app boot).
-  - re-frame2-pair's `cascade-of` MCP op currently walks
-    `:rf.event/dispatched` traces in a slimmer form; it migrates to this
-    projection so 'show me every fx in this cascade' becomes one slice
-    of the returned record.")
+  - Xray reads event bundles in this shape across its panels; the
+    `:ungrouped` slot covers free-floating traces (e.g. registry events
+    emitted at app boot).
+  - re-frame2-pair's `cascade-of` MCP op reads event bundles in this
+    shape and walks their `:parent-dispatch-id` links to rebuild a
+    cascade tree.")
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -114,17 +113,17 @@
 
   `^:no-doc` public so `re-frame.trace.tooling/event-bundle` folds the
   per-frame ring's events with `absorb` over this same template rather
-  than re-inlining the slot set + the bucketing cond a second time
-  (rf2-ih437c). Both nss are dev-side and bundle-isolated from production
-  CLJS; this ns carries no requires, so the new tooling→projection edge
-  introduces no cycle and no production-bundle leak.
+  than re-inlining the slot set + the bucketing cond a second time. Both
+  nss are dev-side and bundle-isolated from production CLJS; this ns
+  carries no requires, so the tooling→projection edge introduces no cycle
+  and no production-bundle leak.
 
   `:event` is the dispatched event VECTOR (the convenient
   slim form most consumers need). `:dispatched` is the full
   `:rf.event/dispatched` trace EVENT — preserved so consumers (Xray's
   Event lens) can read top-level hoisted slots like
-  `:rf.trace/call-site` (per rf2-twt7m Change 1) without reaching
-  back into the raw trace buffer."
+  `:rf.trace/call-site` without reaching back into the raw trace
+  buffer."
   {:dispatch-id        nil
    :parent-dispatch-id nil
    :frame              nil
@@ -174,9 +173,10 @@
 
 (defn- bundle-frame
   "Extract the host frame from an event. nil means the event is not
-  frame-qualified (registry-time, boot-time, or older traces). Older
-  dispatch-scoped traces that predate explicit frame tags are treated as
-  default-frame traces so errors/warnings still ride with their run."
+  frame-qualified (registry-time or boot-time). A dispatch-scoped trace
+  that carries no frame tag, and whose dispatch id has no single known
+  frame, is treated as a default-frame trace so errors/warnings ride with
+  their run."
   [frame-index ev]
   (or (get-in ev [:tags :frame])
       (when-let [id (dispatch-id ev)]
@@ -190,7 +190,7 @@
   "The stable grouping key for an event bundle. Dispatch ids are only
   unique inside a frame in the portable contract, so frame-qualified
   traces group by `[frame dispatch-id]`. Traces without a dispatch-id are
-  not runs and share the historical ungrouped bucket regardless of
+  not runs and share the ungrouped bucket regardless of
   frame lifecycle metadata."
   [frame-index ev]
   (let [id (bundle-id ev)]
@@ -203,12 +203,11 @@
 
   The `:event` bucket lands the event VECTOR on `:event` (slim,
   consumers' common case) AND the full trace event on `:dispatched`
-  (preserves top-level hoisted slots like `:rf.trace/call-site` per
-  rf2-twt7m Change 1).
+  (preserves top-level hoisted slots like `:rf.trace/call-site`).
 
   `^:no-doc` public so `re-frame.trace.tooling/event-bundle` reuses
   this same fold (over `empty-event-bundle`) rather than re-inlining the
-  six-domino classification cond a third time (rf2-ih437c). Any extra
+  six-domino classification cond a third time. Any extra
   keys the caller seeds the accumulator with (e.g. tooling's
   `:trace-events`) are preserved untouched — `absorb` only writes the
   domino slots."
@@ -217,8 +216,8 @@
     :event   (assoc acc :event              (get-in ev [:tags :rf.event/v])
                        :dispatched         ev
                        ;; Surface the causal-parent link once at the
-                       ;; projection (Spec 009 §Dispatch correlation /
-                       ;; rf2-ryri7): the `:rf.event/dispatched` trace
+                       ;; projection (Spec 009 §Dispatch correlation):
+                       ;; the `:rf.event/dispatched` trace
                        ;; carries `:rf.trace/parent-dispatch-id` (the
                        ;; in-flight run that emitted this dispatch —
                        ;; an `:fx :dispatch` parent, a machine-internal
@@ -238,16 +237,17 @@
     :other   (update acc :other conj ev)))
 
 (defn- first-id
-  "Lowest `:id` among the event bundle's events, or `##Inf` when no event
-  carries an id. Used for sorting event bundles into emission order.
+  "Lowest `:id` among the event bundle's events, or a max-integer sentinel
+  when no event carries an id. Used for sorting event bundles into
+  emission order.
 
   Reads `:dispatched` (the full `:rf.event/dispatched` trace EVENT), not
   `:event` (the bare event VECTOR `absorb` also lands, which carries no
-  `:id`) — rf2-yl4c0s: destructuring `:event` here silently contributed
-  nothing to `all`, so a bundle containing ONLY the dispatched root (no
-  handler/fx/effects/subs/renders/other trace within its run) fell
-  through to the `##Inf` sentinel below and sorted LAST regardless of
-  its actual emission order."
+  `:id`): destructuring `:event` here would contribute nothing to `all`,
+  so a bundle containing ONLY the dispatched root (no
+  handler/fx/effects/subs/renders/other trace within its run) would fall
+  through to the sentinel below and sort LAST regardless of its actual
+  emission order."
   [{:keys [dispatched handler fx effects subs renders other]}]
   (let [all (concat (when dispatched [dispatched])
                     (when handler [handler])
@@ -306,8 +306,7 @@
        :dispatched  <trace-event or nil>      ;; the full :rf.event/dispatched
                                               ;;   trace event (top-level
                                               ;;   :rf.trace/call-site,
-                                              ;;   :source, :origin per
-                                              ;;   rf2-twt7m Change 1)
+                                              ;;   :source, :origin)
        :handler     <trace-event or nil>      ;; the :run-end emit (last wins)
        :fx          <trace-event or nil>      ;; :rf.fx/do-fx
        :effects     [<trace-event> ...]       ;; :op-type :rf.fx
@@ -326,8 +325,8 @@
   sorted by the lowest `:id` in each run, so runs render in
   emission order.
 
-  Stable / additive: future framework op-types that don't fit a
-  domino slot will surface under `:other` automatically. Tools that
+  Stable / additive: any framework op-type that doesn't fit a domino
+  slot surfaces under `:other` automatically. Tools that
   want richer projections of `:other` can call `domino-bucket`
   directly on each event."
   [events]
