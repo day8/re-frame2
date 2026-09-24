@@ -15,7 +15,7 @@
   carry the universal `max-tokens` / `cache` input knobs — those are
   spliced onto every descriptor's `:inputSchema :properties` at
   `tools/list` time by `tools/descriptors.cljs` (`with-budget-knob` /
-  `with-cache-knob`). Projecting the RAW descriptors hid that universal
+  `with-cache-knob`). Projecting the RAW descriptors would hide that universal
   input surface from the manifest, so a drift in the knob set (or in a
   tool's read/action cacheability classification, which decides whether
   `cache` is spliced) could not trip the drift gate. The splices are
