@@ -1,7 +1,7 @@
 (ns re-frame.projection-cljs-test
-  "EP-0015 §10/§11 (rf2-yjbr1w) — record-level egress projection.
-  `project-egress` + the six ruled `:rf.egress/*` profiles, layered over
-  `elide-wire-value`. Pins the acceptance legs the bead enumerates:
+  "EP-0015 §10/§11 — record-level egress projection.
+  `project-egress` + the six `:rf.egress/*` profiles, layered over
+  `elide-wire-value`. Pins these acceptance legs:
 
     - each profile's default redaction / elision behaviour on a record
       carrying sensitive + large + tree slots;
@@ -26,7 +26,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
-            ;; rf2-kuky.92 — the `:rf/epoch-record` arms bind the
+            ;; The `:rf/epoch-record` arms bind the
             ;; `:epoch/project-record` hook explicitly (present and absent).
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.projection :as rf.projection]
@@ -49,7 +49,7 @@
 (defn- mk-frame! [frame-id]
   (rf/make-frame {:id frame-id})
   ;; EP-0025: durable app-db classification rides the commit-plane effect
-  ;; path (`:source :effect`) — the durable frame annotation is removed.
+  ;; path (`:source :effect`) — there is no durable frame annotation.
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:auth :token]]
@@ -76,7 +76,7 @@
            :rf.egress/ssr-hydration
            :rf.egress/public-error}
          rf.projection/profiles)
-      "the six ruled profiles are the closed enum (EP-0015 issue 3)"))
+      "the six profiles are the closed enum (EP-0015 issue 3)"))
 
 (deftest profile-resolves-to-size-opts
   (testing "each profile resolves to its §10 default :rf.egress/* opt-set"
@@ -88,18 +88,18 @@
         (is (false? (:rf.egress/include-sensitive? o)) (str p " redacts sensitive"))
         (is (false? (:rf.egress/include-large? o))     (str p " elides large"))))
     ;; ssr-hydration redacts sensitive but applies NO size elision: the
-    ;; payload is the browser's live state, not a tool budget (rf2-hjz4r).
+    ;; payload is the browser's live state, not a tool budget.
     (let [o (rf.projection/profile-size-opts :rf.egress/ssr-hydration)]
       (is (false? (:rf.egress/include-sensitive? o)) "ssr-hydration redacts sensitive")
       (is (true? (:rf.egress/include-large? o))      "ssr-hydration keeps large values"))
-    ;; off-box-tool shares that floor and does NOT turn digests on
-    ;; (rf2-3x7nj.32.6): its §10 structural indicators are the marker's own
+    ;; off-box-tool shares that floor and does NOT turn digests on:
+    ;; its §10 structural indicators are the marker's own
     ;; :path / :bytes / :type / :handle; a digest is an explicit override.
     (let [o (rf.projection/profile-size-opts :rf.egress/off-box-tool)]
       (is (false? (:rf.egress/include-sensitive? o)))
       (is (false? (:rf.egress/include-large? o)))
       (is (false? (:rf.egress/include-digests? o))
-          "off-box-tool carries no digest by default (rf2-3x7nj.32.6)"))
+          "off-box-tool carries no digest by default"))
     (is (not-any? (comp true? :rf.egress/include-digests? rf.projection/profile-size-opts)
                   rf.projection/profiles)
         "no profile turns digests on")
@@ -131,7 +131,7 @@
         (is (= 3 (get-in out [:public :count]))
             (str p ": unmarked sibling passes through")))))
   (testing ":rf.egress/ssr-hydration redacts sensitive but keeps large whole —
-            the payload is the browser's live state, not a tool budget (rf2-hjz4r)"
+            the payload is the browser's live state, not a tool budget"
     (mk-frame! :proj/hydration)
     (let [out (rf/project-egress (sample-value)
                 {:frame :proj/hydration :rf.egress/profile :rf.egress/ssr-hydration})]
@@ -151,11 +151,11 @@
       (is (= 3 (get-in out [:public :count]))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.32.6 — a marker carries `:digest` only when a digest string was
-;; computed. The browser build computes none (`sha256-hex` is `nil` there), and
-;; `->marker` used to assoc that nil, so every browser-side marker — every
-;; marker pair-MCP ships — carried `:digest nil`, which the normative
-;; `:rf/elision-marker` schema rejects and which reads as a false "unchanged".
+;; A marker carries `:digest` only when a digest string was computed. The
+;; browser build computes none (`sha256-hex` is `nil` there), so `->marker`
+;; omits the slot: a `:digest nil` on every browser-side marker — every marker
+;; pair-MCP ships — would fail the normative `:rf/elision-marker` schema and
+;; read as a false "unchanged".
 ;; This is the only test that grades that `#?(:cljs …)` branch: a JVM lane
 ;; reads it but never compiles it.
 ;; ---------------------------------------------------------------------------
@@ -243,7 +243,7 @@
           "NO large marker is emitted — no path/size/digest can leak"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-izlr7f — NESTED-AXIS SUPPRESSION on the PATH walker
+;; NESTED-AXIS SUPPRESSION on the PATH walker
 ;; (`rf.classification/redact-with-paths` -> `walk-with-paths`). This walker
 ;; handles event arg-maps, sub outputs, fx args, cofx values. A :large path
 ;; containing a :sensitive descendant must descend-and-redact, never emit a
@@ -253,7 +253,7 @@
 (deftest path-walker-nested-large-over-sensitive-descendant-redacts
   (testing "redact-with-paths: a :large [[:a]] subtree with a :sensitive
             [[:a :b]] descendant REDACTS the descendant and emits NO large
-            marker over the subtree (rf2-izlr7f)"
+            marker over the subtree"
     (let [secret "PATH-WALKER-SECRET"
           out    (rf.classification/redact-with-paths
                    {:a {:b secret :c "public"}}
@@ -271,8 +271,7 @@
 (deftest path-walker-whole-value-large-over-sensitive-descendant-redacts
   (testing "redact-with-paths: the whole-value :large [[]] case with a
             :sensitive [[:b]] descendant descends-and-redacts (the common
-            sub :large? output + registration :sensitive path scenario the bead
-            names) — rf2-izlr7f"
+            sub :large? output + registration :sensitive path scenario)"
     (let [secret "WHOLE-VALUE-LARGE-SECRET"
           out    (rf.classification/redact-with-paths
                    {:b secret :other "ok"}
@@ -287,8 +286,7 @@
 
 (deftest path-walker-large-without-sensitive-descendant-still-marks
   (testing "redact-with-paths: a :large path with NO sensitive descendant still
-            emits the marker (suppression gated on an actual descendant) —
-            rf2-izlr7f regression guard"
+            emits the marker (suppression gated on an actual descendant)"
     (let [out (rf.classification/redact-with-paths
                 {:a {:b "x"}}
                 [[:elsewhere]]   ;; sensitive, NOT under [:a]
@@ -385,11 +383,11 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Frame-bearing record — opts omit :frame, the RECORD's own :frame governs
-;; (rf2-vkblw4). The documented public call shape (Spec 015 §`project-egress`):
+;; The documented public call shape (Spec 015 §`project-egress`):
 ;; the record carries `:frame :app/main` and opts supply ONLY the profile.
-;; Pre-fix the record's frame was silently dropped and the AMBIENT (fixture
-;; `:rf/default`, no declarations) frame governed — so a record-frame-declared
-;; sensitive arg rode RAW off-box (a privacy hole) and off-box tree slots were
+;; Were the record's frame dropped, the AMBIENT (fixture `:rf/default`, no
+;; declarations) frame would govern — so a record-frame-declared sensitive arg
+;; would ride RAW off-box (a privacy hole) and off-box tree slots would be
 ;; over-redacted to `:rf/redacted` instead of projected under the record's
 ;; frame policy.
 ;; ---------------------------------------------------------------------------
@@ -397,9 +395,9 @@
 (deftest record-frame-governs-when-opts-omit-frame
   (testing "opts carry ONLY the profile; the record's own :frame governs the walk"
     ;; `:proj/owned` declares [:auth :token] sensitive; the fixture's ambient
-    ;; `:rf/default` declares NOTHING. Opts omit :frame, so pre-fix the ambient
-    ;; default governed and the token rode RAW; post-fix the record's :frame is
-    ;; seeded and the token is redacted (the privacy-critical leg).
+    ;; `:rf/default` declares NOTHING. Opts omit :frame, so the record's :frame
+    ;; is seeded and the token is redacted (the privacy-critical leg); were the
+    ;; ambient default to govern, the token would ride RAW.
     (mk-frame! :proj/owned)
     (let [record {:kind  :rf.observe/error
                   :frame :proj/owned
@@ -444,7 +442,7 @@
           msg    (ex-message thrown)]
       (is (= :rf.error/unknown-egress-profile (:rf.error/id data)))
       (is (= :rf.egress/bogus (:profile data)))
-      ;; rf2-krrv87: the throw routes through the shared canonical builder, so
+      ;; The throw routes through the shared canonical builder, so
       ;; the message LEADS with a human sentence and TRAILS with the
       ;; [:rf.error/unknown-egress-profile] greppability token, and the ex-data
       ;; carries :where / :recovery / :valid.
@@ -459,12 +457,12 @@
           "the closed valid-profile enum rides in ex-data"))))
 
 (deftest unknown-egress-profile-ex-shared-across-call-sites
-  (testing "rf2-krrv87: the shared `unknown-egress-profile-ex` builder yields an
+  (testing "the shared `unknown-egress-profile-ex` builder yields an
             IDENTICAL canonical shape from both closed-enum guards — the only
             difference is the per-site :where symbol (the in-file
             `resolve-elision-opts` guard vs the epoch
-            `resolve-egress-profile` guard). The duplicated hand-rolled
-            ex-info that could silently drift is gone."
+            `resolve-egress-profile` guard). There is no duplicated
+            hand-rolled ex-info to drift silently."
     (let [a    (rf.projection/unknown-egress-profile-ex 'rf/project-egress :rf.egress/bogus)
           b    (rf.projection/unknown-egress-profile-ex 'rf/project-egress :rf.egress/bogus)
           da   (ex-data a)
@@ -497,7 +495,7 @@
                   {:rf.egress/include-sensitive? true})]
         (is (= {:auth {:token "tok"}} out)
             "explicit include-sensitive? true is the deliberate frameless opt-out"))
-      ;; rf2-vkblw4: the record-frame seed adds NOTHING when neither the record
+      ;; The record-frame seed adds NOTHING when neither the record
       ;; nor opts name a frame — a frameless kindless record (or a record whose
       ;; :frame is nil) still FAILS CLOSED, never an empty-policy identity walk.
       (let [out (rf/project-egress {:kind :rf.observe/error :frame nil
@@ -509,7 +507,7 @@
             "a :frame nil record still fails closed (the seed is a no-op, no leak)")))))
 
 ;; ---------------------------------------------------------------------------
-;; PRESENCE-AWARE FRAME OWNERSHIP (rf2-kuky.5).
+;; PRESENCE-AWARE FRAME OWNERSHIP.
 ;;
 ;; Three steps, each decided by KEY PRESENCE rather than truthiness:
 ;;   1. an explicit `:frame` key in opts wins, nil INCLUDED;
@@ -517,10 +515,10 @@
 ;;      included;
 ;;   3. else nothing is seeded and the walker falls to the carried scope.
 ;;
-;; Truthiness at either step made `{:frame nil}` unsayable: it read as absence
-;; and borrowed the AMBIENT frame, which for a tool projecting another app's
-;; value resolves, is live, and has an empty registry — so the value shipped
-;; RAW. Every arm below binds a LIVE ambient frame with declarations of its
+;; Truthiness at either step would make `{:frame nil}` unsayable: it would read
+;; as absence and borrow the AMBIENT frame, which for a tool projecting another
+;; app's value resolves, is live, and has an empty registry — so the value
+;; would ship RAW. Every arm below binds a LIVE ambient frame with declarations of its
 ;; own, so a borrow is directly observable rather than vacuous.
 ;; ---------------------------------------------------------------------------
 
@@ -561,8 +559,8 @@
         (is (redacted? (:event out))
             "the explicit nil overrides the record's own live frame")))
 
-    (testing "an ABSENT :frame key still falls through to the carried scope —
-              today's behaviour, pinned"
+    (testing "an ABSENT :frame key falls through to the carried scope —
+              step 3, pinned"
       (is (redacted? (get-in (rf/project-egress (sample-value) {}) [:auth :token]))
           "no :frame key ⇒ step 3, the ambient frame")
       (is (= {:count 3} (:public (rf/project-egress (sample-value) {})))
@@ -593,10 +591,10 @@
             "non-classified siblings ride through — a walk, not a whole redact")))))
 
 (deftest a-bare-value-carrying-a-frame-key-is-a-value-not-a-record
-  ;; Seeding recognised records only. Before rf2-kuky.5 ANY map with a truthy
-  ;; `:frame` key seeded, so a bare app-db slice that happened to carry a
-  ;; `:frame` key was projected under whatever that key held — fail-closed in
-  ;; practice, but hidden context, and it made recognition a shape test.
+  ;; Only recognised records seed. Were ANY map with a truthy `:frame` key to
+  ;; seed, a bare app-db slice that happened to carry a `:frame` key would be
+  ;; projected under whatever that key held — fail-closed in practice, but
+  ;; hidden context, and it would make recognition a shape test.
   (mk-frame! :proj/owner3)
   (binding [rf.frame/*current-frame* nil]
     (let [value {:frame :proj/owner3 :auth {:token "tok"}}
@@ -618,14 +616,13 @@
       (is (large-marker? (get-in out [:docs :blob]))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0025 B4 (rf2-ojp8pi) + EP-0025 purge (rf2-j3jlgu) — the
-;; `:rf.observe/derived-tree` record kind.
+;; EP-0025 B4 — the `:rf.observe/derived-tree` record kind.
 ;;
 ;; A derived tree re-surfaces a frame's app-db-sensitive value at a NON-app-db
 ;; position the path walker cannot reach (a token copied out of `[:auth :token]`
 ;; into a rendered `[:input {:value <token>}]`). EP-0025 §"What is removed"
-;; removed the VALUE-match (taint) redaction of such re-keyed copies — it is
-;; propagation/taint by another name. So `:rf.observe/derived-tree` is now a
+;; excludes VALUE-match (taint) redaction of such re-keyed copies — it is
+;; propagation/taint by another name. So `:rf.observe/derived-tree` is a
 ;; PATH-based projection: each tree slot is walked through `elide-wire-value`
 ;; against the frame's classification. A re-keyed value at a non-app-db position
 ;; ships RAW (intended FAIL-OPEN — hygiene, not a guarantee). A value sitting at
@@ -642,8 +639,8 @@
 
 (deftest derived-tree-rekeyed-value-ships-raw-fail-open
   (testing "EP-0025: a re-keyed declared-sensitive value at a NON-app-db
-            position in a derived tree ships RAW under off-box (the value-match
-            redaction is removed — intended fail-open, hygiene not a guarantee)"
+            position in a derived tree ships RAW under off-box (there is no
+            value-match redaction — intended fail-open, hygiene not a guarantee)"
     (mk-frame! :proj/derived)
     (let [source-db {:auth {:token "super-secret-token"} :public {:count 3}}
           tree      (derived-tree-with-token "super-secret-token")
@@ -722,29 +719,29 @@
           "a NON-named author-prose slot is left untouched"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-vl0jur — derived-tree FAILS CLOSED on NO LIVE FRAME.
+;; Derived-tree FAILS CLOSED on NO LIVE FRAME.
 ;;
-;; Mike ruled 2026-06-23: (a) FAIL CLOSED for no-live-frame derived trees while
-;; PRESERVING the EP-0025 fail-open for re-keyed values UNDER a live governing
-;; frame. The four-case rule:
+;; The rule: FAIL CLOSED for no-live-frame derived trees, while KEEPING the
+;; EP-0025 fail-open for re-keyed values UNDER a live governing frame. The
+;; four cases:
 ;;   1. live frame + declared path             -> redact/elide by path;
 ;;   2. live frame + re-keyed/undeclared pos    -> raw (EP-0025 fail-open, KEEP);
 ;;   3. NO live frame (nil/unknown/destroyed)
 ;;      + no explicit raw opt-in                -> FAIL CLOSED (:rf/redacted);
 ;;   4. explicit trusted-local raw opt-in       -> raw (KEEP).
 ;;
-;; The earlier carve-out shipped the WHOLE tree RAW on no live frame, which
-;; contradicted the low-level walker (`elide-wire-value` fails closed), Spec 015
-;; §Direct reads, and the generic project-egress no-frame fixture. Cases 1 + 2
+;; Shipping the WHOLE tree RAW on no live frame would contradict the low-level
+;; walker (`elide-wire-value` fails closed), Spec 015 §Direct reads, and the
+;; generic project-egress no-frame fixture. Cases 1 + 2
 ;; are pinned by the deftests above (a LIVE `mk-frame!` is in effect there);
 ;; these pin case 3 across nil / unknown / destroyed frames in BOTH the
-;; single-tree and `:slot-keys` forms, and case 4 (the opt-out still ships raw).
+;; single-tree and `:slot-keys` forms, and case 4 (the opt-out ships raw).
 ;; ---------------------------------------------------------------------------
 
 (deftest derived-tree-nil-frame-fails-closed
   (testing "case 3 — a derived-tree record with a NIL :frame and no opt-out
             FAILS CLOSED: the whole single tree redacts to :rf/redacted (not
-            shipped raw; the rf2-vl0jur carve-out is retired)"
+            shipped raw)"
     ;; Rebind the ambient frame AWAY so the record's nil :frame is genuinely
     ;; frameless (no ambient scope leaks in).
     (binding [rf.frame/*current-frame* nil]
@@ -756,10 +753,10 @@
                    {:rf.egress/profile :rf.egress/off-box-tool})]
         (is (redacted? out)
             "a nil-frame derived tree fails closed to :rf/redacted")
-        ;; Confirm-by-revert: the old carve-out returned `tree`, which leaks the
-        ;; token. The new behaviour must NOT be that raw tree.
+        ;; A raw-shipping carve-out would return `tree`, which leaks the
+        ;; token. The result must NOT be that raw tree.
         (is (not= tree out)
-            "the whole raw tree is NOT shipped (the pre-fix leak)")
+            "the whole raw tree is NOT shipped")
         (is (not (string/includes? (pr-str out) "super-secret-token"))
             "the re-keyed secret does not leak off-box")))))
 
@@ -786,7 +783,7 @@
             longer policy-bearing, so its tree must redact whole, not ship raw"
     (mk-frame! :proj/derived-destroyed)
     ;; Destroy the frame so its registry is unreachable — the capture-then-
-    ;; teardown race the carve-out used to leak through.
+    ;; teardown race a raw-shipping carve-out would leak through.
     (rf/destroy-frame! :proj/derived-destroyed)
     (binding [rf.frame/*current-frame* nil]
       (let [tree (derived-tree-with-token "super-secret-token")
@@ -819,9 +816,9 @@
             "a named slot fails closed to :rf/redacted under no live frame")
         (is (redacted? (:network out))
             "a second named slot also fails closed")
-        ;; Confirm-by-revert: pre-fix each named slot rode raw.
+        ;; A raw-shipping carve-out would ship each named slot raw.
         (is (not= {:headers {:auth "super-secret-token"}} (:effective-args out))
-            "the named slot is NOT shipped raw (the pre-fix leak)")
+            "the named slot is NOT shipped raw")
         (is (= [:a :b] (:source-chain out))
             "a NON-named author-prose slot is left untouched (never walked)")
         (is (not (string/includes? (pr-str (select-keys out [:effective-args :network]))
@@ -829,10 +826,10 @@
             "no re-keyed secret leaks out of a walked named slot")))))
 
 (deftest derived-tree-no-live-frame-local-raw-opt-out-still-raw
-  (testing "case 4 — the explicit trusted-local raw opt-out still ships a
+  (testing "case 4 — the explicit trusted-local raw opt-out ships a
             FRAMELESS derived tree raw: :rf.egress/local-raw (and the bare
             :rf.egress/include-sensitive? true override) is the ONE deliberate way
-            to cross a frameless tree raw, preserving the EP-0025 opt-in"
+            to cross a frameless tree raw, honouring the EP-0025 opt-in"
     (binding [rf.frame/*current-frame* nil]
       (let [tree (derived-tree-with-token "super-secret-token")]
         ;; local-raw profile (resolves :rf.egress/include-sensitive? true).
@@ -856,7 +853,7 @@
               "an explicit include-sensitive? true also ships the frameless tree raw"))))))
 
 ;; ---------------------------------------------------------------------------
-;; `:rf/epoch-record` — the LATE-BOUND record kind (rf2-kuky.92).
+;; `:rf/epoch-record` — the LATE-BOUND record kind.
 ;;
 ;; The door's roster of record kinds spans two namespaces. The three
 ;; `:rf.observe/*` kinds are projected by private fns in `re-frame.projection`
@@ -943,7 +940,7 @@
                than borrowing the record's frame"))))))
 
 (deftest guard-g1-absent-epoch-projector-throws-and-never-bare-walks
-  (testing "GUARD G1 (rf2-kuky.92): a RECOGNISED kind whose projector is
+  (testing "GUARD G1: a RECOGNISED kind whose projector is
             absent throws `:rf.error/epoch-artefact-missing` naming the kind,
             BEFORE returning any payload. The kindless fall-through is the
             fail-open vector this arm exists to close."
