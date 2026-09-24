@@ -305,6 +305,28 @@
            (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :div :attrs {:Key "k" :data-ref "r" :x/title "t"}}))))))
 
+(deftest a-key-canonicalising-onto-a-reserved-slot-is-refused
+  ;; The refusal reads the React prop name a key canonicalises to, not the
+  ;; key as written. The kebab and hyphen-collapsed spellings of
+  ;; `dangerouslySetInnerHTML` reach that slot through the conversion table
+  ;; exactly as `:tab-index` reaches `tabIndex`, so each is refused with it.
+  (doseq [attribute-key [:dangerously-set-inner-html :x/dangerously-set-inner-html
+                         "dangerously-set-inner-html" 'dangerously-set-inner-html
+                         :dangerouslysetinnerhtml]]
+    (testing (str "emit-ui-tree refuses " (pr-str attribute-key) " in :attrs")
+      (let [d (caught-ex-data
+                #(rf.ssr.ui-tree/emit-ui-tree
+                   (v1 {:tag :div
+                        :children [{:tag :span :attrs {:id "a" attribute-key "v"}}]})))]
+        (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
+            (str "must be refused, not written as an attribute; got " (pr-str d)))
+        (is (= [:children 0] (:path d)) "locates the element carrying it")
+        (is (= attribute-key (:value d)) "carries the key as written"))))
+  (testing "control: the same spelling under `data-` is an ordinary attribute"
+    (is (= "<div data-dangerously-set-inner-html=\"v\"></div>"
+           (rf.ssr.ui-tree/emit-ui-tree
+             (v1 {:tag :div :attrs {:data-dangerously-set-inner-html "v"}}))))))
+
 (deftest emits-boolean-classes
   (testing "boolean attr: true -> presence, false -> omitted"
     (is (= "<input disabled=\"\">"
