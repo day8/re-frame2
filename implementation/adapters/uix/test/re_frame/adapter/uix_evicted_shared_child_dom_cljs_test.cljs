@@ -1,13 +1,13 @@
 (ns re-frame.adapter.uix-evicted-shared-child-dom-cljs-test
-  "rf2-1frc (residual) — TWO MOUNTED UIx parents over ONE shared child survive a
-  framework-owned cache eviction still sharing that child.
+  "TWO MOUNTED UIx parents over ONE shared child survive a framework-owned
+  cache eviction still sharing that child.
 
   ## What this pins that the unit lane cannot
 
   `re-frame.subs-evicted-input-release-cljs-test` (core, `.cljc`) drives the
   same seam with a hand-rolled eager-reacquisition holder and asserts the
-  sub-cache ref-count directly. This is the MOUNTED counterpart the acceptance
-  asks for: two real `use-sub` consumers under the real React-hook spine, so
+  sub-cache ref-count directly. This is the MOUNTED counterpart: two real
+  `use-sub` consumers under the real React-hook spine, so
   the reacquisition under test is the spine's own `on-committed-disposed`
   callback rather than a stand-in, and the consequence is read off COMMITTED
   DOM rather than off a ref-count alone.
@@ -16,16 +16,16 @@
 
   Both eviction primitives (`rf.subs.cache/invalidate-frame-subs!` and
   `clear-sub-cache!`) remove the whole condemned batch from the cache atom
-  BEFORE disposing any member of it, and since PR #9373 a mounted hook whose
-  reaction is disposed REACQUIRES from inside that walk. So a later member's
-  teardown ran against a cache an earlier member had already repopulated — and
-  `re-frame.subs`' input release was address-only where the cache-dissoc
-  beside it was `identical?`-guarded. Two parents P1/P2 over one child C went
+  BEFORE disposing any member of it, and a mounted hook whose reaction is
+  disposed REACQUIRES from inside that walk. So a later member's teardown
+  runs against a cache an earlier member has already repopulated. An
+  address-only input release in `re-frame.subs` would then hit the
+  SUCCESSOR: two parents P1/P2 over one child C would go
   `{C 2, P1 1, P2 1}` → `{C 1, P1 1, P2 1}`, with P1 left holding the
   intermediate child that P2's release had disposed, and a third C built for
   P2.
 
-  The repair routes the release through `re-frame.subs/unsubscribe-if-reaction`
+  So the release goes through `re-frame.subs/unsubscribe-if-reaction`,
   carrying the reaction the build actually acquired.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
@@ -79,7 +79,7 @@
 
 (def ^:private horizon-settle-ms
   "Comfortably past the spine's provisional reap horizon
-  (`rf.substrate.spine/provisional-horizon-ms`, ruled 4 by rf2-2rtt6.71): these
+  (`rf.substrate.spine/provisional-horizon-ms`, 4 ms): these
   assertions read the state the reaper LEFT, so a settle that races it proves
   nothing."
   24)
@@ -92,7 +92,7 @@
 
 (deftest two-mounted-parents-keep-sharing-one-child-across-a-cache-clear
   (testing "UIx — two mounted use-sub consumers over ONE shared declared input
-            survive clear-sub-cache! still sharing that input (rf2-1frc)"
+            survive clear-sub-cache! still sharing that input"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -103,7 +103,7 @@
             (reset! observed-a [])
             (reset! observed-b [])
             (rf/make-frame {:id  ec-frame
-                            :doc "rf2-1frc two-parent / shared-child probe frame"})
+                            :doc "two-parent / shared-child probe frame"})
             (rf/reg-event ::seed (fn [_ctx _e] {:db {:n 1}}))
             (rf/reg-event ::inc  (fn [{:keys [db]} _e] {:db (update db :n inc)}))
             (rf/dispatch-sync [::seed] {:frame ec-frame})
@@ -130,10 +130,11 @@
                   (settle!
                     (fn []
                       (is (= 2 (ref-count-of [::child]))
-                          "THE BUG (rf2-1frc residual): pre-fix this read 1 — the
-                           second parent's address-only input release decremented
-                           and disposed the SUCCESSOR child the first parent had
-                           just built, and its own reacquisition built a third")
+                          "the shared child keeps both refs across the eviction —
+                           an address-only input release would read 1 here, the
+                           second parent's teardown decrementing and disposing
+                           the SUCCESSOR child the first parent had just built,
+                           and its own reacquisition building a third")
                       (is (= 1 (ref-count-of [::p1]))
                           "P1 holds exactly one reference to its rebuilt reaction")
                       (is (= 1 (ref-count-of [::p2]))
