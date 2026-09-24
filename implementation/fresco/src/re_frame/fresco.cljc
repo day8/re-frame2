@@ -36,25 +36,25 @@
       (:require [re-frame.fresco :as h]
                 [re-frame.fresco.motion :as motion])
 
-  There is no alias left behind, and that is the point rather than an
+  There is no alias here, and that is the point rather than an
   omission. An optional module has to be **absent when unused** — no
   reachable code in an application that never asked for it — and one
   `:require` here would put the retention machine into every bundle that
   ever touched the door. So the door names no optional module, and
   `fresco/scripts/check_optional_module_reachability.py` fails if one
-  reappears. The presence override keys are the motion module's own
+  appears. The presence override keys are the motion module's own
   vocabulary and spell its namespace: `::motion/mounting` /
-  `::motion/unmounting`, i.e. `:re-frame.fresco.motion/…` — naming-ledger
-  row 31's ruled respelling, executed under rf2-hg3q. They are not `::h/…`
-  keywords and are not in the marker set above; the codec still recognises
+  `::motion/unmounting`, i.e. `:re-frame.fresco.motion/…` (naming-ledger
+  row 31). They are not `::h/…`
+  keywords and are not in the marker set above; the codec recognises
   them, and refuses one written out of a presence tray's reach."
   ;; The macro side reaches core's `re-frame.source-coords` for the one
   ;; thing a defining macro cannot do portably by hand: pick the right
   ;; `:file` for the coordinate it captures. Under CLJS the analyzer never
   ;; binds Clojure's `*file*` during expansion, so a naive read bakes the
-  ;; `"NO_SOURCE_PATH"` sentinel into every declaration; core solved that
+  ;; `"NO_SOURCE_PATH"` sentinel into every declaration; core solves that
   ;; once, absolutises the classpath-relative path while it is there, and
-  ;; is already this package's only dependency.
+  ;; is already a dependency of this package.
   #?(:clj (:require [re-frame.source-coords :as rf.source-coords]))
   #?(:cljs
      (:require [re-frame.fresco.impl.boundary :as rf.fresco.impl.boundary]
@@ -207,7 +207,7 @@
   coordinate above and the minted head at `:handler-fn` — the ONE
   executable slot every substrate's `:view` entry uses, so
   `(rf/view id)` answers this boundary exactly as it answers a Reagent
-  or a UIx head (rf2-kuky.60). What comes back is `identical?` to what
+  or a UIx head. What comes back is `identical?` to what
   the `def` bound: `re-frame.views/view-head` returns a `:view` slot it
   did not build exactly as stored, so nothing wraps, composes or
   componentises a boundary that already is a React component. Mount it
@@ -220,16 +220,16 @@
   **Forward resolution is the whole of it.** The entry exists so that a
   tool holding a keyword the author WROTE — a story naming its subject,
   an editor jumping to source — reaches the view they meant. It mints no
-  runtime identity: a MOUNTED boundary is still keyed by its read set
-  and still unnamed, and the tool tier
-  (`re-frame.fresco.tool`) is unchanged. The refusals that say so are
-  NOT overturned by this, because they answer the BACKWARD question
+  runtime identity: a MOUNTED boundary is keyed by its read set
+  and unnamed, which is what the tool tier
+  (`re-frame.fresco.tool`) reads. The refusals that say so stand,
+  because they answer the BACKWARD question
   *which view is this runtime boundary?* and this answers the forward
   one, where the author already knows and is naming it in source.
 
-  The name itself is not new. It is the `displayName` React DevTools
+  The name itself is the `displayName` React DevTools
   shows, the `rf:render:<name>` User-Timing id Spec 009 keys off, and
-  the string a refusal is attributed with; only lookup was missing.
+  the string a refusal is attributed with.
   Registration adds RESOLVABILITY, not identity.
 
   It rides the SAME `debug-enabled?` gate as the coordinate, so under
@@ -512,7 +512,7 @@
   fence a hiccup vector is refused outright, so a native subtree takes
   one Fresco-rendered child the same way. Where the crossing IS
   declared, prefer the declaration — `defhost`'s `:slots` lowers those
-  positions for every use site at once, and children have never needed a
+  positions for every use site at once, and children need no
   conversion at all.
 
   **Explicit rather than inferred, and that is the design.** Nothing in
@@ -551,7 +551,7 @@
      ;; ---- the two frame boundaries: ENSURE and SCOPE ---------------------
      ;;
      ;; The frame is spelled IN THE TREE, as it is on every other
-     ;; React-shaped substrate (spec/002; the rf2-nyea0r split). The root
+     ;; React-shaped substrate (spec/002). The root
      ;; door below carries React-root options and nothing about frames.
 
      (def ^{:doc "`h/frame-root` — **ENSURE a named frame for a subtree**,
@@ -568,8 +568,7 @@
   `:initial-events`, `:images`, `:url-bound?`, `:fx-overrides`, `:preset`,
   every record-config key `make-frame` honours — because it IS the
   `make-frame` call, written where the frame is used. There is no curated
-  subset to be caught out by, which is what the root door's closed
-  three-key config used to be.
+  subset to be caught out by.
 
   **ENSURE, not create.** Absent, the frame is created and
   `:initial-events` run once; live, it is REUSED — so a second root under
@@ -578,7 +577,7 @@
   `:initial-events` are re-recorded but NEVER replayed (spec/002
   §`frame-root` reuse-without-reseed; EP-0027). What the re-acquire DOES
   refresh is the record config, because the ENSURE is a second
-  `rf/make-frame` under the same id and that is `make-frame`'s ruled
+  `rf/make-frame` under the same id and that is `make-frame`'s
   idempotent-replacement path — the Clojure re-def model, where
   re-declaring an id refreshes its config while its state survives —
   which is what makes a hot reload Just Work.
