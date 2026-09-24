@@ -134,8 +134,8 @@
      url nor the fix. This throw is uncaught HERE by design: the caller
      (`jvm-fetch`, called from `run-attempt!`'s try/catch) classifies any
      escaping `Throwable` via `classify-jvm-error`, which routes an
-     `ex-info` like this one to the existing `:rf.http/transport`
-     catch-all — no new failure category, no new `:rf.error/*` id. Per
+     `ex-info` like this one to the `:rf.http/transport` catch-all — it
+     has no failure category or `:rf.error/*` id of its own. Per
      Spec 014 §JVM transport — absolute URLs required."
      [{:keys [method url headers body timeout-ms sensitive?]}]
      (let [uri (URI/create url)
@@ -166,7 +166,7 @@
        ;; failure. The `(pos? …)` guard collapses `nil`/`0`/negative to
        ;; "no timeout" so the JDK request carries no per-request deadline.
        ;; This deadline bounds only the wait for response HEADERS; `jvm-fetch`
-       ;; extends the same budget over the body (rf2-fzbj.11).
+       ;; extends the same budget over the body.
        (when (and timeout-ms (pos? timeout-ms))
          (.timeout b (Duration/ofMillis (long timeout-ms))))
        (doseq [[k v] (rf.http.encoding/normalize-header-pairs headers)]
@@ -214,13 +214,13 @@
      payloads, privacy redactor) on a single canonical shape across
      hosts.
 
-     Per rf2-0xvm1 — per-header value shape is `string` for the
+     Per-header value shape is `string` for the
      single-value case and `vector-of-strings` for the multi-valued
      case (the spec's `string → string (or string → vector of strings
-     for multi-valued)` branch). The previous comma-join
-     (`(str/join \",\" vs)`) was wrong for `Set-Cookie`: cookie values
+     for multi-valued)` branch). A comma-join
+     (`(str/join \",\" vs)`) would be wrong for `Set-Cookie`: cookie values
      legally embed commas (e.g. `Expires=Wed, 21 Oct 2026 ...`), so
-     comma-joining N `Set-Cookie:` lines produced a single unparseable
+     comma-joining N `Set-Cookie:` lines would produce a single unparseable
      string. RFC 6265 §3 forbids comma-folding `Set-Cookie` for exactly
      this reason; RFC 7230 §3.2.2 generalises the rule (header values
      containing literal commas must not be folded into a single field).
@@ -239,14 +239,14 @@
 
 #?(:clj
    (defn- charset-of
-     "rf2-a3wxe — resolve the response `Content-Type`'s `charset=` parameter
+     "Resolve the response `Content-Type`'s `charset=` parameter
      to a `java.nio.charset.Charset`, defaulting to UTF-8. Mirrors the
      no-arg `HttpResponse.BodyHandlers/ofString` semantics (which honour
-     the response charset, defaulting to UTF-8): now that `jvm-fetch` reads
+     the response charset, defaulting to UTF-8): because `jvm-fetch` reads
      `ofByteArray` unconditionally so the binary-decode path can ride raw
      bytes, the text path must reproduce that charset handling rather than
      hard-coding UTF-8, so a `text/html; charset=ISO-8859-1` response
-     decodes identically to the prior `ofString` behaviour. An unknown /
+     decodes exactly as `ofString` would decode it. An unknown /
      unparseable charset falls back to UTF-8."
      ^Charset [headers]
      (or (when-let [ct (rf.http.decode/content-type-of headers)]
@@ -264,19 +264,19 @@
      (binary path), or completes-exceptionally with an ex-info.
 
      `opts` carries `:sensitive?` so `jvm-build-request` can route any
-     header-validation warning through the privacy composer (rf2-1jcpm).
+     header-validation warning through the privacy composer.
      `opts` carries `:redirect` (Spec 014 §Request envelope, default
      `:follow`) so the client honouring the right redirect policy is
-     selected per rf2-ee38b.7.
+     selected.
 
-     rf2-a3wxe — binary decode on the JVM. `opts` carries `:decode`; when
+     Binary decode on the JVM. `opts` carries `:decode`; when
      it resolves to a binary mode (`:blob` / `:array-buffer` / `:form-data`,
      per `decode/binary-read-kind`, mirroring the CLJS transport's
      up-front body-reader selection) we read the response body with
      `BodyHandlers/ofByteArray` and ride the raw bytes under `:body-binary`
-     so `decode-response-body` returns them verbatim. Previously every JVM
-     response read `ofString`, so a `:blob`/`:array-buffer`/`:form-data`
-     decode fell through to the lossy `body-text` fallback in
+     so `decode-response-body` returns them verbatim. Reading every JVM
+     response with `ofString` would drop a `:blob`/`:array-buffer`/`:form-data`
+     decode through to the lossy `body-text` fallback in
      `decode-response-body` — a UTF-8 decode of raw bytes that corrupts
      binary payloads (worse than a clean no-op). `binary-read-kind`
      consults the response headers for the `:auto` sniff, so we resolve it
@@ -284,11 +284,11 @@
      2xx (a non-2xx body is the raw error text the 4xx/5xx paths carry,
      same as CLJS — see `cljs-fetch`).
 
-     rf2-fzbj.11 — `:timeout-ms` bounds the WHOLE attempt, body included.
+     `:timeout-ms` bounds the WHOLE attempt, body included.
      `HttpRequest.Builder.timeout` (set in `jvm-build-request`) bounds only the
-     wait for response HEADERS, so a server that answered promptly and then
-     stalled its body held the attempt past its budget indefinitely — or
-     delivered success after it. Spec 014 §`:timeout-ms` security defaults
+     wait for response HEADERS, so on its own a server that answered promptly
+     and then stalled its body would hold the attempt past its budget
+     indefinitely — or deliver success after it. Spec 014 §`:timeout-ms` security defaults
      names exactly that slow-loris body as what the default exists to bound.
      The returned future therefore carries its own `orTimeout` deadline, and
      when that fires the upstream `sendAsync` future is CANCELLED too: that
@@ -327,10 +327,10 @@
                                ;; Text path (and every non-2xx): decode the
                                ;; bytes as a String using the response charset
                                ;; (defaulting to UTF-8 via `charset-of`), faithfully
-                               ;; reproducing the prior no-arg `ofString` semantics
+                               ;; reproducing the no-arg `ofString` semantics
                                ;; for the text/error path.
                                (assoc base :body-text (String. raw ^Charset (charset-of headers))))))))]
-       ;; rf2-fzbj.11 — the whole-attempt deadline (see docstring). `pos?`
+       ;; The whole-attempt deadline (see docstring). `pos?`
        ;; keeps `nil` / `0` as the documented opt-outs.
        (when (and timeout-ms (pos? timeout-ms))
          (.orTimeout result (long timeout-ms) TimeUnit/MILLISECONDS)
@@ -345,42 +345,40 @@
    (defn classify-jvm-error
      "Map a JVM-side throwable to a `:rf.http/*` failure shape.
 
-     Per rf2-q3ts4: the JDK reliably surfaces `HttpTimeoutException` for
+     The JDK reliably surfaces `HttpTimeoutException` for
      per-attempt timeouts and `CancellationException` for explicit
-     cancellations, so we narrow to instance-checks only. The earlier
-     `str/includes? msg \"timed out\"` / `\"abort\"` fallbacks could
+     cancellations, so classification uses instance checks only.
+     `str/includes? msg \"timed out\"` / `\"abort\"` fallbacks would
      misclassify a downstream service's error body (whose message
      happened to contain those words) as `:rf.http/timeout` /
      `:rf.http/aborted`, polluting the failure taxonomy. Anything not
      matching an instance check stays at `:rf.http/transport` — the
-     correct catch-all for unknown JDK failures. rf2-fzbj.11 — a
+     correct catch-all for unknown JDK failures. A
      `java.util.concurrent.TimeoutException` is the whole-attempt deadline
      `jvm-fetch` arms over body consumption, and is a timeout too.
 
-     Per rf2-ee38b.7 the optional `timeout-ms` (the configured per-attempt
+     The optional `timeout-ms` (the configured per-attempt
      limit, in scope at the `run-attempt!` call sites) fills the
      `:limit-ms` tag on a timeout failure so the JVM shape matches the
      CLJS path (Spec 014 §Failure categories types `:rf.http/timeout` as
      `:elapsed-ms` / `:limit-ms`).
 
-     rf2-a3wxe — `:elapsed-ms` is now populated on the JVM. The JDK's
+     `:elapsed-ms` is populated on the JVM. The JDK's
      `HttpTimeoutException` does not itself surface the elapsed wall
      clock, so `run-attempt!` captures a monotonic start mark
      (`System/nanoTime`) before issuing the request and passes the
-     measured wall-clock delta here. rf2-6ecc6 — this matches the CLJS
+     measured wall-clock delta here. This matches the CLJS
      path's VALUE semantics, not just its shape: `cljs-fetch` likewise
      stamps a MEASURED `performance.now()`/`Date.now()` delta on its
      timeout rejection (Spec 014 §Failure categories). So on BOTH hosts
      `:elapsed-ms` is a measured wall-clock delta `>= :limit-ms` by the
      scheduling margin — a consumer can compute overshoot
-     (`- :elapsed-ms :limit-ms`) portably (it was the synthetic constant
-     `== :limit-ms` on CLJS before rf2-6ecc6).
+     (`- :elapsed-ms :limit-ms`) portably.
 
-     rf2-w59es5 — single 3-arity. The production caller (`run-attempt!`)
+     Single 3-arity. The production caller (`run-attempt!`)
      always threads the configured `timeout-ms` and the measured
-     `elapsed-ms`; the prior 1-/2-arity fallbacks existed only for
-     synthetic/test callers and have been removed (pre-alpha, no
-     back-compat). Pass `nil` explicitly for either when no value is in
+     `elapsed-ms`, so there is no 1- or 2-arity fallback. Pass `nil`
+     explicitly for either when no value is in
      scope — on a timeout the corresponding tag rides `nil` (the JDK
      exposes no elapsed value on a synthetic throwable)."
      [^Throwable t timeout-ms elapsed-ms]
@@ -418,7 +416,7 @@
      [{:keys [request abort-signal decode]} sensitive?]
      (let [url (:url request)]
        ;; `:credentials` is a JVM-degraded key. Unlike
-       ;; `:redirect` (now honoured on JVM via the redirect-policy client),
+       ;; `:redirect` (honoured on JVM via the redirect-policy client),
        ;; the browser same-origin/include cookie model has no faithful
        ;; `HttpClient` analogue — the shared client configures no
        ;; CookieHandler, so cookies are neither sent nor stored regardless
@@ -432,9 +430,9 @@
        (when abort-signal
          (emit-cljs-only-skipped! :abort-signal url sensitive?))
        ;; Binary decode has a host-specific result shape on the JVM.
-       ;; A `:blob` / `:array-buffer` / `:form-data` decode is now HONOURED
+       ;; A `:blob` / `:array-buffer` / `:form-data` decode is HONOURED
        ;; on the JVM (jvm-fetch reads `ofByteArray` and rides the raw bytes
-       ;; — no more lossy String fallback), but the returned value is a
+       ;; rather than a lossy String decode), but the returned value is a
        ;; `byte[]`, NOT the native browser `Blob` / `ArrayBuffer` /
        ;; `FormData` object the CLJS Fetch path yields. That host-shape
        ;; difference is a degradation worth surfacing — a caller asking
