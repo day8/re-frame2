@@ -49,11 +49,12 @@
   overlap cannot manifest there."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; Load-bearing require (mirrors `trace-listener-drain-deadlock-test`): with the epoch
-            ;; artefact on the classpath the per-event settle also emits the
-            ;; cascade trailers on the drainer thread while the drain-lock is
-            ;; held, so the deferral seam is exercised for the trailer emits too
-            ;; and not only for the dispatch-id-carrying in-run emits.
+            ;; Load-bearing require (mirrors
+            ;; `trace-listener-drain-deadlock-test`): with the epoch artefact
+            ;; on the classpath the per-event settle also emits the cascade
+            ;; trailers on the drainer thread while the drain-lock is held, so
+            ;; the deferral seam is exercised for the trailer emits too and not
+            ;; only for the dispatch-id-carrying in-run emits.
             [re-frame.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -152,11 +153,10 @@
           ;; it would drive its own drain's fan-out INLINE and enter the listener
           ;; (b-entered fires, the overlap is already recorded); deferred, it is
           ;; BLOCKED contending for fanout-monitor at its post-drain flush.
-          ;; Nothing else on t2's
-          ;; path contends for a JVM monitor with t1 (the two frames own
-          ;; independent routers and drain-locks), so a BLOCKED state here means
-          ;; fanout-monitor contention. Deadline-bounded so a mis-started thread
-          ;; cannot hang the suite.
+          ;; Nothing else on t2's path contends for a JVM monitor with t1 (the
+          ;; two frames own independent routers and drain-locks), so a BLOCKED
+          ;; state here means fanout-monitor contention. Deadline-bounded so a
+          ;; mis-started thread cannot hang the suite.
           (let [deadline (+ (System/currentTimeMillis) 5000)]
             (loop []
               (when (and (< (System/currentTimeMillis) deadline)
