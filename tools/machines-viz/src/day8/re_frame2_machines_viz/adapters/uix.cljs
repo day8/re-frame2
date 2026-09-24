@@ -1,10 +1,10 @@
 (ns day8.re-frame2-machines-viz.adapters.uix
-  "UIx substrate shell for `MachineChart` (rf2-yg9he · xyflow Phase 2).
+  "UIx substrate shell for `MachineChart`.
 
   ## Why this exists
 
-  The xyflow migration (#1806) shipped `MachineChart` Reagent-only.
-  This shell restores UIx substrate parity: a UIx host renders the
+  `MachineChart` is a Reagent component. Through this shell a UIx host
+  renders the
   SAME xyflow chart through the shared React bridge
   (`adapters.react-chart`), which reactifies the Reagent component to a
   plain React class. There is no fork of the chart — only this thin,
