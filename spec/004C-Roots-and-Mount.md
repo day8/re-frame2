@@ -1,63 +1,36 @@
 # Spec 004C — Root identity and mount — the descriptor/manifest contract
 
-> Status: v1-required. The Stage-1 mount grammar, root identity, Root
-> Descriptor v1, and the three-layer fail-loud duplicate/conflict detection
-> the substrate's roots-and-mounting surface relies on. Owns the descriptor/manifest schema family (`:rf.root/*`); the
+> Status: v1-required. Root identity, Root Descriptor v1, element locators, render-time
+> props, the hydrating-root boot sequence, and fail-loud conflict detection. Owns the
+> descriptor/manifest schema family (`:rf.root/*`); the
 > Stage-5 Root Manifest is its additive extension (co-owned with
 > [011](011-SSR.md)). The identity model is exact — a
 > **root** is one React DOM render/hydration unit, a **frame** is one re-frame2
 > state world, roots ↔ frames are many-to-many, and mount position is never
-> identity. `[S1-CONFIRM]` marks a conservative contract adopted where no other
-> Spec settles the combination — confirm before the surface hardens; not an open hole.
-> The register below lists the open entries.
+> identity.
 
-> **This contract ships without its two named doors.** Neither the compiled `re-frame.ui`
-> macro door nor the interpreted Freehand door exists. What this contract specifies is
-> live in two places you can check: the `:rf.root/*` descriptor/manifest family this Spec
-> owns is emitted by `implementation/ssr/src/re_frame/ssr/manifest.cljc`, and the
-> ENSURE-at-host-preflight lifecycle of [§Preflight runs before React](#preflight-runs-before-react)
-> is realised by `re-frame.fresco` — `implementation/fresco/src/re_frame/fresco/impl/mount.cljs`'s
-> `root!` calls `ensure-frame!` before `createRoot`. Where a door is named below it is named
-> as an illustrative realisation, never as a surface to build on. 004C stands because the
-> two producers named above are live, not because of the doors.
+> **What realises this contract.** `re-frame.ssr.manifest` validates, assembles, emits
+> and discovers Root Manifests (§2, §4, §5); `re-frame.ssr.install` runs a hydrating
+> root's preflight and keeps the payload-install ledger (§3, §6, §7); and
+> `re-frame.ssr/hydrate!` runs the boot sequence of §10. This Spec owns no mount verb:
+> the client-root grammar is
+> [006 §The client root](006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable),
+> which every React view adapter publishes, `re-frame.fresco` included. No shipped
+> substrate derives a Root Descriptor from a mount site, so a descriptor reaches
+> `re-frame.ssr.manifest/manifest` from its caller.
 
 ## 1. Root identity — required, host-authored, derivable
 
-**Every root has a `root-id`. It is REQUIRED identity** — the root descriptor, the root
-manifest, instance records,
-and duplicate detection all key on it. It is
-**host-authored** (`:root-id` in the root opts map, §3), with a **derivation default**
-so the single-root common case stays one-liner clean:
+**Every root has a `root-id`, and it is the root's identity.** The root descriptor and
+manifest carry it as `:root-id`; a hydrating root reads it from its manifest's content
+(§3), and the payload-install ledger attributes each claim to it (§6). A root-id is a
+qualified keyword (canonical: `:page/shop`) or a vector of a qualified keyword plus
+scalar disambiguators — keyword, string, or integer (`[:shop/product-panel :left]`).
+The dev-only `:root-id-provenance` records how the root-id was arrived at, and never
+rides a shipped manifest (§2).
 
-1. **Authored wins.** A `:root-id` in the opts map is the root-id, verbatim. Legal
-   shapes: a qualified keyword (canonical: `:page/shop`) or a vector of a qualified
-   keyword plus scalar disambiguators. Anything else is a **compile error** (identity
-   opts are literals, §3, so the shape is always statically checkable — the diagnostic
-   joins the compile-error roster, not the runtime catalogue).
-2. **Derived otherwise.** When `:root-id` is absent, the root-id derives from the
-   **mounted view's registered id**:
-    - no `:disambiguator` → root-id = the view id itself (e.g. `:shop/app`). A
-      **single-root page may omit the disambiguator** — this is the guide-01 counter
-      path, zero ceremony.
-    - `:disambiguator d` (scalar: keyword, string, or integer) → root-id =
-      `[view-id d]` (e.g. `[:shop/product-panel :left]`). Required whenever the same
-      view mounts twice on one page and neither site authors `:root-id`.
-3. **The mounted view** (derivation source) is defined precisely: the extractor walks
-   the root form's static top region (§6) and requires **exactly one internal view**
-   there. Zero internal views (bare DOM root, foreign-component root) or more than one
-   (fragment of two views) make derivation impossible → compile error with the
-   didactic message *"root form has no single mounted view — author `:root-id`"*.
-4. **Provenance is recorded** (dev only): the descriptor carries
-   `:root-id-provenance :authored | :derived | :manifest` so duplicate diagnostics can
-   say *"both ids derived from `:shop/app` — add `:disambiguator` or author
-   `:root-id`"*. `:manifest` is a **hydrating** root, whose id came off the wire in the
-   server's Root Manifest rather than out of any client-side rule
-   ([011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) — a third case, and reporting
-   it as `:derived` would be a false statement about where a colliding id came from.
-   Stripped from shipped manifests.
-
-**Root-id slug** (one deterministic, **injective** function, used by the
-identifier-prefix default and synthesised locators — distinct valid root-ids ALWAYS
+**Root-id slug** (one deterministic, **injective** function, used by synthesised
+locators (§4) — distinct valid root-ids ALWAYS
 yield distinct slugs). It is a decodable canonical form over the DOM-safe alphabet
 `[A-Za-z0-9_-]`: `_` is the sole metacharacter — every character outside `[A-Za-z0-9-]`
 (**including `_` itself**) is reversibly escaped `_<lowercase-hex-code-unit>_`, and each
@@ -74,31 +47,28 @@ root-ids can alias to one slug (a lossy "normalise every disallowed char to
 ## 2. The Root Descriptor v1 — the named, versioned S1 subset
 
 The Stage-1 "root descriptor" is **Root Descriptor v1**, key family
-`:rf.root/*`, versioned by `:rf.root/schema-version 1`. It is the **compile-time
-static subset of the Stage-5 Root Manifest** — same schema family, same version field,
-one compatibility rule (below). The compiler can emit it from a mount site alone; no
-server, no render, no reactivity.
+`:rf.root/*`, versioned by `:rf.root/schema-version 1`. It is the **static subset of
+the Stage-5 Root Manifest** — same schema family, same version field, one
+compatibility rule (below). Every field is a per-root static fact about the root's
+source: no server, no render, no reactivity.
 
 ```clojure
 {:rf.root/schema-version 1
- :root-id              :page/shop                 ; canonical, post-derivation (§1)
+ :root-id              :page/shop                 ; canonical (§1)
  :root-id-provenance   :authored                  ; dev only; never in shipped manifests
- :view-id              :shop/app                  ; the mounted view's registered id (§1.3)
+ :view-id              :shop/app                  ; the mounted view's registered id (§5)
  :props-shape          :literal                   ; :literal | :dynamic
  :static-props         {:promo :spring}           ; present iff :props-shape :literal (§5)
  :frame-plans          [{:frame-id :shop
-                         :config-fingerprint "…"}] ; extracted ENSURE plans (§6)
- :template-fingerprint "…"}                       ; over the compiled root template
+                         :config-fingerprint "…"}] ; static ENSURE plans (§6)
+ :template-fingerprint "…"}                       ; over the root template
 ```
-
-Every field is a **per-root static fact** the compiler bakes at the mount site's own
-expansion — see §2.1.
 
 **Fingerprint/digest algorithms — ownership.** `:render-fingerprint` and the semantic
 normalization `N` it hashes are owned by
 [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)
-(§Semantic normalization). The `:template-fingerprint` and
-hook-signature-hash algorithms belong to the producing compiler, not to this Spec;
+(§Semantic normalization). The `:template-fingerprint` and `:config-fingerprint`
+algorithms belong to the descriptor's producer, not to this Spec;
 this Spec pins only the fields and their comparison semantics.
 
 **Root Manifest v1 (Stage 5)** = Root Descriptor v1 (minus dev-only
@@ -127,169 +97,39 @@ hydration-salient fields carried by [011 §Root Manifest v1](011-SSR.md#root-man
    `:rf.root/schema-version` as the descriptor it extends. Version incompatibility at
    hydration is `:rf.error/root-manifest-invalid` (§7).
 
-The split lets the descriptor stand without a server: S1 ships the descriptor (a
-compiler artefact); S5 ships the manifest as its extension.
-
-### 2.1 The descriptor is per-root static facts
-
-Every field of Root Descriptor v1 is a **per-root static fact** resolvable at the mount
-site's own expansion. The compiler bakes the descriptor at expansion into the emitted
-client code, and it rides each live-root registry entry (its `:descriptor`) and the
-compiler's build-emitted descriptor index. The descriptor carries **no whole-build
-aggregate** and is assembled by **no read-time projection**: the descriptor a consumer
-reads is exactly the static descriptor the compiler baked, `:rf.root/schema-version 1` and
-schema-valid.
-
-The two hosts read the same per-root descriptor:
-
-- **Compiler / JVM** — `re-frame.ui.compiler.root/descriptor-index` returns the build's
-  per-root descriptors. JVM tooling passes the explicit retained build-state/compiler-env;
-  there is no process-global "latest build". An open, failed, or interleaved build cannot
-  change a retained accepted snapshot.
-- **Client / dev runtime** — `re-frame.ui.client/descriptor-index` (and per-root
-  `re-frame.ui.client/descriptor`) reads the stored per-root descriptor off the live-root
-  registry in O(1). It **never recomputes identity from runtime-registered or currently
-  loaded views**, so runtime module-loading order cannot change it. A successful view-only
-  hot reload updates a view's body without re-expanding its mount site; the stored
-  descriptor is unchanged.
-
-Direct unsaved no-pass REPL evaluation may replace a live view body and exercise the same
-generation/remount machinery as HMR, but it does not re-derive descriptors; only the next
-successful configured build/watch pass re-derives them from the recompiled sources.
-Macroexpand-only, never-evaluated and runtime-failed REPL forms therefore cannot pollute a
-later build.
-
-#### 2.1.1 The accepted-build transaction
-
-The build adapter uses the build tool's retained **functional build-state** as the
-transaction boundary:
-
-1. At compile prepare, disposable scratch is seeded from the incoming accepted snapshot;
-   isolated no-pass REPL bookkeeping and abandoned scratch are cleared. Every source the
-   build tool will actually compile is pre-touched: removing a source's final UI declaration
-   therefore evicts its prior rows, while output-present warm cache hits retain their
-   accepted rows.
-2. At compile finish, the adapter harvests every authoritative member's descriptor — restored
-   from the build tool's disk cache for a cache-hit member and freshly stamped for a compiled
-   one — into the whole-build registries, and carries the candidate snapshot in the returned
-   compiler-env. Because the registries are a pure aggregation over cache-durable per-namespace
-   descriptors rather than a reconstruction of macro-expansion side effects, a warm daemon start
-   reuses the disk cache instead of re-expanding the UI-consuming namespace set.
-3. The build tool retains that returned state only if all later configured
-   optimize/check/flush/watch work succeeds. A downstream failure discards the candidate;
-   the next attempt seeds from the prior accepted snapshot. No external commit/rollback
-   atom and no private build-tool completion callback are part of the contract.
-
-The accepted build-state and the active HMR runtime are last-known-good. A build tool may
-have partially rewritten its raw output directory before reporting a late failure; this
-contract does not claim filesystem rollback for that directory. Consumers activate only
-successful build output.
-
-For Shadow the build hook is the one load-bearing top-level setting: it supplies the
-transaction and harvests the whole-build registries from the per-namespace analyzer
-descriptors the build tool persists to its disk cache and restores on a cache hit. Because
-those descriptors are present identically for a cache-hit member and a freshly compiled one,
-all members are present after a warm daemon start without disabling the cache — no
-`:cache-blockers` entry is needed. The descriptor carrier
-is tested across shadow-cljs 3.4.0 through 3.4.11. A dev build that omits the hook publishes
-no registries; the failure surfaces at runtime, when a compiled view or root cannot be
-resolved.
-
-Dev-only: the descriptor projections (`re-frame.ui.client/descriptor` and
-`descriptor-index`) are `goog.DEBUG`-guarded and absent from advanced production output, so
-the mechanism adds no production bytes or runtime work.
+The split lets the descriptor stand without a server: S1 is the descriptor, and S5
+ships the manifest as its extension.
 
 ## 3. The mount grammar and the host signature set
 
-This section states the mount grammar and identity model as the two donor doors realised
-it: the **compiled `re-frame.ui` door**, whose mount entry points were macros over literal
-root forms, and the **interpreted Freehand door**, which realised the same grammar through
-ordinary runtime functions (`v/mount`, `v/hydrate-root`, `v/unmount!`) and shipped no
-`create-root` and no `render!`. **Neither door ships; the
-grammar and the identity model below are the contract, not the doors.** Its live in-tree
-realisation is the interpreted shape of **[§The interpreted paved path](#the-interpreted-paved-path)**
-below — see the banner at the head of this document.
+This Spec owns no mount verb. The client-root grammar — `client-root`, `render!`,
+`unmount!` — is [006 §The client root](006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable),
+and `re-frame.fresco` realises it as `h/client-root`, `h/render!` and `h/unmount!`:
+the first `render!` through a handle creates its root, or hydrates one under
+`{:hydrate? true}`. What this section owns is the two rules a root keeps about identity
+and ordering.
 
-**The literal mount grammar:**
-
-```clojure
-(ui/mount root-form dom-node)         ; opts {}
-(ui/mount root-form dom-node opts)
-```
-
-On this door, `mount` is a **macro over a literal root form** — the compiler must see
-the root to keep the AST closed and extract frame plans; a runtime-assembled vector is
-a compile error pointing at `ui/view`/`ui/element`. The third argument is the **root
-opts map** — this is where root identity rides:
-
-| Opt | Tier | Contract |
-|---|---|---|
-| `:root-id` | identity | authored root-id (§1.1); immutable for the root's lifetime |
-| `:disambiguator` | identity | scalar; only meaningful when `:root-id` is absent (§1.2) |
-| `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page_Sshop-"`. A shorter prefix such as `"rf2-shop-"` is only ever an **authored** value — the derivation never elides the namespace segment. |
-| `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the handlers-are-data boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
-
-Identity opts must be **compile-time literals** at `mount`/`create-root` sites — they feed
-the descriptor and build-time duplicate detection; host-behaviour opts may be runtime
-values. `:disambiguator` is a **`mount`-only** derivation opt — it modifies how the root-id
-is derived from the mounted view. `create-root` fixes identity with **no root form to
-derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; supplying
-`:disambiguator` there is a compile error (`:rf.ui.compile/bad-root-opts`).
-
-**The full host-tier signature set:**
-
-```clojure
-(ui/create-root dom-node opts)        ; ⇒ Root. Identity fixed here for the Root's lifetime; authored :root-id REQUIRED (no root form to derive from).
-(ui/render! root root-form)           ; render/re-render the literal root form into the Root.
-(ui/hydrate-root dom-node root-form)  ; ⇒ Root. Hydrating mount; identity comes FROM the manifest (§4).
-(ui/hydrate-root dom-node root-form opts)  ; opts: host-behaviour tier only (error callbacks).
-(ui/unmount! root)                    ; total teardown; releases the root claim at settlement (§7).
-(ui/render-static root-form)          ; S5; proves + emits inert HTML; participates in identity (§7), emits no manifest/payload.
-```
-
-- `mount` ≡ `create-root` + frame preflight + `render!`, one-shot, and is **idempotent
-  per root**: calling it again with the same root-id and the same container re-renders
-  the existing Root (the guide-01 reload path — frames found live, no re-seed). Same
-  root-id on a *different* container, or a container already owned by a different live
-  root, fail loud (§7).
-- For **hydrating mounts, identity is manifest-authored**: `hydrate-root` reads root-id
-  and identifier-prefix from the manifest (§4); client opts MUST NOT carry identity
-  fields — supplying `:root-id`/`:identifier-prefix` to `hydrate-root` is an error
-  (`:rf.error/root-manifest-invalid` data names the conflicting key). The client must
-  use the server's prefix or `use-id` hydration breaks.
-- **Every root-form-accepting entry point requires the literal root form at the call
-  site** — `mount`, `render!`, `hydrate-root`, `render-static` and `ui.test/render`
-  (§8, §9) alike; the same compile error rejects runtime-assembled vectors everywhere.
-  None of the five ships in this repository.
-- **Verb kinds on the two doors.** On the compiled door, `mount`,
-  `create-root`, `render!`, and `hydrate-root` are **macros**; `unmount!` is a plain
-  **function**. The four macros must
-  see their argument shape at compile time — `mount`/`render!`/`hydrate-root` keep the
-  literal root form's AST closed and extract the static frame plans, and `create-root`
-  fixes literal identity opts (feeding the descriptor and build-time duplicate detection).
-  `unmount!` takes a live Root value, has no form to compile, and is a function. The
-  compile-time contract: an unauthored `create-root`
-  identity is `:rf.ui.compile/missing-root-id`, and an out-of-grammar opt (a stray
-  `:disambiguator` among them) is `:rf.ui.compile/bad-root-opts`. The interpreted
-  **Freehand door** carried a different roster: `v/mount`, `v/hydrate-root` and `v/unmount!`
-  were ordinary runtime **functions** — documented as `Fn` — it published no `create-root`
-  and no `render!`, and its one macro was `render-static`, the only interpreted verb whose
-  site the build indexed (§7, Layer 1). An interpreted client mount carries a live runtime,
-  so its duplicate-, container- and prefix-detection is the runtime claim-before-render
-  of Layer 3 (§7), not a build-time index — and THAT half is live, realised in-tree.
-- Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
-  before the first `render!` on a Root and before `hydrate-root`'s hydration. **This
-  compiled host-root sequencing — preflight completing before `createRoot`/`render!`
-  and before hydration ever touches the container — is owned here.** Spec 002 owns only
-  what each preflight step *does*:
-  [`make-frame` construction](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar),
-  its [idempotent-replacement ENSURE](002-Frames.md#duplicate-id--idempotent-replacement)
-  (create-if-absent, reuse-no-reseed), and the synchronous, ordered `:initial-events`
-  drain those sections define. That is the whole Spec-002 debt — pointedly **not** its
-  frozen/transitional [`frame-root` two-pass contract](002-Frames.md#frame-root--the-ensure-component-cljs-reference)
-  (empty first render → commit-phase `useLayoutEffect` ENSURE → populated second render),
-  which runs the *opposite* order and scopes a component subtree, not a host root. This
-  Spec pins only *what is extracted* (§6).
+- **A hydrating root hydrates as the server rendered it.** Its root-id is the
+  `:root-id` in the manifest adjacent to its container (§4), which
+  `re-frame.ssr.install/preflight!` reads from the manifest's content. A container with
+  no discoverable manifest fails loud with `:rf.error/root-manifest-invalid`, data
+  `{:missing :manifest}`: a hydrating root never guesses its identity. Its
+  `identifierPrefix` must be the one the server rendered under — the manifest's
+  `:identifier-prefix`, where an omitted one is React's empty prefix `""` — or every
+  `useId` resolves differently from the server's bytes.
+- **Frame preflight runs before React.** A root door that ensures its frame does so
+  before `createRoot`: ENSURE creates the frame if absent and drains its
+  `:initial-events` synchronously, so the first paint is the seeded one, and a frame
+  already live is joined as it stands — no re-seed, no config refresh.
+  `re-frame.fresco.impl.mount/root!` keeps this order through `ensure-frame!`; Fresco's
+  public door names no frame, because its tree does, on `h/frame-root` or
+  `h/frame-provider`. A hydrating root's frame state arrives through
+  `re-frame.ssr/hydrate!`, which seeds it before the host mounts (§10). What
+  [`make-frame` construction](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)
+  and the synchronous, ordered `:initial-events` drain *do* is Spec 002's. The
+  [`frame-root` two-pass contract](002-Frames.md#frame-root--the-ensure-component-cljs-reference)
+  (empty first render → commit-phase `useLayoutEffect` ENSURE → populated second render)
+  runs the *opposite* order and scopes a component subtree, not a host root.
 
 ## 4. Element locators
 
@@ -309,22 +149,17 @@ positional locators — an id is stable under fragment reordering, which is the 
   synthesised locators can therefore never collide.
 - **Manifest placement:** the manifest rides a script element **adjacent** (immediately
   following sibling) to the root's container, EDN-safe-encoded per Spec 011.
-  `hydrate-root` discovers the manifest *positionally* (adjacent to its `dom-node`) and
-  takes identity from its *content*. `[S1-CONFIRM]` — the concrete script-element
-  convention (`type`/`data-rf-root` attribute names) must be pinned in one place with
-  the Spec 011 payload-encoding rows; this Spec requires only adjacent-sibling
-  discovery + content-borne identity.
+  Discovery (`re-frame.ssr.manifest/discover`) finds the manifest *positionally*
+  (adjacent to its container) and takes identity from its *content*. The script
+  element's convention — `type="application/edn"` and the bare `data-rf-root` marker —
+  is [011 §The wire form](011-SSR.md#the-wire-form).
 - **Client-only mounts have no element-locator** — the host passes the DOM node
   directly; the descriptor never contains a locator (it is a manifest extension key,
   §2). Identity is root-id alone.
-- Hydration with a locator that resolves to no element (manifest present, container
-  gone — fragment composition bugs) is `:rf.error/root-container-missing` (§7), scoped
-  to that root per the failure-isolation contract of §7 below.
 
 ## 5. Extracting view-id and serialised props from a root form
 
-- **`:view-id`** = the registered id of the mounted view (§1.3). One mounted view per
-  root form is the invariant the extractor enforces; nested internal views inside it
+- **`:view-id`** = the registered id of the root's mounted view. Nested views inside it
   are ordinary template content, not root identity.
 - **Props:** the mounted view's props map in the root form.
     - Every value a literal EDN datum → `:props-shape :literal`, recorded verbatim as
@@ -340,24 +175,9 @@ positional locators — an id is stable under fragment reordering, which is the 
 
 ## 6. Frame-plan extraction and payload references
 
-**What the extractor consumes** (the top-region *grammar* — which forms are legal
-wrappers and their diagnostics — has no live owner): the **static top
-region** of a root form is every node reachable from its root without crossing a
-control form (`if`/`when`/`cond`/`case`/`for`/…), a dynamic expression, an internal
-view boundary, a foreign component, `presence`, `client-only`, or `portal`. The walk
-descends through DOM elements, fragments, `frame-root`, `frame-provider`, and
-`error-boundary` — all unconditional, compile-extractable positions. ("Transitive"
-frame extraction means exactly this: plans are collected through arbitrarily nested
-top-region wrappers, in document order.)
-
-- **`frame-root` plans:** each top-region `frame-root` contributes
-  `{:frame-id … :config-fingerprint …}` to `:frame-plans`. Its `:id` MUST be a
-  compile-time literal (compile error otherwise — plans are static identity). Its
-  `:initial-events`/config *expressions* evaluate at preflight (runtime values are
-  legal); the `:config-fingerprint` hashes the plan's **static source form** (id +
-  config forms), which is what conflict detection compares (§7). A `frame-root`
-  anywhere outside a root form's top region is already a compile error; this Spec adds nothing
-  there.
+- **`:frame-plans`** records the root's static frame-ENSURE plans in the descriptor, one
+  `{:frame-id … :config-fingerprint …}` per plan: the plan's literal frame id, and a
+  fingerprint of its static config source.
 - **`frame-provider` references are dynamic:** `frame-provider` scopes a live frame
   *handle* — handles are runtime values, so provider-scoped
   frames are **not statically extractable** and do not appear in `:frame-plans`.
@@ -371,40 +191,15 @@ top-region wrappers, in document order.)
   hydrating root referencing a payload installs it; later roots find it live and do
   not re-seed. Conflict is the exception, and it is fail-loud (§7). Install is the
   **state-boot** call's work, not the DOM-adoption call's: it is `re-frame.ssr/hydrate!`
-  that reads the payload and installs it, and `ui/hydrate-root` never does
+  that reads the payload and installs it, and a view layer's hydrating root never does
   ([011 §Client-side hydration boot helper](011-SSR.md#client-side-hydration-boot-helper)).
   "The first hydrating root installs it" therefore describes the ORDER the two-call boot
-  runs in across N roots on a page, not a step hidden inside `hydrate-root`.
+  runs in across N roots on a page, not a step hidden inside the hydrating root.
 
 ## 7. Duplicate and conflict detection — fail-loud, three layers
 
 All ids below follow the one-catalogue `:rf.error/*` scheme; each carries a data map
-naming both parties with source coordinates in dev.
-
-**Layer 1 — build time (S1).** This layer belongs to a **macro door**: the compiler
-indexes every `mount`/`render!`/`hydrate-root`/`render-static` macro site's statically
-resolved root-id. **No shipped substrate reaches Layer 1** — Layers 2 and 3 below carry
-the whole of duplicate and conflict detection for a runtime-function mount. On the interpreted door only
-`render-static` had ever reached this layer — its `mount`/`hydrate-root` were runtime
-functions with no build-time site to index, and `render-static` alone had no client
-runtime, so it had no Layer 3. Layer 1 therefore
-catches only the **cross-namespace, build-visible** class of render-static duplicate — a
-same-namespace re-registration is REPLACED (watch/HMR tolerance, so a same-namespace
-double-`render-static` passes Layer 1), and independently rendered fragments one build
-never sees together are the **response-local Layer 2** registry's to catch (below). An
-interpreted client mount, by contrast, is caught at Layer 3's
-claim-before-render (below) — the live path. Either way, two indexed sites with equal root-ids
-**reachable from one entry point's module closure** =
-build error `:rf.error/duplicate-root-id` (build tier), data
-`{:root-id … :provenance [:derived :derived] :sites [coord coord]}` with the didactic
-fix (*"same view mounts twice — add `:disambiguator` or author `:root-id`"* when both
-are derived). The entry-point closure is the build-time projection of "one page":
-sites in disjoint entry closures never co-occur and may legally reuse a root-id.
-`[S1-CONFIRM]` — confirm entry-closure scoping (vs. whole-build strictness) when the
-first multi-entry consumer lands; entry-closure is the conservative reading that does
-not break multi-page builds. A macro door and its build-time root indexing are
-warranted only by a named consumer for mount-site descriptors or static frame plans —
-not by door symmetry.
+naming both parties.
 
 **Layer 2 — server render time (S5).** Page assembly registers each root (manifest
 *and* `render-static` root — static roots hold identity too, so a static and a live
@@ -419,347 +214,25 @@ sharing a prefix would collide `use-id` output. The **default** prefix
 slug is injective (§1); this check therefore backstops **authored** `:identifier-prefix`
 opts, which can still collide.
 
-**Layer 3 — client runtime (S1).** Before this layer admits any public Root, the CLJS host must
-provide `WeakRef`, probed/captured once for bounded ViewCell ownership. Absence fails before
-preflight/React/registry mutation with `:rf.error/ui-platform-incompatible` carrying
-`:platform :javascript`, `:capability :js/WeakRef`, and
-`:recovery :use-a-weakref-capable-javascript-runtime`. `FinalizationRegistry` is optional:
-synchronous WeakRef compaction is the correctness path when it is absent; there is no strong
-fallback, polling, or per-render probe (see Spec 006's JavaScript host capability boundary).
-
-A per-document live-root registry: `create-root`,
-`hydrate-root`, and `mount` register their root-id before any render; `unmount!`
-holds the exact root-id/container/identifier-prefix claim through the three-state lifecycle
-`:live → :tearing-down → :released`, releasing it only at the host settlement boundary.
-Registering an id already live in the document throws
-`:rf.error/duplicate-root-id` (client tier) **before any render** — the existing root
-is untouched (failure isolation). This is the last line, catching fragments composed
-client-side by independently shipped bundles. It also asserts **identifier-prefix
-uniqueness** across the document's live roots — the client-tier mirror of the Layer-2
-server check — so two live roots that share an effective `identifierPrefix` fail loud
-on the second claim rather than colliding `use-id` output; release frees the prefix. A
-shared effective prefix arises **two** ways: an **authored** `:identifier-prefix` that
-aliases (the derived mount-path default `"rf2-" + root-id-slug + "-"` is injective over
-root-id, §1, so it never collides on its own); **or** a **hydrating** root whose Root
-Manifest OMITS `:identifier-prefix` — the server rendered under React's effective
-**empty** prefix `""` (React's `hydrateRoot` has no distinct "no prefix" state: it
-canonicalizes an omitted `identifierPrefix` to `""`, and `useId` derives from it), which
-discovery canonicalizes so two such omitted-prefix roots are seen to share `""` and the
-second is rejected. Discovery canonicalizes only the resolved **identity**; the manifest
-wire form keeps `:identifier-prefix` an optional extension key (§2), and no root-id-
-derived prefix is ever synthesized client-side (that would disagree with the server the
-manifest speaks for and break hydration).
-
-A failed first mount that already allocated/registered its React Root is an exact-incarnation
-teardown transaction, not an inline registry delete: mark the whole claim `:tearing-down` before
-host cleanup; preserve the mount error as primary; attach a cleanup throw as
-`rfUiRollbackCleanupError`; force-dead that exact incarnation's framework owners on cleanup throw;
-and quarantine the claim fail-closed because the host container is unproven. A normally returning
-failed-first cleanup has no committed settlement reporter, so the exact predecessor claim releases
-at the next FIFO microtask. Same-stack same-id and different-id/same-container retries are rejected;
-a late predecessor release is root-identity-guarded and cannot evict a successor incarnation.
-
-During `:tearing-down`, the existing three root diagnostics retain their IDs and expose the state:
-`:rf.error/duplicate-root-id` carries owner `:provenance`/`:site` plus
-`:tearing-down? true` under `:existing`; `:rf.error/root-container-in-use` carries
-`:owner-root-id` plus `:existing {:tearing-down? true}`; and `:rf.error/root-not-live` carries
-`:existing {:tearing-down? true}`. Two adjacent container/ownership faults and the
-prefix-uniqueness backstop share the roster:
-
 | Id | When |
 |---|---|
-| `:rf.error/ui-platform-incompatible` | required CLJS `WeakRef` absent at Root/ViewCell ownership admission |
-| `:rf.error/duplicate-root-id` | equal root-id at any layer above; client `:existing` includes `:tearing-down? true` while settlement is fenced |
-| `:rf.error/root-container-missing` | hydration locator resolves to no element (§4) |
-| `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live or tearing-down root |
-| `:rf.error/duplicate-identifier-prefix` | a **fresh** `create-root`/`mount`/`hydrate-root` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing, and hydrating roots that share React's effective empty prefix `""` when the manifest omits `:identifier-prefix` (the derived mount default is injective over root-id, §1). For a **same-root/same-container** incumbent, the immutable-prefix row below takes precedence over this one |
-| `:rf.error/root-identifier-prefix-immutable` | a same-root/same-container re-mount — the idempotent reload path, which RE-RENDERS the live host root — whose effective `identifierPrefix` differs from the one that root was created under. Host root options are fixed at creation, so the running root cannot adopt the new value; the drift is refused before preflight and before any render, and the live root keeps its prefix claim. **Takes precedence over `:rf.error/duplicate-identifier-prefix`** once the incumbent is known: drift toward a value another root owns is still immutable-prefix drift (recovery: unmount first), because every prefix but the incumbent's is equally forbidden for that reused root |
-| `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
-| `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
+| `:rf.error/duplicate-root-id` | equal root-id in one response's page registry (Layer 2) |
+| `:rf.error/root-manifest-invalid` | manifest missing or unreadable at hydrate, not a Root Manifest v1 (schema-version incompatible), a host-authored container without an id, unserialisable props at emit, prefix conflict (Layer 2) |
 | `:rf.error/frame-payload-conflict` | below |
 | `:rf.ssr/hydration-mismatch` | server↔client render-tree fingerprint/digest disagreement at hydration (a Spec 009 catalogue row this Spec does not own) |
 
-**Payload/frame-config conflict — fail-loud at preflight.** At any root's preflight
-(hydration or client mount), before install/hydrate:
-
-- a referenced **payload id already installed with a different content digest**, or
-- a **frame plan whose `:config-fingerprint` differs** from the installed frame's
-  recorded plan fingerprint **and was recorded by a *different* root**,
-
-fails **that root** with `:rf.error/frame-payload-conflict`. The runtime plan-conflict
-arm carries data `{:frame-id … :installed {…} :arriving {:config-fingerprint … :root-id …}}`.
-`:installed` is the **external projection** of the recorded install/adopt record — *not* the
-record itself: it carries `:config-fingerprint` plus either `:installed-by root-id` (a
-root-OWNED record) or `:adopted-by root-id` + `:adopted true` (a boot-authoritative frame
-this root only scopes), optionally followed by the attempt-evidence flags of §7.1. The
-record's internal `:rev` is **stripped** from the projection. The installed frame and the roots already using it
-are untouched — failure scoping is precise: **a bad frame payload affects exactly the
+**Payload conflict — fail-loud at hydration preflight.** At a hydrating root's
+preflight, before any install, a referenced **payload id already installed with a
+different content digest** fails **that root** with `:rf.error/frame-payload-conflict`
+(`re-frame.ssr.install/payload-install-decision!`). Its data names both parties — the
+`:payload-id`, the `:installed` record (`:digest`, `:installed-by`), and the
+`:arriving` `{:digest … :root-id …}` — with recovery
+`:render-the-page-from-one-response`. The installed payload and the roots already using
+it are untouched — failure scoping is precise: **a bad frame payload affects exactly the
 roots referencing it.** There is no first-wins silent merge and no last-wins
-overwrite. A **same-root** re-declaration whose fingerprint differs is a surgical
-**refresh** (an HMR config edit — durable state survives, `:initial-events` re-recorded
-not replayed), **not** a conflict; a **matching** fingerprint is the idempotent
-no-op (no re-seed) — but §7.1 qualifies BOTH: the surgical refresh and the no-op are admitted only while the arriving plan can PROVE it still owns the incarnation live under the id, so a same-root plan meeting a same-id successor (the installed incarnation torn down and re-created under the id) or a token-less legacy row does NOT refresh or no-op — it fails loud under `:scope-config-less-or-own-the-lifetime`. Layer 1 additionally rejects at build time two *plans* for one
-frame-id with differing config fingerprints inside one entry closure (compile error —
-the didactic message points at boot/event infrastructure). (The S5 hydrate
-arm — a referenced payload id already installed with a different **content** digest —
-carries its own content-`:digest` slot: the same error id, a distinct conflict
-trigger.)
+overwrite; an **equal** digest is the idempotent no-op of §6.
 
-### 7.1 Root-attempt evidence — authority, committed scope, and settlement
-
-An install record proves **plan authority**. It does *not* prove a **committed React
-root**. These are independent axes, and preflight keeps them independent: no prose here
-may claim a root or its DOM committed merely because `root.render` returned, a host
-update was scheduled, or a frame remained live.
-
-**Authority — who may write the record.** An `:installed-by` record names the root that
-ENSUREd the frame, but that name alone does not prove the incarnation live under the id
-NOW is the one that root installed. Ownership is proven against the LIVE incarnation
-token: the value the install recorded carries the frame's `:rf.frame/incarnation-token`,
-and the record owns the current live frame only while that recorded token is identically
-the live frame's token. On that proof — and only on it — that root, and only that root,
-may refresh the record or take the no-op (a same-root fingerprint change is the
-surgical HMR refresh above, not a conflict). A recorded token that names a torn-down
-incarnation — the installed frame was destroyed and re-created under the same id, so the
-row now names a same-id SUCCESSOR it never installed — proves nothing, and neither does a
-token-less legacy row a `defonce` ledger carried across a reload; a config-bearing plan
-that meets such a live-but-unprovable frame fails under the SAME
-`:scope-config-less-or-own-the-lifetime` recovery as the boot-authoritative case below.
-An `:adopted-by` + `:adopted true` record merely
-SCOPES a boot/external frame — adoption is create-if-absent scoping and never transfers
-ownership. A config-BEARING plan that meets a boot-authoritative frame (plan-less and
-live, or already adopted) therefore fails the arriving root with
-`:rf.error/frame-payload-conflict` under recovery
-`:scope-config-less-or-own-the-lifetime` rather than discarding its config over the boot
-config: either boot the frame config-less and scope it with a config-less `frame-root`,
-or drop the boot `rf/make-frame` and let the `frame-root` own the lifetime. This is a
-distinct conflict trigger from the differing-fingerprint arm, which recovers with
-`:align-frame-plan-config`.
-
-**Committed root scope — `:committed true`.** Set ONLY at the client's host-commit
-boundary, after a host render has actually committed; never by plan execution. It is
-carried FORWARD across a same-owner refresh, so a refresh of an already-committed record
-stays committed. It distinguishes a genuinely committed live root from a fresh install or
-a retry of an incomplete mount.
-
-**Exact-write binding — the internal `:rev`.** Every install, refresh, and adopt write
-mints a globally monotone install-record revision. Evidence is marked or cleared only
-while the current record still carries the exact `:rev` of the write being settled *and*
-that write's own root still owns the record. An overtaking overwrite, a
-destroyed-then-recreated frame, or an unrelated equal-plan foreign root can therefore
-never mark, clear, or settle another attempt's evidence. A rejected settlement never
-mutates the record; it reports `:rf.error/frame-preflight-evidence-mismatch` and lets
-independently authorized siblings settle. `:rev` is **internal**: it appears in no error
-payload and in no tool/test read.
-
-**Attempt evidence — failure is labelled by committed scope, not by action.** When an
-attempt fails, each record it already wrote is labelled by *provenance*:
-
-| Provenance | The write was | On failure |
-|---|---|---|
-| `:fresh` | an install, or a refresh of a never-committed record | `:mount-incomplete true` — the mount never completed and no root scopes it |
-| `:live` | a refresh of an already-committed record, or an adopt of a live boot frame | `:preflight-attempt-failed true` — neutral attempt evidence; the committed scope or boot frame PERSISTS (Q49), only the attempt failed |
-| `:found-live` | the same-fingerprint no-op | never marked; only committed or cleared at a successful host boundary |
-
-Failure reaches the records by two complementary paths. A plan that throws **mid-run**
-(the plan phase) labels the siblings it already wrote on the way out. When every plan
-succeeds but the client's **post-preflight** ownership fence, element thunk, or first
-host render then throws (the host phase), the client aborts the attempt under the same
-provenance rule. A successful host boundary instead **finalizes**: it sets `:committed`
-and clears any stale `:mount-incomplete` / `:preflight-attempt-failed` from that
-attempt's records.
-
-**The settlement matrix.**
-
-| Scenario | Record after | Evidence |
-|---|---|---|
-| Fresh install, host commits | `:installed-by` | `:committed true` |
-| Fresh install, plan or host phase fails | `:installed-by` | `:mount-incomplete true` |
-| Same-root refresh of a committed record, host commits | `:installed-by`, fingerprint advanced | `:committed true` (carried forward) |
-| Same-root refresh of a committed record, attempt fails | `:installed-by`, prior render intact | `:preflight-attempt-failed true` |
-| Same-root retry of an incomplete mount | `:installed-by` | `:fresh` again — still `:mount-incomplete` until a host commit |
-| Equal-plan foreign root | unchanged — foreign root scopes but writes nothing | none; it gains no settlement rights |
-| Boot adoption, host commits | `:adopted-by` + `:adopted true` | `:committed true` (the adopting root's scope) |
-| Boot adoption, attempt fails | `:adopted-by` + `:adopted true` | `:preflight-attempt-failed true`; boot frame stays live and authoritative |
-| Stale / overtaken attempt settles | unchanged | rejected: `:rf.error/frame-preflight-evidence-mismatch`, no mutation |
-| Destroy, then re-create the same id | record PRUNED on destroy | none — a genuinely new lifetime, never a resurrected dead-lifetime record |
-
-**Internal versus published.** Published in the `:installed` projection and in the
-tool/test read: `:config-fingerprint`, `:installed-by` / `:adopted-by` + `:adopted`,
-`:committed`, `:mount-incomplete`, `:preflight-attempt-failed`. Internal, never
-published: `:rev`. The diagnostic projection and the internal record are distinct values;
-promoting an internal field into the projection is a separate contract decision, not a
-side effect of making a sentence true.
-
-**Losing the exact authority mid-preflight** fails CLOSED with
-`:rf.error/frame-preflight-lifecycle-loss` rather than mounting over an absent frame,
-binding a stale refresh to a replacement, or settling from a stale no-op — see that id's
-row in [009 §Error event catalogue](009-Instrumentation.md) for the three `:kind` arms.
-
-## 8. Client-only non-hydrating mounts — identity and defaults
-
-The complete default story for `(ui/mount root-form dom-node)` with no opts and no
-server in sight (guide 01):
-
-| Aspect | Default |
-|---|---|
-| root-id | derived: the mounted view's id; single-root page needs no disambiguator (§1) |
-| descriptor | emitted at compile time regardless; S5 is additive (§2) |
-| element-locator | none — the host-supplied DOM node is the container; locator is a manifest-only key (§4) |
-| identifier-prefix | `"rf2-" + root-id-slug + "-"` (§3) |
-| manifest / digests / fingerprint validation | none — nothing to validate against; hydration errors cannot occur by construction |
-| frame plans | extracted and preflighted identically to the SSR path (§6) — ENSURE semantics do not fork on mount kind |
-| duplicate detection | Layers 1 and 3 (§7); Layer 2 does not exist without a server |
-| phase | no `:phase` anywhere — phase is a manifest key; the `client-only` root phase flip does not apply (there is no fallback pass) |
-
-## 9. `ui.test/render` — accepted root-or-view forms
-
-**There is no `ui.test/render`.** It would belong to `re-frame.ui.test`, the test surface
-of the compiled-view substrate `re-frame.ui`, and neither ships: no mount site inherits a
-root-or-view test grammar, and nothing emits `:rf.ui.compile/bad-test-root` or
-`:rf.error/ui-test-bad-opts`. The headless view-test surface is the hiccup-walk of
-[008 §JVM-runnable boundary for hiccup-walk](008-Testing.md#jvm-runnable-boundary-for-hiccup-walk).
-The heading stays because §10, the Q24 coverage line and
-[008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
-address it.
-
-## The interpreted paved path
-
-An interpreted substrate realises this contract through a single public door of
-ordinary runtime functions. This section adds the paved-path spelling and the two
-guarantees of the interpreted one-root mount to the mount grammar and the identity
-model above, and nothing here restates the numbered contract it points into.
-
-The `v/…` spelling below names the interpreted door (`re-frame.freehand`, conventionally
-aliased `v`), which does not ship; **the lifecycle below does.** It is realised in-tree
-by `re-frame.fresco`, whose
-`implementation/fresco/src/re_frame/fresco/impl/mount.cljs` `root!` calls
-`ensure-frame!` — frame ENSURE plus the `:initial-events` drain — **before**
-`react-dom/client`'s `createRoot`, which is exactly the ordering
-[§Preflight runs before React](#preflight-runs-before-react) below requires.
-
-### The minimal one-root mount
-
-The minimal one-root spelling is a bare declared view at the head, no opts:
-
-```clojure
-(v/mount [app {:label "hello"}] (js/document.getElementById "app"))
-```
-
-Its identity is **derived, not authored** (§1.2): with no `:root-id` and no
-`:disambiguator`, the root-id is the mounted view's own registered id — the
-single-root page authors nothing. The mount derives the minimal Root
-Descriptor (§2) from the site alone,
-
-```clojure
-{:rf.root/schema-version 1
- :root-id            :app.shop/app     ; the mounted view's id
- :view-id            :app.shop/app
- :root-id-provenance :derived}
-```
-
-and returns a live root handle carrying it.
-
-**The same form renders structurally.** The identical `[app {…}]` spelling is
-what the JVM renders through the interpreted tree emitter — there is no
-second mount verb for the host with no DOM, only the structural render the
-door does not need to publish. Mounting and structural rendering are one
-spelling on both hosts, which is what lets one conformance row bind the
-browser DOM and the JVM tree to the same declaration. The mounted view is a
-real boundary node in that tree — its qualified id, its props and its
-expansion — so the root's occurrence is addressable structurally, not
-flattened into anonymous markup.
-
-Everything below adds to that spelling without changing it: a page of
-one root, with no opts, still authors nothing.
-
-### Hot reload keeps the root identity and the mounted occurrence
-
-A declared view is a descriptor **value**, so a hot reload mints a *new*
-descriptor object for the redefined view. But the value it carries holds the
-same qualified `:view-id`, and the root-id derives from that id (§1.2), so
-the reload's root-id is unchanged — a redefinition does not move a qualified
-keyword. The descriptor object's body and generation churn is an internal
-fact of the reload, never part of the identity.
-
-That is what makes `mount` **idempotent per root** (§3) the reload path: re-running
-the mount with the same root-id into the same container finds the root live
-and RE-RENDERS the existing host root rather than allocating a second one. A
-second host root on one container tears the whole tree down and re-seeds it;
-reusing the live one is the first half of preserving the occurrence across
-the redefinition. With a frame bound, the frame is found live at the
-same fingerprint on that same re-render (§6), so durable state survives the
-edit too.
-
-**The reused root is only half the claim, and the weaker half.** Identity of
-the host root object says nothing about what hangs beneath it. The boundary
-under that root is a real component of the host renderer, and a host
-reconciles boundaries on component **identity**: hand it a different one for
-the same position and it unmounts the subtree and mounts a fresh one — the
-reloaded body appears on screen, correctly, on top of an occurrence that has
-been thrown away. Everything the occurrence was holding goes with it: an
-uncontrolled input's text, a scroll offset, focus, and the ViewCell that owned
-the view's dependencies. A reload that does that has reseeded the page as
-surely as a second root would have.
-
-So the second half: **a compatible redefinition renders through the boundary
-the host already mounted.** The emitter caches one boundary per qualified view
-id — the same id the root's identity derives from — and a redefinition
-publishes its new body through that boundary rather than replacing it. The
-reloaded body renders and the occurrence beneath it survives.
-
-**Reuse is exactly why the `identifierPrefix` cannot move.** A host root's
-options are fixed when it is created, so the running root a reload re-renders
-has no way to adopt a new effective prefix. A re-mount that authors a
-different one is therefore refused —
-`:rf.error/root-identifier-prefix-immutable`, recovery
-`:unmount-before-changing-identifier-prefix` — at the same admission gate the
-three claims of §7 are asserted at: **before preflight and before any render**,
-with the live root's prefix claim, its frame and its committed DOM untouched.
-Silently accepting it would be the worst of the three outcomes available: the
-registry would record a prefix `use-id` never emits, and would treat the old
-one as free for a second root the live root is in fact still rendering under —
-manufacturing the very cross-root `use-id` collision the prefix claim exists
-to prevent. What is refused is **drift**, never the re-mount: a re-mount
-offering the same effective prefix — authored verbatim, or derived because
-neither site authored one — is the ordinary idempotent reload.
-
-**This drift check takes precedence over the cross-root prefix-uniqueness
-check.** Once the same-root/same-container incumbent is known, a requested
-prefix that differs from *its own* is reported as
-`:rf.error/root-identifier-prefix-immutable` — even when that requested value
-is a prefix some OTHER live root already owns. The alternative, reporting
-`:rf.error/duplicate-identifier-prefix` because the requested value collides,
-sends the author chasing a *distinct* prefix; but every prefix other than the
-incumbent's is equally forbidden for that reused root, so the honest recovery
-is `:unmount-before-changing-identifier-prefix`, not a different value. A
-**fresh** root (no same-root incumbent) requesting a prefix another root owns
-still reports `:rf.error/duplicate-identifier-prefix` — the drift check is a
-no-op with no incumbent, and the uniqueness backstop is exactly right there.
-Both checks are read-only and run before preflight and any render.
-
-**The host error callbacks move the opposite way, and honestly.** The same
-`createRoot`-fixes-the-options fact governs `:on-uncaught-error`,
-`:on-caught-error` and `:on-recoverable-error`, but their correct lifetime is
-the inverse of the prefix's. Identity must not move, so a drifting prefix is
-refused; a callback is *meant* to move — a hot reload's fresh closure is the
-ordinary case, and refusing it would make HMR needlessly brittle. So the
-callbacks are **late-bound**: rather than pass the opts' closures straight to
-React — where the first mount's would be fixed and every later one silently
-ignored — the root installs one **stable delegate per key** that reads the
-live callback off a per-root cell, and an accepted re-mount **advances** that
-cell. React holds the delegate for the root's lifetime; the delegate's target
-is what the reload moves. The effective callback for each key is the one from
-the **most recent accepted mount**; a re-mount that omits a key it earlier
-supplied restores React's own default reporting for that error kind (an
-uncaught or recoverable error to `reportError`, a boundary-caught one to
-`console.error`), so a stale closure is never silently retained and a newly
-supplied one is never dropped. The delegate is installed for all three keys
-regardless of the first mount's opts, so a callback a reload *adds* takes
-effect too. A rejected re-mount — a prefix drift, a superseded incumbent —
-advances nothing: the cell moves only on the accepted reload's own re-render.
-
-### Compatible shell versus clean remount
+## Compatible shell versus clean remount
 
 A redefinition is **compatible** when it does not move the boundary's *hook
 skeleton* — the ordered set of host hooks the emitter's shell owns for that
@@ -788,130 +261,22 @@ that revision and publishes nothing: no dependencies, no event sites, no
 evidence (see [006 §The atomic shell](006-ReactiveSubstrate.md#the-atomic-shell)). The
 host simply renders again at the new body.
 
-### Several roots on one page
-
-A page is N roots, and the whole reason to build it that way is that the
-roots are independent. Independence is not a hope: it is three claims each
-root makes in the per-document registry, and each of them is asserted
-**before the root renders anything**.
-
-The claims are the root's **id**, its **container**, and its effective
-**identifierPrefix**, and the diagnostics are the ones §7 already names —
-`:rf.error/duplicate-root-id`, `:rf.error/root-container-in-use`,
-`:rf.error/duplicate-identifier-prefix`. Every one of them is raised with
-the roots already on the page untouched. That is what failure isolation
-means at admission time, and it is cheaper than it sounds: a mount that
-has written nothing has nothing to roll back.
-
-Two roots of the SAME view are the case the derivation default cannot
-answer on its own, because both would derive one id. The author says which
-fact distinguishes them, in one of two spellings:
-
-```clojure
-(v/mount [panel {:side :left}]  left-node  {:disambiguator :left})   ; ⇒ [:shop/panel :left]
-(v/mount [panel {:side :right}] right-node {:root-id :shop/right})   ; ⇒ :shop/right
-```
-
-`:disambiguator` appends a scalar to the derived id; `:root-id` names the
-id outright. The descriptor records which happened
-(`:root-id-provenance`), so a later duplicate diagnostic can say *both ids
-derived from the same view* rather than leaving the reader to work out
-why two mounts collided.
-
-Distinct ids give distinct `identifierPrefix` values for free, because the
-slug is injective (§1) — so the prefix check is never tripped by the
-framework's own derivation, only by an authored prefix that aliases.
-
-### Preflight runs before React
-
-A root's frame is settled **before** `createRoot`, not by an effect that
-runs after the first paint. The ordering is the whole point: a view body
-that reads a subscription on its first render must find a frame that is
-already there, and a root that cannot get one must fail before it has put
-anything on the page.
-
-The interpreted spelling is the `:frame` opt, and its two shapes are two
-different lifetimes:
-
-```clojure
-(v/mount [app {}] node {:frame {:id :shop/main :initial-events [[:shop/boot]]}})  ; ENSURE — the root owns it
-(v/mount [app {}] node {:frame :shop/main})                                       ; SCOPE  — something else owns it
-```
-
-The ENSURE shape creates the frame if it is absent and drains its
-`:initial-events`; meeting the same plan again is the idempotent
-no-op, and re-seeding is precisely what it must not do — but the no-op is
-admitted only while the root can PROVE it still owns the incarnation live
-under the id (§7.1): the value its install recorded carries the live
-frame's current `:rf.frame/incarnation-token`. An equal fingerprint over a
-frame the root can no longer prove it owns — the installed incarnation was
-destroyed and re-created under the same id by external code, or a
-token-less legacy row survived a reload — is NOT a no-op; it fails loud
-under `:scope-config-less-or-own-the-lifetime`, before `make-frame` and
-before React, rather than silently adopting a successor the root never
-installed. The SCOPE shape creates nothing, and a target naming no live
-frame fails loud rather than scoping every read below the root to a frame
-that is not there.
-
-Plans meeting one frame are reconciled by the §7 rule: an equal
-config fingerprint over a PROVEN-owned incarnation is the no-op, and a
-DIFFERENT fingerprint recorded by a DIFFERENT root fails **that root** with
-`:rf.error/frame-payload-conflict`, before install and before React. The
-installed frame and the roots already using it are untouched — a bad plan
-affects exactly the roots carrying it.
-
-### Total teardown
-
-`(v/unmount! root)` is total, and "total" is a claim about what is left
-rather than about what was called. Afterwards the root holds no id,
-container or prefix claim; the host root is unmounted, so every ViewCell
-beneath it has disconnected and released every dependency it owned and
-retired every callback it published; and the root's reference to its frame
-is gone. A frame the root ENSUREd is DESTROYED once no live root still
-references it — and destroyed by the EXACT incarnation value the install
-recorded, never by the bare frame-id. The recorded value carries the
-installed incarnation's token, so teardown consumes precisely that
-incarnation: a stale installer whose frame was already destroyed and
-re-created under the same id no-ops rather than reaching through to kill
-the successor, and a token-less legacy row — one a `defonce` ledger carried
-across a reload without a recorded value — likewise leaves the live frame
-untouched rather than destroying an incarnation it cannot prove it owns. A
-frame the root merely SCOPED is left exactly as it was found, because the
-root borrowed it.
-
-The count that matters is zero, and it is asserted as zero — not as
-"small", and not as the absence of a visible symptom. A leak here is a
-long dev session's leak: a released root whose subscriptions still
-recompute on every write is invisible until the page is slow for reasons
-nobody can attribute.
-
-`unmount!` is **guarded and idempotent**: a root already unmounted, or one
-superseded by a newer root that claimed its id, is a no-op rather than a
-throw. Tearing down on a stale handle's behalf would tear down the
-successor, which is a worse answer than doing nothing.
-
 ## 10. Stage placement
 
 | Surface | Stage |
 |---|---|
-| Root Descriptor v1, mount grammar + identity opts, derivation + slug, Layer-1 + Layer-3 duplicate detection, client mount/`create-root`/`render!`/`unmount!`, `ui.test/render` forms, frame-plan-conflict preflight (the `:config-fingerprint` ENSURE arm — build tier S1c, client-mount/`render!` runtime tier S2c) | **S1** (the S1 "root descriptor" deliverable, defined by §2 above; stage roster per [EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7)) |
-| Root Manifest v1 extension keys, the hydrating-root boot sequence (manifest discovery/validation → payload install → hydrate) — `ui/hydrate-root` owns manifest discovery/validation and DOM adoption, while payload install and `:rf/hydrate` belong to `re-frame.ssr/hydrate!`, the state-boot call that runs first — locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (the hydrate arm of `:rf.error/frame-payload-conflict` only — the plan-fingerprint arm ships at S1c/S2c, row above), `render-static` identity participation | **S5** (the S5 "root manifests" deliverable — the additive extension of S1; see [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) |
+| Root Descriptor v1, the root-id and its slug | **S1** (the S1 "root descriptor" deliverable, defined by §2 above; stage roster per [EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7)) |
+| Root Manifest v1 extension keys, the hydrating-root boot sequence (manifest discovery/validation → payload install → hydrate) — `re-frame.ssr/hydrate!` runs `re-frame.ssr.install/preflight!` (manifest discovery/validation and the install decision) and then `:rf/hydrate`, before the view layer's hydrating root adopts the DOM — locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (`:rf.error/frame-payload-conflict`) | **S5** (the S5 "root manifests" deliverable — the additive extension of S1; see [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) |
 
 ## Q24–Q28 coverage
 
-- **Q24** (render root-or-view forms; props/frames/registrations/overrides) → §9.
+- **Q24** (render root-or-view forms; props/frames/registrations/overrides) → no Spec:
+  there is no `ui.test/render`
+  ([008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)).
 - **Q25** (where root-id is authored/derived; the full signature set) → §1, §3.
 - **Q26** (S1 descriptor schema; churn-free evolution to the S5 manifest) → §2.
 - **Q27** (locator generation SSR/client; duplicate detection across compilation
   units/page fragments) → §4, §7.
-- **Q28** (frame-plan extraction) → §6 pins what the extractor consumes and the
-  conflict ordering/diagnosis; **no Spec owns** the top-region syntactic grammar (which
-  wrapper forms are legal and their compile diagnostics) — see [README](README.md) on
-  the vacant 004 slot.
-
-## [S1-CONFIRM] register
-
-1. **§4** — the manifest script element's concrete attribute/type convention; pin
-   alongside the Spec 011 payload-encoding rows.
-2. **§7** — entry-point-closure scoping as the build-time projection of "one page" for
-   duplicate root-id detection (vs. whole-build strictness).
+- **Q28** (frame-plan extraction) → §6 pins the `:frame-plans` record; **no Spec owns**
+  extraction itself — the top-region syntactic grammar (which wrapper forms are legal
+  and their compile diagnostics) — see [README](README.md) on the vacant 004 slot.
