@@ -1,19 +1,17 @@
 (ns re-frame.ssr.ring.renderer-seam-test
-  "rf2-8arzr.1 — the render-body seam (Spec 011 §HTTP response contract;
-  slice A of the ssr-node crossing, rf2-8arzr S1 / S2).
+  "The render-body seam (Spec 011 §HTTP response contract).
 
   `ssr-handler` takes ONE construction opt, `:renderer` — a plain fn
   `(fn [{:keys [frame-id request opts]}] -> {:body-html :render-hash})` —
-  which `build-full-response*` calls where the JVM-local render used to run
-  inline: inside the request frame's scope, after the boot-event drain and
+  which `build-full-response*` calls inside the request frame's scope, after the boot-event drain and
   the blocking-resource settle, before head resolution and the payload
   build. The renderer returns body markup and nothing else; the JVM keeps
   the request frame, head, `__rf_payload`, shell, status, headers, cookies,
-  error projection and teardown (the ownership line, S2).
+  error projection and teardown (the ownership line).
 
-  The default, `pipeline/local-renderer`, is the pre-seam body extracted
-  verbatim, and its floor is the EXISTING suite: the Jetty end-to-end tests
-  pin bytes, so the default path stays byte-identical with no fixture change.
+  The default, `pipeline/local-renderer`, is the JVM-local body render, and
+  its floor is the rest of the suite: the Jetty end-to-end tests pin bytes,
+  so the default path is byte-identical whether it is named or implied.
   These rows pin the seam itself."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -84,11 +82,11 @@
   {:body-html fixed-body :render-hash nil})
 
 ;; ===========================================================================
-;; Acceptance 2 — a custom renderer's body inside a JVM-built document
+;; A custom renderer's body inside a JVM-built document
 ;; ===========================================================================
 
 (deftest a-custom-renderer-body-lands-verbatim-in-a-jvm-built-document
-  (testing "rf2-8arzr.1 Acceptance 2: a :renderer returning a fixed body and
+  (testing "a :renderer returning a fixed body and
             a nil hash — the body is inserted verbatim; no data-rf-render-hash
             marker; no payload :rf/render-hash; head, __rf_payload, shell,
             status and headers are JVM-built; :root-view omitted without error"
@@ -115,13 +113,13 @@
           "head: JVM-resolved, on its own reconstructible channel")
       (is (str/includes? body "data-rf-head-hash") "…and its wire marker rides")
       (is (nil? (wire-render-hash body))
-          "a nil hash under :emit-hash? true re-stamps NOTHING (rf2-atmvj:
-           nothing is 'computed yourself' at the seam)")
+          "a nil hash under :emit-hash? true re-stamps NOTHING (nothing
+           is 'computed yourself' at the seam)")
       (is (not (str/includes? body "render-hash"))
-          "a nil hash OMITS the payload's :rf/render-hash key (rf2-q1b96)"))))
+          "a nil hash OMITS the payload's :rf/render-hash key"))))
 
 (deftest a-custom-renderer-rides-the-wire-through-jetty
-  (testing "rf2-8arzr.1 Acceptance 2 on the wire: status, Content-Type and
+  (testing "on the wire: status, Content-Type and
             the whole document are JVM-built around the renderer's body"
     (register-app!)
     (let [handler (rf.ssr.ring/ssr-handler
@@ -144,7 +142,7 @@
 ;; ===========================================================================
 
 (deftest root-view-is-required-exactly-when-renderer-is-absent
-  (testing "rf2-8arzr S1: with a custom :renderer, :root-view is optional and
+  (testing "with a custom :renderer, :root-view is optional and
             ignored — a supplied one is simply never read"
     (register-app!)
     (let [without ((rf.ssr.ring/ssr-handler
@@ -159,8 +157,8 @@
       (is (= (:body without) (:body with))
           "a supplied :root-view changes nothing under a custom renderer")
       (is (not (str/includes? (:body with) "jvm body")))))
-  (testing "…and without a :renderer the requirement is unchanged: omitting
-            :root-view still fails closed at construction"
+  (testing "…and without a :renderer :root-view is required: omitting
+            it fails closed at construction"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-root-view"
@@ -173,11 +171,11 @@
           (rf.ssr.ring/ssr-handler (assoc base-opts :renderer nil))))))
 
 ;; ===========================================================================
-;; S1 — what the renderer is handed, and where it runs
+;; What the renderer is handed, and where it runs
 ;; ===========================================================================
 
 (deftest the-renderer-sees-the-live-post-drain-frame-the-request-and-the-opts
-  (testing "rf2-8arzr S1: the input is exactly {:frame-id :request :opts} —
+  (testing "the input is exactly {:frame-id :request :opts} —
             the live post-drain frame by id, the Ring request, the handler
             opts — and the call sits INSIDE the request frame's scope, so a
             frame-relative read resolves without naming the frame"
@@ -197,7 +195,7 @@
                              {:body-html "<p>seen</p>" :render-hash nil})))]
       (handler request)
       (is (= #{:frame-id :request :opts} (:keys @seen))
-          "exactly the three S1 keys")
+          "exactly the three seam keys")
       (is (= {:heading "Seam"} (:app-db @seen))
           "post-drain: the boot event has already run against this frame")
       (is (= "Seam" (:scoped @seen))
@@ -211,11 +209,11 @@
           "…with the construction-time defaults merged in"))))
 
 ;; ===========================================================================
-;; The default — local-renderer IS the pre-seam body
+;; The default — local-renderer is the JVM-local render
 ;; ===========================================================================
 
 (deftest local-renderer-is-the-default-and-naming-it-changes-nothing
-  (testing "rf2-8arzr.1 Acceptance 1 at the seam: omitting :renderer and
+  (testing "omitting :renderer and
             passing pipeline/local-renderer explicitly produce byte-identical
             documents — and on the hashed (resolving-root) path the wire
             marker and the payload hash still agree"
@@ -237,11 +235,11 @@
           "wire marker == payload key (one canonical hash)"))))
 
 ;; ===========================================================================
-;; S2 — the hash is the renderer's; the body bytes are never rewritten
+;; The hash is the renderer's; the body bytes are never rewritten
 ;; ===========================================================================
 
 (deftest a-custom-render-hash-feeds-the-payload-and-the-body-is-never-rewritten
-  (testing "rf2-8arzr S1: a non-nil :render-hash becomes the payload's
+  (testing "a non-nil :render-hash becomes the payload's
             :rf/render-hash; the wire marker is the renderer's own to stamp"
     (register-app!)
     (let [stamped "<div data-rf-render-hash=\"0badf00d\">stamped</div>"
@@ -269,12 +267,12 @@
       (is (str/includes? body "<div>bare</div>")))))
 
 ;; ===========================================================================
-;; Acceptance 3 — stream-handler refuses :renderer at construction
+;; stream-handler refuses :renderer at construction
 ;; ===========================================================================
 
 (deftest stream-handler-refuses-renderer-at-construction
-  (testing "rf2-8arzr.1 Acceptance 3: a non-nil :renderer is REJECTED when
-            stream-handler is constructed — the :html-shell precedent — with
+  (testing "a non-nil :renderer is REJECTED when
+            stream-handler is constructed — as :html-shell is — with
             ex-data naming the opt, the value and a recovery"
     (register-app!)
     (let [ex   (is (thrown? clojure.lang.ExceptionInfo
@@ -284,8 +282,8 @@
                               :renderer  fixed-renderer))))
           data (ex-data ex)]
       (is (= :rf.error/ssr-streaming-unsupported-opt (:rf.error/id data))
-          "the structured id is the existing unsupported-opt refusal — no
-           new error id")
+          "the structured id is the shared unsupported-opt refusal — no
+           separate error id")
       (is (= :renderer (:opt-key data)) "ex-data names the offending opt")
       (is (= fixed-renderer (:got data)) "ex-data carries the rejected value")
       (is (keyword? (:recovery data)) "ex-data carries a recovery")
@@ -321,9 +319,9 @@
 ;; ===========================================================================
 
 (deftest a-throwing-renderer-projects-like-a-root-view-render-throw
-  (testing "rf2-8arzr S5 premise: a :renderer throw happens at the render call
-            with a live frame, so the EXISTING render-failure projection
-            handles it — projected 500, the projector's public message, no
+  (testing "a :renderer throw happens at the render call
+            with a live frame, so the render-failure projection
+            handles it like any render throw — projected 500, the projector's public message, no
             hydration payload, no throwable detail on the wire"
     (register-app!)
     (let [handler (rf.ssr.ring/ssr-handler
