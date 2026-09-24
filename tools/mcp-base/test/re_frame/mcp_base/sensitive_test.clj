@@ -249,7 +249,7 @@
   ;; Companion to the existing :stories-only-:traces frame in
   ;; `scrub-snapshot-strips-sensitive-from-traces`: pin the symmetric
   ;; `cond->` arm where ONLY `:epochs` is present (no `:traces`). Both
-  ;; single-slice arms now have positive coverage.
+  ;; single-slice arms have positive coverage.
   (let [snap {:rf/default {:epochs [{:event-id :foo}
                                     {:event-id :auth/sign-in :sensitive? true}
                                     {:event-id :bar}]}}
@@ -584,7 +584,7 @@
   ;; its contract that it delegates to `strip-sensitive` is
   ;; the load-bearing spec/009 §Privacy MUST. A regression that flipped
   ;; the default to a no-op (or any other predicate) wouldn't trip the
-  ;; existing tests — those only exercise the 2-arity form's outputs
+  ;; other tests — those only exercise the 2-arity form's outputs
   ;; against trace-event-stamp inputs, never the parity-with-3-arity
   ;; contract directly. Pin it: the 2-arity output MUST equal the
   ;; 3-arity call with `strip-sensitive` explicit.
