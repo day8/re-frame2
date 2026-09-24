@@ -1,12 +1,11 @@
 'use strict';
 
 /*
- * The bench drivers' ONE sentinel wait, raced against the page dying
- * (rf2-f5roa, from the PR #7268 and #7269 audits).
+ * The bench drivers' ONE sentinel wait, raced against the page dying.
  *
- * THE DEFECT
+ * THE HAZARD
  * ----------
- * Every driver in this directory ends its page's work the same way:
+ * A naive driver ends its page's work like this:
  *
  *     page.on('pageerror', (e) => { errors.push(e.message); });
  *     await page.waitForFunction('window.X_DONE === true || window.X_ERROR',
@@ -20,27 +19,25 @@
  * report of it is twenty minutes late.
  *
  * That is not a slow gate, it is the anonymous-ceiling defect `navigate.cjs`
- * documents, wearing its other hat. There the budget was too small and
- * absorbed a fault it was never meant to bound; here it is enormous and
+ * documents, wearing its other hat. There the budget is too small and
+ * absorbs a fault it is never meant to bound; here it is enormous and
  * absorbs one it already knows about. Both end the same way: a log line that
  * says `Timeout 1200000ms exceeded` when what happened was a ReferenceError
  * at page-load, and an afternoon spent enlarging a budget that was never the
  * problem.
  *
- * RECORDED, not hypothetical. A contaminated Shadow cache produced a
- * ReactDOM `pageerror` under `hd8_run.cjs`; the driver logged it and then
- * waited the full twenty minutes for `HD8_DONE` before timing out. The
- * source was clean — rebuilding fixed it — which is exactly why this
- * matters: the *common* cause of a page error here is environmental, so it
- * is the case a driver meets most often and the one it handles worst.
+ * NOT HYPOTHETICAL. A contaminated Shadow cache raises a ReactDOM
+ * `pageerror` from clean source — a rebuild clears it — and a driver that
+ * logs it and then waits the full twenty minutes for its sentinel before
+ * timing out is exactly the naive shape above. The *common* cause of a page
+ * error here is environmental, so it is the case a driver meets most often
+ * and the one the naive shape handles worst.
  *
  * WHY A FILE AND NOT A PATCH IN EACH DRIVER
  * -----------------------------------------
- * `navigate.cjs`'s reasoning, unchanged: `b10_prod_run.cjs` was already
- * given the right navigation by hand while its four siblings kept the
- * defect, so the directory drifted. Two drivers carry this sentinel today
- * and both had the same fault. Per-file drift is the failure mode; the
- * directory gets one sentinel.
+ * `navigate.cjs`'s reasoning: a fix patched into one driver by hand leaves
+ * its siblings with the defect, and the drivers drift. Per-file drift is the
+ * failure mode; the directory gets one sentinel.
  *
  * WHAT COUNTS AS THE PAGE DYING
  * -----------------------------
@@ -66,94 +63,74 @@
  * returns; this only guarantees that the wait RETURNS — promptly, and saying
  * which of the two things happened.
  *
- * ...AND IT ONCE ONLY HELPED THE DRIVERS THAT USED IT (rf2-jvheq, settled
- * 2026-08-04; closed by rf2-sib23, 2026-08-05)
- * -------------------------------------------------------------------------
- * Nine drivers did not, and instead installed a bare handler that printed:
+ * WHY A BARE `pageerror` PRINT IS NOT ENOUGH
+ * ------------------------------------------
+ * A driver that installs only a printing handler —
  *
- *     page.on('pageerror', (e) => console.error(`[b8] page error: ${e.message}`))
+ *     page.on('pageerror', (e) => console.error(`[drv] page error: ${e.message}`))
  *
- * with no array and no reference from the exit block. They were filed as an
- * AUDIT rather than a fault, because the sweep that found them could not show
- * the gap was reachable: each also waits on `'... || window.X_ERROR'`, which
- * covers every throw the app itself catches and reports. THE AUDIT WAS
- * SETTLED BY RUNNING IT RATHER THAN BY READING, AND THE GAP IS REAL:
+ * — with no array and no reference from the exit block exits 0 over a dead
+ * page, even though it also waits on `'... || window.X_ERROR'`, which covers
+ * every throw the app itself catches and reports. Run rather than read, the
+ * gap is real:
  *
  *   1. Chromium raises `pageerror` for a throw inside `requestAnimationFrame`,
  *      inside `setTimeout`, and for an unhandled promise rejection, while a
  *      completion sentinel set elsewhere STILL becomes true. Measured against
- *      the pinned Playwright (1.59.1); all three cases exit 0 today.
+ *      Playwright 1.59.1; all three cases exit 0 under a print-only handler.
  *
  *   2. Worse, and the reason no page-side `try/catch` can close it: React
- *      19.2.0 — the pin — does NOT rethrow an uncaught render error to the
+ *      (measured on 19.2.0) does NOT rethrow an uncaught render error to the
  *      caller of `flushSync`/`render`. `defaultOnUncaughtError` hands it to
- *      `reportGlobalError` -> `reportError`
- *      (`react-dom-client.production.js` ~5888-5890, ~2307), which raises a
- *      global error and returns. So a render throw is INVISIBLE to the
- *      `(catch :default e ...)` in every one of those apps' `-main`, sets no
- *      `window.*_ERROR`, does not reject the `page.evaluate` that the
+ *      `reportGlobalError` -> `reportError` (19.2.0's
+ *      `react-dom-client.production.js` ~5888-5890, ~2307), which raises a
+ *      global error and returns. So a render throw is INVISIBLE to a
+ *      `(catch :default e ...)` in an app's `-main`, sets no
+ *      `window.*_ERROR`, does not reject the `page.evaluate` that
  *      READY-style drivers rely on — and the app carries on and sets its
- *      sentinel. Every one of the nine mounts through `react-dom/flushSync`.
+ *      sentinel.
  *
- *   3. `b10_prod_run.cjs` has a second, non-React path: `b10_two_clock.cljs`
- *      ~670/694/709 drives the run from two `setInterval`s and a live
- *      `MutationObserver`. A throw in any of those is a detached task — it
- *      escapes `-main`'s `try` AND the promise chain's `.catch`, and
- *      `setInterval` keeps firing, so the run still completes and sets
- *      `B10_DONE`.
+ *   3. A run driven from `setInterval`s or a live `MutationObserver` has a
+ *      second, non-React path: a throw in any of those is a detached task —
+ *      it escapes `-main`'s `try` AND the promise chain's `.catch`, and
+ *      `setInterval` keeps firing, so the run still completes and sets its
+ *      sentinel.
  *
- * ALL NINE NOW CALL `watchPage` AND READ ITS `failures` AT THEIR EXIT
- * (rf2-sib23). The remedy is the one this file's other callers already had —
- * collect into an array and refuse — and nothing was removed to get it: each
- * bare handler was REPLACED by this collector, which still prints the same
- * error and additionally records it, plus the two failures the bare handler
- * could never see (`crash`, and a failed `document`/`script` request).
+ * So a driver calls `watchPage` and reads its `failures` at exit: the
+ * collector prints the same error a bare handler would and additionally
+ * records it, plus the two failures a bare handler never sees (`crash`, and
+ * a failed `document`/`script` request).
  *
- *   b6_prod_run.cjs   b6_profile_run.cjs   b7_run.cjs   b8_run.cjs
- *   b10_prod_run.cjs  reads_ladder_run.cjs spine_ablation_run.cjs
- *   ../../../../core/test/re_frame/bench/p0_run.cjs
- *   ../../../../adapters/reagent/test/re_frame/bench/fresco_narrow_run.cjs
+ * ...AND EVERY SENTINEL WAIT RACES
+ * --------------------------------
+ * A bare `page.waitForFunction` sentinel wait over a page that dies at load
+ * spends its whole budget — twenty or thirty minutes — saying so. A sentinel
+ * wait goes through `race` instead.
  *
- * ...AND THE NINE NOW RACE, TOO (rf2-qv761, 2026-08-05)
- * ---------------------------------------------------
- * rf2-sib23 gave the nine the COLLECTOR and deliberately left their sentinel
- * waits as `page.waitForFunction`, recording the absence so it would not be
- * read as an oversight. All twelve of those waits are now `race` calls, which
- * is the other half of this file finally reaching the drivers that needed it
- * most: a page that dies at load under `b10_prod_run.cjs` cost TWENTY
- * MINUTES to say so, and under `p0_run.cjs`'s clock row, thirty.
- *
- * TWO PROPERTIES MAKE THE CONVERSION SAFE, and they are worth stating because
+ * TWO PROPERTIES MAKE `race` SAFE, and they are worth stating because
  * neither is obvious:
  *
  *   1. IT CANNOT SHORTEN A RUN THAT WOULD HAVE PASSED. `race` rejects only on
- *      a recorded failure, and since rf2-sib23 every one of the nine already
- *      refuses at its exit on exactly that array. So any run this reports on
- *      early was already going to be non-zero; what changes is when, and the
- *      failure line names the cause instead of naming the clock.
- *   2. NO NEW EXIT CODE. Every rejection lands in a path each driver already
- *      had — `drive()`'s rejection handler in `b6_prod`, `b6_profile` and
- *      `b10_prod`; the existing `catch` in `b7`, `p0`, the ladder and the
- *      ablation; `failed` in `b8`; `fresco_narrow`'s `main` catch — and all
- *      of those are that driver's existing 1.
+ *      a recorded failure, and a driver refuses at its exit on exactly that
+ *      array. So any run this reports on early would be non-zero anyway;
+ *      what changes is when, and the failure line names the cause instead of
+ *      naming the clock.
+ *   2. NO NEW EXIT CODE. Every rejection lands in a path the driver already
+ *      has — a `drive()` rejection handler, a `catch`, a `failed` flag — and
+ *      all of those are that driver's existing 1.
  *
- * WHAT IT DOES COST, stated rather than discovered later. In rf2-sib23's own
- * case — the page that throws and STILL reaches its sentinel — the run now
- * fails AT THE WAIT rather than after printing its table, so the partial rows
- * a late throw would have left behind are no longer printed. The verdict is
- * identical either way (both are that driver's 1, both name the page error);
- * what is lost is diagnostic residue in the narrow window between "some rows
- * measured" and "sentinel set". The motivating case in rf2-f5roa and
- * rf2-qv761 is a `ReferenceError` at page load, where there is no residue to
- * lose and fifteen to thirty minutes to save. The exit-block refusals
- * rf2-sib23 installed are NOT removed and are not dead: a failure recorded
- * after the sentinel has already flipped — during the result `evaluate`s, the
- * measurement loop that follows a READY wait, or teardown — still reaches the
- * exit block and nowhere else.
- *
- * `pageerror_exit_path.test.cjs` pins both halves of the class: each driver's
- * refusal, the wiring from the handler to the exit code in all nine, and that
- * every sentinel wait in the fleet is raced rather than bare.
+ * WHAT IT DOES COST, stated rather than discovered later. A page that throws
+ * and STILL reaches its sentinel fails AT THE WAIT rather than after printing
+ * its table, so the partial rows a late throw would leave behind are not
+ * printed. The verdict is identical either way (both are that driver's 1,
+ * both name the page error); what is lost is diagnostic residue in the
+ * narrow window between "some rows measured" and "sentinel set". The
+ * motivating case is a `ReferenceError` at page load, where there is no
+ * residue to lose and fifteen to thirty minutes to save. The exit-block
+ * refusals are NOT redundant: a failure recorded after the sentinel has
+ * already flipped — during the result `evaluate`s, the measurement loop that
+ * follows a READY wait, or teardown — reaches the exit block and nowhere
+ * else.
  */
 
 /**
@@ -211,7 +188,7 @@ function watchPage(page, label) {
         throw new Error(
           `sentinel.race: timeoutMs is REQUIRED and must be a positive number ` +
             `(got ${JSON.stringify(timeoutMs)}). An unnamed sentinel budget is the ` +
-            `anonymous-ceiling defect (rf2-p9fa3).`
+            `anonymous-ceiling defect navigate.cjs documents.`
         );
       }
       const died = new Promise((resolve) => {
@@ -242,8 +219,8 @@ function watchPage(page, label) {
           `[${label}] THE PAGE DIED BEFORE IT FINISHED — the benchmark did not ` +
             `reach its own completion sentinel, so nothing it may have recorded is ` +
             `a measurement. This is reported now rather than after ${budget}, ` +
-            `which had not yet run out and would have said only that time passed ` +
-            `(rf2-f5roa). What happened:\n  ` +
+            `which had not yet run out and would have said only that time passed. ` +
+            `What happened:\n  ` +
             failures.map((f) => `${f.kind}: ${f.detail}`).join('\n  ')
         );
       }
