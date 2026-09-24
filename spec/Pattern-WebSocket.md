@@ -202,15 +202,7 @@ The connection machine composes the locked substrate:
            (valid-inbound-frame? body)))}      ;; a compiled InboundMessage validator
 
    :actions
-   {:record-connection-opts
-    ;; Caller passes the URL + an OPAQUE credential reference on
-    ;; :ws/connect; opts land in :data and every subsequent reconnect
-    ;; re-reads them via :spawn's :data fn. Never the bearer itself —
-    ;; see §Parameters.
-    (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
-      {:data (assoc data :url url :cred-ref cred-ref)})
-
-    :rotate-cred
+   {:rotate-cred
     ;; The auth machine calls this after an out-of-band credential
     ;; rotation; only the new opaque reference crosses the dispatch
     ;; boundary, and the next :active entry's :spawn :data fn picks it up.
@@ -315,10 +307,13 @@ The connection machine composes the locked substrate:
     :reset-retries
     ;; A clean :ws/disconnect out of :reconnecting or :failed is the user
     ;; saying "stop trying", not a connection failure — so the retry counter
-    ;; goes back to zero and the next manual :ws/connect gets a full budget
-    ;; rather than inheriting the abandoned run's. There is no :in-flight to
-    ;; settle here: both states already left :active, and the door that did
-    ;; so ran fail-in-flight on the way.
+    ;; goes back to zero. That is belt and braces for the budget: the next
+    ;; manual :ws/connect runs :record-and-reset, which zeroes the counter
+    ;; whichever door led to :disconnected — including the clean
+    ;; :ws/disconnect out of :active, whose one action slot is
+    ;; :fail-in-flight. There is no :in-flight to settle here: both states
+    ;; already left :active, and the door that did so ran fail-in-flight on
+    ;; the way.
     (fn [{:keys [data]}]
       {:data (assoc data :retries 0)})
 
@@ -390,9 +385,14 @@ The connection machine composes the locked substrate:
                                                          :ws/timeout))]))}))
 
     :record-and-reset
-    ;; Compound action — record fresh opts AND reset the retry counter.
-    ;; Used on manual :ws/connect from :reconnecting / :failed (the
-    ;; running app has rotated its credential; reconnect immediately).
+    ;; Every manual :ws/connect runs this — out of :disconnected as much as
+    ;; :reconnecting or :failed. Caller passes the URL + an OPAQUE credential
+    ;; reference; opts land in :data and every subsequent reconnect re-reads
+    ;; them via :spawn's :data fn. Never the bearer itself — see
+    ;; §Parameters. It also zeroes the retry counter, so a manual connect
+    ;; gets a full budget rather than inheriting an abandoned run's: a clean
+    ;; :ws/disconnect taken mid-reconnect, from [:active :connecting], leaves
+    ;; the counter where the failed opens left it.
     (fn [{:keys [data] [_ {:keys [url cred-ref]}] :event}]
       {:data (-> data
                  (assoc :url url :cred-ref cred-ref)
@@ -406,7 +406,7 @@ The connection machine composes the locked substrate:
    :states
    {:disconnected
     {:on {:ws/connect {:target [:active]
-                       :action :record-connection-opts}
+                       :action :record-and-reset}
           :ws/send    {:action :enqueue-message}
           :ws/request {:action :enqueue-message}
           :ws/subscribe {:action :record-subscription}}}
@@ -620,7 +620,7 @@ The connection's `:url` and an **opaque credential reference** arrive on the `:w
 
 `:cred-ref` is a REFERENCE — a session id, a vault index, any opaque key your auth slice issues — never the bearer itself. Machine `:data` is framework-inspectable (snapshots, trace emissions, recorder fixtures, pair tooling), so a raw bearer, cookie, or refresh token must never enter `:data` or ride a dispatch payload. The socket actor exchanges the reference for the real credential inside its own host closure at the moment it authenticates the socket — the worked example's `resolve-credential` seam in `examples/patterns/websocket/messages.cljs` — writes it to the auth wire frame, and lets it go out of scope there. "At the write" is narrower than "while opening the socket", and deliberately so: anything the socket's enclosing scope resolves is retained by the socket handle for the connection's lifetime.
 
-`:record-connection-opts` persists URL + reference into `:data`; the `:active` state's `:spawn` `:data` fn reads them out at spawn time and threads them into the child `:websocket/socket` actor. **Every reconnect re-reads `:data` at the new `:active` entry**, so a rotated credential (via `[:ws/connection [:ws/rotate-cred new-cred-ref]]`, carrying only the new reference) automatically flows into the next socket without re-dispatching `:ws/connect`. A full re-target (different URL) is a fresh `:ws/connect` that records the new opts and forces an `:active` re-entry.
+`:record-and-reset` persists URL + reference into `:data` (and zeroes the retry counter, so every manual connect starts with a full budget); the `:active` state's `:spawn` `:data` fn reads them out at spawn time and threads them into the child `:websocket/socket` actor. **Every reconnect re-reads `:data` at the new `:active` entry**, so a rotated credential (via `[:ws/connection [:ws/rotate-cred new-cred-ref]]`, carrying only the new reference) automatically flows into the next socket without re-dispatching `:ws/connect`. A full re-target (different URL) is a fresh `:ws/connect` that records the new opts and forces an `:active` re-entry.
 
 For the canonical menu of mechanisms — event payload (used here for the caller-supplied URL and opaque `:cred-ref`), spawn-spec `:data` fn (used between this machine and the child socket actor), and boot-time host config (when the URL is fixed by build-time config and threaded in by the boot machine) — see [Pattern-AsyncEffect §Parameter passing across the boundary](Pattern-AsyncEffect.md#parameter-passing-across-the-boundary).
 

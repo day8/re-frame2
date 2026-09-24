@@ -268,20 +268,16 @@
              (schema/valid-inbound-frame? body)))}
 
      :actions
-     {:record-connection-opts
-      ;; Caller passes the URL and an OPAQUE credential reference on
-      ;; `:ws/connect` — never the bearer itself (see `:data` above).
-      (fn action-record-connection-opts [{data :data [_ {:keys [url cred-ref]}] :event}]
-        {:data (-> data
-                   (assoc :url url)
-                   (assoc :cred-ref cred-ref)
-                   (assoc :error nil))})
-
-      :record-and-reset
-      ;; Record fresh connection opts and zero the retry counter in one go.
-      ;; This runs on a *manual* `:ws/connect` out of `:reconnecting` or
-      ;; `:failed` — the user is asking for a clean slate, so we give them
-      ;; one and forget the failed attempts.
+     {:record-and-reset
+      ;; Every manual `:ws/connect` runs this, out of `:disconnected` as
+      ;; much as `:reconnecting` or `:failed`. The caller passes the URL and
+      ;; an OPAQUE credential reference — never the bearer itself (see
+      ;; `:data` above). A manual connect is the user asking for a clean
+      ;; slate, so we zero the retry counter too and the new connection gets
+      ;; a full budget. Out of `:disconnected` that is not a formality: a
+      ;; clean `:ws/disconnect` taken mid-reconnect, from
+      ;; `[:active :connecting]`, leaves the counter where the failed opens
+      ;; left it.
       (fn action-record-and-reset [{data :data [_ {:keys [url cred-ref]}] :event}]
         {:data (-> data
                    (assoc :url url)
@@ -587,7 +583,7 @@
      :states
      {:disconnected
       {:on {:ws/connect {:target :active
-                         :action :record-connection-opts}
+                         :action :record-and-reset}
             :ws/send    {:action :enqueue-message}
             :ws/request {:action :enqueue-message}
             :ws/subscribe {:action :record-subscription}}}
