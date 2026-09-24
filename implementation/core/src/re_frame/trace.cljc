@@ -9,7 +9,7 @@
   `re-frame.interop/debug-enabled?` — see `emit!` below. See Spec 009
   §Core fields, §Dispatch correlation, and §Handler-scope.
 
-  Topology (rf2-qwm0a + rf2-ic1sv): this ns carries the always-loaded
+  Topology: this ns carries the always-loaded
   hot fast path — `emit!` / `emit-error!` / `*handler-scope*` and the
   bracket macros. The public-tooling surface (`register-listener!` /
   `unregister-listener!` / `clear-listeners!` / `trace-buffer` /
@@ -18,12 +18,10 @@
   `re-frame.trace.tooling`, which is loaded only when a test fixture,
   tool, or dev preload requires it.
 
-  This ns publishes NO listener/buffer surface of its own (rf2-kuky.52).
-  The rf2-ic1sv pick-c aliases that once re-exported the six tooling
-  names from here were deleted once the stream-parameterized facade verb
-  superseded them (rf2-9flalp): applications call
-  `rf/register-listener! :trace …` / `rf/unregister-listener! :trace …`
-  / `rf/trace-buffer` / `rf/clear-trace-buffer!` /
+  This ns publishes NO listener/buffer surface of its own and re-exports
+  none of the six tooling names: applications call the
+  stream-parameterized facade verbs `rf/register-listener! :trace …` /
+  `rf/unregister-listener! :trace …` / `rf/trace-buffer` / `rf/clear-trace-buffer!` /
   `(rf/configure! {:trace-buffer …})`, and fixtures and tools that need
   the registry directly reach `re-frame.trace.tooling/<name>`.
 
@@ -34,7 +32,7 @@
   bundles.
 
   `deliver!` reaches the tooling fan-out through the single
-  `:trace.tooling/deliver!` late-bind hook (mirroring the existing
+  `:trace.tooling/deliver!` late-bind hook (mirroring the
   `:epoch/capture-event` shape)."
   (:require [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -68,7 +66,7 @@
 (def ^:dynamic ^:private *continuation-predicate* nil)
 (def ^:dynamic ^:private *epoch-capture-enabled?* true)
 (def ^:dynamic ^:private *frame-policy-enabled?* true)
-;; Retentionless structural delivery (rf2-vxgfnd.244). When false, an emitted
+;; Retentionless structural delivery. When false, an emitted
 ;; event still streams live to every registered trace listener but is NOT
 ;; pushed onto any per-frame trace ring. `call-with-structural-delivery` binds
 ;; it false so an obsolete incarnation A's terminal facts — which carry A's
@@ -79,7 +77,8 @@
 (defn ^:no-doc call-with-continuation-predicate
   "Run `f` with an internal exact-owner predicate guarding the distinct
   callback stages of trace projection, epoch capture, and tooling delivery.
-  nil/ordinary callers retain the historical always-continue behaviour."
+  A nil `continue?` adds no constraint, and outside any predicate every
+  stage continues."
   [continue? f]
   (let [parent *continuation-predicate*
         combined #(and (or (nil? parent) (parent))
@@ -114,8 +113,8 @@
 
   `deliver!` hands this snapshot to the PUBLIC trace-listener fan-out as the
   before/after `continue?` check, then rebinds `*continuation-predicate*` to
-  the neutral scope for the listener bodies themselves. That split is the whole
-  of rf2-eaxnai: a listener's nested authored work (dispatch / destroy /
+  the neutral scope for the listener bodies themselves. That split is the
+  point: a listener's nested authored work (dispatch / destroy /
   create — e.g. a same-id successor's `:initial-events` seed) runs under the
   ordinary always-continue authority, while the delivery loop's own checks
   still consult the caller's exact incarnation predicate so destroying the
@@ -132,19 +131,19 @@
 (defn- call-with-ordinary-delivery-scope
   "Run `f` under the ordinary delivery defaults the public trace-listener
   fan-out is entitled to — the same four axes `deliver!` restores around an
-  inline fan-out (rf2-vf2qke + rf2-eaxnai): epoch capture, frame-no-emit policy
+  inline fan-out: epoch capture, frame-no-emit policy
   and ring retention back to their defaults, and the exact-owner continuation
   neutralised.
 
   `deliver!` gets this for free because an inline fan-out runs inside its
-  `binding`. A DEFERRED fan-out (rf2-wxy1c) runs later, at the post-drain
+  `binding`. A DEFERRED fan-out runs later, at the post-drain
   boundary, long after `deliver!` returned — so without re-establishing the
   scope here a listener body would inherit whatever authority the DRAIN was
-  running under. That is precisely the rf2-eaxnai defect: a listener whose
-  nested authored work (dispatch / destroy / create) consults a fence that
-  belongs to the drain's own event tail gets silently dropped.
+  running under, and a listener whose nested authored work (dispatch /
+  destroy / create) consults a fence belonging to the drain's own event tail
+  would be silently dropped.
 
-  Cross-platform (rf2-uoy6m): CLJS defers drain-owned delivery too, so its flush
+  Cross-platform: CLJS defers drain-owned delivery too, so its flush
   runs after `deliver!` returned and needs the same scope re-established. The
   four dynamic vars exist on both hosts; in a production CLJS bundle this fn is
   referenced only from the DCE-eliminated `debug-enabled?` branch of
@@ -157,7 +156,7 @@
     (f)))
 
 (defn ^:no-doc call-with-deferred-listener-delivery
-  "Run `f` as one post-drain trace-listener delivery region — the rf2-wxy1c seam.
+  "Run `f` as one post-drain trace-listener delivery region.
   Trace events emitted inside it while the framework owns a frame's `:drain-lock`
   are appended rather than fanned out, and delivered on the way out, serialized
   process-wide, before the enclosing dispatch / drain call returns.
@@ -170,7 +169,7 @@
   `re-frame.trace.tooling/call-with-deferred-fanout` for the mechanism and the
   invariants that placement carries.
 
-  Cross-platform behaviour, host-specific WIRING (rf2-uoy6m). The contract is
+  Cross-platform behaviour, host-specific WIRING. The contract is
   uniform: a drain-owned emit is delivered post-drain — settled state only, no
   intra-drain observation or influence — on JVM and CLJS alike. What differs is
   how this fn reaches the tooling wrapper, and only because CLJS has `:advanced`
@@ -205,7 +204,7 @@
   Used when an obsolete incarnation must report a lifecycle fact after its
   registry slot may already belong to a same-id successor. The successor's
   frame-no-emit policy cannot suppress the predecessor's required fact, its
-  epoch capture cannot buffer it, and — per rf2-vxgfnd.244 — no per-frame ring
+  epoch capture cannot buffer it, and no per-frame ring
   (the successor's included, since predecessor and successor share the bare
   frame id) may retain it. The fact still streams live to every registered
   trace listener exactly once. This is the whole of `retentionless structural
@@ -246,9 +245,9 @@
   slot is fed by the router's classified sensitive-path overlap
   calculation (`:rf/sensitive?` on the scope-meta map) — the per-frame
   sensitive-declarations registry written by the EP-0025 commit-plane
-  classification effects, not a schema-attached slot prop and not a
-  frame annotation (both removed); the handler-meta `:sensitive?`
-  annotation is likewise gone. Per Spec 009 §Handler-scope."
+  classification effects. There is no schema-attached slot prop, frame
+  annotation or handler-meta `:sensitive?` annotation feeding it. Per
+  Spec 009 §Handler-scope."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil
@@ -266,12 +265,12 @@
   assoc-ed over a nil: that writes no information but still copies the
   whole record, and in a production build BOTH parent slots are always
   nil (the router mints `:dispatch-id` and reads the macro-stamped
-  `:call-site` only under `rf.interop/debug-enabled?`). So the one-question
-  form copied the record twice on entry to every handler — every event,
+  `:call-site` only under `rf.interop/debug-enabled?`). So a one-question
+  form would copy the record twice on entry to every handler — every event,
   every fx, every cofx, every view render, every subscription recompute
   — to change nothing. A record's declared fields exist whether or not
   they are assoc-ed, so the two spellings are indistinguishable to
-  every reader of a scope (rf2-zxv06)."
+  every reader of a scope."
   [new-scope parent]
   (if (nil? parent)
     new-scope
@@ -331,26 +330,25 @@
 
 ;; ---- trace-disabled (tool / inspector) frames ----------------------------
 ;;
-;; Per rf2-2qaqh: an inspector tool (Xray, Story, re-frame2-pair) renders
+;; An inspector tool (Xray, Story, re-frame2-pair) renders
 ;; its OWN UI inside a dedicated frame (`:rf/xray`). That UI's reactive
 ;; substrate emits `:sub/run` + `:view/render` trace events on every panel
-;; render — and because the shared ring buffer is process-global, the
-;; tool's self-instrumentation evicts every APPLICATION event from the
-;; ring (observed: 200/200 events were `:rf/xray`; zero app events). The
-;; inspector must not flood the buffer it inspects.
+;; render — and because the shared ring buffer is process-global, unchecked
+;; tool self-instrumentation would evict every APPLICATION event from the
+;; ring. The inspector must not flood the buffer it inspects.
 ;;
-;; The fix is a frame-level emission gate, the frame-scoped sibling of the
+;; The guard is a frame-level emission gate, the frame-scoped sibling of the
 ;; handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission opt-out):
 ;; a frame registered with `:rf.trace/frame-no-emit? true` is recorded
 ;; here, and `emit!` / `emit-error!` short-circuit (no envelope alloc, no
 ;; delivery) for any event tagged with that frame. Xray marks `:rf/xray`
-;; trace-disabled at frame registration (`mount/ensure-xray-frame!`), so
+;; trace-disabled when it seats that frame (`mount/ensure-xray-frame!`), so
 ;; tool frames produce no trace at all while application frames are
 ;; unaffected.
 ;;
-;; Mechanism (not a hardcoded `:rf/xray` literal): `frame.cljc`'s
-;; the frame engine reads the config flag and calls `set-frame-no-emit!` —
-;; trace.cljc owns the canonical set + predicate so the gate is single-
+;; Mechanism (not a hardcoded `:rf/xray` literal): the frame engine in
+;; `frame.cljc` reads the config flag and calls `set-frame-no-emit!`, and a
+;; tool that seats its own frame calls it directly — trace.cljc owns the canonical set + predicate so the gate is single-
 ;; sourced. The set is held under a defonce atom so a hot `:after-load`
 ;; cycle never wipes prior registrations; the empty-set common case (no
 ;; tool frame mounted) short-circuits on `(seq …)` before any membership
@@ -360,7 +358,8 @@
 (defonce ^:private trace-disabled-frames
   ;; Set of frame-ids whose trace emission is suppressed. Populated by
   ;; `frame.cljc`'s engine from the `:rf.trace/frame-no-emit?`
-  ;; config flag (and cleared on re-registration when the flag drops).
+  ;; config flag (and cleared on re-registration when the flag drops),
+  ;; or directly through `set-frame-no-emit!`.
   (atom #{}))
 
 (defn set-frame-no-emit!
@@ -368,12 +367,12 @@
   the frame is added to the trace-disabled set; otherwise it is removed.
   `emit!` / `emit-error!` short-circuit for any event whose `:frame` tag
   is in the set. Idempotent. Per Spec 009 §Trace-emission opt-out
-  (frame-level) and rf2-2qaqh.
+  (frame-level).
 
   The three-argument engine arity performs the liveness predicate INSIDE the
   atom update. The frame engine serializes auxiliary publication and supplies
   the committed config's owner predicate, so a superseded config is rejected
-  before this store changes. The two-argument arity remains the direct
+  before this store changes. The two-argument arity is the direct
   teardown/test primitive."
   ([frame-id no-emit?]
    (set-frame-no-emit! frame-id no-emit? (constantly true)))
@@ -405,7 +404,7 @@
   counterpart to `set-frame-no-emit!` — routed into `destroy-frame!`
   alongside the per-frame trace-ring release so a destroyed tool /
   inspector frame (e.g. `:rf/xray`) does not leave a permanent entry in
-  this process-global atom (rf2-zcl055). `clear-frame-no-emit!` resets
+  this process-global atom. `clear-frame-no-emit!` resets
   the WHOLE set; this removes one id. Idempotent — a no-op when the id is
   absent (the common application-frame case). Equivalent to
   `(set-frame-no-emit! frame-id false)`; named for symmetry with the
@@ -425,10 +424,10 @@
   asymmetry is documented rather than papered over:
 
     - `tagged-frame-trace-disabled?` (the pre-build frame-policy gate)
-      consults it for EVERY emit, correlated or not. That breadth is
-      rf2-yl4c0s: an un-tagged emit under a disabled inspector frame
-      escaped suppression, and the inspector's own reactivity leaked
-      into the ring it inspects. Suppression is about where an emit
+      consults it for EVERY emit, correlated or not. That breadth
+      matters: without it an un-tagged emit under a disabled inspector
+      frame would escape suppression, and the inspector's own reactivity
+      would leak into the ring it inspects. Suppression is about where an emit
       came FROM, which is a question the ambient scope answers even
       outside a run.
     - `stamp-frame` (the envelope's own tag) consults it only for
@@ -452,9 +451,9 @@
   only to emits inside a run — see that fn and `ambient-frame-id` for
   why suppression and identity answer different questions.
 
-  The ambient tier is load-bearing (rf2-yl4c0s): without it an
-  un-tagged emit under a disabled tool frame ESCAPED suppression, and
-  the inspector's own reactivity leaked into the ring it inspects. The
+  The ambient tier is load-bearing: without it an un-tagged emit under
+  a disabled tool frame would ESCAPE suppression, and the inspector's
+  own reactivity would leak into the ring it inspects. The
   empty-set common case (no tool frame mounted) short-circuits before
   ANY frame resolution — including the late-bind hook lookup — so the
   hot emit path pays a single nil-check when no inspector is running."
@@ -463,9 +462,9 @@
     (and (seq disabled)
          (contains? disabled (or (:frame tags) (ambient-frame-id))))))
 
-;; ---- canonical frame reader (rf2-7737vq Stage A) --------------------------
+;; ---- canonical frame reader -----------------------------------------------
 ;;
-;; Mike's ruling: a RAW trace event carries frame identity ONLY at
+;; A RAW trace event carries frame identity ONLY at
 ;; `[:tags :frame]` — there is no public top-level `:frame` on the raw
 ;; trace-event shape (the producer stamps it under `:tags`; see `build-
 ;; event` and the router/cofx emit sites). Derived / projection records
@@ -477,8 +476,7 @@
 ;; story-mcp, machines-viz, re-frame2-pair) read a raw trace event's
 ;; frame through this accessor rather than reaching into `[:tags :frame]`
 ;; (or a dual `(or (get-in ev [:tags :frame]) (:frame ev))` read) at each
-;; call site. Pre-alpha posture: one shape, one reader, no compatibility
-;; ambiguity. Per Spec 009 §Core fields (`:frame` rides under `:tags`)
+;; call site. One shape, one reader. Per Spec 009 §Core fields (`:frame` rides under `:tags`)
 ;; and Tool-Pair §Identity spellings.
 
 (defn trace-event-frame
@@ -498,7 +496,7 @@
 
   Tool consumers MUST read a raw trace event's frame through this
   accessor rather than hardcoding the `[:tags :frame]` path. Per
-  rf2-7737vq and Tool-Pair §Identity spellings (`:frame` is the single
+  Tool-Pair §Identity spellings (`:frame` is the single
   bare carve-out tag on the raw layer)."
   [trace-event]
   (get-in trace-event [:tags :frame]))
@@ -510,7 +508,7 @@
   frame reader. See `trace-event-frame`."}
   frame-of trace-event-frame)
 
-;; ---- why frame gets a reader but sub-id does not (rf2-9x8q1c) -------------
+;; ---- why frame gets a reader but sub-id does not --------------------------
 ;; Subscription identity ALSO has two spellings — a raw trace event tags it
 ;; `:rf.sub/id` (under `[:tags …]`, the same raw layer `:frame` rides), while
 ;; a DERIVED `:sub-runs` projection row keys it `:sub-id` at top level — so by
@@ -539,7 +537,7 @@
   NOT wipe the internal capture path. Per Tool-Pair §Time-travel and
   Spec 009 §`register-epoch-listener!`."
   [event]
-  ;; Sticky hook (rf2-f72pd) — `:epoch/capture-event` is published once
+  ;; Sticky hook — `:epoch/capture-event` is published once
   ;; at re-frame.epoch load and never withdrawn; this fires on every
   ;; trace emit during a cascade.
   (when-let [capture (rf.late-bind/get-fn-cached :epoch/capture-event)]
@@ -587,7 +585,7 @@
   1. THE EMIT SITE DIDN'T ALREADY SUPPLY ONE. `:frame` under `tags` is
      authoritative wherever the site stamps it: a `:rf.frame/created`
      for a dynamically constructed frame B is tagged `{:frame B}` while
-     the ambient frame is still A (rf2-7eel71). This fn only supplies
+     the ambient frame is still A. This fn only supplies
      the tag; it never overrides one.
 
   2. THE EMIT IS CORRELATED TO A RUN — its tags carry a
@@ -598,33 +596,26 @@
      is. A `reg-machine` cofx lint warning, a direct 4-arity
      `validate-fx!` call, an Xray preload's synthetic boot emit: all
      fire with no run in scope and MUST stay frameless — they belong to
-     no frame's ring, no frame's epoch, and no frame's history. An
-     earlier revision of this fix omitted this condition and stamped
-     the ambient frame on them, which reddened four suites (machines
-     x3, schemas x1, ui x1, the Xray frameless-secondary-ring CLJS
-     arms) — every one of them asserting exactly this clause.
+     no frame's ring, no frame's epoch, and no frame's history.
 
-  rf2-hbmeb is what the missing stamp cost inside a run. The whole
-  `:rf.resource/*` / `:rf.mutation/*` family stamps its frame as the
+  Inside a run the stamp is load-bearing. The `:rf.resource/*` /
+  `:rf.mutation/*` family's lifecycle rows carry their frame as the
   family EVIDENCE key `:rf.frame/id` (the qualified carried-frame
   spelling of Spec 016 / EP-0002, alongside `:resource/key` and
-  `:generation`) and never stamped the routing tag, so
-  `trace-event-frame` returned nil for every row in the family.
-  `re-frame.epoch.capture/capture-event!` buffers only
-  frame-resolvable events, so a real `ensure` / `release-owner`
-  cascade put 7 family rows on the bus and 0 into the 3 epoch records
-  it settled — the resource lifecycle was absent from every epoch
-  record a tool could read, and the epoch-side resource egress
-  projector had never run over a real record. Every one of those 7
-  rows carries a dispatch-id, so condition 2 admits them.
+  `:generation`), not as the routing tag. Without this stamp
+  `trace-event-frame` would return nil for every row in the family,
+  and because `re-frame.epoch.capture/capture-event!` buffers only
+  frame-resolvable events, an `ensure` / `release-owner` cascade's
+  resource lifecycle would be absent from every epoch record a tool
+  can read. Those rows carry a dispatch-id, so condition 2 admits them.
 
   Stamping HERE rather than at ~100 family emit sites is the point:
   the fact is supplied once, in the producer every reader already goes
-  through, so no future emit site inside a run can forget it. It also
-  lets `trace.tooling/push-to-ring!`'s duplicated ambient-frame
-  fallback collapse onto the single canonical `[:tags :frame]` read —
-  behaviour-preserving under condition 2, because that fn discards any
-  event with no dispatch-id before it ever consults a frame."
+  through, so no emit site inside a run can forget it. It also means
+  `trace.tooling/push-to-ring!` reads only the single canonical
+  `[:tags :frame]` path, with no ambient-frame fallback of its own —
+  sound under condition 2, because that fn discards any event with no
+  dispatch-id before it ever consults a frame."
   [tags]
   (if (or (contains? tags :frame)
           (nil? (:rf.trace/dispatch-id tags)))
@@ -641,14 +632,14 @@
   `:rf.frame`: `:rf.frame/created` / `:rf.frame/re-registered` /
   `:rf.frame/destroyed` / `:rf.frame/drain-interrupted`) stay UNCORRELATED.
 
-  The load-bearing case (rf2-7eel71): when a frame construction runs inside frame A's
+  The load-bearing case: when a frame construction runs inside frame A's
   handler / fx scope — e.g. an fx that dynamically creates a modal / panel
   frame B — its `:rf.frame/created` emit is tagged `{:frame B}` but the
   scope carries A's cascade dispatch-id. Stamping A's id onto B's marker
-  makes the epoch capture seam bypass its orphan-drop arm (the marker's id
-  is non-nil) and buffer it into B; B never runs an event carrying A's id,
-  so the marker strands in B's buffer for the frame's whole lifetime and is
-  swept into any later halt record. Leaving frame-lifecycle emits
+  would make the epoch capture seam bypass its orphan-drop arm (the marker's
+  id is non-nil) and buffer it into B; B never runs an event carrying A's id,
+  so the marker would strand in B's buffer for the frame's whole lifetime and
+  be swept into any later halt record. Leaving frame-lifecycle emits
   uncorrelated (nil dispatch-id) is precisely what lets that orphan-drop arm
   keep the cross-frame marker out of the sibling frame's harvested record.
   `:rf.frame/destroyed` / `:rf.frame/drain-interrupted` already self-heal,
@@ -662,13 +653,11 @@
   hoist contract (`:source` / `:recovery` / `:rf.trace/trigger-handler`
   / `:rf.trace/call-site` / `:sensitive?`).
 
-  Per rf2-twt7m Change 1: `:rf.trace/call-site` rides BOTH error and
-  success-path emits when the in-scope cascade was kicked off by a
-  call-site-capturing macro (`rf/dispatch` / `rf/dispatch-sync` /
-  `rf/subscribe`). Previously gated to errors
-  only; widened so consumers (Event lens, Xray, Story) can render
-  jump-to-source links from every event in a cascade, not just
-  errors."
+  `:rf.trace/call-site` rides BOTH error and success-path emits when
+  the in-scope cascade was kicked off by a call-site-capturing macro
+  (`rf/dispatch` / `rf/dispatch-sync` / `rf/subscribe`), so consumers
+  (Event lens, Xray, Story) can render jump-to-source links from every
+  event in a cascade, not just errors."
   [op-type operation tags]
   (let [scope       *handler-scope*
         trigger     (some-> scope :trigger-handler)
@@ -694,11 +683,11 @@
         ;; inherit the in-scope cascade's dispatch-id, so the epoch capture
         ;; seam's orphan-drop arm keeps a cross-frame `:rf.frame/created` /
         ;; `:rf.frame/re-registered` marker out of a SIBLING frame's harvested
-        ;; record (rf2-7eel71). See `uncorrelated-op-types`.
+        ;; record. See `uncorrelated-op-types`.
         ;; ORDER IS LOAD-BEARING: `stamp-frame` reads the dispatch-id off
         ;; the tags `stamp-dispatch-id` just produced, because "is this
         ;; emit inside a run?" is exactly the condition on which it
-        ;; supplies the canonical `[:tags :frame]` routing tag (rf2-hbmeb).
+        ;; supplies the canonical `[:tags :frame]` routing tag.
         ;; A structural `:rf.frame` emit is therefore never ambient-stamped
         ;; — it is exempt from the dispatch-id, so it reads as uncorrelated
         ;; here — which is right: those sites tag their own frame
@@ -718,7 +707,7 @@
       (or error? recovery) (assoc :recovery recovery)
       trigger              (assoc :rf.trace/trigger-handler trigger)
       ;; `:rf.trace/call-site` rides BOTH error and success-path
-      ;; emits (rf2-twt7m Change 1). Hoisted from the in-scope
+      ;; emits. Hoisted from the in-scope
       ;; cascade's call-site (envelope's macro-stamped coord or a
       ;; `with-call-site` wrapper around a surface-macro body).
       call-site            (assoc :rf.trace/call-site call-site)
@@ -732,11 +721,11 @@
   `:trace.tooling/deliver!` hook published by `re-frame.trace.tooling`.
   The tooling hook is unregistered in production (the tooling sibling
   ns is not loaded) — the lookup returns nil and the fan-out is
-  skipped. Per Spec 009 §Listener invocation rules and rf2-qwm0a.
+  skipped. Per Spec 009 §Listener invocation rules.
 
   Structural-delivery scope is a property of the CURRENT outer envelope,
-  NOT ambient authority for the external callbacks it fans out to
-  (rf2-vf2qke). By the time the public tooling listener fan-out runs, every
+  NOT ambient authority for the external callbacks it fans out to.
+  By the time the public tooling listener fan-out runs, every
   structural decision has already been consumed against THIS envelope:
   epoch capture was gated above, frame-no-emit was gated in `emit!` /
   `emit-error!`, and the outer ring-retention decision is captured here into
@@ -746,20 +735,20 @@
   legitimate nested work into a same-id successor B or an unrelated frame C
   must run that work under NORMAL scope — normal epoch capture, its own
   frame-no-emit policy, normal per-frame ring retention, AND the neutral
-  continuation scope (rf2-eaxnai) — rather than inheriting A's
+  continuation scope — rather than inheriting A's
   retentionless/no-capture/no-policy/exact-owner scope. A listener that
   explicitly re-requests structural semantics via
   `call-with-structural-delivery` re-binds the flags false and is honoured.
 
   The exact-owner continuation is the fourth axis restored to ordinary defaults
-  here (rf2-eaxnai): the outer envelope may be fenced to A's exact incarnation
+  here: the outer envelope may be fenced to A's exact incarnation
   (`call-with-continuation-predicate`), but that fence exists to suppress
   A's own remaining framework-owned trace stages after A is lost — it must NOT
-  leak into a public listener's nested authored work. Before this fix a listener
-  that destroyed A and created same-id B with `:initial-events` had B's seed
-  `dispatch-sync!` consult `continuation-live?`, inherit A's now-false predicate,
-  and get silently dropped at `build-envelope` — leaving B live with `{}` and no
-  recovery (make-frame's reuse/no-reseed law). The neutral rebinding frees the
+  leak into a public listener's nested authored work. Otherwise a listener
+  that destroys A and creates same-id B with `:initial-events` would have B's
+  seed `dispatch-sync!` consult `continuation-live?`, inherit A's now-false
+  predicate, and be silently dropped at `build-envelope` — leaving B live with
+  `{}` and no recovery (make-frame's reuse/no-reseed law). The neutral rebinding frees the
   listener body; the `outer-continue?` snapshot below preserves the loop's exact
   before/after suppression of A's remaining fan-out."
   [event]
@@ -775,8 +764,8 @@
       ;; `retain?` from the argument, not the dynamic var — so restoring the
       ;; flags to their ordinary defaults around the whole call leaves the outer
       ;; ring push governed by the captured structural decision while any
-      ;; listener-triggered nested emit runs under normal scope (rf2-vf2qke).
-      ;; `outer-continue?` (rf2-eaxnai) is the same idea for the exact-owner
+      ;; listener-triggered nested emit runs under normal scope.
+      ;; `outer-continue?` is the same idea for the exact-owner
       ;; continuation: the loop's before/after `continue?` checks consult this
       ;; snapshot (retaining A's predicate so A destruction suppresses A's
       ;; remaining listeners), while `*continuation-predicate*` is neutralised in
@@ -798,7 +787,7 @@
   the envelope's TOP LEVEL (and strip it from `:tags`), mirroring the
   `build-event` posture.
 
-  Why this is load-bearing (rf2-md2wn0 — privacy correctness): some
+  Why this is load-bearing (privacy correctness): some
   projection clauses decide sensitivity DURING the classification
   projection rather than at emit time, and stamp `[:tags :sensitive?]`
   there — e.g.
@@ -812,12 +801,12 @@
   The MCP egress gate (`re-frame.mcp-base.sensitive/sensitive-event?`)
   reads the TOP-LEVEL `:sensitive?` only (Spec 009 §Privacy — the
   `:rf/trace-event` schema types `:sensitive?` at the root). Without
-  this hoist a projection-classified-sensitive event egresses as
-  non-sensitive: `strip-sensitive` does NOT drop it when the boot gate
-  is OFF (include? false), the fail-closed whole-event drop never
-  fires, and per-slot redaction is the only line of defence. This hoist
-  restores the defence-in-depth contract uniformly for EVERY projection
-  clause that stamps `[:tags :sensitive?]` — present and future.
+  this hoist a projection-classified-sensitive event would egress as
+  non-sensitive: `strip-sensitive` would NOT drop it when the boot gate
+  is OFF (include? false), the fail-closed whole-event drop would never
+  fire, and per-slot redaction would be the only line of defence. This
+  hoist keeps the defence-in-depth contract uniform for EVERY projection
+  clause that stamps `[:tags :sensitive?]`.
 
   Caller-supplied / scope-derived sensitivity already hoisted by
   `build-event` is untouched: that path strips `:sensitive?` from
@@ -845,10 +834,10 @@
 
   After projection, `hoist-projected-sensitive` lifts any
   projection-stamped `[:tags :sensitive?]` to the top level
-  (rf2-md2wn0) so the MCP egress gate — which reads the top-level flag
+  so the MCP egress gate — which reads the top-level flag
   — fails closed on projection-classified-sensitive events."
   [event]
-  ;; Sticky hook (rf2-f72pd) — `:classification/project-trace-event` is
+  ;; Sticky hook — `:classification/project-trace-event` is
   ;; published once at re-frame.classification load and never withdrawn.
   (if-let [project (rf.late-bind/get-fn-cached :classification/project-trace-event)]
     (hoist-projected-sensitive (project event))
@@ -880,7 +869,7 @@
     ;; `rf.interop/debug-enabled?` gate per Spec 009 §Production builds
     ;; (the outer gate must stand alone for Closure DCE — see
     ;; §Production-elision verification). The frame-level gate
-    ;; (rf2-2qaqh) is its sibling: an event tagged with a trace-
+    ;; is its sibling: an event tagged with a trace-
     ;; disabled (tool / inspector) frame is suppressed before any
     ;; envelope is built — the inspector's own reactivity must not
     ;; flood the buffer it inspects.
@@ -915,7 +904,7 @@
   (when rf.interop/debug-enabled?
     ;; `:no-emit?` short-circuit sits *inside* the outer
     ;; `rf.interop/debug-enabled?` gate per Spec 009 §Production builds.
-    ;; The frame-level gate (rf2-2qaqh) suppresses errors emitted from
+    ;; The frame-level gate suppresses errors emitted from
     ;; a trace-disabled (tool / inspector) frame too — symmetric with
     ;; `emit!`.
     (when-not (or (true? (some-> *handler-scope* :no-emit?))
