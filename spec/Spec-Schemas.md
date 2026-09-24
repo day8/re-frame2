@@ -2669,7 +2669,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    TransitionTarget                                                         ;; target shorthand — keyword OR vector path; see TransitionTarget below
    [:map
     [:target  {:optional true} TransitionTarget]                            ;; one of: keyword (relative to declaring state), [:vector :keyword] (absolute path from root), or :same-state (self-target); omit for a TARGETLESS internal no-op (descendants preserved)
-    [:reenter? {:optional true} :boolean]                                   ;; XState-v5 `reenter`. Without `:reenter?`: a self/ancestor/current-compound target does NOT re-enter the target itself but RE-RESOLVES its descendants (active children exit, target's :initial re-descends — NOT a no-op; only a TARGETLESS transition preserves descendants); a descendant target named by the declaring compound re-enters that targeted child. `:reenter? true`: a self/ancestor target is EXTERNAL (re-run :exit then :entry; restart :after; tear-down + respawn :spawn/:spawn-all); a descendant target declared on compound S restarts S then lands on the NAMED descendant (not S's :initial). No-op for a disjoint-subtree target (the LCCA already lies above both — a child-declared sibling transition does NOT re-enter the parent even with :reenter?). Absent => false.
+    [:reenter? {:optional true} :boolean]                                   ;; XState-v5 `reenter`. Without `:reenter?`: a self/current-compound target (the declaring state itself) does NOT re-enter the target itself but RE-RESOLVES its descendants (active children exit, target's :initial re-descends — NOT a no-op; only a TARGETLESS transition preserves descendants); a descendant target named by the declaring compound re-enters that targeted child. `:reenter? true`: a self target is EXTERNAL (re-run :exit then :entry; restart :after; tear-down + respawn :spawn/:spawn-all); a descendant target declared on compound S restarts S then lands on the NAMED descendant (not S's :initial). No-op for a proper-ancestor target (the ancestor exits and re-enters regardless — the LCCA is its parent) and for a disjoint-subtree target (the LCCA already lies above both — a child-declared sibling transition does NOT re-enter the parent even with :reenter?). Absent => false.
     [:guard   {:optional true} GuardRef]                                    ;; one fn or one registered id
     [:action  {:optional true} ActionRef]                                   ;; one fn or one registered id (singular — no :actions vector)
     [:meta    {:optional true} :map]
@@ -2680,10 +2680,11 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;;   - keyword form  — relative to the state where the transition is DECLARED (sibling resolution)
 ;;   - vector form   — absolute path from the root
 ;; Plus the literal :same-state, which names the declaring state itself (a
-;; self-target). A self / proper-ancestor target does NOT re-enter the target
-;; itself by default but RE-RESOLVES its descendants (XState-v5 — only a
-;; TARGETLESS transition preserves descendants); pair it
-;; with :reenter? true for the external (exit + re-enter) self-transition.
+;; self-target). A self-target does NOT re-enter the target itself by default
+;; but RE-RESOLVES its descendants (XState-v5 — only a TARGETLESS transition
+;; preserves descendants); pair it with :reenter? true for the external
+;; (exit + re-enter) self-transition. A vector naming a proper ancestor of the
+;; declaring state exits and re-enters that ancestor, with or without :reenter?.
 (def TransitionTarget
   [:or :keyword [:vector :keyword]])
 
