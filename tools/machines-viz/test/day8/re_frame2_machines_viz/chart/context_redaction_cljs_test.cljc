@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.context-redaction-cljs-test
-  "EP-0015 local-redacted Context-band projection (rf2-27e38h).
+  "EP-0015 local-redacted Context-band projection.
 
   Pins the contract that a host feeding LIVE machine `:data` into the
   Context band cannot leak a schema-marked sensitive or large slot into
@@ -14,8 +14,8 @@
 ;; ---------------------------------------------------------------------------
 ;; derive-classification — reads the machine DEFINITION's own
 ;; projection-relative `:sensitive` / `:large` declaration (Spec 015
-;; §Subsystem projection-relative classification; Spec 005 — EP-0025
-;; reversed the EP-0005 `[:schemas :data]` bridge). rf2-3x7nj.33.3.
+;; §Subsystem projection-relative classification; Spec 005), never the
+;; `[:schemas :data]` props (EP-0025).
 
 (deftest derive-classification-reads-declared-data-paths
   (testing "each `[:data k …]` path names band key `k`"
@@ -39,7 +39,7 @@
   (and (map? v) (contains? v :rf.size/large-elided)))
 
 (deftest derive-classification-whole-data-path-keeps-whole-data-scope
-  (testing "rf2-k7i6y — a bare `[:data]` path classifies EVERY band key, including
+  (testing "a bare `[:data]` path classifies EVERY band key, including
             one the live :data first gains at runtime (the definition's initial
             :data is empty here, so an expansion over it would name nothing)"
     (let [cls  (r/derive-classification {:sensitive [[:data]] :data {}})
@@ -47,11 +47,11 @@
           out  (r/redact-context band cls)]
       (is (= :rf/redacted (:token out)) "a runtime-only key is redacted")
       (is (= :rf/redacted (:user out)) "…and so is every other key")))
-  (testing "rf2-k7i6y — the whole-snapshot path `[]` covers the whole :data too"
+  (testing "the whole-snapshot path `[]` covers the whole :data too"
     (is (= :rf/redacted
            (:token (r/redact-context {:token "secret-at-runtime"}
                                      (r/derive-classification {:sensitive [[]]}))))))
-  (testing "rf2-k7i6y — a whole-data `:large` elides every band key, runtime-only
+  (testing "a whole-data `:large` elides every band key, runtime-only
             ones included, with no content head"
     (let [payload "LARGE-RUNTIME-PAYLOAD-xyzzy"
           out     (r/redact-context {:blob payload}
@@ -139,16 +139,16 @@
     (is (nil? (r/redact-context {} {})))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-2rtt6.132 - TWO units, side by side, each honest about what it bounds.
+;; TWO units, side by side, each honest about what it bounds.
 ;;
-;; The marker's `:bytes` slot is the framework's wire vocabulary and now
+;; The marker's `:bytes` slot is the framework's wire vocabulary and
 ;; carries UTF-8 BYTES; the large heuristic's `large-char-cap` is what the
-;; band would PAINT and stays in CHARACTERS. Before this bead both were
-;; `(count (pr-str v))` - UTF-16 code units - so the published figure lied
-;; by up to 3x (4x on astral code points) while the cap was fine.
+;; band would PAINT and is in CHARACTERS. Measuring both as
+;; `(count (pr-str v))` - UTF-16 code units - would publish a figure up to
+;; 3x wrong (4x on astral code points) while leaving the cap right.
 ;;
 ;; ASCII is the fail-open condition: the two rulers agree there EXACTLY,
-;; so every ASCII fixture above measured the right number by accident.
+;; so no ASCII fixture above can tell them apart.
 ;; The fixture here is DISCRIMINATING - code units, code points and bytes
 ;; are three different numbers - and is asserted so BEFORE it is used.
 ;; Written as \uXXXX escapes so the source stays pure ASCII, and as a
@@ -185,28 +185,27 @@
 (deftest large-marker-bytes-counts-utf8-bytes-not-code-units
   (testing "a schema-marked large value publishes UTF-8 bytes"
     ;; `pr-str` wraps the string in two quote characters, so the printed
-    ;; form is 24 code units / 66 UTF-8 bytes. The old expression
-    ;; published 24; the slot means bytes, so it must publish 66.
+    ;; form is 24 code units / 66 UTF-8 bytes. Counting code units would
+    ;; publish 24; the slot means bytes, so it must publish 66.
     (let [body (-> (r/redact-value :blob utf8-discriminating-value {:large #{:blob}})
                    :rf.size/large-elided)]
       (is (= 66 (:bytes body)) "UTF-8 bytes of the pr-str form")
       (is (not= 24 (:bytes body)) "NOT the 24 UTF-16 code units of the same form")))
-  (testing "an ASCII value of the same code-unit length is unchanged by the correction"
+  (testing "an ASCII value of the same code-unit length measures the same under either ruler"
     (let [body (-> (r/redact-value :blob ascii-control-value {:large #{:blob}})
                    :rf.size/large-elided)]
-      (is (= 24 (:bytes body)) "both rulers agree on ASCII, so this number never moved"))))
+      (is (= 24 (:bytes body)) "both rulers agree on ASCII"))))
 
 (deftest large-char-cap-is-characters-and-did-not-move
-  ;; The correction is to the PUBLISHED figure only. Had the cap been
-  ;; converted too, this 400-character value (1,200 UTF-8 bytes) would
-  ;; have started eliding where it used to render inline - a live
-  ;; behaviour change on non-ASCII context. It does not.
+  ;; Only the PUBLISHED figure is in bytes. A byte cap would elide this
+  ;; 400-character value (1,200 UTF-8 bytes), which renders inline under
+  ;; the character cap.
   (let [four-hundred-dashes (apply str (repeat 400 "\u2014"))]
     (is (= 400 (count four-hundred-dashes)))
     (is (= 1200 (utf8-len four-hundred-dashes)) "well over the 512 cap in BYTES")
     (is (= four-hundred-dashes (r/redact-value :ctx four-hundred-dashes {}))
-        "under the 512-CHARACTER cap, so it still renders inline"))
-  (testing "the cap still fires on a genuinely long value"
+        "under the 512-CHARACTER cap, so it renders inline"))
+  (testing "the cap fires on a genuinely long value"
     (let [six-hundred (apply str (repeat 600 "x"))
           out         (r/redact-value :ctx six-hundred {})]
       (is (contains? out :rf.size/large-elided))
@@ -230,7 +229,7 @@
       (is (not (str/includes? s "xxxx")) "no content head"))))
 
 (deftest display-string-ordinary-is-pr-str
-  (testing "ordinary values still render via pr-str (unchanged behaviour)"
+  (testing "ordinary values render via pr-str"
     (is (= "3"      (r/display-string 3)))
     (is (= "[:a :b]" (r/display-string [:a :b])))))
 
