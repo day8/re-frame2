@@ -1,12 +1,10 @@
 (ns re-frame.views-synthetic-event-frame-dom-cljs-test
-  "Real-DOM proof for the Core Views guide's synthetic-event frame advice
-  (rf2-xzgs3j).
+  "Real-DOM proof for the Core Views guide's synthetic-event frame advice.
 
-  The `docs/core/views.md` §\"imperative listeners lose the frame\" section
-  previously claimed that Hiccup `:on-*` attrs are 'wrapped so a `dispatch`
-  inside them carries the frame', and marked a bare
-  `#(rf/dispatch [:tile/finished])` in an `:on-animation-end` prop as the
-  RIGHT pattern. That is FALSE of the shipped adapters. Neither the Reagent
+  Per `docs/core/views.md` §\"imperative listeners lose the frame\": Hiccup
+  `:on-*` attrs are NOT wrapped so that a `dispatch` inside them carries the
+  frame, and a bare `#(rf/dispatch [:tile/finished])` in an
+  `:on-animation-end` prop is the WRONG pattern. Neither the Reagent
   adapter (`re-frame.adapter.reagent`) nor reagent-slim wraps `:on-*`
   callbacks to re-establish a frame binding: the handler is a plain closure
   React invokes LATER, on a fresh JS stack, with no render in progress. At
@@ -31,7 +29,7 @@
   or an explicit `{:frame …}` on the dispatch.
 
   This suite fires a REAL synthetic click on a mounted `reg-view` and pins
-  both halves of the corrected advice:
+  both halves of the advice:
 
     1. bare `#(rf/dispatch [:evt])`     → raises :rf.error/no-frame-context
                                           and nothing lands.
@@ -39,7 +37,7 @@
                                           frame's app-db advances.
 
   Browser-only — a genuine synthetic event needs a real React root + real
-  DOM the Node runner can't fake. The `-dom-cljs-test$` suffix (rf2-2hrj8)
+  DOM the Node runner can't fake. The `-dom-cljs-test$` suffix
   opts this file into the `:browser-test` build; `:node-test` still loads it
   (matches `cljs-test$`) and the DOM branch self-gates on `(browser?)`,
   exiting early under :node-test where `js/document` is absent."
@@ -70,17 +68,17 @@
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
-;; ---- deferred-teardown await (rf2-7r78l) ----------------------------------
+;; ---- deferred-teardown await ----------------------------------
 ;;
-;; Same leak class + fix as #6502 (rf2-vp3m9). `proof-view` is a Reagent
+;; `proof-view` is a Reagent
 ;; `reg-view`, so its `:rf.view/unmounted` teardown marker rides the per-
 ;; component render-reaction DISPOSAL, which Reagent defers to a macrotask PAST
-;; the synchronous unmount commit. The finalizer's bare `(rdc/unmount root)`
-;; therefore let the marker fire AFTER `done`, leaking into the process-global
-;; trace listener the one `:browser-test` page shares across every
-;; `-dom-cljs-test` namespace. The finalizer now awaits that disposal so the
-;; marker fires WITHIN the test's window — the same local settle idiom #6502
-;; proved, NOT a new runtime and NOT a shared framework.
+;; the synchronous unmount commit. A bare `(rdc/unmount root)` in the finalizer
+;; would therefore let the marker fire AFTER `done`, leaking into the
+;; process-global trace listener the one `:browser-test` page shares across
+;; every `-dom-cljs-test` namespace. The finalizer awaits that disposal so the
+;; marker fires WITHIN the test's window — a local settle idiom, NOT a new
+;; runtime and NOT a shared framework.
 
 (defn- settle-macrotasks
   "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
@@ -100,7 +98,7 @@
   unmount commits synchronously), then await Reagent's deferred reaction
   disposal so the `:rf.view/unmounted` marker fires WITHIN the caller's window
   rather than leaking into the shared runner after the test ends. Returns a
-  Promise; settle-count 3 matches the proven #6502 idiom. A nil `root` (setup
+  Promise after three macrotask turns. A nil `root` (setup
   threw before create-root) is tolerated — the flushSync throw is swallowed and
   the settle still runs."
   [root]
@@ -120,7 +118,7 @@
 ;;                    It bypasses the injection and resolves the frame at
 ;;                    CLICK time, when there is none. Wrapped in try/catch to
 ;;                    capture the raised error id (mirrors the setTimeout
-;;                    regression in dispatch_frame_capture_cljs_test).
+;;                    case in dispatch_frame_capture_cljs_test).
 ;;   * `syn-captured` uses the injected `dispatch` — captured at render.
 (reg-view proof-view []
   (let [n @(subscribe [:syn/n])]
@@ -141,7 +139,7 @@
   (.querySelector mount-node (str "[data-testid='" testid "']")))
 
 (deftest synthetic-event-frame-advice-real-dom-proof
-  "rf2-xzgs3j — real synthetic click proves the corrected guide advice.
+  "real synthetic click proves the corrected guide advice.
 
    A `reg-view` mounted under a `frame-provider` carries two buttons. A real
    DOM click on the bare `#(rf/dispatch …)` button raises
@@ -158,7 +156,7 @@
             ;; render) throws before the happy path is reached.
             node-atom  (atom nil)
             root-atom  (atom nil)
-            ;; rf2-7r78l teeth: record proof-view's OWN :rf.view/unmounted marker,
+            ;; Record proof-view's OWN :rf.view/unmounted marker,
             ;; scoped by :rf.view/id, so the finalizer can assert it fired WITHIN
             ;; the awaited window rather than leaking past `done` into the shared
             ;; runner. `reg-view`'s macro id is `<ns>/<sym>` (core-reg-view-macro).
@@ -167,7 +165,7 @@
             ;; THE single guaranteed finalizer: idempotent, runs on EVERY path —
             ;; success, poll-until timeout, or a throw anywhere in setup/mount.
             ;; AWAITS proof-view's deferred reaction disposal (so its
-            ;; :rf.view/unmounted fires within the test window, rf2-7r78l), then
+            ;; :rf.view/unmounted fires within the test window), then
             ;; removes the DOM node, destroys the frame, asserts the teardown
             ;; marker landed, and completes the async test. No fixed sleeps.
             finalize!  (fn []
@@ -178,7 +176,7 @@
                                         (try (rf/destroy-frame! target) (catch :default _ nil))
                                         (rf.trace.tooling/unregister-listener! ::proof-view-unmounts)
                                         (is (= 1 (count @unmounts))
-                                            (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
+                                            (str "exactly one :rf.view/unmounted fired for "
                                                  "proof-view WITHIN the awaited window — teardown awaited, "
                                                  "not leaked into the shared runner; got " (count @unmounts)))
                                         (done))))))]
@@ -192,7 +190,7 @@
           (let [mount-node (.createElement js/document "div")]
             (reset! node-atom mount-node)
             (.appendChild (.-body js/document) mount-node)
-            (rf/make-frame {:id target :doc "rf2-xzgs3j synthetic-event proof frame"})
+            (rf/make-frame {:id target :doc "synthetic-event proof frame"})
             (rf/reg-event :syn/init (fn [{:keys [db]} _] {:db (assoc db :n 0)}))
             (rf/reg-event :syn/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
             (rf/reg-sub :syn/n (fn [db _] (:n db)))
@@ -238,7 +236,7 @@
                     ;; remainder of the run synchronously, so a rejection
                     ;; handler downstream of the step that finished the row
                     ;; claims whatever a LATER namespace throws and prints it
-                    ;; against this row's label (rf2-e8kc). The CAS inside
+                    ;; against this row's label. The CAS inside
                     ;; `finalize!` swallowed the second `done`; it could not
                     ;; swallow the misattributed failure.
                     (.catch (fn [e]
