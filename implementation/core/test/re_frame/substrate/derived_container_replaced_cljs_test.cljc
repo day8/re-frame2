@@ -1,6 +1,6 @@
 (ns re-frame.substrate.derived-container-replaced-cljs-test
   "Spec 006 §`make-derived-value` — `replace-container!` is NOT supported
-  on a derived container (rf2-8wrzz.3).
+  on a derived container.
 
   A derived container is a value computed from its source container(s)
   (the result of `make-derived-value`). It supports `read-container` but
@@ -21,9 +21,7 @@
   `:cljs` `(satisfies? ISwap …)` branch) AND the JVM cognitect runner
   (the `:clj` `(instance? clojure.lang.IAtom …)` branch).
 
-  Per bead rf2-8wrzz.3.
-
-  ## Posture split (rf2-d2841)
+  ## Posture split
 
   The choke point does two things on a derived container, and only one of them
   is instrumentation. The THROW — the canonical ex-info with its
@@ -35,8 +33,8 @@
 
   The `:rf.error/derived-container-replaced` TRACE is a bare `rf.trace/emit!`
   site with no always-on twin, so it is elided under
-  `-Dre-frame.debug=false`. Its assertions are kept verbatim inside a
-  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, with the throw
+  `-Dre-frame.debug=false`. Its assertions sit inside a
+  `(when rf.interop/debug-enabled? …)` arm, with the throw
   itself kept outside as the always-on witness — the trace and the throw come
   off the SAME detection, so proving the detection fired is what the
   production lane can still say."
@@ -111,7 +109,7 @@
             "the :recovery slot is :no-recovery")
         (is (string? (:reason (ex-data thrown)))
             "the :reason slot is a human-readable sentence")
-        ;; rf2-vvixub — the message is the human :reason sentence + the
+        ;; The message is the human :reason sentence + the
         ;; trailing [:rf.error/<id>] greppability token, NOT the bare
         ;; stringified keyword. Assert the token substring, not equality.
         (is (re-find #"\[:rf\.error/derived-container-replaced\]"
@@ -132,7 +130,7 @@
                            (catch #?(:clj Throwable :cljs :default) e
                              (reset! thrown e)))))
           ev      (first (filter #(= :rf.error/derived-container-replaced (:operation %)) errs))]
-      ;; ALWAYS-ON WITNESS (rf2-d2841): the trace and the throw come off ONE
+      ;; ALWAYS-ON WITNESS: the trace and the throw come off ONE
       ;; detection in the choke point. The throw survives the production gate,
       ;; so it is what proves the detection fired at all — without it this
       ;; deftest would execute nothing under `-Dre-frame.debug=false`.
@@ -141,7 +139,7 @@
       (is (= :rf.error/derived-container-replaced
              (:rf.error/id (ex-data @thrown)))
           "the same detection that would emit the trace carries the category on the throw")
-      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
         (is (some? ev)
             "a :rf.error/derived-container-replaced error trace was emitted")
