@@ -22,7 +22,7 @@
   stale / GC timers cancelled, in-flight work marked terminal + best-effort
   aborted) so a late reply cannot recreate the cleared entries. The
   data-lifecycle events (`:rf.resource/remove` / `:rf.resource/release-owner`
-  / `:rf.resource/clear-scope`) remain the in-cascade, scope/instance-grained
+  / `:rf.resource/clear-scope`) are the in-cascade, scope/instance-grained
   disposal surfaces."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
@@ -42,8 +42,8 @@
 
 (def resource-kind
   "The registrar kind for resources (`:resource`). Per Spec 016
-  §Registration. Added to the core registrar's closed kind set (a Spec
-  change); resources register their spec under this kind."
+  §Registration. A member of the core registrar's closed kind set;
+  resources register their spec under this kind."
   :resource)
 
 ;; ---- scope-policy validation (fail-closed) -------------------------------
@@ -61,7 +61,7 @@
   global claim — or a `{:from-db <id>}` named-resolver reference. `nil` /
   missing is NOT valid, and neither is anything else.
 
-  FAIL-CLOSED (rf2-y7lcqy): the closed two-shape enum is what makes a typo
+  FAIL-CLOSED: the closed two-shape enum is what makes a typo
   a registration error rather than a silent wrong scope — a
   `:rf.scope/glabal` is simply not one of the two, so it can never be
   accepted as a literal scope that would then resolve to
@@ -91,14 +91,14 @@
 
 ;; ---- :infinite registration validation (Spec 016 §Infinite resources) -----
 ;;
-;; The `:infinite`-only additive slice of the `reg-resource` args-map
+;; The `:infinite`-only slice of the `reg-resource` args-map
 ;; (`:rf/infinite-resource-args`, Spec-Schemas; EP-0021 R1–R8). `:infinite
 ;; true` selects the slice and makes `:next-page-param` REQUIRED — a fail-closed
 ;; gate symmetric with the `:scope` / `:params-schema` / `:request` gates above.
 ;; The per-page cursor is NEVER a registration key (R8): it is the
 ;; runtime-threaded page-param the `:request` fn reads from its RESERVED ctx
 ;; (`{:rf.resource/page-param p :rf.resource/page-index i}`); a non-infinite
-;; `:request` still receives a nil/empty ctx (NO new 3-arity). The
+;; `:request` receives a nil/empty ctx through the same 2-arity. The
 ;; `:rf.error/infinite-missing-page-accessor` error is RUNTIME-detected at the
 ;; first non-vector page in the subs merge site (rf.resources.state/merge-pages->items), not
 ;; here — at registration
@@ -237,28 +237,26 @@
              (str "resource " resource-id "'s spec must be a map, got "
                   (pr-str (type spec)))
              {:resource-id resource-id :value spec})))
-  ;; `:page-data-schema` is a RETIRED infinite-only key (rf2-x76af2.12;
-  ;; EP-0021 R5 superseded by EP-0025). It once purported to be the per-page
-  ;; egress/classification contract, but drove NEITHER validation NOR egress —
-  ;; a dead key that set a privacy trap: an author who marked sensitive page
-  ;; fields via its Malli `:sensitive?` slots (and added no projection-relative
-  ;; declaration) got NO redaction, shipping raw per-page fields on SSR
-  ;; hydration / tool projection. It is DELETED. A spec that still carries it is
-  ;; HARD-REJECTED pre-storage (never silently accepted): the caller supplied a
-  ;; privacy-relevant known key the runtime cannot honour, so the cascade cannot
-  ;; honestly continue. The reason names BOTH replacements — per-page VALIDATION
-  ;; moves to the request's `:decode` (a Malli schema on the managed-HTTP args
-  ;; validates each page before it settles), and durable per-page egress
-  ;; CLASSIFICATION moves to the projection-relative `:sensitive` / `:large`
-  ;; path declarations (the index-free walk classifies the field on every page).
-  ;; There are zero non-test in-repo registrations to migrate; the loud error is
-  ;; the pre-alpha migration boundary. Per Spec 016 §Registration — :infinite.
+  ;; `:page-data-schema` is a RETIRED infinite-only key (see EP-0025), and a
+  ;; spec that carries it is HARD-REJECTED pre-storage (never silently
+  ;; accepted). The key drives NEITHER validation NOR egress, so accepting it
+  ;; would set a privacy trap: an author who marked sensitive page fields via
+  ;; its Malli `:sensitive?` slots (and added no projection-relative
+  ;; declaration) would get NO redaction, shipping raw per-page fields on SSR
+  ;; hydration / tool projection. The caller supplied a privacy-relevant known
+  ;; key the runtime cannot honour, so the cascade cannot honestly continue.
+  ;; The reason names BOTH replacements — per-page VALIDATION belongs in the
+  ;; request's `:decode` (a Malli schema on the managed-HTTP args validates
+  ;; each page before it settles), and durable per-page egress CLASSIFICATION
+  ;; belongs in the projection-relative `:sensitive` / `:large` path
+  ;; declarations (the index-free walk classifies the field on every page).
+  ;; Per Spec 016 §Registration — :infinite.
   (when (contains? spec :page-data-schema)
     (throw (registration-error
              :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares :page-data-schema — a "
-                  "RETIRED key that is no longer accepted (it drove neither "
+                  "RETIRED key that is no longer accepted (it drives neither "
                   "validation nor egress). Move per-page VALIDATION to the "
                   ":request's :decode (a Malli schema on the returned "
                   "managed-HTTP args validates each page before it settles), "
@@ -266,10 +264,10 @@
                   "projection-relative :sensitive / :large path declarations on "
                   "the resource (e.g. {:sensitive [[:data :author-email]]} — "
                   "the index-free walk classifies the field on every page). Per "
-                  "Spec 016 §Registration — :infinite (EP-0021 R5, superseded "
-                  "by EP-0025).")
+                  "Spec 016 §Registration — :infinite and "
+                  "EP-0025.")
              {:resource-id resource-id :key :page-data-schema})))
-  ;; `:scope` is REQUIRED, fail-closed (rf2-6rrz53). No silent global default.
+  ;; `:scope` is REQUIRED, fail-closed. No silent global default.
   (when-not (valid-scope-policy? (:scope spec))
     (throw (registration-error
              :rf.error/resource-missing-scope-policy
@@ -312,7 +310,7 @@
   ;; returns nil as the 2-arity not-found default, and lowers a nil args map —
   ;; a SILENT wrong request. Reject at registration, where the mistake is.
   ;;
-  ;; The predicate is the ruled core one (`re-frame.subs`'s reg-sub handler
+  ;; The predicate is the core one (`re-frame.subs`'s reg-sub handler
   ;; gate, which carries the same reasoning): a plain fn OR a Var.
   ;;
   ;; Deliberately not bare `fn?`, and the `var?` arm is NOT redundant — the
@@ -325,7 +323,7 @@
   ;;
   ;; Deliberately not `ifn?` either, for the silent-nil reason above.
   ;; A multimethod and a `reify`d IFn are `ifn?` but neither `fn?` nor `var?`,
-  ;; so they are rejected: that matches the ruled core gate rather than
+  ;; so they are rejected: that matches the core gate rather than
   ;; widening the contract here, and the error names the accepted shapes.
   (when-not (or (fn? (:request spec)) (var? (:request spec)))
     (throw (registration-error
@@ -370,7 +368,7 @@
   ;; malformed `:infinite` shape loudly at the authoring boundary (R1–R8 are
   ;; the binding rulings).
   (validate-infinite-spec! resource-id spec)
-  ;; EP-0025 §subsystems (rf2-h3d8tf): a malformed projection-relative
+  ;; EP-0025 §subsystems: a malformed projection-relative
   ;; `:sensitive` / `:large` data-classification declaration (a non-vector
   ;; axis, a non-path entry) is rejected fail-loud at the registration
   ;; boundary — the same posture as the machine declaration. The declaration
@@ -439,7 +437,7 @@
 
 (defn reg-resource
   "Register a resource under `resource-id`. Per the canonical Spec 001 3-slot
-  grammar (rf2-wvh95f F1):
+  grammar:
 
       (rf/reg-resource :article/by-slug
         {:doc \"One article by slug.\"
@@ -453,8 +451,8 @@
   lowers into) — is the THIRD slot; the middle slot is the reflection +
   config metadata map (`:scope`, `:params-schema`, `:data-schema`, `:transport`,
   `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, the
-  `:infinite` slice, …). Splitting the handler out of the fused spec restores
-  clean doc-DCE (the middle slot is now a pure metadata map).
+  `:infinite` slice, …). Keeping the handler out of the metadata map keeps
+  doc-DCE clean (the middle slot is a pure metadata map).
 
   Validates the reconstructed spec (the REQUIRED, fail-closed `:scope` policy
   first; then `:params-schema` and `:request`) and writes a `:resource`-kind
@@ -475,7 +473,7 @@
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
   ;; integer") instead of the public `:rf.error/resource-bad-spec`. Mirrors
   ;; reg-route's `route-bad-metadata` non-map guard + reg-app-schema's
-  ;; `normalize-app-schema-metadata` middle-slot map gate. The catalogue row already
+  ;; `normalize-app-schema-metadata` middle-slot map gate. The catalogue row
   ;; documents "or the spec was not a map" with a `:value` slot.
   (when-not (map? metadata)
     (throw (registration-error
@@ -488,9 +486,9 @@
                   "SECOND slot, the :request handler is the THIRD.")
              {:resource-id resource-id :value metadata})))
   ;; `:request` is the third-slot VALUE (the handler). A `:request`
-  ;; left INSIDE the metadata map is a mislocated key; reject it loudly so the
-  ;; grammar change cannot be half-applied (a stray fused `:request` would
-  ;; otherwise silently win or lose against the value-slot one).
+  ;; left INSIDE the metadata map is a mislocated key; reject it loudly (a
+  ;; stray `:request` in the metadata would otherwise silently win or lose
+  ;; against the value-slot one).
   (when (contains? metadata :request)
     (throw (registration-error
              :rf.error/resource-bad-spec
@@ -503,7 +501,7 @@
              {:resource-id resource-id :value (:request metadata)})))
   (let [resource-spec (-> metadata
                           (assoc :request request-fn)
-                          ;; rf2-bbpu11 — normalize :gc-after-ms BEFORE
+                          ;; Normalize :gc-after-ms BEFORE
                           ;; validation/storage so every downstream reader
                           ;; (the trace below, `resource-meta`, the raw
                           ;; `positive-or-nil` read sites) sees the
@@ -518,7 +516,7 @@
       resource-id
       (rf.source-coords/merge-coords
         (merge {:doc (:doc resource-spec)}
-               ;; rf2-nrc93 — forward the caller's image-selection stamp. The
+               ;; Forward the caller's image-selection stamp. The
                ;; registrar map above is this kind's OWN shape, built from the
                ;; canonical spec, so a `:ns` / `:rf.provenance/ns` the caller
                ;; supplied would otherwise be dropped before the source store
@@ -551,7 +549,7 @@
 
 (defn- entry-keys-for-resource
   "The scoped-key VECTORS in `runtime-db`'s `:entries` whose resource id (the
-  SECOND element of `[scope resource-id params]`) is `resource-id`. rf2-9e0tyq:
+  SECOND element of `[scope resource-id params]`) is `resource-id`.
   `:entries` is keyed on the opaque byte `key-id`, so the resource-id filter
   reads each entry's stored `:resource/key` vector (NOT the map key), and the
   returned keys are the kind-preserving VECTORS the timer-cancel / abort / trace
@@ -566,7 +564,7 @@
 
 (defn- dispose-resource-runtime!
   "Dispose every live runtime entry for `resource-id` in ONE frame (Spec 016
-  §clear-resource MUST-dispose, rf2-m9h5iq). Atomically (through
+  §clear-resource MUST-dispose). Atomically (through
   `rf.frame/swap-runtime-db!`, the framework-authority out-of-cascade runtime-db
   write surface routing / machine spawn use): removes the resource's
   `:entries`, marks each in-flight work record terminal `:suppressed` (so a
@@ -594,7 +592,7 @@
           frame-id
           (fn [rdb]
             (-> (or rdb {})
-                ;; rf2-9e0tyq — `keys'` are scoped-key VECTORS; the byte-keyed
+                ;; `keys'` are scoped-key VECTORS; the byte-keyed
                 ;; `:entries` map is dissoc'd by their `key-id`s.
                 (update-in (rf.resources.state/entries-path)
                            (fn [es] (reduce dissoc es (map rf.resources.state/key-id keys'))))
@@ -603,7 +601,7 @@
                                      d wid rf.resources.work-ledger/mark-terminal
                                      :suppressed {:reason :clear-resource}))
                                  db in-flight))
-                ;; rf2-6gzdb — the disposed entries are LEAVING the cache, so
+                ;; The disposed entries are LEAVING the cache, so
                 ;; each one's whole ledger holding goes with it (every row for
                 ;; the key plus its inverse-index bucket) rather than a bounded
                 ;; terminal tail: `clear-resource` deregisters the resource, so
@@ -631,8 +629,7 @@
 
 (defn clear-resource
   "Remove a registered resource AND dispose its live per-frame runtime state.
-  Per Spec 016 §Public API §Registration / §clear-resource MUST-dispose
-  (rf2-m9h5iq).
+  Per Spec 016 §Public API §Registration / §clear-resource MUST-dispose.
 
   Clears the registrar entry, then for every registered frame disposes the
   resource id's live cache state: removes its `:rf.runtime/resources`
@@ -643,7 +640,7 @@
 
   The scope/instance-grained data-lifecycle events
   (`:rf.resource/invalidate-tags` / `:rf.resource/remove` /
-  `:rf.resource/clear-scope`) remain the in-cascade disposal surfaces;
+  `:rf.resource/clear-scope`) are the in-cascade disposal surfaces;
   `clear-resource` is the process-level registration removal that ALSO
   disposes (the registration is gone, so leaving live entries would strand a
   permanent unrefreshable cache).
@@ -657,13 +654,13 @@
   resource-id)
 
 ;; ---- registry-side introspection -----------------------------------------
-;; ARTEFACT-INTERNAL (rf2-kuky.31). `resource-meta` has no `re-frame.resources`
+;; ARTEFACT-INTERNAL. `resource-meta` has no `re-frame.resources`
 ;; or `re-frame.core` re-export: it is the artefact's own shorthand for the
 ;; one documented projection, which outside callers spell in full —
 ;;   (:rf/resource (rf/handler-meta {:source :store :kind :resource :id id}))
 ;; — and there is no `resource-ids` at all, that being
 ;;   (keys (rf/registrations {:source :store :kind :resource})).
-;; It stays public in THIS namespace because the artefact's events / subs /
+;; It is public in THIS namespace because the artefact's events / subs /
 ;; ssr / egress siblings read their own spec slot through it.
 
 (defn resource-meta
@@ -704,7 +701,7 @@
   `:rf.error/resource-invalid-params` on a schema-conformance failure.
   Per Spec 016 §Resource identity / §Canonicalization rule.
 
-  `nil` vs missing is schema-defined (rf2-hgy5kf): a caller threads
+  `nil` vs missing is schema-defined: a caller threads
   `rf.resources.state/missing-params` for an ABSENT `:params` slot (the documented
   omitted-default lowers it to `{}` via `rf.resources.state/default-omitted-params`), while
   a PRESENT explicit `nil` is passed THROUGH to `:params-schema` validation +
@@ -715,7 +712,7 @@
   be schema-defined, not accidental\"; EP-0012 §canonical-forms).
 
   A THIN wrapper over the shared `re-frame.resources.params/validate+
-  canonicalize` pipeline (rf2-7rbb7t): this arm supplies ONLY the
+  canonicalize` pipeline: this arm supplies ONLY the
   resource-family error descriptor (`:rf.error/resource-invalid-params` with a
   `:resource-id`); the omitted-default, non-EDN rejection, late-bound schema
   validation, invalid-param REDACTION, and canonicalization are owned once in
@@ -739,16 +736,16 @@
 ;; / SSR leak boundary, and a resolved scope can carry PII. A boundary that
 ;; critical MUST fail closed: it never silently defaults to \"shared\".
 ;; Resolution differs between EVENTS (which see a route-entry `:scope`
-;; override threaded in by the route slice, and have an event context) and
+;; override threaded in by the route layer, and have an event context) and
 ;; SUBSCRIPTIONS (pure — no routing match, no event context). There is NO
 ;; `[:rf.scope/global]` fallthrough on either path.
 
 (defn- canonical-scope!
   "Route a CONCRETE resolved scope through the single shared concrete-scope
-  validation path (`rf.resources.state/canonicalize-scope`, rf2-lzv9xc): reject a
-  reserved-namespace typo fail-closed (rf2-pd7akw), reject a host / opaque
+  validation path (`rf.resources.state/canonicalize-scope`): reject a
+  reserved-namespace typo fail-closed, reject a host / opaque
   value, reject the global scope wrapped as the singleton `[:rf.scope/global]`
-  in favour of the canonical bare `:rf.scope/global` (rf2-bwwk6l), then
+  in favour of the canonical bare `:rf.scope/global`, then
   canonicalize. Per
   Spec 016 §Resource identity / §Scope resolution. Used by both event and
   sub scope resolution, so a misspelled reserved `:rf.scope/*` in a payload,
@@ -787,8 +784,8 @@
   fallthrough:
 
     1. `:scope` supplied on the event payload;
-    2. (route-entry `:scope` override — supplied by the route slice, not
-       this runtime slice; threaded in as `route-scope`);
+    2. (route-entry `:scope` override — supplied by the route layer, not
+       this namespace; threaded in as `route-scope`);
     3. the resource-spec `:scope` policy — an explicit `:rf.scope/global`
        claim or a `{:from-db …}` named-resolver reference (the only two
        shapes registration admits).
@@ -798,7 +795,7 @@
   use-time rule). A reference that resolves NIL FAILS CLOSED
   (`:rf.error/resource-scope-unresolved-reference`) — never a fall-through
   to global. `db` is the handler's app-db coeffect (the causal world input);
-  a nil db (a legacy/direct test call) resolves references against `{}`.
+  a nil db (a direct test call) resolves references against `{}`.
 
   A `:rf.scope/global` policy resolves to `:rf.scope/global` ONLY because
   that is its declared explicit policy. Returns the canonical scope."
@@ -809,12 +806,12 @@
     (cond
       ;; 1. payload scope (highest precedence) — a {:from-db …} reference
       ;; resolves at use time + fails closed on nil; a concrete scope is
-      ;; canonicalized as before.
+      ;; canonicalized directly.
       (rf.resources.scope-registry/from-db-reference? payload-scope)
       (canonical-scope! resource-id (resolve-ref payload-scope) where)
       (some? payload-scope) (canonical-scope! resource-id payload-scope where)
-      ;; 2. route-entry `:scope` override (threaded in by the route slice).
-      ;; The route slice already resolves a {:from-db …} route-entry `:scope`
+      ;; 2. route-entry `:scope` override (threaded in by the route layer).
+      ;; The route layer resolves a {:from-db …} route-entry `:scope`
       ;; to a concrete value before threading it here, so route-scope is
       ;; concrete; resolve defensively if a reference still arrives.
       (rf.resources.scope-registry/from-db-reference? route-scope)
@@ -841,18 +838,18 @@
 (defn- sub-unresolved-reference!
   "A `{:from-db <id>}` reference at a SUBSCRIPTION site that resolves NIL
   against the frame app-db is the sub-side fail-closed unresolved condition
-  (EP-0016 D3 slice 3 / rf2-616xa6): the resolver's declared inputs are not
+  (EP-0016 D3 slice 3): the resolver's declared inputs are not
   present (e.g. no logged-in user), so the scope is genuinely \"unresolved\"
   — NEVER a silent global read and NEVER a silent `:idle`. Raises
   `:rf.error/resource-sub-unresolved-scope` naming the resolver id, the
   read-side counterpart of the event-side fail-closed throw. Returns the
   resolved concrete scope otherwise."
   [resource-id reference db where]
-  ;; rf2-ru73k6 F3 — a subscription is a PASSIVE read advertised as pure; it
+  ;; A subscription is a PASSIVE read advertised as pure; it
   ;; resolves its `{:from-db …}` scope through the trace-FREE evaluator so a
   ;; sub re-key (which fires on every frame-state change) never emits
   ;; `:rf.resource/scope-resolved` observability state. The causal write-side
-  ;; resolution (event ensure / route / mutation settle) keeps its traced
+  ;; resolution (event ensure / route / mutation settle) records its traced
   ;; evidence via `resolve-from-db-reference`.
   (or (rf.resources.scope-registry/resolve-from-db-reference-pure reference db where)
       (throw (registration-error
@@ -885,7 +882,7 @@
   resolved against `db` (the frame app-db value) at use time (EP-0016 D3
   slice 3). A reference that resolves NIL raises
   `:rf.error/resource-sub-unresolved-scope` — the sub-side fail-closed
-  \"scope unresolved\" condition (rf2-616xa6), never a global / wrong-entry
+  \"scope unresolved\" condition, never a global / wrong-entry
   / silent-`:idle` read. `db` is the frame app-db value the sub layer reads;
   a nil db resolves references against `{}`.
 
@@ -894,7 +891,7 @@
   NEVER a silent `[:rf.scope/global]` read and NEVER a silent `:idle`.
   Returns the canonical scope.
 
-  Every caller supplies the frame `db` explicitly (rf2-bwwk6l): a caller
+  Every caller supplies the frame `db` explicitly: a caller
   that resolves no `{:from-db …}` scope passes `{}`, where references resolve
   fail-closed."
   [resource-id spec payload-scope where db]
@@ -908,7 +905,7 @@
                         where)
       (some? payload-scope) (canonical-scope! resource-id payload-scope where)
       ;; 2a. a {:from-db …} spec policy — the declared derived-scope policy,
-      ;; resolved against the frame db at use time (rf2-616xa6: the sub
+      ;; resolved against the frame db at use time (the sub
       ;; re-keys reactively when the resolver's app-db inputs change).
       (rf.resources.scope-registry/from-db-reference? policy)
       (canonical-scope! resource-id
