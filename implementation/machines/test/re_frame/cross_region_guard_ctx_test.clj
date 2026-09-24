@@ -28,9 +28,9 @@
         dedicated frozen-selection / declaration-order-independence /
         next-microstep convergence fixtures live in
         `frozen_region_select_test.clj`.
-    (d) region guards still see their OWN state correctly (regression).
-    (e) non-parallel (flat / compound) guard ctx is UNAFFECTED — neither
-        `:tags` nor `:all-state` appears (regression).
+    (d) region guards see their OWN state correctly.
+    (e) non-parallel (flat / compound) guard ctx carries neither `:tags`
+        nor `:all-state`.
     (f) action ctx gets the same `:tags` + `:all-state` threading."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -141,8 +141,7 @@
 (deftest tag-union-frozen-during-selection
   (testing "a sibling region's SAME-EVENT transition is NOT visible to a later
             region's guard during selection — the guard reads the FROZEN
-            pre-broadcast tag union (rf2-42mml — reverses rf2-46ly6's evolving
-            read-timing; aligns to XState v5 / SCXML)"
+            pre-broadcast tag union (aligns to XState v5 / SCXML)"
     ;; Declaration order: :form before :gate. A single :go event makes :form
     ;; transition :invalid → :valid (advertising :form/valid). Under the FROZEN
     ;; model, :gate's :go guard is evaluated against the pre-event snapshot, in
@@ -190,11 +189,11 @@
           "committed union reflects both regions' SETTLED states (:gate stayed
            :closed, contributing no tag)"))))
 
-;; ---- (d) a region guard still sees its OWN state correctly (regression) ---
+;; ---- (d) a region guard sees its OWN state correctly ----------------------
 
 (deftest region-guard-sees-own-state
-  (testing "a region guard reading :state / :data still resolves against its
-            OWN region (unaffected by the cross-region threading)"
+  (testing "a region guard reading :state / :data resolves against its
+            OWN region, alongside the cross-region threading"
     (let [seen (atom [])
           m {:type    :parallel
              :data    {:n 0}
@@ -215,13 +214,13 @@
           "the guard's :state was the region's OWN discrete value, never the
            sibling's nor the full region map"))))
 
-;; ---- (e) flat / compound guard ctx is UNAFFECTED (regression) -------------
+;; ---- (e) flat / compound guard ctx carries no cross-region keys -----------
 
 (deftest flat-guard-ctx-has-no-cross-region-keys
   (testing "a FLAT machine's guard ctx carries the four base keys — no :tags,
             no :all-state (the parallel-region keys never leak to a flat
             machine). A router-driven dispatch ALSO carries the EP-0010 causal
-            :rf.cofx token (rf2-g0m4p5); the cross-region keys stay
+            :rf.cofx token; the cross-region keys stay
             absent."
     (let [captured (atom nil)
           m {:initial :idle
@@ -238,18 +237,18 @@
       (is (= #{:data :event :state :meta}
              (set (keys (dissoc @captured :rf.cofx))))
           "flat guard ctx carries the four base keys (+ the EP-0010 causal
-           token a router dispatch always stamps — rf2-g0m4p5)")
+           token a router dispatch always stamps)")
       (is (not (contains? @captured :tags))
           "flat guard ctx has no :tags (the committed :tags slot does NOT leak)")
       (is (not (contains? @captured :all-state))
           "flat guard ctx has no :all-state (parallel-region marker absent)")
-      (is (= :idle (:state @captured)) "flat guard still sees its OWN :state")
-      (is (= {:ok true} (:data @captured)) "flat guard still sees :data"))))
+      (is (= :idle (:state @captured)) "flat guard sees its OWN :state")
+      (is (= {:ok true} (:data @captured)) "flat guard sees :data"))))
 
 (deftest compound-guard-ctx-has-no-cross-region-keys
   (testing "a COMPOUND machine's guard ctx also carries the four base keys and
             none of the parallel-region keys (a router dispatch additionally
-            carries the EP-0010 :rf.cofx token — rf2-g0m4p5)"
+            carries the EP-0010 :rf.cofx token)"
     (let [captured (atom nil)
           m {:initial :parent
              :data    {}
@@ -263,7 +262,7 @@
       (is (= #{:data :event :state :meta}
              (set (keys (dissoc @captured :rf.cofx))))
           "compound guard ctx carries the four base keys (+ the EP-0010 causal
-           token a router dispatch always stamps — rf2-g0m4p5)")
+           token a router dispatch always stamps)")
       (is (not (contains? @captured :tags))
           "compound guard ctx has no :tags (parallel-region key absent)")
       (is (not (contains? @captured :all-state))))))
