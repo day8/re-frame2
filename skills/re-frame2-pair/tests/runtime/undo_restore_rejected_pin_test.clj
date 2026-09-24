@@ -2,18 +2,16 @@
 ;;;;
 ;;;; Babashka-runnable STRUCTURAL PIN for the undo-time-travel
 ;;;; restore-rejected SAFETY contract in
-;;;; `preload/re_frame2_pair/runtime.cljs` (rf2-1v0vrr).
+;;;; `preload/re_frame2_pair/runtime.cljs`.
 ;;;;
-;;;; The defect: `undo-to-epoch`'s failure branch returned
-;;;; `{:ok? true :restored? false :reason :restore-rejected}` when
-;;;; `rf/restore-epoch!` returned false — CONTRADICTING its correct
-;;;; sibling `undo-step-back`, which returns `:ok? false` on the
-;;;; identical path, and every other envelope fn in the file. Because the
-;;;; skill trains the agent to pattern-match `:ok?` first and this backstop
-;;;; sugar is reached via raw `eval-cljs` (which returns the map un-wrapped),
-;;;; an agent read `{:ok? true}` as SUCCESS while the runtime REJECTED the
-;;;; restore and the frame NEVER MOVED — a silent false-green over an
-;;;; unchanged frame.
+;;;; When `rf/restore-epoch!` returns false, `undo-to-epoch` and its sibling
+;;;; `undo-step-back` both return `:ok? false`, as every other envelope fn
+;;;; in the file does. The skill trains the agent to pattern-match `:ok?`
+;;;; first, and this backstop sugar is reached via raw `eval-cljs` (which
+;;;; returns the map un-wrapped), so a
+;;;; `{:ok? true :restored? false :reason :restore-rejected}` return would
+;;;; read as SUCCESS while the runtime REJECTED the restore and the frame
+;;;; NEVER MOVED — a silent false-green over an unchanged frame.
 ;;;;
 ;;;; Why a structural pin rather than a live runtime test:
 ;;;;
@@ -24,7 +22,7 @@
 ;;;; therefore pin the SOURCE-level contract: BOTH sugars' rejected-restore
 ;;;; arms return the documented `:ok? false :reason :restore-rejected`
 ;;;; shape, and the two shapes MATCH so the pair of sibling sugars cannot
-;;;; drift apart again.
+;;;; drift apart.
 ;;;;
 ;;;; Run: bb tests/runtime/undo_restore_rejected_pin_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -88,9 +86,9 @@
         (str nm " must branch on (if ok? <success> <rejected>)"))))
 
 ;; ---------------------------------------------------------------------------
-;; THE CORE OF rf2-1v0vrr: the rejected-restore arm of BOTH sugars must
-;; return :ok? FALSE :reason :restore-rejected. undo-to-epoch used to
-;; return :ok? true here — a false-green over an unchanged frame.
+;; The rejected-restore arm of BOTH sugars must return :ok? FALSE
+;; :reason :restore-rejected. :ok? true here would be a false-green over
+;; an unchanged frame.
 ;; ---------------------------------------------------------------------------
 
 (deftest rejected-restore-arm-is-ok-false-restore-rejected
@@ -105,7 +103,7 @@
       (is (= false (:ok? else))
           (str nm "'s REJECTED-restore arm MUST return :ok? false — a "
                "restore that rf/restore-epoch! rejected left the frame "
-               "UNCHANGED and must not read as success (rf2-1v0vrr). It "
+               "UNCHANGED and must not read as success. It "
                "returned " (pr-str (:ok? else))))
       (is (= false (:restored? else))
           (str nm "'s rejected arm carries :restored? false"))
@@ -115,9 +113,9 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The two sibling sugars must not DRIFT: their rejected-restore envelopes
-;; must carry the same :ok? / :restored? / :reason contract keys. This is
-;; what let undo-to-epoch quietly regress while undo-step-back stayed
-;; correct — pin them together.
+;; must carry the same :ok? / :restored? / :reason contract keys. Pinning
+;; them together stops one quietly regressing while the other stays
+;; correct.
 ;; ---------------------------------------------------------------------------
 
 (deftest sibling-rejected-shapes-agree
@@ -131,8 +129,8 @@
              (pr-str (keys-of sb-else)) " to-epoch=" (pr-str (keys-of te-else))))))
 
 ;; ---------------------------------------------------------------------------
-;; undo-to-epoch's docstring must document the failure shape (the old
-;; docstring only described the success envelope, compounding the misread).
+;; undo-to-epoch's docstring must document the failure shape (a docstring
+;; describing only the success envelope compounds the misread).
 ;; ---------------------------------------------------------------------------
 
 (deftest to-epoch-docstring-documents-failure-shape
