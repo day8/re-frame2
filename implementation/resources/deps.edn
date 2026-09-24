@@ -31,7 +31,7 @@
 ;; resources (e.g. `re-frame.core`'s `reg-resource` / `clear-resource`
 ;; / `resource-meta` / `resource-state` / `resources` re-exports) flow
 ;; through `re-frame.late-bind` exactly as the schemas / machines /
-;; routing / http hooks already do.
+;; routing / http hooks do.
 ;;
 ;; The HTTP transport (`:rf.http/managed`, Spec 014) and the routing /
 ;; SSR integrations are LATE-BOUND: resources reaches them through the
