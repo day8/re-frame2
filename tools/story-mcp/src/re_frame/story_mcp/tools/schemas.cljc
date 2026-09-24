@@ -74,7 +74,7 @@
 
   This is the canonical rule for the **input-schema property side**:
   every boolean tool input property MUST omit the
-  trailing `?` (today: `:include-sensitive`).
+  trailing `?` (`:include-sensitive`, `:dedup`).
   Response-payload keys (in `structuredContent`) are NOT bound by the
   Anthropic regex and retain the Clojure-idiomatic `?` — that's why
   `:registered?`, `:unregistered?`, `:has-wrap?`
@@ -134,7 +134,7 @@
   "Recurring fragment — `list-*` tools accept an opaque `:cursor`
   string for continuation. The agent passes the response's
   `:next-cursor` value back verbatim on the next call; the encoding is
-  an implementation detail (today: base64 of an EDN map; subject to
+  an implementation detail (base64 of an EDN map; subject to
   change). When the underlying registry changes between cursor mint
   and deref, the server returns `:rf.mcp/cursor-stale` and the agent
   must drop the cursor + restart."
@@ -171,7 +171,7 @@
                      "ms. Hard ceiling " rf.story-mcp.tools.args/max-timeout-ms "ms — values "
                      "above clamp DOWN rather than reject; the MCP server's "
                      "request loop is single-threaded so an unbounded timeout "
-                     "would park unrelated calls (rf2-g9fje).")})
+                     "would park unrelated calls.")})
 
 (defn with-timeout-ms
   "Inject the `:timeout-ms` slot into a lifecycle tool's `:properties`
@@ -206,7 +206,7 @@
   VALUE — `preview-variant`, `run-variant`, `read-failures`,
   `read-a11y-violations` (the affected set is the single
   source of truth at `registry/tool-descriptors` §Sensitive-read gate;
-  `explain-variant` is excluded — it ships author data raw, rf2-7k5mce).
+  `explain-variant` is excluded — it ships author data raw).
 
   The slot is baked into the static descriptor at load time and
   stripped at `tools/list` time by `registry/tool-descriptors` when the
@@ -255,7 +255,7 @@
                             :description "Present and true on error envelopes (per MCP §Error Handling)."}
                 "rf.mcp/overflow" {:type "object"
                                    :additionalProperties true
-                                   :description (str "Wire-bounded marker (rf2-rvyzy). Present iff the wire-boundary "
+                                   :description (str "Wire-bounded marker. Present iff the wire-boundary "
                                                      "token cap fired and replaced the tool's normal payload; carries "
                                                      ":dropped-bytes etc.")}}
    :description (str "Result envelope: a structuredContent object carrying the tool's payload. "
@@ -363,7 +363,7 @@
                             :description "Name of the tool whose write was gated; present iff :gated true."}
                 "rf.mcp/overflow" {:type "object"
                                    :additionalProperties true
-                                   :description "Wire-bounded marker (rf2-rvyzy); present iff the cap step fired."}}
+                                   :description "Wire-bounded marker; present iff the cap step fired."}}
    :description (str "Result envelope: success / error / gated-error map (the write surface is "
                      "default-off behind --allow-writes; closed gate emits {:gated true :tool ...}). "
                      "See spec/003-Write-Surface-Gating.md.")})
