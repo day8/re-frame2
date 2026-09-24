@@ -1,17 +1,16 @@
 (ns re-frame.http-abort-cancels-exchange-test
-  "rf2-1eng8 seam 1, REFUTED and then pinned — on the JVM a lifecycle abort
-  DOES cancel the exchange, and no code of ours makes that happen.
+  "On the JVM a lifecycle abort DOES cancel the exchange, and no code of
+  ours makes that happen: the JDK does.
 
-  ## What was claimed, and what is true
+  ## Why cancelling the derived stage is enough
 
-  rf2-1eng8 proposed that an abort cancelled only the DERIVED future:
   `jvm-fetch` returns `future-resp.thenApply(…)`, `run-attempt!` publishes that
   dependent stage to the abort closure, and the JDK does not generally
-  propagate a dependent's cancellation to its source — so a superseded request
-  was said to keep its connection open and keep downloading, one live
+  propagate a dependent's cancellation to its source — which would leave a
+  superseded request keeping its connection open and downloading, one live
   connection per keystroke in a debounce search.
 
-  Measured on JDK 21.0.10 against the unfixed tree, that does not happen. The
+  Measured on JDK 21.0.10, that does not happen. The
   JDK's `java.net.http` stack propagates a CANCEL from the dependent stage back
   to the exchange on its own. The tell is visible in the stage itself: it is a
   `jdk.internal.net.http.common.MinimalFuture`, and cancelling one stores a
@@ -19,10 +18,10 @@
   bare exception a plain `CompletableFuture` stores — so `.isCancelled` reads
   FALSE on a stage `.cancel` just returned true for.
 
-  ## The distinction the proposal missed: cancel vs completeExceptionally
+  ## cancel vs completeExceptionally
 
   `jvm-fetch`'s timeout docstring is right that \"timing out the result alone
-  would leave the download running\", and rf2-fzbj.11's explicit
+  would leave the download running\", and its explicit
   `.cancel future-resp true` on the timeout path IS load-bearing — because
   `orTimeout` completes the stage EXCEPTIONALLY, which the JDK does not
   propagate. A lifecycle abort calls `cancel()`, which it does. Measured, on a
@@ -31,8 +30,8 @@
       orTimeout ONLY (no upstream cancel):   [:wrote-all]
       orTimeout + explicit upstream cancel:  [:write-failed]
 
-  So the two paths genuinely differ, the existing timeout code is correct, and
-  extending it to aborts is what does not follow.
+  So the two paths genuinely differ: the timeout path needs its explicit
+  upstream cancel, and the abort path needs none.
 
   ## Why this file exists at all
 
@@ -51,7 +50,7 @@
   survivor. Running only the cancelling arm would pass against a harness that
   reports `:write-failed` for some unrelated reason (a closed server, a stopped
   executor), so the non-cancelling arm runs first as the control, inside the
-  same test. That control is what caught the refutation."
+  same test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed]
@@ -158,12 +157,11 @@
 ;; ===========================================================================
 
 (deftest cancelling-the-returned-stage-tears-down-the-exchange
-  (testing "rf2-1eng8 — cancelling the stage `jvm-fetch` returns (the one the
+  (testing "cancelling the stage `jvm-fetch` returns (the one the
             lifecycle publishes to the abort closure) tears the UPSTREAM
             exchange down, for a request that opted out of `:timeout-ms` and
             one whose configured deadline has not fired. The JDK does this
-            itself: no re-frame code arms it, which is why the seam this bead
-            proposed does not exist"
+            itself: no re-frame code arms it"
     (doseq [timeout-ms [nil 5000]]
       ;; ---- CONTROL ARM, first ------------------------------------------
       ;; Without a cancel the download must run to completion. This is what
@@ -200,7 +198,7 @@
                  " really would leak a live download per abort"))))))
 
 (deftest superseded-request-stops-downloading
-  (testing "rf2-1eng8 — the reported symptom, end to end: a `:request-id`
+  (testing "end to end: a `:request-id`
             supersede (the debounce-search shape) tears the superseded
             request's exchange down, so a keystroke does not leave a live
             connection behind"
