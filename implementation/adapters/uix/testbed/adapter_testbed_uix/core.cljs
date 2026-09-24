@@ -1,6 +1,5 @@
 (ns adapter-testbed-uix.core
-  "Tiny standalone counter app — the UIx adapter's smoke fixture
-   (rf2-eceuv).
+  "Tiny standalone counter app — the UIx adapter's smoke fixture.
 
    Per TESTING.md §Test surface ownership: examples/ are for humans;
    per-adapter smoke lives with the adapter. This testbed proves the
@@ -39,15 +38,15 @@
 
 ;; -- Mount ------------------------------------------------------------------
 
-;; rf2-kuky.56: the adapter's own client-root handle — inert at namespace
+;; The adapter's own client-root handle — inert at namespace
 ;; load (no DOM work, no `js/document` read), so `defonce` is safe here and
 ;; the Root is minted by the first `render!` below.
 (defonce app-root (rf.adapter.uix/client-root))
 
 (defn ^:export init []
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame. The mount goes
-  ;; through the UIx `frame-root` ENSURE boundary (rf2-qgfo4): it creates
+  ;; through the UIx `frame-root` ENSURE boundary: it creates
   ;; the frame at commit time, runs the `:initial-events` seed once, and
   ;; scopes the frame to the subtree so the `use-sub` /
   ;; `capture-frame` reads inside `root` resolve to it. This is the
