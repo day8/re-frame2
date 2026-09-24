@@ -1,5 +1,5 @@
 (ns re-frame.spawn-failure-routing-cljs-test
-  "rf2-3x7nj.41.1 — a child's FAILURE never reaches a SUCCESS route, in either
+  "A child's FAILURE never reaches a SUCCESS route, in either
   spawn form (Spec 005 §`:on-error`, §Child completion protocol).
 
   The success routes are the `:on-done` fold and the `:rf.machine.spawn/done`
@@ -16,17 +16,17 @@
       then the root `:on`, else nowhere. The done carrier therefore only ever
       carries a success.
 
-  Before the fix a failure folded into the success slot. A join child's
-  `:on-done` ran for a failure, and so did a single `:spawn`'s whenever the
-  parent declared no `:on-error`. An explicit `:on {:rf.machine.spawn/done …}`
-  took its success transition on a failure, and an explicit
-  `:on {:rf.machine.spawn/error …}` without `:on-error` never fired. Under a
-  typed `[:schemas :data]`, the folded error map was rejected and the rollback
-  swallowed the whole carrier, so the join never resolved (the boot example's
-  hang).
+  Folding a failure into the success slot would break every route: a join
+  child's `:on-done` would run for a failure, and so would a single `:spawn`'s
+  whenever the parent declared no `:on-error`. An explicit
+  `:on {:rf.machine.spawn/done …}` would take its success transition on a
+  failure, and an explicit `:on {:rf.machine.spawn/error …}` without
+  `:on-error` would never fire. Under a typed `[:schemas :data]`, the folded
+  error map would be rejected and the rollback would swallow the whole
+  carrier, so the join would never resolve.
 
-  Rows J1/J3/J-schema/P1/P2/P3/P7 were RED before the fix. The rest are
-  controls, GREEN both sides.
+  Rows J1/J3/J-schema/P1/P2/P3/P7 pin those failure routes. The rest are
+  controls.
 
   Named `*-cljs-test.cljc`, so both the machines JVM artefact and the
   shadow-cljs node lane run it."
@@ -186,7 +186,7 @@
       (is (= [] (data-schema-failures))
           "no :machine-data rejection — the error map never reached the [:maybe :int] slot")
       (is (= :errored (state ::js))
-          "the parent reached its :on-any-failed target (before the fix a rollback left it at :working for ever)")
+          "the parent reached its :on-any-failed target (a rollback would leave it at :working for ever)")
       (is (= [] @folds) "the per-child :on-done fold never saw the failure"))))
 
 ;; ---------------------------------------------------------------------------
