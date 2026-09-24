@@ -90,7 +90,7 @@
             "test-template must set RF2_TEMPLATE_RUN_EMITTED_TESTS — it is
              the opt-in flag that turns the emitted-app compile/run/release
              tier ON. Without it the release gate is a fast-loop-only shape
-             check and a broken scaffold can be published (rf2-ek857f F1).")
+             check and a broken scaffold can be published.")
         (is (re-find #"RF2_TEMPLATE_RUN_EMITTED_TESTS:\s*[\"']?1" job)
             "RF2_TEMPLATE_RUN_EMITTED_TESTS must be set to 1 (string),
              matching test.yml / expensive-tests.yml.")
@@ -118,14 +118,14 @@
              — `npm ci` installs the playwright package but no browser
              binary, and the emitted-app tier's dev-page boot proof needs a
              launchable Chromium.")
-        ;; Still actually invokes the JVM test suite.
+        ;; And it invokes the JVM test suite itself.
         (is (re-find #"clojure -M:test" job)
             "test-template must run `clojure -M:test` from tools/template
              (the suite the env var + node_modules unlock).")))))
 
 (deftest release-body-carries-pre-split-caveat-test
   (testing "the GitHub Release body warns the pre-split, local-root-only
-            release is NOT a usable public scaffold (rf2-8n4s71 #1)"
+            release is NOT a usable public scaffold"
     (let [yaml (release-workflow-text)
           job  (some-> yaml github-release-job)]
       (is (some? job)
@@ -144,15 +144,14 @@
         (is (re-find #"(?i)not\s+(yet\s+)?a usable public scaffold" job)
             "the GitHub Release body must state the pre-split release is
              NOT a usable public scaffold — the emitted coords don't
-             resolve until the template repo split (rf2-8n4s71 #1).")
+             resolve until the template repo split.")
         (is (string/includes? job "rf2-8n4s71")
             "the Release-body caveat must cite rf2-8n4s71 so the
              provenance of the pre-split warning is traceable.")
         (is (re-find #"(?i):local/root" job)
             "the Release-body caveat must name the :local/root rewrite —
              the reason the gate proves 'compiles' but not 'coords
-             resolve' (rf2-8n4s71 #1).")
+             resolve'.")
         (is (re-find #"(?i)not\s+published|do(es)?\s+not\s+resolve" job)
             "the Release-body caveat must say the framework coords are
-             not published / the git-coord does not resolve pre-split
-             (rf2-8n4s71 #1).")))))
+             not published / the git-coord does not resolve pre-split.")))))
