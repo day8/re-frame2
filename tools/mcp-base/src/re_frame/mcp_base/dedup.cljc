@@ -18,24 +18,23 @@
   slots) and assertion vectors. The transform is the same
   data transform on both hosts, so it lives here once.
 
-  ## Provenance — vendored from `day8/de-dupe` v0.3.0 (rf2-2ii52)
+  ## Provenance — vendored from `day8/de-dupe` v0.3.0
 
-  The codec below was an external runtime dependency,
+  The codec below is vendored from the external library
   `day8/de-dupe {:git/url \"https://github.com/day8/de-dupe.git\"
-  :git/tag \"v0.3.0\"}`, until it was ABSORBED into this artefact. The
-  reason was packaging, not preference: `clein pom` can only express an
-  `:mvn/version` coordinate, so it dropped the git coordinate SILENTLY
+  :git/tag \"v0.3.0\"}` rather than depended on. The
+  reason is packaging, not preference: `clein pom` can only express an
+  `:mvn/version` coordinate, so it would drop the git coordinate SILENTLY
   and both `day8/re-frame2-mcp-base` and `day8/re-frame2-story-mcp`
-  would have published a pom missing a runtime dependency. The library
+  would publish a pom missing a runtime dependency. The library
   is not on Clojars and cannot be put there under the `day8` group
   (Clojars refuses NEW projects in unverified non-reverse-domain
-  groups), so there was no version to rewrite to. Absorbing a 271-line
-  single-namespace codec with one production call site was the small
-  move; a new standalone release surface was the large one.
+  groups), so there is no version to depend on. Vendoring a 271-line
+  single-namespace codec with one production call site is the small
+  move; a new standalone release surface would be the large one.
 
-  The upstream licence text and the list of changes made while
-  absorbing sit immediately above the vendored section below, per its
-  MIT terms.
+  The upstream licence text and the list of differences from upstream
+  sit at the head of the vendored section below, per its MIT terms.
 
   ## Why equality, not identity
 
@@ -45,8 +44,8 @@
   synthesises assertion records and rendered hiccup fresh per call.
   Equality is what makes the cross-record share-pooling actually fire on
   the wire boundary, so `de-dupe-eq` is the only encoder here — the
-  upstream identity-based variant was dropped rather than carried as a
-  branch nothing takes.
+  upstream identity-based variant is not carried, since nothing would
+  take that branch.
 
   It is WIRE equality: `=` refined by collection kind (`wire=`). Clojure
   equality holds `[1 2 3]` and `(1 2 3)` equal, but the EDN on the wire
@@ -61,7 +60,7 @@
   key by construction, so an agent that learned the slot on one server
   sees the same slot key on the other.
 
-  The cache-element namespace stays `de-dupe.cache` after the absorb.
+  The cache-element namespace is `de-dupe.cache`, as upstream.
   It is a WIRE constant, not an implementation detail: the Node
   conformance decoder pins `de-dupe.cache/cache-0`
   (`tools/mcp-conformance/lib/dedup-envelope.cjs`), the wire-vocab
@@ -74,7 +73,7 @@
   legitimately hold `de-dupe.cache/whatever` in app-db, and a decoder
   that reads EVERY symbol in the namespace as a slot reference turns
   that value into nil, into somebody else's subtree, or into a thrown
-  error (rf2-kjv05). So references are spelled, not merely namespaced.
+  error. So references are spelled, not merely namespaced.
   In VALUE position a token `de-dupe.cache/<name>` is
 
   - a REFERENCE to slot N, when `<name>` is exactly `cache-<digits>`;
@@ -95,10 +94,9 @@
   exactly the scalars a JSON encoder flattens to a bare namespaced
   string, which is why `token-name` tests `ident?` and `string?` and
   nothing else. Escaping only some of them leaves the JSON projection
-  inexact even where the Clojure round-trip holds — that was the keyword
-  gap the first cut at rf2-kjv05 left behind, and it corrupted VALUE and
-  map-KEY positions alike, since a keyword is the ordinary spelling of
-  both in re-frame app-db data. Cache KEYS are unaffected — they are the
+  inexact even where the Clojure round-trip holds — leaving keywords out
+  would corrupt VALUE and map-KEY positions alike, since a keyword is the
+  ordinary spelling of both in re-frame app-db data. Cache KEYS are unaffected — they are the
   allocator's own `cache-N` symbols and never carry an escape.
 
   What the grammar does NOT restore is the TYPE across JSON: a payload
@@ -146,7 +144,7 @@
   #?(:clj (:import [java.util HashMap])))
 
 ;; ---------------------------------------------------------------------------
-;; VENDORED CODEC — day8/de-dupe v0.3.0, absorbed under rf2-2ii52
+;; VENDORED CODEC — day8/de-dupe v0.3.0
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The MIT License (MIT)
@@ -171,55 +169,55 @@
 ;; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 ;; THE SOFTWARE.
 ;;
-;; CHANGES MADE WHILE ABSORBING (the wire shape is unchanged by all of them):
+;; DIFFERENCES FROM UPSTREAM (the wire shape is unchanged by all of them):
 ;;
-;;   1. The compression-id counter was a NAMESPACE-GLOBAL atom that every
-;;      `create-cache-internal` call `reset!` to 1. That is a real defect, not
-;;      a stylistic one: two concurrent JVM encodes can interleave one call's
-;;      reset with another's allocation and hand out the SAME `cache-N` id
-;;      twice inside one cache, corrupting the payload. It is now a call-local
-;;      `volatile!` threaded through the walk, so concurrent encodes cannot
-;;      see each other at all. The memo maps inside the encoder and `expand`
-;;      moved from `atom` to `volatile!` for the same reason: they were always
-;;      call-local, and saying so in the type removes the question.
-;;   2. The identity-based `de-dupe` entry point was dropped. Nothing on the
-;;      wire boundary is identity-shared (see the namespace docstring), so the
-;;      `hash-fn` / `equivalent?` parameters that existed ONLY to switch
-;;      between the two variants were collapsed to `hash` / `=`.
-;;   3. Unreached surface was dropped rather than carried: `map-from-seq`,
+;;   1. Upstream's compression-id counter is a NAMESPACE-GLOBAL atom that
+;;      every `create-cache-internal` call `reset!`s to 1. That is a real
+;;      defect, not a stylistic one: two concurrent JVM encodes can interleave
+;;      one call's reset with another's allocation and hand out the SAME
+;;      `cache-N` id twice inside one cache, corrupting the payload. Here it is
+;;      a call-local `volatile!` threaded through the walk, so concurrent
+;;      encodes cannot see each other at all. The memo maps inside the encoder
+;;      and `expand` are `volatile!` rather than `atom` for the same reason:
+;;      they are call-local, and saying so in the type removes the question.
+;;   2. There is no identity-based `de-dupe` entry point. Nothing on the
+;;      wire boundary is identity-shared (see the namespace docstring), so
+;;      upstream's `hash-fn` / `equivalent?` parameters, which exist ONLY to
+;;      switch between the two variants, collapse to `hash` / `=`.
+;;   3. Upstream's unreached surface is not carried: `map-from-seq`,
 ;;      `contains-compressed-elements?`, `partition-decompressed-elements`,
 ;;      `contains-only-keys?`, and the dead `::cache`-metadata branch of
 ;;      `is-cache-element?` (nothing ever attaches that key).
 ;;   4. Everything not on the public surface — the walkers, the bucket store,
-;;      the counting pass — is now `^:private`. The public codec is
+;;      the counting pass — is `^:private`. The public codec is
 ;;      `cache-element-ns`, `make-cache-element`, `de-dupe-eq` and `expand`.
-;;   5. Upstream classified a value as a reference on its NAMESPACE alone, so
-;;      an ordinary payload symbol in `de-dupe.cache` was aliased to a cache
-;;      slot and `expand` stopped being the exact inverse it promised
-;;      (rf2-kjv05). References are now spelled `cache-<digits>` and colliding
+;;   5. Upstream classifies a value as a reference on its NAMESPACE alone, so
+;;      an ordinary payload symbol in `de-dupe.cache` aliases to a cache
+;;      slot and `expand` is not the exact inverse it promises. Here
+;;      references are spelled `cache-<digits>` and colliding
 ;;      payload tokens are escaped by the encoder — for symbols, KEYWORDS and
 ;;      strings alike, which is the set JSON flattens onto one spelling; see
 ;;      the namespace docstring's §Reference grammar. This IS a wire change,
-;;      taken as one pre-alpha cut across the codec, the spec and the Node
-;;      decoder; the cache-element namespace, the `cache-N` key spelling and
-;;      the `:rf.mcp/dedup-table` envelope are untouched.
-;;   6. Three places where `expand` was not the exact inverse (rf2-fzbj.9).
-;;      Upstream marked a pooled subtree with `:cache-id` METADATA and read
+;;      shared by the codec, the spec and the Node decoder; the
+;;      cache-element namespace, the `cache-N` key spelling and the
+;;      `:rf.mcp/dedup-table` envelope match upstream.
+;;   6. Three places where upstream's `expand` is not the exact inverse.
+;;      Upstream marks a pooled subtree with `:cache-id` METADATA and reads
 ;;      that key back off every subtree, so a caller's own `:cache-id`
-;;      replaced their data; the slot now travels through the walk as a
-;;      return value (rf2-gwye.30). Both walks conj-ed a record's rebuilt
-;;      entries onto the original, so a respelled extension key kept its old
-;;      spelling beside the new one (`rebuild-record`, rf2-gwye.31). And
-;;      pooling by `=` alone merged a vector with an equal list or seq
-;;      (`wire=`, rf2-gwye.32). Output changes only for inputs that hit one
-;;      of the three, and the wire shape does not change at all.
+;;      replaces their data; here the slot travels through the walk as a
+;;      return value. Both upstream walks conj a record's rebuilt entries
+;;      onto the original, so a respelled extension key keeps its old
+;;      spelling beside the new one (`rebuild-record` here). And pooling by
+;;      `=` alone merges a vector with an equal list or seq (`wire=` here).
+;;      Output differs only for inputs that hit one of the three, and the
+;;      wire shape does not change at all.
 ;;
 ;; ---------------------------------------------------------------------------
 
 (def cache-element-ns
   "Namespace of every cache-element symbol on the wire:
   `de-dupe.cache/cache-N`. A WIRE constant — see the namespace
-  docstring's §Wire shape for why the absorb kept the name."
+  docstring's §Wire shape for why it keeps upstream's name."
   "de-dupe.cache")
 
 (defn make-cache-element
@@ -228,7 +226,7 @@
   [id]
   (symbol cache-element-ns (str "cache-" id)))
 
-;; ---- Reference grammar (rf2-kjv05) -----------------------------------------
+;; ---- Reference grammar -----------------------------------------------------
 ;;
 ;; See the namespace docstring's §Reference grammar for the WHY. In value
 ;; position `de-dupe.cache/cache-<digits>` is a reference, `de-dupe.cache/!…`
@@ -373,7 +371,7 @@
   to a comparator chosen for the data: a default sorted-map of vector
   keys throws the moment one key is pooled and another beside it is not
   (`Symbol cannot be cast to IPersistentVector`). Dedup is default-on,
-  so that turned ordinary persistent app-db state — an index keyed by
+  so that would turn ordinary persistent app-db state — an index keyed by
   path vectors, say — into a boundary failure instead of a read.
 
   Lowering here costs nothing the codec ever kept: the cache travels as
@@ -392,7 +390,7 @@
   are written back into the original — which makes a RESPELLED key the
   hazard: an extension key that `f` escapes, unescapes or pools into a
   slot reference must REPLACE its original, or both spellings survive
-  and the record gains an entry (rf2-gwye.31). A fixed field's key is a
+  and the record gains an entry. A fixed field's key is a
   plain keyword that no transform respells, so the `dissoc` below only
   ever meets extension keys and the record keeps its type. Every entry
   is rebuilt before any is written, so a key whose new spelling is
@@ -451,7 +449,7 @@
   children differ in kind are just as different on the wire. Map keys
   and set elements are paired through `find` / `get`, which hand back
   `b`'s own key or element for `a`'s equal one, querying in the same
-  direction `=` itself does (rf2-gwye.32)."
+  direction `=` itself does."
   [a b]
   (cond
     (identical? a b) true
@@ -472,7 +470,7 @@
 
   Public because `re-frame.mcp-base.diff-encode` decides \"unchanged\" by
   the same equivalence: a vector respelled as a list is a change on the
-  wire even though `=` holds (rf2-3x7nj.35.1)."
+  wire even though `=` holds."
   [a b]
   (and (= a b) (same-kinds? a b)))
 
@@ -571,9 +569,9 @@
         candidate-counts (count-cacheable-elements form)
         values-store     (new-bucket-store)]
     ;; The slot a subtree occupies travels through the walk as a return
-    ;; value, never on the subtree: upstream tagged first sightings with
-    ;; `:cache-id` METADATA and read that key back off every subtree, so a
-    ;; caller's own `:cache-id` replaced their data (rf2-gwye.30).
+    ;; value, never on the subtree: tagging first sightings with `:cache-id`
+    ;; METADATA and reading that key back off every subtree, as upstream
+    ;; does, lets a caller's own `:cache-id` replace their data.
     ;;
     ;; Each rebuilt value is BOUND before it is stored: `vswap!` reads the
     ;; cache before evaluating its arguments, so storing the result of a
