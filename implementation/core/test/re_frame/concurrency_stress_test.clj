@@ -1,13 +1,12 @@
 (ns re-frame.concurrency-stress-test
-  "Per rf2-35rgj — JVM concurrency stress coverage beyond the
-  single-drainer peek/pop race already pinned by
-  `router_drain_race_test.clj` (rf2-ynk7).
+  "JVM concurrency stress coverage beyond the single-drainer peek/pop
+  race pinned by `router_drain_race_test.clj`.
 
-  rf2-ynk7 stressed ONE concurrency surface: the executor-vs-main-thread
+  That suite stresses ONE concurrency surface: the executor-vs-main-thread
   race on a single frame's queue. The framework has other
   concurrency-shaped surfaces that the deterministic test suite covers
-  single-shot but never under contention. Per the rf2-35rgj brief, this
-  namespace adds 5000-iter stress coverage for:
+  single-shot but not under contention. This namespace gives them
+  5000-iter stress coverage:
 
     1. **Nested cross-frame dispatch under executor jitter** — handler
        on frame X calls (rf/dispatch event {:frame :y}). The submit-then-
@@ -17,8 +16,8 @@
 
     2. **Cross-frame :dispatch-sync during sibling drain** — many
        threads concurrently call (rf/dispatch-sync [:bump] {:frame :tgt})
-       while the target frame is mid-drain on its own work. Per rf2-fp97
-       the warning fires; the dispatch proceeds; the target frame's
+       while the target frame is mid-drain on its own work. The
+       cross-frame warning fires; the dispatch proceeds; the target frame's
        state is consistent at quiescence (no envelope dropped or
        double-processed).
 
@@ -35,9 +34,7 @@
     - failures accumulate into an atom; the deftest asserts zero
     - fixture is the same `reset-runtime` shape
 
-  CLJS is single-threaded; these races cannot manifest there. The
-  rf2-35rgj follow-up (mid-handler :dispatch-later resolve) is filed as
-  rf2-35rgj-followup if scenarios 1-3 land clean."
+  CLJS is single-threaded; these races cannot manifest there."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -63,8 +60,8 @@
 (use-fixtures :each reset-runtime)
 
 ;; The stress iteration count keeps CI under ~60s per scenario at the
-;; rf2-ynk7-standard 5000 iters. Env override lets the operator dial up
-;; (or down) without code changes.
+;; standard 5000 iters (as in `router_drain_race_test.clj`). Env override
+;; lets the operator dial up (or down) without code changes.
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_35RGJ_STRESS_ITERS") Long/parseLong)
       5000))
@@ -72,7 +69,7 @@
 ;; ---- 1. Nested cross-frame dispatch under executor jitter ----------------
 
 (deftest ^:stress cross-frame-dispatch-under-executor-jitter-stress
-  ;; rf2-35rgj scenario 1.
+  ;; Scenario 1.
   ;;
   ;; Setup: two frames `:rgj.exec/a` and `:rgj.exec/b`. A handler on A
   ;; uses (rf/dispatch [:b/leaf] {:frame :rgj.exec/b}) to append to B's
@@ -163,10 +160,10 @@
 ;; ---- 2. Cross-frame :dispatch-sync during sibling drain ------------------
 
 (deftest ^:stress cross-frame-dispatch-sync-during-sibling-drain-stress
-  ;; rf2-35rgj scenario 2.
+  ;; Scenario 2.
   ;;
-  ;; rf2-fp97 added `:rf.warning/cross-frame-dispatch-sync-during-drain`
-  ;; for the case where frame A is mid-drain and a `dispatch-sync` lands
+  ;; `:rf.warning/cross-frame-dispatch-sync-during-drain` covers
+  ;; the case where frame A is mid-drain and a `dispatch-sync` lands
   ;; on a different frame B. The deterministic single-shot case is
   ;; covered by cross_frame_dispatch_sync_warn_test.clj. Under stress,
   ;; the invariants are:
@@ -189,7 +186,7 @@
   ;; never share; the cross-frame warning emits when the main-thread's
   ;; dispatch-sync moment overlaps with the executor's drain window.
   ;;
-  ;; Per rf2-ynk7's note on the `:in-sync-drain?` guard: same-frame
+  ;; Per the `:in-sync-drain?` guard: same-frame
   ;; multi-thread dispatch-sync IS rejected via
   ;; `:rf.error/dispatch-sync-in-handler` when one thread reads
   ;; `:in-sync-drain?` true. That is by-design; we deliberately avoid
@@ -270,7 +267,7 @@
 ;; ---- 3. Hot-reload race during drain -------------------------------------
 
 (deftest ^:stress hot-reload-race-during-drain-stress
-  ;; rf2-35rgj scenario 3.
+  ;; Scenario 3.
   ;;
   ;; Spec 001 §Hot-reload semantics rule 1: an event handler currently
   ;; in process-event! finishes against its captured fn even when an
