@@ -36,13 +36,13 @@
 
   Policy A's DEV half — the public `handler-meta` carrying `:ns` / `:line` /
   `:file` for Xray / jump-to-source — is a claim about the gate being ON, and
-  sits inside a `(when rf.interop/debug-enabled? …)` arm. Its always-on partner sits in the same body: the
-  PARALLEL `error-coords-by-id` registry is populated for that same
-  registration in BOTH postures. That pairing is the actual contract of this
-  file — one registration, coords stripped from the public surface and
-  retained on the observability surface — and stating both halves in one
-  deftest is what stops the dev half from being a namespace-shaped hole under
-  the gate."
+  sits inside a `(when rf.interop/debug-enabled? …)` arm. Its always-on
+  partner sits in the same body: the PARALLEL `error-coords-by-id` registry is
+  populated for that same registration in BOTH postures. That pairing is the
+  actual contract of this file — one registration, coords stripped from the
+  public surface and retained on the observability surface — and stating both
+  halves in one deftest is what stops the dev half from being a
+  namespace-shaped hole under the gate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
