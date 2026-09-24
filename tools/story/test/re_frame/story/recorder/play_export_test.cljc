@@ -436,6 +436,79 @@
               {:kind :event/dispatch :event [:rf/redacted]   :t 100}
               {:kind :event/dispatch :event [:counter/dec]   :t 200}])))))
 
+;; ---- :event/timer-child — the forced wait for a re-armed timer ------------
+;;
+;; A fired `:dispatch-later` child records as a payload-free marker, never a
+;; step, because replaying its root re-arms the timer (rf2-tbik1). Its wait
+;; must bring the replay up to the time the child fired, measured from the
+;; replay's own clock — which runs BEHIND the recorded one by every
+;; sub-threshold gap the export folded out, since a replayed step between
+;; them takes no time.
+
+(deftest timer-child-wait-covers-a-folded-out-gap
+  (testing "rf2-mcjdg — the root arms an 80ms timer at 0, an unrelated
+            dispatch lands at 40 (under the 50ms threshold, so no wait), and
+            the child fires at 80. Replayed, the root re-arms the timer and
+            `:t/other` runs straight after it, so the child needs the whole
+            80ms from there: a [:wait 40] reaches the auto-assert 40ms in"
+    (is (= [[:dispatch [:t/root]]
+            [:dispatch [:t/other]]
+            [:wait 80]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root]  :t 0}
+              {:kind :event/dispatch :event [:t/other] :t 40}
+              {:kind :event/timer-child :t 80}]))))
+  (testing "and the exported script body puts the child's auto-assert after
+            that wait"
+    (is (= [[:dispatch [:t/root]]
+            [:dispatch [:t/other]]
+            [:wait 80]
+            [:assert-db [:children] 1]]
+           (:script (rf.story.recorder.play-export/recording->script-body
+                      [{:kind :event/dispatch :event [:t/root]  :t 0}
+                       {:kind :event/dispatch :event [:t/other] :t 40}
+                       {:kind :event/timer-child :t 80}]
+                      {:auto-assert? true
+                       :seed-db      {}
+                       :final-db     {:children 1}})))))
+  (testing "control: with no intervening event the wait was already 80"
+    (is (= [[:dispatch [:t/root]]
+            [:wait 80]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root] :t 0}
+              {:kind :event/timer-child :t 80}])))))
+
+(deftest timer-child-wait-counts-only-what-the-replay-has-not-waited
+  (testing "an emitted wait IS replay time, so the child's wait adds only the
+            gap folded out since: 100 waited, 30 folded out, 50 to the child"
+    (is (= [[:dispatch [:t/root]]
+            [:wait 100]
+            [:dispatch [:t/a]]
+            [:dispatch [:t/b]]
+            [:wait 80]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root] :t 0}
+              {:kind :event/dispatch :event [:t/a]    :t 100}
+              {:kind :event/dispatch :event [:t/b]    :t 130}
+              {:kind :event/timer-child :t 180}])))))
+
+(deftest ordinary-gaps-still-fold-around-a-timer-child
+  (testing "only the timer child's wait catches up: an ordinary sub-threshold
+            gap after it still folds out, and an ordinary gap over the
+            threshold still waits that gap alone"
+    (is (= [[:dispatch [:t/root]]
+            [:dispatch [:t/other]]
+            [:wait 80]
+            [:click "[data-test=\"a\"]"]
+            [:wait 60]
+            [:click "[data-test=\"b\"]"]]
+           (rf.story.recorder.play-export/entries->steps
+             [{:kind :event/dispatch :event [:t/root]  :t 0}
+              {:kind :event/dispatch :event [:t/other] :t 40}
+              {:kind :event/timer-child :t 80}
+              {:kind :dom/click :selector "[data-test=\"a\"]" :t 100}
+              {:kind :dom/click :selector "[data-test=\"b\"]" :t 160}])))))
+
 ;; ---- recording->script-body with the rich :entries shape -----------------
 
 (deftest recording-from-entries
