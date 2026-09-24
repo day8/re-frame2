@@ -27,7 +27,7 @@ Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the par
 |---|---|---|
 | `:machine-id` *or* `:definition` | which machine to spawn (registered id, or inline transition table) | exactly one |
 | `:data` | initial data for the child — literal map or `(fn [{:keys [snapshot event]}] data)` (single context-map arg) | optional |
-| `:on-done` | `(fn [{:keys [data result]}] new-data)` — fires when the child reaches a **root-level** (whole-machine) **non-error** `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). (An `:final?` leaf *embedded* in a compound is a different signal — see [§Final states](#final-states--final--on-done--output-key) below.) | optional |
+| `:on-done` | fires when the child reaches a **root-level** (whole-machine) **non-error** `:final?` state. An **`:on`-shaped transition spec** (XState's `invoke onDone`: `{:target :loaded :action …}`, a keyword / path target, or guarded candidates) moves the parent, resolved like `:on-error`, with the result at `(:result (nth ev 2))`; a **fn** `(fn [{:keys [data result]}] new-data)` folds the parent's `:data` instead. `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). Any other value is `:rf.error/machine-bad-on-done-clause` at registration. (An `:final?` leaf *embedded* in a compound is a different signal — see [§Final states](#final-states--final--on-done--output-key) below.) | optional |
 | `:on-error` | an **`:on`-shaped transition spec** — keyword target, vector-path target, single map `{:target :guard :action}`, or guarded candidate vector — fired when the child **FAILS** (reaches an `:error? true` `:final?` leaf, or one of its actions throws). re-frame2's spelling of XState v5 `invoke onError`: a transition (control flow), not just a callback. The target resolves at the `:spawn`-bearing state's own level (a keyword is a sibling). See [§`:on-error`](#on-error--child-failure-control-flow) below. | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:fixed-actor-id` | explicit actor-address input instead of gensym (per-state singleton) — the explicit-address identity (was the overloaded `:spawn-id`) | optional |
@@ -77,7 +77,7 @@ When `:auth-flow` enters `:done`, the runtime:
 
 ### The parent can ADVANCE on a child's completion
 
-The completion carrier does not stop at the `:on-done` fold — it flows into the parent's **ordinary macrostep**. So the parent moves state on its own child's finishing, declaratively, with no cooperation from the child:
+The most direct spelling is a transition-shaped `:on-done` — `{:target :loading-deps :action …}` moves the parent the moment the child completes. With a fn fold, the completion carrier does not stop at the fold — it flows into the parent's **ordinary macrostep**. So the parent moves state on its own child's finishing, declaratively, with no cooperation from the child:
 
 ```clojure
 :configuring
@@ -112,7 +112,7 @@ Per Spec 005 §Final states and §Embedded vs top-level (`spec/005-StateMachines
 
 ## `:on-error` — child-failure control flow
 
-`:on-done` is the *success* notification (a `:data`-only callback when the child reaches a **non-error** `:final?` state). `:on-error` is its **symmetric failure counterpart**, but a **transition** rather than a callback — re-frame2's spelling of XState v5's `invoke onError`. When a spawned child FAILS, the parent **changes state** declaratively, at the `:spawn` site.
+`:on-done` is the *success* notification (a transition, or a `:data` fold when it is a fn, when the child reaches a **non-error** `:final?` state). `:on-error` is its **symmetric failure counterpart**, and always a **transition** — re-frame2's spelling of XState v5's `invoke onError`. When a spawned child FAILS, the parent **changes state** declaratively, at the `:spawn` site.
 
 ```clojure
 ;; Child designates an error terminal with :final? + :error? + :output-key.
@@ -202,7 +202,7 @@ Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`)
 
 - The block's bare-key vocabulary is **closed** to `:children` / `:join` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed`; anything else is `:rf.error/machine-spawn-all-bad-shape`. The retired child-vocabulary keys that once named the events children dispatched are rejected by that rule — delete them.
 - `:on-all-complete` is required when `:join :all` (the default); `:on-some-complete` is required for `:any`.
-- A child spec may declare `:on-done` (folds the parent's `:data` at that child's finality, before the join fold) but **not** `:on-error` — that is `:rf.error/machine-unknown-spawn-key`. Failure control flow under a join is the block's `:on-any-failed`, which decides for the whole fan-out.
+- A child spec may declare `:on-done` — a fn only, folding the parent's `:data` at that child's finality, before the join fold (any other value is `:rf.error/machine-bad-on-done-clause`) — but **not** `:on-error` — that is `:rf.error/machine-unknown-spawn-key`. Failure control flow under a join is the block's `:on-any-failed`, which decides for the whole fan-out.
 
 ## Common gotchas
 
