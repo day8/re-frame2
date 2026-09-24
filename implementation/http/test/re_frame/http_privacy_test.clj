@@ -9,7 +9,7 @@
      `re-frame.http.privacy-headers`.
    - Query-param denylist + URL redaction — `re-frame.http.url`.
    - `request-sensitive?` reads per-call and per-request flags
-     (handler-meta `:sensitive?` has been removed) —
+     (there is no handler-meta `:sensitive?`) —
      `re-frame.http.privacy`.
    - `redact-request-tags` / `redact-failure` / `stamp-sensitive` /
      `prepare-emit-tags` / `prepare-emit-failure` compose correctly —
@@ -88,7 +88,7 @@
             Adversarially: a carrier that tries to 'declare' a built-in default
             itself (a no-op redeclaration) cannot DROP it, and extras for
             unrelated headers leave every default intact — a built-in carrier
-            stays denylisted regardless of what the app supplies (rf2-t55hxg.5)"
+            stays denylisted regardless of what the app supplies"
     ;; an extras set that is non-empty (even if it names a default, which is a
     ;; harmless redeclaration) cannot turn a default OFF.
     (let [extras-redeclaring-default #{"authorization"}
@@ -146,7 +146,7 @@
       (is (= :rf/redacted (get r "Set-cookie"))))))
 
 (deftest redact-headers-redacts-vector-valued-sensitive-header
-  (testing "rf2-rznrz — a denylisted header whose value is a VECTOR (the
+  (testing "a denylisted header whose value is a VECTOR (the
             documented multi-valued request-header shape, string → vector
             of strings) is redacted WHOLE to the sentinel, never per-element
             and never leaked. The redactor matches by header NAME, so the
@@ -241,7 +241,7 @@
 (deftest redact-failure-tolerates-nil
   (is (nil? (rf.http.privacy/redact-failure nil true))))
 
-;; rf2-eusm1 — an interceptor-failure trace carries the interceptor's
+;; An interceptor-failure trace carries the interceptor's
 ;; thrown message at :cause; it is author-controlled free text and can
 ;; echo a secret the interceptor was handling. It must ride the same
 ;; sensitive redaction as the response-side slots.
@@ -312,7 +312,7 @@
     (is (= :rf/redacted (get-in r [:headers "Set-Cookie"])))
     (is (true? (:sensitive? r)))))
 
-;; ---- 7b. project-managed-fx-args (rf2-32ffq1) ------------------------------
+;; ---- 7b. project-managed-fx-args ------------------------------------------
 ;;
 ;; The fx-args projection core consults through the
 ;; `:http/project-managed-fx-args` late-bind hook — the DYNAMIC per-call
@@ -358,11 +358,11 @@
       (is (= {:note "plain"} (get-in r [:request :body])))
       (is (= :rf/redacted (get-in r [:request :headers "Cookie"]))))))
 
-;; rf2-3x7nj.16.1 — the query-param denylist is always-on for BOTH spellings of
+;; The query-param denylist is always-on for BOTH spellings of
 ;; a query parameter. `:params` is merged onto `:url` only at attempt time, so
-;; the fx-args projection sees it as a structured map; before the fix a
-;; denylisted name there rode the `:rf.fx/handled` / `:rf.event/fx` slots raw
-;; while the identical name in `:url` was redacted. The expected answer is
+;; the fx-args projection sees it as a structured map; unredacted there, a
+;; denylisted name would ride the `:rf.fx/handled` / `:rf.event/fx` slots raw
+;; while the identical name in `:url` is redacted. The expected answer is
 ;; DERIVED from the producer: merge the params onto the URL exactly as the
 ;; transport does (`merge-params`), redact that URL, and read which names the
 ;; URL redactor scrubbed — the `:params` projection must scrub the same names.
@@ -380,7 +380,7 @@
     (into #{} (map second) (re-seq #"[?&]([^?&=#]+)=:rf/redacted" redacted))))
 
 (deftest project-managed-fx-args-redacts-denylisted-params-like-the-url
-  (testing "rf2-3x7nj.16.1 — a non-sensitive request's denylisted :params values
+  (testing "a non-sensitive request's denylisted :params values
             redact in the fx-args projection exactly as the same names do once
             merged into :url; ordinary params ride verbatim"
     (let [url      "https://api.example.test/x"
@@ -400,7 +400,7 @@
       (is (= url (get-in r [:request :url])) "the params-free url survives"))))
 
 (deftest prepare-emit-tags-stamps-sensitive-on-params-denylist-hit
-  (testing "rf2-3x7nj.16.1 — a denylisted :params name alone stamps :sensitive?,
+  (testing "a denylisted :params name alone stamps :sensitive?,
             exactly as a denylisted :url name does; carriers apply to :params"
     (let [r (rf.http.privacy/prepare-emit-tags
               {:url "https://api.example.test/x" :params {:api_key "S" :page 2}} false)]
@@ -421,24 +421,23 @@
 ;; The cases below are spelled out LITERALLY rather than read from
 ;; `rf.http.encoding/reply-address-keys`, because that roster is the very
 ;; thing under test: `project-managed-fx-args` reduces over it, so a test that
-;; also iterates it cannot see a key DROPPED from it. Measured — delete
-;; `:reply-to` from the roster and the projection stops classifying it while
-;; this namespace iterates the two survivors and reports 82 tests / 222
-;; assertions / 0 failures. That is exactly the rf2-uc7d defect returning
-;; through a door its own regression pin could not look at. The roster is
+;; also iterates it cannot see a key DROPPED from it: delete `:reply-to` from
+;; the roster and the projection stops classifying it, while a test iterating
+;; the roster would walk the two survivors and pass — an unclassified
+;; reply-address payload behind a green suite. The roster is
 ;; pinned against this literal in its own assertion below, so the two cannot
 ;; drift apart either.
 (def ^:private reply-address-keys-literal [:reply-to :on-success :on-failure])
 
 (deftest reply-address-roster-is-the-three-spelled-keys
-  (testing "rf2-uc7d — `reply-address-keys` is the unified `:reply-to` plus the
+  (testing "`reply-address-keys` is the unified `:reply-to` plus the
             split `:on-success` / `:on-failure` sugar, in that order. Dropping
             one silently un-classifies its payloads everywhere the roster is
             reduced over, so the roster itself is pinned rather than trusted"
     (is (= reply-address-keys-literal rf.http.encoding/reply-address-keys))))
 
 (deftest project-managed-fx-args-classifies-every-reply-address-key
-  (testing "rf2-uc7d — the artefact-level fn applies the target registration's
+  (testing "the artefact-level fn applies the target registration's
             classification to ALL THREE reply-address keys. Core's
             fx_aggregate_classification_cljs_test drives the same contract
             through the trace projector; this pins the fn the
@@ -457,7 +456,7 @@
             (str k " keeps the event id"))))))
 
 (deftest project-managed-fx-args-preserves-nil-reply-addresses
-  (testing "rf2-uc7d — an explicit nil (fire-and-forget) survives as nil on
+  (testing "an explicit nil (fire-and-forget) survives as nil on
             every reply-address key, never a redaction sentinel"
     (doseq [k reply-address-keys-literal]
       (let [r (rf.http.privacy/project-managed-fx-args
@@ -475,7 +474,7 @@
             consults (load-time anchor)"
     (is (fn? (rf.late-bind/get-fn :http/project-managed-fx-args)))))
 
-;; ---- 8. query-param denylist (rf2-2p8wr) ----------------------------------
+;; ---- 8. query-param denylist ----------------------------------------------
 
 (deftest default-query-param-denylist-covers-canonical-set
   (testing "the default denylist contains the canonical query-string-auth surface"
@@ -524,13 +523,13 @@
     (is (not (rf.http.url/sensitive-query-param? :keyword)))
     (is (not (rf.http.url/sensitive-query-param? 42)))))
 
-;; rf2-4wqxq8 — query-param policy MAP {:include :except}: an app can SUBTRACT a
+;; Query-param policy MAP {:include :except}: an app can SUBTRACT a
 ;; built-in default (relaxing its OWN dev-trace friction over a harmless
 ;; routing/pagination key) while still extending with :include. The effective
 ;; policy is (defaults − except) ∪ include; :include wins over :except.
 
 (deftest query-param-policy-except-subtracts-a-default
-  (testing "rf2-4wqxq8 — :except removes a built-in default for this app"
+  (testing ":except removes a built-in default for this app"
     (let [policy {:except #{"token"}}]
       ;; the excepted default is no longer sensitive
       (is (not (rf.http.url/sensitive-query-param? "token" policy)))
@@ -542,7 +541,7 @@
       (is (rf.http.url/sensitive-query-param? "token")))))
 
 (deftest query-param-policy-include-and-except-compose
-  (testing "rf2-4wqxq8 — :include extends defaults; :except subtracts; both compose"
+  (testing ":include extends defaults; :except subtracts; both compose"
     (let [policy {:include #{"shop_token"} :except #{"token"}}]
       (is (rf.http.url/sensitive-query-param? "shop_token" policy)) ; included extension
       (is (not (rf.http.url/sensitive-query-param? "token" policy))) ; excepted default
@@ -550,18 +549,18 @@
       (is (not (rf.http.url/sensitive-query-param? "page" policy)))))) ; never sensitive
 
 (deftest query-param-policy-include-wins-over-except
-  (testing "rf2-4wqxq8 — a name in BOTH :include and :except stays sensitive"
+  (testing "a name in BOTH :include and :except stays sensitive"
     (let [policy {:include #{"token"} :except #{"token"}}]
       (is (rf.http.url/sensitive-query-param? "token" policy)
           "declaring a name sensitive is never undone by also excepting it"))))
 
 (deftest query-param-policy-empty-map-is-defaults-only
-  (testing "rf2-4wqxq8 — an empty policy map behaves like defaults-only"
+  (testing "an empty policy map behaves like defaults-only"
     (is (rf.http.url/sensitive-query-param? "api_key" {}))
     (is (not (rf.http.url/sensitive-query-param? "page" {})))))
 
 (deftest redact-url-policy-except-leaves-default-param-visible
-  (testing "rf2-4wqxq8 — end-to-end: :except keeps a default param's value
+  (testing "end-to-end: :except keeps a default param's value
             visible in the app's own dev trace"
     (let [policy {:except #{"token"}}
           [url any?] (rf.http.url/redact-url-query-string
@@ -577,7 +576,7 @@
                       true policy)]
         (is (= "https://api.example.com/list?token=:rf/redacted&page=:rf/redacted" url))))))
 
-;; ---- 9. redact-url-query-string (rf2-2p8wr) -------------------------------
+;; ---- 9. redact-url-query-string -------------------------------------------
 
 (deftest redact-url-denylist-replaces-sensitive-values
   (testing "denylisted query-param values become :rf/redacted; non-denylisted preserved"
@@ -658,7 +657,7 @@
       ;; The orphan is not in the denylist and is preserved; api_key is redacted.
       (is (= "https://api.example.com/x?orphan&api_key=:rf/redacted" url)))))
 
-;; ---- 9b. redact-url-query-string — round-2 audit edge cases (rf2-e5h1b) --
+;; ---- 9b. redact-url-query-string — parser edge cases ----------------------
 ;;
 ;; Hand-written split/walk parser territory: fragment-only URLs (no
 ;; query), empty `?`-only query string, fragments alongside denylisted
@@ -709,7 +708,7 @@
                     "https://api.example.com/x?token=abc#k=v&also=x" false)]
       (is (= "https://api.example.com/x?token=:rf/redacted#k=v&also=x" url)))))
 
-;; ---- 9c. redact-url convenience wrapper (rf2-e5h1b) ----------------------
+;; ---- 9c. redact-url convenience wrapper ----------------------------------
 ;;
 ;; `redact-url` is the single-value form used inside generic tag walkers
 ;; (`redact-url-in`) that don't need the any-redacted? flag. Pin the
@@ -813,7 +812,7 @@
       (is (not (contains? r :sensitive?))))))
 
 (deftest prepare-emit-failure-handler-sensitive-redacts-all-url-params
-  (testing "handler-sensitive flag forces ALL URL params redacted even non-denylisted"
+  (testing "the sensitive? flag forces ALL URL params redacted even non-denylisted"
     (let [f {:kind :rf.http/http-5xx
              :status 500
              :url "https://api.example.com/x?user_id=42&page=2"}
@@ -821,7 +820,7 @@
       (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted" (:url r)))
       (is (true? (:sensitive? r))))))
 
-;; rf2-eusm1 — end-to-end: a sensitive request whose interceptor throws.
+;; End-to-end: a sensitive request whose interceptor throws.
 ;; The composed failure trace (the shape `run-interceptor-chain!` hands to
 ;; `prepare-emit-failure`) must surface :cause redacted, not verbatim.
 (deftest prepare-emit-failure-redacts-interceptor-cause-when-sensitive
@@ -851,7 +850,7 @@
 
 (defn- reg-managed-carriers!
   "Re-register `:rf.http/managed` with a `:carriers` block (the app-extension
-  shape). `registrar/clear-all!` in the reset fixture clears the framework's
+  shape). The reset fixture's `:clear-kinds [:event :fx]` clears the framework's
   own registration, so each carrier test installs the carriers it needs."
   [carriers]
   (rf.fx/reg-fx :rf.http/managed {:carriers carriers} rf.http.managed/managed-handler))
@@ -909,11 +908,11 @@
             out  (rf.http.privacy/prepare-emit-tags tags false)]
         (is (= "https://api.example.com/x?shop_token=abc&page=2" (:url out)))))))
 
-;; rf2-4wqxq8 — :query-params {:include :except} policy map (carried verbatim
-;; onto the :rf.http/managed registration now).
+;; :query-params {:include :except} policy map (carried verbatim
+;; on the :rf.http/managed registration).
 
 (deftest managed-carriers-resolves-policy-map
-  (testing "rf2-4wqxq8 — the :query-params {:include :except} map form lowers
+  (testing "the :query-params {:include :except} map form lowers
             to a {:include #{..} :except #{..}} policy (sub-sets lower-cased)"
     (reg-managed-carriers! {:query-params {:include ["Shop_Token"]
                                            :except  ["Token" "Sig"]}})
@@ -921,7 +920,7 @@
           qp       (:query-params carriers)]
       (is (= #{"shop_token"} (:include qp)))
       (is (= #{"token" "sig"} (:except qp))))
-    (testing "the legacy vector form still resolves to a plain set"
+    (testing "the vector form resolves to a plain set"
       (reg-managed-carriers! {:query-params ["shop_token"]})
       (is (= #{"shop_token"} (:query-params (rf.http.privacy/managed-carriers)))))
     (testing "a policy map of all-empty vectors resolves :query-params to nil"
@@ -929,7 +928,7 @@
       (is (nil? (:query-params (rf.http.privacy/managed-carriers)))))))
 
 (deftest prepare-emit-tags-honours-managed-query-param-except
-  (testing "rf2-4wqxq8 — a managed-HTTP :except keeps a built-in default param
+  (testing "a managed-HTTP :except keeps a built-in default param
             VISIBLE in the app's own dev trace (subtraction is app-local)"
     (reg-managed-carriers! {:query-params {:except ["token"]}})
     (let [tags {:url "https://api.example.com/x?token=abc&api_key=SECRET&page=2"}
