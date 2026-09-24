@@ -1,11 +1,11 @@
 (ns re-frame.example-login-success-token-cljs-test
-  "Framework-tree regression for the login feature's SUCCESS-TOKEN privacy — the
+  "Framework-tree tests for the login feature's SUCCESS-TOKEN privacy — the
    `:auth.login/succeeded` reply event and the `:auth.session/store` persistence
    fx owned by examples/core/login/model.cljc, the substrate-free model shared
-   across the Reagent/UIx login examples (rf2-ppbvav / rf2-j538f7.30).
+   across the Reagent/UIx login examples.
 
    These belong in the framework test tree, NOT under examples/ (examples stay
-   test-free per rf2-8cevm). The ns requires the login model owner
+   test-free). The ns requires the login model owner
    (`login.model`) so its events / subs / machine / schemas register at ns-load,
    then drives the success continuation directly. Sibling of
    `re-frame.example-login-form-slice-cljs-test` (the PASSWORD-egress half); this
@@ -22,7 +22,7 @@
         dispatched-event trace (and any error record carrying the event) while
         the handler still reads the real token. (Routing it at the two-element
         machine event would make the reply a THIRD positional arg — unaddressable
-        — which is the leak this fix closes.)
+        — so the token would leak.)
 
      2. THE STORAGE FX. `:auth.session/store` declares `:sensitive [[:token]]`
         on its own registration, so the per-effect `:rf.fx/handled` trace redacts
@@ -33,37 +33,36 @@
         `[:auth.login/flow [:auth.login/success]]` signal, so the flow reaches
         `:authed` without ever seeing the token.
 
-   FRAMEWORK-GATED SLOTS — NOW CLOSED (rf2-6h3c02). Two trace slots used to carry
-   the raw token, neither reachable by app-side classification — central
-   classification-projector gaps where `project-trace-event` applied the fx
-   registration's `:sensitive` only to the `:rf.fx/handled` slot. rf2-6h3c02
-   taught the projector to apply the fx registration's `:sensitive` to EVERY
-   fx-arg-bearing slot, so both now redact off the SAME `:auth.session/store`
-   `:sensitive [[:token]]` this example already declares:
+   FRAMEWORK-GATED SLOTS. Two further trace slots carry the token, and
+   neither is reachable by app-side classification. The projector
+   (`project-trace-event`) applies the fx registration's `:sensitive` to EVERY
+   fx-arg-bearing slot, not only the `:rf.fx/handled` slot, so both redact off
+   the SAME `:auth.session/store` `:sensitive [[:token]]` this example
+   declares:
 
      - `:rf.event/fx` on `:rf.fx/do-fx` — the handler's WHOLE returned effect
-       vector; each entry's args now walk through its fx registration (sibling of
+       vector; each entry's args walk through its fx registration (sibling of
        the `:rf.event/db` walk — Spec 009 §Canonical per-event trace sequence
        notes they share posture). Asserted clean by the whole-stream sweep below.
      - `:rf.fx/args` on the always-on (production-survivable)
-       `:rf.error/fx-handler-exception` — fx-args redaction is now keyed on the
+       `:rf.error/fx-handler-exception` — fx-args redaction is keyed on the
        slot shape, not op `:rf.fx/handled`. Asserted clean by the error-arm test.
 
    This ns asserts everything the example owns is redacted, pins the two
-   registration declarations the projector consumes, and — post-rf2-6h3c02 — the
-   two formerly-residual framework slots.
+   registration declarations the projector consumes, and the two framework
+   slots.
 
-   THE STORY VARIANT'S OWN TOKEN FIXTURE (rf2-cckg / rf2-hz8u). Everything
-   above drives `:auth.login/succeeded` with an EXPLICITLY token-bearing reply
-   this file writes, which is exactly why it never covered the canonical Story
-   variant: `:story.login/success` does not write a reply, it runs the REAL
-   form path in a `:preset :story` frame and lets the server's half arrive
-   through `:rf.http/managed`. That frame redirects the fx to the framework's
-   GENERIC canned-success stub, whose `{:stubbed true}` payload has no
+   THE STORY VARIANT'S OWN TOKEN FIXTURE. Everything above drives
+   `:auth.login/succeeded` with an EXPLICITLY token-bearing reply this file
+   writes, which cannot cover the canonical Story variant:
+   `:story.login/success` does not write a reply, it runs the REAL form path
+   in a `:preset :story` frame and lets the server's half arrive through
+   `:rf.http/managed`. Without a route of its own, the framework's GENERIC
+   canned-success stub answers, and its `{:stubbed true}` payload has no
    `[:value :token]` and is therefore refused at `:auth.login/succeeded`'s
    schema boundary — leaving the canonical screenshot stuck in `:submitting`.
-   PR #9386 fixed the SOURCE by giving the variant its own `:network` route
-   fixture; the final section of this ns guards that fixture at TWO altitudes —
+   The variant carries its own `:network` route fixture; the final section
+   of this ns guards that fixture at TWO altitudes —
    the compiled plan, and a live `run-variant` drive of the registered variant
    that watches the whole cascade arrive."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is async]]
@@ -79,12 +78,12 @@
             ;; self-sufficient (mirrors the sibling login test namespaces).
             [re-frame.schemas]
             ;; The Malli adapter publishes the validator the `:where :event`
-            ;; boundary routes through, and the `m/explain` the rf2-cckg guard
+            ;; boundary routes through, and the `m/explain` the Story-fixture guard
             ;; below runs against the registered `:auth.login/succeeded` schema
             ;; (mirrors re-frame.login-cljs-test).
             [re-frame.schemas.malli]
             [re-frame.machines]
-            ;; rf2-cckg — the Story deck under test. `login.stories` sources
+            ;; The Story deck under test. `login.stories` sources
             ;; `login.core` (views) which sources `login.model`, so requiring it
             ;; registers the whole example; `re-frame.story.plan` compiles the
             ;; registered variant body to the plan the guard below reads (pure
@@ -96,7 +95,7 @@
             ;; release bundles — is untouched: no production build requires this
             ;; namespace.
             [re-frame.story.plan :as rf.story.plan]
-            ;; rf2-cckg (the acceptance half) — the LIVE runner. `run-variant`
+            ;; The acceptance half — the LIVE runner. `run-variant`
             ;; allocates the variant's own frame, realizes the compiled
             ;; `:network` fixture onto the managed-HTTP seam and drives the
             ;; four-phase lifecycle; `rf.story.async/then` is Story's
@@ -113,7 +112,7 @@
 ;; and it aborts the WHOLE run, not just this ns). The flag hands back the
 ;; map-form fixture, whose ambient frame scope is a persistent `set!` rather
 ;; than a dynamic `binding`, so it survives the async body resuming on a later
-;; tick. Everything the sync tests above rely on is unchanged.
+;; tick. The sync tests above behave identically under the map form.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
@@ -225,11 +224,11 @@
                 "the store fx :token arg reads :rf/redacted in :rf.fx/handled")))
 
         ;; --- the whole-stream sweep: the sentinel appears in NO trace tag.
-        ;;     Post-rf2-6h3c02 this includes :rf.event/fx (the :rf.fx/do-fx
-        ;;     aggregate) — the projector now walks each fx entry's args through
-        ;;     its registration, so the store fx's [:token] redacts there too.
-        ;;     (The error-arm :rf.fx/args gap — also closed by rf2-6h3c02 — only
-        ;;     fires when the fx THROWS, exercised in the error-arm test below.)
+        ;;     This includes :rf.event/fx (the :rf.fx/do-fx aggregate) — the
+        ;;     projector walks each fx entry's args through its registration,
+        ;;     so the store fx's [:token] redacts there too. (The error-arm
+        ;;     :rf.fx/args slot only fires when the fx THROWS, exercised in the
+        ;;     error-arm test below.)
         (let [checked (atom 0)]
           (doseq [ev @traces
                   [k v] (:tags ev)]
@@ -246,8 +245,8 @@
 
 (deftest error-arm-origin-event-and-fx-args-redacted-on-fx-exception
   (testing "when the localStorage fx throws, BOTH the origin event (:event slot,
-            example-owned) AND the fx args (:rf.fx/args slot, framework-gated
-            until rf2-6h3c02) on the always-on :rf.error/fx-handler-exception
+            example-owned) AND the fx args (:rf.fx/args slot,
+            framework-gated) on the always-on :rf.error/fx-handler-exception
             trace redact the token"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (submit! f)
@@ -266,8 +265,8 @@
             (is (not (contains-sentinel? (get-in ev [:tags :event])))
                 "the origin event on the error trace redacts the token — the
                  :auth.login/succeeded registration classifies it")
-            ;; rf2-6h3c02: the fx args on the production-survivable error trace
-            ;; now redact off :auth.session/store's own :sensitive [[:token]].
+            ;; The fx args on the production-survivable error trace redact
+            ;; off :auth.session/store's own :sensitive [[:token]].
             (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
                 "the store fx :token arg reads :rf/redacted in :rf.fx/args")
             (is (not (contains-sentinel? (:tags ev)))
@@ -289,17 +288,17 @@
         ":auth.session/store owns [:token] — its own transient fx arg")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-cckg - the canonical Story variant's own token fixture
+;; the canonical Story variant's own token fixture
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Everything above supplies the reply itself. `:story.login/success` supplies
 ;; NOTHING: it runs the real form path in a `:preset :story` frame and lets the
-;; server's half arrive through `:rf.http/managed`. That frame redirects the fx
-;; to the framework's GENERIC canned-success stub, whose `{:stubbed true}`
+;; server's half arrive through `:rf.http/managed`. Without a route of its own,
+;; the framework's GENERIC canned-success stub answers, and its `{:stubbed true}`
 ;; payload carries no `[:value :token]` and is refused at
 ;; `:auth.login/succeeded`'s schema boundary - leaving the canonical screenshot
-;; stuck in `:submitting`. PR #9386's fix gave the variant its own `:network`
-;; route fixture, and this section guards it.
+;; stuck in `:submitting`. The variant carries its own `:network` route
+;; fixture, and this section guards it.
 ;;
 ;; TWO ALTITUDES, AND BOTH ARE LOAD-BEARING.
 ;;
@@ -310,7 +309,7 @@
 ;;     frame, no host, no promise. It names WHICH slot is wrong when the drive
 ;;     below goes red, which a live drive alone cannot.
 ;;
-;; (2) THE LIVE DRIVE - the acceptance rf2-cckg / rf2-hz8u actually asked for.
+;; (2) THE LIVE DRIVE - the acceptance test.
 ;;     Allocate the variant's own Story frame, run the real four-phase
 ;;     lifecycle, and assert the cascade ARRIVES: the machine reaches `:authed`,
 ;;     the `:auth/authenticated` tag the Welcome banner branches on reads true,
@@ -319,21 +318,18 @@
 ;;     witness any of that - a plan is a description, and a description of a
 ;;     working fixture is exactly what a BROKEN runtime also produces.
 ;;
-;; That second altitude was unreachable when this section was first written:
-;; `lower-network` is pure, so it emitted the `{:rf.http/managed
-;; :rf.http/managed-test-stub}` redirect while registering nothing, and the only
-;; caller of `re-frame.http.test-support/install-managed-request-stubs!` in
-;; Story was artifact REPLAY. A live `run-variant` therefore reached the real
-;; transport and reproduced the PRE-FIX symptom exactly. PR #9398 (rf2-shx4)
-;; added `re-frame.story.network`, which the runtime calls on BOTH live paths
-;; (registered and inline) and releases at frame teardown - so the drive below
-;; runs.
+;; The second altitude depends on `re-frame.story.network`. `lower-network` is
+;; pure: it emits the `{:rf.http/managed :rf.http/managed-test-stub}` redirect
+;; while registering nothing. The runtime calls `re-frame.story.network` on
+;; BOTH live paths (registered and inline) to install the route map, and
+;; releases it at frame teardown - so a live `run-variant` reaches the fixture
+;; rather than the real transport, and the drive below runs.
 ;;
 ;; Delete the `:network` slot from examples/core/login/stories.cljs and BOTH
 ;; altitudes go red: the plan guard on the missing route, the drive on a machine
 ;; still sitting in `:submitting` with the token nowhere and one
 ;; `:rf.error/schema-validation-failure :where :event` naming `[1 :value :token]`
-;; as a missing key. That is the regression rf2-cckg exists to hold.
+;; as a missing key. That is the failure this section holds off.
 
 (def ^:private story-fixture-token
   "The token `:story.login/success`'s `:network` route fixture hands back - the
@@ -386,13 +382,13 @@
            (re-frame.story.plan/lower-network)"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-cckg / rf2-hz8u - THE LIVE DRIVE (the acceptance)
+;; THE LIVE DRIVE (the acceptance)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Everything above reads the compiled plan. This part RUNS it: `run-variant`
 ;; allocates the variant's own frame, installs the `:network` route map on the
 ;; managed-HTTP seam (`re-frame.story.network/install-for-frame!`, on both live
-;; paths since rf2-shx4), then drives the four-phase lifecycle - so what is
+;; paths), then drives the four-phase lifecycle - so what is
 ;; asserted below is the real cascade the Story canvas performs, not a
 ;; description of one:
 ;;
@@ -435,9 +431,9 @@
 
 (defn- event-schema-refusals
   "Every `:rf.error/schema-validation-failure` trace raised at the EVENT
-   boundary - the refusal the pre-fix generic `{:stubbed true}` payload earns
-   at `:auth.login/succeeded`. Empty is the assertion; a non-empty vector is
-   the pre-fix symptom."
+   boundary - the refusal the generic `{:stubbed true}` payload earns at
+   `:auth.login/succeeded`. Empty is the assertion; a non-empty vector means
+   the variant's own fixture did not answer."
   [traces]
   (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                  (= :event (get-in % [:tags :where])))
@@ -483,7 +479,7 @@
           (is (= :ready (:lifecycle result))
               "the four-phase lifecycle completed cleanly")
           (is (empty? (event-schema-refusals traces))
-              (str "no event-schema refusal on the way - the pre-fix generic "
+              (str "no event-schema refusal on the way - the generic "
                    "{:stubbed true} payload is refused at "
                    ":auth.login/succeeded's [:value :token]; got "
                    (pr-str (mapv :tags (event-schema-refusals traces)))))
