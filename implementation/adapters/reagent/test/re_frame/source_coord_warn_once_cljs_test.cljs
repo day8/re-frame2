@@ -1,5 +1,5 @@
 (ns re-frame.source-coord-warn-once-cljs-test
-  "Per Spec 006 §Documented exemption: non-DOM roots (rf2-z7f7 / rf2-z9n1):
+  "Per Spec 006 §Documented exemption: non-DOM roots:
 
     'A registered view whose root element is one of [Fragment, host-
      component head, function/component head] is exempt from the
@@ -8,11 +8,10 @@
      console on re-render) and MUST NOT inject the attribute in
      these cases.'
 
-  Coverage gap before this file (rf2-d4v7 sub-gap 2 / rf2-o423 audit):
-  the attribute-emission path has tests in
+  The attribute-emission path is tested in
   `source_coord_dom_cljs_test` (Fragment-root exempt, interop-root
-  exempt, attribute-format shape) — the WARNING-FIRES-ONLY-ONCE
-  contract has no test. This file pins the warn-once-per-id semantic.
+  exempt, attribute-format shape); this file pins the
+  WARNING-FIRES-ONLY-ONCE contract — the warn-once-per-id semantic.
 
   Mechanism: `re-frame.views/warn-non-dom-root!` (private) consults a
   process-wide `defonce` set `warned-non-dom-roots`. First call for an
@@ -56,7 +55,8 @@
 
 (deftest fragment-root-warn-fires-once-across-multiple-renders
   (testing "A Fragment-headed reg-view'd component renders without the
-            data-rf2-source-coord attribute (existing coverage) and
+            data-rf2-source-coord attribute (covered by
+            source_coord_dom_cljs_test) and
             ALSO emits the documented warning EXACTLY ONCE — the
             second through fifth re-render do NOT re-emit. Per Spec
             006 §Documented exemption: 'one-shot warning per id (so
