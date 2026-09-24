@@ -1,11 +1,11 @@
 (ns re-frame.ssr-sub-exception-two-frame-attribution-test
-  "Per rf2-vdk33 / rf2-vvwmi — the two-server-frame attribution proof for
-  the ALWAYS-ON error-emit projection path, exercised through a reactive
-  subscription that throws under production hardening.
+  "The two-server-frame attribution proof for the ALWAYS-ON error-emit
+  projection path, exercised through a reactive subscription that throws
+  under production hardening.
 
-  Context. rf2-7d30s proved per-frame attribution (route solely by
-  `[:tags :frame]`; no single-frame fallback) at the core ssr level — but
-  only for ONE of the two listener substrates:
+  Context. Per-frame attribution routes solely by `[:tags :frame]`, with
+  no single-frame fallback. Two neighbouring suites each cover only one
+  of the two listener substrates:
 
     - `ssr_error_two_frame_attribution_test` drives TWO server frames, but
       exclusively through `:rf.error/schema-validation-failure` — the
@@ -14,33 +14,32 @@
       that survives production hardening.
     - `ssr_error_projector_substrate_test` exercises the ALWAYS-ON
       `error-emit-projection-listener`, but with a SINGLE frame — so it
-      cannot catch a per-frame mis-attribution regression.
+      cannot catch a per-frame mis-attribution.
 
   The production-survivable channel for 500-class errors is the always-on
   `error-emit-projection-listener` (the one that fires under
-  `-Dre-frame.debug=false` per Spec 011 §Substrate). The canonical
-  concurrent shape — >1 live server frame, an exception in one — was
-  UNPROVEN for that path. A future change to
-  `error-emit-projection-listener`'s frame-routing could re-introduce the
-  single-frame-fallback class of bug on the PRODUCTION path and every
-  existing test would stay green.
+  `-Dre-frame.debug=false` per Spec 011 §Substrate). This suite proves the
+  canonical concurrent shape — >1 live server frame, an exception in one —
+  on that path. Without it, a change to
+  `error-emit-projection-listener`'s frame-routing could introduce a
+  single-frame fallback on the PRODUCTION path with every other test
+  green.
 
-  This suite closes that gap, using the rf2-vvwmi sub-exception fix as the
-  vehicle: a reactive subscription that throws now routes through the
-  always-on `error-emit/dispatch-on-error!` substrate (subs/memo.cljc), so
-  under `with-redefs [interop/debug-enabled? false]` (production-hardening
-  posture per rf2-vnjfg) a sub-throw in ONE of two live server frames
-  must:
+  The vehicle is a reactive subscription that throws: it routes through
+  the always-on `error-emit/dispatch-on-error!` substrate
+  (subs/memo.cljc), so under `with-redefs [interop/debug-enabled? false]`
+  (the production-hardening posture) a sub-throw in ONE of two live
+  server frames must:
 
     1. fail-closed to a 500 on THAT frame's response accumulator, and
     2. leave the SIBLING frame's response untouched (no cross-frame
        bleed) — provable only with >1 server frame live, the exact shape
-       the removed single-frame fallback could not handle, and
+       a single-frame fallback cannot handle, and
     3. project an ELIDED public body (the locked four keys only — no
        `:exception` / message / internal detail across the HTTP
        boundary).
 
-  ## SCOPE — core/accumulator layer ONLY (rf2-c0bq1)
+  ## SCOPE — core/accumulator layer ONLY
 
   IMPORTANT: this suite drives `(rf/subscribe-once …)` FIRST — which runs
   the sub body SYNCHRONOUSLY and buffers the projected status — and reads
@@ -49,10 +48,10 @@
   (the walk being where a reactive sub actually throws). So this suite
   proves the listener / accumulator / per-frame-attribution layer is
   correct, but it does NOT — and must not be read as — proof that the
-  fail-closed 500 reaches the WIRE. rf2-c0bq1 documented exactly that
-  false-confidence trap: the reference adapter shipped a silent 200 for a
-  render-time sub-throw despite every assertion here being green, because
-  the adapter read the (empty) buffer before the render that fills it.
+  fail-closed 500 reaches the WIRE. That is a false-confidence trap: an
+  adapter that reads the (empty) buffer before the render that fills it
+  ships a silent 200 for a render-time sub-throw with every assertion
+  here green.
 
   The WIRE/end-to-end fail-closed contract is pinned by the handler-level
   tripwire `re-frame.ssr.ring-rendertime-sub-failclosed-test` (ssr-ring
@@ -67,7 +66,7 @@
     - `re-frame.trace-test`                      — the core sub-exception emit site.
     - `re-frame.ssr.ring-rendertime-sub-failclosed-test` (ssr-ring) — the
       WIRE-level fail-closed tripwire that this suite's inverse ordering
-      could NOT prove (rf2-c0bq1)."
+      cannot prove."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -81,7 +80,7 @@
 
 (defn- register-subs! []
   ;; A subscription that throws while computing. The reactive sub-run
-  ;; catch (subs/memo.cljc) recovers the value to nil but, per rf2-vvwmi,
+  ;; catch (subs/memo.cljc) recovers the value to nil but
   ;; routes `:rf.error/sub-exception` through the ALWAYS-ON
   ;; error-emit/dispatch-on-error! substrate — frame-attributed by the
   ;; running frame's id, the `[:tags :frame]` the projection listener
@@ -109,24 +108,24 @@
 ;; ===========================================================================
 
 (deftest two-server-frames-sub-exception-fails-closed-on-emitting-frame-only
-  (testing "rf2-vdk33/rf2-vvwmi: under `interop/debug-enabled? = false`
+  (testing "Under `interop/debug-enabled? = false`
             (production hardening), a reactive subscription that throws in
             frame-a routes `:rf.error/sub-exception` through the ALWAYS-ON
             error-emit substrate → the default projector stamps 500 on
             frame-a's response accumulator. frame-b (which derefs a clean
             sub) stays at the default 200. With >1 server frame live this
             can only succeed if the trace carries the emitting frame's
-            `:frame`; the removed single-frame fallback would have no-op'd,
-            shipping a silent 200 for the broken render."
+            `:frame`; a single-frame fallback would no-op, shipping a
+            silent 200 for the broken render."
     (register-subs!)
     (let [fa (make-server-frame frame-a)
           fb (make-server-frame frame-b)]
       (with-redefs [rf.interop/debug-enabled? false]
         ;; Both frames are live registered server frames — the exact
-        ;; >1-server-frame shape the removed fallback could not handle.
+        ;; >1-server-frame shape a single-frame fallback cannot handle.
         ;; frame-a derefs the throwing sub; frame-b derefs the clean one.
         ;;
-        ;; rf2-c0bq1 — NOTE THE ORDERING: subscribe-once (runs the sub,
+        ;; NOTE THE ORDERING: subscribe-once (runs the sub,
         ;; buffers the status) THEN get-response. This is the INVERSE of
         ;; the Ring handler (get-response-then-render). It proves the core
         ;; attribution layer, NOT the wire. The wire fail-closed contract
@@ -142,16 +141,16 @@
              emitting frame even with a sibling server frame live")
         (is (= 200 (:status (rf.ssr/get-response fb)))
             "frame-b's response stays at the default 200 — frame-a's
-             sub-throw did not bleed onto the sibling. The removed
-             single-frame fallback would have no-op'd with >1 server
-             frame, masking the per-frame contract this asserts")))))
+             sub-throw did not bleed onto the sibling. A single-frame
+             fallback would no-op with >1 server frame, masking the
+             per-frame contract this asserts")))))
 
 ;; ===========================================================================
 ;; (2) Symmetry — a throw in frame-b stamps frame-b only; frame-a stays clean.
 ;; ===========================================================================
 
 (deftest two-server-frames-sub-exception-attributes-each-frame-independently
-  (testing "rf2-vdk33: the mirror of (1) — a sub-throw in frame-b fails
+  (testing "The mirror of (1) — a sub-throw in frame-b fails
             closed on frame-b while frame-a stays 200. Proves attribution
             follows the EMITTING frame in both directions on the
             production path, not a fixed/first-registered server frame."
@@ -172,7 +171,7 @@
 ;; ===========================================================================
 
 (deftest sub-exception-projected-body-is-elided
-  (testing "rf2-vvwmi (Mike's threat-model ruling): the 5xx the sub-throw
+  (testing "The 5xx the sub-throw
             projects under production hardening carries ONLY the locked
             public-error shape — `:status` / `:code` / `:message` /
             `:retryable?`. The exception, its message, the sub query, and
