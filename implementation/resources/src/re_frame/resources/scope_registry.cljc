@@ -32,10 +32,10 @@
     reserved).
   - The resolver (the third, value slot) — `(fn [inputs ctx] -> scope | nil)`.
     PURE. **The first arg is ALWAYS the resolved input map** — this is the one
-    stable, Name-over-place meaning across every registration (rf2-wvh95f F3).
+    stable, Name-over-place meaning across every registration.
     It derives a scope from that map; it MUST NOT fetch, dispatch, mutate
     state, read ambient host state, or perform transport work. The `ctx` arg
-    is RESERVED and is invoked as literal `nil` in this slice — a resolver
+    is RESERVED and is invoked as literal `nil` — a resolver
     MUST derive scope from its declared `:inputs`, not from `ctx`. A `nil`
     result is FAIL-CLOSED at every scope-requiring site (never an implicit
     global read).
@@ -62,16 +62,16 @@
   ## No derived-sensitivity propagation (EP-0025)
 
   There is NO sensitivity PROPAGATION from a resolver's `:db` inputs to its
-  derived scope. EP-0025 removed all sensitivity propagation (subs / flows /
+  derived scope. There is no sensitivity propagation anywhere (subs / flows /
   the resource scope-resolver arm) — classification does not flow input →
-  output (Spec 015 §No propagation, no taint). A resolver no longer carries a
-  `:rf.egress/output-sensitivity` declassification claim: the key is GONE and
+  output (Spec 015 §No propagation, no taint). A resolver carries no
+  `:rf.egress/output-sensitivity` declassification claim: the key is
   silently ignored if present (NOT a fail-closed enum validation). A resource
   is governed by its OWN projection-relative `:sensitive` / `:large`
   declarations (lowered per instance into the per-frame elision registry — see
   `re-frame.resources.classification`), never by sensitivity inherited from the
   paths its scope resolver read. The off-box trace egress of a resolved scope's
-  identity-bearing values is still FAIL-CLOSED (`project-scope-resolved-egress`)
+  identity-bearing values is FAIL-CLOSED (`project-scope-resolved-egress`)
   — that is conservative redaction of resolver-owned values copied into trace
   tags, not a propagation engine.
 
@@ -80,7 +80,7 @@
   `resolve-resource-scope` resolves a named scope against a SUPPLIED db
   value — a plain function over the registry, no effect-API surface and no
   resolution-timing ambiguity. It is NOT an effect and has no app-state /
-  dispatch side effects, and (rf2-ru73k6 F3) it is a PURE data helper: it
+  dispatch side effects, and it is a PURE data helper: it
   routes through the trace-free `resolve-scope*-pure` evaluator, so a passive
   read advertised as pure does NOT emit `:rf.resource/scope-resolved` into the
   trace bus. The CAUSAL resolution boundaries that DO carry that trace evidence
@@ -105,34 +105,32 @@
 (def scope-kind
   "The registrar kind for named resource-scope resolvers
   (`:resource-scope`). Per Spec 016 §Named resource-scope resolvers / the
-  kind taxonomy. Added to the core registrar's closed kind set (a Spec
-  change); resolvers register their canonical spec under this kind."
+  kind taxonomy. A member of the core registrar's closed kind set;
+  resolvers register their canonical spec under this kind."
   :resource-scope)
 
 ;; ---- input source descriptors --------------------------------------------
 
 (def shipped-input-sources
-  "The CLOSED set of input source-descriptor heads shipped in this slice.
+  "The CLOSED set of shipped input source-descriptor heads.
   Only `:db` ships — `[:db <rf-path>]` reads the path off the frame app-db.
   `:runtime` is RESERVED (`[:runtime <path>]`, route-derived scope) and is
   rejected fail-closed at registration until an in-repo consumer carrying a
   principal in a path segment needs named-resolver scope at ANY site — a
-  route entry included, as well as a sub / event ensure / invalidation
-  (rf2-kuky.83). Per Spec 016 §The
+  route entry included, as well as a sub / event ensure / invalidation.
+  Per Spec 016 §The
   `{:inputs …}` metadata + resolver-fn grammar / §Route-derived scope is
   reserved."
   #{:db})
 
 (def reserved-input-sources
   "Input source-descriptor heads that are RESERVED (named in the spec /
-  EP-0014 input vocabulary) but NOT shipped in this slice — declaring one
+  EP-0014 input vocabulary) but NOT shipped — declaring one
   is a loud registration error that names the reservation, so a typo is not
   mistaken for an unshipped feature. `:runtime` is the route-derived source
   (`[:runtime <path>]`) — reserved until an in-repo consumer carries a
   principal in a path segment and needs named-resolver scope at ANY site, a
-  route entry included. (rf2-kuky.83 retired the anonymous route-scope
-  resolver tier that used to serve route-entry-only demand, so the trigger is
-  no longer narrowed to non-route sites.) Per Spec 016 §Route-derived scope
+  route entry included. Per Spec 016 §Route-derived scope
   is reserved."
   #{:runtime})
 
@@ -176,8 +174,8 @@
                'rf/reg-resource-scope
                (str "resource-scope " scope-id " input " input-name
                     " declares the RESERVED source " (pr-str head)
-                    " — it is named in the input vocabulary but NOT shipped "
-                    "in this slice. Route-derived scope (`[:runtime <path>]`) "
+                    " — it is named in the input vocabulary but NOT "
+                    "shipped. Route-derived scope (`[:runtime <path>]`) "
                     "un-defers only for a consumer that carries a principal "
                     "in a path segment and needs named-resolver scope at a "
                     "non-route site. Use a `[:db <rf-path>]` source: viewer "
@@ -199,8 +197,8 @@
       ;; the root path — the root is the explicit `[]`, which is how the
       ;; whole-db read is spelled and what `:whole-db?` is derived from. A
       ;; nil here is an accidental absent path and
-      ;; fails closed rather than silently targeting the whole db (EP-0012
-      ;; rf2-w9x5fv item 1: explicit root, no silent nil→root).
+      ;; fails closed rather than silently targeting the whole db (EP-0012:
+      ;; explicit root, no silent nil→root).
       (not (sequential? raw-path))
       (throw (registration-error
                :rf.error/invalid-resource-scope-spec
@@ -213,7 +211,7 @@
                     "/ Conventions §The :rf/path algebra.")
                {:scope-id scope-id :input input-name :descriptor descriptor}))
 
-      ;; Route through the VALIDATED concrete boundary (rf2-w9x5fv item 2):
+      ;; Route through the VALIDATED concrete boundary:
       ;; a host/opaque or template segment in a `:db` path fails closed here.
       :else
       (try
@@ -228,21 +226,17 @@
                         " Per Conventions §Segment domain.")
                    {:scope-id scope-id :input input-name :descriptor descriptor})))))))
 
-;; EP-0025 (rf2-71dr8t): the resource named-scope-resolver derived-sensitivity
-;; inheritance (EP-0016, rf2-fi6tda) was a sensitivity PROPAGATION surface — a
-;; resolver's derived scope inheriting its `:db` inputs' classification. EP-0025
-;; removes ALL sensitivity propagation (subs / flows / this resource-scope arm),
-;; so the `:rf.egress/output-sensitivity` declassification claim + its closed
-;; value set are GONE. The key is silently ignored if present (Spec 015 §No
-;; propagation, no taint: "the key is gone and silently ignored if present, NOT
-;; throwing"), never validated fail-closed. A resource is governed by its OWN
-;; projection-relative `:sensitive` / `:large` declarations.
+;; EP-0025: a resolver's derived scope does NOT inherit its `:db` inputs'
+;; classification — there is no sensitivity PROPAGATION (subs / flows / this
+;; resource-scope arm), so there is no `:rf.egress/output-sensitivity`
+;; declassification claim. The key is silently ignored if present (Spec 015
+;; §No propagation, no taint), never validated fail-closed. A resource is
+;; governed by its OWN projection-relative `:sensitive` / `:large` declarations.
 
 (defn- canonical-spec
   "Normalize the 3-slot `(reg-resource-scope scope-id metadata resolve-fn)`
   registration into the canonical STORED spec map. Per Spec 016 §The
-  `{:inputs …}` metadata + resolver-fn grammar (rf2-wvh95f F3, brought into
-  the canonical 3-slot registration grammar by rf2-bqstzr).
+  `{:inputs …}` metadata + resolver-fn grammar.
 
   The `:resolve` fn is the THIRD slot (the resolver HANDLER); the middle
   `metadata` slot carries the reflection-config keys (`:inputs`, `:doc`). This
@@ -263,8 +257,8 @@
   reads it to mark the whole-db cost on both axes (EP-0015 disposition 8);
   reading the whole db is spelled `{:inputs {:db [:db []]}}`.
 
-  EP-0025 (rf2-71dr8t): there is NO `:rf.egress/output-sensitivity` claim — all
-  sensitivity propagation is removed. A `:rf.egress/output-sensitivity` key on a
+  EP-0025: there is NO `:rf.egress/output-sensitivity` claim — there is no
+  sensitivity propagation. A `:rf.egress/output-sensitivity` key on a
   resolver spec is silently ignored (NOT validated fail-closed); a resource's
   classification rides its own projection-relative `:sensitive` / `:large`
   declarations, not its scope resolver's input paths.
@@ -284,7 +278,7 @@
              {:scope-id scope-id :value metadata})))
   ;; `:resolve` is the third-slot VALUE (the resolver handler). A
   ;; `:resolve` left INSIDE the metadata map is a mislocated key; reject it
-  ;; loudly so the grammar change cannot be half-applied.
+  ;; loudly rather than silently ignore it.
   (when (contains? metadata :resolve)
     (throw (registration-error
              :rf.error/invalid-resource-scope-spec
@@ -343,8 +337,8 @@
 
 (defn reg-resource-scope
   "Register a named resource-scope resolver under `scope-id`. Per the canonical
-  Spec 001 3-slot grammar (rf2-bqstzr, completing the rf2-wvh95f F1 alignment)
-  / Spec 016 §Named resource-scope resolvers / EP-0016 D3:
+  Spec 001 3-slot grammar / Spec 016 §Named resource-scope resolvers /
+  EP-0016 D3:
 
       (rf/reg-resource-scope :realworld/session
         {:inputs {:username [:db [:auth :user :username]]}}
@@ -355,7 +349,7 @@
   is the reflection-config metadata map (`:inputs`, `:doc`). This mirrors
   reg-resource / reg-mutation (where `:params-schema` shapes the `:request`
   handler from the metadata slot). The `:resolve` first arg is ALWAYS the
-  resolved inputs map (the stable Name-over-place meaning, rf2-wvh95f F3).
+  resolved inputs map (the stable Name-over-place meaning).
 
   `:inputs` is REQUIRED — there is ONE arity and one callback contract. To read
   the whole db, declare it as an input on the root path
@@ -380,7 +374,7 @@
       scope-id
       (rf.source-coords/merge-coords
         (merge {:doc (:doc spec)}
-               ;; rf2-nrc93 — forward the caller's image-selection stamp, as
+               ;; Forward the caller's image-selection stamp, as
                ;; `reg-resource` does. Select from `metadata`, NOT from `spec`:
                ;; `canonical-spec` builds a fresh {:inputs :resolve :whole-db?
                ;; :doc} map that never carried the key, so the stamp would
@@ -410,7 +404,7 @@
   scope-id)
 
 ;; ---- registry-side introspection -----------------------------------------
-;; No `scope-resolver-ids` / `scope-resolver-meta` accessors (rf2-kuky.31):
+;; No `scope-resolver-ids` / `scope-resolver-meta` accessors:
 ;; the resolver registry is read through the generic registrar grammar plus
 ;; the documented `:rf/resource-scope` inner-key projection —
 ;;   (keys (rf/registrations {:source :store :kind :resource-scope}))
@@ -446,7 +440,7 @@
       (assoc acc input-name (rf.path/get db rf-path)))
     {} (or inputs {})))
 
-;; ---- off-box trace egress projection of scope-resolution rows (rf2-84l82t) -
+;; ---- off-box trace egress projection of scope-resolution rows -
 ;;
 ;; The `:rf.resource/scope-resolved` trace row carries the resolver's resolved
 ;; `:input-values` (the concrete db reads — e.g. `{:username "jake"}`) and the
@@ -462,16 +456,15 @@
 
 (defn project-scope-resolved-egress
   "Project a `:rf.resource/scope-resolved` trace row's `tags` for OFF-BOX
-  egress (rf2-84l82t). The resolved `:input-values` (the raw db reads) and
+  egress. The resolved `:input-values` (the raw db reads) and
   `:scope` (the derived identity tuple, which embeds those reads) are
   UNCONDITIONALLY replaced by the `:rf/redacted` sentinel and the row is
   stamped `:sensitive? true`. The redaction is FAIL-CLOSED: a db-reading
   resolver MAY read a frame-sensitive path the off-box value-path walk cannot
   prove safe (the row carries the resolved VALUES, not the path provenance),
   so a resolved tenant / user / impersonation identity must never ride an
-  off-box wire raw. EP-0025 (rf2-71dr8t) removed the
-  `:rf.egress/output-sensitivity :rf.egress/public` declassification escape
-  hatch, so the redaction is now always-on for every resolved-scope row — the
+  off-box wire raw. There is no declassification escape hatch (EP-0025), so
+  the redaction is always-on for every resolved-scope row — the
   trusted-local `:rf.egress/include-sensitive?` opt-in at the epoch consumer is the only
   lift. The STRUCTURAL slots — `:resource-id` (the resolver id), `:kind`, the
   declared input NAMES (`:inputs`), `:whole-db?`, `:resolved-nil?` — ride
@@ -493,7 +486,7 @@
 (defn- resolve-scope-from-inputs
   "PURE core of resolver evaluation: given the ALREADY-EVALUATED resolver
   `in-vals`, call `:resolve` with `(in-vals nil)` (the `ctx` arg is reserved,
-  literal nil in this slice), then route a non-nil result through the SHARED
+  literal nil), then route a non-nil result through the SHARED
   concrete-scope canonicalization path (`rf.resources.state/canonicalize-scope`). A nil
   result passes through as nil (the fail-closed unresolved condition). Shared
   by `resolve-scope*-pure` and the traced `resolve-scope*` wrapper so a single
@@ -505,9 +498,9 @@
 
 (defn resolve-scope*-pure
   "PURE: resolve resolver `spec` against `db`, returning a canonical scope
-  value or nil — WITHOUT emitting any observability state (rf2-ru73k6 F3).
+  value or nil — WITHOUT emitting any observability state.
   Evaluates the declared `:inputs` off `db`, calls `:resolve` with
-  `(inputs nil)` (the `ctx` arg is reserved, literal nil in this slice), then
+  `(inputs nil)` (the `ctx` arg is reserved, literal nil), then
   routes a non-nil result through the SHARED concrete-scope canonicalization
   path (`rf.resources.state/canonicalize-scope` — rejects a misspelled `:rf.scope/*`
   keyword fail-closed, rejects a host/opaque value, rejects the global scope
@@ -538,14 +531,14 @@
   (`project-scope-resolved-egress`, published as
   `:resources/project-scope-resolved-egress` and consulted by the epoch
   tool-pair): unconditional fail-closed redaction for every db-reading
-  resolver (rf2-84l82t / EP-0015). The on-box listener keeps the raw
+  resolver (EP-0015). The on-box listener keeps the raw
   evidence (the leak is at off-box / epoch / MCP egress, not the local
   listener). Tooling reads the declared inputs to avoid unnecessary whole-db
-  re-resolution and to mark the whole-db-sugar cost (EP-0015 disposition 8).
+  re-resolution and to mark the whole-db cost (EP-0015 disposition 8).
   PASSIVE reads
   advertised as pure (`resolve-resource-scope`, subscription resolution) MUST
   call `resolve-scope*-pure` instead — they do not emit observability state
-  during a read (rf2-ru73k6 F3)."
+  during a read."
   [scope-id spec db where]
   (let [inputs   (:inputs spec)
         in-vals  (eval-inputs inputs db)
@@ -565,7 +558,7 @@
   against the supplied `db` value, returning a canonical concrete scope or
   nil. A PURE function over the resolver registry — NOT an effect, no
   resolution-timing ambiguity, no app-state / dispatch side effects, and
-  (rf2-ru73k6 F3) NO observability side effect either: it routes through the
+  NO observability side effect either: it routes through the
   trace-free `resolve-scope*-pure` evaluator, so a passive read advertised as
   pure does NOT emit `:rf.resource/scope-resolved` into the trace bus. The
   CAUSAL resolution boundaries that DO carry trace evidence (a resource
@@ -602,7 +595,7 @@
   plain map without `:from-db`) is NOT a reference.
 
   The shape is defined ONCE, at the concrete-scope boundary that has to
-  REFUSE a reference (`state/from-db-reference-scope?`, rf2-kuky.79); this is
+  REFUSE a reference (`state/from-db-reference-scope?`); this is
   the resolution-side spelling, and the two can never disagree."
   [scope]
   (rf.resources.state/from-db-reference-scope? scope))
@@ -627,7 +620,7 @@
   "PURE: resolve a `{:from-db <resolver-id>}` reference against `db` WITHOUT
   emitting `:rf.resource/scope-resolved` trace evidence — the trace-free
   counterpart of `resolve-from-db-reference`, for PASSIVE reads advertised as
-  pure (rf2-ru73k6 F3): subscription key resolution re-keys a sub on every
+  pure: subscription key resolution re-keys a sub on every
   frame-state change, so a traced resolve would flood the trace bus with a row
   per re-render of a passive read. Routes through `resolve-scope*-pure`. The
   CAUSAL `{:from-db …}` resolution sites (resource events, route entry,
@@ -646,12 +639,12 @@
   named-resolver reference — to a canonical concrete cache scope, for a
   scope-taking OPERATION at a CAUSAL boundary (the direct
   `:rf.resource/invalidate-tags` event and the `:rf.mutation/execute`
-  execution-scope resolution — its second consumer, rf2-l11670). The
-  single symmetric resolution arm (rf2-oo8cv7) so a `{:from-db …}` reference
+  execution-scope resolution — its second consumer). The
+  single symmetric resolution arm, so a `{:from-db …}` reference
   resolves IDENTICALLY at every public scope slot that accepts one (event
   ensure / invalidate-tags / mutation execute) — never a raw literal-canonicalize
-  exception, which keys
-  nothing and fails as a silent zero-match. Per Spec 016 §Resolver references —
+  exception, which would key
+  nothing and fail as a silent zero-match. Per Spec 016 §Resolver references —
   the single use-time resolution rule, uniform across every site.
 
     - concrete arm — the literal scope is routed through the shared
@@ -664,10 +657,10 @@
 
   Returns the canonical concrete scope, or nil ONLY when a `{:from-db …}`
   reference resolved nil (its declared `:inputs` are absent — e.g. no logged-in
-  user). The nil POLICY stays per-operation at the CALL SITE: a scope-REQUIRING
+  user). The nil POLICY is per-operation at the CALL SITE: a scope-REQUIRING
   operation (ensure / invalidate / a supplied execute reference) throws
   `:rf.error/resource-scope-unresolved-reference`. (`:rf.resource/clear-scope`
-  is NOT a consumer: it takes a concrete scope only — rf2-kuky.79 — and
+  is NOT a consumer: it takes a concrete scope only and
   canonicalizes it directly.) `where` names the
   boundary; `resource-id` scopes the concrete-scope validation error (the
   mutation id for `:rf.mutation/execute`; nil for a
