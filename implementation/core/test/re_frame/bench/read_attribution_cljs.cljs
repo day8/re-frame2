@@ -894,7 +894,7 @@
     (dotimes [_ n] (call-thunk (fn [] (keep! true))))
     nil))
 
-;; rf2-8gb3t, the falsifiable pair: the RETIRED composition every caller wrote
+;; The falsifiable pair: the RETIRED composition
 ;; (`(cwfr (frame-resolution-target X) thunk)`) against the SHIPPED one
 ;; (`(cwfr X thunk)`). Their difference must be N-RESTGT — the wrapper and
 ;; nothing else.
@@ -912,7 +912,7 @@
       (rf.live-frame/call-with-frame-resolution fid (fn [] (keep! true))))
     nil))
 
-;; rf2-ezwnl's pair. The generation-routed branch is `(get resolver [kind id])`
+;; The lookup pair. The generation-routed branch is `(get resolver [kind id])`
 ;; and builds a fresh two-element key vector per call; the registrar-atom
 ;; branch is two paired `get`s and builds nothing. Both arms carry the same
 ;; `(first query-v)`, so the DIFFERENCE is the key vector.
@@ -930,7 +930,7 @@
     nil))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-f70iq — the ambient-frame reader, STEP BY STEP
+;; the ambient-frame reader, STEP BY STEP
 ;;
 ;; `S0-SCOPE - S0-VAR` says the CLJS-only React-context consult costs 264 B/read
 ;; and nothing about WHERE. The route has four steps and each is a candidate:
@@ -974,7 +974,7 @@
 ;;
 ;;     function(a,b){if(n(a)&&n(b)){var c=…;return …}return !1}
 ;;
-;; It is kept BESIDE the shipped predicate rather than swapped in for it, so the
+;; It sits BESIDE the shipped predicate rather than in its place, so the
 ;; saving is a prediction the instrument can falsify in ONE process rather than a
 ;; before/after story across two — the same discipline as S1-EAGER beside
 ;; S1-CURFRM and N-CWFRWRAP beside N-CWFRRAW.
@@ -1102,36 +1102,36 @@
     (-> (js/Math.round (/ target per)) (max 1) (min 4000))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-hydpy — the floor-aware quote
+;; the floor-aware quote
 ;;
-;; Every improvement on this surface now lands its arms at the instrument's
+;; An arm on this surface that allocates nothing lands at the instrument's
 ;; own floor, and the arm-order guard refuses a floor-level arm exactly as it
-;; refuses a contaminated one — rf2-2ix22's two AFTER runs exited 2 on six
-;; arms the levers had optimised to ~nothing, every one refused by PHASE with
-;; an identical ratio and nothing else in common. The signature is a
+;; refuses a contaminated one — a run whose arms are optimised to ~nothing
+;; exits 2 with every one of them refused by PHASE, an identical ratio and
+;; nothing else in common. The signature is a
 ;; per-WINDOW floor: an arm that no longer allocates reads the instrument's
 ;; own per-window bytes divided by its rep count, and when that floor moves
 ;; mid-run the arm's rounds split disjointly. That is not the arm's subject
 ;; moving, but the guard cannot know it from the plan alone.
 ;;
-;; The discriminator is rf2-tmzie's, applied per REFUSED arm: re-measure the
-;; arm across window sizes. A REAL per-call cost cannot see the window, so
+;; The discriminator, applied per REFUSED arm: re-measure the arm across
+;; window sizes. A REAL per-call cost cannot see the window, so
 ;; its B/call is flat across the ladder; a per-WINDOW quantity divides by
 ;; reps, so across a span-S ladder it falls ~S-fold. [[floor-verdict]] demands
 ;; STRICTLY MORE than half the full per-window collapse, so every recorded
-;; per-call signature refuses attribution: rf2-tmzie's C-FRAME drifted 1.09x
-;; over a 62x range (real, stays refused), and rf2-ktrvw's closure bimodality
-;; is bounded by 2x — its two modes (real, stays refused). The strictness is
+;; per-call signature refuses attribution: C-FRAME drifts 1.09x over a 62x
+;; range (real, stays refused), and the closure bimodality is bounded by
+;; 2x — its two modes (real, stays refused). The strictness is
 ;; load-bearing at the MINIMUM span: there the demanded ratio is span/2 = 2,
-;; exactly the bimodal class's own bound, and the inclusive comparison this
-;; replaced classified that bound as the floor (MERGED-PR AUDIT #7292).
-;; Equality is not collapse. A refused arm whose sweep DOES
-;; collapse is CERTIFIED AT THE FLOOR: quotable as the upper bound of its
-;; worst round, never as a measured p50 — the same quote the floor arms in
-;; the table above already carry, now with the exit code to match.
+;; exactly the bimodal class's own bound, and an inclusive comparison would
+;; classify that bound as the floor. Equality is not collapse. A refused arm
+;; whose sweep DOES collapse is CERTIFIED AT THE FLOOR: quotable as the upper
+;; bound of its worst round, never as a measured p50 — the same quote the
+;; per-arm table gives an arm at or under the floor, with the exit code to
+;; match.
 ;;
-;; What this is NOT: the guard is untouched — its tolerance, its factors and
-;; its refusals stand exactly as before, and an arm the sweep cannot attribute
+;; What this is NOT: a change to the guard — its tolerance, its factors and
+;; its refusals stand as they are, and an arm the sweep cannot attribute
 ;; (flat, bimodal, unverified, or a plan-level :unchecked) leaves the run at
 ;; exit 2. Attribution can only ever move a refusal to a WEAKER claim (an
 ;; upper bound), never to a certified measurement, and every branch of
@@ -1153,8 +1153,8 @@
   `:floor` needs B/call to fall by STRICTLY MORE than span/2 from the
   smallest window to the largest — more than half the collapse a pure
   per-window floor shows — over a span of at least 4. Strict, because at the
-  minimum span the threshold is exactly the 2x bimodal class's bound
-  (rf2-ktrvw), and equality is not collapse. Everything else, including an
+  minimum span the threshold is exactly the 2x bimodal class's bound, and
+  equality is not collapse. Everything else, including an
   unverified sweep window, a short ladder or a zero-only sweep, is NOT
   attribution: the refusal stands."
   [points]
@@ -1189,10 +1189,10 @@
                             :else            (/ small large))
             threshold (/ span 2.0)
             ;; STRICT — equality is not collapse. At the minimum span of 4
-            ;; the threshold is exactly 2, which is the rf2-ktrvw bimodal
-            ;; class's own bound; an inclusive comparison classified that
-            ;; bound as :floor (MERGED-PR AUDIT #7292, and the pinned
-            ;; minimum-span fixture in [[floor-self-test]] holds the line).
+            ;; the threshold is exactly 2, which is the bimodal closure
+            ;; class's own bound; an inclusive comparison would classify that
+            ;; bound as :floor, and the pinned minimum-span fixture in
+            ;; [[floor-self-test]] holds the line.
             floor?    (> ratio threshold)]
         {:status    (if floor? :floor :per-call)
          :ratio     ratio
@@ -1213,13 +1213,13 @@
   not."
   []
   (let [checks
-        [;; rf2-tmzie's C-FRAME: the recorded REAL per-call cost, flat within
+        [;; C-FRAME: the recorded REAL per-call cost, flat within
          ;; 9% over a 62x range. A cost this flat may never read as the floor.
          {:name   "a rep-INDEPENDENT reading is a per-call cost — the refusal stands"
           :want   :per-call
           :points [{:reps 64 :p50 34.8} {:reps 256 :p50 32.7}
                    {:reps 512 :p50 32.1} {:reps 4000 :p50 32.0}]}
-         ;; rf2-tmzie's C-FRAMEG: the recorded floor, falling as 1/reps to
+         ;; C-FRAMEG: the recorded floor, falling as 1/reps to
          ;; zero — the endpoint ratio is infinite and infinity clears span/2.
          {:name   "the recorded 1/reps collapse to zero is the floor"
           :want   :floor
@@ -1230,7 +1230,7 @@
           :want   :floor
           :points [{:reps 500 :p50 128.0} {:reps 1000 :p50 64.0}
                    {:reps 2000 :p50 32.0} {:reps 4000 :p50 16.0}]}
-         ;; rf2-ktrvw's closure bimodality: a REAL 64/128 B per-call cost whose
+         ;; The closure bimodality: a REAL 64/128 B per-call cost whose
          ;; p50 lands in different modes at different ladder points. Its 2x
          ;; never EXCEEDS span/2 at any accepted span — it touches it exactly
          ;; at span 4 (the pinned fixture below) — so it must NOT attribute.
@@ -1239,32 +1239,32 @@
           :want   :per-call
           :points [{:reps 500 :p50 128.1} {:reps 1000 :p50 128.1}
                    {:reps 2000 :p50 64.0} {:reps 4000 :p50 64.0}]}
-         ;; rf2-hydpy (MERGED-PR AUDIT #7292): the SAME 2x class at the
-         ;; verdict's MINIMUM legal span, where span/2 is exactly the class's
-         ;; own bound — ratio 2.0 against threshold 2.0. The inclusive
-         ;; comparison classified this :floor; equality is not collapse, and
+         ;; The SAME 2x class at the verdict's MINIMUM legal span, where
+         ;; span/2 is exactly the class's own bound — ratio 2.0 against
+         ;; threshold 2.0. An inclusive
+         ;; comparison would classify this :floor; equality is not collapse, and
          ;; the bound refuses. PINNED at the boundary — do not widen the span
          ;; or nudge a p50 to make it pass.
          {:name   "the 2x bimodal bound at the minimum span 4 is NOT the floor"
           :want   :per-call
           :points [{:reps 1 :p50 128.0} {:reps 2 :p50 128.0}
                    {:reps 4 :p50 64.0}]}
-         ;; the recorded 2.0125x order contamination (rf2-jr76s's fixture in
-         ;; the guard's own self-test) is likewise under span/2
+         ;; the recorded 2.0125x order contamination (a fixture in the
+         ;; guard's own self-test) is likewise under span/2
          {:name   "a 2x contaminated reading is NOT the floor at span 8"
           :want   :per-call
           :points [{:reps 500 :p50 16.1} {:reps 1000 :p50 12.0}
                    {:reps 2000 :p50 9.0} {:reps 4000 :p50 8.0}]}
-         ;; LIVE, recorded from this harness on this host, 2026-07-31, one
-         ;; run: H-ROUTED refused by phase (its plan rounds split 179.4 ->
-         ;; 1227.9 B/call at reps=4000, the rf2-2ix22 signature) and its sweep
-         ;; collapsed 7.83x across an 8x ladder — the floor, attributed.
-         {:name   "the live rf2-2ix22 signature attributes to the floor"
+         ;; LIVE, recorded from one run of this harness on this host: H-ROUTED
+         ;; refused by phase (its plan rounds split 179.4 -> 1227.9 B/call at
+         ;; reps=4000, the floor-level signature) with a sweep collapsing
+         ;; 7.83x across an 8x ladder — the floor, attributed.
+         {:name   "the live H-ROUTED signature attributes to the floor"
           :want   :floor
           :points [{:reps 500 :p50 9616.0} {:reps 1000 :p50 1227.9}
                    {:reps 2000 :p50 1227.9} {:reps 4000 :p50 1227.9}]}
          ;; The SAME run's H-SAMEFLAT — the flat predicate, nominally the same
-         ;; near-zero subject — was pinned by the instrument in a rep-
+         ;; near-zero subject — is pinned by the instrument in a rep-
          ;; INDEPENDENT state instead (9632.0 B/call, bit-flat across its
          ;; ladder), and its refusal must stand: a flat sweep proves nothing
          ;; about the floor, whatever the arm's subject nominally costs.
