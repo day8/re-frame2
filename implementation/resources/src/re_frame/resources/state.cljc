@@ -881,11 +881,17 @@
   before the invalidation, so its success must not clear the mark
   (`invalidation-kept-by-settle`). Judged by attempt identity, never by
   comparing milliseconds — a same-ms tie or a pinned clock would read as
-  covered."
+  covered.
+
+  A new mark also drops a feed sweep's `:sweep-covers-invalidation?` claim
+  (rf2-wcsjy): the sweep in progress began before this mark, so it cannot
+  cover it (`settle-page-invalidation`)."
   [entry invalidated-at]
   (if entry
     (bump-revision
-      (let [marked (assoc entry :invalidated-at invalidated-at)]
+      (let [marked (-> entry
+                       (assoc :invalidated-at invalidated-at)
+                       (dissoc :sweep-covers-invalidation?))]
         (if-let [w (:current-work entry)]
           (assoc marked :invalidated-during w)
           (dissoc marked :invalidated-during))))
@@ -898,8 +904,9 @@
   settling attempt's request was served before such a mark, so its reply
   cannot satisfy it (Spec 016 §Race and in-flight semantics — no coverage
   policy exists). A mark written before the attempt started is covered by it
-  and clears, as before. Read by `entry-succeeded`, `entry-append-page` and
-  `entry-replace-page` against the PRE-settle entry (rf2-3x7nj.10.1)."
+  and clears, as before. Read by `entry-succeeded` and — through
+  `settle-page-invalidation`, since a feed page covers less — by the page
+  settles, against the PRE-settle entry (rf2-3x7nj.10.1)."
   [entry]
   (let [w (:current-work entry)]
     (when (and (some? w) (= w (:invalidated-during entry)))
@@ -1209,6 +1216,42 @@
   [entry]
   (count (:data entry)))
 
+(defn- settle-page-invalidation
+  "Pure: write onto `settled` the stale-mark facts a feed PAGE success of
+  `entry`'s current attempt at `page-index` leaves (rf2-wcsjy). A page covers
+  less than a scalar reply, so a mark clears only once the invalidation is
+  covered by the refresh window the feed's refetch rule defines:
+
+    - a mark written DURING this attempt survives it (rf2-3x7nj.10.1);
+    - page 0 — a first page or a refresh — covers a mark that predates it: at
+      once when no sweep follows, otherwise only once the sweep's legs have
+      re-fetched the rest of the window, so the mark stays and the sweep
+      carries it (`:sweep-covers-invalidation?`);
+    - an appended page (load-more) re-fetches none of the pages the feed
+      already held, so it keeps the mark;
+    - a sweep leg clears a mark the sweep carries when it is the LAST leg, and
+      keeps any other — `entry-invalidate` drops the claim, so a mark landing
+      mid-sweep outlives the sweep.
+
+  `entry` is the PRE-settle entry; its `:refetch-sweep` still lists the legs
+  after this one."
+  [settled entry page-index]
+  (let [mark      (:invalidated-at entry)
+        sweeping? (boolean (seq (:refetch-sweep entry)))
+        carried?  (true? (:sweep-covers-invalidation? entry))
+        [mark' carry?]
+        (cond
+          (nil? mark)                         [nil false]
+          (invalidation-kept-by-settle entry) [mark false]
+          (zero? page-index)                  [(when sweeping? mark) sweeping?]
+          (>= page-index (page-count entry))  [mark carried?]
+          (and carried? (not sweeping?))      [nil false]
+          :else                               [mark carried?])]
+    (-> settled
+        (assoc :invalidated-at mark')
+        (dissoc :invalidated-during :sweep-covers-invalidation?)
+        (cond-> carry? (assoc :sweep-covers-invalidation? true)))))
+
 (defn entry-append-page
   "PURE infinite-feed APPEND transition (R1/R2): append a freshly-fetched,
   decoded `page` (with its resolved `page-param`) to the feed `entry`, advance
@@ -1248,10 +1291,10 @@
                  :refresh-error   nil
                  :loaded-at       loaded-at
                  :stale-at        stale-at
-                 ;; a mark written DURING this attempt survives it (rf2-3x7nj.10.1)
-                 :invalidated-at  (invalidation-kept-by-settle entry)
                  :current-work    nil)
-          (dissoc :invalidated-during)
+          ;; an append covers no page the feed held (rf2-wcsjy); a first page
+          ;; is the whole feed (rf2-3x7nj.10.1)
+          (settle-page-invalidation entry (page-count entry))
           bump-revision))
     entry))
 
@@ -1325,11 +1368,10 @@
                      :refresh-error   nil
                      :loaded-at       loaded-at
                      :stale-at        stale-at
-                     ;; a mark written DURING this attempt survives it
-                     ;; (rf2-3x7nj.10.1)
-                     :invalidated-at  (invalidation-kept-by-settle entry)
                      :current-work    nil)
-              (dissoc :invalidated-during)
+              ;; a mark clears only once the refresh window covers it
+              ;; (rf2-3x7nj.10.1, rf2-wcsjy)
+              (settle-page-invalidation entry page-index)
               bump-revision))))
     entry))
 
@@ -1426,10 +1468,11 @@
 
 (defn clear-refetch-sweep
   "PURE: drop any in-progress `:refetch-sweep` cursor (a failure / abort during
-  a sweep STOPS it rather than dangling a cursor). Per Spec 016 §Refetch (R6 —
-  rf2-byl7bk.3.3)."
+  a sweep STOPS it rather than dangling a cursor), and the sweep's claim on a
+  stale mark (`:sweep-covers-invalidation?` — a stopped sweep covers nothing,
+  rf2-wcsjy). Per Spec 016 §Refetch (R6 — rf2-byl7bk.3.3)."
   [entry]
-  (dissoc entry :refetch-sweep))
+  (dissoc entry :refetch-sweep :sweep-covers-invalidation?))
 
 (defn resolve-page->items
   "PURE: resolve a feed's `:page->items` accessor (a keyword key or a
