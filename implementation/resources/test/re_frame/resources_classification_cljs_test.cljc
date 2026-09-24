@@ -10,15 +10,13 @@
        `:sensitive` / `:large` path declarations on the spec (EP-0025), LOWERED
        per instance into the per-frame elision registry (`reconcile-registry`,
        `:source :resource`); the per-slot `:data-schema` / `:params-schema`
-       props VALIDATE only — they do NOT drive durable classification
-       (rf2-fuqcob);
-    3. the SSR egress READS the registry (rf2-d3pku1, the routing / machines
+       props VALIDATE only — they do NOT drive durable classification;
+    3. the SSR egress READS the registry (the routing / machines
        standard model): `project-entry-data` / `project-entry-params` walk the
        entry value through `project-egress` seeded at the lowered absolute path
-       — the redundant family-private `project-data` / `project-params`
-       re-derivation is REMOVED. A frame-classified sub-path is unioned with the
-       resource declaration (defense in depth);
-    4. the load-bearing Spec 016 rules are preserved (only the durable
+       rather than re-deriving classification from the spec. A frame-classified
+       sub-path is unioned with the resource declaration (defense in depth);
+    4. the load-bearing Spec 016 rules hold (only the durable
        `:entries` slice rides; metadata-only redacted/omitted hydration;
        scoped-key privacy).
 
@@ -71,7 +69,7 @@
   (merge (rf.resources.state/empty-entry resource-id)
          {:status status :data data :loaded-at loaded-at :stale-at stale-at}))
 
-;; rf2-9e0tyq — the runtime keys `:entries` on the byte `key-id` and stamps
+;; The runtime keys `:entries` on the byte `key-id` and stamps
 ;; each entry's `:resource/key`; this helper re-keys the natural
 ;; `{scoped-key-vector entry}` form callers write into the runtime's shape.
 (defn- runtime-db-with [entries]
@@ -81,7 +79,7 @@
                                        entries)
                         :tag-index {} :owner-index {}}})
 
-;; rf2-d3pku1 — the SSR egress is now REGISTRY-DRIVEN. To exercise an end-to-end
+;; The SSR egress is REGISTRY-DRIVEN. To exercise an end-to-end
 ;; SSR projection, LOWER each entry's resource classification into the live
 ;; frame's per-frame elision registry (`reconcile-registry` → the frame's
 ;; runtime-db `[:rf.runtime/elision]`), exactly as a resource handler does at
@@ -109,11 +107,11 @@
 (defn- only-projection-metadata
   "The single per-entry projection metadata map for a one-entry `runtime-db`.
 
-  rf2-4bjep — the observation point for an entry whose ROW is withheld. A coarse
+  The observation point for an entry whose ROW is withheld. A coarse
   `:redact` / `:omit` key is re-keyed on both components, so like a
   per-slot-declared `:serialize` key it is not addressable by anything the live
   client derives, and its row does not ride. What the projection DECIDED is
-  unchanged and fully reported: `:disposition`, `:projected-key`, `:withheld?`."
+  fully reported: `:disposition`, `:projected-key`, `:withheld?`."
   [runtime-db]
   (first (rf.resources.ssr/projection-metadata
            nil 5000 (get-in runtime-db [rf.resources.state/resources-key :entries]))))
@@ -123,8 +121,8 @@
 
   Read from `projection-metadata` rather than from the wire row, because a
   `:serialize` entry re-keyed by its own per-slot declaration is WITHHELD from
-  the wire (rf2-rjq9d): shipping it left an unaddressable, ownerless row in the
-  client's cache. The per-slot projection itself is unchanged, so the co-equality
+  the wire: shipping it would leave an unaddressable, ownerless row in the
+  client's cache. So the co-equality
   this suite asserts — the params surface is projected exactly as the data
   surface is — is read off the carrier that survives."
   [frame-id runtime-db]
@@ -154,7 +152,7 @@
 
 ;; ===========================================================================
 ;; 2. spec-declaration-marks — the projection-relative declaration axis-split
-;;    (the shape the per-instance lowering re-roots). fuqcob: schema props do
+;;    (the shape the per-instance lowering re-roots). Schema props do
 ;;    NOT contribute (no union — the schema validates, it does not classify).
 ;; ===========================================================================
 
@@ -174,7 +172,7 @@
       (is (contains? (:large params) [:cursor]) ":params-rooted large → params projection"))))
 
 (deftest spec-declaration-marks-ignores-schema-props
-  (testing "fuqcob — spec-declaration-marks reads ONLY the projection-relative
+  (testing "spec-declaration-marks reads ONLY the projection-relative
             :sensitive / :large declarations; a co-present :data-schema /
             :params-schema's per-slot props do NOT contribute (the schema
             validates, it does not classify durably)"
@@ -200,14 +198,14 @@
 
 ;; ===========================================================================
 ;; 2b. registry-driven egress projectors — the routing / machines standard
-;;     model (rf2-d3pku1). `project-entry-data` / `project-entry-params` walk
+;;     model. `project-entry-data` / `project-entry-params` walk
 ;;     the entry value through project-egress seeded at the lowered absolute
 ;;     offset, reading the per-frame elision registry (NOT re-deriving from
 ;;     the spec). Frameless rides verbatim.
 ;; ===========================================================================
 
 (deftest project-entry-data-frameless-rides-verbatim
-  (testing "rf2-d3pku1: a nil-frame projection rides the data VERBATIM — the
+  (testing "a nil-frame projection rides the data VERBATIM — the
             registry is frame-scoped, and the coarse disposition is the separate
             frame-independent authority (matches machines / routing
             fail-open-frameless)"
@@ -217,7 +215,7 @@
 
 (deftest project-entry-data-redacts-registry-lowered-sensitive-slot
   (reg! :acct/profile {:sensitive [[:data :ssn]]})
-  (testing "rf2-d3pku1: after the resource declaration is lowered into the
+  (testing "after the resource declaration is lowered into the
             frame's registry at the entry's absolute :data path,
             project-entry-data walks the bare :data through project-egress seeded
             at that offset and redacts the declared :ssn slot; a sibling rides"
@@ -239,7 +237,7 @@
 
 (deftest project-entry-data-elides-registry-lowered-large-slot
   (reg! :report/card {:large [[:data :blob]]})
-  (testing "rf2-d3pku1 / rf2-260yhk: a registry-lowered :data :large declaration
+  (testing "a registry-lowered :data :large declaration
             ELIDES its slot to the :rf.size/large-elided marker at egress"
     (rf/make-frame {:id :reg/large})
     (let [big     (apply str (repeat 500 "x"))
@@ -261,7 +259,7 @@
 (deftest project-entry-params-redacts-registry-lowered-sensitive-slot
   (reg! :report/by-account {:sensitive     [[:params :account-id]]
                             :params-schema [:map [:account-id :string] [:slug :string]]})
-  (testing "rf2-d3pku1: project-entry-params walks the scoped-key params component
+  (testing "project-entry-params walks the scoped-key params component
             through project-egress seeded at the lowered :resource/key params
             offset and redacts the declared :account-id slot"
     (rf/make-frame {:id :reg/params})
@@ -285,8 +283,8 @@
 
 (deftest ssr-coarse-sensitive-classifies-redact-and-withholds-the-row
   (reg! :secret/thing {:sensitive? true})
-  (testing "the coarse :sensitive? root-prop claim still classifies :redact, and
-            rf2-4bjep settles what that costs the ROW: the projection re-keys
+  (testing "the coarse :sensitive? root-prop claim classifies :redact, and
+            that costs the ROW: the projection re-keys
             both components, so no live client can address the entry and it does
             not ride. The claim is absence of the ROW, not of its data"
     (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
@@ -296,7 +294,7 @@
           m    (only-projection-metadata rdb)]
       (is (= :redact (rf.resources.classification/whole-entry-disposition
                        (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :secret/thing}))))
-          "premise: the coarse claim still classifies :redact")
+          "premise: the coarse claim classifies :redact")
       (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
           (str "the row does not ride: " (pr-str proj)))
       (is (not (str/includes? (pr-str proj) "123-45-6789"))
@@ -307,7 +305,7 @@
 
 (deftest ssr-coarse-large-classifies-omit-and-withholds-the-row
   (reg! :big/thing {:large? true})
-  (testing "the same for the coarse :large? root-prop claim: it still classifies
+  (testing "the same for the coarse :large? root-prop claim: it classifies
             :omit, and its row is withheld for the same identity reason"
     (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :big/thing {:slug "b"})
           e    (entry {:resource-id :big/thing :data (vec (range 10000))})
@@ -316,7 +314,7 @@
           m    (only-projection-metadata rdb)]
       (is (= :omit (rf.resources.classification/whole-entry-disposition
                      (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :big/thing}))))
-          "premise: the coarse claim still classifies :omit")
+          "premise: the coarse claim classifies :omit")
       (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
           "the row does not ride, so the large payload cannot")
       (is (= :omitted (:disposition m)))
@@ -352,7 +350,7 @@
 
 (deftest ssr-serialize-entry-redacts-owner-data-declaration-slot
   (reg! :profile/card {:sensitive [[:data :pan]]})
-  (testing "EP-0025 / rf2-d3pku1 END-TO-END: a :serialize resource whose OWN
+  (testing "EP-0025 END-TO-END: a :serialize resource whose OWN
             :data-rooted :sensitive declaration is LOWERED into the registry
             redacts that slot on SSR projection — the registry-driven egress
             read fires (the standard model)"
@@ -372,7 +370,7 @@
 
 (deftest ssr-serialize-entry-ships-owner-large-declaration-slot-whole
   (reg! :report/blob {:large [[:data :blob]]})
-  (testing "rf2-hjz4r: a :serialize resource whose OWN :data-rooted :large
+  (testing "a :serialize resource whose OWN :data-rooted :large
             declaration is lowered ships that slot WHOLE on SSR projection —
             the hydration wire applies no size elision, because the client's
             cached :data must be the data, not a marker"
@@ -399,7 +397,7 @@
                             :params-schema [:map
                                             [:account-id :string]
                                             [:slug :string]]})
-  (testing "EP-0025 / rf2-d3pku1 END-TO-END: a :serialize resource whose OWN
+  (testing "EP-0025 END-TO-END: a :serialize resource whose OWN
             :params-rooted :sensitive declaration is lowered must NOT ride that
             slot RAW in the projected wire KEY — the params surface is co-equal
             with the data surface (Spec 016 clause 4)"
@@ -418,21 +416,21 @@
       (is (= "q3" (get-in wk [2 :slug])) "the unmarked params sibling rides verbatim")
       (is (empty? (get-in (ssr-project :rcfg/owner-params rdb)
                           [rf.resources.state/resources-key :entries]))
-          ;; rf2-rjq9d — redacting a params slot re-keys the entry (identity is
+          ;; Redacting a params slot re-keys the entry (identity is
           ;; the canonical bytes of the WHOLE key), and the live client derives
           ;; the RAW key, so a shipped row would be unaddressable. Shipping it
-          ;; metadata-only was the first answer and left an ownerless row in the
+          ;; metadata-only would leave an ownerless row in the
           ;; client's cache that nothing addresses and nothing collects, so the
           ;; row is WITHHELD. The end-to-end contract is
           ;; `resources_ssr_projected_key_refetch_cljs_test`; the co-equality
           ;; this test exists for — the params surface is projected exactly as
-          ;; the data surface is — is unchanged and asserted on `wk` above.
-          "a re-keyed entry does not ride at all (rf2-rjq9d)")
+          ;; the data surface is — is asserted on `wk` above.
+          "a re-keyed entry does not ride at all")
       (is (not (str/includes? (pr-str wk) "acct-secret-42"))
           "no raw sensitive params value rides in the wire key"))))
 
 ;; ===========================================================================
-;; 3b. infinite-feed per-page egress (rf2-byl7bk.3.2 / rf2-d3pku1)
+;; 3b. infinite-feed per-page egress
 ;; ===========================================================================
 ;;
 ;; EP-0021 R5 / Spec 016 §Registration — :infinite: an infinite feed's
@@ -456,7 +454,7 @@
   (reg! :feed/timeline {:infinite        true
                         :next-page-param (fn [_last _all] nil)
                         :sensitive       [[:data :author-email]]})
-  (testing "rf2-byl7bk.3.2 / rf2-d3pku1 END-TO-END: an infinite feed whose
+  (testing "END-TO-END: an infinite feed whose
             :data-rooted :sensitive declaration is lowered redacts that field on
             EVERY page during SSR projection (the index-free decl matches every
             indexed page path)"
@@ -485,14 +483,14 @@
           "no raw page-1 sensitive value rides anywhere on the entry"))))
 
 ;; ===========================================================================
-;; 4. load-bearing Spec 016 rules preserved (the projection contract)
+;; 4. load-bearing Spec 016 rules (the projection contract)
 ;; ===========================================================================
 
 (deftest ssr-projection-rides-only-entries-slice
   (reg! :article/by-slug)
   (testing "Spec 016 §SSR: only the durable :rf.runtime/resources :entries
             slice rides — never the indexes, never all of runtime-db
-            (allowlist-shaped, preserved under the reconciliation)"
+            (allowlist-shaped)"
     (let [k   (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
           e   (entry {:resource-id :article/by-slug :data {:title "X"}})
           rdb (assoc (runtime-db-with {k e})
@@ -506,12 +504,12 @@
 
 (deftest ssr-redacted-entry-installs-no-row-so-nothing-can-mistake-it-for-data
   (reg! :secret/thing {:sensitive? true})
-  (testing "Spec 016 §SSR — the hazard was a redacted entry being read as
-            fresh-with-data and never refetched. rf2-4bjep removes the hazard's
-            subject rather than reclassifying it: the row does not ride, so the
+  (testing "Spec 016 §SSR — the hazard is a redacted entry being read as
+            fresh-with-data and never refetched. Withholding the row removes the
+            hazard's subject: the row does not ride, so the
             client's cache holds nothing to misclassify and the plan names
             nothing it cannot address. `entry-needs-refetch?`'s sentinel
-            handling is unchanged and pinned by
+            handling is pinned by
             `refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh`"
     (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
           e    (entry {:resource-id :secret/thing :data {:ssn "x"}})
@@ -532,9 +530,8 @@
 (deftest ssr-scoped-key-privacy-preserved-for-sensitive
   (reg! :secret/thing {:sensitive? true})
   (testing "Spec 016 clause 4: a sensitive resource's scope + params do NOT
-            ride raw in the projected KEY (scoped-key privacy preserved under
-            the reconciliation). rf2-4bjep — read off `projection-metadata`,
-            since the row itself no longer rides at all"
+            ride raw in the projected KEY (scoped-key privacy). Read off
+            `projection-metadata`, since the row itself does not ride at all"
     (let [scope [:rf.scope/session {:user "alice@example.com"}]
           k    (rf.resources.state/scoped-resource-key scope :secret/thing {:account-id "secret-42"})
           e    (entry {:resource-id :secret/thing :data {:ssn "x"}})
