@@ -1,19 +1,18 @@
 (ns re-frame.flows-vector-parent-vacation-test
-  "rf2-vx1ps6 — a flow output written under a VECTOR parent is vacated
+  "A flow output written under a VECTOR parent is vacated
   symmetrically with its write.
 
   Integer path segments are valid (`re-frame.path/segment?` admits safe
   integers; `reg-flow` output-path validation accepts them). `evaluate-flow!`
   writes a vector-index output through `assoc-in`, which DOES target the vector
-  index. But vacation (`clear-flow`, and the re-registration output-path move)
-  routed through `dissoc-in-safe`, which returned the db UNCHANGED for any
-  non-map parent — so a flow whose `:output-path` leaf sits under a vector could
+  index. Vacation (`clear-flow`, and the re-registration output-path move)
+  goes through `dissoc-in-safe`, which vacates an in-range vector index by
+  `assoc`-ing `nil` (the only local vacation a vector admits — a `dissoc` would
+  shift every later element), mirroring `re-frame.path/container-for`'s
+  vector-index semantics. A vacation that left the db UNCHANGED for any
+  non-map parent would let a flow whose `:output-path` leaf sits under a vector
   be written but never vacated, stranding the derived value with no live flow
-  (violating Spec 013 §clear-flow cleanup / §Re-registration vacation).
-
-  The fix vacates an in-range vector index by `assoc`-ing `nil` (the only local
-  vacation a vector admits — a `dissoc` would shift every later element),
-  mirroring `re-frame.path/container-for`'s vector-index semantics."
+  (violating Spec 013 §clear-flow cleanup / §Re-registration vacation)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
@@ -24,11 +23,11 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
-;; clear-flow vacates a vector-index output leaf (the repro).
+;; clear-flow vacates a vector-index output leaf.
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-vacates-vector-index-output
-  (testing "clear-flow on a flow whose :output-path leaf sits under a vector actually vacates the index (pre-fix dissoc-in-safe no-op'd on the non-map parent, stranding the derived value)"
+  (testing "clear-flow on a flow whose :output-path leaf sits under a vector actually vacates the index (a no-op on the non-map parent would strand the derived value)"
     (rf/reg-event :seed (fn [_ _] {:db {:cells [10 20 30 40] :src 99}}))
     (rf/dispatch-sync [:seed])
     ;; A flow whose output leaf is a vector INDEX.
@@ -41,7 +40,7 @@
     (let [cells (:cells (rf/app-db-value :rf/default))]
       (is (nil? (get cells 3))
           (str "index 3 was vacated (assoc'd nil) — the stranded derived value "
-               "is gone. Pre-fix it stayed 99. Got " (pr-str cells)))
+               "is gone, not left at 99. Got " (pr-str cells)))
       (is (= [10 20 30] (subvec cells 0 3))
           "the sibling vector entries are untouched (no dissoc/shift)")
       (is (= 4 (count cells))
@@ -67,7 +66,7 @@
     ;; must be vacated, and the new path materialises on the next drain.
     (rf/reg-flow :mover {:inputs [[:src]] :output-path [:derived]} (fn [x] x))
     (is (nil? (get (:cells (rf/app-db-value :rf/default)) 2))
-        "the old vector-index leaf [:cells 2] was vacated on the path move (pre-fix it stranded 7)")
+        "the old vector-index leaf [:cells 2] was vacated on the path move (7 is not stranded)")
     (rf/dispatch-sync [:seed])
     (is (= 7 (:derived (rf/app-db-value :rf/default)))
         "the new output-path materialised on the next drain")))
