@@ -255,12 +255,11 @@
 ;;
 ;; `with-base-path` is a combinator over an existing strategy, not a third
 ;; shipped strategy: base-path handling is orthogonal to address-bar FORM
-;; (history vs hash). It wraps the four egress/ingress consult points —
-;; `:encode` / `:decode` / `:push!` / `:replace!` / `:install-listener!` —
+;; (history vs hash). It wraps the three URL-translating consult points —
+;; `:encode` / `:decode` / `:install-listener!` —
 ;; so the wrapped strategy's own form (identity vs `#`-prefix) is preserved
-;; underneath the base-path prefix/strip. It wraps `:encode`, `:decode`, and
-;; listener ingress; the already-encoded `:push!` / `:replace!` legs pass
-;; through unchanged.
+;; underneath the base-path prefix/strip; the already-encoded `:push!` /
+;; `:replace!` legs pass through unchanged.
 
 (defn- normalize-base-path
   "Normalize a base-path string: nil / blank -> `\"\"` (no base); else
