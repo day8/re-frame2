@@ -861,19 +861,19 @@
         (rf.trace/handler-scope-from-meta :sub (nth qids k) nil)
         (keep! true)))))
 
-;; rf2-zxv06 — the handler-scope bracket, in BOTH spellings, one process, the
-;; same sub-ids. `P-SCOPE` above is kept EXACTLY as rf2-jr76s left it (nil
-;; meta) so its 120.8 B figure stays comparable, but nil meta is not the
-;; production shape: a macro-registered sub carries `:ns` / `:file` / `:line`
-;; (`:column` is dev-only and absent under `:advanced` + goog.DEBUG=false), and
-;; those are what make `trigger-handler-from-meta` build a coord map AND a
-;; three-key trigger map on top of the record. So:
+;; The handler-scope bracket, in BOTH spellings, one process, the same
+;; sub-ids. `P-SCOPE` above passes nil meta, so its 120.8 B figure is a fixed
+;; reference, but nil meta is not the production shape: a macro-registered
+;; sub carries `:ns` / `:file` / `:line` (`:column` is dev-only and absent
+;; under `:advanced` + goog.DEBUG=false), and those are what make
+;; `trigger-handler-from-meta` build a coord map AND a three-key trigger map
+;; on top of the record. So:
 ;;
 ;;   P-SCOPEM  the RETIRED spelling with REALISTIC registration meta — build
-;;             the scope per recompute, the way `validate-and-trace` did
+;;             the scope per recompute
 ;;   P-SCOPEH  the SHIPPED spelling — the scope built ONCE per cache entry and
 ;;             closed over, so the per-recompute cost is the `binding` and
-;;             `inherit-scope` alone (rf2-zxv06)
+;;             `inherit-scope` alone
 ;;
 ;; and, because `inherit-scope`'s copies only happen when a PARENT scope is
 ;; bound — which is the real shape, since an app's write runs inside the
@@ -938,15 +938,16 @@
     (next-gen!)
     nil))
 
-;; ---- rf2-gncxk.1 — the MOVEMENT WITNESS, both halves ----------------------
+;; ---- the MOVEMENT WITNESS, both halves ------------------------------------
 ;;
 ;; `P-EQDB` above prices the memo wrapper's `(= last-db db)` guard at 147.0
-;; B/sub, and rf2-gncxk.1 retires it — but only where it is provably wasted.
-;; The guard is NOT dead code: the spine's derived value is pull-based, so it
-;; is the only thing stopping a render from re-running every sub body, and on
-;; a `:frame-state` sub it genuinely HITS on the flush path. So the change is
-;; two-sided by construction, and so is the measurement. Neither half is
-;; optional; a one-sided result does not discharge the claim.
+;; B/sub, and the movement witness skips it — but only where it is provably
+;; wasted. The guard is NOT dead code: the spine's derived value is
+;; pull-based, so it is the only thing stopping a render from re-running
+;; every sub body, and on a `:frame-state` sub it genuinely HITS on the flush
+;; path. So the witness is two-sided by construction, and so is the
+;; measurement. Neither half is optional; a one-sided result does not
+;; discharge the claim.
 ;;
 ;; THE `:db` HALF — a strict paired control, the `RC-ATTACH` / `RC-CAND`
 ;; discipline. Two arms, identical in every respect but ONE:
@@ -957,7 +958,7 @@
 ;;             `rf=`-gated — driven in the FLUSH-PATH shape.
 ;;   P-MEMOWC  the shipped wrapper over the RAW ATOM under that same derived
 ;;             container, so `witness-src` resolves nil and the guard
-;;             expression is byte-for-byte the one that shipped.
+;;             expression is byte-for-byte the plain `=` guard.
 ;;
 ;; Both arms move their source once per call and then invoke 300 wrappers, so
 ;; the scaffolding — one `replace-container!`, one epoch, one drain, one
@@ -980,8 +981,7 @@
 ;; physical container, whose fan-out is not movement-gated and which therefore
 ;; cannot implement the protocol). Two arms over the SAME wrapper objects,
 ;; both landing on the memo-HIT branch — the real `:frame-state` flush-path
-;; shape, the one PR #7233 pins — differing only in the identity of the
-;; argument:
+;; shape — differing only in the identity of the argument:
 ;;
 ;;   P-MEMOF   invoked with an `=`-but-NOT-`identical?` db, so `=` walks the
 ;;             whole structure and finds no difference.
@@ -1032,13 +1032,13 @@
       (keep! ((nth memos-f k) db-a)))))
 
 ;; The scheduler's queue bookkeeping, in BOTH spellings, in one process on the
-;; same 300 thunks — the paired-control discipline `read-attribution`'s
-;; `RC-ATTACH` / `RC-CAND` established. `Q-SCHED` is the RETIRED form (a
-;; volatile over a persistent vector + persistent set); `Q-SCHED-JS` is the
-;; form that replaced it (a JS array + `js/Set`, mutated in place). Neither is
-;; a call into `spine`: the whole point is to keep the retired expression
-;; measurable beside the shipped one so the difference is a comparison of two
-;; EXPRESSIONS and neither arm can drift under the other.
+;; same 300 thunks — the paired-control discipline of `read-attribution`'s
+;; `RC-ATTACH` / `RC-CAND`. `Q-SCHED` is the RETIRED form (a volatile over a
+;; persistent vector + persistent set); `Q-SCHED-JS` is the SHIPPED form (a
+;; JS array + `js/Set`, mutated in place). Neither is a call into `spine`: the
+;; whole point is to hold the retired expression measurable beside the
+;; shipped one so the difference is a comparison of two EXPRESSIONS and
+;; neither arm can drift under the other.
 
 (defn- arm-q-sched []
   (let [{:keys [n thunks]} @rig
@@ -1067,9 +1067,9 @@
 
 ;; The derived-value fan-out over a two-plus-subscriber watcher map, in BOTH
 ;; spellings. `P-VALS` is the RETIRED `(run! f (vals ws))`; `P-RKV` is the
-;; `reduce-kv` walk that replaced it.
+;; SHIPPED `reduce-kv` walk.
 ;;
-;; rf2-ktrvw — BOTH ARMS HAND A FRESH CLOSURE TO A CALLEE, one per call, and
+;; BOTH ARMS HAND A FRESH CLOSURE TO A CALLEE, one per call, and
 ;; that is a bimodal cost on this runtime. `read_attribution_cljs`'s `N-NEWFN`
 ;; prices a bare closure at 64.0 B settled and 128.1 B in its high mode — a
 ;; step of exactly ONE closure, per WINDOW, in both plan orders — and an arm
@@ -1144,8 +1144,9 @@
   per-window floor by looking at one window size. Re-running the whole plan at
   several caps IS the sweep: a real per-call cost is cap-INDEPENDENT in B/call,
   a per-window constant is cap-independent in B/WINDOW and so falls as 1/reps.
-  That is the distinction rf2-tmzie was opened on, and `-main` can now make it
-  without leaving `-main` (see `floor-lines`)."
+  That is the distinction between a cost and the floor. `-main` prints the
+  floor at the run's own cap and lists every arm at or under it, and
+  `-diagnose` PROBE 4 sweeps the window size for `C-FRAME`."
   [f target cap]
   (collect!)
   (let [h0 (used-heap)
@@ -1162,9 +1163,9 @@
   ;; body closure — the shape a real application's 300 boundaries have.
   ;;
   ;; `coords?` decides whether those registrations carry SOURCE COORDS, and it
-  ;; is not a detail (rf2-zxv06, rf2-4k5hs). This ns requires `re-frame.core`
-  ;; WITHOUT `:include-macros true`, so `rf/reg-sub` here is the plain FUNCTION
-  ;; and no call site is captured — left alone, the registrar slot comes out
+  ;; is not a detail. This ns requires `re-frame.core` WITHOUT
+  ;; `:include-macros true`, so `rf/reg-sub` here is the plain FUNCTION and no
+  ;; call site is captured — left alone, the registrar slot comes out
   ;; `{}`. A real application writes `(rf/reg-sub …)` in a namespace that does
   ;; get the macro, so its slots carry `:ns` / `:file` / `:line` (`:column` is
   ;; dev-only and absent under `:advanced` + goog.DEBUG=false). That is the
@@ -1181,8 +1182,8 @@
       (if coords?
         (rf/reg-sub qid prod-sub-meta body)
         (rf/reg-sub qid body))))
-  ;; rf2-gncxk.1 — the `:frame-state` ladder's subs. Same fixed-arity-1 memo
-  ;; wrapper as the `:db` ladder's, same registration shape; the ONE difference
+  ;; The `:frame-state` ladder's subs. Same fixed-arity-1 memo wrapper as the
+  ;; `:db` ladder's, same registration shape; the ONE difference
   ;; is the signal source the reactive build resolves — the frame's raw
   ;; physical container rather than the `rf=`-gated app-db projection. That is
   ;; the fact the movement witness keys on, so this ladder's slope is the
