@@ -294,9 +294,8 @@
   **It opens no adoption window.** A window is minted per root and
   reaches a subtree only through the provider `impl.mount` installs for a
   HYDRATING root, and there is no product door that opens one around an
-  ordinary render;
-  giving the harness a private one would be inventing product API for a
-  test. Nothing is lost, because the only reader is presence and the
+  ordinary render; giving the harness a private one would be inventing
+  product API for a test. Nothing is lost, because the only reader is presence and the
   trees rendered through this fn carry none — see
   [[settled-server-html!]] for the ones that do."
   [frame-kw hiccup]
