@@ -43,26 +43,27 @@
 ;;
 ;; The added-key arm keys off `find` (presence), never a marker value. An
 ;; app-db leaf can be ANY runtime value — including the private
-;; :re-frame.mcp-base.diff-encode/absent keyword the old
-;; `(get a k ::absent)` used as its missing-marker. A value-comparison
-;; test mis-read an UNCHANGED key holding that value as `:added`, emitting
+;; :re-frame.mcp-base.diff-encode/absent keyword a sentinel lookup
+;; `(get a k ::absent)` would use as its missing-marker. A value-comparison
+;; test would mis-read an UNCHANGED key holding that value as `:added`, emitting
 ;; a spurious `[path :assoc value]` false patch that misleads the agent
 ;; even though replay still reconstructs the value.
 ;; ---------------------------------------------------------------------------
 
-;; The exact keyword the old code used as `::absent` in the diff-encode ns.
+;; The exact keyword `::absent` spells in the diff-encode ns.
 (def ^:private old-sentinel :re-frame.mcp-base.diff-encode/absent)
 
 (deftest collect-patches-sentinel-valued-unchanged-key-emits-no-patch
-  ;; db-before and db-after both hold the former sentinel value at :k,
+  ;; db-before and db-after both hold the sentinel-shaped value at :k,
   ;; UNCHANGED, alongside a real sibling change. Only the sibling must
-  ;; produce a patch. Old `(get a k ::absent)` mis-flagged :k as added and
-  ;; emitted a spurious `[[:k] :assoc <sentinel>]` on top of the real one.
+  ;; produce a patch. A sentinel lookup `(get a k ::absent)` would mis-flag
+  ;; :k as added and emit a spurious `[[:k] :assoc <sentinel>]` on top of
+  ;; the real one.
   (let [a {:k old-sentinel :sibling 1}
         b {:k old-sentinel :sibling 2}]
     (is (= [[[:sibling] :assoc 2]]
            (rf.mcp-base.diff-encode/collect-patches a b []))
-        "an unchanged key whose value equals the former sentinel must NOT report as changed")))
+        "an unchanged key whose value equals the sentinel keyword must NOT report as changed")))
 
 (deftest collect-patches-nil-valued-unchanged-key-emits-no-patch
   ;; `find` must also distinguish a present nil value from an absent key
@@ -146,9 +147,9 @@
   (is (= [] (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 2 3]} []))))
 
 ;; ---------------------------------------------------------------------------
-;; Collection KIND is a change (rf2-3x7nj.35.1). `(= [1 2] '(1 2))`, so a
-;; bare-`=` no-change test emitted NO patch for a vector turned into a seq
-;; with the same elements, and the decoder rebuilt the OLD kind. `=`
+;; Collection KIND is a change. `(= [1 2] '(1 2))`, so a bare-`=`
+;; no-change test would emit NO patch for a vector turned into a seq with
+;; the same elements, and the decoder would rebuild the OLD kind. `=`
 ;; erases kind in these assertions too, so each one checks the kind itself.
 ;; ---------------------------------------------------------------------------
 
@@ -190,7 +191,7 @@
     (is (= (pr-str after) (pr-str dec)))))
 
 (deftest collect-patches-real-change-in-a-kind-changed-slot-still-patches
-  ;; Control: a genuine value change in the same slot was always a patch,
+  ;; Control: a genuine value change in the same slot is a patch either way,
   ;; so the instrument above can see one.
   (let [a       {:items [{:id 1} {:id 2}]}
         b       {:items (list {:id 2} {:id 1})}
@@ -247,8 +248,7 @@
   ;; the same path, the later one wins — `reduce` over the patch
   ;; sequence applies them in order so a later `:assoc` overrides an
   ;; earlier one, and a `:dissoc` after an `:assoc` clears the value.
-  ;; re-frame2-pair-mcp's diff_encode_epochs_test pinned this; the base's own
-  ;; test set didn't. Mirror the contract here so any future encoder
+  ;; The contract is pinned here, in the base, so any future encoder
   ;; refactor that flips the iteration order trips this gate before
   ;; reaching the consumers.
   (testing "later :assoc overrides earlier :assoc at same path"
@@ -267,20 +267,20 @@
 (deftest apply-patches-nested-dissoc-missing-or-scalar-parent-is-noop
   ;; `[<path> :dissoc]` is a no-op when the key does not
   ;; exist (per the spec). The naive `(update-in acc parent dissoc k)`
-  ;; violated this: a MISSING parent manufactured nil branches, and a
-  ;; SCALAR parent threw a host ClassCastException at the decoder
-  ;; boundary. `apply-patches` is the public wire decoder; a malformed /
+  ;; would violate this: a MISSING parent would manufacture nil branches,
+  ;; and a SCALAR parent would throw a host ClassCastException at the
+  ;; decoder boundary. `apply-patches` is the public wire decoder; a malformed /
   ;; corrupt / third-party diff replayed against a mismatched base must
   ;; not corrupt the base into a shape neither side emitted, nor crash.
   (testing "missing direct parent ⇒ no-op (no nil-branch manufacture)"
     (is (= {} (rf.mcp-base.diff-encode/apply-patches {} [[[:missing :leaf] :dissoc]]))
-        "was {:missing nil} before the fix"))
+        "not the {:missing nil} a naive update-in manufactures"))
   (testing "missing deeper parent ⇒ no-op"
     (is (= {:a {}} (rf.mcp-base.diff-encode/apply-patches {:a {}} [[[:a :b :c] :dissoc]]))
-        "was {:a {:b nil}} before the fix"))
+        "not the {:a {:b nil}} a naive update-in manufactures"))
   (testing "scalar parent ⇒ no-op (no host ClassCastException)"
     (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :dissoc]]))
-        "was a thrown ClassCastException before the fix"))
+        "not a thrown ClassCastException"))
   (testing "valid nested dissoc still removes the key"
     (is (= {:a {:c 2}} (rf.mcp-base.diff-encode/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]]))))
   (testing "root-key dissoc unchanged"
@@ -291,7 +291,7 @@
 (deftest apply-patches-nested-assoc-into-scalar-parent-is-structured-error
   ;; The `:assoc` PEER of the dissoc guard.
   ;; A grammar-valid patch like `[[[:a :b] :assoc 2]]` against base
-  ;; `{:a 1}` used to delegate straight to `assoc-in`, which throws a
+  ;; `{:a 1}`, delegated straight to `assoc-in`, would throw a
   ;; raw host `ClassCastException` with nil ex-data at the wire decoder
   ;; boundary. `apply-patches` is the public wire decoder; a malformed /
   ;; corrupt / third-party / mismatched-base diff must surface a
@@ -305,7 +305,7 @@
           clojure.lang.ExceptionInfo
           #":rf\.error/bad-diff-replay"
           (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :assoc 2]]))
-        "was a raw host ClassCastException before the fix")
+        "not a raw host ClassCastException")
     (try
       (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :assoc 2]])
       (is false "expected throw")
@@ -357,20 +357,20 @@
   ;; The missing-parent auto-vivification cases pinned above
   ;; ("MISSING / nil intermediate parent still auto-vivifies") only cover
   ;; MAP-KEY paths (`[:a :b]` ⇒ `{:a {:b 2}}`). A path whose NEXT segment
-  ;; is an INTEGER (a vector index) reaching an ABSENT parent used to fall
-  ;; through to the same map-vivifying `assoc-in` call, so
-  ;; `(apply-patches {} [[[:items 0 :qty] :assoc 2]])` silently produced
+  ;; is an INTEGER (a vector index) reaching an ABSENT parent, sent
+  ;; through the same map-vivifying `assoc-in` call, would make
+  ;; `(apply-patches {} [[[:items 0 :qty] :assoc 2]])` silently produce
   ;; `{:items {0 {:qty 2}}}` — an int-keyed MAP — a shape NEITHER encoder
   ;; side ever emits (`collect-vector-patches-into` only reaches an
   ;; index-path patch via an already-present, same-length vector on both
   ;; halves of the diff). Reachable only via a malformed / corrupt /
-  ;; third-party diff replayed against an absent base. Fix: an integer
+  ;; third-party diff replayed against an absent base. So an integer
   ;; segment meeting a `nil` node vivifies a VECTOR instead — the shape a
   ;; real diff would have produced.
   (testing "absent parent + integer index ⇒ vector vivified, NOT an int-keyed map"
     (is (= {:items [{:qty 2}]}
            (rf.mcp-base.diff-encode/apply-patches {} [[[:items 0 :qty] :assoc 2]]))
-        "was {:items {0 {:qty 2}}} before the fix"))
+        "not the int-keyed map {:items {0 {:qty 2}}}"))
   (testing "nested absent parent + integer index, deeper leaf"
     (is (= {:a {:xs [9]}}
            (rf.mcp-base.diff-encode/apply-patches {} [[[:a :xs 0] :assoc 9]]))))
@@ -441,8 +441,8 @@
   ;; The encoder threads :db-before into section
   ;; classification so an all-:assoc direct-child cluster is :added ONLY
   ;; when its container was genuinely absent before. Patch shape alone
-  ;; can't tell an insert from a change (both are :assoc), so an existing
-  ;; parent whose direct child changed was mislabelled :added — a false
+  ;; can't tell an insert from a change (both are :assoc), so without it an
+  ;; existing parent whose direct child changed would be mislabelled :added — a false
   ;; skim signal to the agent.
   ;;
   ;; Note on collect-patches shapes: a GENUINELY-new multi-key container
@@ -450,8 +450,8 @@
   ;; (collect-patches doesn't recurse into an absent key), which heads as
   ;; a singleton → :modified. The all-:assoc DIRECT-CHILD shape over the
   ;; collect-patches pipeline therefore ALWAYS means the container
-  ;; ALREADY existed and its children changed — i.e. the exact case the
-  ;; old patch-only rule falsely tagged :added. The genuine direct-child
+  ;; ALREADY existed and its children changed — i.e. the exact case a
+  ;; patch-only rule would falsely tag :added. The genuine direct-child
   ;; :added shape only arises from an advanced consumer supplying a
   ;; synthetic patch list (pinned at the group-patches-into-sections
   ;; level in section_grouping_test).
@@ -807,7 +807,7 @@
 
 (deftest apply-patches-well-formed-input-passes-validation
   ;; Soft contract: well-formed patches pass the gate silently and
-  ;; produce the same output the pre-validation implementation did.
+  ;; produce the same output an unvalidated replay would.
   (is (= {:a 1 :b 2}
          (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:b] :assoc 2]])))
   (is (= {:a 1}
