@@ -1,8 +1,9 @@
 (ns re-frame.story-mcp.descriptor-manifest-gen
   "story-mcp tool-descriptor manifest generator + drift-check.
 
-  Mirrors the API-governance keystone's generate-then-drift-check shape
-  on story-mcp's MCP descriptor surface.
+  Mirrors the public API manifest's generate-then-drift-check shape
+  (`implementation/scripts/api-manifest`) on story-mcp's MCP descriptor
+  surface.
 
   SOURCE OF TRUTH. `re-frame.story-mcp.tools.registry/tool-registry` —
   the ordered vector that bundles every story-mcp tool's name,
