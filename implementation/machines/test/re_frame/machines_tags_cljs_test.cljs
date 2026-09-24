@@ -1,5 +1,5 @@
 (ns re-frame.machines-tags-cljs-test
-  "CLJS-side coverage for `:fsm/tags` — state tags (Nine States Stage 1)
+  "CLJS-side coverage for `:fsm/tags` — state tags (the Nine States pattern)
   under the Reagent reactive substrate.
 
   Per Spec 005 §State tags: a state-node body may declare `:tags
