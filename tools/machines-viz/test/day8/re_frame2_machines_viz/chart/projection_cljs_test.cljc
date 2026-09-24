@@ -1,9 +1,9 @@
 (ns day8.re-frame2-machines-viz.chart.projection-cljs-test
-  "Pure-data tests for the MachineChart projection layer (rf2-0gmwp).
+  "Pure-data tests for the MachineChart projection layer.
 
   `chart.projection` is the central parsed-graph → xyflow nodes/edges
   projector plus the elk.js `children` shape + the edge-type chooser.
-  It was extracted from `chart.cljs` (which `:require`s xyflow/elkjs
+  It lives apart from `chart.cljs` (which `:require`s xyflow/elkjs
   and so is JVM-unloadable) precisely so this corpus can pin it at the
   cheap JVM layer instead of the slow browser-DOM layer.
 
@@ -75,30 +75,31 @@
              :busy {:on {:done :idle}}}})
 
 (def same-state-machine
-  "rf2-ee38b.21 — external self-transition via the `:target :same-state`
-  sentinel (Spec 005). Must project a self-loop, not a phantom node."
+  "Targeted self-transition via the `:target :same-state`
+  sentinel (Spec 005; internal by default). Must project a self-loop, not
+  a phantom node."
   {:initial :a
    :states  {:a {:on {:ping {:target :same-state}}}}})
 
 (def internal-self-machine
-  "rf2-ee38b.21 — internal self-transition (omit :target). Self-anchors
+  "Internal self-transition (omit :target). Self-anchors
   and projects `:internal true`."
   {:initial :a
    :states  {:a {:on {:tick {:action :inc}}}}})
 
 (def wildcard-machine
-  "rf2-ee38b.21 — a `:*` wildcard `:on` arm (Spec 005 §Wildcard)."
+  "A `:*` wildcard `:on` arm (Spec 005 §Wildcard)."
   {:initial :a
    :states  {:a {:on {:start :b :* :err}}
              :b {}
              :err {}}})
 
 (def machine-level-on-machine
-  "rf2-ee38b.21 — a machine-level (top-level) :on fallback."
+  "A machine-level (top-level) :on fallback."
   {:initial :a :on {:logout :a} :states {:a {} :b {}}})
 
 (def door-cyclic-machine
-  "rf2-ly51l — the door machine's topology shape (cyclic + a root-level
+  "The door machine's topology shape (cyclic + a root-level
   :on fallback). The forward spine `locked → closed → open → alarming`
   loops back via `alarming → locked` (reset) AND a root `:door/audit →
   locked` fallback. Drives the initial-state model-order preference
@@ -114,7 +115,7 @@
              :alarming {:on {:door/reset :locked}}}})
 
 (def entry-exit-machine
-  "rf2-ee38b.21 — :entry / :exit state actions."
+  ":entry / :exit state actions."
   {:initial :a
    :states  {:a {:entry :on-enter :exit :on-leave}
              :b {}}})
@@ -129,13 +130,13 @@
   (first (filter #(= id (:id %)) (:nodes graph))))
 
 (defn- root-children
-  "rf2-q129z8 — the EFFECTIVE top-level elk children: the `:children` of
-  the synthetic ROOT-CONTAINER frame `->elk-children` now emits as the sole
+  "The EFFECTIVE top-level elk children: the `:children` of
+  the synthetic ROOT-CONTAINER frame `->elk-children` emits as the sole
   top-level child (the Stately-style named box wrapping the whole machine).
-  Every pre-q129z8 top-level child (flat states, regions, the machine-root
-  chip, top-level event-nodes) now nests one level deeper, under this frame;
-  this helper unwraps it so the assertions read against the same effective
-  top level they did before the frame landed.
+  The machine's own top-level children (flat states, regions, the
+  machine-root chip, top-level event-nodes) nest one level deeper, under
+  this frame; this helper unwraps it so the assertions read against the
+  machine's effective top level.
 
   `elk-children` is the `(projection/->elk-children parsed …)` result vector
   (exactly one element: the root container)."
@@ -143,38 +144,36 @@
   (:children (first elk-children)))
 
 (defn- event-node-for
-  "rf2-qo5xy — find the event-node a projected graph emitted for a
+  "Find the event-node a projected graph emitted for a
   given parsed-edge id. The events-as-nodes paradigm hoists each
-  transition into a `\"rf2-event\"` xyflow node; the legacy single-
-  edge state→state shape (with the event/guard/action on the edge
-  label) is gone."
+  transition into a `\"rf2-event\"` xyflow node rather than labelling a
+  single state→state edge with the event/guard/action."
   [graph parsed-edge-id]
   (first (filter #(and (= "rf2-event" (:type %))
                        (= (projection/event-node-id {:id parsed-edge-id}) (:id %)))
                  (:nodes graph))))
 
 (defn- inbound-edge-for
-  "rf2-qo5xy — the source-state → event-node edge for a parsed-edge id."
+  "The source-state → event-node edge for a parsed-edge id."
   [graph parsed-edge-id]
   (edge-by-id graph (str parsed-edge-id "__in")))
 
 (defn- outbound-edge-for
-  "rf2-qo5xy — the event-node → target-state edge for a parsed-edge
+  "The event-node → target-state edge for a parsed-edge
   id. nil for internal transitions (which emit no outbound edge)."
   [graph parsed-edge-id]
   (edge-by-id graph (str parsed-edge-id "__out")))
 
 ;; ---- edge :type (single canonical "transition") ------------------------
 ;;
-;; rf2-dt5b1 — the `choose-edge-type` classifier was removed: under
-;; events-as-nodes EVERY projected edge is the canonical `transition`
+;; Under events-as-nodes EVERY projected edge is the canonical `transition`
 ;; type (the `:after`-timer specifics ride the event-NODE, not a distinct
 ;; edge type). These pins assert the projector emits ONLY `transition`
-;; edges across the parse arms `choose-edge-type` once classified (plain
-;; `:on`, `:after`-timer, `:always` eventless).
+;; edges across every parse arm (plain `:on`, `:after`-timer, `:always`
+;; eventless).
 
 (deftest every-projected-edge-is-transition-type
-  (testing "rf2-dt5b1 — every edge a real parse emits projects as the
+  (testing "every edge a real parse emits projects as the
             canonical `transition` type (no `after` / `spawn` arms);
             `idle-loading` exercises plain `:on` + `:after` + `:always`."
     (let [graph (projection/xyflow-graph
@@ -184,7 +183,7 @@
           "all projected edges are the single canonical transition type"))))
 
 (deftest after-timer-rides-the-event-node-not-an-edge-type
-  (testing "rf2-dt5b1 — an `:after`-timer's specifics ride the event-NODE
+  (testing "an `:after`-timer's specifics ride the event-NODE
             (`:variant \"after\"` + `:afterMs`), NOT a distinct edge type;
             the structural edges around it are plain `transition` edges."
     (let [graph      (projection/xyflow-graph
@@ -222,10 +221,10 @@
           region (node-by-id graph (layout/region-node-id :audio))]
       (is (= "parallel-region" (:type region))))))
 
-;; ---- history pseudo-state projection (rf2-m285a) -----------------------
+;; ---- history pseudo-state projection -----------------------------------
 
 (def shallow-history-machine
-  "rf2-m285a — a compound with a SHALLOW `:type :history` pseudo-state
+  "A compound with a SHALLOW `:type :history` pseudo-state
   targeted by an outer transition."
   {:initial :off
    :states  {:off    {:on {:resume [:player :hist]}}
@@ -240,7 +239,7 @@
             {:type :history :deep? true :default-target :playing}))
 
 (deftest xyflow-graph-history-node-type
-  (testing "rf2-m285a — a `:type :history` pseudo-state projects as a
+  (testing "a `:type :history` pseudo-state projects as a
             `history-marker`-type node, NOT a `state`"
     (let [parsed (layout/project-definition shallow-history-machine)
           graph  (projection/xyflow-graph parsed {} {})
@@ -252,7 +251,7 @@
           "shallow history threads :deep false to the renderer"))))
 
 (deftest xyflow-graph-deep-history-node
-  (testing "rf2-m285a — a DEEP history pseudo-state threads :deep true"
+  (testing "a DEEP history pseudo-state threads :deep true"
     (let [parsed (layout/project-definition deep-history-machine)
           graph  (projection/xyflow-graph parsed {} {})
           hist   (node-by-id graph (layout/node-id [:player :hist]))]
@@ -260,7 +259,7 @@
       (is (true? (:deep (:data hist)))))))
 
 (deftest history-node-is-not-occupiable
-  (testing "rf2-m285a — a history pseudo-state is NEVER occupiable: not
+  (testing "a history pseudo-state is NEVER occupiable: not
             initial / final / compound, and not an on-state-click target"
     (let [parsed (layout/project-definition shallow-history-machine)
           ;; the parsed node (pre-projection) carries the pseudo-state flags
@@ -275,7 +274,7 @@
           "a history marker carries no on-state-click handler"))))
 
 (deftest history-node-keeps-incoming-edge
-  (testing "rf2-m285a — a transition targeting the history pseudo-state keeps
+  (testing "a transition targeting the history pseudo-state keeps
             its incoming edge (the marker is a legitimate transition target),
             sourced from the off state's event node"
     (let [parsed (layout/project-definition shallow-history-machine)
@@ -285,7 +284,7 @@
       (is (= (layout/node-id [:player :hist]) (:target resume))
           "the edge target is the history marker's node id"))))
 
-;; ---- error-final KIND threading + composition (rf2-b4loj) --------------
+;; ---- error-final KIND threading + composition --------------------------
 ;;
 ;; An `:error?` final (Spec 005 §:final?) is a re-frame2 EXTENSION routing
 ;; the spawning parent's `:on-error` (vs `:on-done`). The projector threads
@@ -303,7 +302,7 @@
              :boom    {:final? true :error? true}}})
 
 (deftest xyflow-graph-threads-error-final-kind
-  (testing "rf2-b4loj — :data :errorFinal is true ONLY for an :error?
+  (testing ":data :errorFinal is true ONLY for an :error?
             final; a success final and a non-final node carry false"
     (let [parsed  (layout/project-definition success-and-error-finals)
           graph   (projection/xyflow-graph parsed {} {})
@@ -318,7 +317,7 @@
       (is (true?  (:errorFinal (:data boom)))    "error final → true"))))
 
 (deftest xyflow-graph-active-error-final-composes
-  (testing "rf2-b4loj — an :error? final that is ALSO the current state
+  (testing "an :error? final that is ALSO the current state
             carries BOTH :active true (drives the runtime main-border) AND
             :errorFinal true (drives the static error-hue ring) on its
             :data — the two signals compose, neither clobbers the other"
@@ -330,18 +329,16 @@
       (is (true? (:errorFinal (:data boom))) "AND it is an error terminal")
       (is (true? (:final      (:data boom)))))))
 
-;; ---- xyflow-graph :on-state-click threading (rf2-34ff3) ----------------
+;; ---- xyflow-graph :on-state-click threading ----------------------------
 ;;
-;; rf2-34ff3 (A-PRIME) — `:on-state-click` is threaded onto the `:data`
-;; `:onClick` of REAL statechart-state nodes only: LEAF states + COMPOUND
-;; states. The synthetic machine-root chip and parallel-region containers
-;; are NOT click targets, so the projector must NOT thread `:onClick` onto
-;; their `:data` — otherwise a node would carry an `:onClick` its renderer
-;; never consumes (the inverse of the original half-wired bug, where the
-;; compound-node ignored a threaded `:onClick`).
+;; `:on-state-click` is threaded onto the `:data` `:onClick` of REAL
+;; statechart-state nodes only: LEAF states + COMPOUND states. The
+;; synthetic machine-root chip and parallel-region containers are NOT click
+;; targets, so the projector must NOT thread `:onClick` onto their `:data` —
+;; otherwise a node would carry an `:onClick` its renderer never consumes.
 
 (deftest xyflow-graph-threads-on-click-to-leaf-and-compound-only
-  (testing "rf2-34ff3 — `:onClick` rides leaf + compound `:data`; the
+  (testing "`:onClick` rides leaf + compound `:data`; the
             machine-root chip + region containers carry NO `:onClick`."
     (let [cb (fn [_path] :clicked)]
       ;; Compound + leaf machine: both the compound parent and its leaf
@@ -383,17 +380,17 @@
 
 ;; ---- xyflow-graph parentId / extent sub-flow wiring (G1) ---------------
 ;;
-;; rf2-xh1lm — xyflow v12 reads `parentId` (NOT `parentNode`, the pre-v12
+;; xyflow v12 reads `parentId` (NOT `parentNode`, the pre-v12
 ;; name). The projector must emit `:parentId` so xyflow's
 ;; `adoptUserNodes` walks the parent lookup and treats `:position` as
 ;; parent-relative; emitting `:parentNode` instead is silently ignored
-;; (the previous shape — substates rendered at root + visually escaped
-;; the parent container).
+;; (substates would render at root and visually escape the parent
+;; container).
 
 (deftest xyflow-graph-region-children-wire-parent-id
-  (testing "rf2-lkwev + rf2-xh1lm — every state inside a region carries
+  (testing "every state inside a region carries
             `:parentId` (the region container id) + `:extent \"parent\"`
-            so xyflow v12's sub-flow nests + clamps it; rf2-fzbj.13 — the
+            so xyflow v12's sub-flow nests + clamps it; the
             region container ITSELF nests the same way under the
             ROOT-CONTAINER frame ELK lays it out in"
     (let [parsed (layout/project-definition parallel-machine)
@@ -429,12 +426,12 @@
         (recur (parent-of id) {:x (+ (:x acc) (:x p)) :y (+ (:y acc) (:y p))})))))
 
 (deftest xyflow-graph-parallel-absolute-positions-match-elk-ancestry
-  (testing "rf2-fzbj.13 — with the frame at a NON-ZERO origin, the absolute
+  (testing "with the frame at a NON-ZERO origin, the absolute
             position xyflow derives from each projected node's `parentId`
             chain equals the sum of its ELK ancestry, for region containers,
-            leaves, event-nodes and initial markers alike. Pre-fix every
-            region dropped its frame parent, so each region subtree landed
-            short by exactly the frame origin."
+            leaves, event-nodes and initial markers alike. A region that
+            dropped its frame parent would land its subtree short by
+            exactly the frame origin."
     (let [parsed    (layout/project-definition parallel-machine)
           elk-par   (elk-parent-of (projection/->elk-children parsed))
           elk-ids   (into (set (keys elk-par)) (vals elk-par))
@@ -470,10 +467,10 @@
               (str (:id m) " — marker offset from its container's ELK frame")))))))
 
 (deftest xyflow-graph-region-children-do-not-emit-pre-v12-parent-node
-  (testing "rf2-xh1lm — the projector emits the v12 `:parentId` shape
+  (testing "the projector emits the v12 `:parentId` shape
             ONLY; the pre-v12 `:parentNode` key MUST NOT appear (xyflow
-            v12 silently ignores it, hiding the bug behind a green test
-            suite — the regression mode this guards)"
+            v12 silently ignores it, which would hide broken nesting
+            behind a green test suite)"
     (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})]
       (doseq [n (:nodes graph)]
@@ -481,7 +478,7 @@
             (str "node " (:id n) " must not carry the dead :parentNode key"))))))
 
 (deftest xyflow-graph-flat-state-nests-under-root-container
-  (testing "rf2-q129z8 — a flat machine's top-level state now nests UNDER
+  (testing "a flat machine's top-level state nests UNDER
             the synthetic ROOT-CONTAINER frame (the Stately-style named box
             wrapping the whole machine): it carries `:parentId` ==
             `root-container-id` + `:extent \"parent\"`, exactly as a compound
@@ -499,7 +496,7 @@
 ;; ---- xyflow-graph parent-before-child sort (G1) ------------------------
 
 (deftest xyflow-graph-sorts-regions-before-children
-  (testing "rf2-lkwev — xyflow requires a parentId target to appear in
+  (testing "xyflow requires a parentId target to appear in
             the nodes array BEFORE any node that references it (v12's
             `adoptUserNodes` warns otherwise). Every region container
             must precede its first child in the projected order."
@@ -567,7 +564,7 @@
       (is (false? (:sim (:data (node-by-id no-sim hi)))))
       (is (false? (:sim (:data (node-by-id inactive (layout/node-id [:idle])))))))))
 
-;; ---- xyflow-graph multi-active highlight (rf2-g2svr, G1) ----------------
+;; ---- xyflow-graph multi-active highlight (G1) ---------------------------
 ;;
 ;; A PARALLEL machine's snapshot `:state` is a region-map — N
 ;; simultaneously-active leaves (one per region). `:highlight-ids` (a
@@ -577,11 +574,11 @@
 ;; active-state option.
 
 (deftest xyflow-graph-highlight-ids-marks-every-active-leaf
-  (testing "rf2-g2svr (THE PARITY CAPABILITY) — passing a SET of two
-            region-leaf ids marks BOTH region states `:active`
-            simultaneously (parallel multi-active highlight)"
+  (testing "passing a SET of two region-leaf ids marks BOTH
+            region states `:active` simultaneously (parallel multi-active
+            highlight)"
     (let [parsed     (layout/project-definition parallel-machine)
-          ;; rf2-wnzha — region states are region-scoped ids now.
+          ;; Region states carry region-scoped ids.
           playing-id (layout/region-scoped-id :audio [:playing])
           shown-id   (layout/region-scoped-id :video [:shown])
           muted-id   (layout/region-scoped-id :audio [:muted])
@@ -598,7 +595,7 @@
           "the inactive :video leaf stays dark"))))
 
 (deftest xyflow-graph-highlight-ids-from-snapshot-resolver
-  (testing "rf2-g2svr — end-to-end: `highlight-ids` resolves a parallel
+  (testing "end-to-end: `highlight-ids` resolves a parallel
             region-map to the set, the projection lights every active
             leaf. This is the live-chart path (chart.cljs calls
             highlight-ids on :current-state)."
@@ -607,7 +604,7 @@
           state    {:audio :playing :video :shown}
           ids      (layout/highlight-ids state)
           graph    (projection/xyflow-graph parsed {} {:highlight-ids ids})
-          ;; Scope to leaf STATE nodes — rf2-80rm2 (G4) additionally marks
+          ;; Scope to leaf STATE nodes — G4 additionally marks
           ;; the region CONTAINERS active (active-region chrome), which the
           ;; dedicated G4 tests below pin; here we keep the G1 invariant that
           ;; exactly the two active leaves light up among the state nodes.
@@ -619,7 +616,7 @@
           "exactly the two active region leaves are marked active"))))
 
 (deftest xyflow-graph-flat-snapshot-singleton-highlight-ids
-  (testing "rf2-g2svr — a flat/compound snapshot resolves to a singleton
+  (testing "a flat/compound snapshot resolves to a singleton
             `:highlight-ids` set, marking exactly the one active leaf"
     (let [parsed  (layout/project-definition idle-loading)
           hi      (layout/node-id [:loading])
@@ -629,9 +626,9 @@
       (is (true?  (:active (:data loading))))
       (is (false? (:active (:data idle)))))))
 
-;; ---- xyflow-graph active-region CONTAINER chrome (rf2-80rm2, G4) ---------
+;; ---- xyflow-graph active-region CONTAINER chrome (G4) --------------------
 ;;
-;; G1 lit the active LEAF; G4 lights the active region/compound CONTAINER
+;; G1 lights the active LEAF; G4 lights the active region/compound CONTAINER
 ;; so the zone itself reads as active (Stately parity §1.4). The projector
 ;; folds a container into `:active` when ANY descendant leaf is in the
 ;; active set — walked up the `:parent-id` chain every node already carries
@@ -640,9 +637,9 @@
 ;; the active chrome; these JVM pins guard the projection half.
 
 (deftest xyflow-graph-active-leaf-lights-its-region-container
-  (testing "rf2-80rm2 (THE G4 CAPABILITY) — an active region LEAF marks its
-            parallel-region CONTAINER `:active`, so the zone (not just the
-            leaf inside it) reads as active"
+  (testing "an active region LEAF marks its parallel-region
+            CONTAINER `:active`, so the zone (not just the leaf inside it)
+            reads as active"
     (let [parsed     (layout/project-definition parallel-machine)
           playing-id (layout/region-scoped-id :audio [:playing])
           audio-id   (layout/region-node-id :audio)
@@ -654,7 +651,7 @@
           "the :audio region container lights because its :playing leaf is active"))))
 
 (deftest xyflow-graph-inactive-region-container-stays-inactive
-  (testing "rf2-80rm2 — a region whose leaf is NOT in the active set keeps
+  (testing "a region whose leaf is NOT in the active set keeps
             its container `:active false` (only the active region(s) get
             chrome — orthogonality of the active read)"
     (let [parsed     (layout/project-definition parallel-machine)
@@ -669,7 +666,7 @@
           "the region with no active leaf stays inactive"))))
 
 (deftest xyflow-graph-both-region-containers-active-when-both-have-active-leaf
-  (testing "rf2-80rm2 — a parallel snapshot with an active leaf in EVERY
+  (testing "a parallel snapshot with an active leaf in EVERY
             region lights EVERY region container simultaneously (the
             multi-active read at the container level)"
     (let [parsed   (layout/project-definition parallel-machine)
@@ -682,7 +679,7 @@
       (is (true? (:active (:data video))) ":video container active"))))
 
 (deftest xyflow-graph-compound-container-active-with-active-descendant
-  (testing "rf2-80rm2 — self-consistency: a compound (non-parallel)
+  (testing "self-consistency: a compound (non-parallel)
             container also gets active chrome when an active descendant
             leaf lit it (the same `:parent-id`-chain mechanic)"
     (let [parsed      (layout/project-definition compound-machine)
@@ -696,7 +693,7 @@
           "the compound container lights because its :browsing leaf is active"))))
 
 (deftest xyflow-graph-active-chain-lights-every-enclosing-container
-  (testing "rf2-80rm2 — a deep active leaf lights EVERY enclosing
+  (testing "a deep active leaf lights EVERY enclosing
             container up the `:parent-id` chain (more than one level)"
     (let [parsed   (layout/project-definition nested-compound-machine)
           leaf-id  (layout/node-id [:outer :mid :leaf])
@@ -706,7 +703,7 @@
           graph    (projection/xyflow-graph
                      parsed {} {:highlight-ids #{leaf-id}})]
       (is (true? (:active (:data (node-by-id graph leaf-id))))
-          "the active leaf itself stays active (G1 unchanged)")
+          "the active leaf itself stays active (the G1 read)")
       (is (true? (:active (:data (node-by-id graph mid-id))))
           "the immediate compound parent lights")
       (is (true? (:active (:data (node-by-id graph outer-id))))
@@ -715,7 +712,7 @@
           "an inactive sibling leaf stays dark"))))
 
 (deftest xyflow-graph-flat-machine-unaffected-by-container-chrome
-  (testing "rf2-80rm2 — a flat machine has no containers, so the active
+  (testing "a flat machine has no containers, so the active
             set is exactly the active leaf(s); no spurious node lights"
     (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
@@ -726,7 +723,7 @@
           "exactly the highlighted leaf is active — no container chrome leaks"))))
 
 (deftest xyflow-graph-inactive-compound-container-stays-inactive
-  (testing "rf2-80rm2 — a compound with NO active descendant keeps its
+  (testing "a compound with NO active descendant keeps its
             container `:active false` (no highlight → no chrome)"
     (let [parsed (layout/project-definition compound-machine)
           graph  (projection/xyflow-graph parsed {} {})
@@ -735,7 +732,7 @@
           "no highlight → the compound container is inactive"))))
 
 (deftest xyflow-graph-no-highlight-leaves-all-inactive
-  (testing "rf2-g2svr — no `:highlight-ids` → no state/region node is
+  (testing "no `:highlight-ids` → no state/region node is
             active (empty set, never nil-comparison surprises).
             Initial-marker nodes carry no
             `:active` key at all (they are not states), so the check
@@ -747,13 +744,13 @@
       (is (every? #(false? (:active (:data %))) flagged)))))
 
 (deftest xyflow-graph-multi-active-edges-active-in-each-region
-  (testing "rf2-g2svr + rf2-vd3q1i — with N active leaves, an edge SOURCED
+  (testing "with N active leaves, an edge SOURCED
             FROM any active leaf is `:active`. Each region's outgoing edge
             lights up independently (orthogonality preserved). Here
             :playing (audio) sources `mute` (playing→muted) and :shown
             (video) sources `hide` (shown→hidden)."
     (let [parsed     (layout/project-definition parallel-machine)
-          ;; rf2-wnzha — region states are region-scoped ids now.
+          ;; Region states carry region-scoped ids.
           playing-id (layout/region-scoped-id :audio [:playing])
           shown-id   (layout/region-scoped-id :video [:shown])
           ids        #{playing-id shown-id}
@@ -773,7 +770,7 @@
       (is (contains? regions :video) "a :video-region edge is active"))))
 
 (deftest xyflow-graph-edge-active-only-when-source-highlighted
-  (testing "rf2-vd3q1i — an edge is `:active` ONLY when its SOURCE is the
+  (testing "an edge is `:active` ONLY when its SOURCE is the
             highlighted (active) state. An INCOMING edge whose only active
             endpoint is its TARGET is NOT lit — `from-active?` is
             source-active, not incident-to-active."
@@ -799,7 +796,7 @@
           "outgoing edge (its source is active) IS lit"))))
 
 (deftest xyflow-graph-edge-focused-when-source-and-target-match-lens
-  (testing "rf2-qo5xy — events-as-nodes paradigm: an inbound edge
+  (testing "events-as-nodes paradigm: an inbound edge
             (source-state → event-node) is `:focused` when the parsed
             transition's source/target match the from/to lens. The
             paired outbound edge (event-node → target-state) gets the
@@ -832,10 +829,10 @@
           graph  (projection/xyflow-graph parsed {} {:from-highlight-id from})]
       (is (every? false? (map (comp :focused :data) (:edges graph)))))))
 
-;; ---- xyflow-graph arrowheads (rf2-5qsxo) -------------------------------
+;; ---- xyflow-graph arrowheads -------------------------------------------
 
 (deftest xyflow-graph-edge-requests-arrowclosed-marker-end
-  (testing "rf2-5qsxo — every transition edge requests an `arrowclosed`
+  (testing "every transition edge requests an `arrowclosed`
             markerEnd so React Flow draws an arrowhead at the target end
             (the custom edge component forwards the resolved url to its
             BaseEdge)."
@@ -848,11 +845,11 @@
           "the marker colour resolves to a token string"))))
 
 (deftest xyflow-graph-marker-end-colour-tracks-active-edge
-  (testing "rf2-5qsxo — the arrowhead colour tracks the edge stroke: an
+  (testing "the arrowhead colour tracks the edge stroke: an
             edge SOURCED FROM the highlighted node uses the active (cyan)
             colour, idle edges use the default border colour, so the
             marker reads as part of the same line."
-    ;; rf2-vd3q1i — highlight `:idle` (a SOURCE state): its outgoing
+    ;; Highlight `:idle` (a SOURCE state): its outgoing
     ;; idle→start→loading edge lights (source-active), while the rest of
     ;; the graph stays idle, giving a clean active/inactive split.
     (let [parsed   (layout/project-definition idle-loading)
@@ -866,10 +863,10 @@
                 (:color (:markerEnd inactive)))
           "active vs idle arrowheads are distinct colours"))))
 
-;; ---- rf2-az6e2 — structured visual grammar data -----------------------
+;; ---- structured visual grammar data -----------------------------------
 
 (deftest xyflow-graph-threads-palette-onto-every-node-and-edge
-  (testing "rf2-az6e2 — the resolved chart-semantic token map (`:palette`
+  (testing "the resolved chart-semantic token map (`:palette`
             option) is threaded onto EVERY node + edge `:data {:palette}`
             so the renderers paint the active theme. Default (no
             `:palette`) resolves the dark chart-tokens."
@@ -883,7 +880,7 @@
           "every edge :data carries the threaded palette"))))
 
 (deftest xyflow-graph-palette-defaults-to-dark-chart-tokens
-  (testing "rf2-az6e2 — a caller that omits `:palette` gets the dark
+  (testing "a caller that omits `:palette` gets the dark
             chart-tokens map on every node/edge (theme-less default)."
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
@@ -892,7 +889,7 @@
       (is (every? #(= dark (:palette (:data %))) (:edges graph))))))
 
 (deftest xyflow-graph-event-route-arrowhead-split
-  (testing "rf2-az6e2 — the two-edge event route reads as ONE transition:
+  (testing "the two-edge event route reads as ONE transition:
             the source→event (`__in`) segment carries the SMALLER quiet
             arrowhead (`:arrow-width-quiet`) + the quiet-segment flag,
             while the event→target (`__out`) segment carries the PRIMARY
@@ -921,7 +918,7 @@
           "the outbound half is the primary segment"))))
 
 (deftest xyflow-graph-internal-transition-no-outbound-segment
-  (testing "rf2-az6e2 — an internal / action-only transition (no
+  (testing "an internal / action-only transition (no
             `:target`) emits the inbound terminal segment but NO outgoing
             target segment, so the event chip reads as a terminal route."
     (let [parsed   (layout/project-definition internal-self-machine)
@@ -934,19 +931,19 @@
             "internal transition has NO event→target segment")))))
 
 (def internal-after-always-machine
-  "rf2-mnp93.4 — a state carrying an internal (action-only, no `:target`)
+  "A state carrying an internal (action-only, no `:target`)
   `:after` AND `:always`. Both project as terminal event-nodes (no outbound
-  segment), exactly like the internal `:on` form — pre-fix BOTH were silently
+  segment), exactly like the internal `:on` form, rather than being silently
   dropped by the chart's `:after` / `:always` branches."
   {:initial :a
    :states  {:a {:after  {1000 {:action :timeout-log}}
                  :always [{:action :poll}]}}})
 
 (deftest xyflow-graph-internal-after-always-no-outbound-segment
-  (testing "rf2-mnp93.4 — an internal (action-only) :after / :always
+  (testing "an internal (action-only) :after / :always
             projects the inbound terminal segment but NO outbound segment,
-            consistent with the internal :on form (pre-fix both were dropped
-            entirely by the chart parse)"
+            consistent with the internal :on form (the chart parse drops
+            neither)"
     (let [parsed (layout/project-definition internal-after-always-machine)
           graph  (projection/xyflow-graph parsed {} {})
           aft    (first (filter #(and (:internal? %) (:after %)) (:edges parsed)))
@@ -980,7 +977,7 @@
       (is (= {:width 320 :height 180} (:style region))))))
 
 (deftest xyflow-graph-compound-style-from-measured-position
-  (testing "rf2-a64bi — a compound container's `:style {:width :height}`
+  (testing "a compound container's `:style {:width :height}`
             comes from its measured position entry, the SAME way a region
             container's does. The compound renderer fills its box with
             `width:100% height:100%`, so without the styled box xyflow
@@ -997,7 +994,7 @@
       (is (= {:width 328 :height 156} (:style compound))))))
 
 (deftest xyflow-graph-compound-style-coexists-with-parent-relative-substates
-  (testing "rf2-a64bi + rf2-xh1lm — when a compound has substates, the
+  (testing "when a compound has substates, the
             compound's `:style {:width :height}` matches elk's bounding
             box AND each substate carries `:parentId` (xyflow v12's
             sub-flow key, NOT the pre-v12 `:parentNode`) + `:extent
@@ -1021,7 +1018,7 @@
       (is (= cid (:parentId b)) ":browsing nests under :authenticated")
       (is (= cid (:parentId p)) ":paying nests under :authenticated")
       (is (not (contains? b :parentNode))
-          "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear")
+          "the pre-v12 :parentNode key MUST NOT appear")
       (is (not (contains? p :parentNode)))
       (is (= "parent" (:extent b)))
       (is (= "parent" (:extent p)))
@@ -1030,7 +1027,7 @@
       (is (= {:x 174 :y 34} (:position p))))))
 
 (deftest xyflow-graph-leaf-state-has-no-style
-  (testing "rf2-a64bi — a leaf (non-container) state carries NO `:style`
+  (testing "a leaf (non-container) state carries NO `:style`
             even with a measured size in the positions map; xyflow sizes
             leaf nodes from the rendered DOM (`state-node-min-{width,height}`)
             rather than a projector-supplied box."
@@ -1050,7 +1047,7 @@
       (is (= {:x 0 :y 0} (:position idle))))))
 
 (deftest xyflow-graph-event-node-carries-after-ms-and-event-label
-  (testing "rf2-qo5xy — events-as-nodes paradigm: the event-node
+  (testing "events-as-nodes paradigm: the event-node
             (not the edge) carries the `:afterMs` + the visible event
             label. The `⌚`-prefixed segment (from chart.layout/event-
             segment) rides on the event-node's `:eventLabel`."
@@ -1066,7 +1063,7 @@
           "the variant attribute identifies the `:after` event-node kind"))))
 
 (deftest xyflow-graph-event-node-eventLabel-is-event-segment
-  (testing "rf2-qo5xy — the event-node's `:eventLabel` is the raw
+  (testing "the event-node's `:eventLabel` is the raw
             event-segment text from chart.layout/event-segment (e.g.
             \"start\"); guard/action ride on dedicated `:guard` +
             `:action` slots of the event-node payload."
@@ -1084,11 +1081,11 @@
           "regular :on event-node variant"))))
 
 (deftest xyflow-graph-event-node-surfaces-guard-and-action
-  (testing "rf2-qo5xy — when an edge declares a guard / action, the
+  (testing "when an edge declares a guard / action, the
             event-node's `:data` carries them as separate strings (the
             renderer paints the `[guard]` chip + `+ <action>` pill from
-            these). The legacy `event [guard] / action` text composition
-            is gone — each piece sits in its own slot."
+            these). Each piece sits in its own slot rather than being
+            composed into `event [guard] / action` text."
     (let [m {:initial :idle
              :states  {:idle {:on {:submit {:target :loading
                                             :guard  :authed?
@@ -1104,9 +1101,9 @@
       (is (= "log-it"  (:action     (:data ev-node)))))))
 
 (deftest xyflow-graph-entry-edge-carries-empty-event-line-label
-  (testing "rf2-a2b55 — entry edges (initial-marker → leaf) have no
+  (testing "entry edges (initial-marker → leaf) have no
             event label; the every-edge-:data invariant means they
-            carry `:eventLineLabel \"\"` alongside the existing
+            carry `:eventLineLabel \"\"` alongside
             `:eventLabel \"\"`."
     (let [parsed   (layout/project-definition idle-loading)
           graph    (projection/xyflow-graph parsed {} {})
@@ -1121,16 +1118,15 @@
   (testing "a region container's `:data` carries `:regionId` +
             `:regionIndex`; a plain state's does not.
 
-            rf2-rzum09 — the `muted` leaf MUST be bound via
-            `region-scoped-id` (a parallel region state is region-scoped —
-            `region__audio__muted`), NOT `(node-id [:muted])` = \"muted\"
-            which matches NO node. Pre-fix `muted` resolved to nil, so
-            `(contains? (:data muted) :regionId)` was `(contains? nil …)` =
-            false and the `does-not-carry-regionId` claim passed VACUOUSLY
-            on nil rather than on a real region-leaf node. The `some?`
-            guard below makes the binding load-bearing so a future
-            projection change that drops the region leaf can't silently
-            re-vacuate this assertion."
+            The `muted` leaf MUST be bound via `region-scoped-id` (a
+            parallel region state is region-scoped —
+            `region__audio__muted`), NOT `(node-id [:muted])` = \"muted\",
+            which matches NO node: bound to nil, `(contains? (:data muted)
+            :regionId)` is `(contains? nil …)` = false and the
+            `does-not-carry-regionId` claim would pass VACUOUSLY. The
+            `some?` guard below makes the binding load-bearing, so a
+            projection change that drops the region leaf cannot silently
+            vacate this assertion."
     (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           audio  (node-by-id graph (layout/region-node-id :audio))
@@ -1142,14 +1138,14 @@
       (is (= 1 (:regionIndex (:data video))))
       (is (some? muted)
           "the region-scoped leaf node exists — the assertion below is NOT
-           vacuous on nil (rf2-rzum09)")
+           vacuous on nil")
       (is (map? (:data muted))
           "a real region leaf carries a `:data` map to inspect")
       (is (not (contains? (:data muted) :regionId))
           "a region LEAF (not the container) does not carry the
            container-only `:regionId` key"))))
 
-;; ---- :density → threaded visual-constants (rf2-k647w) ------------------
+;; ---- :density → threaded visual-constants ------------------------------
 ;;
 ;; The xyflow node/edge components render OUTSIDE the chart's render
 ;; binding scope (React invokes them lazily), so the projector threads
@@ -1158,7 +1154,7 @@
 ;; JVM layer — the DOM suite (chart_dom) then pins the rendered effect.
 
 (deftest xyflow-graph-threads-chart-constants-onto-nodes
-  (testing "rf2-k647w — the resolved `:chart` map rides on EVERY node's
+  (testing "the resolved `:chart` map rides on EVERY node's
             `:data` so the xyflow node component reads geometry off the
             payload (it is invoked outside the render binding scope)"
     (let [parsed (layout/project-definition idle-loading)
@@ -1168,7 +1164,7 @@
           "compact density threads chart-compact onto every node"))))
 
 (deftest xyflow-graph-threads-chart-constants-onto-edges
-  (testing "rf2-k647w — the resolved `:chart` map rides on EVERY edge's
+  (testing "the resolved `:chart` map rides on EVERY edge's
             `:data` so the edge label typography tracks the density"
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {:chart vc/chart-cosy})]
@@ -1177,26 +1173,23 @@
           "cosy density threads chart-cosy onto every edge"))))
 
 (deftest xyflow-graph-chart-defaults-to-regular
-  (testing "rf2-k647w — omitting `:chart` (the JVM tests, a density-less
-            caller) defaults to `chart-regular` so the regular density
-            stays pixel-identical to pre-rf2-k647w"
+  (testing "omitting `:chart` (the JVM tests, a density-less
+            caller) defaults to `chart-regular`, the regular density's
+            constants"
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           idle   (node-by-id graph (layout/node-id [:idle]))]
       (is (= vc/chart-regular (:chart (:data idle)))))))
 
 (deftest xyflow-graph-density-changes-threaded-constants
-  (testing "rf2-k647w — switching the density threads a DIFFERENT
+  (testing "switching the density threads a DIFFERENT
             constants map: the regular projection's state-title font
             size differs from the compact projection's, proving
             `:density` actually changes what the renderer paints.
 
-            rf2-so5b0 → rf2-dt5b1 — historical assertions on
-            `:tag-pill-height` (then `:state-label-px`) walk to
-            `:state-title-px`: the tag-pill family retired with the
-            visible pill row, and `:state-label-px` was removed
-            (rf2-dt5b1, unread — the state-node label rides
-            `:state-title-px` under the rf2-az6e2 structured grammar)."
+            The state-node label rides `:state-title-px` under the
+            structured grammar, so that is the density-sensitive key
+            asserted here."
     (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           regular  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-regular})
@@ -1209,7 +1202,7 @@
       ;; corner-radius is the locked invariant — identical across both
       (is (= (:corner-radius regular) (:corner-radius compact) 6)))))
 
-;; ---- on-chart edge-click wiring (rf2-u422r) ----------------------------
+;; ---- on-chart edge-click wiring ----------------------------------------
 ;;
 ;; The on-chart machine simulator clicks a transition edge to send its
 ;; event into the hermetic sim engine. The projector threads the host's
@@ -1220,7 +1213,7 @@
 ;; the DOM layer (chart_dom).
 
 (deftest xyflow-graph-event-node-carries-fireable-event-id
-  (testing "rf2-u422r + rf2-qo5xy — the event-node (not an edge) carries
+  (testing "the event-node (not an edge) carries
             its fireable `:eventId` for the on-chart sim path; from/to
             paths ride with it so the host can dispatch the originating
             transition."
@@ -1237,7 +1230,7 @@
       (is (= [:loading] (:toPath   (:data ev-node)))))))
 
 (deftest xyflow-graph-after-and-always-event-nodes-not-fireable
-  (testing "rf2-u422r + rf2-qo5xy — `:after` + `:always` event-nodes
+  (testing "`:after` + `:always` event-nodes
             carry nil `:eventId` (the engine fires them automatically;
             the host filters them out for clickability). Their variant
             slot still identifies them as `:after` / `:always`."
@@ -1255,7 +1248,7 @@
       (is (= "always" (:variant (:data always-node)))))))
 
 (deftest xyflow-graph-spawn-on-error-event-node-is-its-own-variant
-  (testing "rf2-3x7nj.33.1 — the `:spawn :on-error` transition's event-node is
+  (testing "the `:spawn :on-error` transition's event-node is
             the `on-error` variant, labelled `✗ error`, and NOT user-fireable:
             `:rf.machine.spawn/error` is raised by the engine when the child
             fails, never sent by a click"
@@ -1276,8 +1269,8 @@
           "control: the ordinary :go event-node stays fireable"))))
 
 (deftest xyflow-graph-threads-on-edge-click-onto-every-event-node
-  (testing "rf2-u422r + rf2-qo5xy — the host's `:on-edge-click` (now
-            on-event-click) threads onto every event-node's
+  (testing "the host's `:on-edge-click` (the
+            on-event-click callback) threads onto every event-node's
             `:data {:onClick}` (the event-node component decides
             clickability from the callback + fireable eventId pair)."
     (let [parsed   (layout/project-definition idle-loading)
@@ -1290,7 +1283,7 @@
           "every event-node carries the same on-event-click callback"))))
 
 (deftest xyflow-graph-omits-on-click-when-no-callback
-  (testing "rf2-u422r — omitting `:on-edge-click` leaves `:onClick` nil
+  (testing "omitting `:on-edge-click` leaves `:onClick` nil
             so the edge label stays inert (no wiring)"
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
@@ -1299,12 +1292,12 @@
 ;; ---- ->elk-children (G3) -----------------------------------------------
 
 (deftest elk-children-flat-is-state-plus-event-nodes
-  (testing "rf2-qo5xy — a flat machine projects one elk child per
+  (testing "a flat machine projects one elk child per
             parsed state node PLUS one synthetic event-node per parsed
             transition (events-as-nodes paradigm). All children carry
             id + width/height + label.
 
-            rf2-q129z8 — these now nest UNDER the synthetic ROOT-CONTAINER
+            These nest UNDER the synthetic ROOT-CONTAINER
             frame (the sole top-level child), so the count is taken against
             `root-children` (the frame's children) — and the parsed state
             count excludes the synthetic root container itself."
@@ -1320,7 +1313,7 @@
 
 (deftest elk-children-compound-uses-compound-floor
   (testing "a compound node gets the compound size floor; a leaf gets
-            the state floor (rf2-q129z8 — read inside the root frame)"
+            the state floor (read inside the root frame)"
     (let [parsed   (layout/project-definition compound-machine)
           children (root-children (projection/->elk-children parsed))
           by-id    (into {} (map (juxt :id identity)) children)
@@ -1332,7 +1325,7 @@
       (is (= projection/state-node-min-height (:height leaf))))))
 
 (deftest elk-children-parallel-nests-states-under-regions
-  (testing "rf2-lkwev + rf2-qo5xy — a parallel machine projects ONE elk
+  (testing "a parallel machine projects ONE elk
             top-level child per region (regions are the only top-level
             structural containers); each region nests its states AND
             the events declared inside as `:children`."
@@ -1352,8 +1345,8 @@
 
 (deftest elk-children-region-padding-leaves-header-room
   (testing "each region's elk.padding leaves top room for the header
-            strip the parallel-region-node paints (rf2-q129z8 — regions
-            now sit inside the root frame)"
+            strip the parallel-region-node paints (regions sit inside the
+            root frame)"
     (let [parsed   (layout/project-definition parallel-machine)
           children (root-children (projection/->elk-children parsed))]
       (is (every? #(= "layered" (get-in % [:layoutOptions "elk.algorithm"]))
@@ -1361,19 +1354,18 @@
       (is (every? #(re-find #"top=" (get-in % [:layoutOptions "elk.padding"]))
                   children)))))
 
-;; ---- rf2-8q5pt: container elk.padding is density-derived ----------------
+;; ---- container elk.padding is density-derived ---------------------------
 ;;
-;; The bug: the container `elk.padding` was a regular-only literal
-;; `[top=44,left=16,bottom=16,right=16]`. But `:container-title-height`
-;; and `:container-body-pad` are density-dependent, so compact/cosy
-;; reserved the wrong header gap (children crowded or over-spaced the
-;; title strip). The fix derives every side from the active density's
-;; constants via `container-elk-padding`; these pins make the drift
-;; visible to CI (the old "top= is merely present" assertion above could
-;; not see it).
+;; `:container-title-height` and `:container-body-pad` are
+;; density-dependent, so `container-elk-padding` derives every side of the
+;; container `elk.padding` from the active density's constants; a
+;; regular-only literal would reserve the wrong header gap at compact/cosy
+;; (children crowding or over-spacing the title strip). These pins make
+;; that drift visible to CI, which the "top= is present" assertion above
+;; cannot see.
 
 (deftest container-elk-padding-derives-from-density-constants
-  (testing "rf2-8q5pt — top clears the title strip PLUS a body-pad band;
+  (testing "top clears the title strip PLUS a body-pad band;
             sides are the body-pad inset, all density-derived"
     (doseq [[density vc-map] [[:compact vc/chart-compact]
                               [:regular vc/chart-regular]
@@ -1387,7 +1379,7 @@
             (str "padding tracks the " density " density constants"))))))
 
 (deftest container-elk-padding-defaults-to-regular
-  (testing "rf2-8q5pt — the nil-arity (and a nil chart-vc) fall back to
+  (testing "the nil-arity (and a nil chart-vc) fall back to
             the regular density"
     (is (= (projection/container-elk-padding vc/chart-regular)
            (projection/container-elk-padding)))
@@ -1396,14 +1388,14 @@
            (projection/container-elk-padding vc/chart-regular)))))
 
 (deftest elk-children-padding-tracks-threaded-density
-  (testing "rf2-8q5pt — `->elk-children` threads `chart-vc` into every
+  (testing "`->elk-children` threads `chart-vc` into every
             container's elk.padding so a compact chart reserves a SMALLER
-            header gap than a cosy chart (was a fixed literal for both).
-            rf2-lxk3h3 — the two parallel REGIONS each hold an initial
+            header gap than a cosy chart.
+            The two parallel REGIONS each hold an initial
             substate, so they take the LEFT-widened initial-marker variant;
             the assertion compares against that variant per density."
     (let [parsed       (layout/project-definition parallel-machine)
-          ;; rf2-lxk3h3 — the regions (which hold initial substates) carry
+          ;; The regions (which hold initial substates) carry
           ;; the LEFT-widened padding; read against `root-children` so the
           ;; assertion addresses the region containers, not the outer frame.
           compact-kids (root-children
@@ -1424,30 +1416,29 @@
                 (projection/container-elk-padding vc/chart-cosy true))
           "the two densities reserve genuinely different gaps"))))
 
-;; ---- rf2-lxk3h3: nested initial-marker stays inside the container -------
+;; ---- nested initial-marker stays inside the container -------------------
 ;;
-;; The bug: a NESTED compound / region container's LEFT padding reserved
-;; only `:container-body-pad` (≈14 regular), but a nested initial substate's
-;; initial-marker glyph (the dot + short hook) is positioned
-;; `initial-marker-x-offset` (26) px LEFT of the state — so the dot's left
-;; edge landed `initial-marker-left-extent` (26) px left of the state, well
-;; PAST the 14px-inset container border, spilling the glyph outside the box
-;; (hvac `running`/`conditioning`). The marker is an xyflow-only decorative
-;; node — NOT in the ELK graph — so ELK's INCLUDE_CHILDREN pass never grew
-;; the box to enclose it. The fix reserves the marker's leftward extent in
-;; the container's LEFT padding for any container holding an initial child.
+;; A nested initial substate's initial-marker glyph (the dot + short hook)
+;; is positioned `initial-marker-x-offset` (26) px LEFT of the state, so the
+;; dot's left edge lands `initial-marker-left-extent` (26) px left of the
+;; state — well PAST a container border inset by only `:container-body-pad`
+;; (≈14 regular), which would spill the glyph outside the box (hvac
+;; `running`/`conditioning`). The marker is an xyflow-only decorative node —
+;; NOT in the ELK graph — so ELK's INCLUDE_CHILDREN pass never grows the box
+;; to enclose it. Any container holding an initial child therefore reserves
+;; the marker's leftward extent in its LEFT padding.
 
 (defn- elk-padding-left
-  "rf2-lxk3h3 — parse the `left=` integer out of an `elk.padding` string
+  "Parse the `left=` integer out of an `elk.padding` string
   (`[top=40,left=26,bottom=14,right=14]`). Returns an int."
   [pad]
   #?(:clj  (Integer/parseInt (second (re-find #"left=(\d+)" pad)))
      :cljs (js/parseInt (second (re-find #"left=(\d+)" pad)) 10)))
 
 (deftest container-elk-padding-reserves-initial-marker-left-extent
-  (testing "rf2-lxk3h3 — `reserve-initial-marker? true` widens ONLY the
+  (testing "`reserve-initial-marker? true` widens ONLY the
             LEFT side to `(max body-pad initial-marker-left-extent)`; top /
-            bottom / right are unchanged from the plain inset"
+            bottom / right match the plain inset"
     (doseq [[density vc-map] [[:compact vc/chart-compact]
                               [:regular vc/chart-regular]
                               [:cosy    vc/chart-cosy]]]
@@ -1473,14 +1464,14 @@
             (str density " only the LEFT side changes"))))))
 
 (deftest container-elk-padding-marker-left-extent-clears-glyph
-  (testing "rf2-lxk3h3 / rf2-djqjh6 — the reserved LEFT extent is no smaller
+  (testing "the reserved LEFT extent is no smaller
             than the initial-marker glyph's GEOMETRY-radius left edge (the
             conservative wider anchor, `initial-marker-x-offset - 1`), so the
             painted dot (whose left ink only reaches x=1.5) always sits inside
             the container border at every density"
     (doseq [vc-map [vc/chart-compact vc/chart-regular vc/chart-cosy]]
       (let [{:keys [pseudo-radius]} vc-map
-            ;; rf2-djqjh6 — DISTINGUISH the GEOMETRY radius from the PAINTED
+            ;; DISTINGUISH the GEOMETRY radius from the PAINTED
             ;; radius. The marker node sits `initial-marker-x-offset` (26) px
             ;; LEFT of the state; the dot is centred at node-local
             ;; `dot-x = pseudo-radius + 1`. The reservation anchors to the dot's
@@ -1508,7 +1499,7 @@
               "the painted left edge is RIGHT of the geometry-radius edge — inside the reservation"))))))
 
 (deftest elk-children-nested-compound-reserves-initial-marker-left
-  (testing "rf2-lxk3h3 — every compound container holding an initial
+  (testing "every compound container holding an initial
             substate carries the LEFT-widened padding, so the nested
             initial-marker stays inside the box (hvac running/conditioning)"
     (let [parsed   (layout/project-definition nested-compound-machine)
@@ -1541,7 +1532,7 @@
               (str (:id c) " (no initial child) keeps the plain inset")))))))
 
 (deftest elk-children-leaf-container-keeps-plain-left-inset
-  (testing "rf2-lxk3h3 — a container with NO initial child keeps the plain
+  (testing "a container with NO initial child keeps the plain
             body-pad LEFT inset (the reservation is targeted, not global)"
     ;; idle-loading is flat (no nested compounds), so the ONLY container is
     ;; the root frame — which DOES hold the machine's top-level initial, so
@@ -1554,27 +1545,27 @@
       (is (= (:container-body-pad vc/chart-regular) (elk-padding-left plain))
           "the plain LEFT is exactly the body-pad inset"))))
 
-;; ---- rf2-8z1rca: root-container reserves the Context-band TOP padding ---
+;; ---- root-container reserves the Context-band TOP padding ---------------
 ;;
-;; The bug: the synthetic ROOT-CONTAINER frame paints a title strip PLUS a
-;; VARIABLE-height Context band, but `container-elk-padding`'s plain TOP
-;; reserved only the title strip + a body-pad band. The Context band is NOT
+;; The synthetic ROOT-CONTAINER frame paints a title strip PLUS a
+;; VARIABLE-height Context band, while `container-elk-padding`'s plain TOP
+;; reserves only the title strip + a body-pad band. The Context band is NOT
 ;; an ELK child (it is header chrome drawn by `root-container-node`), so
-;; ELK's INCLUDE_CHILDREN pass never grew the frame to enclose it — with
-;; non-trivial context the first child laid out at the reserved content edge
-;; sat UNDER the painted band. The fix adds `context-band-height` (derived
-;; from the row count + the density divider) to the FRAME's TOP padding,
+;; ELK's INCLUDE_CHILDREN pass never grows the frame to enclose it: with
+;; non-trivial context, a first child laid out at the plain content edge
+;; would sit UNDER the painted band. So the FRAME's TOP padding adds
+;; `context-band-height` (derived from the row count + the density divider),
 ;; threaded from `:context-band`'s row count.
 
 (defn- elk-padding-top
-  "rf2-8z1rca — parse the `top=` integer out of an `elk.padding` string
+  "Parse the `top=` integer out of an `elk.padding` string
   (`[top=40,left=26,bottom=14,right=14]`). Returns an int."
   [pad]
   #?(:clj  (Integer/parseInt (second (re-find #"top=(\d+)" pad)))
      :cljs (js/parseInt (second (re-find #"top=(\d+)" pad)) 10)))
 
 (defn- root-container-pad
-  "rf2-8z1rca — the `elk.padding` string `->elk-children` puts on the
+  "The `elk.padding` string `->elk-children` puts on the
   synthetic ROOT-CONTAINER frame (the SOLE top-level child) for the given
   context-row count + density. nil density ⇒ regular."
   [parsed context-rows chart-vc]
@@ -1583,7 +1574,7 @@
       (get-in [:layoutOptions "elk.padding"])))
 
 (deftest context-band-height-grows-with-row-count
-  (testing "rf2-8z1rca — `context-band-height` is 0 for no rows and grows
+  (testing "`context-band-height` is 0 for no rows and grows
             monotonically with the row count (each row adds row-height +
             gap); fixed pad + header + divider are added once"
     (let [dw (:container-divider-width vc/chart-regular)]
@@ -1604,7 +1595,7 @@
             "each extra row adds row-height + row-gap")))))
 
 (deftest root-container-elk-padding-reserves-context-band
-  (testing "rf2-8z1rca — the ROOT-CONTAINER frame's ELK top padding is
+  (testing "the ROOT-CONTAINER frame's ELK top padding is
             LARGER WITH context rows than WITHOUT (it reserves the painted
             Context band); the no-context case is byte-identical to the
             plain marker-widened padding"
@@ -1616,7 +1607,7 @@
             with-2     (root-container-pad parsed 2 chart-vc)
             with-5     (root-container-pad parsed 5 chart-vc)]
         ;; No context → the frame padding equals the marker-widened padding
-        ;; (the frame holds the top-level initial), unchanged from pre-8z1rca.
+        ;; (the frame holds the top-level initial).
         (is (= (projection/container-elk-padding chart-vc true) no-ctx)
             (str density " context-less root padding = marker-widened (no extra top)"))
         ;; WITH context the TOP grows by exactly the band height; more rows
@@ -1637,7 +1628,7 @@
             (str density " only the TOP side changes for the Context band"))))))
 
 (deftest elk-children-non-root-containers-ignore-context-rows
-  (testing "rf2-8z1rca — threading a context-row count widens ONLY the
+  (testing "threading a context-row count widens ONLY the
             root-container frame; nested compound containers keep their
             plain (marker-widened) padding regardless of the count"
     (let [parsed   (layout/project-definition nested-compound-machine)
@@ -1662,20 +1653,19 @@
              (pad-of (first all-kids)))
           "the root frame carries the context-widened padding"))))
 
-;; ---- measure-then-relayout: ELK sizes to the real box (rf2-d9ro2) -------
+;; ---- measure-then-relayout: ELK sizes to the real box -------------------
 ;;
-;; The bug: ELK was fed CONSTANT floor dimensions, never the real
-;; rendered box, so any node whose content (long label + tag/action
-;; pills) exceeded the floor overlapped its neighbours. The fix threads
-;; xyflow's measured `{node-id {:width :height}}` into the projection;
-;; a leaf / event-node lays out at `(max measured floor)`. These pins
-;; live at the cheap JVM layer (the live re-layout lifecycle is wired in
-;; chart.cljs + browser-pinned); they fix the producer side of the bug.
+;; The projection threads xyflow's measured `{node-id {:width :height}}`
+;; into ELK, so a leaf / event-node lays out at `(max measured floor)`;
+;; fed CONSTANT floor dimensions instead, any node whose content (long
+;; label + tag/action pills) exceeded the floor would overlap its
+;; neighbours. These pins live at the cheap JVM layer (the live re-layout
+;; lifecycle is wired in chart.cljs + browser-pinned); they pin the
+;; producer side.
 
 (deftest leaf-elk-size-floors-to-min-when-unmeasured
-  (testing "rf2-d9ro2 — with no measurement (first pass) a leaf falls
-            back to the `state-node-min-{width,height}` floor — the
-            pre-fix single-pass behaviour"
+  (testing "with no measurement (first pass) a leaf falls
+            back to the `state-node-min-{width,height}` floor"
     (is (= {:width  projection/state-node-min-width
             :height projection/state-node-min-height}
            (projection/leaf-elk-size nil)))
@@ -1684,14 +1674,14 @@
            (projection/leaf-elk-size {})))))
 
 (deftest leaf-elk-size-uses-measured-when-larger
-  (testing "rf2-d9ro2 — a measured box LARGER than the floor wins per
+  (testing "a measured box LARGER than the floor wins per
             dimension (ELK must budget the real rendered size)"
     (let [big (projection/leaf-elk-size {:width 300 :height 90})]
       (is (= 300 (:width big)))
       (is (= 90  (:height big))))))
 
 (deftest leaf-elk-size-floors-each-dimension-independently
-  (testing "rf2-d9ro2 — the floor applies PER dimension: a node wider
+  (testing "the floor applies PER dimension: a node wider
             than the floor but shorter than it keeps the wide measured
             width AND the floor height"
     (let [m (projection/leaf-elk-size {:width 320 :height 10})]
@@ -1700,7 +1690,7 @@
           "sub-floor measured height clamps up to the floor"))))
 
 (deftest elk-child-leaf-uses-measured-dims
-  (testing "rf2-d9ro2 — `elk-child` sizes a LEAF to its measured box
+  (testing "`elk-child` sizes a LEAF to its measured box
             (floored), looked up by node-id from the measured-dims map"
     (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
@@ -1709,7 +1699,7 @@
           child    (projection/elk-child idle measured)]
       (is (= 260 (:width child)))
       (is (= 72  (:height child)))))
-  (testing "rf2-d9ro2 — an unmeasured leaf (absent from the map) keeps
+  (testing "an unmeasured leaf (absent from the map) keeps
             the floor"
     (let [parsed   (layout/project-definition idle-loading)
           idle     (first (filter #(= (layout/node-id [:idle]) (:id %))
@@ -1719,7 +1709,7 @@
       (is (= projection/state-node-min-height (:height child))))))
 
 (deftest elk-child-compound-ignores-measured-dims
-  (testing "rf2-d9ro2 — a COMPOUND keeps its floor seed even with a
+  (testing "a COMPOUND keeps its floor seed even with a
             measured entry: its true extent comes from ELK laying out its
             measured children, so feeding back its `100%`-of-the-box
             self-measurement would be circular"
@@ -1732,7 +1722,7 @@
       (is (= projection/compound-node-min-height (:height child))))))
 
 (deftest elk-event-child-uses-measured-dims
-  (testing "rf2-d9ro2 — an event-node also renders at content size
+  (testing "an event-node also renders at content size
             (event header + guard chip + action pill), so it takes
             `(max measured floor)` like a leaf"
     (let [edge     {:id "e1" :event :start}
@@ -1747,7 +1737,7 @@
         (is (= projection/event-node-elk-height (:height child)))))))
 
 (deftest elk-children-threads-measured-dims-to-leaves-and-events
-  (testing "rf2-d9ro2 — `->elk-children` forwards the measured-dims map
+  (testing "`->elk-children` forwards the measured-dims map
             so every leaf + event-node in the projected tree lays out at
             its real box; an unmeasured node falls back to the floor"
     (let [parsed     (layout/project-definition idle-loading)
@@ -1771,9 +1761,9 @@
             "unmeasured sibling keeps the floor")))))
 
 (deftest elk-children-no-measured-dims-equals-floor-single-pass
-  (testing "rf2-d9ro2 — with no measured-dims (the first pass / nil) the
-            output is identical to the historical single-pass: every leaf
-            at the floor. Guards that the two-pass is purely additive."
+  (testing "with no measured-dims (the first pass / nil) the
+            output is the single-pass layout: every leaf at the floor.
+            Guards that the two-pass is purely additive."
     (let [parsed (layout/project-definition idle-loading)]
       (is (= (projection/->elk-children parsed)
              (projection/->elk-children parsed nil))
@@ -1783,16 +1773,16 @@
         (is (every? #(= projection/state-node-min-width (:width %)) leaves)
             "every leaf at the width floor when unmeasured")))))
 
-;; ---- order-state-children (rf2-ly51l — initial-state model order) ------
+;; ---- order-state-children (initial-state model order) ------------------
 
 (deftest order-state-children-leads-with-initial
-  (testing "rf2-ly51l — the initial state leads the ordered children;
+  (testing "the initial state leads the ordered children;
             the machine-root annotation sinks LAST; ordinary states keep
             parse order. This is the model-order half of the initial-
             state placement soft preference."
     (let [parsed  (layout/project-definition door-cyclic-machine)
-          ;; rf2-q129z8 — the door states now nest under the ROOT-CONTAINER
-          ;; frame, so the effective top level is keyed on its id (was nil).
+          ;; The door states nest under the ROOT-CONTAINER
+          ;; frame, so the effective top level is keyed on its id.
           top     (get (group-by :parent-id (:nodes parsed))
                        layout/root-container-id)
           ordered (projection/order-state-children top)
@@ -1812,11 +1802,11 @@
             "ordinary states keep parse order (stable sort)")))))
 
 (deftest order-state-children-is-stable-against-shuffle
-  (testing "rf2-ly51l — the sort is STABLE: shuffling the non-initial /
+  (testing "the sort is STABLE: shuffling the non-initial /
             non-root states does not reorder them relative to each other
             (only the initial floats up + the root sinks down)."
     (let [parsed  (layout/project-definition door-cyclic-machine)
-          ;; rf2-q129z8 — door states nest under the ROOT-CONTAINER frame.
+          ;; Door states nest under the ROOT-CONTAINER frame.
           top     (get (group-by :parent-id (:nodes parsed))
                        layout/root-container-id)
           init    (filter :initial? top)
@@ -1839,7 +1829,7 @@
             "plain states keep relative input order under the stable sort")))))
 
 (deftest elk-children-leads-with-initial-state
-  (testing "rf2-ly51l — `->elk-children` emits the initial state FIRST
+  (testing "`->elk-children` emits the initial state FIRST
             among the top-level state children (before any event-node)
             and the machine-root annotation LAST among states, so ELK's
             DEPTH_FIRST source selection + within-layer tiebreak prefer
@@ -1854,7 +1844,7 @@
           "the machine-root annotation is the last state child"))))
 
 (deftest elk-children-nested-initial-leads-its-container
-  (testing "rf2-ly51l — a compound's OWN initial substate leads ITS local
+  (testing "a compound's OWN initial substate leads ITS local
             children (the preference applies per container, not just at
             the top level). `compound-machine`'s `:authenticated` is
             initial :browsing."
@@ -1869,17 +1859,17 @@
       (is (= (layout/node-id [:authenticated :browsing]) (first sub-states))
           "the compound's initial substate leads its local model order"))))
 
-;; ---- ->elk-edge / ->elk-edges (rf2-rlq97) ------------------------------
+;; ---- ->elk-edge / ->elk-edges ------------------------------------------
 ;;
 ;; The edges ARE fed into the ELK graph (this is what lets the Layered
 ;; algorithm route them AROUND node boxes instead of the renderer drawing
 ;; geometric paths that cut across states). `->elk-edge` is the pure
-;; projector for one transition's `__in` / `__out` ELK edge pair, lifted
-;; out of the inline `mapcat` that used to live JS-side in
-;; `chart.cljs/->elk-input` so the edge-feed is pinnable at the JVM layer.
+;; projector for one transition's `__in` / `__out` ELK edge pair, kept out
+;; of `chart.cljs/->elk-input`'s JS side so the edge-feed is pinnable at the
+;; JVM layer.
 
 (deftest elk-edge-emits-in-and-out-for-external-transition
-  (testing "rf2-rlq97 — an external transition (has :target) feeds TWO
+  (testing "an external transition (has :target) feeds TWO
             ELK edges: source-state → event-node (__in) and event-node →
             target-state (__out), so ELK routes both segments around any
             intervening node"
@@ -1901,7 +1891,7 @@
             "__out target is the transition target state")))))
 
 (deftest elk-edge-omits-out-for-internal-transition
-  (testing "rf2-rlq97 — an internal transition (no :target) feeds ONLY
+  (testing "an internal transition (no :target) feeds ONLY
             the __in ELK edge; the event-node hangs with no outgoing
             arrow (Stately convention)"
     (let [parsed  (layout/project-definition internal-self-machine)
@@ -1912,7 +1902,7 @@
       (is (= (str (:id tick) "__in") (:id (first elk-eds)))))))
 
 (deftest elk-edge-carries-labels-array
-  (testing "rf2-rlq97 — every ELK edge carries a :labels array (ELK
+  (testing "every ELK edge carries a :labels array (ELK
             requires one). Under events-as-nodes the transition text is
             on the event-NODE so the edge label text is empty + carries
             NO measured dims (feeding dims on both the node AND its edges
@@ -1931,10 +1921,10 @@
             "no measured width fed (no double-budget)")))))
 
 (deftest elk-edge-label-feeds-measured-dims-when-present
-  (testing "rf2-rlq97 — a labelled edge (one whose label-dims map carries
+  (testing "a labelled edge (one whose label-dims map carries
             its elk-edge-id) gets its MEASURED width/height fed into the
             ELK label so ELK reserves a placement channel — the edge-label
-            analogue of d9ro2's node measure"
+            analogue of the node measure"
     (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           start    (->> (:edges parsed)
@@ -1949,13 +1939,13 @@
       (is (= 18 (:height lbl)) "measured label height fed to ELK"))))
 
 (deftest elk-edge-label-ignores-zero-dims
-  (testing "rf2-rlq97 — a zero-size measured label (a node still awaiting
+  (testing "a zero-size measured label (a node still awaiting
             measurement) is treated as no label so ELK reserves nothing"
     (is (= [{:text ""}] (projection/elk-edge-label "" {:width 0 :height 0})))
     (is (= [{:text ""}] (projection/elk-edge-label "" nil)))))
 
 (deftest elk-edges-flattens-all-transitions
-  (testing "rf2-rlq97 — `->elk-edges` flattens every parsed transition's
+  (testing "`->elk-edges` flattens every parsed transition's
             __in/__out pair into the flat ELK `edges` vector
             `->elk-input` clj->js-es onto the root graph. The id set
             matches the `:edge-points` producer/consumer key scheme
@@ -1973,15 +1963,15 @@
           "every ELK edge id ends in __in or __out (the route key scheme)")
       (is (= (count elk-eds) (count ids)) "no duplicate edge ids"))))
 
-;; ---- rf2-k504af — initial-edge flow-start priority ---------------------
+;; ---- initial-edge flow-start priority ----------------------------------
 ;;
 ;; The INITIAL state's outgoing `__in` edge carries
 ;; `elk.layered.priority.direction 1` (paired with the root
 ;; `considerModelOrder NODES_AND_EDGES`) so ELK pulls the initial to the
-;; START of its region's flow — fixing the parallel / pure-cyclic regions
-;; (traffic `red`/`walk`) where the soft DEPTH_FIRST + model-order
-;; preference slips and the initial sinks to the bottom layer. Every other
-;; edge leaves the option unset (the ELK default 0).
+;; START of its region's flow — which matters in the parallel / pure-cyclic
+;; regions (traffic `red`/`walk`), where the soft DEPTH_FIRST + model-order
+;; preference alone slips and the initial would sink to the bottom layer.
+;; Every other edge leaves the option unset (the ELK default 0).
 
 (defn- in-edge-priority
   "The `elk.layered.priority.direction` layoutOption on an ELK `__in`
@@ -1990,7 +1980,7 @@
   (get-in elk-edge [:layoutOptions "elk.layered.priority.direction"]))
 
 (deftest elk-edge-sets-direction-priority-on-initial-source
-  (testing "rf2-k504af — the `__in` edge LEAVING an `:initial?` state
+  (testing "the `__in` edge LEAVING an `:initial?` state
             carries `elk.layered.priority.direction 1`; a non-initial
             source's `__in` edge leaves it unset"
     (let [parsed     (layout/project-definition idle-loading)
@@ -2012,8 +2002,8 @@
           "a non-initial source's __in edge leaves the priority unset"))))
 
 (deftest elk-edge-omits-priority-when-no-initial-set
-  (testing "rf2-k504af — with no `initial-ids` (the pre-bead 2-arity
-            path), NO edge carries the direction-priority option"
+  (testing "with no `initial-ids` (the 2-arity path), NO
+            edge carries the direction-priority option"
     (let [parsed (layout/project-definition idle-loading)]
       ;; `->elk-edges` DERIVES the initial set itself, so the no-initial-set
       ;; arity is reachable only through the bare `->elk-edge`.
@@ -2022,7 +2012,7 @@
           "the nil initial-ids arity leaves every edge unset"))))
 
 (deftest elk-edges-derives-initial-set-and-prioritises-each-region-initial
-  (testing "rf2-k504af — `->elk-edges` derives the `:initial?` node-id set
+  (testing "`->elk-edges` derives the `:initial?` node-id set
             from `:nodes` and tags EACH region's initial `__in` edge — the
             parallel pure-cyclic case (traffic-shaped). Both region
             initials (:muted, :hidden) get the priority; their cycle
@@ -2051,16 +2041,16 @@
         (is (nil? (in-edge-priority (in-for nid)))
             (str "non-initial " nid " leaves the priority unset"))))))
 
-;; ---- :edge-labels → :data {:labelPos} (rf2-rlq97) ----------------------
+;; ---- :edge-labels → :data {:labelPos} ----------------------------------
 ;;
-;; ELK owns edge-label PLACEMENT now (the edge-label analogue of ELK
+;; ELK owns edge-label PLACEMENT (the edge-label analogue of ELK
 ;; owning node placement). The projector attaches ELK's computed label
 ;; position to the labelled edge's `:data {:labelPos}` so the renderer
 ;; paints where ELK reserved a collision-free channel instead of a
 ;; renderer-side midpoint heuristic.
 
 (deftest xyflow-graph-attaches-elk-label-position-to-edge-data
-  (testing "rf2-rlq97 — when :edge-labels carries an ELK-computed
+  (testing "when :edge-labels carries an ELK-computed
             position for an edge, the projector threads it onto that
             edge's :data {:labelPos}; an edge with no entry gets nil"
     (let [parsed   (layout/project-definition idle-loading)
@@ -2081,7 +2071,7 @@
           "an edge with no ELK label position gets nil (geometric fallback)"))))
 
 (deftest xyflow-graph-edge-labels-defaults-empty
-  (testing "rf2-rlq97 — omitting :edge-labels (events-as-nodes default)
+  (testing "omitting :edge-labels (events-as-nodes default)
             leaves every edge's :labelPos nil so the renderer keeps its
             geometric anchor"
     (let [parsed (layout/project-definition idle-loading)
@@ -2089,10 +2079,10 @@
       (is (every? #(nil? (:labelPos (:data %))) (:edges graph))
           "no ELK labels fed → every edge :labelPos nil"))))
 
-;; ---- initial-state markers + self-loops (rf2-54s5a) --------------------
+;; ---- initial-state markers + self-loops --------------------------------
 
 (deftest xyflow-graph-emits-initial-marker-node-and-entry-edge
-  (testing "rf2-54s5a — the machine's initial state gets a synthetic
+  (testing "the machine's initial state gets a synthetic
             initial-marker node + an unlabelled entry edge into it"
     (let [parsed   (layout/project-definition idle-loading)
           graph    (projection/xyflow-graph parsed {} {})
@@ -2110,7 +2100,7 @@
           "entry edge has no event label"))))
 
 (deftest xyflow-graph-positions-initial-marker-at-fixed-offset
-  (testing "rf2-i9d2ob / rf2-d5s7yg — the initial-marker node sits at a
+  (testing "the initial-marker node sits at a
             FIXED, SMALL offset LEFT of (and slightly below) its state, so
             the fixed glyph (`chart.nodes/initial-marker`) drawn in node-
             local coords reads as a SHORT hook ending just OUTSIDE the
@@ -2131,15 +2121,14 @@
           "marker y = state.y + initial-marker-y-offset (title-row anchor)"))))
 
 (deftest initial-marker-short-hook-ends-outside-the-edge
-  (testing "rf2-d5s7yg — the offset is a SMALL short-hook span and the
+  (testing "the offset is a SMALL short-hook span and the
             tip-gap is decoupled from it: the arrow tip (drawn at node-local
             x = offset - tip-gap) lands a clean gap OUTSIDE the state's left
             edge (absolute state.x - tip-gap), never on/through it"
-    ;; offset is a SHORT hook span (Stately's dot-offset neighbourhood), not
-    ;; the old 48. rf2-k7kiiq — upper bound widened 26 → 28 alongside the
-    ;; offset bump (22 → 26) that lengthens the visible hook arm; at offset 26
-    ;; the dot CENTRE (`dot-x = pseudo-radius + 1`) lands ~19px left of the edge
-    ;; (regular: `offset - dot-x = 26 - 7 = 19`).
+    ;; The offset is a SHORT hook span (Stately's dot-offset neighbourhood),
+    ;; long enough for a visible hook arm; at offset 26 the dot CENTRE
+    ;; (`dot-x = pseudo-radius + 1`) lands ~19px left of the edge (regular:
+    ;; `offset - dot-x = 26 - 7 = 19`).
     (is (<= 12 projection/initial-marker-x-offset 28)
         "offset is a short-hook span (dot centre ~19px left of the edge)")
     ;; the tip-gap is a small positive gap, strictly less than the offset so
@@ -2151,37 +2140,36 @@
         "tip-gap < offset ⇒ arrow tip (local x = offset - gap) is OUTSIDE the edge, not at/through it")))
 
 (deftest initial-marker-glyph-hook-flows-forward
-  (testing "rf2-wwyx1u — the initial glyph reads as ONE clean unit pointing
+  (testing "the initial glyph reads as ONE clean unit pointing
             AT the edge: the small Stately-sized arrowhead leaves the hook
             base (`end-x`) RIGHT of the dot (`dot-x`), so the single Q-hook
             flows dot → down-and-RIGHT into the arrowhead (NOT backwards).
             Pins the FORWARD-FLOW invariant the renderer paints across every
-            density, so the oversized-arrowhead regression cannot return."
+            density, so an oversized arrowhead cannot pass."
     (doseq [density vc/densities]
       (let [{:keys [pseudo-radius]} (vc/chart-for-density density)
             {:keys [ah tip-x dot-x end-x]}
             (projection/initial-marker-glyph pseudo-radius)]
-        ;; the arrowhead is SMALL (Stately ~5×6), never the oversized
-        ;; ~10-13px head the regression produced. rf2-k7kiiq — ceiling
-        ;; raised 5 → 6 for a slightly larger Stately-aligned head.
+        ;; The arrowhead is SMALL (Stately ~5×6), never an oversized
+        ;; ~10-13px head.
         (is (<= 4 ah 6)
             (str density ": arrowhead is Stately-small (4–6px), not oversized"))
         ;; the hook base sits RIGHT of the dot ⇒ the curve flows FORWARD
         ;; (down-and-right) into the arrowhead, not backwards into the dot.
         (is (> end-x dot-x)
             (str density ": end-x > dot-x ⇒ hook flows FORWARD into the arrowhead"))
-        ;; the tip still lands a clean positive gap OUTSIDE the edge
+        ;; The tip lands a clean positive gap OUTSIDE the edge
         ;; (edge is at local x=offset), pointing AT it.
         (is (< 0 tip-x projection/initial-marker-x-offset)
             (str density ": arrow tip is OUTSIDE the edge, pointing at it"))))))
 
 (deftest xyflow-graph-nested-initial-marker-has-no-extent-clamp
-  (testing "rf2-d5s7yg — a NESTED initial-marker (compound/region substate)
+  (testing "a NESTED initial-marker (compound/region substate)
             carries `:parentId` for the coordinate frame but NO `:extent
             \"parent\"`. The clamp would shove a marker sitting just outside
-            the container's left padding back INSIDE — the root cause of the
-            nested-initial overshoot (`red`/`walk` penetrated, top-level
-            `door` did not)"
+            the container's left padding back INSIDE, so a nested initial
+            marker (`red`/`walk`) would overshoot into its state where a
+            top-level one (`door`) does not"
     (let [parsed      (layout/project-definition compound-machine)
           graph       (projection/xyflow-graph parsed {} {})
           browsing-id (layout/node-id [:authenticated :browsing])
@@ -2190,10 +2178,10 @@
       (is (= (layout/node-id [:authenticated]) (:parentId marker))
           "marker keeps the container coordinate frame via :parentId")
       (is (not (contains? marker :extent))
-          "marker carries NO :extent — the clamp that drove the nested overshoot is gone"))))
+          "marker carries NO :extent — no clamp to drive a nested overshoot"))))
 
 (deftest xyflow-graph-threads-initial-flag-onto-node-data
-  (testing "rf2-54s5a — node :data carries :initial (true for the
+  (testing "node :data carries :initial (true for the
             machine's initial state, false otherwise)"
     (let [parsed  (layout/project-definition idle-loading)
           graph   (projection/xyflow-graph parsed {} {})
@@ -2203,7 +2191,7 @@
       (is (false? (:initial (:data loading)))))))
 
 (deftest xyflow-graph-emits-compound-substate-initial-marker
-  (testing "rf2-54s5a + rf2-xh1lm — a compound parent's :initial substate
+  (testing "a compound parent's :initial substate
             also gets a marker (xstate per-level initial semantics) sharing
             the compound's coordinate frame via xyflow v12's `:parentId`"
     (let [parsed      (layout/project-definition compound-machine)
@@ -2213,20 +2201,21 @@
       (is (some? marker) "the compound's initial substate gets a marker")
       (is (= (layout/node-id [:authenticated]) (:parentId marker)))
       (is (not (contains? marker :parentNode))
-          "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear"))))
+          "the pre-v12 :parentNode key MUST NOT appear"))))
 
-;; ---- rf2-4gtvln — reserved-scheme synthetic ids are INJECTIVE against
+;; ---- reserved-scheme synthetic ids are INJECTIVE against
 ;;      real node-ids -------------------------------------------------------
 ;;
-;; The initial-marker and event-node ids used to be minted by prepending a
-;; bare word + "__" onto an already-escaped node-id ("initial__" / "event__").
-;; Because `grammar/escape-id-segment` leaves the plain words "initial" /
-;; "event" untouched and `node-id` joins path segments with "__", a REAL
-;; multi-segment state path whose FIRST segment is literally :initial / :event
-;; minted the SAME id as the synthetic marker / event-node — and xyflow (keys
-;; nodes by :id, silently DROPS a duplicate) then lost a node. The fix routes
-;; both synthetic ids through a reserved leading + trailing "__" scheme
-;; (`initial-marker-id` / `event-node-id`) a real node-id can never produce.
+;; Both synthetic ids route through a reserved leading + trailing "__"
+;; scheme (`initial-marker-id` / `event-node-id`) a real node-id can never
+;; produce. Minting them by prepending a bare word + "__" onto an
+;; already-escaped node-id ("initial__" / "event__") would collide:
+;; `grammar/escape-id-segment` leaves the plain words "initial" / "event"
+;; untouched and `node-id` joins path segments with "__", so a REAL
+;; multi-segment state path whose FIRST segment is literally :initial /
+;; :event would mint the SAME id as the synthetic marker / event-node — and
+;; xyflow (which keys nodes by :id and silently DROPS a duplicate) would lose
+;; a node.
 
 (defn- node-ids-distinct?
   "Every projected node :id is pairwise distinct — the xyflow injectivity
@@ -2236,12 +2225,12 @@
     (= (count ids) (count (distinct ids)))))
 
 (deftest xyflow-graph-initial-named-state-does-not-collide-with-marker
-  (testing "rf2-4gtvln — a machine with a top-level compound state literally
+  (testing "a machine with a top-level compound state literally
             named :initial makes the real [:initial :a] path mint node-id
-            \"initial__a\", byte-identical to the OLD initial-marker id for
-            the machine's initial state :a. The projection must keep BOTH the
-            real state box AND the marker, with DISTINCT ids (pre-fix xyflow
-            dropped one)."
+            \"initial__a\", byte-identical to a bare-prefixed initial-marker
+            id for the machine's initial state :a. The projection must keep
+            BOTH the real state box AND the marker, with DISTINCT ids
+            (colliding, xyflow would drop one)."
     (let [machine {:initial :a
                    :states  {:a       {}
                              :initial {:initial :a :states {:a {}}}}}
@@ -2250,10 +2239,10 @@
           real-initial-a (layout/node-id [:initial :a])              ;; "initial__a"
           marker-id      (projection/initial-marker-id
                            (layout/node-id [:a]))]                   ;; reserved scheme
-      ;; the fixture genuinely reproduces the pre-fix collision: the OLD
+      ;; The fixture genuinely exercises the collision: a bare-prefixed
       ;; marker id for :a is byte-identical to the real [:initial :a] node id.
       (is (= real-initial-a (str "initial__" (layout/node-id [:a])))
-          "sanity: the OLD \"initial__\"-prefixed marker id WOULD have collided")
+          "sanity: a bare \"initial__\"-prefixed marker id WOULD collide")
       (is (node-ids-distinct? graph)
           "every projected node id is distinct — no node silently dropped")
       (is (some? (node-by-id graph real-initial-a))
@@ -2263,17 +2252,17 @@
       (is (not= real-initial-a marker-id)
           "the marker id and the real [:initial :a] node id are DISTINCT")
       (is (= "state" (:type (node-by-id graph real-initial-a)))
-          "the \"initial__a\" id now belongs SOLELY to the real state — the
-           marker no longer squats it")
+          "the \"initial__a\" id belongs SOLELY to the real state — the
+           marker does not squat it")
       (is (= "initial-marker" (:type (node-by-id graph marker-id)))
           "the marker keeps its reserved-scheme id"))))
 
 (deftest xyflow-graph-event-named-state-does-not-collide-with-event-node
-  (testing "rf2-4gtvln (secondary) — a machine with a top-level compound
-            state literally named :event whose nested path [:event :a :b :go]
-            mints node-id \"event__a__b__go\", byte-identical to the OLD
-            event-node id for the a --go--> b transition. The projection must
-            keep BOTH, with DISTINCT ids."
+  (testing "a machine with a top-level compound state literally
+            named :event whose nested path [:event :a :b :go] mints node-id
+            \"event__a__b__go\", byte-identical to a bare-prefixed event-node
+            id for the a --go--> b transition. The projection must keep
+            BOTH, with DISTINCT ids."
     (let [machine {:initial :a
                    :states  {:a     {:on {:go :b}}
                              :b     {}
@@ -2287,9 +2276,9 @@
           go-edge (first (filter #(= :go (:event %)) (:edges parsed)))
           ev-id   (projection/event-node-id go-edge)]
       (is (some? go-edge) "fixture parses the a --go--> b transition")
-      ;; the fixture genuinely reproduces the pre-fix collision.
+      ;; The fixture genuinely exercises the collision.
       (is (= real-event-path (str "event__" (:id go-edge)))
-          "sanity: the OLD \"event__\"-prefixed event-node id WOULD have collided")
+          "sanity: a bare \"event__\"-prefixed event-node id WOULD collide")
       (is (node-ids-distinct? graph)
           "every projected node id is distinct — no node silently dropped")
       (is (some? (node-by-id graph real-event-path))
@@ -2299,19 +2288,18 @@
       (is (not= real-event-path ev-id)
           "the event-node id and the real [:event ...] node id are DISTINCT")
       (is (= "state" (:type (node-by-id graph real-event-path)))
-          "the \"event__a__b__go\" id now belongs SOLELY to the real state")
+          "the \"event__a__b__go\" id belongs SOLELY to the real state")
       (is (= "rf2-event" (:type (node-by-id graph ev-id)))
           "the event-node keeps its reserved-scheme id"))))
 
 (deftest xyflow-graph-self-transition-routes-through-event-node
-  (testing "rf2-qo5xy — a self-transition (source == target in the
+  (testing "a self-transition (source == target in the
             parsed graph) routes through its event-node like every
             other transition: source-state → event-node → source-state.
             The structural self-loop becomes a TWO-edge fork — the
             event-node sits beside the state, both edges anchor on it.
-            Pre-rf2-qo5xy a self-loop was a single dedicated-loop edge;
-            the events-as-nodes paradigm dissolves that special case
-            (the visible loop arc is now the route around the
+            The events-as-nodes paradigm needs no dedicated-loop edge
+            special case (the visible loop arc is the route around the
             event-node)."
     (let [parsed   (layout/project-definition self-loop-machine)
           graph    (projection/xyflow-graph parsed {} {})
@@ -2329,7 +2317,7 @@
           "inbound target == outbound source == event-node"))))
 
 (deftest xyflow-graph-compound-children-wire-parent-id
-  (testing "rf2-54s5a + rf2-xh1lm — compound substates nest via xyflow
+  (testing "compound substates nest via xyflow
             v12's `:parentId` (same mechanic as parallel-region children;
             the pre-v12 `:parentNode` key is silently ignored by v12 so
             the projector MUST NOT emit it)"
@@ -2339,14 +2327,14 @@
       (is (= (layout/node-id [:authenticated]) (:parentId browsing)))
       (is (= "parent" (:extent browsing)))
       (is (not (contains? browsing :parentNode))
-          "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear"))))
+          "the pre-v12 :parentNode key MUST NOT appear"))))
 
 (deftest elk-children-nests-compound-substates-and-events
-  (testing "rf2-54s5a + rf2-qo5xy — a compound parent nests its
+  (testing "a compound parent nests its
             substates AS WELL AS the event-nodes of any transition
-            whose source is inside the compound. State nodes count is
-            unchanged (2); event-nodes for `:checkout` (browsing → paying)
-            and `:done` (paying → browsing) sit inside too."
+            whose source is inside the compound: the 2 state nodes, and
+            the event-nodes for `:checkout` (browsing → paying)
+            and `:done` (paying → browsing) beside them."
     (let [parsed   (layout/project-definition compound-machine)
           children (root-children (projection/->elk-children parsed))
           by-id    (into {} (map (juxt :id identity) children))
@@ -2360,10 +2348,10 @@
         (is (= 2 (count (:event kid-types)))
             "two event-nodes (checkout + done) nest inside too")))))
 
-;; ---- self-transitions / wildcard / machine-level :on (rf2-ee38b.21) ----
+;; ---- self-transitions / wildcard / machine-level :on -------------------
 
 (deftest xyflow-graph-same-state-projects-through-event-node
-  (testing "rf2-ee38b.21 + rf2-qo5xy — `:target :same-state` resolves
+  (testing "`:target :same-state` resolves
             to source == target in the parsed graph; the projector
             routes the transition through an event-node (no phantom
             target node)."
@@ -2380,7 +2368,7 @@
           "the outbound target is a real node, not a phantom"))))
 
 (deftest xyflow-graph-internal-self-transition-emits-no-outbound
-  (testing "rf2-ee38b.21 + rf2-qo5xy — an internal self-transition
+  (testing "an internal self-transition
             (omit :target) emits an inbound edge into the event-node
             but NO outbound edge — the Stately convention 'runs an
             action and we hang here'. The event-node carries
@@ -2398,7 +2386,7 @@
       (is (nil? out-edge)  "no outbound edge (internal hangs at the event-node)"))))
 
 (deftest xyflow-graph-reenter-event-node-carries-reenter-data
-  (testing "rf2-9dj21r — a `:reenter? true` (external restart) self-target
+  (testing "a `:reenter? true` (external restart) self-target
             projects its event-node with `:reenter true` (the renderer's
             ↻ marker) AND keeps the outbound edge (it is a TARGETED
             transition); the internal-default counterpart carries neither"
@@ -2423,7 +2411,7 @@
           "the two parsed edges have DISTINCT ids (no xyflow duplicate-drop)"))))
 
 (deftest xyflow-graph-wildcard-event-node-not-fireable
-  (testing "rf2-ee38b.21 + rf2-qo5xy — the `:*` wildcard transition's
+  (testing "the `:*` wildcard transition's
             event-node carries a NIL :eventId (not user-fireable on
             the chart); the real `:start` event-node stays fireable."
     (let [parsed (layout/project-definition wildcard-machine)
@@ -2439,10 +2427,10 @@
       (is (= :start (:eventId (:data start)))))))
 
 (deftest xyflow-graph-machine-level-event-nodes-flagged
-  (testing "rf2-vcnvj — a machine-level (top-level) :on fallback projects
+  (testing "a machine-level (top-level) :on fallback projects
             as EXACTLY ONE event-node flagged `:machineLevel true`,
             sourced from the synthetic MACHINE-ROOT node — NOT one chip
-            per inheriting leaf (the pre-vcnvj per-state repetition)."
+            per inheriting leaf."
     (let [parsed (layout/project-definition machine-level-on-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
@@ -2457,7 +2445,7 @@
           "the fallback's `__in` edge leaves the MACHINE-ROOT node"))))
 
 (deftest xyflow-graph-machine-root-node-projected
-  (testing "rf2-vcnvj — the synthetic MACHINE-ROOT node projects as a
+  (testing "the synthetic MACHINE-ROOT node projects as a
             xyflow node of type `machine-root` (the quiet root-context
             chip the fallback routes FROM); it leads the node vector so
             xyflow sees the source node before the edge referencing it."
@@ -2478,7 +2466,7 @@
           "the root node precedes the event-node that references it"))))
 
 (deftest xyflow-graph-no-machine-level-emits-no-root-node
-  (testing "rf2-vcnvj — a machine with no top-level :on projects no
+  (testing "a machine with no top-level :on projects no
             machine-root node (the chip is the fallback's anchor only)."
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
@@ -2486,7 +2474,7 @@
       (is (empty? (filter #(= "machine-root" (:type %)) (:nodes graph)))))))
 
 (deftest xyflow-graph-state-only-transitions-not-machine-level
-  (testing "rf2-ee38b.21 + rf2-qo5xy — a normal state-local transition's
+  (testing "a normal state-local transition's
             event-node carries `:machineLevel false`."
     (let [parsed  (layout/project-definition idle-loading)
           graph   (projection/xyflow-graph parsed {} {})
@@ -2498,14 +2486,13 @@
       (is (false? (:machineLevel (:data ev-node))))
       (is (false? (:internal     (:data ev-node)))))))
 
-;; ---- entry / exit state actions (rf2-ee38b.21) -------------------------
+;; ---- entry / exit state actions ----------------------------------------
 
 (deftest xyflow-graph-threads-entry-exit-onto-node-data
-  (testing "rf2-ee38b.21; rf2-a2b55 — :entry / :exit action name
+  (testing ":entry / :exit action name
             strings ride the node :data so state-node can paint
             `+ <name>` (entry) / `- <name>` (exit) action pills below
-            the state name (Stately graph view convention; rf2-a2b55
-            replaced the prior text rows with pills)"
+            the state name (Stately graph view convention)"
     (let [parsed (layout/project-definition entry-exit-machine)
           graph  (projection/xyflow-graph parsed {} {})
           a      (node-by-id graph (layout/node-id [:a]))
@@ -2515,7 +2502,7 @@
       (is (nil? (:entry (:data b))) "a state with no entry carries nil")
       (is (nil? (:exit (:data b)))))))
 
-;; ---- elk bend-point edge routing (rf2-cz8v6, G2) -----------------------
+;; ---- elk bend-point edge routing (G2) ----------------------------------
 ;;
 ;; elk computes multi-point edge routes (start → bend… → end) that go
 ;; AROUND nested/parallel containers. `chart.cljs/compute-layout!` lifts
@@ -2527,7 +2514,7 @@
 ;; guard the projection half at the cheap JVM layer.
 
 (deftest xyflow-graph-attaches-edge-points-by-elk-edge-id
-  (testing "rf2-cz8v6 + rf2-qo5xy + rf2-r636q — `:edge-points` is keyed
+  (testing "`:edge-points` is keyed
             by the elk edge ids `chart.cljs/->elk-input` emits
             (`<spec-edge-id>__in` / `<spec-edge-id>__out`), and each
             xyflow edge looks up ITS OWN id: the inbound edge gets the
@@ -2554,12 +2541,12 @@
           "elk's `__out` route rides on the outbound edge"))))
 
 (deftest xyflow-graph-bare-canonical-key-does-not-route
-  (testing "rf2-r636q — a `:edge-points` entry keyed by the BARE
-            canonical edge-id (the pre-fix mis-key the producer never
-            emits) routes NOTHING: neither the inbound nor the outbound
-            edge picks it up, since the contract keys on the elk
-            `__in` / `__out` ids. This is the failing-before/passing-
-            after guard for the dead-G2 bug."
+  (testing "a `:edge-points` entry keyed by the BARE
+            canonical edge-id (a key the producer never emits) routes
+            NOTHING: neither the inbound nor the outbound edge picks it
+            up, since the contract keys on the elk `__in` / `__out` ids.
+            A projector keyed on the bare id would leave G2 routing
+            silently dead."
     (let [parsed   (layout/project-definition idle-loading)
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
@@ -2575,7 +2562,7 @@
           "a bare-canonical-keyed entry does not reach the outbound edge"))))
 
 (deftest xyflow-graph-edge-without-route-falls-back-to-nil-points
-  (testing "rf2-cz8v6 + rf2-qo5xy + rf2-r636q — edges with no matching
+  (testing "edges with no matching
             `__in` / `__out` `:edge-points` entry carry `:points nil`
             (bezier fallback) on BOTH the inbound and the outbound edge."
     (let [parsed (layout/project-definition idle-loading)
@@ -2598,7 +2585,7 @@
           "the routed transition's inbound edge has no `__in` entry → nil"))))
 
 (deftest xyflow-graph-no-edge-points-leaves-all-points-nil
-  (testing "rf2-cz8v6 — omitting :edge-points entirely (the pre-layout
+  (testing "omitting :edge-points entirely (the pre-layout
             render, before elk resolves) leaves EVERY edge's :points nil
             so the whole chart falls back to beziers"
     (let [parsed (layout/project-definition idle-loading)
@@ -2608,8 +2595,7 @@
           "no edge-points map → no routed edges"))))
 
 (deftest xyflow-graph-self-loop-outbound-can-carry-points
-  (testing "rf2-cz8v6 + rf2-qo5xy — the events-as-nodes paradigm
-            dissolves the legacy self-loop special case: a self-
+  (testing "under the events-as-nodes paradigm a self-
             transition's outbound edge (event-node → source-state)
             is just a regular edge with elk-routed points. The visible
             loop arc is the route around the event-node sibling."
@@ -2625,17 +2611,17 @@
       (is (some? self) "fixture has a self-transition")
       (is (some? out-edge) "outbound edge survives projection")
       ;; The route attaches to the outbound edge (the visible loop
-      ;; arc) — no longer dropped as in the legacy single-edge model.
+      ;; arc).
       (is (= [{:x 0 :y 0} {:x 5 :y 5} {:x 10 :y 0}]
              (:points (:data out-edge)))))))
 
 (deftest xyflow-graph-routed-edge-keeps-active-highlight
-  (testing "rf2-cz8v6 + rf2-qo5xy + rf2-vd3q1i — G1's active-edge styling
+  (testing "G1's active-edge styling
             survives routing through the event-node: an outbound edge whose
             SOURCE is active carries both `:active true` and the elk
             route on its `:data`."
     (let [parsed  (layout/project-definition idle-loading)
-          ;; rf2-vd3q1i — highlight the SOURCE (:idle); the source→…→loading
+          ;; Highlight the SOURCE (:idle); the source→…→loading
           ;; transition is then source-active and lights both halves.
           hi      (layout/node-id [:idle])
           start   (->> (:edges parsed)
@@ -2649,20 +2635,20 @@
       (is (true? (:active (:data out-edge))))
       (is (= route (:points (:data out-edge)))))))
 
-;; ---- source-active edge highlight (rf2-vd3q1i) -------------------------
+;; ---- source-active edge highlight --------------------------------------
 ;;
 ;; `from-active?` (rendered as the edge `:active` flag, the bright-blue
 ;; stroke) is SOURCE-active only: an edge lights iff its SOURCE state is
 ;; active. It is NOT incident-to-active — an INCOMING edge whose only
-;; active endpoint is its TARGET stays quiet. This pins the live-repro
-;; defect (the door machine: focusing the :door/close no-op at :open used
-;; to paint the INCOMING push (closed→open) edge blue). The genuinely-
-;; traversed edge of a real transition still lights via `:fired` (matched
-;; by edge-id, direction-agnostic — see the fired-edge section below), so
-;; dropping the incoming-edge highlight loses no "what just happened" cue.
+;; active endpoint is its TARGET stays quiet. In the door machine,
+;; focusing the :door/close no-op at :open must NOT paint the INCOMING push
+;; (closed→open) edge blue. The genuinely-traversed edge of a real
+;; transition lights via `:fired` (matched by edge-id, direction-agnostic —
+;; see the fired-edge section below), so leaving incoming edges unlit loses
+;; no "what just happened" cue.
 
 (deftest xyflow-graph-from-active-is-source-active-only
-  (testing "rf2-vd3q1i — door machine, active-ids {:open}: the OUTGOING
+  (testing "door machine, active-ids {:open}: the OUTGOING
             fan from :open (close / hold / trip) is `:active`, while the
             INCOMING push (closed→open) edge is NOT — even though :open is
             push's TARGET. `from-active?` is source-active, not incident."
@@ -2710,7 +2696,7 @@
         (is (false? (:active (:data (:in coin))))
             "insert-coin (locked→closed) — neither endpoint active — stays quiet")))))
 
-;; ---- fired-this-epoch edge highlight (rf2-qeemm, G3) -------------------
+;; ---- fired-this-epoch edge highlight (G3) ------------------------------
 ;;
 ;; The Xray inspector resolves which edges fired THIS epoch
 ;; (`extract-fired-edge-ids`, B7 — emits CANONICAL machines-viz edge-ids)
@@ -2722,7 +2708,7 @@
 ;; `:focused`) so every traversed arm lights up.
 
 (deftest xyflow-graph-marks-fired-event-node-and-its-edges
-  (testing "rf2-qeemm + rf2-qo5xy — a parsed-edge id in :fired-edge-ids
+  (testing "a parsed-edge id in :fired-edge-ids
             marks BOTH the inbound + outbound edges AND the event-node
             for that transition with `:fired true` (the whole
             event-as-nodes structural fork lights up). Other edges /
@@ -2747,7 +2733,7 @@
       (is (every? #(false? (:fired (:data %))) other-ed)))))
 
 (deftest xyflow-graph-no-fired-edge-ids-leaves-all-unfired
-  (testing "rf2-qeemm — omitting :fired-edge-ids (the viewer / Story path,
+  (testing "omitting :fired-edge-ids (the viewer / Story path,
             or a non-fired epoch) leaves EVERY edge `:fired false`"
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
@@ -2756,7 +2742,7 @@
           "no fired set → no fired edges"))))
 
 (deftest xyflow-graph-fired-collects-multiple-event-nodes
-  (testing "rf2-qeemm + rf2-qo5xy — a set with N fired parsed-edge ids
+  (testing "a set with N fired parsed-edge ids
             marks N event-nodes + their inbound/outbound edges as
             fired. An epoch with two traversed arms lights two
             event-node forks."
@@ -2777,7 +2763,7 @@
           "exactly the two event-nodes for the fired ids light up"))))
 
 (deftest xyflow-graph-fired-marker-colour-distinct
-  (testing "rf2-qeemm — a fired edge's arrowhead colour differs from a
+  (testing "a fired edge's arrowhead colour differs from a
             non-fired edge's (the FIRED hue is distinct so a traversed
             arm reads as 'what just happened')"
     (let [parsed   (layout/project-definition idle-loading)
@@ -2796,11 +2782,11 @@
           "fired vs non-fired arrowheads are distinct colours"))))
 
 (deftest xyflow-graph-fired-coexists-with-active-and-routing
-  (testing "rf2-qeemm + rf2-qo5xy + rf2-vd3q1i — :fired + :active + :points
+  (testing ":fired + :active + :points
             coexist on the outbound edge of a fired transition that is
             ALSO sourced from an active node and carries an elk route."
     (let [parsed  (layout/project-definition idle-loading)
-          ;; rf2-vd3q1i — highlight the SOURCE (:idle) so the transition is
+          ;; Highlight the SOURCE (:idle) so the transition is
           ;; source-active (not merely incident to the active target).
           hi      (layout/node-id [:idle])
           start   (->> (:edges parsed)
@@ -2817,7 +2803,7 @@
       (is (= route (:points (:data out-edge)))))))
 
 (deftest xyflow-graph-fired-is-parsed-edge-id-not-endpoint-matched
-  (testing "rf2-qeemm + rf2-qo5xy — :fired matches the parsed-edge id
+  (testing ":fired matches the parsed-edge id
             directly (via the event-node bridge), NOT endpoint node-ids
             like :focused. Passing only :fired-edge-ids (no from/to
             lens) lights the fired forks while no edge is :focused."
@@ -2832,10 +2818,10 @@
       (is (every? #(false? (:focused (:data %))) (:edges graph))))))
 
 (deftest xyflow-graph-entry-edges-carry-fired-false
-  (testing "rf2-qeemm — initial entry edges (initial-marker → state)
+  (testing "initial entry edges (initial-marker → state)
             keep the every-edge :data shape whole: they carry
             `:fired false` (never fired). Note: these are distinct
-            from the rf2-qo5xy state→event-node→state edges. The
+            from the state→event-node→state edges. The
             entry-edge is the marker→state hop."
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {:fired-edge-ids #{"anything"}})
@@ -2844,27 +2830,27 @@
       (is (false? (:fired (:data entry)))
           "entry edges are never fired"))))
 
-;; ---- guard-blocked no-op edge highlight (rf2-fzrzlw / rf2-4nxgqq) ------
+;; ---- guard-blocked no-op edge highlight --------------------------------
 ;;
-;; The bead's repro: door in `:open`, dispatch `:door/close`, the
-;; `:may-close?` guard fails → guard-blocked NO-OP. NO `:rf.machine/
-;; transition` is emitted (so `:fired-edge-ids` is empty), and before
-;; rf2-fzrzlw the chart painted ALL of `:open`'s exits affordance-blue,
-;; giving ZERO signal that `:door/close` was attempted-and-rejected. The
+;; Door in `:open`, dispatch `:door/close`, the `:may-close?` guard
+;; fails → guard-blocked NO-OP. NO `:rf.machine/transition` is emitted
+;; (so `:fired-edge-ids` is empty), and painting ALL of `:open`'s exits
+;; affordance-blue would give ZERO signal that `:door/close` was
+;; attempted-and-rejected. The
 ;; Xray inspector resolves the blocked edge-ids
 ;; (`extract-guard-blocked-edge-ids`) by `(source-path, event, guard)` when
 ;; trace state is available — reading the active `:state` off the
 ;; `:rf.machine/guard-evaluated` fail/threw trace and gating each candidate
-;; whose `:from-path` is a PREFIX of the active path (rf2-tjm3u2; a
-;; no-`:state` trace falls back to the `(event, guard)` match) — and threads
+;; whose `:from-path` is a PREFIX of the active path (a no-`:state`
+;; trace falls back to the `(event, guard)` match) — and threads
 ;; them as `:guard-blocked-edge-ids` (a SET) into the projector. The
 ;; projector marks the EVENT-NODE and its `__in` (source→event-node) half
-;; `:guardBlocked`; rf2-4nxgqq — the `__out` (event-node→target) half is NOT
+;; `:guardBlocked`; the `__out` (event-node→target) half is NOT
 ;; marked (a no-op never reached the target), so the highlight STOPS at the
 ;; guard event-node while the `__out` STATIC topology edge still renders. The
 ;; renderer then paints the PINK guard-blocked treatment; the CANONICAL DOM
 ;; pins are the event-node (`data-guard-blocked`) + chart-root
-;; (`data-guard-blocked-edge-ids`), NOT an edge-half attribute (rf2-bdwolc).
+;; (`data-guard-blocked-edge-ids`), NOT an edge-half attribute.
 ;; The match is by EDGE-ID so the precise rejected arm lights — including
 ;; the exact arm of a guarded fork.
 
@@ -2879,7 +2865,7 @@
                        (:id e))))))
 
 (deftest xyflow-graph-marks-guard-blocked-event-node-and-its-edges
-  (testing "rf2-fzrzlw + rf2-4nxgqq — a parsed-edge id in
+  (testing "a parsed-edge id in
             :guard-blocked-edge-ids marks the event-node AND its `__in`
             (source→event-node) half `:guardBlocked true`, but NOT its
             `__out` (event-node→target) half — the highlight stops at the
@@ -2901,13 +2887,13 @@
       (is (true? (:guardBlocked (:data in-edge)))
           "the `__in` source→event-node half is blocked")
       (is (false? (:guardBlocked (:data out-edge)))
-          "rf2-4nxgqq — the `__out` event-node→target half is NOT blocked
+          "the `__out` event-node→target half is NOT blocked
            (the no-op never reached the target)")
       (is (every? #(false? (:guardBlocked (:data %))) other-ev))
       (is (every? #(false? (:guardBlocked (:data %))) other-ed)))))
 
 (deftest xyflow-graph-guard-blocked-highlight-stops-at-event-node
-  (testing "rf2-4nxgqq — a guard-BLOCKED transition is a no-op: the guard
+  (testing "a guard-BLOCKED transition is a no-op: the guard
             declined, the machine stayed in the source state, the target was
             never reached. So the live blocked HIGHLIGHT covers
             source→event-node ONLY, never event-node→target. Concretely:
@@ -2942,7 +2928,7 @@
            onward arrow must not imply the transition progressed"))))
 
 (deftest xyflow-graph-no-guard-blocked-ids-leaves-all-unblocked
-  (testing "rf2-fzrzlw — omitting :guard-blocked-edge-ids leaves EVERY edge
+  (testing "omitting :guard-blocked-edge-ids leaves EVERY edge
             + event-node `:guardBlocked false`"
     (let [parsed (layout/project-definition door-cyclic-machine)
           graph  (projection/xyflow-graph parsed {} {})]
@@ -2954,7 +2940,7 @@
           "no guard-blocked set → no guard-blocked event-nodes"))))
 
 (deftest xyflow-graph-guard-blocked-marker-colour-distinct
-  (testing "rf2-fzrzlw — a guard-blocked edge's arrowhead colour is the
+  (testing "a guard-blocked edge's arrowhead colour is the
             PINK guard-blocked hue, distinct from a non-blocked edge's, so
             the attempted-and-rejected edge stands out"
     (let [parsed     (layout/project-definition door-cyclic-machine)
@@ -2975,7 +2961,7 @@
           "blocked vs non-blocked arrowheads are distinct colours"))))
 
 (deftest xyflow-graph-guard-blocked-wins-over-active-affordance
-  (testing "rf2-fzrzlw design call (2) — when the source state is ACTIVE
+  (testing "when the source state is ACTIVE
             (all-exits affordance-blue) AND the edge is guard-blocked, the
             blocked PINK overrides the affordance-blue on that edge so it
             stands out (does not merely sit under the all-exits-blue)."
@@ -2995,25 +2981,23 @@
       (is (= (:edge-guard-blocked ct) (:color (:markerEnd blocked-in)))
           "the PINK guard-blocked hue WINS over the affordance-blue"))))
 
-;; ---- compound-endpoint edges (rf2-shv82, Issue 1) -----------------------
+;; ---- compound-endpoint edges --------------------------------------------
 ;;
 ;; A parent-level transition like `:active → :disconnected` (declared on
 ;; the compound `:active`, inherited by every leaf inside) projects with
-;; the compound's node-id as one endpoint. Pre-rf2-shv82 the chart's
-;; compound-node + parallel-region-node had no `<Handle>` children, so
-;; xyflow's `isNodeInitialized` returned false, `getEdgePosition` returned
-;; null, and the edge was silently dropped from the DOM (the 5-layer
-;; probe in the rf2-shv82 bead proves all 4 such edges survive the
-;; projector + ELK but vanish before render). The fix is to add invisible
-;; handles to the container nodes (chart.nodes/compound-node +
-;; chart.nodes.parallel-region-node) — these JVM pins guard the projector
-;; half (every compound-endpoint edge that the parser emits MUST survive
-;; the projection; the renderer half is pinned by `chart_dom_cljs_test`'s
+;; the compound's node-id as one endpoint. The container nodes
+;; (chart.nodes/compound-node + chart.nodes.parallel-region-node) carry
+;; invisible `<Handle>` children: without them xyflow's `isNodeInitialized`
+;; returns false, `getEdgePosition` returns null, and such an edge — having
+;; survived the projector + ELK — is silently dropped from the DOM before
+;; render. These JVM pins guard the projector half (every compound-endpoint
+;; edge that the parser emits MUST survive the projection; the renderer half
+;; is pinned by `chart_dom_cljs_test`'s
 ;; `data-edge-count == data-edge-count-projected` parity gate).
 
 (def ^:private parent-level-transition-machine
-  "A machine that mirrors the rf2-shv82 reproducer (testdeck
-  `:ws/connection`) at minimum size: a compound parent owns a parent-
+  "A machine that mirrors the testdeck `:ws/connection` shape
+  at minimum size: a compound parent owns a parent-
   level `:on` transition every leaf inherits + a self-transition on the
   compound itself, plus an inbound transition from a sibling top-level
   state. All four edge shapes have the compound as an endpoint."
@@ -3028,7 +3012,7 @@
              :failed  {:on {:retry :active}}}})
 
 (deftest xyflow-graph-emits-edge-with-compound-as-target
-  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:idle --connect--> :active`
+  (testing "`:idle --connect--> :active`
             mints an event-node + outbound edge whose target is the
             COMPOUND `:active` node-id; the projector must not drop it."
     (let [parsed   (layout/project-definition parent-level-transition-machine)
@@ -3045,7 +3029,7 @@
           "inbound edge sources from :idle"))))
 
 (deftest xyflow-graph-emits-edge-with-compound-as-source
-  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:active --disconnect--> :idle`
+  (testing "`:active --disconnect--> :idle`
             mints an inbound edge whose source is the COMPOUND `:active`."
     (let [parsed (layout/project-definition parent-level-transition-machine)
           graph  (projection/xyflow-graph parsed {} {})
@@ -3056,7 +3040,7 @@
       (is (= active-id (:source in-edge))))))
 
 (deftest xyflow-graph-emits-self-routing-on-compound
-  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:active --send--> {}`
+  (testing "`:active --send--> {}`
             (the compound's internal self-transition: omit :target,
             just declare :action) projects as an event-node beside
             the compound with an inbound edge from the compound but
@@ -3079,7 +3063,7 @@
           "internal transition emits no outbound edge"))))
 
 (deftest xyflow-graph-emits-compound-endpoint-event-nodes-survive-projection
-  (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — every parsed edge mints
+  (testing "every parsed edge mints
             an event-node in the projected graph; no compound-endpoint
             edge is silently dropped at the projection layer."
     (let [parsed (layout/project-definition parent-level-transition-machine)
@@ -3091,13 +3075,10 @@
       (is (= expected ev-node-ids)
           "every parsed edge id has a matching event-node"))))
 
-;; ---- multi-event NO-collapse: distinct event-nodes (rf2-o6vh7) ----------
+;; ---- multi-event NO-collapse: distinct event-nodes ----------------------
 ;;
-;; HISTORY: rf2-shv82 (Issue 2) introduced a per-source self-loop perimeter
-;; fan; rf2-j10sm (Phase 2, B) replaced it with a multi-event sibling-
-;; collapse (N self-loops → ONE arc + N stacked labels via `:siblingIndex` /
-;; `:siblingCount`). rf2-o6vh7 RETIRED that collapse: under events-as-nodes
-;; every event is its OWN first-class node, so N events on one
+;; Under events-as-nodes every event is its OWN first-class node, so N
+;; events on one
 ;; `[source target]` pair stay N DISTINCT event-nodes (no grouping, no
 ;; leader/follower, no `:siblingIndex`/`:siblingCount`). These tests pin the
 ;; no-collapse contract: parsed-edge count == event-node count, always.
@@ -3111,15 +3092,15 @@
                          :clear  {:action :clear-it}}}}})
 
 (deftest xyflow-graph-multi-self-events-each-get-own-event-node
-  (testing "rf2-qo5xy — multiple self-events on one source each project
-            as their own event-node (events-as-nodes paradigm). The
-            legacy sibling-collapse (one arc, N stacked labels) is
-            superseded — each event is its own first-class box, and
-            the action attribution rides on the event-node itself."
+  (testing "multiple self-events on one source each project
+            as their own event-node (events-as-nodes paradigm): each
+            event is its own first-class box rather than one arc with N
+            stacked labels, and the action attribution rides on the
+            event-node itself."
     (let [parsed (layout/project-definition multi-self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
-          ;; rf2-4gtvln — match each event-node back to its parsed edge via
+          ;; Match each event-node back to its parsed edge via
           ;; the public `event-node-id` (a parsed edge carries its source
           ;; state directly), rather than reverse-parsing the reserved-scheme
           ;; id string.
@@ -3144,7 +3125,7 @@
             "no outbound edges — these are internal transitions")))))
 
 (deftest xyflow-graph-single-event-emits-one-event-node
-  (testing "rf2-qo5xy — a transition with exactly one event maps to one
+  (testing "a transition with exactly one event maps to one
             event-node, one inbound edge, one outbound edge — the
             paradigm's minimum unit."
     (let [parsed   (layout/project-definition self-loop-machine)
@@ -3160,8 +3141,8 @@
       (is (some? out-edge)))))
 
 (deftest xyflow-graph-multiple-events-on-same-source-target-pair
-  (testing "rf2-qo5xy — the events-as-nodes paradigm dissolves the
-            multi-event same-`[source target]` collapse: each event
+  (testing "the events-as-nodes paradigm has no multi-event
+            same-`[source target]` collapse: each event
             becomes its own event-node, so two events both
             transitioning A → B emit TWO event-nodes (with two
             inbound + two outbound edges)."
@@ -3177,7 +3158,7 @@
              (set (map #(:eventId (:data %)) ev-nodes)))))))
 
 (deftest xyflow-graph-each-parsed-edge-yields-one-event-node
-  (testing "rf2-qo5xy — the projection invariant: parsed-edges count
+  (testing "the projection invariant: parsed-edges count
             equals event-nodes count. No collapse, no duplication."
     (doseq [m [idle-loading compound-machine self-loop-machine
                wildcard-machine machine-level-on-machine]]
@@ -3187,7 +3168,7 @@
         (is (= (count (:edges parsed)) (count ev-nodes))
             (str "fixture " m " mismatch"))))))
 
-;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
+;; ---- cross-hierarchy label placement -----------------------------------
 ;;
 ;; A cross-hierarchy edge (source and target in different parent
 ;; containers) has a routed midpoint that can land far from where the
@@ -3204,7 +3185,7 @@
              :sibling {}}})
 
 (deftest xyflow-graph-flags-cross-hierarchy-edge
-  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — an outbound edge whose
+  (testing "an outbound edge whose
             source event-node and target state sit in DIFFERENT parent
             containers gets :crossHierarchy true."
     (let [parsed (layout/project-definition cross-hierarchy-machine)
@@ -3216,7 +3197,7 @@
           "inner→sibling escapes the :outer container"))))
 
 (deftest xyflow-graph-same-parent-edge-not-cross-hierarchy
-  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — an outbound edge between
+  (testing "an outbound edge between
             two siblings under the SAME parent is NOT cross-hierarchy."
     (let [parsed (layout/project-definition compound-machine)
           graph  (projection/xyflow-graph parsed {} {})
@@ -3226,7 +3207,7 @@
       (is (false? (:crossHierarchy (:data out-edge)))))))
 
 (deftest xyflow-graph-flat-machine-no-cross-hierarchy
-  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — a flat machine has no
+  (testing "a flat machine has no
             containers, so no outbound edge is cross-hierarchy."
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
@@ -3235,7 +3216,7 @@
       (is (every? #(false? (:crossHierarchy (:data %))) out-edges)))))
 
 (deftest xyflow-graph-self-routing-not-cross-hierarchy
-  (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — a self-routing transition
+  (testing "a self-routing transition
             (source == target) is never cross-hierarchy regardless of
             container nesting."
     (let [parsed (layout/project-definition self-loop-machine)
@@ -3246,22 +3227,22 @@
       (is (false? (:crossHierarchy (:data out-edge)))))))
 
 (deftest xyflow-graph-entry-edges-carry-cross-hierarchy-false
-  (testing "rf2-shv82 — entry edges keep the every-edge :data shape
+  (testing "entry edges keep the every-edge :data shape
             whole: they carry :crossHierarchy false"
     (let [parsed (layout/project-definition cross-hierarchy-machine)
           graph  (projection/xyflow-graph parsed {} {})
           entry  (first (filter #(:entry (:data %)) (:edges graph)))]
       (is (some? entry))
       (is (false? (:crossHierarchy (:data entry))))
-      ;; rf2-o6vh7 — sibling-collapse retired: no :siblingIndex/:siblingCount
-      ;; on any edge :data, entry edges included. rf2-hstzzj — the
-      ;; self-loop-fan keys (:selfLoop / :loopIndex) are likewise gone.
+      ;; No sibling-collapse or self-loop-fan keys (:siblingIndex /
+      ;; :siblingCount / :selfLoop / :loopIndex) on any edge :data, entry
+      ;; edges included.
       (is (not (contains? (:data entry) :selfLoop)))
       (is (not (contains? (:data entry) :loopIndex)))
       (is (not (contains? (:data entry) :siblingIndex)))
       (is (not (contains? (:data entry) :siblingCount))))))
 
-;; ---- :on-done (XState onDone) projection (rf2-41goo) -------------------
+;; ---- :on-done (XState onDone) projection -------------------------------
 ;;
 ;; The compound / parallel completion transition projects as an
 ;; events-as-nodes event-node carrying the ✓ done chip + `:onDone` /
@@ -3289,7 +3270,7 @@
              :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}}})
 
 (deftest xyflow-graph-compound-on-done-projects-done-event-node
-  (testing "rf2-41goo — a compound `:on-done` projects an event-node with
+  (testing "a compound `:on-done` projects an event-node with
             the ✓ done chip + :onDone true + the done.state.<id> label;
             the inbound/outbound edges wire compound → done-node → sibling"
     (let [parsed   (layout/project-definition checkout-on-done)
@@ -3312,7 +3293,7 @@
             "the completion edge advances to the sibling :next")))))
 
 (deftest xyflow-graph-parallel-root-on-done-is-terminal-event-node
-  (testing "rf2-41goo — a parallel-root `:on-done` (action-only, internal)
+  (testing "a parallel-root `:on-done` (action-only, internal)
             projects a TERMINAL event-node (no outbound segment) carrying
             the ✓ done chip + the action; not click-to-send"
     (let [parsed   (layout/project-definition ingest-on-done)
@@ -3329,25 +3310,23 @@
           "a terminal parallel-root :on-done has no outgoing segment"))))
 
 (deftest xyflow-graph-no-on-done-projects-no-done-node
-  (testing "rf2-41goo — a machine with no :on-done projects no :onDone
+  (testing "a machine with no :on-done projects no :onDone
             event-node (no false-positive completion chips)"
     (let [graph (projection/xyflow-graph
                   (layout/project-definition compound-machine) {} {})]
       (is (empty? (filter #(:onDone (:data %)) (:nodes graph)))))))
 
-;; ---- parallel-root completion ANCHOR is inert (rf2-dblqx) ---------------
+;; ---- parallel-root completion ANCHOR is inert ---------------------------
 ;;
-;; rf2-dblqx — the synthetic PARALLEL-ROOT node (rf2-41goo's anchor for the
-;; whole-parallel `:on-done` completion affordance) is NOT a statechart
-;; state — it is a rendering sentinel (`:path
-;; [:rf.machines-viz.layout/parallel-root]`). Pre-fix it fell through the
-;; node-:type cond to `"state"` AND through the `:onClick` guard (which
-;; excluded only `:machine-root?` + region), so it projected as a CLICKABLE
-;; `parallel` state box — clicking it would dispatch on-state-click against
-;; the phantom sentinel path. The SAME inert-synthetic-chip class rf2-34ff3
-;; fixed for the machine-root chip + region containers; this pins that the
-;; parallel-root anchor is INERT (typed `"machine-root"`, carries NO
-;; `:onClick`), mirroring the 34ff3 guard.
+;; The synthetic PARALLEL-ROOT node (the anchor for the whole-parallel
+;; `:on-done` completion affordance) is NOT a statechart state — it is a
+;; rendering sentinel (`:path [:rf.machines-viz.layout/parallel-root]`).
+;; Falling through the node-:type cond to `"state"` and past an `:onClick`
+;; guard that excluded only `:machine-root?` + region, it would project as a
+;; CLICKABLE `parallel` state box, and clicking it would dispatch
+;; on-state-click against the phantom sentinel path. Like the machine-root
+;; chip + region containers, the parallel-root anchor is INERT (typed
+;; `"machine-root"`, carries NO `:onClick`); this pins that.
 
 (defn- parallel-root-anchor
   "The synthetic parallel-root completion-anchor node in a projected
@@ -3358,9 +3337,9 @@
   (first (filter #(= "machine-root" (:type %)) (:nodes graph))))
 
 (deftest xyflow-graph-parallel-root-anchor-is-inert
-  (testing "rf2-dblqx — the parallel-root :on-done anchor is INERT: it is
+  (testing "the parallel-root :on-done anchor is INERT: it is
             NOT typed `state` and carries NO :onClick (mirroring the
-            rf2-34ff3 inert machine-root + region containers), so a user
+            inert machine-root + region containers), so a user
             cannot click a phantom `parallel` state and fire on-state-click
             against the rendering sentinel path."
     (let [cb     (fn [_path] :clicked)
@@ -3372,26 +3351,26 @@
       (is (= "machine-root" (:type anchor))
           "the parallel-root anchor is a quiet root-context chip, NOT a state box")
       (is (not= "state" (:type anchor))
-          "rf2-dblqx — the anchor must NOT fall through to the `state` type")
+          "the anchor must NOT fall through to the `state` type")
       (is (not (contains? (:data anchor) :onClick))
-          "rf2-dblqx — the parallel-root anchor carries NO :onClick (not an
+          "the parallel-root anchor carries NO :onClick (not an
            on-state-click target — its path is a rendering sentinel)")
-      ;; the real region leaves still carry :onClick (the fix is surgical)
+      ;; The real region leaves carry :onClick (the inertness is targeted).
       (let [leaf (node-by-id graph (layout/region-scoped-id :fetch [:loading]))]
         (is (= cb (:onClick (:data leaf)))
             "a real leaf inside a region still carries :onClick")))))
 
-;; ---- parallel-root done-state label matches SCXML (rf2-bs3us) -----------
+;; ---- parallel-root done-state label matches SCXML -----------------------
 ;;
-;; rf2-bs3us — the parallel-root done-path is the engine's root sentinel
-;; `[]`, whose `node-id` is the EMPTY string, so the naive
-;; `(str "done.state." (node-id done-path))` yielded the degenerate
+;; The parallel-root done-path is the engine's root sentinel
+;; `[]`, whose `node-id` is the EMPTY string, so a naive
+;; `(str "done.state." (node-id done-path))` would yield the degenerate
 ;; `"done.state."` (trailing dot, no id) — diverging from the SCXML
-;; emitter's `"done.state.rf2_parallel_root"`. The chart now uses the
+;; emitter's `"done.state.rf2_parallel_root"`. The chart uses the
 ;; shared canonical sentinel id so the two emitters agree.
 
 (deftest xyflow-graph-parallel-root-done-state-matches-scxml
-  (testing "rf2-bs3us — the parallel-root :on-done :doneState label is the
+  (testing "the parallel-root :on-done :doneState label is the
             non-degenerate `done.state.<id>` form (matching the SCXML
             emitter), not the empty `done.state.`"
     (let [parsed  (layout/project-definition ingest-on-done)
@@ -3403,11 +3382,11 @@
       (is (= (str "done.state." layout/parallel-root-done-state-id) done)
           "the chart label uses the shared canonical parallel-root id")
       (is (not= "done.state." done)
-          "rf2-bs3us — NOT the degenerate empty-suffix label")
+          "NOT the degenerate empty-suffix label")
       (is (str/ends-with? done "rf2_parallel_root")
           "matches the SCXML emitter's done.state.rf2_parallel_root form"))))
 
-;; ---- guarded-fork branch-order priority badge (rf2-uw3vmi) -------------
+;; ---- guarded-fork branch-order priority badge --------------------------
 ;;
 ;; Stately renders a guarded multi-branch fork — the gate machine's
 ;; `:gate/check` 3-way (`[{:guard :gate-high? :target :high}
@@ -3422,7 +3401,7 @@
 ;;   - a guardless same-trigger group is NOT badged (no ordered evaluation).
 
 (def ^:private gate-fork-machine
-  "rf2-uw3vmi — the gate testbed shape (machine 10 in the machine-epochs
+  "The gate testbed shape (machine 10 in the machine-epochs
   testbed): `:gate/check` FORKS from `:idle` by a guarded candidate VECTOR
   — first guard-pass wins (`:gate-high?` → :high, `:gate-low?` → :low, else
   the unguarded fallback → :rejected). `:gate/set` is a SEPARATE internal
@@ -3445,7 +3424,7 @@
   (:forkOrder (:data (event-node-for graph parsed-edge-id))))
 
 (deftest fork-order-by-edge-id-badges-guarded-fork-in-candidate-order
-  (testing "rf2-uw3vmi — the gate `:gate/check` 3-way's branches carry
+  (testing "the gate `:gate/check` 3-way's branches carry
             1-based priorities in candidate-vector order (gate-high? → 1,
             gate-low? → 2, unguarded fallback → 3); the SEPARATE
             `:gate/set` trigger on the same source is NOT a fork branch."
@@ -3470,7 +3449,7 @@
             "each single `:gate/reset` transition is un-badged")))))
 
 (deftest xyflow-graph-threads-fork-order-onto-event-nodes
-  (testing "rf2-uw3vmi — the projector threads each fork branch's 1-based
+  (testing "the projector threads each fork branch's 1-based
             priority onto the event-node `:data {:forkOrder}`; non-fork
             event-nodes carry nil."
     (let [parsed (layout/project-definition gate-fork-machine)
@@ -3486,7 +3465,7 @@
           "all three branches badged exactly once each, 1..3"))))
 
 (deftest xyflow-graph-single-transition-has-no-fork-badge
-  (testing "rf2-uw3vmi — a single (non-fork) transition carries NO
+  (testing "a single (non-fork) transition carries NO
             :forkOrder. The `self-loop-machine` / `compound-machine`
             fixtures have only one candidate per (source,trigger)."
     (doseq [m [self-loop-machine compound-machine idle-loading]]
@@ -3497,7 +3476,7 @@
             (str "fixture " m " has no guarded fork → no fork badges"))))))
 
 (deftest fork-order-distinct-triggers-not-merged
-  (testing "rf2-uw3vmi — two transitions leaving one source under DIFFERENT
+  (testing "two transitions leaving one source under DIFFERENT
             triggers are independent, never a fork (no shared candidate
             order to communicate)."
     (let [m {:initial :a
@@ -3510,7 +3489,7 @@
           "go-x and go-y are distinct events → two singleton groups, no fork"))))
 
 (deftest fork-order-guardless-multi-target-not-badged
-  (testing "rf2-uw3vmi — a guardless same-trigger group (no ordered
+  (testing "a guardless same-trigger group (no ordered
             evaluation semantics to surface) is NOT badged; the fork
             affordance keys on a GUARDED fork."
     (let [m {:initial :a
@@ -3523,7 +3502,7 @@
           "a guardless same-event group has no priority badges"))))
 
 (deftest fork-order-partial-guarded-fork-badges-all-branches
-  (testing "rf2-uw3vmi — a fork where only SOME branches carry a guard (the
+  (testing "a fork where only SOME branches carry a guard (the
             gate shape: two guarded + an unguarded fallback) badges EVERY
             branch in order — the fallback is the last candidate evaluated."
     (let [m {:initial :a
@@ -3540,9 +3519,9 @@
       (is (= 2 (get fmap (:id (first (remove :guard gos)))))
           "the unguarded fallback is candidate 2"))))
 
-;; ---- guarded-fork dotted evaluation-order connector (rf2-o3rkq1) -------
+;; ---- guarded-fork dotted evaluation-order connector --------------------
 ;;
-;; FOLLOW-ON to the numbered badges (rf2-uw3vmi): Stately joins the
+;; Beside the numbered badges, Stately joins the
 ;; branches of a guarded multi-branch fork with a DOTTED connector linking
 ;; the numbered branches IN ORDER (1→2→3), reinforcing the first-pass-wins
 ;; evaluation order. The projector emits N-1 DECORATIVE connector edges per
@@ -3566,7 +3545,7 @@
   (filter #(:forkConnector (:data %)) (:edges graph)))
 
 (deftest fork-connector-edges-link-branches-in-priority-order
-  (testing "rf2-o3rkq1 — the gate `:gate/check` 3-way emits a dotted
+  (testing "the gate `:gate/check` 3-way emits a dotted
             evaluation-order connector linking branch 1→2 and 2→3 (N-1
             connectors for an N-branch fork), each from one branch's
             event-node to the next in priority order."
@@ -3590,7 +3569,7 @@
             "no connector skips a branch (1→3) — the chain is consecutive")))))
 
 (deftest fork-connector-edges-carry-decorative-data-shape
-  (testing "rf2-o3rkq1 — each connector edge carries `:forkConnector true`,
+  (testing "each connector edge carries `:forkConnector true`,
             no route `:points` (a straight dotted handle-to-handle line),
             and the full every-edge `:data` shape so the projection
             invariants hold."
@@ -3609,10 +3588,10 @@
             "stable fork-connector id prefix")))))
 
 (deftest fork-connector-edges-anchor-to-explicit-side-handles
-  (testing "rf2-4vvywg — every connector edge anchors to EXPLICIT side
+  (testing "every connector edge anchors to EXPLICIT side
             handles (`:sourceHandle \"right\"` + `:targetHandle \"left\"`)
             rather than xyflow's default handle pick. The branch event-nodes
-            lay out LEFT-TO-RIGHT in priority order (rf2-p75kbg), so the
+            lay out LEFT-TO-RIGHT in priority order, so the
             order chain must read side-to-side: it leaves each branch from
             its RIGHT source handle and enters the next from its LEFT target
             handle (the named cardinal handles `four-cardinal-handles`
@@ -3629,7 +3608,7 @@
             "enters the next branch from its LEFT target handle")))))
 
 (deftest fork-connector-handles-read-as-clean-order-chain
-  (testing "rf2-4vvywg — the connector edges form a clean side-to-side
+  (testing "the connector edges form a clean side-to-side
             ORDER CHAIN: each consecutive pair links one branch's RIGHT
             source handle to the next branch's LEFT target handle, and the
             chain is consecutive (1's right → 2's left, 2's right → 3's
@@ -3668,7 +3647,7 @@
             "no connector enters a top/bottom target handle")))))
 
 (deftest xyflow-graph-fork-connector-handles-survive-projection
-  (testing "rf2-4vvywg — the explicit side-handle anchoring survives the
+  (testing "the explicit side-handle anchoring survives the
             full `xyflow-graph` projection (the connector edges are appended
             post-ELK), so the rendered xyflow edges carry the handle ids."
     (let [parsed (layout/project-definition gate-fork-machine)
@@ -3680,7 +3659,7 @@
         (is (= "left" (:targetHandle e)) "LEFT target handle survives projection")))))
 
 (deftest xyflow-graph-appends-fork-connector-edges
-  (testing "rf2-o3rkq1 — `xyflow-graph` appends the decorative connector
+  (testing "`xyflow-graph` appends the decorative connector
             edges to its `:edges` output (alongside the route + entry
             edges) for a guarded fork."
     (let [parsed (layout/project-definition gate-fork-machine)
@@ -3699,7 +3678,7 @@
               "connector target is a real event-node in the graph"))))))
 
 (deftest fork-connector-edges-never-reach-elk-layout
-  (testing "rf2-o3rkq1 — the decorative connector is RENDER-ONLY: it is
+  (testing "the decorative connector is RENDER-ONLY: it is
             NEVER fed to ELK. The ELK input edges (`->elk-edges`) carry
             only the events-as-nodes `__in` / `__out` route halves, so no
             connector can perturb a node position."
@@ -3713,7 +3692,7 @@
           "every ELK edge is a route half — the connector is absent"))))
 
 (deftest no-fork-no-connector-edges
-  (testing "rf2-o3rkq1 — a machine with no guarded multi-branch fork emits
+  (testing "a machine with no guarded multi-branch fork emits
             NO connector edges (a single transition / distinct triggers /
             a guardless multi-target group are not forks)."
     (doseq [m [self-loop-machine compound-machine idle-loading]]
@@ -3725,10 +3704,10 @@
                       (:edges parsed) (tokens/chart-tokens) vc/chart-regular))
             (str "fixture " m " yields no connector edges directly"))))))
 
-;; ---- guarded-fork branch LAYOUT ORDER (rf2-p75kbg) ----------------------
+;; ---- guarded-fork branch LAYOUT ORDER -----------------------------------
 
 (deftest fork-branch-event-positions-maps-event-nodes-to-priority
-  (testing "rf2-p75kbg — each guarded-fork branch EVENT-NODE id maps to its
+  (testing "each guarded-fork branch EVENT-NODE id maps to its
             1-based priority index (re-keyed from the spec edge-id via
             `event-node-id`), so the `elk.position` within-layer hint stacks
             the gate fork 1,2,3."
@@ -3747,15 +3726,15 @@
             "the non-fork :gate/set event-node carries no position hint")))))
 
 (deftest fork-branch-container-ids-flags-only-fork-holders
-  (testing "rf2-p75kbg — the holding-container set carries the gate fork's
+  (testing "the holding-container set carries the gate fork's
             holding container, and is EMPTY for a machine without a guarded
             fork (so semiInteractive is never enabled where there is nothing
             to order).
 
-            rf2-q129z8 — the gate fork's branches (leaving the top-level
-            `:idle`) now lay out under the synthetic ROOT-CONTAINER frame
+            The gate fork's branches (leaving the top-level
+            `:idle`) lay out under the synthetic ROOT-CONTAINER frame
             rather than at the bare root, so the holding container is the
-            frame id (was nil)."
+            frame id."
     (is (= #{layout/root-container-id}
            (projection/fork-branch-container-ids
              (layout/project-definition gate-fork-machine)))
@@ -3766,7 +3745,7 @@
           (str "non-fork fixture " m " flags no fork container")))))
 
 (deftest elk-children-pin-fork-branches-in-priority-order
-  (testing "rf2-p75kbg — `->elk-children` tags each gate-fork branch
+  (testing "`->elk-children` tags each gate-fork branch
             event-node with the `elk.position` KVector hint == its priority
             index (x = order, y = 0, for the DOWN-direction cross-axis), and
             leaves every non-fork node unpinned."
@@ -3789,7 +3768,7 @@
             "non-fork event-node is unpinned")))))
 
 (deftest elk-children-fork-hint-axis-follows-resolved-direction
-  (testing "rf2-0pmi2y — the guarded-fork `elk.position` within-layer hint
+  (testing "the guarded-fork `elk.position` within-layer hint
             rides the CROSS axis of the RESOLVED ELK direction: X for `:tb`
             (DOWN — layers stack vertically), Y for `:lr` (RIGHT — layers
             stack horizontally). `post-elk/aspect-direction` routes exactly
@@ -3825,7 +3804,7 @@
               "the arity without direction defaults to :tb"))))))
 
 (deftest elk-children-no-fork-no-position-pins
-  (testing "rf2-p75kbg — a machine with no guarded fork carries NO
+  (testing "a machine with no guarded fork carries NO
             `elk.position` pins on any child (the ordering machinery is a
             no-op where there is no fork to straighten)."
     (doseq [m [self-loop-machine compound-machine idle-loading]]
@@ -3835,23 +3814,23 @@
             (str "non-fork fixture " m " pins no node position"))))))
 
 ;; ---- guarded-fork semiInteractive on the REAL root-container child ------
-;; rf2-rcszre — the gate fork's branches lay out UNDER the synthetic
-;; ROOT-CONTAINER frame (rf2-q129z8), NOT at the bare ELK root. So the
+;; The gate fork's branches lay out UNDER the synthetic
+;; ROOT-CONTAINER frame, NOT at the bare ELK root. So the
 ;; `chart/elk-layout-options`-on-the-bare-root semiInteractive lever (pinned
 ;; in edges-cljs-test via a SYNTHETIC bare-root fixture) does NOT fire for
 ;; the real machine — instead the ROOT-CONTAINER child built by
 ;; `->elk-children` (`container-opts`) carries semiInteractive because
 ;; `fork-branch-container-ids` returns `#{root-container-id}`. This pin
-;; guards that REAL post-root-container path the synthetic test routes
+;; guards that REAL root-container path the synthetic test routes
 ;; around: the root-container ELK child carries the semiInteractive option,
 ;; and a non-fork machine's root-container child does NOT.
 
 (deftest elk-children-root-container-carries-semi-interactive-for-fork
-  (testing "rf2-rcszre — the gate guarded fork's branches lay out under the
+  (testing "the gate guarded fork's branches lay out under the
             ROOT-CONTAINER frame, so the root-container ELK child (the sole
             top-level `->elk-children` element) carries
             `elk.layered.crossingMinimization.semiInteractive = true` — the
-            REAL post-root-container path the synthetic bare-root pin in
+            REAL root-container path the synthetic bare-root pin in
             edges-cljs-test routes around. Without this, the branch
             event-nodes' `elk.position` hints would be ignored and the
             dotted connector would weave."
@@ -3879,7 +3858,7 @@
             "branch 3 event-node pinned at cross-axis x=3")))))
 
 (deftest elk-children-root-container-no-semi-interactive-without-fork
-  (testing "rf2-rcszre — a machine with NO guarded fork does NOT enable
+  (testing "a machine with NO guarded fork does NOT enable
             semiInteractive on its root-container child, so the default
             full crossing-minimisation stands and no non-fork layout is
             perturbed."
@@ -3891,7 +3870,7 @@
             (str "non-fork fixture " m
                  " root-container child omits semiInteractive"))))))
 
-;; ---- consumer-attachment requirements on :data (rf2-skhlw2.1) ----------
+;; ---- consumer-attachment requirements on :data -------------------------
 ;;
 ;; EP-0017 / Spec 005 §Consumer attachment — the projection carries a named
 ;; guard / action / entry / exit consumer's declared `:rf.cofx/requires` onto
@@ -3916,7 +3895,7 @@
              :busy {}}})
 
 (deftest event-node-data-carries-guard-action-requires
-  (testing "rf2-skhlw2.1 — the :go event-node's :data carries
+  (testing "the :go event-node's :data carries
             :guardRequires / :actionRequires (the named callbacks' IDS)"
     (let [parsed (layout/project-definition cofx-projection-machine)
           graph  (projection/xyflow-graph parsed {} {})
@@ -3929,7 +3908,7 @@
       (is (= ["payment/retry-jitter-ms"] (:actionRequires (:data ev)))))))
 
 (deftest state-node-data-carries-entry-exit-requires
-  (testing "rf2-skhlw2.1 — the :idle state-node's :data carries
+  (testing "the :idle state-node's :data carries
             :entryRequires / :exitRequires (the lifecycle actions' IDS)"
     (let [parsed (layout/project-definition cofx-projection-machine)
           graph  (projection/xyflow-graph parsed {} {})
@@ -3938,8 +3917,8 @@
       (is (= ["rf/uuid"]    (:exitRequires (:data idle)))))))
 
 (deftest fact-free-machine-omits-requires-data
-  (testing "rf2-skhlw2.1 — a machine declaring no :rf.cofx/requires carries
-            nil :guardRequires / :entryRequires (visually unchanged)"
+  (testing "a machine declaring no :rf.cofx/requires carries
+            nil :guardRequires / :entryRequires (no requirement chips)"
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           ev     (first (filter #(= "rf2-event" (:type %)) (:nodes graph)))]
@@ -3947,21 +3926,21 @@
       (is (nil? (:guardRequires (:data ev))))
       (is (nil? (:actionRequires (:data ev)))))))
 
-;; ---- lifecycle requires are region-aware (rf2-6l01c8) ------------------
+;; ---- lifecycle requires are region-aware -------------------------------
 ;;
 ;; Two parallel regions can share the SAME in-region state path. The
 ;; raw-node lookup that recovers a node's `:entry`/`:exit` refs (to surface
 ;; the declared `:rf.cofx/requires`) must key off the node's OWN `:region`,
-;; not the first region whose in-region path matches. Pre-fix it scanned
-;; regions and returned the FIRST hit, so region B's node was decorated with
-;; region A's `:entryRequires`/`:exitRequires` — a lifecycle cofx displayed
-;; against the wrong parallel region.
+;; not the first region whose in-region path matches. A scan returning the
+;; FIRST matching region would decorate region B's node with region A's
+;; `:entryRequires`/`:exitRequires` — a lifecycle cofx displayed against the
+;; wrong parallel region.
 
 (def cofx-parallel-dup-machine
   "A `:type :parallel` machine whose regions `:a` and `:b` each own a state
   named `:active` (identical in-region path `[:active]`) with DISTINCT entry
-  / exit actions declaring DISTINCT `:rf.cofx/requires`. The fix must resolve
-  each `:active` node's lifecycle refs within its OWN region."
+  / exit actions declaring DISTINCT `:rf.cofx/requires`. The projection must
+  resolve each `:active` node's lifecycle refs within its OWN region."
   {:type    :parallel
    :actions {:a-enter {:rf.cofx/requires [:region-a/enter-fact] :fn (fn [_] nil)}
              :a-exit  {:rf.cofx/requires [:region-a/exit-fact]  :fn (fn [_] nil)}
@@ -3973,7 +3952,7 @@
                  :states  {:active {:entry :b-enter :exit :b-exit}}}}})
 
 (deftest lifecycle-requires-resolve-per-parallel-region
-  (testing "rf2-6l01c8 — duplicate-named parallel-region states carry their
+  (testing "duplicate-named parallel-region states carry their
             OWN region's :entryRequires / :exitRequires on the xyflow node
             :data, never a sibling region's"
     (let [parsed  (layout/project-definition cofx-parallel-dup-machine)
@@ -3987,8 +3966,8 @@
           "region :a entry requires resolve within region :a")
       (is (= ["region-a/exit-fact"]  (:exitRequires (:data a-active)))
           "region :a exit requires resolve within region :a")
-      ;; region :b's node carries ONLY region :b's lifecycle requires — the
-      ;; pre-fix cross-region scan would have shown region :a's here
+      ;; region :b's node carries ONLY region :b's lifecycle requires — a
+      ;; cross-region scan would show region :a's here
       (is (= ["region-b/enter-fact"] (:entryRequires (:data b-active)))
           "region :b entry requires resolve within region :b, not region :a's")
       (is (= ["region-b/exit-fact"]  (:exitRequires (:data b-active)))
