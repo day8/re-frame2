@@ -4,25 +4,25 @@
  * (serve-and-run-adapter-smokes.cjs) and the Playwright runner
  * (run-adapter-smokes.cjs).
  *
- * Why this module exists (rf2-l72e2)
- * ----------------------------------
- * The two scripts used to apply the same `ADAPTER_SMOKE_FILTER` value to two
- * *different string spaces*:
+ * Why this module exists
+ * ----------------------
+ * The two scripts select from two *different string spaces*:
  *
- *   - the orchestrator substring-matched the filter against shadow-cljs
- *     build ids        (`adapters/reagent-testbed`), while
- *   - the runner substring-matched the same filter against absolute
- *     spec.cjs paths   (`implementation/adapters/reagent/testbed/spec.cjs`).
+ *   - the orchestrator selects shadow-cljs build ids
+ *                      (`adapters/reagent-testbed`), while
+ *   - the runner selects spec.cjs paths
+ *                      (`implementation/adapters/reagent/testbed/spec.cjs`).
  *
- * After only `_`->`-` and `\`->`/` normalization, a perfectly valid
- * build-id-shaped filter such as `reagent-testbed` selected the build in
- * the orchestrator (compile + stage ran) but then matched ZERO specs in
+ * Were each to substring-match the same `ADAPTER_SMOKE_FILTER` value against
+ * its own space after only `_`->`-` and `\`->`/` normalization, a perfectly
+ * valid build-id-shaped filter such as `reagent-testbed` would select the
+ * build in the orchestrator (compile + stage run) but match ZERO specs in
  * the runner (the segment `reagent-testbed` never appears in the
- * slash-separated path `reagent/testbed`). The narrow run compiled the
- * intended surface and then failed with "matched zero specs".
+ * slash-separated path `reagent/testbed`): the narrow run would compile the
+ * intended surface and then fail with "matched zero specs".
  *
- * Fix: declare each example once here, with BOTH its build id and the
- * spec.cjs path it pairs with, and expose ONE `selectEntries(patterns)`
+ * So each example is declared once here, with BOTH its build id and the
+ * spec.cjs path it pairs with, and ONE `selectEntries(patterns)` is exposed
  * that both scripts call. Selection normalizes `_`, `\`, and `/` all to a
  * single `-` separator on both the filter pattern and every candidate
  * identity for an entry (its build id and its repo-relative spec path). A
@@ -35,17 +35,16 @@
  *
  * The candidate identities are deliberately limited to REPO-STABLE forms
  * (build id, repo-relative spec path). The absolute spec path is NOT a
- * match candidate (rf2-n4nc2o): an absolute path embeds the
+ * match candidate: an absolute path embeds the
  * workspace/worktree directory name, so a filter term that happened to be
  * a substring of that prefix (a bare `shop` under a `…/shop-testbed/…`
  * checkout) would over-select EVERY entry — silently running the wrong
  * smoke set. Matching only repo-stable identities makes selection
- * independent of where the repo is checked out, and preserves the
- * substring-trap protection that motivated the original `\`->`/`
- * normalization (see the saved-memory note): matching is still
- * substring-based and the user can still scope with a
- * path-separator-bearing form; that form just now works identically in
- * both phases and can never be shadowed by a filesystem prefix.
+ * independent of where the repo is checked out, and the substring-trap
+ * protection the `\`->`/` normalization exists for holds: matching is
+ * substring-based and the user can scope with a path-separator-bearing
+ * form; that form works identically in both phases and can never be
+ * shadowed by a filesystem prefix.
  */
 
 'use strict';
@@ -118,13 +117,13 @@ function parseFilterPatterns(raw) {
 // the build id and the repo-relative spec path. Both are stable repo
 // identities, normalized into the canonical separator space.
 //
-// The absolute spec path is DELIBERATELY excluded (rf2-n4nc2o). It used to
-// be a match candidate, but an absolute path embeds the workspace/worktree
-// directory name, so any filter term that happened to be a substring of
-// that prefix (e.g. a bare `shop` under a `…/shop-testbed/…` worktree)
-// over-selected EVERY entry — silently running the wrong smoke set with no
-// signal that the match came from the filesystem prefix rather than an
-// example identity. Matching only repo-stable identities makes selection
+// The absolute spec path is DELIBERATELY excluded. As a match candidate, an
+// absolute path would embed the workspace/worktree directory name, so any
+// filter term that happened to be a substring of that prefix (e.g. a bare
+// `shop` under a `…/shop-testbed/…` worktree) would over-select EVERY entry
+// — silently running the wrong smoke set with no signal that the match came
+// from the filesystem prefix rather than an example identity. Matching only
+// repo-stable identities makes selection
 // independent of where the repo is checked out.
 function entryIdentities(entry) {
   const relSpec = path.relative(REPO_ROOT, entry.specPath);
@@ -152,12 +151,12 @@ function selectEntries(patterns, smokes = ADAPTER_SMOKES) {
 // The Playwright runner (run-adapter-smokes.cjs) reconciles this manifest
 // against the spec.cjs files actually on disk before running, failing loud
 // on drift in either direction. The walker + the missing/undeclared
-// partition used to live ONLY in the runner, so the fast JS tier could only
-// exercise a RE-IMPLEMENTED copy of them (rf2-qf45gu): the copies could
-// drift, and a bug in the runner's OWN walk/partition (node_modules skip,
-// sort, the set-difference) surfaced only at Playwright-run time, never at
-// the JS gate. Own them here — next to the manifest they reconcile against —
-// so the runner AND its fast-tier test import the SAME real code.
+// partition live HERE — next to the manifest they reconcile against — so the
+// runner AND its fast-tier test import the SAME real code. Owned by the
+// runner alone, they would leave the fast JS tier exercising a
+// RE-IMPLEMENTED copy that could drift, and a bug in the runner's OWN
+// walk/partition (node_modules skip, sort, the set-difference) would surface
+// only at Playwright-run time, never at the JS gate.
 
 // A spec file is the unprefixed `spec.cjs` (the adapter-testbed convention)
 // or any `*.spec.cjs`. `examples/` is test-free, but the walker accepts the
@@ -167,8 +166,8 @@ function isSpecFile(name) {
 }
 
 // Recursively walk `roots`, returning the resolved absolute paths of every
-// spec file found, sorted. Skips `node_modules` dirs (defensive — none live
-// under a spec root today). A missing root is skipped, not an error, so a
+// spec file found, sorted. Skips `node_modules` dirs (defensive — no spec
+// root is expected to hold one). A missing root is skipped, not an error, so a
 // not-yet-created root doesn't crash discovery.
 function listSpecFiles(roots) {
   const out = [];
