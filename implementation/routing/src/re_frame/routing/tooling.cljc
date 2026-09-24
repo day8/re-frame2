@@ -20,16 +20,16 @@
       app's bundle; the bundle-isolation gate noted at the foot of this ns
       additionally proves no stray `:require` ever pulled the body in.
 
-  READ-ONLY over the registry. Like slice-2's subs.tooling read the sub
-  registrar and slice-3's flows.tooling read the flow registry, this ns
+  READ-ONLY over the registry. Like `re-frame.subs.tooling` over the sub
+  registrar and `re-frame.flows.tooling` over the flow registry, this ns
   touches NEITHER the routing registrar write-path (`reg-route` /
   `clear-route`) NOR the route registration signatures. It reads the
   `:route` registrar kind (the same source `re-frame.routing.registry/route-table`
-  iterates) and a frame's live runtime-db route slice through the existing
+  iterates) and a frame's live runtime-db route slice through the
   `re-frame.frame/frame-runtime-db-value` read seam.
 
-  Per [Derivations.md](../../../../../../spec/Derivations.md) (graduated
-  from EP-0014; §Routes expose algebra views) and the projected Malli
+  Per [Derivations.md](../../../../../../spec/Derivations.md) (§Routes
+  expose algebra views) and the projected Malli
   shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
   (:require [re-frame.registrar :as rf.registrar]
             [re-frame.frame :as rf.frame]
@@ -50,12 +50,11 @@
 ;;
 ;; This is the *registrar-derived* slice (Derivations §The EP-0013 relocation
 ;; seam): the algebra view is assembled from the route registrar metadata at
-;; the surface that registered each route, NOT (yet) from an EP-0013 app
-;; value. It feeds the later internal graph-inspection helper (EP-0014
-;; bead-plan item 7); slice-5 ships NO public accessor — these functions live
+;; the surface that registered each route, NOT from an EP-0013 app
+;; value. It feeds the internal graph-inspection helper. There is NO public
+;; accessor — these functions live
 ;; in the bundle-isolated tooling sibling, consumed by Xray + the conformance
-;; fixtures (the two named first consumers). No `re-frame.core` facade export
-;; (EP-0014 issue-1 disposition).
+;; fixtures. There is no `re-frame.core` facade export.
 ;;
 ;; The fixed classifications for EVERY route fact node (Derivations §Routes
 ;; expose algebra views):
@@ -76,7 +75,7 @@
 ;; The per-route axis that varies is the route's source-form id and its
 ;; route-owned resource activation edges.
 ;;
-;; A route consumes the slice-1 vocabulary verbatim — it does NOT redefine the
+;; A route consumes the shared algebra vocabulary verbatim — it does NOT redefine the
 ;; `:rf/storage-class` / `:rf/evaluation-policy` / `:rf/lifecycle` enums or
 ;; the `:rf/derivation-node` shape (those are owned by Spec-Schemas /
 ;; Derivations).
@@ -203,7 +202,7 @@
 
 (defn route-algebra-view
   "Return the STATIC derivation/process algebra view of every registered
-  route (EP-0014 slice-5; [Derivations.md], [Spec-Schemas
+  route ([Derivations.md], [Spec-Schemas
   §`:rf/derivation-node`]).
 
   Pure data over the `:route` registrar kind — no app-db, no runtime-db, no
@@ -260,7 +259,7 @@
   registered. JVM-runnable — the route registration metadata is
   partition-agnostic.
 
-  Slice-5 ships NO public accessor (EP-0014 issue-1 disposition): this lives
+  There is NO public accessor (EP-0014 §Open Issues, issue 1): this lives
   in the bundle-isolated tooling sibling and is consumed by Xray + the
   conformance fixtures; the public name is deferred until a third consumer
   needs it. There is no `re-frame.core/route-algebra-view` facade export."
@@ -277,7 +276,7 @@
 
 (defn route-slice-algebra-view
   "Return the LIVE derivation/process algebra view of a frame's route slice
-  (EP-0014 slice-5; [Derivations.md] §Static and live graphs).
+  ([Derivations.md] §Static and live graphs).
 
   The live counterpart to `route-algebra-view`: where the static view reports
   the route fact node assembled from registration metadata, the live view
@@ -311,9 +310,9 @@
                      present when both the matched id and nav-token are known.
 
   CLJS- AND JVM-runnable: it reads the frame's runtime-db value through the
-  existing `re-frame.frame/frame-runtime-db-value` read seam (a single
+  `re-frame.frame/frame-runtime-db-value` read seam (a single
   container deref — on the JVM the container holds a plain value, so this
-  works there too, unlike the sub-cache reaction-deref slice-2 helper).
+  works there too, unlike `re-frame.subs.tooling`'s sub-cache reaction-deref view).
   Returns `nil` for a missing/destroyed frame or an unmaterialized slice."
   [frame-id]
   (when-let [runtime-db (rf.frame/frame-runtime-db-value frame-id)]
@@ -346,14 +345,11 @@
 ;; fully-qualified name is interned into the emitted JS as a string constant
 ;; Closure does not rename.
 ;;
-;; A `defonce ^:private bundle-isolation-sentinel` string used to sit here
-;; (rf2-eiiifu). It was inert: private, unconsumed, and therefore dropped by
-;; Closure `:advanced`, so the `do-not-rename` instruction it carried guarded
-;; nothing. `4e43784ec7` (2026-07-15) moved this roster entry onto the live
-;; node kind when these controls became emitted-module greps rather than
-;; source greps; the var was simply left behind, and rf2-6r9j.1 removed it.
-;; `re-frame.resources.tooling` (rf2-6r9j.54) and `re-frame.derivation.egress`
-;; (rf2-yk2d) record the identical trap and repair.
+;; There is deliberately no `defonce ^:private bundle-isolation-sentinel`
+;; string here: private and unconsumed, it would be dropped by Closure
+;; `:advanced`, so any `do-not-rename` instruction it carried would guard
+;; nothing. `re-frame.resources.tooling` and `re-frame.derivation.egress`
+;; record the identical trap.
 ;;
 ;; The rule, and the reason a planted string is the WRONG instinct here: pick
 ;; a literal a LIVE code path emits, and verify the count in the emitted
