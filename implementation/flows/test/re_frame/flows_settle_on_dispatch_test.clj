@@ -1,11 +1,11 @@
 (ns re-frame.flows-settle-on-dispatch-test
   "Spec 013 §Sequencing — the reserved flow-lifecycle effects settle on the
-  DISPATCHING frame (rf2-kh73v).
+  DISPATCHING frame.
 
   `:rf.fx/reg-flow` and `:rf.fx/clear-flow` are walked by `:fx`, which is the
   LAST drain stage — it runs after the framework's flow-transform `:after`.
   So the registry mutation lands after the pass that would have acted on it.
-  Left there, that is a one-event lag with two arms, and they fail
+  Left there, that would be a one-event lag with two arms, failing
   differently:
 
     REGISTER  a flow registered by an event has no output until some LATER
@@ -19,11 +19,11 @@
   The runtime closes both by enqueuing one framework-private settle event on
   the same frame when the `:fx` walk actually mutated the flow registry. It
   drains inside the same run-to-completion pass, so both arms are settled by
-  the time the dispatch returns — without the app authoring the follow-up
-  no-op event the contract used to require.
+  the time the dispatch returns — without the app authoring a follow-up
+  no-op event.
 
-  These two deftests are the CONTROL for that change: both go red against the
-  lagging runtime and green against the settling one."
+  The first two deftests are the CONTROL for that settle: both would go red
+  against a lagging runtime."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
@@ -54,9 +54,9 @@
 
     (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed)
         "the registry carries the flow after the registering dispatch")
-    ;; THE CONTROL, register arm. Red under the one-event lag: the flow
-    ;; transform for :enter ran before `:fx` registered the flow, so nothing
-    ;; computed and :result is still nil.
+    ;; THE CONTROL, register arm. Red under a one-event lag: the flow
+    ;; transform for :enter runs before `:fx` registers the flow, so nothing
+    ;; would compute and :result would still be nil.
     (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "the flow's initial output (3 + 4) is present when the dispatch settles")))
 
@@ -75,10 +75,11 @@
     (rf/dispatch-sync [:leave])
 
     (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed))
-        "the registry row is gone — this half was never lagged")
-    ;; THE CONTROL, clear arm. Red under the one-event lag: the vacation was
-    ;; recorded as a pending abandoned path and only dissoc'd from the pending
-    ;; `:db` on some LATER drain, so :result outlives the flow that owned it.
+        "the registry row is gone — this half is immediate")
+    ;; THE CONTROL, clear arm. Red under a one-event lag: the vacation is
+    ;; recorded as a pending abandoned path and would only be dissoc'd from the
+    ;; pending `:db` on some LATER drain, so :result would outlive the flow
+    ;; that owned it.
     (is (not (contains? (get (rf/app-db-value :rf/default) :wizard) :result))
         "and the output path it owned is vacated by the same settle boundary")))
 
