@@ -10,7 +10,7 @@
   `useEffect` — in THIS component.** The ≤2-hook budget HD-020(b)
   polices is the *boundary shell's*, and this is not a boundary shell: it
   reads no subscription, mounts no registration and takes no cell.
-  `collector/shell` is untouched and the dispatcher-level ledger still
+  `collector/shell` pays none of them, and the dispatcher-level ledger
   counts exactly two there. The second `useContext` is the root-scoped
   adoption window; it is paid HERE, by the optional component that reads
   it, and nowhere else in the package.
@@ -50,7 +50,7 @@
 
   **No frame in scope is not an error here.** Presence reads nothing, so
   a tray mounted outside a frame is legal until one of its children
-  writes an intent — at which point the existing loud error fires and
+  writes an intent — at which point the loud error fires and
   names the intent, which is better attribution than a generic
   no-frame-context throw from the tray. The binding is therefore
   unconditional and simply carries `nil` when there is no provider.
@@ -119,13 +119,13 @@
         ;; client pass render each child's `::motion/mounting` overrides
         ;; (`opacity: 0`, typically) over DOM that carries none.
         ;;
-        ;; The fix is the machine's own
+        ;; The answer is the machine's own
         ;; `re-frame.fresco.impl.presence/settle`, the
-        ;; function the enter flip already uses, applied one render
+        ;; function the enter flip uses, applied one render
         ;; earlier. So this is ADOPTION BEHAVIOUR — a different starting
         ;; phase for a tree that is being adopted — and not a second
         ;; render mode: the transform, the overrides, the deadlines and
-        ;; the terminal bound are all unchanged, and `adopting-here?` is
+        ;; the terminal bound are an ordinary mount's, and `adopting-here?` is
         ;; false for every ordinary mount and false again the moment
         ;; THIS root's closer commits.
         ;;
@@ -176,8 +176,8 @@
     ;; frame the codec's intent lowering reads has to be re-established
     ;; around this call and nowhere else. `nil` when no provider is above
     ;; the tray — the binding is unconditional so the branch does not
-    ;; exist, and an intent written under a frameless tray still lands on
-    ;; the existing loud error naming the intent.
+    ;; exist, and an intent written under a frameless tray lands on
+    ;; the loud error naming the intent.
     (rf.fresco.impl.intent/with-frame frame-kw (when frame-kw (rf.fresco.impl.collector/frame-dispatch frame-kw))
       (fn [] (rf.fresco.impl.codec/as-element (into [:<>] (rf.fresco.impl.presence/render next)))))))
 
