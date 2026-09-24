@@ -315,8 +315,7 @@
       (when trace
         (is (not= :rf/redacted (:error tags)) ":error NOT redacted")
         (is (map? (:error tags)) ":error rode through as the raw ex-data map")
-        ;; Read the envelope: `:tags` never carries `:sensitive?`
-        ;; (rf2-3x7nj.20.2).
+        ;; Read the envelope: `:tags` never carries `:sensitive?`.
         (is (not (contains? trace :sensitive?))
             "no :sensitive? stamp on a non-sensitive route")))))
 
