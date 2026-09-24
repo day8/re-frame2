@@ -28,7 +28,7 @@
     `window`. The browser boundary reads `window.location` once
     (`current-href`) and hands the address in; the `{:url …}` /
     `:rf.route/url-requested` doors hand in the address of an origin-bearing
-    reference the same way (rf2-3x7nj.12.2), so one decode serves both.
+    reference the same way, so one decode serves both.
   - `:push!` / `:replace!` drive `window.history` with the ENCODED href
     — `:push!` adds a history entry, `:replace!` overwrites the current
     one. They are RAW window.history legs: `:encode` is the SINGLE
@@ -62,7 +62,7 @@
   on the JVM: `route-link` encodes its
   `<a href>` through the rendering frame's strategy on both hosts, so the
   server shell carries the same href the hydrated client renders (Spec 011's
-  structural-equivalence rule; rf2-skr1c). SSR skips the side effects, never
+  structural-equivalence rule). SSR skips the side effects, never
   the encoding.
 
   Internal namespace; the public facade is `re-frame.routing`, which
@@ -76,8 +76,7 @@
 (defn current-href
   "The CURRENT browser address, ORIGIN-RELATIVE: `pathname + search + hash` off
   `window.location` — the one input every strategy's `:decode` takes. `\"/\"`
-  on the JVM or when no `window.location` is available (SSR / node), which is
-  what the zero-arity decodes answered there before rf2-3x7nj.12.2.
+  on the JVM or when no `window.location` is available (SSR / node).
 
   The only place a strategy's inbound leg meets `window`: the URL-change
   listeners and the listener's initial sync read the address here and hand it
@@ -174,8 +173,8 @@
   search in front of it, which a base path may occupy, are never read) and
   return it as the path-form URL, prefixing a `/` when the fragment lacks one.
   A missing or empty fragment decodes to `\"/\"` (the root route). PURE;
-  host-agnostic — `window.location.hash` is exactly this tail, so the listener
-  decodes the same string it always did."
+  host-agnostic — `window.location.hash` is exactly this tail, so decoding the
+  whole address reads the same string the hash carries."
   [href]
   (let [i (if (string? href) (.indexOf ^String href "#") -1)]
     (if (neg? i)
@@ -280,7 +279,7 @@
   `/`-rooted remainder. `url` is under the base only when `base` is followed by
   the END of the string (the mount root), by `/` (a path-SEGMENT boundary), or
   by `?` / `#` (the pathname ends there: the mount root carrying a query or
-  fragment, `/app?tab=all` → `/?tab=all` — rf2-gwye.29). A bare string-prefix
+  fragment, `/app?tab=all` → `/?tab=all`). A bare string-prefix
   test would mis-slice a prefix-sharing SIBLING (base `/app` must NOT strip
   `/application`, `/apple`, `/app-admin`). A `url` that is not under the base —
   including such a sibling, or a fully unrelated URL — is returned unchanged
@@ -302,22 +301,22 @@
   "PURE: does `strategy` put the app route INSIDE the URL FRAGMENT — the shape
   `hash-url-strategy` produces (`/active` → `#/active`)?
 
-  This is `with-base-path`'s INGRESS discriminator (rf2-exnw). A base path is a
+  This is `with-base-path`'s INGRESS discriminator. A base path is a
   component of the PATHNAME, and `:encode` composes it OUTSIDE the address-bar
-  form (`/demos#/active`, the only shape a static host can route — rf2-irygd6).
+  form (`/demos#/active`, the only shape a static host can route).
   So a fragment-form strategy's `:decode` reads only the address's fragment, which NEVER
   carried the base, and its result is ALREADY app-relative; a path-form
   strategy's `:decode` reads the pathname, so its result still carries the base
-  and must be stripped. Stripping a fragment-form decode a second time ate the
-  app route's own leading segment whenever that segment happened to equal the
-  mount point (`/demos#/demos/item` → `/item`).
+  and must be stripped. Stripping a fragment-form decode a second time would
+  eat the app route's own leading segment whenever that segment happened to
+  equal the mount point (`/demos#/demos/item` → `/item`).
 
   Derived from the strategy's OWN `:encode` — the single outbound authority —
   so a custom fragment-form strategy classifies correctly too, with no sixth
-  key added to the five-leg contract. `:encode` is pure and host-agnostic
+  key on the five-leg contract. `:encode` is pure and host-agnostic
   (required on BOTH hosts), so the single `\"/\"` probe here is safe; it runs
   once per `with-base-path` call, never per decode. A non-callable `:encode`
-  reads as path-form (the prior behaviour) rather than throwing: the canonical
+  reads as path-form rather than throwing: the canonical
   `:rf.error/invalid-url-strategy` belongs to the registration-time preflight,
   which must stay the one place a malformed strategy is reported."
   [strategy]
@@ -338,7 +337,7 @@
                            FRAGMENT-form strategy's decode reads only the
                            fragment, which never carried the base, so its
                            result passes through app-relative and untouched
-                           (rf2-exnw; `fragment-form-strategy?`).
+                           (`fragment-form-strategy?`).
     - `:encode`            re-adds `base` to the wrapped strategy's encoded
                            href — the single outbound base-composition point.
                            `route-link` renders this href and the
@@ -383,7 +382,7 @@
       ;; THE ONE INGRESS RULE, resolved once at wrap time and shared by BOTH
       ;; inbound legs (`:decode` and the listener) so they can never drift
       ;; apart. A fragment-form strategy's inbound value is already
-      ;; app-relative — see `fragment-form-strategy?` (rf2-exnw).
+      ;; app-relative — see `fragment-form-strategy?`.
       (let [strip-ingress (if (fragment-form-strategy? strategy)
                             identity
                             (fn [decoded] (strip-base-path b decoded)))]
@@ -392,7 +391,7 @@
                 ;; Composed over the INNER decode, with the ingress rule the
                 ;; inner strategy chose above — never re-derived from this
                 ;; wrapper, whose `(encode "/")` is `/base#/` for a hash app
-                ;; and so reads as path-form (rf2-3x7nj.12.2).
+                ;; and so reads as path-form.
                 :decode (fn [href] (strip-ingress ((:decode strategy) href)))}
                ;; :push! / :replace! are deliberately not wrapped:
                ;; `:encode` is the single outbound encoding authority — the nav
@@ -419,31 +418,28 @@
 
 ;; ---- custom-strategy validation ------------------------------------------
 ;; Per Spec 012 §URL strategies a `:url-strategy` is a map of CALLABLE legs.
-;; A typo, a partial hand-rolled adapter, or a dev hot-reload intermediate
-;; value used to enter the frame registry VERBATIM and only fail later —
-;; deep in a consult point — as a host-specific raw nil-function / TypeError
-;; (`url-strategy-from-config` returned every truthy config value unchecked;
-;; rf2-j538f7.11). `validate-url-strategy!` fails LOUD with a canonical
+;; Unvalidated, a typo, a partial hand-rolled adapter, or a dev hot-reload
+;; intermediate value would enter the frame registry VERBATIM and only fail
+;; later — deep in a consult point — as a host-specific raw nil-function /
+;; TypeError. `validate-url-strategy!` fails LOUD with a canonical
 ;; structured error when the shape is wrong.
 ;;
-;; THE VALIDATION SEAM IS FRAME CONSTRUCTION (rf2-ktmto9 / rf2-ecb4sx). The
+;; THE VALIDATION SEAM IS FRAME CONSTRUCTION. The
 ;; registration-time `preflight-frame-config!` runs this check at the sole
 ;; frame-config commit chokepoint (`re-frame.frame/upsert-frame!`), BEFORE the
 ;; strategy can ever enter the `frames` store the consult points read. Because
 ;; that is the ONE config writer into the store (pinned by the store-invariant
 ;; + no-bypass tests in `routing_url_strategy_test`), the four consult points
 ;; are TRUSTED READS — they resolve an already-validated strategy VERBATIM and
-;; do NOT re-validate per consult (the ~90 ns/consult `route-link` used to pay
-;; per render; rf2-ecb4sx). `url-strategy-from-config` keeps only a dev-only
+;; do NOT re-validate per consult (which would cost `route-link` ~90 ns per
+;; render). `url-strategy-from-config` keeps only a dev-only
 ;; (`rf.interop/debug-enabled?`, DCE'd in production) tripwire so a future
 ;; config-write bypass still fails loud in development.
 
 (def ^:private url-strategy-required-legs
   "The CALLABLE legs a custom `:url-strategy` must carry, per host. `:encode`
   / `:decode` are pure and host-agnostic and required on BOTH hosts (SSR
-  `route-link` renders through `:encode` — a sentence the link doors
-  contradicted by hard-coding `identity` until rf2-skr1c; the JVM requirement
-  was always right). The three side-effecting browser
+  `route-link` renders through `:encode`). The three side-effecting browser
   legs `:push!` / `:replace!` / `:install-listener!` are required on CLJS but
   are reader-conditionally ABSENT from the shipped JVM strategies (SSR never
   executes them), so JVM validation does NOT require them (Spec 012 §URL
@@ -461,8 +457,8 @@
   returns `strategy` UNCHANGED on success so callers can thread it.
 
   The fail-loud validation seam is frame construction: `preflight-frame-config!`
-  calls this at the registration chokepoint (rf2-ktmto9), and it also backs the
-  dev-only consult tripwire in `url-strategy-from-config` (rf2-ecb4sx).
+  calls this at the registration chokepoint, and it also backs the
+  dev-only consult tripwire in `url-strategy-from-config`.
   `where-sym` names the surface for the diagnostic (`'rf/make-frame`: the
   strategy is declared in the frame's `make-frame` config); `context` merges
   call-site slots (e.g. a frame id) into the ex-data."
@@ -493,7 +489,7 @@
 
 (defn preflight-frame-config!
   "Registration-time PREFLIGHT over a frame's FINAL expanded `make-frame`
-  config (rf2-ktmto9). PURE validation — no writes, no side effects, no
+  config. PURE validation — no writes, no side effects, no
   strategy-leg execution (shape/callability is the enforceable static
   contract; probing `:push!` / `:install-listener!` would itself cause
   browser effects).
@@ -526,21 +522,20 @@
   defaulting to `history-url-strategy` when unset (or when `config` is not
   a map). The default is the identity/path-form strategy.
 
-  TRUSTED READ (rf2-ecb4sx). This backs the strategy CONSULT points — the
+  TRUSTED READ. This backs the strategy CONSULT points — the
   `route-link` href render (per render), the `:rf.nav/push-url` /
   `:rf.nav/replace-url` fxs, and the URL-change-listener install. It reads a
   strategy that was ALREADY validated fail-loud at the sole frame-config
   commit chokepoint (`preflight-frame-config!` at frame construction /
-  re-construction, rf2-ktmto9): the `frames` store is the one place a seated
+  re-construction): the `frames` store is the one place a seated
   `:url-strategy` lives, and `re-frame.frame/upsert-frame!` — its only config
   writer — preflights BEFORE the store write, so no code path can seat an
   unvalidated strategy (pinned by the store-invariant + no-bypass tests in
   `routing_url_strategy_test`). The consult therefore returns the declared
-  strategy VERBATIM and pays NO per-render validation — a ~30x reduction of
-  the consult's cost (rf2-ecb4sx measured ~93.6 ns → ~3.1 ns per call on a
-  declared-strategy frame; the eliminated `validate-url-strategy!` was
-  ~90 ns/consult, dead work re-checking an immutable, already-validated map
-  on every render).
+  strategy VERBATIM and pays NO per-render validation, which would cost ~30x
+  the consult itself (~90 ns of `validate-url-strategy!` against a ~3 ns read
+  on a declared-strategy frame — dead work re-checking an immutable,
+  already-validated map on every render).
 
   A dev-only tripwire (`rf.interop/debug-enabled?` — `goog.DEBUG` on CLJS, the
   `re-frame.debug` gate on the JVM) re-runs `validate-url-strategy!` on the
@@ -556,24 +551,22 @@
 
 (defn url-strategy-for-frame-id
   "Resolve the `:url-strategy` for `frame-id` by reading its stored frame
-  config off the frames store (`rf.frame/frame-config` — rf2-h1vqa4: frames have
+  config off the frames store (`rf.frame/frame-config` — frames have
   no registrar rows), defaulting to `history-url-strategy`. `nil` frame-id
   (or an unregistered / destroyed frame — `frame-config` returns nil) resolves
   to the history default. Used by the `route-link` href render (per render),
   the `:rf.nav/push-url` / `:rf.nav/replace-url` fxs, and the URL-change
   listener install — the strategy CONSULT points.
 
-  A TRUSTED READ (rf2-ecb4sx): the store only ever holds a strategy that
+  A TRUSTED READ: the store only ever holds a strategy that
   passed the registration-time preflight, so this returns it verbatim with no
   per-consult validation. See `url-strategy-from-config`.
 
-  rf2-ecb4sx removed the per-consult VALIDATION and left the per-consult
-  ALLOCATION: the read went through `rf.frame/frame-meta`, which builds the
-  canonical `:rf/frame-meta` shape by merging the config, the lifecycle and
-  the id into a fresh map — a whole map, per rendered link, to reach one key.
-  rf2-cno31's census probe measured this consult at 0.72 µs per link against a
-  `route-url` synthesis of 4.71. It now reads the config map directly
-  (`rf.frame/frame-config`). The answer is unchanged for every input: the
+  It reads the config map directly (`rf.frame/frame-config`) rather than
+  through `rf.frame/frame-meta`, which builds the canonical `:rf/frame-meta`
+  shape by merging the config, the lifecycle and the id into a fresh map — a
+  whole map, per rendered link, to reach one key. The answer is the same for
+  every input: the
   lifecycle fields and the stamped `:id` that `frame-meta` merges on top are
   disjoint from `:url-strategy`, and a missing frame yields nil from either."
   [frame-id]
