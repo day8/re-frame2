@@ -5,12 +5,11 @@
 
   The README's \"Loading your project's stories\" launch shape, pointed at a
   fixture. It is a script clojure.main loads before `-m`, not a test: the
-  namespace spells its own path (the test-quiet discovery rule, rf2-vruo9)
-  and does not end in `-test`, so the JVM suite discovers it but never loads
-  it.
+  namespace spells its own path (the test-quiet discovery rule) and does not
+  end in `-test`, so the JVM suite discovers it but never loads it.
 
   The handlers that print do so AFTER the server is up, under the server's
-  own dispatch (rf2-gwye.57): the round-trip asserts those lines reach stderr
+  own dispatch: the round-trip asserts those lines reach stderr
   and never stdout. Nothing here prints at load time — that is the README's
   separate \"stdout is the wire\" caveat, not this contract."
   (:require [re-frame.core :as rf]
