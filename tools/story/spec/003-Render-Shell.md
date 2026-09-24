@@ -287,11 +287,9 @@ For a variant declaring `:substrates #{:reagent :uix}` (or any
 subset; default = the host frame's adapter), the render shell renders
 each substrate **inline** in its own pane.
 
-- Each per-substrate render runs in a try/catch boundary.
+- Each per-substrate render runs inside its own error boundary.
 - A substrate-specific failure renders inline alongside the other
   substrates' healthy renders — it is **not** auto-skipped.
-- The failure record is appended to the variant's `:assertions` list,
-  tagged with the substrate that failed.
 
 The rationale for inline-rendering substrate failures is documented in
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §inline-substrate-failures.
