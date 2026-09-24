@@ -1,7 +1,6 @@
 (ns re-frame.resources-optimistic-supersession-cljs-test
   "A superseded or cleared PENDING optimistic apply is rolled back, not
-  forgotten (rf2-3x7nj.11.2; Spec 016 §Optimistic settle; EP-0019 Decision 3
-  amendment).
+  forgotten (Spec 016 §Optimistic settle; EP-0019 Decision 3 amendment).
 
   Flagship-shaped: favorite then unfavorite under ONE instance id, each an
   optimistic toggle of `:favorited` plus a ±1 nudge of `:favoritesCount`.
@@ -264,4 +263,4 @@
     (rf/dispatch-sync [:rf.mutation/clear {:instance instance-id}])
     (is (stale?))
     (succeed! read {:article {:favorited false :favoritesCount 5}})
-    (is (stale?) "the read in flight when the mark landed does not clear it (rf2-3x7nj.10.1)")))
+    (is (stale?) "the read in flight when the mark landed does not clear it")))
