@@ -1,24 +1,24 @@
 (ns re-frame.ssr.ring.url-strategy-test
-  "rf2-089dy — the stock handlers accept a DECLARED `:url-strategy` on the
+  "The stock handlers accept a DECLARED `:url-strategy` on the
   per-request frame.
 
-  Since rf2-skr1c the JVM route-link doors encode the href through the
+  The JVM route-link doors encode the href through the
   rendering frame's `:url-strategy`, so a frame CONSTRUCTED with the
-  strategy renders `/realworld/active` server-side — but the stock
-  `ssr-handler` / `stream-handler` built their per-request `make-frame`
-  config with no opt through which to seat one, so an app served through
-  them still rendered the path form and the hydrated client re-encoded on
-  hydration: the very mismatch rf2-skr1c closed, surviving through this
-  one door.
+  strategy renders `/realworld/active` server-side. The stock
+  `ssr-handler` / `stream-handler` build their per-request `make-frame`
+  config from the handler opts; were there no opt through which to seat
+  a strategy, an app served through them would render the path form and
+  the hydrated client would re-encode on hydration — a server/client
+  href mismatch.
 
-  These tests pin the closure of that door:
+  These tests pin that the declared strategy reaches the frame:
 
   - POSITIVE — a handler-declared `with-base-path` strategy reaches the
     per-request frame: the wire body carries the based href, through BOTH
     handlers, and the non-streaming body's href is byte-equal to a
     `render-to-string` of the same root under a frame constructed with
-    the same strategy directly (the client-identical door rf2-skr1c
-    already pinned in `route_link_test.clj`).
+    the same strategy directly (the client-identical door pinned in
+    `route_link_test.clj`).
   - NEGATIVE — an invalid `:url-strategy` fails frame construction with
     the SAME failure signal as on the client (`make-frame`'s preflight,
     Spec 012 §URL strategies): the canonical
@@ -28,7 +28,7 @@
     the key keeps the default path-form history strategy.
 
   The strategy is DECLARED by the programmer; the handlers never infer it
-  from the request or its headers (the bead's stated non-goal)."
+  from the request or its headers."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -80,7 +80,7 @@
           (str "the server shell encodes through the declared strategy, got: "
                (first-href (:body response))))
       (is (not (str/includes? (:body response) "href=\"/active\""))
-          "the path-form href no longer reaches the server shell"))
+          "the path-form href does not reach the server shell"))
     (testing "parity with the client-identical door: the handler's href equals
               a render-to-string under a frame CONSTRUCTED with the strategy"
       (rf/make-frame {:id           :parity/client-identical
