@@ -1,6 +1,6 @@
 (ns re-frame.spawn-all-authoritative-preflight-cljs-test
   "The `:spawn-all` admission preflight's VERDICT and its PREPARED CHILDREN are
-  AUTHORITATIVE (rf2-ek435).
+  AUTHORITATIVE.
 
   `spawn-all-init-fx` (the FIRST fx in the entry vector) resolves, stamps,
   builds, and `[:schemas :data]`-validates every declarative `:spawn-all` child
@@ -10,22 +10,22 @@
   entry later in the same vector) then CONSUMES its prepared entry rather than
   re-resolving the type, rebuilding the snapshot, or re-running the validator.
 
-  Before this fix `spawn-all-init-fx` retained only a BOOLEAN verdict, so every
-  accepted per-child spawn re-resolved / rebuilt / re-validated the same child:
+  A BOOLEAN verdict alone would make every accepted per-child spawn
+  re-resolve / rebuild / re-validate the same child:
 
-   - a direct all-valid invoke observed TWO validator calls per child, and
-   - a mid-drain re-registration of the child TYPE between the two passes meant
-     the preflight accepted v1 and published a live child-bearing join while the
+   - a direct all-valid invoke would observe TWO validator calls per child, and
+   - a mid-drain re-registration of the child TYPE between the two passes would
+     let the preflight accept v1 and publish a live child-bearing join while the
      per-child install resolved a now-rejecting v2 and installed NO snapshot —
      leaving an impossible half-live join naming a child whose snapshot a SECOND
      verdict omitted.
 
-  MID-DRAIN INSTRUMENTS (rf2-wxy1c). Both the validator-cardinality sample and
-  the mid-drain re-registration used to run in a TRACE LISTENER. Under the
-  rf2-wxy1c ruling trace listeners are OBSERVERS: internal drain-owned emits
-  deliver at the post-drain boundary on every platform, so a listener body can
-  neither sample nor mutate inside a drain. Both instruments now ride the child's
-  own `[:schemas :data]` validator — ordinary in-drain application code the
+  MID-DRAIN INSTRUMENTS. Both the validator-cardinality sample and the mid-drain
+  re-registration ride the child's own `[:schemas :data]` validator rather than
+  a TRACE LISTENER, because trace listeners are OBSERVERS: internal drain-owned
+  emits deliver at the post-drain boundary on every platform, so a listener body
+  can neither sample nor mutate inside a drain. The validator is ordinary
+  in-drain application code the
   framework calls synchronously, positioned by `prepare-spawn-all-child` strictly
   after the child's TYPE was resolved + retained and strictly before its install.
   Platform-uniform: schema validation is not reader-conditional.
@@ -37,10 +37,10 @@
    2. A type re-registration between the preflight and the install cannot omit
       the child's snapshot — the install consumes the prepared v1, never the
       re-registered v2 — so the join is never child-bearing-but-snapshotless.
-   3. An all-valid invoke still seeds a live join, and the ephemeral prepared
+   3. An all-valid invoke seeds a live join, and the ephemeral prepared
       scratch is consumed + dropped: the durable join state retains none.
    4. A partial-reject batch (one schema-invalid child among valid siblings)
-      still rejects atomically — one childless sentinel, no sibling installed,
+      rejects atomically — one childless sentinel, no sibling installed,
       exactly one spawn-phase failure, and no prepared scratch."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -114,20 +114,20 @@
   (testing "an all-valid :spawn-all child's [:schemas :data] validator runs
             EXACTLY once BY INSTALL TIME for the attempt — the preflight prepares
             + validates it and the per-child install CONSUMES that prepared
-            snapshot rather than re-validating (the pre-fix all-valid path
-            observed TWO calls, the second at the install)."
+            snapshot rather than re-validating (a re-validating install would
+            make it TWO calls, the second at the install)."
     (let [pre-install (atom 0)]
       ;; A conforming schema that counts every validate call taken BEFORE the
       ;; child's snapshot exists. It passes ({:n 1} is a pos-int?), so the child
-      ;; installs on both the fixed and the pre-fix path — the DISCRIMINATOR is
+      ;; installs whether or not the install re-validates — the DISCRIMINATOR is
       ;; how many times it was validated by install time, not whether it
       ;; installed.
       ;;
-      ;; THE SAMPLING INSTRUMENT (rf2-wxy1c). This count used to be sampled in a
-      ;; trace listener on `:rf.machine.lifecycle/spawned`. Internal drain-owned
-      ;; traces now deliver at the POST-DRAIN boundary, so that sample is taken
-      ;; after the actor's later macrosteps have re-validated a LIVE child's
-      ;; `:data` — it measures liveness, not install-time cardinality. The
+      ;; THE SAMPLING INSTRUMENT. A trace listener on
+      ;; `:rf.machine.lifecycle/spawned` cannot take this count: internal
+      ;; drain-owned traces deliver at the POST-DRAIN boundary, so a sample taken
+      ;; there follows the actor's later macrosteps re-validating a LIVE child's
+      ;; `:data` — it would measure liveness, not install-time cardinality. The
       ;; validator's own view of the runtime-db has no such assumption: a call
       ;; taken while the snapshot is absent is BY DEFINITION pre-install. No
       ;; listener, no timing assumption, no platform split.
@@ -145,7 +145,7 @@
           "(precondition) the conforming child installed a live snapshot")
       (is (= 1 @pre-install)
           "validated EXACTLY once by install time — the preflight prepared it and
-           the install consumed that result (the pre-fix path re-validated → 2)"))))
+           the install consumed that result (a re-validating install would read 2)"))))
 
 ;; ===========================================================================
 ;; (2) Type re-registration between the preflight and the install cannot omit
@@ -159,11 +159,10 @@
             rather than re-resolving + re-validating the v2 that landed, so the
             child installs and the join is FULLY live — never a child-bearing
             join whose snapshot a SECOND verdict omitted."
-    ;; THE MID-DRAIN MUTATOR (rf2-wxy1c). This used to re-register from a
-    ;; `:rf.machine.spawn-all/started` trace listener. Internal drain-owned emits
-    ;; now deliver POST-DRAIN on every platform, so a listener body can no longer
-    ;; run in the preflight→install window. The child's own `[:schemas :data]`
-    ;; validator still can, and is ordinary in-drain application code:
+    ;; THE MID-DRAIN MUTATOR. A `:rf.machine.spawn-all/started` trace listener
+    ;; cannot re-register in the preflight→install window, because internal
+    ;; drain-owned emits deliver POST-DRAIN on every platform. The child's own
+    ;; `[:schemas :data]` validator can, and is ordinary in-drain application code:
     ;; `prepare-spawn-all-child` resolves + retains the TYPE, builds the
     ;; snapshot, THEN runs the validator — so a registrar mutation from inside it
     ;; lands strictly after the child was prepared and strictly before its
@@ -171,8 +170,8 @@
     (let [fired (atom false)]
       ;; v1 — pos-int?, data {:n 1}, conforms. Its validator swaps the registrar
       ;; to a v2 whose schema REJECTS the very {:n 1} data the preflight is
-      ;; admitting in this very call. A pre-fix install re-resolves that v2 and
-      ;; rejects the child, installing no snapshot.
+      ;; admitting in this very call. An install that re-resolved would pick up
+      ;; that v2 and reject the child, installing no snapshot.
       (rf/reg-machine :sa/strict
                       (assoc strict-child
                              :schemas
@@ -230,7 +229,7 @@
             (str "child " id " installed its snapshot"))))))
 
 ;; ===========================================================================
-;; (4) Adversarial: a partial-reject batch still rejects atomically and retains
+;; (4) Adversarial: a partial-reject batch rejects atomically and retains
 ;;     no prepared scratch.
 ;; ===========================================================================
 
