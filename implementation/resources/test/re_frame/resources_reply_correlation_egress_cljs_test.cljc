@@ -1,9 +1,10 @@
 (ns re-frame.resources-reply-correlation-egress-cljs-test
-  "THE NINTH LEAK (rf2-l6wjl) — a family continuation reply's `:correlation`
-  facts carry the resolved `:scope`, and on the MUTATION half that copy rode
-  off-box RAW while the reply's own top-level `:scope` beside it tokenized.
+  "Off-box egress of a family continuation reply's `:correlation :scope`. The
+  `:correlation` facts carry the resolved `:scope`, and that copy must tokenize
+  exactly as the reply's own top-level `:scope` beside it does — on the
+  MUTATION half as on the READ half.
 
-  ## The disagreement
+  ## Why `:correlation` needs its own arm
 
   `resources.reply/base-reply` puts the resolved scope in TWO places on every
   reply it builds: free at the top level, and again inside the `:correlation`
@@ -15,29 +16,28 @@
   the family satisfy that at the TOP level, because every reply carries
   `:rf.reply/work-id`.
 
-  Inside `:correlation` the two halves diverge, and nothing was reading the
-  divergence:
+  Inside `:correlation` the two halves diverge:
 
     - a READ completion's correlation is
       `{:scope … :generation … :rf.reply/resource-key <key>}` — that last
-      spelling IS in `family-named-key?`, so the map proved itself and the
-      `:scope` cleaned;
+      spelling IS in `family-named-key?`, so the map proves itself and the
+      `:scope` cleans;
     - a MUTATION completion's correlation is
       `{:scope … :generation … :mutation/id … :instance/id …}` — no
       `resource`-namespaced key, no work-id value (the work-id is at the reply
-      root, not in here), so the map proved NOTHING and its `:scope` rode out
-      verbatim.
+      root, not in here), so by carrier-family rules alone the map proves
+      NOTHING and its `:scope` would ride out verbatim.
 
-  One scope, three carriers, two rules applied — the rf2-irwsq shape a third
-  time, now across the two HALVES of one family. rf2-425mm made the free
-  `:scope` arm unconditional on exactly this argument (\"the two carriers of one
-  scope must agree\") and rf2-1zc33 settled that a free `:scope` tag classifies
-  unconditionally, since it belongs to no owner whose declaration could exempt
-  it. A caller-supplied scope is not a declaration, so the mutation family's
-  source-side `redact-continuation-reply` — which re-roots only the owner's
-  DECLARED `:sensitive` / `:large` subpaths — never spoke for it either.
+  That would be one scope, three carriers, two rules applied, across the two
+  HALVES of one family. The free `:scope` arm is unconditional on exactly this
+  argument (\"the two carriers of one scope must agree\"): a free `:scope` tag
+  classifies unconditionally, since it belongs to no owner whose declaration
+  could exempt it. A caller-supplied scope is not a declaration, so the
+  mutation family's source-side `redact-continuation-reply` — which re-roots
+  only the owner's DECLARED `:sensitive` / `:large` subpaths — does not speak
+  for it either.
 
-  ## The repair, and its grain
+  ## The arm, and its grain
 
   A separate arm of `project-embedded-keys`'s `entry` cond, gated on
   `family-reply?` — the canonical reply MARKER `:rf.reply/work-kind`, ENUMERATED
@@ -50,9 +50,10 @@
   survives a mutation whose registration was hot-reloaded away.
 
   Deliberately NOT a member of `reply-payload-slot`: that set is consumed under
-  `(and owner-redacts? …)`, so adding `:correlation` to it would silently
-  implement the OWNER-CONDITIONAL remedy rf2-1zc33 / rf2-425mm rejected, and
-  would leave the two carriers disagreeing for a `:serialize` owner.
+  `(and owner-requires-redaction? …)`, so adding `:correlation` to it would
+  silently make the scope's redaction OWNER-CONDITIONAL, which the free
+  `:scope` rule forbids, and would leave the two carriers disagreeing for a
+  `:serialize` owner.
 
   ## What this suite pins
 
@@ -95,7 +96,7 @@
 (def ^:private session-scope
   "An identity-BEARING resolved scope: a `[tier {identity}]` tuple whose
   identity map carries the canary. `:rf.scope/global` is a scalar with nothing
-  in it to leak, which is precisely why every earlier fixture missed this."
+  in it to leak, which is precisely why a global-scoped fixture cannot see this."
   [:rf.scope/session {:username secret}])
 
 ;; ---- fixture --------------------------------------------------------------
@@ -204,7 +205,7 @@
   from the outcome's own `:status`, so one fn drives BOTH mutation settle
   handlers (`:rf.mutation.internal/succeeded` and `/failed`). Returns the
   carrier rows of the SETTLE drain only — the execute drain is setup and its
-  own carriers are covered by rf2-425mm's arm."
+  own carriers are covered by the unconditional free-`:scope` arm."
   [{:keys [status] :as outcome}]
   (let [captured (atom nil)]
     (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
@@ -222,8 +223,8 @@
 (defn- drive-read-reply-to!
   "The READ half of the same shape: a REAL `[:rf.resource/ensure … :scope …
   :reply-to …]` settled through the transport's `:on-success`. Its correlation
-  map wears `:rf.reply/resource-key`, so this half was ALREADY clean — it is
-  the agreement counterpart, not a second acceptance arm."
+  map wears `:rf.reply/resource-key`, so this half is clean by carrier-family
+  rules alone — it is the agreement counterpart, not a second acceptance arm."
   []
   (let [captured (atom nil)]
     (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
@@ -240,7 +241,7 @@
 
 (def ^:private failure-envelope
   "A classified `:rf.http/*` failure envelope. Carries no canary of its own —
-  rf2-rnsv2's `:error` arm already tokenizes it, and a second canary in this
+  the projector's `:error` arm tokenizes it, and a second canary in this
   suite would make it impossible to tell WHICH arm cleaned the record."
   {:kind :rf.http/http-5xx :status 503 :body {:reason "upstream down"}})
 
@@ -249,12 +250,12 @@
 ;; ===========================================================================
 
 (deftest mutation-success-continuation-cleans-correlation-scope
-  (testing "rf2-l6wjl — the mutation SUCCESS settle
+  (testing "the mutation SUCCESS settle
             (`:rf.mutation.internal/succeeded`) fans its reply out through
             `[:dispatch …]`, so the whole reply map rides `:rf.fx/args` and
             `:rf.event/fx`. Its `:correlation :scope` is the SAME resolved
-            identity its top-level `:scope` carries, and only one of the two
-            was being read"
+            identity its top-level `:scope` carries, and the projection must
+            clean both"
     (let [rows    (drive-mutation-reply-to! {:status :ok :value {:saved true}})
           replies (family-replies rows)]
       (testing "FIXTURE — the drive really reached the branch, and the
@@ -276,10 +277,10 @@
               "the correlation scope's IDENTITY MAP is content-addressed"))))))
 
 (deftest mutation-failure-continuation-cleans-correlation-scope
-  (testing "rf2-l6wjl — and the SAME on `:rf.mutation.internal/failed`. The
-            two settle branches build their reply through the one
-            `base-reply`, so a fix that reached only the success branch would
-            be a fix of the drive rather than of the projector"
+  (testing "and the SAME on `:rf.mutation.internal/failed`. The two settle
+            branches build their reply through the one `base-reply`, so
+            cleaning that reached only the success branch would live in the
+            drive rather than in the projector"
     (let [rows    (drive-mutation-reply-to! {:status :error :error failure-envelope})
           replies (family-replies rows)]
       (testing "FIXTURE"
@@ -297,11 +298,10 @@
 ;; ===========================================================================
 
 (deftest every-carrier-of-one-mutation-scope-agrees
-  (testing "rf2-425mm's principle, applied to the slot that was disagreeing:
-            the reply's top-level `:scope`, its `:correlation :scope` and the
-            scope embedded in `:rf.reply/work-id` are three copies of one
-            identity, and a projected reply must show one rule applied to all
-            three"
+  (testing "one scope, one rule: the reply's top-level `:scope`, its
+            `:correlation :scope` and the scope embedded in `:rf.reply/work-id`
+            are three copies of one identity, and a projected reply must show
+            one rule applied to all three"
     (let [rows      (drive-mutation-reply-to! {:status :ok :value {:saved true}})
           projected (family-replies (project-rows rows))]
       (is (seq projected) "the projected reply is still findable by its marker")
@@ -316,11 +316,11 @@
             "and only the identity map tokenizes")))))
 
 (deftest read-and-mutation-continuations-agree-on-correlation-scope
-  (testing "rf2-l6wjl — the two HALVES of the family agree. The read half was
-            already clean (its correlation wears `:rf.reply/resource-key`,
-            which `family-named-key?` knows), and that asymmetry is what made
-            this a bug rather than a policy: the same slot, on the same
-            substrate, treated two ways"
+  (testing "the two HALVES of the family agree. The read half is clean by
+            carrier-family rules alone (its correlation wears
+            `:rf.reply/resource-key`, which `family-named-key?` knows); the
+            mutation half must reach the same projection, or the same slot on
+            the same substrate would be treated two ways"
     (let [mutation-scope (->> (drive-mutation-reply-to! {:status :ok :value {:saved true}})
                               project-rows family-replies
                               (map #(:scope (:correlation %))) first)
@@ -337,11 +337,11 @@
 ;; ===========================================================================
 
 (deftest correlation-facts-beside-the-scope-ride-verbatim
-  (testing "rf2-l6wjl — the arm projects the correlation's `:scope` by the
-            family rule and walks everything else. The identities a tool joins
-            on — `:generation`, `:mutation/id`, `:instance/id` — must survive
-            the projection unchanged, or the repair costs the diagnosability
-            the redaction exists to preserve"
+  (testing "the arm projects the correlation's `:scope` by the family rule
+            and walks everything else. The identities a tool joins on —
+            `:generation`, `:mutation/id`, `:instance/id` — must survive the
+            projection unchanged, or the arm would cost the diagnosability the
+            redaction exists to preserve"
     (let [rows      (drive-mutation-reply-to! {:status :ok :value {:saved true}})
           raw       (first (family-replies rows))
           projected (first (family-replies (project-rows rows)))]
@@ -357,10 +357,10 @@
           "including the causal explanation"))))
 
 (deftest a-global-scoped-mutation-reply-rides-byte-identical
-  (testing "rf2-l6wjl — the CONTROL. `:rf.scope/global` is a SCALAR: the family
-            rule rides it verbatim, so a mutation carrying no identity-bearing
-            scope must project byte-identical. This passes BEFORE the fix as
-            well as after, which is what makes it a control rather than a
+  (testing "the CONTROL. `:rf.scope/global` is a SCALAR: the family rule
+            rides it verbatim, so a mutation carrying no identity-bearing scope
+            must project byte-identical. This passes with or without the
+            correlation arm, which is what makes it a control rather than a
             second acceptance arm"
     (let [captured (atom nil)]
       (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
@@ -381,7 +381,7 @@
             "every carrier's tags are byte-identical raw vs projected")))))
 
 (deftest a-foreign-familys-reply-correlation-rides-verbatim
-  (testing "rf2-l6wjl — the MARKER control. `:rf.reply/work-kind` is the SHARED
+  (testing "the MARKER control. `:rf.reply/work-kind` is the SHARED
             `re-frame.reply` substrate's marker, not this family's: managed HTTP
             stamps `:http` on its own canonical reply, and an HTTP reply riding
             these same carriers is the HTTP family's data to classify. The arm
