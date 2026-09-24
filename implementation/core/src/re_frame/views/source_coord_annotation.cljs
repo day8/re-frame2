@@ -97,9 +97,9 @@
   Matching both markers keeps this dev-only Hiccup walk neutral without a
   second adapter hook. reagent-slim is a first-class supported adapter, so a
   slim Form-3 class MUST be recognised here: otherwise it falls to the Form-2
-  `fn?` branch below,
-  is returned as a wrapper, and is later invoked as an ordinary function rather
-  than mounted as a class — losing its React lifecycle. (`re-frame.test-helpers`
+  `fn?` branch below, is returned as a wrapper, and is later invoked as an
+  ordinary function rather than mounted as a class — losing its React
+  lifecycle. (`re-frame.test-helpers`
   carries its own slim-aware detection where the test surface needs one.)"
   [x]
   (and (fn? x)
