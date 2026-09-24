@@ -1,5 +1,5 @@
 (ns re-frame.auto-inject-form2-cljs-test
-  "Per Spec 002 §What `reg-view` injects (rf2-d0pi): the `reg-view` macro
+  "Per Spec 002 §What `reg-view` injects: the `reg-view` macro
   auto-injects lexical bindings `dispatch` and `subscribe` around the
   body. The injection is a single OUTER `let`:
 
@@ -9,30 +9,25 @@
           body))
 
   For Form-1 (body is plain hiccup), `dispatch` / `subscribe` are
-  available straight in the body — covered by the existing macro
-  tests (views-macros-test).
+  available straight in the body — covered by the macro tests
+  (views-macros-test).
 
   For Form-2 (body returns an inner render fn), the outer `let`
   encloses the inner `(fn ... )`, so the inner fn captures the SAME
   `dispatch` / `subscribe` lexical bindings via Clojure closure. Both
   the outer body AND the inner-render fn see the auto-injected names —
   the bindings are NOT re-injected per inner call; they're the same
-  closed-over values. Spec 004, since retired, stated it as:
+  closed-over values. Put plainly:
 
     'The dispatch and subscribe in both the outer body and the inner
      fn refer to the same lexical bindings — Clojure lexical closure
      does the right thing.'
 
-  This is the pre-alpha gap that rf2-o423 surfaced (rf2-d4v7 sub-gap 1):
-  the Form-1 happy path is covered by views-macros-test, but the
-  Form-2 boundary — does the inner fn see the injected names? — was
-  only documented in Spec 004 (since retired) and the macro source comment,
-  never asserted by a test. This file pins the contract.
+  The Form-1 happy path is covered by views-macros-test; this file
+  pins the Form-2 boundary — does the inner fn see the injected names?
 
-  Reference Mike's feedback memory: 'target Reagent v2; don't invest
-  in 1.2 back-compat.' Form-2's expansion is identical under v1 and
-  v2 Reagent (lexical closure is Clojure semantics, not a Reagent
-  feature)."
+  Form-2's expansion is identical under v1 and v2 Reagent (lexical
+  closure is Clojure semantics, not a Reagent feature)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -85,7 +80,7 @@
 
             Clojure lexical closure means `inner` sees `dispatch` /
             `subscribe` from the surrounding `let` — they are NOT
-            re-injected per inner call. Spec 004, since retired, stated:
+            re-injected per inner call. Put plainly:
             'The dispatch and subscribe in both the outer body and
             the inner fn refer to the same lexical bindings — Clojure
             lexical closure does the right thing.'
