@@ -102,10 +102,16 @@ On the client, opt in with `ssr/streaming-install!` (same carried `:frame` as
                      el      (js/document.getElementById "app")
                      tree    [rf/frame-provider {:frame :app/main}
                               [(rf/view :article/page)]]]
-                 ;; payload ⇒ adopt the streamed markup; nil ⇒ fresh root
+                 ;; payload ⇒ adopt the streamed markup. nil here means the
+                 ;; payload arrived but was REJECTED ⇒ fresh root; a page
+                 ;; with no payload at all never reaches :on-ready.
                  (reagent-adapter/render! app-root tree el
                    {:hydrate? (some? payload)})))})
 ```
+
+A page that must also load un-streamed has to check for the payload *before*
+calling `streaming-install!`, or use the
+[non-streaming bootstrap](concepts.md#the-client-side-hydrate-then-verify).
 
 The runtime materialises the inert fallback `<template>`s into visible mounts,
 then swaps each mount's content for its resolved chunk — merging that chunk's
