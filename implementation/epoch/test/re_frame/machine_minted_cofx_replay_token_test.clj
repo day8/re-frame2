@@ -53,11 +53,11 @@
              :done {}}})
 
 (deftest mid-drain-minted-fact-is-captured-in-the-replay-token
-  (testing "rf2-cheez6.1 / rf2-08br0v — a raise-selected guard fact MINTED
-   mid-macrostep under :live drives the machine decision AND is now captured
-   into the epoch's :rf.cofx replay token. Pre-fix the token carried only the
-   external :rf/time-ms; this assertion FAILS without the find-trigger-event
-   :rf.cofx/generated merge."
+  (testing "a raise-selected guard fact MINTED
+   mid-macrostep under :live drives the machine decision AND is captured
+   into the epoch's :rf.cofx replay token. Without the find-trigger-event
+   :rf.cofx/generated merge the token would carry only the external
+   :rf/time-ms, and this assertion FAILS."
     ;; A generator-backed recordable cofx minting a distinct, stable value.
     (let [seen (atom ::unset)]
       (rf/make-frame {:id :test/main})
@@ -140,4 +140,4 @@
       (is (not= :done (machine-state :replay/mint))
           "strict refused to mint the absent :replay/gen → missing-required →
            the raised macrostep failed atomically → the machine did NOT reach
-           :done. This is the divergence the captured-token fix removes."))))
+           :done. This is the divergence capturing the minted fact prevents."))))
