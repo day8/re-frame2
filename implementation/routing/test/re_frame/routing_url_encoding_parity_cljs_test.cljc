@@ -1,18 +1,18 @@
 (ns re-frame.routing-url-encoding-parity-cljs-test
-  "Per rf2-j3tud — component URL encoding is `encodeURIComponent` on BOTH
+  "Component URL encoding is `encodeURIComponent` on BOTH
   hosts, byte for byte.
 
   `url-encode`'s JVM arm emulates `encodeURIComponent` on top of
-  `java.net.URLEncoder`. It used to repair only ONE of the two
-  differences — the form-urlencoded `+`-for-space — and left the second
-  standing: `URLEncoder`'s unescaped set is narrower, so it escapes `!`
-  `'` `(` `)` `~` where `encodeURIComponent` leaves them literal. The
-  same route data therefore emitted different URL bytes on server and
-  browser: a legitimate slug `draft~1` became `/articles/draft%7E1` from
-  SSR and `/articles/draft~1` from the hydrated client.
+  `java.net.URLEncoder`, which differs from it in two ways: the
+  form-urlencoded `+`-for-space, and a narrower unescaped set —
+  `URLEncoder` escapes `!` `'` `(` `)` `~` where `encodeURIComponent`
+  leaves them literal. Repairing only the first would make the same
+  route data emit different URL bytes on server and browser: a
+  legitimate slug `draft~1` would become `/articles/draft%7E1` from SSR
+  and `/articles/draft~1` from the hydrated client.
 
-  Both spellings decode to the same route, which is why nothing caught
-  it — but Spec 012 §Bidirectional URL ↔ params promises the stronger
+  Both spellings decode to the same route, so a round trip cannot see
+  the difference — but Spec 012 §Bidirectional URL ↔ params promises the stronger
   invariant: component-wise `encodeURIComponent` emission, ONE
   host-independent canonical URL. `route-link`'s `:href`, SSR canonical
   head links, copied URLs, cache keys and snapshots all read those
@@ -20,8 +20,8 @@
   first client tree is the Spec 011 hydration-mismatch class.
 
   CLJS is normative: it IS `encodeURIComponent`, the de-facto browser
-  reference the spec names. The JVM moved to match it — the same
-  direction `url-decode` already took for `+` (rf2-9a9ix).
+  reference the spec names. The JVM matches it — as `url-decode` does
+  for `+`.
 
   Named `*-cljs-test.cljc` so it is discovered by BOTH the cognitect JVM
   runner (`.*-test$`) and the shadow-cljs `:node-test` build
@@ -31,14 +31,14 @@
   itself. An encoder that changed on one host only cannot also rewrite
   what it is compared against.
 
-  THE UNESCAPED SET WAS ONLY HALF OF IT. `encodeURIComponent` also
-  REFUSES input it cannot encode — an unpaired surrogate — and the JVM
-  arm silently substituted `%3F` there instead, so the same address
-  emitted a URL from SSR that the browser threw on. That half is pinned
-  in its own section below and is the reason this suite grew a
+  THE UNESCAPED SET IS ONLY HALF OF IT. `encodeURIComponent` also
+  REFUSES input it cannot encode — an unpaired surrogate — where
+  `URLEncoder` silently substitutes `%3F`, so the same address would
+  emit a URL from SSR that the browser throws on. That half is pinned
+  in its own section below, which is why this suite carries a
   fail-loud table alongside its literal-output ones.
 
-  Reverting the JVM arm to `URLEncoder` plus the `+`→`%20` swap alone
+  Reducing the JVM arm to `URLEncoder` plus the `+`→`%20` swap alone
   turns the JVM half of this namespace red on the boundary set, the
   production `route-url` case and the round-trip; removing the
   unpaired-surrogate guard turns the fail-loud table and the surrogate
@@ -65,23 +65,23 @@
 ;;
 ;; `encodeURIComponent` escapes everything except the unreserved set
 ;; (`A-Z a-z 0-9`) plus the nine RFC-2396 *mark* characters. Those nine
-;; are the whole boundary; four of them (`- _ . *`) `URLEncoder` already
-;; agreed on, and five (`! ' ( ) ~`) it did not. The table pins all nine
+;; are the whole boundary; four of them (`- _ . *`) `URLEncoder` agrees
+;; on, and five (`! ' ( ) ~`) it does not. The table pins all nine
 ;; so a future encoder swap cannot half-move the line.
 
 (def ^:private unescaped-marks
   "Every character `encodeURIComponent` leaves LITERAL, one row per
   character so a failure names the exact offender rather than a diff of
   a nine-character blob."
-  [["!" "exclamation — URLEncoder escaped this to %21"]
-   ["'" "apostrophe — URLEncoder escaped this to %27"]
-   ["(" "open paren — URLEncoder escaped this to %28"]
-   [")" "close paren — URLEncoder escaped this to %29"]
-   ["~" "tilde — URLEncoder escaped this to %7E"]
-   ["*" "asterisk — both encoders already agreed"]
-   ["-" "hyphen — both encoders already agreed"]
-   ["." "period — both encoders already agreed"]
-   ["_" "underscore — both encoders already agreed"]])
+  [["!" "exclamation — URLEncoder escapes this to %21"]
+   ["'" "apostrophe — URLEncoder escapes this to %27"]
+   ["(" "open paren — URLEncoder escapes this to %28"]
+   [")" "close paren — URLEncoder escapes this to %29"]
+   ["~" "tilde — URLEncoder escapes this to %7E"]
+   ["*" "asterisk — both encoders agree"]
+   ["-" "hyphen — both encoders agree"]
+   ["." "period — both encoders agree"]
+   ["_" "underscore — both encoders agree"]])
 
 (def ^:private escaped-controls
   "Characters that MUST stay percent-escaped. These are the controls: the
@@ -98,14 +98,14 @@
 
 (deftest url-encode-leaves-every-unescaped-mark-literal-on-both-hosts
   (testing "the complete encodeURIComponent unescaped boundary is literal
-            on JVM and CLJS alike (rf2-j3tud)"
+            on JVM and CLJS alike"
     (doseq [[ch why] unescaped-marks]
       (is (= ch (rf.routing.url/url-encode ch)) why)))
   (testing "the whole mark set at once, as one component"
     (is (= "!'()~*-._" (rf.routing.url/url-encode "!'()~*-._"))
         "no character in the mark set is escaped on this host")
     (is (= "draft~1" (rf.routing.url/url-encode "draft~1"))
-        "the failure scenario from the finding: a `~`-bearing slug")))
+        "the divergence case: a `~`-bearing slug")))
 
 (deftest url-encode-still-escapes-the-structural-characters-on-both-hosts
   (testing "the controls: characters that must NOT go literal, so the
@@ -130,11 +130,11 @@
 ;; code unit in U+D800–U+DFFF that is not half of a well-formed pair
 ;; spells no code point, has no UTF-8 encoding, and raises `URIError`.
 ;; Java's UTF-8 encoder SUBSTITUTES instead, and `URLEncoder` runs it
-;; under the default REPLACE action, so the JVM arm emitted `%3F` — the
-;; encoding of a literal `?`. Malformed route data was therefore ALIASED
+;; under the default REPLACE action, so a `URLEncoder` arm would emit `%3F` —
+;; the encoding of a literal `?`. Malformed route data would be ALIASED
 ;; onto a valid component that decodes back to a different string, and it
-;; reached the SSR href / canonical link / cache key while the browser
-;; refused the very same address (rf2-j3tud, audit of PR #8873).
+;; would reach the SSR href / canonical link / cache key while the browser
+;; refuses the very same address.
 ;;
 ;; Every input below is built from NUMERIC code units rather than written
 ;; as a character literal. A lone surrogate does not survive every editor,
@@ -160,9 +160,9 @@
 (def ^:private unpaired-surrogates
   "Code-unit sequences `encodeURIComponent` REFUSES. One row per shape so
   a failure names the exact offender."
-  [[[0xD800]               "lone HIGH surrogate — the JVM emitted %3F"]
-   [[0xDFFF]               "lone LOW surrogate — the JVM emitted %3F"]
-   [[0x0061 0xD800 0x0062] "a lone high surrogate EMBEDDED between ASCII — the JVM emitted a%3Fb"]
+  [[[0xD800]               "lone HIGH surrogate — a substituting encoder emits %3F"]
+   [[0xDFFF]               "lone LOW surrogate — a substituting encoder emits %3F"]
+   [[0x0061 0xD800 0x0062] "a lone high surrogate EMBEDDED between ASCII — a substituting encoder emits a%3Fb"]
    [[0xD800 0x0078]        "a high surrogate followed by ASCII instead of its low partner"]
    [[0x0078 0xDC00]        "a low surrogate preceded by ASCII instead of its high partner"]
    [[0xDFFF 0xD800]        "a REVERSED pair — low then high is two orphans, not a pair"]
@@ -170,14 +170,14 @@
    [[0xDE00]               "the low half of that same real pair, standing alone"]])
 
 (def ^:private well-formed-code-unit-strings
-  "Inputs that MUST still encode, with their literal expected output.
+  "Inputs that MUST encode, with their literal expected output.
   These are the controls: the refusal table above cannot be satisfied by
   making `url-encode` throw more freely, because every one of these would
   start throwing if it did."
   [[[0xD83D 0xDE00]  "%F0%9F%98%80" "a WELL-FORMED surrogate pair — U+1F600, four UTF-8 bytes. The guard inspects pairing, not the surrogate range"]
    [[0xDBFF 0xDFFF]  "%F4%8F%BF%BF" "the LAST well-formed pair — U+10FFFF, the top of Unicode"]
    [[0xD800 0xDC00]  "%F0%90%80%80" "the FIRST well-formed pair — U+10000, built from two units each of which the table above refuses on its own"]
-   [[0x003F]         "%3F"          "a LITERAL question mark — the exact output the JVM used to alias every lone surrogate onto, so it must still be reachable by legitimate input"]
+   [[0x003F]         "%3F"          "a LITERAL question mark — the exact output a substituting encoder aliases every lone surrogate onto, so it must stay reachable by legitimate input"]
    [[0x00E9]         "%C3%A9"       "é — an ordinary non-ASCII BMP character"]
    [[0x65E5]         "%E6%97%A5"    "日 — a three-byte BMP character"]
    [[0xFFFD]         "%EF%BF%BD"    "a real U+FFFD — the character just BELOW the surrogate-adjacent range, and the near-miss the decoder side turns on"]
@@ -204,8 +204,8 @@
 
 (deftest url-encode-refuses-unpaired-surrogates-on-both-hosts
   (testing "an unpaired surrogate is REFUSED, not substituted. CLJS
-            throws `URIError`; the JVM used to return %3F and now throws
-            too (rf2-j3tud)"
+            throws `URIError`, and the JVM throws too rather than
+            returning %3F"
     (doseq [[codes why] unpaired-surrogates]
       (is (thrown? #?(:clj Throwable :cljs :default)
                    (rf.routing.url/url-encode (code-units codes)))
@@ -217,8 +217,8 @@
         "a literal `?` still encodes to %3F on both hosts")
     (is (thrown? #?(:clj Throwable :cljs :default)
                  (rf.routing.url/url-encode (code-units [0xD800])))
-        "while the lone surrogate that used to produce the SAME bytes is
-         now refused on both hosts")))
+        "while the lone surrogate a substituting encoder maps to the SAME
+         bytes is refused on both hosts")))
 
 (deftest url-encode-still-encodes-every-well-formed-string-on-both-hosts
   (testing "the controls: valid input must NOT be refused, so the table
@@ -234,7 +234,7 @@
 
 (deftest url-encode-splat-refuses-unpaired-surrogates-per-chunk
   (testing "the splat encoder composes `url-encode` per chunk, so the
-            refusal arrives per segment — it used to emit `a/%3F`"
+            refusal arrives per segment — a substituting encoder would emit `a/%3F`"
     (is (thrown? #?(:clj Throwable :cljs :default)
                  (rf.routing.url/url-encode-splat (str "a/" (code-units [0xD800]))))
         "a lone surrogate in a LATER segment still fails the whole call")
@@ -260,10 +260,10 @@
                                :params {:slug "~"}
                                :query  {"!" "()"}
                                :fragment "~!"}))
-        "the finding's own reproduction: JVM used to emit /p/%7E?%21=%28%29#%7E%21")
+        "a `URLEncoder` arm would emit /p/%7E?%21=%28%29#%7E%21")
     (is (= "/p/draft~1"
            (rf.routing/route-url {:to :parity/probe :params {:slug "draft~1"}}))
-        "the failure scenario: SSR used to emit /p/draft%7E1")
+        "a `URLEncoder` arm would emit /p/draft%7E1 under SSR")
     (is (= "/p/it's~a(test)!"
            (rf.routing/route-url {:to :parity/probe :params {:slug "it's~a(test)!"}}))
         "the whole divergent set inside one ordinary path param"))
@@ -279,8 +279,8 @@
 
 (deftest route-url-round-trips-through-match-url-on-both-hosts
   (testing "match-url(route-url(address)) recovers the address exactly —
-            the encode/decode pair is still an inverse after the JVM
-            encoder moved to the encodeURIComponent boundary"
+            the encode/decode pair is an inverse at the
+            encodeURIComponent boundary"
     (rf/reg-route :parity/round {:params [:map [:slug :string]]} "/r/:slug")
     (let [slug  "it's~a(test)!*-._"
           frag  "~sec!(1)"
@@ -302,15 +302,15 @@
         (is (= frag (:fragment parsed))
             "the fragment recovers byte-exactly")))))
 
-;; ---- splat trailing-slash DATA (rf2-fzbj.12 / rf2-gwye.28) ----------------
+;; ---- splat trailing-slash DATA ---------------------------------------------
 ;;
 ;; A splat value that ENDS in `/` carries that slash as data — `match-url`
 ;; decodes `/f/a%2F` to `{:rest "a/"}` — while the incoming-URL normaliser
 ;; strips RAW trailing slashes (`/cart` ≡ `/cart/`). So the emitter must spell
-;; a terminal slash run `%2F`, or rebuilding the URL silently drops it: the
-;; two-argument split discarded the trailing empty chunks, `/f/a%2F` re-emitted
-;; as `/f/a` and rematched `{:rest "a"}`, and the all-slash value emitted `/f/`,
-;; which the route cannot match at all. Embedded separators stay structural, so
+;; a terminal slash run `%2F`, or rebuilding the URL silently drops it: a
+;; two-argument split would discard the trailing empty chunks, `/f/a%2F` would
+;; re-emit as `/f/a` and rematch `{:rest "a"}`, and the all-slash value would
+;; emit `/f/`, which the route cannot match at all. Embedded separators stay structural, so
 ;; the multi-segment rows are the controls.
 
 (deftest splat-trailing-slash-data-survives-route-url-on-both-hosts
@@ -345,21 +345,21 @@
 (deftest route-url-refuses-unpaired-surrogates-in-every-position-on-both-hosts
   (testing "the production prism, not a re-derivation: an unpaired
             surrogate anywhere in the address fails the whole call on
-            both hosts. The JVM used to emit a URL here — with %3F
-            standing in for the surrogate — while the browser threw, so
-            the SSR href, the canonical head link and the cache key
-            carried a spelling the client could not produce (rf2-j3tud)"
+            both hosts. A substituting JVM encoder would emit a URL here —
+            with %3F standing in for the surrogate — while the browser
+            throws, so the SSR href, the canonical head link and the cache
+            key would carry a spelling the client cannot produce"
     (rf/reg-route :parity/surrogate {:params [:map [:slug :string]]} "/p/:slug")
     (let [high (code-units [0xD800])
           low  (code-units [0xDFFF])]
       (is (thrown? #?(:clj Throwable :cljs :default)
                    (rf.routing/route-url {:to :parity/surrogate :params {:slug high}}))
-          "path param — the JVM used to emit /p/%3F")
+          "path param — a substituting encoder would emit /p/%3F")
       (is (thrown? #?(:clj Throwable :cljs :default)
                    (rf.routing/route-url {:to     :parity/surrogate
                                        :params {:slug "ok"}
                                        :query  {"q" low}}))
-          "query VALUE — the JVM used to emit /p/ok?q=%3F")
+          "query VALUE — a substituting encoder would emit /p/ok?q=%3F")
       (is (thrown? #?(:clj Throwable :cljs :default)
                    (rf.routing/route-url {:to     :parity/surrogate
                                        :params {:slug "ok"}
