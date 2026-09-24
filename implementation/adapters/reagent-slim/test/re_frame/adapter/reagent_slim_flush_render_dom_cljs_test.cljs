@@ -1,5 +1,5 @@
 (ns re-frame.adapter.reagent-slim-flush-render-dom-cljs-test
-  "rf2-0bz5ah (split from rf2-ghfkkk issue 3) — the reagent-slim
+  "The reagent-slim
   synchronous-commit proof for the substrate-adapter contract fn
   `flush-render!`, under a React 19 `createRoot`.
 
@@ -24,18 +24,12 @@
   `:flush-render!` actually services — is exercised here directly, exactly as
   the Reagent-bridge twin does for stock `reagent.dom.client`.
 
-  THE PREMISE THIS VERIFIES (rf2-0bz5ah). reagent-slim's adapter
+  THE PREMISE THIS VERIFIES. reagent-slim's adapter
   `:flush-render!` is `(f)` then `reagent2.impl.batching/flush!`, and it wraps
   BOTH in a `react-dom/flushSync` boundary. That boundary is load-bearing:
   under React 19 `createRoot` a bare `forceUpdate` issued from outside React's
   batching context is SCHEDULED rather than committed, so without it the DOM
-  still holds the OLD value when `flush!` returns. (This docstring previously
-  claimed the opposite — that the bare `forceUpdate` commits synchronously and
-  the boundary is redundant. It does not: `3d89c29c61` added the boundary after
-  a browser run read the old value, and rf2-cdoo measured the same fact again
-  on the ordinary microtask path, where a callback promised the new DOM was
-  handed `n=1` after a dispatch to `n=2`. The prose is corrected here rather
-  than left contradicting its own source.)
+  still holds the OLD value when `flush!` returns.
 
   So this test is the empirical proof that the boundary does its job: if the
   drain did NOT commit before returning, the post-`flush-render!` assertion
@@ -61,7 +55,7 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.views]))
 
-;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
+;; EP-0002: `:ambient-frame nil` opts out of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. The probe is a reg-view whose
 ;; `subscribe` resolves its frame from the enclosing `frame-provider` via the
 ;; React-context tier. The render runs synchronously inside `flushSync` /
@@ -83,13 +77,13 @@
     (.createElement js/document "div")))
 
 (deftest flush-render-synchronously-commits
-  (testing "reagent-slim — flush-render! synchronously commits a pending render under createRoot (rf2-0bz5ah)"
+  (testing "reagent-slim — flush-render! synchronously commits a pending render under createRoot"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [frame-kw :rf.reagent-slim-flush-render/probe-frame
             flush!   (:flush-render! rf.adapter.reagent-slim/adapter)]
         (is (fn? flush!)
-            "the reagent-slim adapter map exposes :flush-render! (rf2-0bz5ah contract slot)")
+            "the reagent-slim adapter map exposes the :flush-render! contract slot")
         (rf/make-frame {:id frame-kw :doc "flush-render! synchronous-commit probe frame"})
         (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:n 1}}))
         (rf/reg-event ::inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -125,6 +119,6 @@
             (flush!)
             (is (= "n=2" (.-textContent mount-node))
                 "DOM reflects the dispatched change SYNCHRONOUSLY after
-                 flush-render! returns — no microtask wait (rf2-0bz5ah)")
+                 flush-render! returns — no microtask wait")
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))
