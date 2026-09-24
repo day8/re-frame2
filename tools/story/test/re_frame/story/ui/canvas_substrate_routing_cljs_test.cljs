@@ -347,9 +347,9 @@
 (defn- expand-to-cells
   "`e2e-multi-frame/expand-tree`, except that a Reagent CLASS head stays a
   leaf. A grid cell is `safe-render-cell`'s `[<error-boundary class>
-  variant-id substrate view-id eff-args]`: only React can render it, and a
-  walk that calls its constructor without `new` runs it against the wrong
-  receiver. So its arguments are read as written."
+  {:substrate … :view-id … …}]`: only React can render it, and a walk that
+  calls its constructor without `new` runs it against the wrong receiver.
+  So its props are read as written."
   [tree]
   (cond
     (and (vector? tree) (fn? (first tree)) (not (react-class? (first tree))))
@@ -380,7 +380,7 @@
   [tree]
   (->> (nodes (grid-node tree))
        (filter #(and (vector? %) (react-class? (first %))))
-       (map (fn [[_ _ substrate view-id]] [substrate view-id]))
+       (map (fn [[_ {:keys [substrate view-id]}]] [substrate view-id]))
        (sort-by (comp name first))))
 
 (defn- ready-grid-tree
