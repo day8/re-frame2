@@ -45,11 +45,11 @@
 ;; Registration + per-frame query (Spec 010 §Per-frame schemas).
 (def reg-app-schema       rf.schemas.storage/reg-app-schema)
 (def reg-app-schemas      rf.schemas.storage/reg-app-schemas)
-;; ONE FRAME SPELLING (rf2-kuky.84): both reads take a single opts MAP with a
-;; REQUIRED `:frame`, and `app-schemas` answers `{path → meta}` — the same
-;; `{id → meta}` shape the registrar grammar's `rf/registrations` answers. The
-;; former `frame-schema-entries` public var IS this fact and is gone; the
-;; `:schemas/frame-schema-entries` late-bind hook stays as a private seam.
+;; ONE FRAME SPELLING: both reads take a single opts MAP with a REQUIRED
+;; `:frame`, and `app-schemas` answers `{path → meta}` — the same
+;; `{id → meta}` shape the registrar grammar's `rf/registrations` answers.
+;; There is no public `frame-schema-entries` var; the
+;; `:schemas/frame-schema-entries` late-bind hook is a private seam.
 (def app-schemas          rf.schemas.storage/app-schemas)
 (def app-schema-meta      rf.schemas.storage/app-schema-meta)
 
@@ -133,7 +133,7 @@
 ;; classification; frame commit effects own that policy. Both hooks walk
 ;; UNMEMOISED: a consumer may hand them a schema built per call (managed
 ;; HTTP's `:decode`), which the never-evicted memo behind the public
-;; `extract-sensitive-paths-from-schema` must never see (rf2-3x7nj.19.4).
+;; `extract-sensitive-paths-from-schema` must never see.
 (rf.late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
 (rf.late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema rf.schemas.walker/walk-sensitive-paths-from-schema)
 
