@@ -1,16 +1,15 @@
 (ns re-frame.facade-internal-constructors-cljs-test
-  "rf2-93sxp — the implementation-only lowering constructors are OFF the
+  "The implementation-only lowering constructors are OFF the
   `re-frame.core` facade, on both platforms.
 
-  `make-capture-frame`, `->interceptor` and `->interceptor*` were exported
-  from `re-frame.core` only so a macro expansion could name them
-  fully-qualified. Their manifest rows read `:tier :implementation` (or
-  \"internal lowering only\") while still carrying `:facade? true` — the
-  annotation-as-removal failure spec/Conventions.md §Removing or demoting a
-  facade export names. The lowering seams now live in their owning
+  `make-capture-frame` and `->interceptor*` exist only so a macro expansion
+  can name a lowering seam fully-qualified. Exporting them from
+  `re-frame.core` while marking them `:tier :implementation` would be
+  the annotation-as-removal failure spec/Conventions.md §Removing or
+  demoting a facade export names. The lowering seams live in their owning
   namespaces (`re-frame.capture-frame/make-capture-frame`,
-  `re-frame.interceptor/->interceptor*`); the `->interceptor` macro is gone
-  outright (no library caller — the owning constructor suffices, and
+  `re-frame.interceptor/->interceptor*`); there is no `->interceptor` macro
+  (no library caller — the owning constructor suffices, and
   `reg-interceptor` is the authoring form); the facade resolves none of the
   three.
 
@@ -24,14 +23,14 @@
 #?(:clj
    (defn- facade-var
      "The `re-frame.core` var named `sym`, or nil. `ns-resolve` follows
-     `^:no-doc` and private vars too, so nil means GONE, not hidden."
+     `^:no-doc` and private vars too, so nil means ABSENT, not hidden."
      [sym]
      (ns-resolve 're-frame.core sym)))
 
 #?(:cljs
    (defn- facade-runtime-var
      "The compiled `re-frame.core` runtime property `munged-name`, or nil.
-     A symbol reference would not compile once the var is gone, so the
+     A symbol reference would not compile against an absent var, so the
      probe reads the emitted namespace object by name instead."
      [munged-name]
      (js/goog.getObjectByName (str "re_frame.core." munged-name))))
@@ -44,16 +43,16 @@
   (testing "make-capture-frame is off the facade"
     (is (nil? #?(:clj  (facade-var 'make-capture-frame)
                  :cljs (facade-runtime-var "make_capture_frame")))
-        "re-frame.core/make-capture-frame no longer resolves"))
+        "re-frame.core/make-capture-frame does not resolve"))
   (testing "->interceptor* is off the facade"
     (is (nil? #?(:clj  (facade-var '->interceptor*)
                  :cljs (facade-runtime-var "_GT_interceptor_STAR_")))
-        "re-frame.core/->interceptor* no longer resolves"))
+        "re-frame.core/->interceptor* does not resolve"))
   #?(:clj
-     (testing "the ->interceptor macro is gone (JVM-only macro; CLJS never
-               carried a runtime var for it)"
+     (testing "there is no ->interceptor macro (a macro would be JVM-only;
+               CLJS carries no runtime var for one)"
        (is (nil? (facade-var '->interceptor))
-           "re-frame.core/->interceptor no longer resolves"))))
+           "re-frame.core/->interceptor does not resolve"))))
 
 (deftest capture-frame-remains-the-supported-carry-primitive
   (testing "the 1-arity lock-to-id form still returns the frame api bundle
