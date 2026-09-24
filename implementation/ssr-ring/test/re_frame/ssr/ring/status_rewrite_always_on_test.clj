@@ -1,30 +1,30 @@
 (ns re-frame.ssr.ring.status-rewrite-always-on-test
-  "rf2-gblft — the Ring materialiser's fail-closed `:status` rewrite reports
+  "The Ring materialiser's fail-closed `:status` rewrite reports
   itself in PRODUCTION.
 
-  ## What was wrong
+  ## Why it reports on the always-on axis
 
   `re-frame.ssr.ring.pipeline/fail-closed-status` turns a non-integer `:status`
   on the resolved response accumulator into a 500. That is the right call — Ring
   statuses must be integers, `\"404\"` has no faithful coercion, and a malformed
   map is rejected by Jetty/http-kit AFTER the handler returned, past the
   `:on-error` recovery point. But the rewrite changes the answer the app gave,
-  and until this bead its ONLY signal was
-  `trace/emit! :warning :rf.ssr/ssr-non-integer-status` — the DEV bus. Measured
-  under the real gate (`clojure -J-Dre-frame.debug=false -M:test`, never a
-  `with-redefs` rebind, which cannot reach a load-time gate):
+  and `trace/emit! :warning :rf.ssr/ssr-non-integer-status` alone is the DEV
+  bus. As the only signal, under the real gate
+  (`clojure -J-Dre-frame.debug=false -M:test`, never a
+  `with-redefs` rebind, which cannot reach a load-time gate), it reads:
 
       warning count under -Dre-frame.debug=false : 0
       always-on records                          : []
 
-  So on a production JVM an operator saw a 500 with no record of why on either
-  axis.
+  So on a production JVM an operator would see a 500 with no record of why on
+  either axis.
 
-  ## What still reaches the rewrite (re-measured after rf2-dtpfv / PR #7204)
+  ## What reaches the rewrite
 
-  #7204 made the reserved `:rf.server/*` fx guard their own args in EVERY build,
-  which cut the framework's own feeder into this arm. Measured at
-  `ssr/get-response` under the real gate AFTER that change:
+  The reserved `:rf.server/*` fx guard their own args in EVERY build, so the
+  framework's own fx path does not feed this arm. At
+  `ssr/get-response` under the real gate:
 
       [:rf.server/set-status \"not-an-int\"]              → :status 500 (Long)
       [:rf.server/redirect {:location \"/ok\"
@@ -32,10 +32,10 @@
 
   — the guard throws, containment fans `:rf.error/fx-handler-exception`, and the
   SSR projector stamps a 500. No `:rf.server/*` fx can put a non-integer status
-  on the accumulator any more.
+  on the accumulator.
 
-  What is still LIVE is the path the rf2-dtpfv ruling explicitly reserved this
-  net for: a HOST that hand-builds the accumulator (the public
+  What is LIVE is the path this
+  net exists for: a HOST that hand-builds the accumulator (the public
   `re-frame.ssr.response/swap-response!`) or calls the public materialiser with
   its own response map. `ssr/get-response` is a documented host-adapter surface,
   so that is a real caller — which is exactly why a silent backstop is not good
@@ -93,7 +93,7 @@
     @records))
 
 (defn- collect-status-rewrite-records
-  "The [[collect-error-records]] output narrowed to this bead's category, so an
+  "The [[collect-error-records]] output narrowed to this namespace's category, so an
   unrelated always-on record fanned by the fixture cannot green or red a count
   assertion."
   [thunk]
@@ -104,10 +104,10 @@
 ;; ===========================================================================
 
 (deftest status-rewrite-reports-on-the-always-on-axis
-  (testing "rf2-gblft: a non-integer :status rewritten to 500 fans a record on
-            the ALWAYS-ON error-emit axis — in every build. Before this bead the
-            rewrite reported only on the dev trace bus, so a production JVM
-            answered 500 in complete silence."
+  (testing "a non-integer :status rewritten to 500 fans a record on
+            the ALWAYS-ON error-emit axis — in every build. A report on the
+            dev trace bus alone would leave a production JVM
+            answering 500 in complete silence."
     (let [ring    (atom nil)
           records (collect-status-rewrite-records
                     (fn []
@@ -122,7 +122,7 @@
           "and does not disturb the rest of the materialised response"))))
 
 (deftest record-key-set-is-closed
-  (testing "rf2-gblft: the always-on record carries EXACTLY the closed slot set
+  (testing "the always-on record carries EXACTLY the closed slot set
             it is built FROM. Pinned with `=`, not `subset?` — this record
             reaches an off-box shipper, so a slot someone adds later must red
             here rather than ship."
@@ -136,19 +136,19 @@
       (is (nil? (:frame record))
           "FRAMELESS by design — the materialiser is a pure map→map fn with no
            frame argument, and an ambient read would populate the slot on the
-           error arm while leaving it nil on the very path this bead is about")
+           error arm while leaving it nil on the very path this record is about")
       (is (integer? (:time record)) "the union record's emit instant")
       (is (= :ssr-ring/ssr-response->ring-response (:where record))
           "the call site, as a constant keyword")
       (is (= "java.lang.String" (:status-type record))
           "the offending value's CLASS NAME — program structure, not app data")
       (is (= :non-integer-status (:reason record))
-          ":reason is a closed framework keyword, never prose (rf2-6jqa8) —
+          ":reason is a closed framework keyword, never prose —
            free prose on this axis is how raw material finds its way back in")
       (is (= :failed-closed-to-500 (:recovery record))))))
 
 (deftest the-record-never-carries-the-offending-value
-  (testing "rf2-gblft / the rf2-s3n6h precedent: the raw `:status` is
+  (testing "the raw `:status` is
             DEV-TRACE-ONLY. A response status is caller-supplied and unbounded —
             it can be any object at all — so it has no place on a record that is
             shipped off-box unredacted. Asserted by NAME, and again by scanning
@@ -170,7 +170,7 @@
 ;; ===========================================================================
 
 (deftest a-well-formed-status-reports-nothing
-  (testing "rf2-gblft: the record is a DEFECT-only signal, not a per-request
+  (testing "the record is a DEFECT-only signal, not a per-request
             emission. A genuine integer status, an absent status (defaulted to
             200) and an absent redirect status (defaulted to 302) all fan
             nothing — otherwise the promotion would flood a shipper with one
@@ -187,18 +187,16 @@
           "no record for a valid, absent or defaulted status"))))
 
 ;; ===========================================================================
-;; One rewrite, one record (the double-emit this promotion would have doubled)
+;; One rewrite, one record
 ;; ===========================================================================
 
 (deftest one-rewrite-fans-exactly-one-record
-  (testing "rf2-gblft: a target-less redirect carrying a non-integer :status
-            called `fail-closed-status` TWICE — once to fill in the no-target
-            warning's `:status` payload, once to build the response map — so ONE
-            rewrite reported itself twice (measured as 2
-            `:rf.ssr/ssr-non-integer-status` warnings in a dev build). Harmless
-            while the only consumer was a dev warning; a double record on an
-            off-box shipper is a double alert and a doubled metric. The wire
-            status is now resolved once and shared."
+  (testing "a target-less redirect carrying a non-integer :status
+            needs the wire status twice — for the no-target warning's
+            `:status` payload and for the response map — so it is resolved
+            once and shared: calling `fail-closed-status` for each would
+            report ONE rewrite twice, and a double record on an off-box
+            shipper is a double alert and a doubled metric."
     (let [ring    (atom nil)
           records (collect-status-rewrite-records
                     (fn []
@@ -215,13 +213,13 @@
 ;; ===========================================================================
 
 (deftest the-two-axes-split-by-posture
-  (testing "rf2-gblft: the always-on record and the dev warning are DIFFERENT
+  (testing "the always-on record and the dev warning are DIFFERENT
             channels, not one channel counted twice. This test derives its
             expectation from `interop/debug-enabled?` rather than assuming a
             posture, so it is green in both and states the contract in each:
             the record fires ALWAYS, the warning fires only in a dev build.
-            Under `-Dre-frame.debug=false` this is the whole bead — one signal
-            where there were none."
+            Under `-Dre-frame.debug=false` the record is the only
+            signal."
     (let [warnings (atom [])
           records  (do
                      (rf/register-listener! :trace ::status-rewrite-trace-watch
@@ -243,4 +241,4 @@
               "and axis 2 — and ONLY axis 2 — keeps the offending value"))
         (is (= [] @warnings)
             "axis 2 is silent under -Dre-frame.debug=false — which is exactly
-             the silence this bead removed from the wire-facing axis")))))
+             why axis 1 exists")))))
