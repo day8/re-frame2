@@ -4,10 +4,10 @@
   state-machines a single declarative shape.
 
   The test scenarios cover the CLOSED two-member join grammar
-  (:all default + :any — rf2-w8gxxz cut {:n N} / {:fn pred} /
-  :cancel-on-decision?), unconditional sibling cancellation on the join
-  decision, and registration-time validation (including that a removed
-  mode is now REJECTED as an unknown join spec).
+  (:all default + :any), unconditional sibling cancellation on the join
+  decision, and registration-time validation (including that any other mode
+  — {:n N}, {:fn pred} — or a :cancel-on-decision? key is REJECTED as an
+  unknown join spec / node key).
 
   Completion is FINALITY. A child completes by entering a `:final?` state —
   `:output-key` names the `:data` slot holding its result, `:error? true`
@@ -324,11 +324,10 @@
                            :states
                            {:s {:spawn-all {:children       [{:id :x :machine-id :foo}]
                                              :join           :any}}}}))))
-  ;; rf2-w8gxxz — the join grammar is a CLOSED two-member enum (:all + :any).
-  ;; The removed modes ({:n N}, {:fn pred}) and the removed
-  ;; :cancel-on-decision? key are now REJECTED as an unknown join spec /
-  ;; unknown node key.
-  (testing "rf2-w8gxxz: :spawn-all with the removed :join {:n 2} mode — rejected"
+  ;; The join grammar is a CLOSED two-member enum (:all + :any). Any other
+  ;; mode ({:n N}, {:fn pred}) and a :cancel-on-decision? key are REJECTED as
+  ;; an unknown join spec / unknown node key.
+  (testing ":spawn-all with a :join {:n 2} mode — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"machine-spawn-all-bad-shape"
@@ -338,7 +337,7 @@
                            {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
                                              :join             {:n 2}
                                              :on-some-complete [:some]}}}}))))
-  (testing "rf2-w8gxxz: :spawn-all with the removed :join {:fn pred} mode — rejected"
+  (testing ":spawn-all with a :join {:fn pred} mode — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"machine-spawn-all-bad-shape"
@@ -348,7 +347,7 @@
                            {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
                                              :join             {:fn (fn [_] true)}
                                              :on-some-complete [:some]}}}}))))
-  (testing "rf2-w8gxxz: :spawn-all with the removed :cancel-on-decision? key — rejected"
+  (testing ":spawn-all with a :cancel-on-decision? key — rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"machine-spawn-all-bad-shape"
@@ -383,7 +382,7 @@
                                                                 :definition {:initial :i
                                                                              :states  {:i {}}}
                                                                 ;; an inline child must be
-                                                                ;; addressed (rf2-j1ykz)
+                                                                ;; addressed
                                                                 :id-prefix  :ok/x}]
                                              :on-all-complete [:done]}}}}))
         "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
@@ -431,7 +430,7 @@
                            :states  {:working {:spawn {:definition     {:initial :i
                                                                         :states  {:i {}}}
                                                        ;; an inline spawn must be
-                                                       ;; addressed (rf2-j1ykz)
+                                                       ;; addressed
                                                        :fixed-actor-id :spawnxor/def-kid}}
                                      :done    {}}}))
         "an inline-definition spawn registers cleanly"))
@@ -510,15 +509,14 @@
 ;; arrives AFTER the join already resolved. It emits the
 ;; :rf.machine.spawn-all/late-completion trace (stale reply; record frozen).
 ;;
-;; rf2-w8gxxz — sibling cancellation on the join decision is now
-;; UNCONDITIONAL (the `:cancel-on-decision? false` protocol that let
-;; siblings run to completion was cut). When the join resolves, surviving
+;; Sibling cancellation on the join decision is UNCONDITIONAL: when the join
+;; resolves, surviving
 ;; siblings are DESTROYED (the cancellation cascade fires :rf.machine/destroy
 ;; + :rf.machine.spawn/cancelled-on-join-resolution per survivor) and the
 ;; record stays frozen at the decisive child.
 
 (deftest join-resolution-cancels-siblings-record-frozen
-  (testing "rf2-w8gxxz: when an :any join resolves, the surviving sibling is
+  (testing "when an :any join resolves, the surviving sibling is
             cancelled at resolution and the join-state record stays frozen at
             the decisive child :a"
     (let [traces (atom [])
@@ -553,12 +551,12 @@
           ;; no late completion arrives to mutate the record.
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating]])]
             (is (= #{:a} (:done j))
-                "rf2-w8gxxz: the record stays frozen at resolution")))
+                "the record stays frozen at resolution")))
         (finally
           (rf/unregister-listener! :trace ::cancel-cb))))))
 
 (deftest late-completion-of-known-child-is-stale-record-frozen
-  (testing "rf2-w8gxxz: a post-resolution completion of a KNOWN child (the
+  (testing "a post-resolution completion of a KNOWN child (the
             :resolved? latch already flipped) traces
             :rf.machine.spawn-all/late-completion with a :stale reply, does
             NOT fold into the record (no :folded? tag), and fires no further
@@ -595,7 +593,7 @@
           ;; genuine current straggler draining post-latch). It flows through
           ;; the :resolved? late-completion branch — reached ONLY by a carrier
           ;; that passes the exact-attempt fence, so the coordinate is copied
-          ;; from the live join state (rf2-ixjd48).
+          ;; from the live join state.
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (rf/dispatch-sync
               [:sup/latek [:rf.machine.spawn/done [:hydrating]
@@ -608,7 +606,7 @@
                             :attempt    (:rf/attempt j)}]]))
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (is (= #{:a} (:done j))
-                "rf2-w8gxxz: the record stays frozen — no fold on late completion")
+                "the record stays frozen — no fold on late completion")
             (is (true? (:resolved? j)) ":resolved? still latched")))
         (let [late-traces (->> @traces
                                (filter #(= :rf.machine.spawn-all/late-completion
@@ -619,7 +617,7 @@
             (is (= :stale (:rf.reply/status tags))
                 "the late completion is classified stale")
             (is (not (contains? tags :folded?))
-                "rf2-w8gxxz: no :folded? tag — the fold machinery was cut")))
+                "no :folded? tag — a late completion never folds")))
         (finally
           (rf/unregister-listener! :trace ::latek-cb))))))
 
@@ -637,7 +635,7 @@
 ;; so a stranger child-id is reported as such rather than as a stale attempt.
 ;;
 ;; Pragmatic security stance: trust the explicit invoker but gate
-;; accidents. See ai/findings/machines-security-audit-2026-05-15.md F1.
+;; accidents.
 
 (defn- mk-inert-child
   "A child with no route to a `:final?` state, so it NEVER completes —
@@ -852,7 +850,7 @@
 ;; ---- parallel regions running structurally identical joins ---------------
 ;;
 ;; Two active parallel regions may run structurally identical `:spawn-all`
-;; blocks — and now that a child carries NO parent vocabulary at all, the two
+;; blocks — and because a child carries NO parent vocabulary at all, the two
 ;; regions' children are literally the SAME machine spec, so nothing about the
 ;; completion's SHAPE distinguishes the regions. Routing does not have to
 ;; distinguish them: each completion carrier names its own `<invoke-id>` (the
@@ -862,12 +860,9 @@
 ;; therefore never be misrouted to a sibling region's join (which would fail
 ;; that join's child-id ownership check as forged and leave the correct
 ;; region hung).
-;;
-;; This is the same property rf2-w84jv pinned when routing WAS a walk; only
-;; the mechanism that guarantees it has changed.
 
 (deftest parallel-regions-route-completions-by-carried-invoke-id
-  (testing "two parallel regions running identical child specs each fold their own child's completion, routed by the carrier's invoke-id; no bad-child-id, neither region hangs (rf2-w84jv)"
+  (testing "two parallel regions running identical child specs each fold their own child's completion, routed by the carrier's invoke-id; no bad-child-id, neither region hangs"
     (rf/reg-machine :rf2-w84jv/r1-child (mk-child))
     (rf/reg-machine :rf2-w84jv/r2-child (mk-child))
     (rf/reg-machine :rf2-w84jv/par-parent
@@ -895,10 +890,10 @@
           r2-children (:children (get-in (frame-db) [:rf.runtime/machines :spawned :rf2-w84jv/par-parent [:region-2 :hydrating]]))]
       (is (= #{:r1a} (set (keys r1-children))) "region-1 seeded its own join")
       (is (= #{:r2x} (set (keys r2-children))) "region-2 seeded its own join")
-      ;; Complete the SECOND region's child first — the ordering that broke
-      ;; under the old first-match `some` walk, which routed it to region-1
-      ;; (whose :children lacks :r2x), flagging forged and hanging region-2.
-      ;; Its carrier now names [:region-2 :hydrating] outright.
+      ;; Complete the SECOND region's child first — the ordering a first-match
+      ;; state-tree walk would route to region-1 (whose :children lacks :r2x),
+      ;; flagging it forged and hanging region-2. Its carrier names
+      ;; [:region-2 :hydrating] outright.
       (let [traces (collect-traces
                      (fn [] (rf/dispatch-sync [(:r2x r2-children) [:go]])))
             errs   (bad-child-id-error-traces traces)]
