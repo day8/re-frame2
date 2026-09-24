@@ -30,7 +30,7 @@
                                            ;; (no macro capture)
           }
 
-    An IMPLEMENTATION-tier registry since rf2-kuky.69 — the framework's
+    An IMPLEMENTATION-tier registry — the framework's
     own synchronous-window capture sites and tests read it. It is NOT the
     door for off-box observability shippers (Sentry, Honeybadger,
     Rollbar): those observe production errors through a frame's
@@ -93,26 +93,24 @@
   code should never call this. Returns nil."
   (:clear registry))
 
-;; ---- unowned-error dev console fallback (rf2-fu75) ------------------------
+;; ---- unowned-error dev console fallback -----------------------------------
 ;;
-;; RULED (rf2-fu75, 2026-08-13): an UNTOOLED dev build DOES surface a
-;; framework refusal. Before this, a captured refusal reached NO channel at
-;; all unless the app had attached an `:errors` listener — measured, not
-;; inferred: `dispatch` / `dispatch-sync` return normally (the interceptor
-;; chain captures into `:rf/interceptor-error`; `router/emit-pipeline-
-;; exception!` states the reason — "the drain must not abort"), nothing is
-;; thrown, and nothing was printed. A typo'd event id produced literally
-;; nothing. That trap cost rf2-06lp four browser runs and rf2-e4y9 a full
-;; escalate-investigate-exonerate cycle.
+;; An UNTOOLED dev build DOES surface a framework refusal. Without this
+;; fallback a captured refusal would reach NO channel at all unless the app
+;; had attached an `:errors` listener: `dispatch` / `dispatch-sync` return
+;; normally (the interceptor chain captures into `:rf/interceptor-error`;
+;; `router/emit-pipeline-exception!` states the reason — "the drain must
+;; not abort"), and nothing is thrown, so nothing would be printed. A
+;; typo'd event id would produce literally nothing.
 ;;
-;; The fallback is deliberately the narrowest thing that removes it:
+;; The fallback is deliberately the narrowest thing that closes that gap:
 ;;
 ;;   * `console.error`, NOT `js/reportError`. `reportError` reports "in the
 ;;     same fashion as an unhandled exception" (HTML Standard) — it
 ;;     dispatches a genuine window `error` event, and
 ;;     `implementation/scripts/run-browser-tests.cjs` treats console output
 ;;     as diagnostic-only but FAILS an otherwise-green run on ANY
-;;     `pageerror` ("only pageerror is fatal", rf2-mwx08). Several suites
+;;     `pageerror` ("only pageerror is fatal"). Several suites
 ;;     exercise promoted refusals on purpose, so `reportError` would convert
 ;;     expected framework outcomes into runner failures. It is also
 ;;     semantically false here: a refusal is CAUGHT and normalised, and
@@ -121,22 +119,21 @@
 ;;     reporting site rather than at the cause. (The two in-repo
 ;;     `reportError` sites — `substrate/spine.cljs` and
 ;;     `fresco/impl/mount.cljs` — preserve React's OWN default for
-;;     uncaught / recoverable React callback errors. Different situation;
-;;     untouched by this.)
+;;     uncaught / recoverable React callback errors. Different situation.)
 ;;
 ;;   * ONLY when NOTHING ROUTED THIS RECORD. That is TWO arms, and the
-;;     fallback fires when neither holds (rf2-kuky.18):
+;;     fallback fires when neither holds:
 ;;
 ;;       (a) a corpus-wide listener is registered on THIS registry
-;;           ([[register-error-listener!]]). Since rf2-kuky.69 that is an
+;;           ([[register-error-listener!]]). That is an
 ;;           IMPLEMENTATION-tier door — the framework's own synchronous-window
-;;           capture sites and tests — not an app-facing one; `:errors` left
-;;           the public `rf/register-listener!` vocabulary with that bead.
+;;           capture sites and tests — not an app-facing one; `:errors` is
+;;           not in the public `rf/register-listener!` vocabulary.
 ;;           Ownership is the REGISTRATION — even if that listener ignores
 ;;           this category or itself throws — because the listener registry
 ;;           is one undifferentiated corpus-wide door and the framework
 ;;           cannot tell an indifferent owner from an attentive one without
-;;           inventing per-category ownership, which stays REJECTED.
+;;           inventing per-category ownership, which is deliberately absent.
 ;;
 ;;       (b) the record's OWNING FRAME declares an `:observability :errors`
 ;;           policy and at least one of its entries resolved to a REGISTERED
@@ -154,18 +151,18 @@
 ;;     listener owns corpus-wide; a frame's sink policy owns only that
 ;;     frame's records, so a sibling frame on the same page that declared
 ;;     nothing keeps its console line. Keying the fallback on arm (a) ALONE
-;;     made a no-op listener — registered purely to buy silence, ignoring
+;;     would make a no-op listener — registered purely to buy silence, ignoring
 ;;     every record it was handed — the cheapest way to quiet the console
 ;;     for a whole page, which is precisely the shape a fallback keyed on
 ;;     ownership should not reward.
 ;;
-;;     There is still NO suppression knob and no new API: the off-switch an
+;;     There is NO suppression knob and no dedicated API: the off-switch an
 ;;     app has is the frame sink policy (or the `configure!` process default)
 ;;     it already declares — arm (a) is the framework's own registry — and
 ;;     dropping the last of either resumes the fallback. Xray does NOT
 ;;     populate the listener registry (it rides the dev-only TRACE axis —
 ;;     `router` forwards to `rf.trace/emit-error!`), so a console line may
-;;     coexist with an Xray row; the tutorial already frames console + Xray
+;;     coexist with an Xray row; the tutorial frames console + Xray
 ;;     as complementary and the duplication is accepted.
 ;;
 ;;   * DEV + BROWSER-HOSTED only. `rf.interop/debug-enabled?` (`@define`
@@ -175,8 +172,8 @@
 ;;     `#?(:cljs …)` would be too broad: Node-targeted CLJS and CLJS SSR
 ;;     have a console too and stay listener-only, for exactly the reason the
 ;;     JVM lane does — those are REPL / test / server lanes where the caller
-;;     observes the dispatch directly and a listener is one line, and
-;;     neither measured incident happened there. `js/document` presence is
+;;     observes the dispatch directly and a listener is one line.
+;;     `js/document` presence is
 ;;     this repo's DOM-host discriminator (see
 ;;     `resources/revalidate_listeners.cljc`).
 ;;
@@ -185,32 +182,31 @@
 ;; carries one — never a flattened string, so the host's inspector renders
 ;; the structure and the real stack survives. Consequence, accepted rather
 ;; than engineered around: the record's raw `:exception` (the deliberate
-;; advanced-listener contract) now also reaches a local dev console.
+;; advanced-listener contract) also reaches a local dev console.
 ;; Per-category ownership, sink discovery, a formatter, deduplication and a
-;; suppression setting all stay REJECTED as premature.
+;; suppression setting are all deliberately absent as premature.
 ;;
-;; A READABLE LINE LEADS THE RECORD (rf2-6sqv). Passing the record as a
-;; value is right, and it stays — but it was the ONLY thing passed, and a
-;; CLJS map is not a JS object: Chrome renders its interior fields, so an
-;; ordinary page load showed
+;; A READABLE LINE LEADS THE RECORD. Passing the record as a value is right —
+;; but were it the ONLY thing passed, a CLJS map is not a JS object: Chrome
+;; renders its interior fields, so an ordinary page load would show
 ;;
 ;;     [re-frame2] {meta: null, cnt: 7, arr: Array(14), __hash: null, …}
 ;;
-;; and nothing else. `cnt: 7` is the seven-key record itself. That teaches a
-;; reader that re-frame2's errors are unreadable — the exact opposite of what
-;; the error text achieves — and it is the first place a reader looks, before
-;; any tool is installed (Spec 009 / pilot outcome 5).
+;; and nothing else (`cnt: 7` being the seven-key record itself). That would
+;; teach a reader that re-frame2's errors are unreadable — the exact opposite
+;; of what the error text achieves — and it is the first place a reader looks,
+;; before any tool is installed (Spec 009).
 ;;
-;; So [[console-summary]] now leads with a STRING built from what the record
-;; already carries, and the record + exception follow as their own arguments
-;; exactly as before. Text first, structure still expandable, nothing lost to
+;; So [[console-summary]] leads with a STRING built from what the record
+;; already carries, and the record + exception follow as their own
+;; arguments. Text first, structure still expandable, nothing lost to
 ;; a structured consumer. It composes NO new error prose: every byte of the
-;; line already existed on the record or on its exception.
+;; line comes from the record or its exception.
 ;;
 ;; Everything is try/catch wrapped: observability must never abort the drain.
 
 (defn- console-summary
-  "The readable line that LEADS the dev console fallback (rf2-6sqv): the
+  "The readable line that LEADS the dev console fallback: the
   category, then the human sentence the framework ALREADY composed — the
   carried exception's `ex-message` when the category throws one, else the
   record's own `:reason` slot.
@@ -248,11 +244,11 @@
   no `:errors` policy, and for a policy naming only sinks the app never
   registered — all three of which leave the console the record's only
   channel. Arm (a), an `:errors` listener being registered at all, is read
-  here off `listeners` and is unchanged.
+  here off `listeners`.
 
   Arguments are `[\"[re-frame2]\" <summary-line> <record>]`, plus the
   original `<exception>` when the category carries one. The summary leads so
-  a reader sees TEXT first (rf2-6sqv); the record and exception still ride as
+  a reader sees TEXT first; the record and exception still ride as
   their own arguments, so the host inspector renders the structure and the
   real stack survives untouched.
 
@@ -301,21 +297,15 @@
 ;; event-id and a sub-id may legitimately SHARE a keyword — they live in
 ;; SEPARATE registries (`[:event id]` vs `[:sub id]`), so a bare
 ;; `[:sub]`-then-`[:event]` probe attributes a same-keyword collision to the
-;; WRONG realm (rf2-xgkgx — the earlier comment here wrongly claimed sub-ids
-;; and event-ids never collide). Resolution therefore pivots on the exact
+;; WRONG realm. Resolution therefore pivots on the exact
 ;; operation realm the record already carries in `:op`: `:dispatch` /
-;; `:dispatch-sync` → `[:event]`, `:subscribe` → `[:sub]`. A fourth realm,
-;; `:capture`, was handled here (→ NEITHER coord) until 2026-09-04: it was the
-;; retired ui `(frame)` read's alone (rf2-0yp7w) and the branch went with the
-;; enum value under rf2-xtqs. It was already unobservable — `error-source-coord`
-;; short-circuits on a nil `id`, and a `:capture` read carried none by
-;; construction, so the branch and the `op`-absent fallback below returned nil
-;; alike. The ORDINARY address-directed ROUTER emitter carries no
+;; `:dispatch-sync` → `[:event]`, `:subscribe` → `[:sub]`.
+;; The ORDINARY address-directed ROUTER emitter carries no
 ;; `:op`; for it the lookup falls back to `[:sub]`-then-`[:event]`, which keeps
 ;; it correct (the event-id misses `[:sub]` then hits `[:event]`). The SUBS
 ;; emitter is NOT in that fallback: `subs/emit-frame-destroyed-recovery!` is
-;; subscribe-realm BY CONSTRUCTION and stamps `:op :subscribe` UNCONDITIONALLY
-;; (rf2-alk8a), so it takes the `:subscribe` case above and resolves realm-exact
+;; subscribe-realm BY CONSTRUCTION and stamps `:op :subscribe` UNCONDITIONALLY,
+;; so it takes the `:subscribe` case above and resolves realm-exact
 ;; under `[:sub id]` — never stealing a same-keyword event's coord. A miss on
 ;; the resolved realm falls
 ;; through to nil → the `:source-coord` slot is absent.
@@ -338,13 +328,12 @@
 
 ;; ---- raw query-vector identity on the always-on error :event slot --------
 ;;
-;; #6441 / rf2-zwgqe (RULED — option c, accepted fail-open, documented): a
-;; subscription QUERY VECTOR is IDENTITY — the sub-cache key (Spec 006), the
+;; A subscription QUERY VECTOR is IDENTITY — the sub-cache key (Spec 006), the
 ;; skip-dedup key, the reactive-graph edge endpoint. Identity is structurally
 ;; public to every layer that touches the cache, so it is NEVER redacted at the
 ;; classification chokepoint; it egresses VERBATIM on EVERY query-vector-bearing
-;; slot, INCLUDING "the always-on error `:query-v` / `:event` slots" (the
-;; ruling's own words). The only retained exception is the SEPARATE Spec 010
+;; slot, INCLUDING the always-on error `:query-v` / `:event` slots — an
+;; accepted, documented fail-open. The only exception is the SEPARATE Spec 010
 ;; schema-axis backstop (a `:sensitive?`-schema'd sub's validation-failure trace
 ;; whole-slot scrubs `:rf.sub/query-v` in `re-frame.schemas.validate`), which
 ;; this path does not touch.
@@ -354,28 +343,24 @@
 ;; payload hygiene. For a SUB error `:event` is the query vector, and a concrete
 ;; integer app-db path coincidentally matching a query-vector coordinate mutates
 ;; identity at egress (`[1]` turns `[:patient/record "SECRET"]` into
-;; `[:patient/record :rf/redacted]`). The closed decision note WRONGLY reasoned
-;; an app-db path could not match a query vector; concrete integer paths prove
-;; otherwise (`elision_test.clj` pins that behaviour — it is correct for
-;; position-precise app-db elision and stays). So the always-on error path must
+;; `[:patient/record :rf/redacted]`). An app-db path CAN match a query vector:
+;; concrete integer paths do (`elision_test.clj` pins that behaviour — it is
+;; correct for position-precise app-db elision). So the always-on error path must
 ;; skip elision for a query-vector `:event`.
 
 (def ^:private query-vector-event-categories
   "Every production `:rf.error/*` category whose positional `:event` slot
-  carries a subscription QUERY VECTOR (raw IDENTITY per #6441 / rf2-zwgqe), NOT
+  carries a subscription QUERY VECTOR (raw IDENTITY), NOT
   a dispatched event. ENUMERATED STRUCTURALLY by reading each emit site — NOT
   matched by a category-name prefix: a `sub-*` prefix check catches the
   reactive/compute + input-fn categories but MISSES the frame-destroyed
-  subscribe realm, re-leaking the exact rf2-s3n6h 'bound that does not bound'
+  subscribe realm, leaking in the 'bound that does not bound'
   class.
 
   Currently EQUAL to [[sub-error-categories]] (whose narrower purpose is
   `[:sub id]` SOURCE-COORD resolution), and kept a separate def because the
   two answer different questions: this one asks what the `:event` slot
-  CARRIES, that one asks where the source coord LIVES. The internal
-  observation port contributed three members here that were not in that set —
-  `:rf.error/observation-on-change-failed`, `:rf.error/read-after-release` and
-  `:rf.error/observation-retry-exhausted` — and they went with it (rf2-63t1i).
+  CARRIES, that one asks where the source coord LIVES.
   The realm-AMBIGUOUS `:rf.error/frame-destroyed` is handled separately in
   [[raw-identity-query-vector-event?]] — it carries a query vector only in the
   `:subscribe` operation realm."
@@ -387,7 +372,7 @@
 (defn- raw-identity-query-vector-event?
   "STRUCTURAL discriminator: does the positional `event` slot for an `error-kw`
   / `op` error record carry a subscription QUERY VECTOR that must egress
-  VERBATIM (raw IDENTITY per #6441 / rf2-zwgqe), rather than a dispatched EVENT
+  VERBATIM (raw IDENTITY), rather than a dispatched EVENT
   whose args keep their existing per-path app-db elision (payload hygiene)?
 
   True for every category in [[query-vector-event-categories]], and for the
@@ -397,8 +382,7 @@
   `subs/emit-frame-destroyed-recovery!` and `router/emit-frame-destroyed!`),
   whereas a `:dispatch` / `:dispatch-sync` passes a dispatched event that keeps
   its elision. Keyed on `=`, never `identical?`, on the keyword operands (a
-  `.cljc` `identical?` keyword compare is JVM-only sound, CLJS-unreachable —
-  #6365)."
+  `.cljc` `identical?` keyword compare is JVM-only sound, CLJS-unreachable)."
   [error-kw op]
   (or (contains? query-vector-event-categories error-kw)
       (and (= :rf.error/frame-destroyed error-kw)
@@ -416,22 +400,20 @@
     - `:rf.error/frame-destroyed` is realm-AMBIGUOUS on the id alone (an
       event-id and a sub-id may legitimately SHARE a keyword — they live in
       SEPARATE registries), so it pivots on the exact operation realm the
-      record already carries in `op` (rf2-xgkgx / rf2-a2x2w — the `:op` realm
-      attribution the record carries, RATIFIED PUBLIC wherever the realm is
+      record already carries in `op` (the `:op` realm
+      attribution the record carries, PUBLIC wherever the realm is
       known: core's `capture-frame` stale-op pre-check seam and the router's
       late captured-op fences stamp it, and the subs SUBSCRIBE emitter stamps
-      it unconditionally (rf2-alk8a). The retired `re-frame.ui` `(frame)`
-      bundle's stale-op seam was a further stamping site until it went with
-      that artefact on 2026-08-16 (rf2-0yp7w), and nothing replaced it — see
+      it unconditionally — see
       `router/emit-frame-destroyed!` and Spec 009 §Error contract):
         - `:dispatch` / `:dispatch-sync` → the failing op is a DISPATCH, so
           the coord lives under `[:event id]`.
         - `:subscribe`                   → a SUBSCRIBE, coord under `[:sub id]`.
         - `op` absent (the ordinary address-directed router DISPATCH emitter
-          does not carry it — the subs SUBSCRIBE emitter now stamps
-          `:op :subscribe` (rf2-alk8a) and so resolves realm-exact via the
+          does not carry it — the subs SUBSCRIBE emitter stamps
+          `:op :subscribe` and so resolves realm-exact via the
           `:subscribe` case above, NOT this fallback) → fall back to
-          `[:sub]`-then-`[:event]`, which keeps the remaining router-dispatch
+          `[:sub]`-then-`[:event]`, which keeps the router-dispatch
           caller correct (the event-id misses `[:sub]` then hits `[:event]`).
     - every other category → look under `[:event id]`."
   [error-kw id op]
@@ -445,8 +427,8 @@
         (:dispatch :dispatch-sync) (rf.source-coords/error-coords-for :event id)
         :subscribe                 (rf.source-coords/error-coords-for :sub id)
         ;; `op` absent — the ordinary address-directed core router DISPATCH
-        ;; emitter (the subs SUBSCRIBE emitter now stamps `:op :subscribe` —
-        ;; rf2-alk8a — and resolves realm-exact via the `:subscribe` case above).
+        ;; emitter (the subs SUBSCRIBE emitter stamps `:op :subscribe`
+        ;; and resolves realm-exact via the `:subscribe` case above).
         (or (rf.source-coords/error-coords-for :sub id)
             (rf.source-coords/error-coords-for :event id)))
 
@@ -490,7 +472,7 @@
   `:rf.error/flush-convergence-exceeded`). (Registration-time categories —
   and dev-only checks that merely SKIP or SURFACE a value — stay
   trace-only and do NOT call this fn; that is correct, not a gap. The
-  exception, ruled rf2-xpd8, is a dev-gated refusal that discards a WHOLE
+  exception is a dev-gated refusal that discards a WHOLE
   candidate transition: `:rf.error/schema-validation-failure` at
   `:where :app-db` and `:where :machine-data`, and
   `:rf.error/malformed-schema` at both its rejection sites — every arm
@@ -498,7 +480,7 @@
   record onto the `:errors` stream from inside its own `debug-enabled?`
   gate, through [[dispatch-error-record!]] rather than this fn. A release build
   carries neither the check nor the record, so the always-on axis's
-  production contract is unchanged — what is conditional is the PRODUCER.)
+  production contract holds — what is conditional is the PRODUCER.)
 
   There is no app-steering recovery policy. Recovery is framework-owned
   (the per-category typed defaults); observability is this listener.
@@ -533,8 +515,8 @@
   the dev-trace tags (DCE'd under `goog.DEBUG=false`). Lifting it into the
   always-on record lets off-box shippers (Sentry / Datadog) tell WHICH
   interceptor / cofx failed in production, not just the category. The
-  slots are `cond->`'d in — absent when nil, so the tight record shape is
-  unchanged for the categories whose failing id already equals `:event-id`
+  slots are `cond->`'d in — absent when nil, so the record stays tight
+  for the categories whose failing id already equals `:event-id`
   (handler-exception, the sub-* categories where the sub-id rides
   `:event-id`).
 
@@ -544,31 +526,30 @@
   `subs/memo.cljc`, `subs.cljc`, and `router/diagnostics.cljc` (those
   layers cannot static-require this ns — load cycle). Returns nil.
 
-  ## Frame-owned sink-route suppression (rf2-bf0io)
+  ## Frame-owned sink-route authority
 
-  The trailing `route-frame?` (default true) gates ONLY the EP-0015
-  frame-owned observability sink route below — the corpus-wide listener
-  fan-out (axis 1's off-box source of truth) ALWAYS fires regardless.
-  A caller passes false for a KNOWN-DEAD-incarnation emission (the two live
-  ones are named below): the captured bare frame id no longer names the
-  incarnation the failure belongs to, so resolving it to a
-  live same-id SUCCESSOR would deliver a dead incarnation's failure into the
-  successor's own `:observability :errors` sink. This is the event-centric
-  mirror of the union-path `route-frame?` seam rf2-vxgfnd.118 added for the
-  post-dissoc teardown report. Every ordinary live / address-directed caller
-  keeps the default, so normal frame-owned routing is untouched.
+  The trailing `route-frame?` (default true) is the FRAME-AUTHORITY bit for
+  ONLY the EP-0015 frame-owned observability sink route below — the
+  corpus-wide listener fan-out (axis 1's off-box source of truth) ALWAYS
+  fires regardless. A caller passes false for a KNOWN-DEAD-incarnation
+  emission (the two live ones are named below): the captured bare frame id
+  no longer names the incarnation the failure belongs to, so resolving it
+  to a live same-id SUCCESSOR would deliver a dead incarnation's failure into
+  the successor's own `:observability :errors` sink. With false the route
+  still runs, but under no governing frame, so only the process-default sink
+  can receive the record. This is the event-centric mirror of the union-path
+  `route-frame?` seam for the post-dissoc teardown report. Every ordinary
+  live / address-directed caller keeps the default, so normal frame-owned
+  routing applies.
 
   THE FALSE BRANCH IS LIVE, reached through [[emit-error-both!]], which threads
-  its own trailing `route-frame?` straight into this 9-arity. rf2-qjfrw carried
-  the seam from the retired view artefact's `(frame)` bundle into core's own
-  `capture-frame` primitive, and two production sites drive it:
+  its own trailing `route-frame?` straight into this 9-arity. Two production
+  sites in core's `capture-frame` machinery drive it:
   `router/emit-frame-destroyed!` passes `(nil? op)`, so every captured-op
-  rejection suppresses the route, and `subs/emit-frame-destroyed-recovery!`
+  rejection withdraws frame authority, and `subs/emit-frame-destroyed-recovery!`
   passes a literal false for a captured subscribe whose pinned incarnation was
   superseded. `capture_frame_reincarnation_sink_route_cljs_test` pins both
-  branches. (This paragraph used to say no in-repo caller passed false — true
-  while the seam was UI-only, stale from rf2-qjfrw onward, and read by a later
-  audit as evidence the branch was unreachable. That is rf2-k9rzr.)"
+  branches."
   ([error-kw event event-id frame-id exception elapsed-ms time]
    (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time nil true))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs]
@@ -589,9 +570,8 @@
            ;; categories) must resolve under `[:sub …]`, not the hardcoded
            ;; `[:event …]`. For the realm-ambiguous `:rf.error/frame-destroyed`
            ;; category the resolution ALSO pivots on the operation realm the
-           ;; record carries in its `:op` attribution (rf2-xgkgx / rf2-a2x2w —
-           ;; the ratified-public `:op` realm slot, which also STEERS this
-           ;; source-coord resolution), so a same-keyword event vs subscription
+           ;; record carries in its `:op` attribution (the public `:op` realm
+           ;; slot, which also STEERS this source-coord resolution), so a same-keyword event vs subscription
            ;; is attributed to the correct realm. See [[error-source-coord]] /
            ;; [[sub-error-categories]].
            source-coord (try
@@ -601,7 +581,7 @@
                               (throw e))))]
        ;; Generation/source resolution is a callback-bearing stage.
        (when (rf.trace/continuation-live?)
-         (let [;; #6441 / rf2-zwgqe: a subscription QUERY VECTOR is raw IDENTITY
+         (let [;; A subscription QUERY VECTOR is raw IDENTITY
                ;; on the always-on error `:event` slot — it egresses VERBATIM,
                ;; NEVER app-db-elided (a concrete integer path coincidentally
                ;; matching a query-vector coordinate would otherwise mutate
@@ -620,8 +600,8 @@
                ;; categories carry none — `:rf.error/write-after-destroy` is a
                ;; dropped WRITE, not a throw on a dispatch — and their record
                ;; contract is an ABSENT `:event`. A frameless record of that
-               ;; kind fails closed at the walker (correctly: rf2-kuky.5 made
-               ;; `:frame nil` mean "no governing frame"), which would turn
+               ;; kind fails closed at the walker (correctly: `:frame nil`
+               ;; means "no governing frame"), which would turn
                ;; `nil` into `:rf/redacted` and tell a shipper that a payload
                ;; was withheld where none existed. Redacting nothing protects
                ;; nothing; skip the walk instead.
@@ -630,8 +610,8 @@
                ;; (EP-0015 — event args are registration-owned) apply FIRST,
                ;; exactly as on the dev trace (`project-event-tags`) and the
                ;; sink route (`projection/project-event-slot`); without them
-               ;; this record shipped a declared-sensitive arg RAW while both
-               ;; sibling channels redacted it (rf2-3x7nj.4.5).
+               ;; this record would ship a declared-sensitive arg RAW while both
+               ;; sibling channels redacted it.
                elided-event (if (or raw-identity-event? (nil? event))
                               event
                               (try
@@ -645,15 +625,15 @@
                ;; failed in production (the `:event-id` slot carries the EVENT
                ;; id for these categories; the failing component id would
                ;; otherwise ride only the DCE'd dev-trace tags). `cond->`'d in
-               ;; — absent when nil/blank, so the tight record shape is
-               ;; unchanged for categories that pass no `attrs` (or whose
+               ;; — absent when nil/blank, so the record stays tight
+               ;; for categories that pass no `attrs` (or whose
                ;; failing id already equals `:event-id`).
                ;; Attribution slots the caller lifts onto the always-on record
                ;; are the component ids / discriminators the category promises:
                ;; `:failing-id` / `:reason` for interceptor / cofx categories,
                ;; and `:flow-id` + `:where :flow-eval` for flow-eval so its
                ;; attribution SURVIVES an egress profile that drops
-               ;; `:exception` (rf2-z1332c — Spec 009 §Error event catalogue /
+               ;; `:exception` (Spec 009 §Error event catalogue /
                ;; Spec 013 §Trace stream ordering). Merged UNDER the base
                ;; observability fields, which always win; nil-valued slots are
                ;; dropped. Callers keep these to tight identifiers — this
@@ -674,26 +654,24 @@
              ((:fan-out registry) record rf.trace/continuation-live?)
              ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
              ;; event so the sink projects under its own egress profile rather
-             ;; than double-eliding. `raw-identity-event?` (#6441 / rf2-zwgqe)
+             ;; than double-eliding. `raw-identity-event?`
              ;; rides through so the sink keeps a sub query vector VERBATIM on
              ;; THIS second egress route too — otherwise `project-error-record`
-             ;; app-db-walks `:event` and the same coincidental integer path
-             ;; redacts identity here. Late-bound to avoid a require cycle.
-             ;; `route-frame?` false (rf2-bf0io) is a known-dead-incarnation
-             ;; emission — core's router / subs frame-destroyed emitters since
-             ;; rf2-qjfrw, the retired `re-frame.ui` `(frame)` bundle before it
-             ;; went with that artefact (rf2-0yp7w). It rides through as
-             ;; `route-error!`'s trailing FRAME-AUTHORITY bit, and it still
-             ;; guarantees the thing it was added for: a dead incarnation's bare
+             ;; would app-db-walk `:event` and the same coincidental integer
+             ;; path would redact identity here. Late-bound to avoid a require
+             ;; cycle.
+             ;; `route-frame?` false is a known-dead-incarnation
+             ;; emission — core's router / subs frame-destroyed emitters. It
+             ;; rides through as `route-error!`'s trailing FRAME-AUTHORITY bit,
+             ;; which guarantees that a dead incarnation's bare
              ;; id can never resolve to a same-id successor's error sink.
              ;;
-             ;; What it no longer does (rf2-kuky.67) is SUPPRESS THE CALL. It
-             ;; used to gate the whole late-bound invocation, so a fallback
-             ;; inside `observability.cljc` was unreachable for exactly these
-             ;; records and their only channel was the corpus-wide `:errors`
-             ;; stream rf2-kuky.69 retires. `route-frame?` false now means *no
-             ;; frame authority — the PROCESS DEFAULT still delivers*, not *no
-             ;; sink route*: the record is projected under an explicitly nil
+             ;; It does NOT SUPPRESS THE CALL. Were it to gate the whole
+             ;; late-bound invocation, a fallback inside `observability.cljc`
+             ;; would be unreachable for exactly these records and their only
+             ;; channel would be the corpus-wide registry. `route-frame?` false
+             ;; means *no frame authority — the PROCESS DEFAULT still
+             ;; delivers*, not *no sink route*: the record is projected under an explicitly nil
              ;; governing frame (fail-closed) and reaches the operator's
              ;; process-default sink, contributing its delivered-count to the
              ;; console decision below like any other route. The authority bit
@@ -701,16 +679,16 @@
              ;; it, because `frame` cannot tell a never-registered id from a
              ;; dissociated one and a successor would pass either test.
              ;;
-             ;; rf2-kuky.65: the SAME component attribution the corpus record
+             ;; The SAME component attribution the corpus record
              ;; above carries rides through to the sink route, as a trailing
-             ;; attrs map. Without it a sink learned the CATEGORY but never
+             ;; attrs map. Without it a sink would learn the CATEGORY but never
              ;; WHICH interceptor / cofx / flow failed, and no egress profile
              ;; could restore what the record never carried. `route-error!`
              ;; classifies the slots (Spec 015 §Frame-owned observability sink
              ;; policy): the structural identifiers are summary slots, and every
              ;; other slot — `:reason` among them — rides `:tags`, walked and
-             ;; redacted under frame classification. Once the corpus-wide
-             ;; `:errors` stream retires, this route is the ONLY production door.
+             ;; redacted under frame classification. This route is the
+             ;; app-facing production door.
              (let [sink-attrs (cond-> attribution
                                 source-coord (assoc :source-coord source-coord))
                    routed (if (rf.trace/continuation-live?)
@@ -724,11 +702,10 @@
                                   (if (rf.trace/continuation-live?) (throw e) 0)))
                               0)
                             0)]
-               ;; rf2-fu75, re-keyed by rf2-kuky.18 — decided ONCE per fully
-               ;; built record, and now AFTER the sink route because the
-               ;; decision needs its delivered-count (arm (b)). Ordering
-               ;; between the corpus fan-out and the sink route is unchanged:
-               ;; the fan-out stays FIRST, so a throwing route can never
+               ;; The console fallback is decided ONCE per fully
+               ;; built record, AFTER the sink route because the
+               ;; decision needs its delivered-count (arm (b)). The corpus
+               ;; fan-out runs FIRST, before the sink route, so a throwing route can never
                ;; starve the always-on listener registry, which is the
                ;; production-survivable source of truth.
                (report-unowned-error! record routed)))))))
@@ -777,30 +754,30 @@
   supplier (`:rf.error/coeffect-exception`), where `:event-id` carries the EVENT
   id and the interceptor / cofx id would otherwise ride only the DCE'd dev-trace
   tags. For handler-exception and the sub-* categories the failing id already EQUALS
-  `:event-id`, so nothing extra is stamped and the tight record is unchanged.
-  The off-box shipper now learns WHICH interceptor / cofx failed in production.
+  `:event-id`, so nothing extra is stamped and the record stays tight.
+  The off-box shipper learns WHICH interceptor / cofx failed in production.
 
   The optional trailing `record-attrs` map carries CATEGORY-SPECIFIC
   attribution the caller wants on the always-on record (axis 1) INDEPENDENT of
   the dev-trace tags — e.g. the flow-eval category lifts `{:flow-id … :where
   :flow-eval}` so its attribution survives an egress profile that drops
-  `:exception` (rf2-z1332c). It is NOT read from `trace-tags` (a `:where` there
+  `:exception`. It is NOT read from `trace-tags` (a `:where` there
   would leak onto unrelated categories' records — e.g. legacy-root's `'rf/reg-
   event`); the caller passes exactly the tight slots it wants lifted. `nil`
-  (the default) leaves every existing caller's record unchanged.
+  (the default) adds nothing.
 
   Returns nil. Reached directly by `router.cljc` (static require) and via the
   `:error-emit/emit-error-both` late-bind hook by `fx` / `subs` / `subs.memo` /
   `cofx` / `router.diagnostics` (those layers cannot static-require this ns — a
   load cycle through `elision` → `frame`).
 
-  The trailing `route-frame?` (default true — rf2-bf0io) threads straight into
-  [[dispatch-on-error!]]'s frame-owned sink route gate: false suppresses ONLY
-  that route (the corpus record + the axis-2 dev trace still fire), for a
-  known-dead-incarnation emit that must not deliver a dead incarnation's
-  failure into a same-id successor's sink. rf2-bf0io cut the gate for the
-  retired `re-frame.ui` `(frame)` bundle; rf2-qjfrw carried it into core's
-  `capture-frame` primitive, and the live callers are
+  The trailing `route-frame?` (default true) threads straight into
+  [[dispatch-on-error!]]'s frame-owned sink route as its FRAME-AUTHORITY bit:
+  false withdraws frame authority from ONLY that route (the corpus record +
+  the axis-2 dev trace fire as usual, and the process-default sink still
+  delivers), for a known-dead-incarnation emit that must not deliver a dead
+  incarnation's failure into a same-id successor's sink. The live callers,
+  both in core's `capture-frame` machinery, are
   `router/emit-frame-destroyed!` and `subs/emit-frame-destroyed-recovery!`."
   ([category event event-id frame exception elapsed-ms time trace-tags]
    (emit-error-both! category event event-id frame exception elapsed-ms time
@@ -816,8 +793,8 @@
    ;; trace-tags when the failing component is DISTINCT from the dispatched
    ;; event (interceptor / cofx categories). The distinct-from-event-id guard
    ;; keeps the record tight for the categories whose `:failing-id` already
-   ;; equals `:event-id`. `route-frame?` gates ONLY the frame-owned sink route
-   ;; inside `dispatch-on-error!` (rf2-bf0io) — the corpus fan-out is unconditional.
+   ;; equals `:event-id`. `route-frame?` affects ONLY the frame-owned sink route
+   ;; inside `dispatch-on-error!` — the corpus fan-out is unconditional.
    (let [failing-id (:failing-id trace-tags)
          attrs      (cond-> record-attrs
                       (and (some? failing-id) (not= failing-id event-id))
@@ -842,9 +819,9 @@
 ;; runtime error, the second able to overwrite the source's correct
 ;; frame/query attribution with the catching context's — while never
 ;; re-dispatching silently loses the unfanned ones at a swallowing boundary
-;; (rf2-wbkjk9; Spec 009's one-runtime-error law).
+;; (Spec 009's one-runtime-error law).
 ;;
-;; The repair is explicit provenance ON THE THROWABLE — never a global
+;; The mechanism is explicit provenance ON THE THROWABLE — never a global
 ;; seen-error registry (process-global dedup state would suppress genuinely
 ;; distinct recurrences of the same category and leak across frames/tests):
 ;; an emit-then-throw site stamps [[fanned-at-source-key]] into the ex-data
@@ -857,7 +834,7 @@
 ;; provenance that a caught throwable was built by the canonical thrown-error
 ;; builder (`re-frame.error/thrown-ex-info` — the single chokepoint every
 ;; framework throw routes through) under the RESERVED `rf.error` catalogue
-;; namespace. It replaces `:rf.error/id`-truthiness classification: an
+;; namespace. It is stricter than `:rf.error/id`-truthiness classification: an
 ;; application ex-info carrying `{:rf.error/id :app/x}` (non-reserved
 ;; namespace), a malformed id (non-keyword), or a bare imitation of a
 ;; canonical id without the builder's required `:reason` sentence all
@@ -869,7 +846,7 @@
 ;; check IS the runtime spelling of catalogue membership.
 
 (def fanned-at-source-key
-  "Ex-data slot carrying FIRST-EMISSION PROVENANCE (rf2-wbkjk9): `true` when
+  "Ex-data slot carrying FIRST-EMISSION PROVENANCE: `true` when
   the throwing site had ALREADY fanned this failure's canonical record per
   its category's channel contract before throwing (the emit-then-throw
   idiom), so a downstream containment drain must NOT re-emit it on either
@@ -877,14 +854,11 @@
   consulted through [[fanned-at-source?]]. Framework-internal — never part of
   the public thrown-error shape contract.
 
-  ZERO STAMPING SITES TODAY (rf2-63t1i). The internal observation port's
-  emit-then-throw surfaces were the only producers, and the port was retired
-  on 2026-08-21. This seam is RETAINED rather than deleted for the reason
+  ZERO STAMPING SITES TODAY. The seam exists anyway, for the reason
   Spec 009 gives for `frame/guard-open-drain!` at zero call sites: the law is
-  CORE's — any future emit-then-throw site plus any containment drain needs
+  CORE's — any emit-then-throw site plus any containment drain needs
   exactly this provenance, and a drain that re-dispatches an already-fanned
-  throwable double-emits (Spec 009's one-runtime-error law). It is not
-  residue."
+  throwable double-emits (Spec 009's one-runtime-error law)."
   ::fanned-at-source)
 
 (defn fanned-at-source?
@@ -900,7 +874,7 @@
   `rf.error` catalogue namespace: a keyword `:rf.error/id` whose namespace is
   `\"rf.error\"` AND the builder's required `:reason` human sentence. This is
   structural provenance of `re-frame.error/thrown-ex-info` — NOT an
-  id-truthiness test (rf2-wbkjk9): a non-reserved application id, a
+  id-truthiness test: a non-reserved application id, a
   malformed non-keyword id, or a bare canonical-id imitation without the
   builder shape all classify false, so a containment drain wraps them
   rather than letting them spoof a canonical category."
@@ -944,14 +918,14 @@
 ;; The SSR error-emit-projection-listener consumes these generically (every
 ;; non-`:error` slot rides onto its synthesised `:tags`), so a custom
 ;; projector reading `(get-in event [:tags :exception])` sees the same keys
-;; on this path as on the trace path. Designed compatibly with the EP-0015
-;; §9 frame-owned observability sink routing these will eventually flow
-;; through (the sink projects the flat record under the frame's
-;; classification + the sink's egress profile).
+;; on this path as on the trace path. The same records also flow through the
+;; EP-0015 §9 frame-owned observability sink routing (the sink projects the
+;; flat record under the frame's classification + the sink's egress
+;; profile).
 ;;
 ;; Always-on (NOT `rf.interop/debug-enabled?`-gated): it fires in CLJS
 ;; production builds where the dev trace surface is DCE'd. The caller keeps
-;; its existing `rf.trace/emit-error!` for dev richness; this is the
+;; its own `rf.trace/emit-error!` for dev richness; this is the
 ;; production-survivable sibling.
 
 (defn- dispatch-error-record*
@@ -962,12 +936,12 @@
   but the bare frame id can no longer name A's sink policy and must not resolve
   to a same-id successor B.
 
-  rf2-kuky.67: it is passed to the sink route as the FRAME-AUTHORITY bit rather
+  It is passed to the sink route as the FRAME-AUTHORITY bit rather
   than gating the call. A dissociated incarnation's report still reaches the
   PROCESS DEFAULT — projected under an explicitly nil governing frame, keeping
-  its stale `:frame` id as a summary diagnostic — and still never reaches a
+  its stale `:frame` id as a summary diagnostic — and never reaches a
   same-id successor's sink. Most records on this path are frameless, which is
-  the same arm: they used to route to nothing at all."
+  the same arm: they too reach the process default."
   [record route-frame?]
   ((:fan-out registry) record rf.trace/continuation-live?)
   (let [routed (if (rf.trace/continuation-live?)
@@ -979,14 +953,12 @@
                        (if (rf.trace/continuation-live?) (throw e) 0)))
                    0)
                  0)]
-    ;; rf2-fu75, re-keyed by rf2-kuky.18 — the union-record fan-out site's
-    ;; half of the fallback. Same rule as `dispatch-on-error!`: exactly once
+    ;; The union-record fan-out site's half of the console fallback. Same
+    ;; rule as `dispatch-on-error!`: exactly once
     ;; per record, under the same (here unconditional) conditions, and taken
     ;; AFTER the sink route so arm (b)'s delivered-count is available. Most
-    ;; of these records are frameless: before rf2-kuky.67 that routed to
-    ;; nothing and returned 0, so the console was always their only channel;
-    ;; now a declared process default owns them and the fallback correctly
-    ;; stands down.
+    ;; of these records are frameless: a declared process default owns
+    ;; them, and the fallback stands down.
     (report-unowned-error! record routed))
   nil)
 
@@ -1031,8 +1003,9 @@
   ;; `error-emit` → `observability` → `projection` → `elision` require would
   ;; re-enter this ns's own require graph); the hook is nil (no-op) until
   ;; `re-frame.observability` loads. Fail-closed + sibling-isolated inside
-  ;; `route-error-record!` (a frameless `:frame nil` record routes nothing —
-  ;; no frame-owned policy exists). Always-on.
+  ;; `route-error-record!` (a frameless `:frame nil` record has no
+  ;; frame-owned policy, so only the process default can receive it).
+  ;; Always-on.
   nil)
 
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
@@ -1062,7 +1035,7 @@
   production builds where the dev per-hook trace is DCE'd.
 
   Per Spec 009 §Observability channels §Channel-promotion catalogue rows
-  (EP-0008 Open Issue 1, ruled): the frame-destroy case satisfies the
+  (EP-0008 Open Issue 1): the frame-destroy case satisfies the
   promotion criterion with a SINGLE bounded report naming the higher-
   level fact, with the per-step detail carried as the `hook-failures`
   payload vector — NOT one record per failed step. The destroy IS the
@@ -1096,16 +1069,16 @@
      ;; destroy recipe passes `route-frame? false`: by its finally boundary A
      ;; has been dissociated, so the bare id can no longer authorise A's
      ;; frame-owned sink and must not redirect the report into same-id B.
-     ;; The 3-arity preserves direct/live-frame callers' established route.
+     ;; The 3-arity keeps direct/live-frame callers on the frame route.
      (dispatch-error-record*
        {:error          :rf.error/frame-teardown-failed
         :frame          frame-id
         :hook-failures  (vec hook-failures)
         :recovery       :ignored
-        ;; rf2-d1yhx — "step(s)", not "cleanup hook(s)": a `:hook-failures`
+        ;; "step(s)", not "cleanup hook(s)": a `:hook-failures`
         ;; entry names a late-bound cleanup hook OR a guarded direct step
         ;; (e.g. `:frame/notify-machine-destruction!`), so hook-only wording
-        ;; misreports a destroy whose only failure was a direct step.
+        ;; would misreport a destroy whose only failure was a direct step.
         :reason         (str (count hook-failures)
                              " frame-teardown step(s) threw"
                              " during destroy; teardown continued"
@@ -1157,7 +1130,7 @@
 ;; `:rf.error/handler-exception` on THIS always-on axis, so a transient
 ;; listener here observes it under `goog.DEBUG=false` where the dev trace is
 ;; DCE'd. Survives `:advanced` + `goog.DEBUG=false` — these are the same
-;; surfaces `rf/register-error-listener!` exports, just addressable from a
+;; surfaces this ns defines, just addressable from a
 ;; non-requiring artefact.
 (rf.late-bind/set-fn! :error-emit/register-error-listener!   register-error-listener!)
 (rf.late-bind/set-fn! :error-emit/unregister-error-listener! unregister-error-listener!)
