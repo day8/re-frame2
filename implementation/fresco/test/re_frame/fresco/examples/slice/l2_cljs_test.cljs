@@ -375,9 +375,9 @@
 (deftest neither-text-field-carries-a-reset-trigger
   ;; The ABSENCE, pinned at the tier that can read a marker off an authored
   ;; form — because an absence nothing asserts is an absence somebody
-  ;; re-adds. Deleting the counter's bump from `::discard` moves the
-  ;; browser lane not at all: a discard already re-runs this body three
-  ;; times over, and the commit re-asserts the model on its own.
+  ;; re-adds. A revision counter bumped by `::discard` would be inert: a
+  ;; discard already re-runs this body three times over, and the commit
+  ;; re-asserts the model on its own.
   (is (= 0 (rf.fresco.test/revision [:input {:value "T" :re-frame.fresco/revision 0}]))
       "the kit CAN read a trigger off an authored form, which is what makes
        the two readings below a finding rather than a blind spot")
