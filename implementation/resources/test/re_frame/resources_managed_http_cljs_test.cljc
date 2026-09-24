@@ -1,8 +1,8 @@
 (ns re-frame.resources-managed-http-cljs-test
-  "Managed-HTTP transport for resources (rf2-p19360, Spec 016 §EP-0003
-  slice 5 — the transport↔events boundary).
+  "Managed-HTTP transport for resources (Spec 016 §Transport — the
+  transport↔events boundary).
 
-  These JVM+CLJS unit tests pin the slice's semantics:
+  These JVM+CLJS unit tests pin its semantics:
 
     1. reply-addressing rejection — an app `:request` MUST NOT supply the
        runtime-owned `:request-id` / `:on-success` / `:on-failure`
@@ -44,7 +44,7 @@
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
-   ;; rf2-rak684 — the teardown-abort regression tests seed + assert the REAL
+   ;; the teardown-abort tests (section 6) seed + assert the REAL
    ;; managed-HTTP in-flight registry (NOT a captured no-op abort), so the
    ;; abort-by-request-id seam (`:http/abort-in-flight!`) runs end-to-end.
    [re-frame.http.managed]
@@ -72,13 +72,13 @@
   `reply-success!` / `reply-failure!` so the 3-element internal reply event
   matches what the live transport produces.
 
-  rf2-784223: the shared `make-reset-runtime-fixture`'s
-  `:resources/reset-resources!` post-dispose hook already clears the resource
-  state cache before this fixture runs — no per-suite reset is repeated here."
+  The shared `make-reset-runtime-fixture`'s
+  `:resources/reset-resources!` post-dispose hook clears the resource
+  state cache before this fixture runs, so no per-suite reset is repeated here."
   [f]
   (reset! last-managed-args nil)
-  ;; rf2-rak684 — the in-flight registry is module-level host state; clear any
-  ;; entry a prior test seeded so the teardown-abort regressions start clean.
+  ;; The in-flight registry is module-level host state; clear any
+  ;; entry a prior test seeded so the teardown-abort tests start clean.
   (rf.http.registry/clear-all-in-flight!)
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f)
@@ -294,7 +294,7 @@
           (is (= {:fresh "data"} (:data (entry scoped-key)))))))))
 
 ;; ===========================================================================
-;; 4b. managed-HTTP ABORT replies are CANCELLATION, not failure (rf2-z70ujl)
+;; 4b. managed-HTTP ABORT replies are CANCELLATION, not failure
 ;;     — an intentional abort routes through the same :on-failure reply but
 ;;     must NOT populate :error / :refresh-error or a :failed ledger row; the
 ;;     work row settles :cancelled and the entry settles to a non-error state.
@@ -317,7 +317,7 @@
                         :params {:slug "w"} :owner [:app :ab1 1]}])
     (is (= :loading (:status (entry k))))
     (let [wid (:current-work (entry k))]
-      (testing "rf2-z70ujl — a FIRST-load abort reply (the real
+      (testing "a FIRST-load abort reply (the real
                 {:kind :rf.http/aborted} envelope) settles to a non-error
                 stable state: NOT :error, NO :error envelope, no usable data"
         (reply-failure! @last-managed-args (aborted-failure wid :user))
@@ -347,9 +347,9 @@
     (let [wid (:current-work (entry k))
           ;; the revision the in-flight refetch sits at (load START does not bump
           ;; :revision; entry-start-load). An optimistic snapshot taken here would
-          ;; record this revision (rf2-mx0w2o).
+          ;; record this revision.
           rev-before (rf.resources.state/entry-revision (entry k))]
-      (testing "rf2-z70ujl — a background-REFRESH abort returns to :loaded,
+      (testing "a background-REFRESH abort returns to :loaded,
                 PRESERVES prior :data, and records NO :refresh-error (a
                 cancelled refresh leaves the last-known-good value intact)"
         (reply-failure! @last-managed-args (aborted-failure wid :actor-destroyed))
@@ -359,7 +359,7 @@
           (is (nil? (:refresh-error e)) "no refresh-error (abort is not a failure)")
           (is (nil? (:error e)))
           (is (nil? (:current-work e)) "current-work cleared")))
-      (testing "rf2-mx0w2o — the accepted-cancellation SETTLE bumps :revision
+      (testing "the accepted-cancellation SETTLE bumps :revision
                 (an authoritative durable write that cleared :current-work), so
                 a later optimistic rollback whose snapshot sat at the in-flight
                 revision DETECTS the conflict instead of resurrecting the stale
@@ -382,7 +382,7 @@
                          {:resource :ab3/article :scope :rf.scope/global
                           :params {:slug "w"}}])
       (is (= 2 (:generation (entry k))))
-      (testing "rf2-z70ujl — a STALE (gen-1) abort reply NEVER mutates the
+      (testing "a STALE (gen-1) abort reply NEVER mutates the
                 newer gen-2 entry (the live-entry-for-reply boundary
                 suppresses it); the gen-2 in-flight attempt is untouched"
         (reply-failure! gen1-args (aborted-failure gen1-wid :user))
@@ -390,7 +390,7 @@
           (is (= 2 (:generation e)) "entry still on gen 2")
           (is (= :loading (:status e)) "gen-2 attempt still in flight")
           (is (some? (:current-work e)) "gen-2 work pointer intact"))
-        (testing "rf2-jzh5gq — STALE VALIDATION WINS over the natural status:
+        (testing "STALE VALIDATION WINS over the natural status:
                   once the reply no longer correlates with a live target the
                   STALE gen-1 work row settles :suppressed, NOT an accepted
                   :cancelled (a stale abort cannot be an accepted cancellation
@@ -404,7 +404,7 @@
 (deftest owner-release-orphan-abort-does-not-set-entry-error
   ;; the end-to-end orphan path: an in-flight first load whose last owner is
   ;; released emits a best-effort abort; when that abort reply lands it must
-  ;; NOT surface as a resource error (rf2-z70ujl acceptance).
+  ;; NOT surface as a resource error.
   (rf/reg-resource :ab4/article (article-spec) article-spec-request)
   (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :ab4/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
@@ -413,7 +413,7 @@
     (let [args @last-managed-args
           wid  (:current-work (entry k))]
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :ab4 1]}])
-      (testing "rf2-z70ujl — when the orphaned in-flight attempt's abort reply
+      (testing "when the orphaned in-flight attempt's abort reply
                 lands it settles cancellation, NOT a user-visible error"
         (reply-failure! args (aborted-failure wid :user))
         (let [e (entry k)]
@@ -422,7 +422,7 @@
           (is (empty? (:active-owners e)) "still owner-free"))))))
 
 ;; ===========================================================================
-;; 4c. cross-frame reply isolation (rf2-eu2ifi) — a reply whose stamped
+;; 4c. cross-frame reply isolation — a reply whose stamped
 ;;     :rf.frame/id does not match the RECEIVING frame is rejected without
 ;;     mutating that frame's entry or ledger; the verification payload carries
 ;;     the qualified frame stamp the reply handlers compare against.
@@ -444,7 +444,7 @@
                        {:resource :ff/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :ff 1]}]
                       {:frame fa})
-    (testing "rf2-eu2ifi — the reply verification payload stamps the issuing
+    (testing "the reply verification payload stamps the issuing
               frame's qualified :rf.frame/id (so the receiving handler can
               compare it)"
       (let [vp (nth (:on-success @last-managed-args) 1)]
@@ -459,7 +459,7 @@
     (rf/make-frame {:id fa :doc "xframe A"})
     (rf/make-frame {:id fb :doc "xframe B"})
     ;; both frames issue the SAME resource at the SAME generation (gen 1) —
-    ;; the collision case the bare-work-id correlation could not tell apart.
+    ;; the collision case a bare-work-id correlation cannot tell apart.
     (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :a 1]}]
                       {:frame fa})
@@ -469,7 +469,7 @@
                         {:frame fb})
       (is (= 1 (:generation (entry fa k))) "frame A entry on gen 1")
       (is (= 1 (:generation (entry fb k))) "frame B entry on gen 1 (same gen — collision case)")
-      (testing "rf2-eu2ifi — frame A's reply (payload stamped :rf.frame/id = A)
+      (testing "frame A's reply (payload stamped :rf.frame/id = A)
                 dispatched INTO frame B is REJECTED: frame B's entry is not
                 mutated (no cross-frame write even at the same work-id/gen)"
         (reply-into-frame! fb a-payload {:title "A-data"})
@@ -517,7 +517,6 @@
 
 ;; ===========================================================================
 ;; 6. OUT-OF-CASCADE teardown aborts the underlying managed-HTTP request
-;;    (rf2-rak684)
 ;;
 ;;    The in-cascade lifecycle events (:rf.resource/remove, clear-scope,
 ;;    refetch supersession, owner-release) abort the underlying managed-HTTP
@@ -530,16 +529,16 @@
 ;;      - frame destroy     (resources/release-resources-host-caches! →
 ;;                           rf.resources.work-ledger/release-frame! → abort-slot!)
 ;;
-;;    Before rf2-rak684 these only fired the side-table `:abort-fn` (nil for
-;;    managed HTTP, whose AbortController is host-owned), so they dropped the
-;;    Resources-side work handle while leaving the underlying managed request
-;;    ALIVE. The fix routes them through `rf.resources.work-ledger/abort-handle!`, which —
+;;    Both route through `rf.resources.work-ledger/abort-handle!`, which —
 ;;    for a managed-HTTP slot — fires the abort-by-request-id seam
 ;;    (`re-frame.http.registry/abort-in-flight!`) through the published
 ;;    `:http/abort-in-flight!` late-bind hook, by the SAME frame-qualified
 ;;    request-id (`[:rf.req <frame-id> <work-id>]`) the lower registered.
+;;    Firing only the side-table `:abort-fn` (nil for managed HTTP, whose
+;;    AbortController is host-owned) would drop the Resources-side work handle
+;;    while leaving the underlying managed request ALIVE.
 ;;
-;;    These regressions seed + assert the REAL managed-HTTP in-flight registry
+;;    These tests seed + assert the REAL managed-HTTP in-flight registry
 ;;    (NOT a captured no-op abort), so the seam runs end-to-end and the abort
 ;;    must leave NO live HTTP in-flight entry.
 ;; ===========================================================================
@@ -560,7 +559,7 @@
   recorder)
 
 (deftest clear-resource-aborts-managed-http-in-flight
-  ;; rf2-rak684 — clear-resource MUST abort the underlying managed-HTTP request
+  ;; clear-resource MUST abort the underlying managed-HTTP request
   ;; for an in-flight resource (Spec 016 §clear-resource MUST-dispose +
   ;; §Cancellation is opportunistic), not just clear the work-handle side-table
   ;; slot. The abort fires by the frame-qualified request-id and the HTTP
@@ -581,7 +580,7 @@
           (is (= request-id (:request-id handle)))
           (is (nil? (:abort-fn handle)) "managed-HTTP slot carries NO direct abort-fn")))
       (rf.resources.registry/clear-resource :crab/article)
-      (testing "rf2-rak684 — clear-resource aborts the underlying managed-HTTP
+      (testing "clear-resource aborts the underlying managed-HTTP
                 request by [:rf.req frame-id work-id] (not just the side-table slot)"
         (is (= [[request-id :resource-superseded]] @aborted)
             "exactly one abort fired, by the frame-qualified request-id")
@@ -591,7 +590,7 @@
             "the work-handle side-table slot is dropped")))))
 
 (deftest frame-destroy-aborts-managed-http-in-flight
-  ;; rf2-rak684 — frame destroy MUST abort any in-flight managed-HTTP resource
+  ;; frame destroy MUST abort any in-flight managed-HTTP resource
   ;; work for the frame BEFORE dropping the generation high-water (Spec 016
   ;; [Runtime-Subsystems] clause 5). A surviving host request would otherwise
   ;; outlive the frame and could satisfy a future same-id frame's reply gate.
@@ -610,7 +609,7 @@
         (is (some? (rf.resources.work-ledger/get-handle fa wid)) "work-handle slot present")
         (is (pos? (rf.resources.state/generation-snapshot fa)) "generation high-water present"))
       (rf.frame/destroy-frame! fa)
-      (testing "rf2-rak684 — frame destroy aborts the underlying managed-HTTP
+      (testing "frame destroy aborts the underlying managed-HTTP
                 request by [:rf.req frame-id work-id] and leaves no live in-flight entry"
         (is (= [[request-id :resource-superseded]] @aborted)
             "exactly one abort fired, by the frame-qualified request-id")
@@ -620,7 +619,7 @@
         (is (zero? (rf.resources.state/generation-snapshot fa)) "generation high-water dropped")))))
 
 (deftest same-frame-id-reuse-old-reply-cannot-mutate-new-frame
-  ;; rf2-rak684 — the structural-safety case the teardown abort protects, and
+  ;; The structural-safety case the teardown abort protects, and
   ;; WHY the abort (not stale suppression) is load-bearing here.
   ;;
   ;; Same-id frame re-registration is supported, and frame destroy DROPS the
@@ -634,7 +633,7 @@
   ;; CANNOT distinguish an old-incarnation reply from a new-incarnation one.
   ;;
   ;; The ONLY structural protection is that the surviving managed request is
-  ;; ABORTED on frame destroy (rf2-rak684), so it never delivers a late
+  ;; ABORTED on frame destroy, so it never delivers a late
   ;; :on-success — an aborted request fires :on-failure (:rf.http/aborted),
   ;; never the success the new frame would otherwise have accepted. This test
   ;; models the real transport: the seeded request's abort-fn delivers the
@@ -665,7 +664,7 @@
       (is (some? (rf.http.registry/lookup-in-flight old-request-id)) "old request in flight")
       ;; ---- destroy + re-register the SAME frame id ----
       (rf.frame/destroy-frame! fr)
-      (testing "rf2-rak684 — destroy aborts the surviving managed request"
+      (testing "destroy aborts the surviving managed request"
         (is (= [[old-request-id :resource-superseded]] @delivered)
             "the old request was aborted on destroy")
         (is (nil? (rf.http.registry/lookup-in-flight old-request-id))
@@ -691,7 +690,7 @@
           (is (= (:work/id old-payload) (:work/id new-payload))
               "the reply verification work-ids collide too"))
         (is (= :loading (:status (entry fr k))) "second incarnation in flight")
-        (testing "rf2-rak684 — the old request was aborted on destroy and is gone
+        (testing "the old request was aborted on destroy and is gone
                   from the registry, so NO surviving request can deliver a late
                   success into the re-registered frame (the only structural
                   protection, since the gate can't tell the replies apart)"
