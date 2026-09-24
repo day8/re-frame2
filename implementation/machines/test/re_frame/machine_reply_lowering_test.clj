@@ -2,8 +2,8 @@
   "Conformance: the two machine async completions share the uniform
   reply-envelope status/trace vocabulary (EP-0011 §Machine Completion /
   §Timer Reply; Managed-Effects §The uniform reply envelope).
-  INTERNAL LOWERING ONLY — the public statechart API (`:on-done` /
-  `:on-error` / `:after` / actor-destroy) is preserved exactly.
+  An INTERNAL LOWERING beneath the public statechart API (`:on-done` /
+  `:on-error` / `:after` / actor-destroy).
 
   Two conformance requirements:
 
@@ -84,7 +84,7 @@
             ;; (it is not a `:tags` key) — assert it there.
             (is (= :replaced-with-default (:recovery stale)))
             (let [tags (:tags stale)]
-              ;; public trace shape preserved
+              ;; public trace shape
               (is (= 30000 (:delay tags)))
               (is (= scheduled-epoch (:scheduled-epoch tags)))
               ;; reply-envelope vocabulary (Managed-Effects §9) — records suppressed
@@ -97,8 +97,8 @@
               ;; carries the owning actor INSTANCE under `:actor-id`, so the
               ;; logical-id is `[<actor-id> & <decl-path>]` — the timer's full
               ;; actor-scoped identity, not the bare declaring path.
-              ;; rf2-o6c2jr — the bare :work/id duplicate was dropped; the
-              ;; reply-envelope work identity rides ONLY as :rf.reply/work-id.
+              ;; The reply-envelope work identity rides ONLY as
+              ;; :rf.reply/work-id; there is no bare :work/id duplicate.
               (is (= [:rf.work/timer [:rl/after :loading] scheduled-epoch]
                      (:rf.reply/work-id tags))
                   "canonical timer :rf.reply/work-id on the stale-after trace (actor-scoped)")
@@ -116,7 +116,7 @@
         (finally (rf.trace.tooling/unregister-listener! ::after-stale))))))
 
 (deftest after-live-still-fires
-  (testing "behavioural parity: a LIVE :after timer still fires its transition (lowering did not perturb the live path)"
+  (testing "control: a LIVE :after timer fires its transition (the stale gate leaves the live path alone)"
     (rf/reg-machine :rl/after-live
       {:initial :loading
        :states  {:loading {:after {30000 :timed-out}}
@@ -126,7 +126,7 @@
       (rf/dispatch-sync [:rl/after-live
                          [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
       (is (= :timed-out (:state (snapshot :rl/after-live)))
-          "the matching (live) epoch drives the transition unchanged"))))
+          "the matching (live) epoch drives the transition"))))
 
 ;; ===========================================================================
 ;; (2) spawned-actor completion — canonical reply drives :on-done / :on-error
@@ -154,8 +154,8 @@
         (rf/dispatch-sync [:rl/parent [:go]])
         ;; The child was spawned as :rl/child#1 under [:working].
         (rf/dispatch-sync [:rl/child#1 [:finish :secret-token]])
-        ;; Public :on-done semantics preserved — the parent's :data was
-        ;; updated with the child's :output-key result.
+        ;; Public :on-done semantics — the parent's :data is updated with
+        ;; the child's :output-key result.
         (is (= :secret-token (get-in (snapshot :rl/parent) [:data :token-from-child]))
             ":on-done ran with the canonical reply's :value")
         (is (nil? (snapshot :rl/child#1)) "child auto-destroyed on :final?")
@@ -165,7 +165,7 @@
                         first)]
           (is (some? done) ":rf.machine/done trace fired")
           (let [tags (:tags done)]
-            ;; public shape preserved
+            ;; public shape
             (is (= :rl/child#1 (:actor-id tags)))
             (is (= :secret-token (:output tags)))
             (is (false? (:error? tags)))
@@ -174,7 +174,7 @@
             (is (= :completed (:rf.reply/work-status tags)))
             ;; the CANONICAL :rf.reply/work-id is stamped so Xray's uniform
             ;; work/reply grouping joins this spawned-actor completion.
-            ;; rf2-o6c2jr — the bare :work/id duplicate was dropped.
+            ;; There is no bare :work/id duplicate.
             (is (= [:rf.work/machine :rl/child#1 [:working] 1]
                    (:rf.reply/work-id tags))
                 "canonical machine :rf.reply/work-id join key on the done trace")
@@ -184,7 +184,7 @@
         (finally (rf.trace.tooling/unregister-listener! ::done-ok))))))
 
 (deftest spawned-error-drives-on-error-transition
-  (testing "a child reaching an :error? terminal forms a :status :error reply and drives the parent's :on-error TRANSITION (raw payload on :event preserved)"
+  (testing "a child reaching an :error? terminal forms a :status :error reply and drives the parent's :on-error TRANSITION (the raw payload reaches :event)"
     (let [traces (capture-traces ::done-err)]
       (try
         (rf/reg-machine :rl/echild
@@ -211,7 +211,7 @@
                      :error {}}})
         (rf/dispatch-sync [:rl/eparent [:go]])
         (rf/dispatch-sync [:rl/echild#1 [:fail :bad-creds]])
-        ;; Public :on-error semantics preserved — the parent transitioned
+        ;; Public :on-error semantics — the parent transitioned
         ;; to :error and the RAW error payload reached the transition's
         ;; :event (NOT the reply-map's wrapped :error).
         (is (= :error (:state (snapshot :rl/eparent)))
@@ -338,7 +338,7 @@
                         first)]
           (is (some? done) ":rf.machine/done trace fired for the stale completion")
           (let [tags (:tags done)]
-            ;; public shape preserved
+            ;; public shape
             (is (= :rl/fchild#1 (:actor-id tags)))
             (is (false? (:error? tags)) "a plain final leaf is not an error leaf")
             ;; reply-envelope vocabulary (Managed-Effects §9) — records STALE/suppressed
@@ -362,7 +362,7 @@
         (finally (rf.trace.tooling/unregister-listener! ::spawn-stale-finality))))))
 
 (deftest spawn-live-parent-still-drives-on-done
-  (testing "behavioural parity: with the parent STILL alive, the child's completion is :ok and :on-done runs (the rf2-lohbfg stale detection did not perturb the live path)"
+  (testing "control: with the parent STILL alive, the child's completion is :ok and :on-done runs (stale detection leaves the live path alone)"
     (rf/reg-machine :rl/schild-live
       {:initial :running
        :data    {}
@@ -398,10 +398,10 @@
 ;;      completions §Stale suppression says the `:on-done` / `:on-error`
 ;;      routing MUST NOT run for such a late completion.
 ;;
-;;      Both regressions are driven through PUBLIC `reg-machine` /
+;;      Both cases are driven through PUBLIC `reg-machine` /
 ;;      `dispatch-sync` only — no registry surgery, no mocked lifecycle.
-;;      D5 itself is untouched: what is fenced is FRAMEWORK-OWNED failure
-;;      delivery, never an ordinary authored event, which still re-creates the
+;;      The fence does not narrow D5: it covers FRAMEWORK-OWNED failure
+;;      delivery, never an ordinary authored event, which re-creates the
 ;;      address (pinned in machine_definition_survives_teardown_cljs_test).
 ;; ===========================================================================
 
@@ -481,17 +481,17 @@
         (finally (rf.trace.tooling/unregister-listener! ::xjee-action-throw))))))
 
 (deftest live-parent-still-takes-on-error-from-both-failure-triggers
-  (testing "the positive control for BOTH fences: with the parent ALIVE, an :error? leaf AND an uncaught action exception each still drive the :on-error transition"
+  (testing "the positive control for BOTH fences: with the parent ALIVE, an :error? leaf AND an uncaught action exception each drive the :on-error transition"
     (reg-xjee-pair! :rl/lchild :rl/lparent)
     (rf/dispatch-sync [:rl/lparent [:go]])
     (rf/dispatch-sync [:rl/lchild#1 [:fail]])
     (is (= :error (:state (snapshot :rl/lparent)))
-        "live parent: the error leaf still fired :on-error")
+        "live parent: the error leaf fired :on-error")
     (reg-xjee-pair! :rl/l2child :rl/l2parent)
     (rf/dispatch-sync [:rl/l2parent [:go]])
     (rf/dispatch-sync [:rl/l2child#1 [:throw]])
     (is (= :error (:state (snapshot :rl/l2parent)))
-        "live parent: the action exception still fired :on-error")))
+        "live parent: the action exception fired :on-error")))
 
 ;; ===========================================================================
 ;; (4) causal :completed-at threading. A spawned machine
@@ -502,7 +502,7 @@
 ;;     single causal-boundary clock read), NOT an ambient host-clock read.
 ;;     The production finalize path threads that world-input time into the
 ;;     reply-ctx so the done reply + `:rf.machine/done` trace carry the
-;;     causal `:completed-at` instead of silently losing it.
+;;     causal `:completed-at`.
 ;; ===========================================================================
 
 (deftest spawned-completion-threads-causal-completed-at
@@ -534,7 +534,7 @@
         ;; one host-clock read the router captures at the causal boundary.
         (rf/dispatch-sync [:rl/cchild#1 [:finish :secret-token]]
                           {:rf.cofx {:rf/time-ms completed-at}})
-        ;; Behavioural parity: :on-done still ran with the canonical value.
+        ;; :on-done ran with the canonical value.
         (is (= :secret-token (get-in (snapshot :rl/cparent) [:data :token-from-child]))
             ":on-done mutated the parent's durable :data (the §155/§231 case)")
         (let [done (->> @traces
@@ -542,11 +542,11 @@
                         first)]
           (is (some? done) ":rf.machine/done trace fired")
           (let [tags (:tags done)]
-            ;; THE coverage gap: the causal completion timestamp rides the
+            ;; The causal completion timestamp rides the
             ;; done trace — the supplied :rf.cofx :time-ms VERBATIM,
-            ;; not an ambient clock read. rf2-o6c2jr — it rides ONLY as the
-            ;; reply-envelope :rf.reply/completed-at (the bare :completed-at
-            ;; duplicate was dropped).
+            ;; not an ambient clock read. It rides ONLY as the
+            ;; reply-envelope :rf.reply/completed-at; there is no bare
+            ;; :completed-at duplicate.
             (is (= completed-at (:rf.reply/completed-at tags))
                 "the causal :rf.cofx :time-ms rides the done reply trace")
             (is (not (contains? tags :completed-at))
@@ -592,10 +592,10 @@
           (is (some? done))
           ;; The invariant: NO nil sentinel. Either the key is absent, or it
           ;; carries a genuine number (if the router seeded a causal time);
-          ;; an explicit nil would be the silent-loss bug the bead guards.
-          ;; rf2-o6c2jr — the bare :completed-at duplicate was dropped, so it
-          ;; NEVER rides the reply-envelope row; the fact lives only under
-          ;; :rf.reply/completed-at (omitted when no causal time, never nil).
+          ;; an explicit nil would silently lose the fact. The bare
+          ;; :completed-at NEVER rides the reply-envelope row; the fact lives
+          ;; only under :rf.reply/completed-at (omitted when no causal time,
+          ;; never nil).
           (is (not (contains? tags :completed-at))
               "no bare :completed-at duplicate on the reply-envelope done trace")
           (is (not (and (contains? tags :rf.reply/completed-at)
