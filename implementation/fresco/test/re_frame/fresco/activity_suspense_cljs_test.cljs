@@ -394,12 +394,11 @@
 (deftest a-hide-landing-inside-a-deferred-notification-window-is-not-notified
   ;; **This row is the only place `unsubscribe`'s notifier clear is
   ;; load-bearing.** Deleting `(set! (.-notify reg) nil)` reds nothing
-  ;; else in this file,
-  ;; and deleting the membership release reds nothing that depends on
-  ;; deafness — because on the synchronous path each mechanism alone is
-  ;; sufficient. `flush!` reads the reader lists BEFORE the deferral, so
-  ;; on this path the release has already happened and cannot help; the
-  ;; nil notifier is the whole of the guard.
+  ;; else in this file, and deleting the membership release reds nothing
+  ;; that depends on deafness — because on the synchronous path each
+  ;; mechanism alone is sufficient. `flush!` reads the reader lists BEFORE
+  ;; the deferral, so on this path the release has already happened and
+  ;; cannot help; the nil notifier is the whole of the guard.
   (async done
     (seeded!)
     (let [visible (commit! (render! panel-body))
