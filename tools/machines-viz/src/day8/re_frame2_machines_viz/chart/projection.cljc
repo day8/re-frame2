@@ -219,7 +219,7 @@
   paradigm: `:after` (clock glyph), `:always` (infinity glyph),
   `:on-done` (completion ✓ done chip — the XState `onDone`
   compound/parallel completion transition), `:on-error` (the ✗ error
-  chip — a `:spawn` `:on-error` parent transition, rf2-3x7nj.33.1), or
+  chip — a `:spawn` `:on-error` parent transition), or
   `:on` (regular event keyword). Pure data → keyword."
   [edge]
   (cond
@@ -237,13 +237,13 @@
   event-node ids — the same collision-tiebreak `chart.layout/project-flat`
   applies.
 
-  rf2-4gtvln — minted through a RESERVED leading + trailing `__` scheme
-  (mirroring `chart.layout/machine-root-id` / `root-container-id`), NOT the
-  naive `event__<edge-id>` prefix. A real `node-id` hex-escapes every
-  non-alphanumeric segment char (`grammar/escape-id-segment`; a literal `_`
-  → `_5f`) and joins path segments with `__`, so it can never START with
-  `__` — the boundary here is unreachable from escaped segment content. The
-  old prefix collided byte-for-byte with a real state path
+  Minted through a RESERVED leading + trailing `__` scheme
+  (mirroring `chart.layout/machine-root-id` / `root-container-id`). A real
+  `node-id` hex-escapes every non-alphanumeric segment char
+  (`grammar/escape-id-segment`; a literal `_` → `_5f`) and joins path
+  segments with `__`, so it can never START with `__` — the boundary here is
+  unreachable from escaped segment content. A naive `event__<edge-id>`
+  prefix would collide byte-for-byte with a real state path
   `[:event <src> <tgt> <evt>]` (whose `node-id` is
   `event__<src>__<tgt>__<evt>`), so xyflow — which keys nodes by `:id` and
   silently drops a duplicate — could lose the real state box or the
@@ -256,18 +256,18 @@
   wired into each `:initial?` state via an unlabelled entry edge.
   `state-id` is the target state's `node-id`.
 
-  rf2-4gtvln — minted through the SAME reserved leading + trailing `__`
-  scheme as `event-node-id` / `chart.layout/machine-root-id`, NOT the naive
-  `initial__<state-id>` prefix. A real `node-id` hex-escapes every
-  non-alphanumeric segment char and joins segments with `__`, so it can
-  never START with `__` — the boundary here is unreachable from escaped
-  segment content. The old prefix collided byte-for-byte with a real
+  Minted through the SAME reserved leading + trailing `__`
+  scheme as `event-node-id` / `chart.layout/machine-root-id`. A real
+  `node-id` hex-escapes every non-alphanumeric segment char and joins
+  segments with `__`, so it can never START with `__` — the boundary here
+  is unreachable from escaped segment content. A naive
+  `initial__<state-id>` prefix would collide byte-for-byte with a real
   two-segment state path `[:initial <X>]` (whose `node-id` is
   `initial__<X>`) whenever a machine has a top-level compound state
   literally named `:initial`, so xyflow (keys nodes by `:id`, drops a
-  duplicate) silently lost either the real `[:initial <X>]` state box or the
-  marker for `<X>`, and the entry edge mis-wired its glyph onto the
-  survivor. The single source of truth for BOTH the marker node's `:id` and
+  duplicate) would silently lose either the real `[:initial <X>]` state box
+  or the marker for `<X>`, and the entry edge would mis-wire its glyph onto
+  the survivor. The single source of truth for BOTH the marker node's `:id` and
   the entry edge's `:source`, so they can never drift."
   [state-id]
   (str "__rf2_initial_" state-id "__"))
@@ -851,7 +851,7 @@
   ELK — `:tb` DOWN / `:lr` RIGHT, threaded by `->elk-input`) sets the axis of
   each guarded-fork branch's `elk.position` within-layer hint: the cross axis
   is X for `:tb` and Y for `:lr`, so the priority index rides the coordinate
-  semiInteractive actually orders by (rf2-0pmi2y). Defaults to `:tb` (the DOWN
+  semiInteractive actually orders by. Defaults to `:tb` (the DOWN
   default) — the non-fork machines never emit the hint, so the default is a
   no-op for them."
   ([parsed] (->elk-children parsed nil nil 0 :tb))
@@ -927,7 +927,7 @@
                     ;; horizontally so the cross axis is Y → `(0,pos)`. Writing
                     ;; the index on the off-axis coordinate leaves the branch
                     ;; order unconstrained for exactly the branchy forks
-                    ;; `post-elk/aspect-direction` routes to `:lr` (rf2-0pmi2y).
+                    ;; `post-elk/aspect-direction` routes to `:lr`.
                     pos (assoc :layoutOptions
                                {"elk.position"
                                 (if (= direction :lr)
@@ -1473,9 +1473,9 @@
                                           ;; `name`, which drops the namespace —
                                           ;; so a `:door/open` tag would arrive
                                           ;; at the renderer as the truncated
-                                          ;; `"open"` and the `nodes/tag-label`
-                                          ;; identity fix (which runs AFTER the
-                                          ;; round-trip) could never recover it.
+                                          ;; `"open"` and `nodes/tag-label`
+                                          ;; (which runs AFTER the round-trip)
+                                          ;; could never recover it.
                                           ;; Stringify via `symbol` so the
                                           ;; namespace survives the boundary
                                           ;; intact.
@@ -1581,7 +1581,7 @@
                   ;; AND the compound renderer (`compound_node`) both fill
                   ;; their box with `width:100% height:100%`, so xyflow must
                   ;; allocate the box elk measured — otherwise it falls back
-                  ;; to `compound-node-min-{width,height}` (220×120), and
+                  ;; to `compound-node-min-{width,height}` (260×150), and
                   ;; substates whose parent-relative coords elk computed
                   ;; against the FULL measured extent would overflow the
                   ;; smaller fallback box and visually escape the container.
@@ -1604,10 +1604,9 @@
                     ;; `adoptUserNodes` path adopts the child + uses
                     ;; the parent's absolute origin as the offset.
                     ;;
-                    ;; Region containers are no exception (rf2-fzbj.13).
-                    ;; Since the ROOT-CONTAINER frame (rf2-q129z8) every
-                    ;; region nests under it, ELK positions the region
-                    ;; RELATIVE to the frame, and the region's children
+                    ;; Region containers are no exception. Every region
+                    ;; nests under the ROOT-CONTAINER frame, so ELK positions
+                    ;; the region RELATIVE to the frame, and the region's children
                     ;; inherit the region's origin — so a region without
                     ;; `parentId` drags its whole subtree off by the frame
                     ;; origin while ELK's ROOT-coordinate routes stay put.
