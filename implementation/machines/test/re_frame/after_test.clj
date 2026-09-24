@@ -11,7 +11,7 @@
       the per-machine :rf/after-epoch counter.
     - No-invoke variant: a state with :after but no :spawn is a pure
       timed-transition state.
-    - The legacy :timeout-ms slot on :spawn / :spawn-all stays removed;
+    - There is no :timeout-ms slot on :spawn / :spawn-all;
       registration throws :rf.error/spawn-timeout-ms-removed. (The
       first-class EP-0029 A4 :timeout / :on-timeout grammar — which
       desugars onto :after — is covered by timeout_test.clj.)
@@ -37,16 +37,16 @@
 (def ^:private frame-db rf.machines.test-support/runtime-db)
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
-;; ---- registration-time handling of the legacy :timeout-ms slot -------------
+;; ---- registration-time handling of a :timeout-ms slot ----------------------
 ;;
-;; EP-0029 A4 ADDS first-class spawn-level :timeout / :on-timeout grammar
-;; (see timeout_test.clj for that). The PRE-EP draft :timeout-ms slot was
-;; never shipped and stays removed — `:timeout-ms` on :spawn / :spawn-all
-;; throws :rf.error/spawn-timeout-ms-removed. A bare :on-timeout (no
-;; :timeout) is now the A4 pairing error, NOT the legacy slot error.
+;; Spawn-level :timeout / :on-timeout is first-class grammar (EP-0029 A4;
+;; see timeout_test.clj for that). There is no :timeout-ms slot —
+;; `:timeout-ms` on :spawn / :spawn-all throws
+;; :rf.error/spawn-timeout-ms-removed; use :timeout. A bare :on-timeout (no
+;; :timeout) is the A4 pairing error, NOT the :timeout-ms error.
 
 (deftest spawn-timeout-ms-rejected
-  (testing "legacy :timeout-ms on :spawn fails registration"
+  (testing ":timeout-ms on :spawn fails registration"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :r}}
                          :r    {:spawn {:machine-id :stub
@@ -64,7 +64,7 @@
                             #"machine-on-timeout-without-timeout"
                             (rf/reg-machine :rmv/bad2 bad))
           "a spawn :on-timeout with no :timeout fails per EP-0029 A4")))
-  (testing "legacy :timeout-ms on :spawn-all is rejected"
+  (testing ":timeout-ms on :spawn-all is rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :h}}
                          :h    {:spawn-all
@@ -139,8 +139,8 @@
 
 ;; ---- same-tick tie-break: first-fired advances epoch, slower drops stale --
 ;;
-;; xstate-parity STEP-ALGORITHM slice (determinism of
-;; simultaneously-enabled transitions).
+;; XState parity: the STEP ALGORITHM's determinism of
+;; simultaneously-enabled transitions.
 ;;
 ;; XState v5 / SCXML §3.13 resolve simultaneously-enabled transitions by
 ;; DOCUMENT ORDER (earlier-listed wins). re-frame2 DELIBERATELY diverges
@@ -166,7 +166,7 @@
 (deftest after-same-tick-first-fired-wins-slower-drops-stale
   (testing "two :after timers (DIFFERENT delays) whose callbacks land in the
             same tick: first-fired advances the epoch + transitions; the
-            slower one drops stale — no double-transition (rf2-3kvdb)"
+            slower one drops stale — no double-transition"
     (let [m {:initial :idle
              :data    {}
              :states
@@ -375,7 +375,7 @@
 
 (deftest after-parent-survives-child-sibling-transition
   (testing "a parent's :after stays live across a child-only sibling
-            transition where the child ALSO declares :after (rf2-j9hnu)"
+            transition where the child ALSO declares :after"
     (let [m {:initial :p
              :data    {}
              :states
@@ -416,7 +416,7 @@
         (rf/dispatch-sync [:a/hier [:rf.machine.timer/after-elapsed
                                     30000 parent-epoch [:p]]])
         (is (= :timed-out (:state (snapshot :a/hier)))
-            "parent :after fires (NOT stale) after a child-only transition — rf2-j9hnu")))))
+            "parent :after fires (NOT stale) after a child-only transition")))))
 
 (deftest after-stale-child-timer-after-sibling-transition
   (testing "the OLD child :after timer goes stale after a sibling transition"
@@ -648,11 +648,11 @@
 ;; underlying reactive surface blew up.
 ;;
 ;; These tests pin those two cousin arms at the trace-emit boundary —
-;; mirroring the fn-form test's shape exactly so a regression that
-;; re-introduces the swallow on either arm fails at a clear test name.
+;; mirroring the fn-form test's shape exactly so swallowing the failure on
+;; either arm fails at a clear test name.
 
 (deftest after-sub-vec-deref-throw-surfaces-trace
-  (testing "rf2-t4uo0 — sub-vec :after whose @reaction throws emits
+  (testing "sub-vec :after whose @reaction throws emits
             :rf.error/machine-after-sub-threw with :rf.sub/id +
             :exception slots and :recovery :no-clock-configured"
     ;; A deref throw on the reaction surfaces the underlying sub failure
@@ -702,7 +702,7 @@
                 ":exception slot is populated under :tags")
             (is (= :s/well-formed (-> first-err :tags :rf.sub/id))
                 ":rf.sub/id slot names the offending subscription
-                 (first element of the :after delay-key vector); rf2-1b6uh5")
+                 (first element of the :after delay-key vector)")
             (is (= [:s/well-formed] (-> first-err :tags :rf.sub/query-v))
                 ":rf.sub/query-v carries the full subscription vector")
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
@@ -711,7 +711,7 @@
                 ":recovery :no-clock-configured hoisted to top-level")))))))
 
 (deftest after-sub-vec-watch-failure-surfaces-trace
-  (testing "rf2-t4uo0 — sub-vec :after where add-watch on the reaction
+  (testing "sub-vec :after where add-watch on the reaction
             throws emits :rf.error/machine-after-watch-failed with
             :rf.sub/id + :exception slots and :recovery :static-delay"
     ;; An add-watch throw is made observable: without the error arm the
@@ -721,7 +721,7 @@
     ;;
     ;; To trigger the arm reliably we shadow `clojure.core/add-watch`
     ;; over the schedule path. The shadow throws once for the
-    ;; :after-watch key (machines/timer.cljc:298 install site) and
+    ;; :after-watch key (the add-watch install site in machines/timer.cljc) and
     ;; falls through otherwise — so the runtime's other add-watch call
     ;; sites (substrate, late-bind, etc.) are not disturbed.
     (let [real-add     add-watch
@@ -763,11 +763,11 @@
                 ":exception slot is populated under :tags")
             (is (= :s/well-behaved (-> first-err :tags :rf.sub/id))
                 ":rf.sub/id slot names the subscription whose reaction
-                 could not be watched (rf2-1b6uh5)")
+                 could not be watched")
             (is (= [:s/well-behaved] (-> first-err :tags :rf.sub/query-v))
                 ":rf.sub/query-v carries the full subscription vector")
             (is (= :w/throws-machine (-> first-err :tags :actor-id))
-                ":actor-id slot names the owning LIVE actor (rf2-yyvtk5)")
+                ":actor-id slot names the owning LIVE actor")
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted.
             (is (= :static-delay (:recovery first-err))
                 ":recovery :static-delay hoisted to top-level — the
