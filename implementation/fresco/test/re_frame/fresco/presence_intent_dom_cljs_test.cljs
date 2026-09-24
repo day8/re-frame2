@@ -35,12 +35,11 @@
      intent, and that intent is the loud error, **named**;
   6. presence's roster is four hooks — three distinct names, with
      `useContext` read twice for the frame and for the root-scoped
-     adoption window — and `collector/shell`'s is two —
-     counted at React's own dispatcher, so the budget claim is a reading
-     rather than a docstring. It also reads two things off the same
-     log: presence's body runs exactly **twice**
-     on a mount, which is `step`'s adjust-during-render convergence seen
-     from outside; and a `useEffect` call surfaces more than one
+     adoption window — and `collector/shell`'s is two — counted at
+     React's own dispatcher, so the budget claim is a reading rather than
+     a docstring. It also reads two things off the same log: presence's
+     body runs exactly **twice** on a mount, which is `step`'s
+     adjust-during-render convergence seen from outside; and a `useEffect` call surfaces more than one
      dispatcher read on React 19.2's dev build, which is why a hook
      ROSTER is `distinct` rather than a count.
 
