@@ -1640,10 +1640,10 @@
 ;; the compound's recorded (or default) configuration. The engine:
 ;;
 ;;   - RESTORES on re-entry — `compute-transition-geometry` swaps the pseudo-state
-;;     target for the resolved leaf BEFORE the LCA geometry, so the standard
-;;     exit/action/entry cascade applies unchanged (the external-self-
-;;     transition LCA rule is the precedent: resolve the real path first,
-;;     then let the geometry run on it);
+;;     target for the resolved leaf, so the standard exit/action/entry
+;;     cascade applies unchanged. In SCXML order: the exit set is computed
+;;     against the incoming recording, and the entered leaf against the
+;;     recording that exit set writes;
 ;;   - RECORDS on exit — `apply-transition-once` writes the exited compound's
 ;;     last-active configuration into the snapshot `:rf/history` slot as part
 ;;     of the exit-cascade commit;
@@ -3017,10 +3017,12 @@
                       pseudo-state — the spec/009 `:rf.machine.history/
                       restored` tag bag `{:compound-path :resolved-leaf
                       :source :kind (+:restored-config|+:fallback)}`
-                      (`:source` is `:recorded` | `:default`). The
-                      pseudo-state is swapped for `:resolved-leaf` BEFORE the
-                      LCA geometry above, so `:target-leaf` / `:lca-len` /
-                      `:entered-pairs` already reflect the resolved path.
+                      (`:source` is `:recorded` | `:default`). The exit set
+                      (`:lca-len`) is computed against the incoming
+                      snapshot's recording; `:resolved-leaf` is resolved
+                      against the recording that exit set writes, so
+                      `:target-leaf` / `:entered-pairs` reflect the restored
+                      path.
                       `apply-transition-once` emits the
                       `:rf.machine.history/restored` trace from it."
   [machine snapshot transition transition-phase]
@@ -3076,38 +3078,39 @@
         ;; that resolves onto the active path.
         target-base0  (target-path decl-path raw-target)
         ;; Per Spec 005 §Restoring — on transition to the pseudo-state: when
-        ;; `target-base0` lands on a history pseudo-state, resolve it to the
-        ;; recorded (or default / dangling-fallback) leaf BEFORE the LCA
-        ;; geometry. The resolved leaf is what the entry cascade enters and
+        ;; `target-base0` lands on a history pseudo-state it resolves to a
+        ;; real leaf, in SCXML order. The DOMAIN (the exit set below) is
+        ;; computed against the incoming snapshot's recording; the ENTRY
+        ;; target (`history-restore`, after `lca-len`) is resolved against the
+        ;; recording this transition's own exit set writes, so a transition
+        ;; that exits the owning compound restores the configuration that same
+        ;; exit records. The resolved leaf is what the entry cascade enters and
         ;; what the snapshot's `:state` records — the pseudo-state is never a
-        ;; configuration member (the external-self-transition precedent:
-        ;; resolve the real path, then run the standard geometry on it).
-        ;; `:history-restore` rides
-        ;; the result so `apply-transition-once` can emit the
-        ;; `:rf.machine.history/restored` trace.
+        ;; configuration member.
         hist-node     (when (and (not targetless?) target-base0)
                         (let [n (node-at machine target-base0)]
                           (when (history-node? n) n)))
-        history-restore (when hist-node
-                          (let [{:keys [leaf source restored-config fallback]}
-                                (resolve-history-target machine snapshot
-                                                        target-base0 hist-node)]
-                            ;; The spec/009 `:rf.machine.history/restored` tag
-                            ;; bag, threaded to `apply-transition-once`'s emit.
-                            ;; `:restored-config` rides only on `:recorded`;
-                            ;; `:fallback` only on `:default` (mirrors the emit's
-                            ;; cond->). `:kind` maps the grammar `:deep?`.
-                            (cond-> {:compound-path (history-key machine (vec (drop-last target-base0)))
-                                     :resolved-leaf leaf
-                                     :source        source
-                                     :kind          (if (true? (:deep? hist-node)) :deep :shallow)}
-                              (= :recorded source) (assoc :restored-config restored-config)
-                              (= :default source)  (assoc :fallback fallback))))
+        restore-from  (fn [snap]
+                        (let [{:keys [leaf source restored-config fallback]}
+                              (resolve-history-target machine snap
+                                                      target-base0 hist-node)]
+                          ;; The spec/009 `:rf.machine.history/restored` tag
+                          ;; bag, threaded to `apply-transition-once`'s emit.
+                          ;; `:restored-config` rides only on `:recorded`;
+                          ;; `:fallback` only on `:default` (mirrors the emit's
+                          ;; cond->). `:kind` maps the grammar `:deep?`.
+                          (cond-> {:compound-path (history-key machine (vec (drop-last target-base0)))
+                                   :resolved-leaf leaf
+                                   :source        source
+                                   :kind          (if (true? (:deep? hist-node)) :deep :shallow)}
+                            (= :recorded source) (assoc :restored-config restored-config)
+                            (= :default source)  (assoc :fallback fallback))))
+        domain-restore (when hist-node (restore-from snapshot))
         ;; The effective base after history resolution: the resolved leaf
         ;; (already fully cascaded to a leaf) when restoring, else the
         ;; declared target.
-        target-base   (if history-restore (:resolved-leaf history-restore) target-base0)
-        target-leaf   (some->> target-base (initial-cascade machine))
+        target-base   (if domain-restore (:resolved-leaf domain-restore) target-base0)
+        domain-leaf   (some->> target-base (initial-cascade machine))
         ;; ---- Exit-set boundary: the true LCCA ----------------------------
         ;; Per Spec 005 §Entry/exit cascading and SCXML §3.13: the exit set
         ;; of an EXTERNAL transition is bounded by the LEAST COMMON COMPOUND
@@ -3179,14 +3182,21 @@
                                         (> (count target-base) (count decl-path))
                                         (= (count decl-path)
                                            (common-prefix-length decl-path target-base)))
-        ;; A HISTORY restore is an external re-entry BY NATURE — it resolves
-        ;; the pseudo-state to a concrete config and re-enters the compound,
-        ;; recording the outgoing config on the way. It must NOT
-        ;; be folded into the internal-default even when the resolved leaf
-        ;; happens to coincide with the source (the never-entered fall-back to
-        ;; the compound's `:initial` can land back on the current leaf). So a
-        ;; history target ALWAYS re-enters, regardless of `:reenter?`.
-        external-re-entry?     (or reenter? (some? history-restore))
+        ;; A HISTORY target is an external re-entry when the configuration it
+        ;; restores CONTAINS the declaring state (XState's
+        ;; `restoresSourceViaHistory`): the enter set rebuilds the declaring
+        ;; state from outside it, so the exit set must take the declaring state
+        ;; down too, or its `:spawn` children would respawn without being torn
+        ;; down. The never-entered fallback that lands back on the current
+        ;; leaf is this case. Every other history target follows the geometry
+        ;; of the leaf it resolves to, exactly as a literal `:target` would —
+        ;; so a restore declared on the owning compound itself leaves that
+        ;; compound standing unless `:reenter?` asks for its restart.
+        restores-decl? (and (some? domain-restore)
+                            (> (count decl-path) (dec (count target-base0)))
+                            (= (count decl-path)
+                               (common-prefix-length decl-path target-base)))
+        external-re-entry?     (or reenter? restores-decl?)
         reenter-active-path?   (and target-on-active-path? external-re-entry?)
         ;; The EFFECTIVE internal flag threaded to every downstream phase
         ;; (cascade-steps, `commit-snapshot` state preservation, after-fx /
@@ -3272,7 +3282,18 @@
                         (count target-base)
 
                         :else
-                        (common-prefix-length src-path target-leaf))
+                        (common-prefix-length src-path domain-leaf))
+        ;; Per Spec 005 §Recording, the exit set above writes the owning
+        ;; compound's configuration as part of the exit cascade's commit, and
+        ;; the entry target restores THAT recording. It differs from
+        ;; `domain-restore` only when this transition exits the owning
+        ;; compound; `apply-transition-once` commits the same recording.
+        history-restore (when hist-node
+                          (restore-from (first (record-exit-history machine snapshot
+                                                                    src-path lca-len))))
+        target-leaf   (if history-restore
+                        (initial-cascade machine (:resolved-leaf history-restore))
+                        domain-leaf)
         ;; Walk each path once; reuse the `[prefix node]` pair vectors
         ;; for both the cascade ref derivation AND the spawn/destroy fx
         ;; emission downstream (one `nodes-along-path` call serves both).
@@ -3989,8 +4010,11 @@
               ;; the structured explanation the outer `:rf.machine/
               ;; transition` trace carries.
               base-cascade (rf.machines.result/cascade start-result)]
-          ;; The unified SCXML microstep loop. `always-depth` counts the
-          ;; `:always` iterations (→ `::microsteps`); `raise-depth` counts
+          ;; The unified SCXML microstep loop. `always-depth` counts this
+          ;; loop's own `:always` iterations (→ `:always-depth-limit`);
+          ;; `raised-micro` counts the `:always` iterations each dequeued
+          ;; raise's nested settle ran, and `::microsteps` is their sum — every
+          ;; `:always` iteration of the macrostep. `raise-depth` counts
           ;; internal events dequeued (→ `:raise-depth-limit`, seeded from the
           ;; transitive inbound count). `pending` is the FIFO
           ;; internal-event queue — `[:raise <event-vec>]` entries kept
@@ -4007,6 +4031,7 @@
                  fx           seed-real
                  pending      (vec seed-raises)
                  always-depth 0
+                 raised-micro 0
                  raise-depth  raise-depth
                  visited      [(:state snap-after-event)]
                  cascade      base-cascade]
@@ -4108,6 +4133,7 @@
                                  (into fx step-real)
                                  (into pending step-raises)
                                  (inc always-depth)
+                                 raised-micro
                                  raise-depth
                                  (conj visited (:state snap2))
                                  (conj cascade micro-step)))))))
@@ -4127,7 +4153,7 @@
                   ;; above (`drain-to-fixed-point` with `defer?` false, or the
                   ;; parallel parent queue) to harvest and re-feed FIFO.
                   (-> (rf.machines.result/ok (commit-tags m snap) (into fx pending))
-                      (rf.machines.result/with-microsteps always-depth)
+                      (rf.machines.result/with-microsteps (+ always-depth raised-micro))
                       (rf.machines.result/with-cascade cascade))
                   (if (>= raise-depth raise-limit)
                     ;; A tripped `:raise` depth limit is a FAILED
@@ -4225,9 +4251,6 @@
                                 ;; is itself a `[:raise …]` fx (`done-raise-fx`),
                                 ;; so it rides THIS boundary too — no separate
                                 ;; done-state dialect.
-                                ;;
-                                ;; `::microsteps` is untouched: it stays the
-                                ;; `:always`-iteration count, not a step count.
                                 cascade' (if (rf.machines.result/handled? step-result)
                                            (conj cascade
                                                  {:kind   :raised-transition
@@ -4244,10 +4267,17 @@
                                    m'
                                    (into fx real-fx)
                                    (into rest-pending new-raises)
-                                   ;; A raised event does NOT count as an
-                                   ;; `:always` microstep — `::microsteps`
-                                   ;; stays the `:always`-iteration count.
+                                   ;; A raised event is not an `:always`
+                                   ;; microstep, but the `:always` iterations
+                                   ;; its nested settle ran are — they join
+                                   ;; `::microsteps`, so the rollup equals the
+                                   ;; `:rf.machine.microstep/transition` rows
+                                   ;; the macrostep emitted. They stay out of
+                                   ;; `always-depth`: the nested settle bounds
+                                   ;; its own iterations.
                                    always-depth
+                                   (+ raised-micro
+                                      (long (rf.machines.result/microsteps step-result)))
                                    (inc raise-depth)
                                    (conj visited (:state snap2))
                                    cascade')))))))
@@ -4259,13 +4289,13 @@
                 ;; active-configuration tag union on the committed snapshot
                 ;; AFTER the new state is settled but BEFORE traces fire (so
                 ;; the outer handler's `:rf.machine/transition` trace carries
-                ;; the new tag set). `always-depth` is the count of `:always`
-                ;; microsteps taken — stamped via `::microsteps` (Spec 005
-                ;; §Trace events). The `cascade` rides via
-                ;; `::cascade`.
+                ;; the new tag set). `always-depth` + `raised-micro` is the
+                ;; count of `:always` microsteps the macrostep took — stamped
+                ;; via `::microsteps` (Spec 005 §Trace events). The `cascade`
+                ;; rides via `::cascade`.
                 :else
                 (-> (rf.machines.result/ok (commit-tags m snap) fx)
-                    (rf.machines.result/with-microsteps always-depth)
+                    (rf.machines.result/with-microsteps (+ always-depth raised-micro))
                     (rf.machines.result/with-cascade cascade))))))))))
 
 (defn apply-preselected-transition

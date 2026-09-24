@@ -71,6 +71,30 @@
       (is (= 0 (-> outer first :tags :microsteps)))
       (is (empty? (ops evs :rf.machine.microstep/transition))))))
 
+(deftest always-inside-a-raised-event-counts-toward-microsteps
+  (testing "an :always step taken while handling a raised event counts in the
+   outer :microsteps, which equals the microstep traces the macrostep emitted"
+    ;; `:go` enters `:a`, whose entry raises `:next`; handling `:next` lands
+    ;; on `:b`, whose `:always` moves to `:c` inside that raise's settle.
+    (rf/reg-machine :rem/raised-always
+      {:initial :start
+       :actions {:raise-next (fn [{:keys [data]}] {:data data :fx [[:raise [:next]]]})}
+       :states  {:start {:on {:go :a}}
+                 :a     {:entry :raise-next :on {:next :b}}
+                 :b     {:always :c}
+                 :c     {:entry :raise-next :on {:next :d}}
+                 :d     {}}})
+    (rf/dispatch-sync [:rem/raised-always [:rf.machine/start]])
+    (let [evs   (record-traces!
+                  (fn [] (rf/dispatch-sync [:rem/raised-always [:go]])))
+          micro (ops evs :rf.machine.microstep/transition)
+          outer (ops evs :rf.machine/transition)]
+      (is (= :d (snap-of :rem/raised-always)))
+      (is (= 1 (count micro)) "one :always microstep ran, inside the raise")
+      (is (= 1 (count outer)) "one outer macrostep trace")
+      (is (= (count micro) (-> outer first :tags :microsteps))
+          "the outer :microsteps agrees with the per-microstep stream"))))
+
 ;; ---- :rf.error/machine-action-wrote-db — the app-db is not an action's ---
 
 (deftest action-returning-db-emits-error-and-drops-db

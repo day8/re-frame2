@@ -233,6 +233,39 @@
           (is (= :next (:state snap))))
         (finally (stop!))))))
 
+;; ---- the birth a reset runs reports `:cause :reset` ----------------------
+
+(defn- started-causes
+  "The `:cause` of every `:rf.machine/started` trace `f` emits."
+  [f]
+  (rf.machines.test-support/with-trace-capture seen
+    (f)
+    (mapv #(get-in % [:tags :cause])
+          (filter #(= :rf.machine/started (:operation %)) @seen))))
+
+(deftest reset-birth-reports-cause-reset
+  (testing "a singleton reset out of an out-of-definition :state starts with :cause :reset, not :spawned"
+    (rf/reg-machine :compat/reset-state {:initial :idle
+                                         :states  {:idle {:on {:go :next}}
+                                                   :next {}}})
+    (is (= [:explicit] (started-causes #(rf/dispatch-sync [:compat/reset-state [:rf.machine/start]])))
+        "control: the singleton's first birth")
+    (rf.frame/swap-runtime-db! :rf/default
+                               assoc-in
+                               [:rf.runtime/machines :snapshots :compat/reset-state]
+                               {:state :vanished :data {}})
+    (is (= [:reset] (started-causes #(rf/dispatch-sync [:compat/reset-state [:go]])))))
+  (testing "a snapshot-version reset starts with :cause :reset too"
+    (rf/reg-machine :compat/reset-version {:initial :idle
+                                           :meta    {:rf/snapshot-version 2}
+                                           :states  {:idle {:on {:go :next}}
+                                                     :next {}}})
+    (rf.frame/swap-runtime-db! :rf/default
+                               assoc-in
+                               [:rf.runtime/machines :snapshots :compat/reset-version]
+                               {:state :idle :data {} :meta {:rf/snapshot-version 1}})
+    (is (= [:reset] (started-causes #(rf/dispatch-sync [:compat/reset-version [:go]]))))))
+
 ;; ---- compatibility recovery on a SPAWNED ACTOR ---------------------------
 ;;
 ;; rf2-2dk0. The two reconciler checks above fire at handler-entry against
