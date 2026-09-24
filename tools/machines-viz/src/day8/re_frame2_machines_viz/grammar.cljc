@@ -504,7 +504,8 @@
 ;;   - `:final?` shape (`machine-final-state-compound` / `-has-transitions` /
 ;;     `machine-output-key-without-final` / `machine-error-flag-without-final`);
 ;;   - `:tags` set-of-keywords (`machine-bad-tags`);
-;;   - single `:spawn` XOR `:machine-id` / `:definition`
+;;   - single `:spawn` XOR `:machine-id` / `:definition`, and an inline
+;;     `:definition`'s address — `:id-prefix` or `:fixed-actor-id`
 ;;     (`machine-spawn-bad-shape`);
 ;;   - `:after` delay-key shape (`machine-bad-after-delay`);
 ;;   - history pseudo-state placement / closed key-set /
@@ -707,7 +708,14 @@
           (or (and has-id? has-def?) (and (not has-id?) (not has-def?)))
           {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
           (seq offending)
-          {:category :rf.error/machine-unknown-spawn-key :path (vec path) :keys offending})))))
+          {:category :rf.error/machine-unknown-spawn-key :path (vec path) :keys offending}
+          ;; rf2-0oy7d — an inline `:definition` needs an ADDRESS: `:id-prefix`
+          ;; or `:fixed-actor-id`. Mirror of the engine's
+          ;; `validation/inline-spawn-address-error` (rf2-j1ykz): only a
+          ;; `:machine-id` spawn defaults its prefix, so an unaddressed inline
+          ;; spawn is refused at registration, after the unknown-key scan.
+          (and has-def? (not (or (:id-prefix spec) (:fixed-actor-id spec))))
+          {:category :rf.error/machine-spawn-bad-shape :path (vec path)})))))
 
 (defn- valid-after-delay-key?
   "A static `:after` map KEY is well-formed iff a positive integer (literal ms),
