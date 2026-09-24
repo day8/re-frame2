@@ -1,6 +1,5 @@
 (ns re-frame.ssr-head-test
-  "Spec 011 §Head/meta contract — reg-head / head-model (rf2-4dra9,
-  rf2-kuky.89).
+  "Spec 011 §Head/meta contract — reg-head / head-model.
 
   Covers:
     - reg-head registers under registry kind :head
@@ -16,25 +15,25 @@
     - :rf.error/no-frame-context for a nil frame — the target is carried
     - reg-head is idempotent — re-registering replaces the slot
 
-  Mirrors the reset-runtime fixture pattern from ssr_end_to_end_test.clj.
+  Uses the shared reset-runtime fixture from `re-frame.ssr.test-fixture`.
 
-  ## Posture split (rf2-lwtlk)
+  ## Posture split
 
-  Two assertions here were about DEV-ONLY surfaces and dragged the rest of
-  the namespace out of `scripts/test-ssr-prod-gate.sh` with them.
+  One assertion here is about a DEV-ONLY surface, and it is armed on the
+  debug gate so the rest of the namespace runs in
+  `scripts/test-ssr-prod-gate.sh`.
 
-  `reg-head-accepts-metadata-arity` asserted `:doc` on the registry slot.
+  `reg-head-accepts-metadata-arity` checks `:doc` on the registry slot.
   `:doc` is a pure-documentation key: `registrar/strip-pure-documentation`
   drops it when `interop/debug-enabled?` is false, per Spec 001 §Production
   elision contract. So its absence under the gate is the elision working.
-  The `:doc` assertion is kept verbatim in a `(when interop/debug-enabled? …)`
-  arm; what the deftest is really for — that the 3-arity is a REGISTRATION
+  The `:doc` assertion sits in a `(when interop/debug-enabled? …)` arm;
+  what the deftest is really for — that the 3-arity is a REGISTRATION
   arity, storing a working `:handler-fn` under the id — is asserted outside
   it, and a `when-not` arm pins the elision itself under the real gate.
 
-  (`head-cleanup-throw-emits-warning-trace` covered the head-cleanup
-  teardown hook and went with it — head reads keep no per-frame state, so
-  there is no cleanup hook left to throw.)"
+  There is no head-cleanup teardown hook to test: head reads keep no
+  per-frame state."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -44,7 +43,7 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
-;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
+;; Shared reset fixture lives in `re-frame.ssr.test-fixture`.
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ===========================================================================
@@ -72,7 +71,7 @@
                  {:doc "Article-page head model"}
                  (fn [_db _route] {:title "x"}))
     (let [m (rf.registrar/lookup :head :head/with-meta)]
-      ;; SEMANTIC, posture-independent (rf2-lwtlk): the 3-arity is above all a
+      ;; SEMANTIC, posture-independent: the 3-arity is above all a
       ;; REGISTRATION arity — the extra metadata argument must not displace
       ;; the head-fn, and the slot must be usable.
       (is (some? m) "the 3-arity registered a slot")
@@ -81,7 +80,7 @@
       (is (= {:title "x"} ((:handler-fn m) {} nil))
           "the stored head-fn is the one passed, and it runs")
 
-      ;; rf2-lwtlk — dev-instrumentation arm (see ns docstring). `:doc` is a
+      ;; Dev-instrumentation arm (see ns docstring). `:doc` is a
       ;; pure-documentation key, dropped by
       ;; `registrar/strip-pure-documentation` under the production gate per
       ;; Spec 001 §Production elision contract.
@@ -89,9 +88,9 @@
         (is (= "Article-page head model" (:doc m))
             ":doc metadata is preserved on the registry slot"))
 
-      ;; rf2-lwtlk — the REAL-gate arm: the elision itself, witnessed on a JVM
+      ;; The REAL-gate arm: the elision itself, witnessed on a JVM
       ;; actually started with `-Dre-frame.debug=false` rather than through a
-      ;; `with-redefs` rebind that a load-time gate cannot see (rf2-9c2jf).
+      ;; `with-redefs` rebind that a load-time gate cannot see.
       (when-not rf.interop/debug-enabled?
         (is (nil? (:doc m))
             ":doc is elided from the registry slot in production builds
@@ -123,7 +122,7 @@
               {:doc       "head test frame"
                :platform  :server
                :initial-events [[:set-test-state]]})]
-      ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
+      ;; EP-0001: the route slice is durable routing runtime-db
       ;; state — seed it via :rf.db/runtime; :articles stays in app-db.
       (rf/reg-event :set-test-state
                        (fn [{:keys [db] rt :rf.db/runtime} _]
@@ -214,7 +213,7 @@
         (rf.ssr/head-model f {:head-id :head/nope})
         (is false "expected exception")
         (catch clojure.lang.ExceptionInfo e
-          ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
+          ;; Branch on the canonical :rf.error/id; the message is
           ;; the human :reason + the [:rf.error/<id>] token (non-normative bytes).
           (is (= :rf.error/no-such-head (:rf.error/id (ex-data e))))
           (is (= :head/nope (:head-id (ex-data e)))))))))
@@ -306,7 +305,7 @@
         (is (= "Default-head probe" (:title model))
             ":doc rolls into :title per Spec 011 §Default head")
         (is (not-any? #(contains? % :charset) (:meta model))
-            "default does NOT carry a charset meta (rf2-q78s1) — charset is an
+            "default does NOT carry a charset meta — charset is an
              envelope concern owned by the shell, not a per-route head concern")
         (is (some #(= "viewport" (:name %)) (:meta model))
             "default carries the viewport meta")))))
@@ -391,7 +390,7 @@
       (is (str/includes? html "\"headline\":\"Hello\"")))))
 
 (deftest head-model->html-json-ld-preserves-keyword-namespaces
-  (testing "rf2-a50nz — keyword map keys retain their namespace when
+  (testing "keyword map keys retain their namespace when
             serialised; the printer's key and value handling are symmetric.
             A user supplying `{:my.app/key \"value\"}` must see
             `\"my.app/key\":\"value\"` in the rendered JSON-LD."
@@ -402,8 +401,8 @@
           "namespaced keyword key preserves its namespace")
       (is (str/includes? html "\"unqualified\":\"v2\"")
           "unqualified keyword key still serialises as a bare name"))
-    (testing "keyword values continue to preserve namespace (regression
-              guard against accidental asymmetry resurfacing)"
+    (testing "keyword values preserve their namespace too (guards the
+              key/value symmetry)"
       (let [html (rf.ssr/head-model->html
                    {:json-ld [{"@type" :schema/Article
                                :my.app/headline :my.app/hello}]})]
@@ -411,7 +410,7 @@
         (is (str/includes? html "\"my.app/headline\":\"my.app/hello\""))))))
 
 (deftest head-model->html-json-ld-emits-json-valid-numbers
-  (testing "rf2-8jl26 — the JVM JSON-LD emitter must produce JSON-valid
+  (testing "the JVM JSON-LD emitter must produce JSON-valid
             numbers. A Clojure ratio is coerced to a double (so the wire
             form is a JSON number, not `1/3`); JSON.parse never sees a
             ratio literal."
@@ -422,7 +421,7 @@
           "the ratio 1/3 is emitted as its double value, not `1/3`")
       (is (not (str/includes? html "1/3"))
           "no raw ratio literal survives into the JSON-LD body")))
-  (testing "rf2-8jl26 — non-finite doubles (##Inf / ##-Inf / ##NaN) have no
+  (testing "non-finite doubles (##Inf / ##-Inf / ##NaN) have no
             JSON representation; the emitter fails fast rather than emitting
             `Infinity` / `NaN`, which JSON.parse rejects"
     (doseq [bad [##Inf ##-Inf ##NaN]]
@@ -433,7 +432,7 @@
           (str "non-finite JSON-LD number " (pr-str bad) " is rejected")))))
 
 (deftest head-model->html-json-ld-escapes-script-close-in-string-values
-  (testing "rf2-m5u23 / security audit 2026-05-14 §P1.1 — a string value
+  (testing "a string value
             containing `</script>` MUST NOT close the surrounding
             `<script type=\"application/ld+json\">` envelope. Every `<`
             inside string contents is escaped as `\\u003c`; JSON.parse
@@ -459,7 +458,7 @@
           "the genuine envelope-closing </script> is unaffected"))))
 
 (deftest head-model->html-json-ld-escapes-script-close-in-keys
-  (testing "rf2-m5u23 — a `<` inside a JSON-LD KEY (a string-keyed map
+  (testing "a `<` inside a JSON-LD KEY (a string-keyed map
             entry that somehow carries `<`) is also escaped. Defensive:
             map keys aren't a typical attack surface, but the helper
             walks the whole string, so this is free coverage."
@@ -475,7 +474,7 @@
            is harmless inside a <script> body and remains literal)"))))
 
 (deftest head-model->html-json-ld-escapes-control-chars
-  (testing "rf2-hzttr finding 1 — the JVM JSON-LD emitter MUST JSON-escape
+  (testing "the JVM JSON-LD emitter MUST JSON-escape
             control characters (U+0000..U+001F) inside string values. A raw
             newline/tab/CR in a `<script type=\"application/ld+json\">` body
             is INVALID JSON that search/social consumers reject; the CLJS
@@ -507,7 +506,7 @@
         (is (str/includes? html "\\u001f") "US → \\u001f")))
 
     (testing "the rendered JSON-LD body parses as valid JSON — the
-              regression's whole point. A strict parser rejects raw control
+              point of the escaping. A strict parser rejects raw control
               bytes; assert every escape is present and no raw C0 byte
               survives in the post-`<`-decode body."
       (let [headline (str "line1" \newline "line2" \tab "tabbed" (char 0x07))
@@ -538,11 +537,11 @@
             "no spurious escapes on plain ASCII content")))))
 
 (deftest head-model->html-json-ld-non-string-keys-are-quoted
-  (testing "rf2-ee38b.10 — JSON object keys MUST be quoted strings. The
-            JVM emitter previously emitted a bare key for number / boolean
-            keys (`1:\"a\"`, `true:\"a\"`), invalid JSON the client's
-            JSON.parse rejects; the CLJS branch coerces via JSON.stringify.
-            The JVM branch now coerces every key to a quoted string."
+  (testing "JSON object keys MUST be quoted strings. A bare key for a
+            number / boolean key (`1:\"a\"`, `true:\"a\"`) would be invalid
+            JSON the client's JSON.parse rejects; the CLJS branch coerces
+            via JSON.stringify, and the JVM branch coerces every key to a
+            quoted string to match."
     (testing "a numeric key is quoted (mirrors JSON.stringify)"
       (let [html (rf.ssr/head-model->html {:json-ld [{1 "a"}]})]
         (is (str/includes? html "\"1\":\"a\"")
@@ -569,7 +568,7 @@
            (rf.ssr/head-model->html {} {:wrap? true})))))
 
 (deftest head-model->html-attr-name-validation
-  (testing "rf2-vl8ir / security audit 2026-05-14 §P2.5 — attribute KEYS
+  (testing "attribute KEYS
             are gated by the HTML5 grammar `[A-Za-z][A-Za-z0-9_:-]*`. A
             key that violates the grammar throws
             `:rf.error/ssr-invalid-attribute-name` rather than emitting
@@ -674,7 +673,7 @@
                            "<link rel=\"canonical\" href=\"https://example.com/articles/123\">"))))))
 
 ;; ===========================================================================
-;; rf2-hyk9j TC-2 — :html-attrs / :body-attrs head-model keys reach the model
+;; :html-attrs / :body-attrs head-model keys reach the model
 ;; ===========================================================================
 ;;
 ;; Per Spec 011 §Head/meta — line 478: head models may carry `:html-attrs`
