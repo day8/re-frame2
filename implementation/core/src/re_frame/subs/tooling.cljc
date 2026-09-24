@@ -15,11 +15,10 @@
       `re-frame.subs.tooling/<name>` directly. Production counter
       bundles never load this ns and DCE the bodies wholesale.
     - JVM consumers reach the same fns via the `re-frame.subs/<name>`
-      legacy aliases in `re-frame.subs` (gated under `#?(:clj ...)`).
+      aliases in `re-frame.subs` (gated under `#?(:clj ...)`).
       JVM has no bundle to protect; the aliases cost nothing.
-    - `re-frame.core` carries NO alias on either host: the
-      `rf/sub-topology` / `rf/sub-cache` facade aliases were removed
-      (rf2-80mmlf), so callers name this ns.
+    - `re-frame.core` carries NO alias on either host (there is no
+      `rf/sub-topology` / `rf/sub-cache`), so callers name this ns.
 
   Per Spec 002 §The public registrar query API and Spec 006
   §Subscription topology vs subscription tracking."
@@ -122,41 +121,40 @@
 ;; ---- live cache readers --------------------------------------------------
 
 (defn- inspected-frame-sub-registrations
-  "The `:sub` registrations AS THE INSPECTED FRAME RESOLVES THEM (rf2-zimh).
+  "The `:sub` registrations AS THE INSPECTED FRAME RESOLVES THEM.
 
   Both live cache readers below take a frame-id, read THAT frame's cached
   reactions, and then need each entry's registration metadata to say what kind
   of input producer it has and where it was declared. `rf.registrar/registrations`
   is generation-routed: with `rf.registrar/*generation*` bound it projects the
   ids the frame's OWN image carries, and with nothing bound it projects the
-  global registrar atom. Both readers used to ask it with whatever generation
+  global registrar atom. A reader that asked it with whatever generation
   happened to be ambient — usually none, sometimes the INSPECTOR's own frame —
-  so the values came from frame A while the metadata came from the global pool
-  or from frame B.
+  would take the values from frame A and the metadata from the global pool or
+  from frame B.
 
-  Nothing about that is visible in the answer, which is what makes it worth a
-  named seam: an image-local sub with declared `:inputs` is reported
-  `:input-kind :db` (the default when the global pool has never heard of it),
-  and `sub-cache-algebra-view` additionally attaches a conflicting same-id
-  global's `:doc`, `:schema`, source coordinates and `:derive` handler to the
-  inspected frame's live node — a plausible answer naming the wrong derivation.
-  The VALUES stay right throughout, because `subscribe` establishes the target
-  generation on its own path, so correct values cannot vouch for the metadata
-  beside them.
+  Nothing about that would be visible in the answer, which is what makes it
+  worth a named seam: an image-local sub with declared `:inputs` would be
+  reported `:input-kind :db` (the default when the global pool has never heard
+  of it), and `sub-cache-algebra-view` would additionally attach a conflicting
+  same-id global's `:doc`, `:schema`, source coordinates and `:derive` handler
+  to the inspected frame's live node — a plausible answer naming the wrong
+  derivation. The VALUES would stay right throughout, because `subscribe`
+  establishes the target generation on its own path, so correct values cannot
+  vouch for the metadata beside them.
 
-  `rf.live-frame/call-with-frame-resolution` is the existing frame-resolution
-  seam (the one `subscribe` uses): it binds the target's sealed generation when
-  the id names an image-loaded frame, and binds NOTHING otherwise, so a frame
-  with no generation, a missing frame and the JVM all behave exactly as before.
+  `rf.live-frame/call-with-frame-resolution` is the frame-resolution seam
+  `subscribe` uses: it binds the target's sealed generation when the id names
+  an image-loaded frame, and binds NOTHING otherwise, so a frame with no
+  generation, a missing frame and the JVM all read the global registrar.
   `registrations` returns an eager map, so the projection is complete before the
   binding unwinds. Because the target is passed explicitly, the answer is the
   same whether the caller is inside another frame's generation binding or none
   at all — which is what Xray's contributor path and the Pair preload need, since
   neither can arrange to be inside the frame it is inspecting.
 
-  Internal registrar semantics are untouched, and no new query grammar is added
-  (rf2-kuky.30's ruling stands): this only supplies the target generation the
-  frame-directed readers always meant."
+  Internal registrar semantics are the same, and there is no new query grammar:
+  this only supplies the target generation the frame-directed readers mean."
   [frame-id]
   (rf.live-frame/call-with-frame-resolution
     frame-id
@@ -255,7 +253,7 @@
 ;;   :materialized? false              (an ephemeral output has no durable address)
 ;; The per-sub axes that vary are the declared INPUTS and the OUTPUT fact id.
 ;;
-;; A subscription consumes the slice-1 vocabulary verbatim — it does NOT
+;; A subscription consumes the shared algebra vocabulary verbatim — it does NOT
 ;; redefine the `:rf/storage-class` / `:rf/evaluation-policy` /
 ;; `:rf/lifecycle` enums or the `:rf/derivation-node` shape (those are owned
 ;; by Spec-Schemas / Derivations).
@@ -308,7 +306,7 @@
        :frame-state [[:frame-state []]]
        :static      (mapv (fn [q] [:sub q]) input-signals)
        :parametric  :parametric
-       ;; Legacy / pre-discriminator registration — conservative app-db read.
+       ;; A registration without a discriminator — conservative app-db read.
        [[:db []]]))))
 
 (defn- node-base
@@ -319,7 +317,7 @@
   for a static node, the concrete query vector for a live cache entry.
 
   The seven-key spine itself lives in the shared `re-frame.derivation.node`
-  leaf (rf2-2mkflj); this thin wrapper supplies the subscription family's
+  leaf; this thin wrapper supplies the subscription family's
   fixed classification."
   [id output]
   (rf.derivation.node/node-base id output
@@ -490,15 +488,12 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; `implementation/scripts/check-bundle-isolation.cjs`
-;; greps the counter bundle for this exact string. The string lives
-;; ONLY in this file's source body — no other namespace, no docstring,
-;; no test fixture references it — so its presence in the production
-;; counter bundle proves that the tooling sibling's body got pulled
-;; in (most likely via a stray `:require` from a core/* ns). The
-;; sentinel survives `:advanced` because string literals are not
-;; renamed; it sits outside any `rf.interop/debug-enabled?` gate so DCE
-;; cannot drop the literal independently of the surrounding ns body.
+;; This is NOT the string the bundle-isolation gate greps.
+;; `implementation/scripts/check-bundle-isolation.cjs`'s `subs-tooling`
+;; entry greps the emitted module for `subscription-cache-entry`, the live
+;; node-kind value `node-base` above emits. This var is private and nothing
+;; consumes its value, so Closure `:advanced` is free to drop it; its count
+;; in a bundle proves nothing either way.
 
 (defonce ^:private bundle-isolation-sentinel
   "rf.subs.tooling/sentinel:rf2-bmzq0-2026-05-16:do-not-rename")
