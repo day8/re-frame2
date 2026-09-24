@@ -1,6 +1,5 @@
 (ns re-frame.adapter-subscribe-container-activation-cljs-test
-  "Reagent adapter — `subscribe-container` on a DERIVED container activates it
-  (rf2-gwye.47 / rf2-fzbj.29 F1).
+  "Reagent adapter — `subscribe-container` on a DERIVED container activates it.
 
   Spec 006 §`make-derived-value` requires PUSH: the derived container updates
   automatically when a source changes, and `subscribe-container` \"works as on
