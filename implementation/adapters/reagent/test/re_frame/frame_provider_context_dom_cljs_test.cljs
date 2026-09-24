@@ -1,5 +1,5 @@
 (ns re-frame.frame-provider-context-dom-cljs-test
-  "Frame-provider runtime React-context test coverage (rf2-22ds).
+  "Frame-provider runtime React-context test coverage.
 
   Per Spec 002 §Reading the frame from React context and Spec 006
   §Frame-provider via React context: the resolution chain at a CLJS
@@ -8,20 +8,19 @@
     1. `re-frame.frame/*current-frame*` (dynamic var; set by `with-frame`
        / `bind-fn`)
     2. closest enclosing `frame-provider` via React context
-    3. nil — no scope. EP-0002 (rf2-69r7ui): there is NO `:rf/default`
+    3. nil — no scope. EP-0002: there is NO `:rf/default`
        floor. The createContext default is the no-provider sentinel, the
        reader returns nil, and a public frame-scoped op (subscribe /
        dispatch / current-frame-id) raises `:rf.error/no-frame-context`.
 
-  PR #195 (rf2-d4sf) made the React-context tier the *canonical* path
+  The React-context tier is the *canonical* path
   for `(rf/subscribe ...)` and `(rf/dispatch ...)` from inside a
   rendered tree (subscribe / the dispatch envelope's `:frame` default
   consult `:adapter/current-frame` through the late-bind hook). This
-  ns covers the seven runtime scenarios called out by the bead's
-  audit (rf2-o423):
+  ns covers seven runtime scenarios:
 
     1. Nested-provider inheritance — inner provider wins over outer.
-    2. No-provider → no-frame-context. EP-0002 (rf2-69r7ui): a view
+    2. No-provider → no-frame-context. EP-0002: a view
        rendered outside any `frame-provider` resolves to nil and a
        subscribe / current-frame-id raises `:rf.error/no-frame-context`
        (NOT a silent `:rf/default`). Establish an explicit provider to
@@ -39,25 +38,21 @@
 
   Browser-only — every scenario requires a real React render so the
   React-context tier actually pushes the Provider's value. The
-  `-dom-cljs-test$` suffix (rf2-2hrj8) opts this file into the
+  `-dom-cljs-test$` suffix opts this file into the
   `:browser-test` build; `:node-test` still loads it (matches
   `cljs-test$`) and the DOM-mounting branches gate on `(browser?)`
   and exit early under :node-test where `js/document` is absent.
 
-  Adapter target: stock Reagent (the artefact on main). The
-  reagent-slim track is in flight; once it lands the same scenarios
-  re-validate against that adapter without changes here.
+  Adapter target: stock Reagent.
 
-  Some overlap with cross_spec_cljs_test.cljs §rf2-d4sf is
+  Some overlap with `cross_spec_dom_cljs_test.cljs` is
   intentional — that suite covers the cross-spec interactions of
-  PR #195 broadly; this suite covers the seven-scenario surface
-  contract in one place.
+  the React-context tier broadly; this suite covers the
+  seven-scenario surface contract in one place.
 
-  Frame-id naming convention: the seven seven-scenario tests below
-  use unnamespaced frame keywords (e.g. `:rf-22ds-1-outer`) — they
-  pre-date the namespace-preservation contract and are kept as-is
-  so the diff stays focused. The
-  `namespaced-frame-id-survives-react-context-round-trip` regression
+  Frame-id naming convention: the seven scenario tests below
+  use unnamespaced frame keywords (e.g. `:rf-22ds-1-outer`); the
+  `namespaced-frame-id-survives-react-context-round-trip`
   test pins the contract that `rf/frame-provider` with a namespaced
   frame keyword (e.g. `:tenant/admin`) preserves the namespace across
   the React-context round trip — the canonical surface mounts the
@@ -71,8 +66,8 @@
   cover for that raw-hiccup case.
 
   Scenario-3 asserts the structured `:rf.error/frame-context-corrupted`
-  trace event fires on a corrupted `_currentValue` read (rf2-8q66
-  closed). EP-0002 (rf2-69r7ui): recovery is now `:no-frame-context` —
+  trace event fires on a corrupted `_currentValue` read. EP-0002:
+  recovery is `:no-frame-context` —
   the reader returns nil (NOT a synthesised `:rf/default`); a public
   frame-scoped op reading that nil then raises
   `:rf.error/no-frame-context`. The corruption error event is its own
@@ -99,7 +94,7 @@
 ;; lifecycle. `make-reset-runtime-fixture` performs the snapshot/restore +
 ;; frames-reset + adapter dispose/install this suite hand-rolled.
 ;;
-;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` OPTS OUT of the fixture's default
+;; EP-0002: `:ambient-frame nil` OPTS OUT of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. EVERY render-based test in this
 ;; suite pins the React-context tier (tier 2) of the resolution chain — a
 ;; reg-view inside a `frame-provider` must resolve the provider's frame, and a
@@ -136,28 +131,28 @@
   []
   (when (exists? (.-act React)) (.-act React)))
 
-;; ---- deferred-teardown await (rf2-vp3m9) ----------------------------------
+;; ---- deferred-teardown await ----------------------------------
 ;;
-;; SOURCE fix for the veyfp (#6488) leak class. On the Reagent family the
+;; On the Reagent family the
 ;; `:rf.view/unmounted` teardown marker rides the per-component render-reaction
 ;; DISPOSAL, which React/Reagent defer to a macrotask PAST the synchronous
 ;; unmount commit — passive-effect cleanups are async even under `flushSync`.
-;; A mounting scenario that `(rdc/unmount root)`s in a bare `finally` therefore
-;; lets its teardown marker fire AFTER the test body returns, leaking into the
-;; process-global trace listener the one `:browser-test` page shares across
-;; every `-dom-cljs-test` namespace — the veyfp victim-side symptom. Each
-;; mounting scenario below now awaits its OWN teardown so no marker outlives it.
+;; A mounting scenario that `(rdc/unmount root)`s in a bare `finally` would
+;; therefore let its teardown marker fire AFTER the test body returns, leaking
+;; into the process-global trace listener the one `:browser-test` page shares
+;; across every `-dom-cljs-test` namespace. Each mounting scenario below
+;; awaits its OWN teardown so no marker outlives it.
 ;; This is the local Reagent-DOM settle idiom (identical to the machines
 ;; artefact's `machine_view_unmount_teardown_mounted_dom_cljs_test` and the
 ;; sibling `form_3_lifecycle_dom_cljs_test`) — NOT a new runtime and NOT a
-;; shared framework; the frame-teardown runtime is unchanged, only awaited.
+;; shared framework; the frame-teardown runtime is only awaited.
 
 (defn settle-macrotasks
   "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
   disposal (which fires `:rf.view/unmounted` on a real unmount) has settled
   before the test completes.
 
-  PUBLIC alongside `await-teardown!` below (rf2-ty246): an `act`-driven
+  PUBLIC alongside `await-teardown!` below: an `act`-driven
   StrictMode teardown cannot go through `await-teardown!`'s `flushSync`, so a
   sibling reuses this settle step directly rather than re-deriving the turn
   count."
@@ -178,7 +173,7 @@
   Promise; settle-count 3 matches the proven machines-artefact idiom.
 
   PUBLIC so a sibling DOM test namespace can reuse this ONE proven teardown
-  idiom instead of minting a fourth private copy of it (rf2-ty246). Stock
+  idiom instead of minting a fourth private copy of it. Stock
   Reagent test tree only — the reagent-slim tree cannot require this ns without
   dragging stock `reagent.*` across its bundle-isolation boundary, so slim keeps
   its own equivalent."
@@ -222,14 +217,14 @@
         ;; tells us unambiguously which frame served the read.
         (rf/dispatch-sync [:seed-1 :outer-app-db] {:frame outer})
         (rf/dispatch-sync [:seed-1 :inner-app-db] {:frame inner})
-        ;; EP-0002 (rf2-69r7ui): no bare `:rf/default` seed — every dispatch
+        ;; EP-0002: no bare `:rf/default` seed — every dispatch
         ;; carries an explicit frame. The inner-wins assertion compares
         ;; against the two scoped frames, which is the whole contract here.
         (rf/reg-sub :scenario-1/v (fn [db _] (:v db)))
 
         (let [resolved-frame (atom nil)
               resolved-value (atom nil)
-              ;; SOURCE-fix teeth (rf2-vp3m9): record THIS probe's own teardown
+              ;; Record THIS probe's own teardown
               ;; marker, scoped by :rf.view/id. The trace listener is
               ;; process-global and the `:browser-test` page is shared across
               ;; every `-dom-cljs-test` namespace, so a foreign suite's deferred
@@ -256,7 +251,7 @@
                                  (.then (fn [_]
                                           (rf.trace.tooling/unregister-listener! ::scenario-1-unmounts)
                                           (is (= 1 (count @unmounts))
-                                              (str "SOURCE fix (rf2-vp3m9): exactly one "
+                                              (str "exactly one "
                                                    ":rf.view/unmounted fired for :rf.22ds-1/probe "
                                                    "WITHIN the awaited window — the teardown was "
                                                    "awaited, not leaked into the shared runner; got "
@@ -281,11 +276,11 @@
 
 ;; ---- Scenario 2: no-provider → no-frame-context ---------------------------
 ;;
-;; EP-0002 (rf2-69r7ui): the createContext default is the no-provider
+;; EP-0002: the createContext default is the no-provider
 ;; sentinel, NOT `:rf/default`. A reg-view rendered with NO enclosing
 ;; `frame-provider` resolves to nil — there is no ambient floor — so a
 ;; `subscribe` / `current-frame-id` raises `:rf.error/no-frame-context`.
-;; The single-frame-app baseline is now ONE explicit root
+;; The single-frame-app baseline is ONE explicit root
 ;; `frame-provider` (or `with-frame`); inside that scope every call stays
 ;; ergonomic. This scenario pins BOTH halves: (a) no-provider →
 ;; no-frame-context, (b) an explicit provider scopes the frame correctly.
@@ -326,7 +321,7 @@
                 root-a      (rdc/create-root (make-mount-node!))
                 render-fn-b (rf/view :rf.22ds-2/probe-scoped)
                 root-b      (rdc/create-root (make-mount-node!))
-                ;; SOURCE fix (rf2-vp3m9): await BOTH roots' deferred teardown
+                ;; Await BOTH roots' deferred teardown
                 ;; before finishing, so neither probe's marker leaks.
                 finish      (fn []
                               (-> (await-teardown! root-a)
@@ -361,11 +356,11 @@
 ;; observable + diagnostic — emits a structured error event, not a
 ;; silent fallback."
 ;;
-;; rf2-8q66 closed: when `_currentValue` is a shape
+;; When `_currentValue` is a shape
 ;; `coerce-context-value` cannot resolve to a frame keyword (nil,
 ;; false, number, JS object, empty string), the runtime emits
-;; `:rf.error/frame-context-corrupted` (op-type `:error`). EP-0002
-;; (rf2-69r7ui): recovery is now `:no-frame-context` and the reader
+;; `:rf.error/frame-context-corrupted` (op-type `:error`). EP-0002:
+;; recovery is `:no-frame-context` and the reader
 ;; returns **nil** (NOT a synthesised `:rf/default`) — a public
 ;; frame-scoped op reading that nil then raises
 ;; `:rf.error/no-frame-context`. The corruption event is its own distinct
@@ -377,7 +372,7 @@
 (deftest scenario-3-context-corrupted-emits-structured-error
   "Scenario 3 — context-not-present / corrupted error path.
 
-   Asserts the rf2-8q66 + EP-0002 (rf2-69r7ui) contract: a non-coercible
+   Asserts the EP-0002 contract: a non-coercible
    `_currentValue` on the shared frame-context emits
    `:rf.error/frame-context-corrupted` (op-type `:error`, recovery
    `:no-frame-context`) and the reader returns nil — NOT a synthesised
@@ -391,7 +386,7 @@
    does not allow) or directly poking the field — the latter is what
    we do here, since it is the substrate-level seam the resolver
    reads."
-  ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+  ;; EP-0002: the reset-runtime fixture establishes an ambient
   ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
   ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
   ;; React-context corruption tier is the SECOND tier of
@@ -467,10 +462,10 @@
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------
 ;;
-;; Per Spec 006 §Plain-fn footgun / rf2-d4sf: `(rf/subscribe ...)` inside a wrapped
+;; Per Spec 006 §Plain-fn footgun: `(rf/subscribe ...)` inside a wrapped
 ;; view consults the React-context tier and resolves the query against
 ;; the wrapped frame's app-db. This is also covered by
-;; cross_spec_cljs_test/subscribe-routes-via-react-context-under-non-
+;; cross_spec_dom_cljs_test/subscribe-routes-via-react-context-under-non-
 ;; default-frame; pinned here as the canonical seven-scenario surface.
 
 (deftest scenario-4-subscribe-routes-against-wrapped-frame
@@ -484,7 +479,7 @@
       (let [target :rf-22ds-4-wrapped]
         (rf/make-frame {:id target :doc "scenario-4 wrapped frame"})
         (rf/reg-event :seed-4 (fn [{:keys [db]} [_ v]] {:db {:s v}}))
-        ;; Seed the wrapped frame explicitly. EP-0002 (rf2-69r7ui): no bare
+        ;; Seed the wrapped frame explicitly. EP-0002: no bare
         ;; `:rf/default` seed — the assertion is that the wrapped-frame
         ;; subscribe resolves to the wrapped value, which the single scoped
         ;; seed establishes.
@@ -507,7 +502,7 @@
                                     [render-fn]])))
               (is (= :wrapped @resolved)
                   "subscribe routes against the wrapped frame, not :rf/default")
-              ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+              ;; Await the deferred teardown.
               (finish)
               (catch :default e
                 (is false (str "scenario-4 threw: " (pr-str e)))
@@ -515,11 +510,11 @@
 
 ;; ---- Scenario 5: cross-frame dispatch resolution --------------------------
 ;;
-;; Per Spec 006 §rf2-d4sf: the dispatch envelope's `:frame` default is
+;; Per Spec 006: the dispatch envelope's `:frame` default is
 ;; built via the same `:adapter/current-frame` hook as subscribe, so a
 ;; dispatch from inside a wrapped reg-view targets the wrapped frame's
 ;; app-db. Covered also by
-;; cross_spec_cljs_test/dispatch-default-frame-routes-via-react-context;
+;; cross_spec_dom_cljs_test/dispatch-default-frame-routes-via-react-context;
 ;; pinned here as the canonical seven-scenario surface.
 
 (deftest scenario-5-dispatch-routes-against-wrapped-frame
@@ -536,7 +531,7 @@
       (let [target  :rf-22ds-5-wrapped
             sibling :rf-22ds-5-sibling]
         (rf/make-frame {:id target :doc "scenario-5 wrapped frame"})
-        ;; EP-0002 (rf2-69r7ui): no `:rf/default` floor — use an explicit
+        ;; EP-0002: no `:rf/default` floor — use an explicit
         ;; sibling frame to prove the dispatch did NOT leak outside the
         ;; provider scope.
         (rf/make-frame {:id sibling :doc "scenario-5 sibling (no provider above)"})
@@ -559,7 +554,7 @@
                 "the wrapped frame's app-db carries the stamp — dispatch routed there")
             (is (not= :here (:stamped (rf/app-db-value sibling)))
                 "the sibling frame's app-db is NOT stamped — the dispatch resolved the provider's frame, not an ambient default")
-            ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+            ;; Await the deferred teardown.
             (finish)
             (catch :default e
               (is false (str "scenario-5 threw: " (pr-str e)))
@@ -639,7 +634,7 @@
               (is (every? #(= :strict-mode-app-db %) @observed-values)
                   (str "every subscribe returned the wrapped frame's app-db value; got "
                        (pr-str @observed-values)))
-              ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+              ;; Await the deferred teardown.
               (finish)
               (catch :default e
                 (is false (str "scenario-6-strict-mode threw: " (pr-str e)))
@@ -647,12 +642,12 @@
 
 ;; ---- Scenario 6 (ENSURE): StrictMode + hot-reload preserve durable state ---
 ;;
-;; HOT-RELOAD GATE (Mike-required, empirical). rf2-nyea0r split:
+;; HOT-RELOAD GATE (empirical). The frame-boundary split:
 ;; `rf/frame-root {:id …}` is the ENSURE component — create-if-absent,
 ;; reuse-if-present WITHOUT re-seeding, NO destroy-on-unmount. Scenario 6 above
 ;; covers the SCOPE-only `{:frame …}` shape under StrictMode — a pure context
 ;; read, so the double-invoke is harmless. This frame-root (ENSURE) counterpart
-;; pins the COMMIT-OWNED two-pass contract (rf2-nyea0r) empirically under a real
+;; pins the COMMIT-OWNED two-pass contract empirically under a real
 ;; React lifecycle:
 ;;
 ;;   render(nil) → COMMIT → useLayoutEffect (make-frame) → ready → render(children)
@@ -665,12 +660,12 @@
 ;; effect. The contract this gate locks: across BOTH the StrictMode dev cycle AND
 ;; a hot-reload remount that passes a DIFFERENT `:initial-events`, the existing
 ;; frame is REUSED, its durable app-db survives, and `:initial-events` are NOT
-;; re-run (no re-seed). (rf2-nyea0r acceptance: StrictMode-once.)
+;; re-run (no re-seed).
 
 (deftest scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed
   "Scenario 6 (frame-root ENSURE) — the HOT-RELOAD GATE. StrictMode
    double-invoke AND a simulated `:dev/after-load` remount must REUSE the
-   existing frame WITHOUT re-seeding (rf2-nyea0r; commit-owned two-pass).
+   existing frame WITHOUT re-seeding (commit-owned two-pass).
 
    1. Mount `frame-root {:id … :initial-events [[:rf/set-db {:n 7}]]}` inside
       `React.StrictMode`. Advance the macrotask window. The frame must be live
@@ -712,7 +707,7 @@
                          'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
             ;; Keyed (v1) so the hot-reload remount below (v2) forces React to
             ;; unmount this instance and mount a FRESH one — the keyed-remount
-            ;; path (rf2-nyea0r acceptance). A same-instance re-render with
+            ;; path. A same-instance re-render with
             ;; changed :initial-events would instead be a fail-loud reconfiguration.
             tree       (React/createElement (.-StrictMode React) nil
                                             (React/cloneElement ensure-el #js {:key "v1"}))
@@ -785,7 +780,7 @@
               ;; synchronously, so a rejection handler downstream of the step
               ;; that finished the row claims whatever a LATER namespace throws,
               ;; prints it against this row's label, and fires `done` a second
-              ;; time (rf2-e8kc). The CAS in `done!` swallows that second call;
+              ;; time. The CAS in `done!` swallows that second call;
               ;; it cannot swallow the misattributed `is false`.
               (.catch
                 (fn [err]
@@ -798,14 +793,14 @@
 ;; ---- Scenario 6 (frame-root): genuine unmount LEAVES the frame live -------
 ;;
 ;; frame-root has NO destroy-on-unmount. A genuine unmount (no remount) must
-;; LEAVE the frame live — the inverse of the retired owned provider's
-;; destroy-on-unmount. True ownership (teardown) is now explicit (`make-frame` +
+;; LEAVE the frame live — there is no owning provider that destroys on
+;; unmount. True ownership (teardown) is explicit (`make-frame` +
 ;; `destroy-frame!` inside a `create-class`), never the boundary's job. This
 ;; pins that a real unmount does not tear the frame down.
 
 (deftest scenario-6-frame-root-genuine-unmount-leaves-frame-live
   "Scenario 6 (frame-root ENSURE) — a genuine unmount LEAVES the frame live
-   (rf2-nyea0r; owned destroy-on-unmount retired). Mount (no StrictMode),
+   (there is no destroy-on-unmount). Mount (no StrictMode),
    unmount, advance past any macrotask window, and assert the frame is STILL
    LIVE with its durable app-db intact."
   (if-not (browser?)
@@ -840,12 +835,12 @@
                   ;; Genuine unmount — frame-root does NOT destroy.
                   (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
               ;; AWAITED rather than fired-and-forgotten. A bare `js/setTimeout`
-              ;; returns a NUMBER, so this step used to settle the chain
-              ;; immediately and the assertions below ran OFF THE END of it —
-              ;; where the handler could not see a throw, and a throw would have
-              ;; left `done!` uncalled and hung the lane with no diagnostic at
+              ;; returns a NUMBER, so this step would settle the chain
+              ;; immediately and the assertions below would run OFF THE END of
+              ;; it — where the handler could not see a throw, and a throw would
+              ;; leave `done!` uncalled and hang the lane with no diagnostic at
               ;; all. The same double-macrotask window, expressed as a promise
-              ;; the chain can wait on (rf2-e8kc).
+              ;; the chain can wait on.
               (.then
                 (fn [_]
                   (js/Promise.
@@ -860,7 +855,7 @@
                   (is (= {:n 3} (rf/app-db-value target))
                       "durable app-db survived the unmount intact")
                   nil))
-              ;; Reports; it does NOT finish — as above (rf2-e8kc).
+              ;; Reports; it does NOT finish — as above.
               (.catch
                 (fn [err]
                   (is false (str "frame-root genuine-unmount scenario threw: " (pr-str err)))
@@ -871,11 +866,11 @@
 
 ;; ---- Scenario 6 (frame-root): a DISCARDED render creates NO frame ---------
 ;;
-;; The core rf2-nyea0r fix: `frame-root` ensures at COMMIT (useLayoutEffect),
+;; The core contract: `frame-root` ensures at COMMIT (useLayoutEffect),
 ;; not during render, so a render React DISCARDS before commit (an error thrown
 ;; deeper in the subtree, a Suspense abort, a concurrent tear-off) creates + seeds
 ;; NOTHING — no ghost frame whose once-per-lifetime initialization is consumed.
-;; This pins the ghost-frame regression: mount a frame-root whose SIBLING throws
+;; This pins the no-ghost-frame contract: mount a frame-root whose SIBLING throws
 ;; during render (aborting the whole commit), catch it in an error boundary, and
 ;; assert the frame was NEVER created and its :initial-events NEVER fired.
 
@@ -911,7 +906,7 @@
 
 (deftest scenario-6-frame-root-discarded-render-creates-no-frame
   "Scenario 6 (frame-root ENSURE) — a render that never commits creates NO frame
-   and fires NO :initial-events (rf2-nyea0r ghost-frame fix). A sibling that
+   and fires NO :initial-events (no ghost frame). A sibling that
    throws during render aborts the commit for the whole tree; because the ENSURE
    runs in a COMMIT-phase useLayoutEffect, it never runs — so no frame is
    registered under the id and its :initial-events never fire."
@@ -952,8 +947,8 @@
           (-> (js/Promise.resolve (act-fn (fn [] (.render root boundary))))
               ;; AWAITED rather than fired-and-forgotten, for the reason given
               ;; on the genuine-unmount scenario above: a bare `js/setTimeout`
-              ;; returns a NUMBER, so the assertion below used to run off the
-              ;; end of a chain that had already settled (rf2-e8kc).
+              ;; returns a NUMBER, so the assertion below would run off the
+              ;; end of a chain that had already settled.
               (.then
                 (fn [_]
                   (js/Promise. (fn [resolve _] (js/setTimeout (fn [] (resolve nil)) 8)))))
@@ -1040,7 +1035,7 @@
                 ;; Reports; it does NOT finish. `finish` closes over `done`, so
                 ;; calling it from a rejection handler downstream of the step
                 ;; that already called it claims a LATER namespace's throw as
-                ;; this row's and fires `done` a second time (rf2-e8kc). A
+                ;; this row's and fires `done` a second time. A
                 ;; closure is invisible to a scanner looking for a literal
                 ;; `(done)` or for a helper that TAKES `done`; it finishes the
                 ;; row just the same.
@@ -1078,7 +1073,7 @@
                                (pr-str @observed-values)))
                       nil))
                   (.catch report!)
-                  ;; SOURCE fix (rf2-vp3m9): await the deferred teardown. The
+                  ;; Await the deferred teardown. The
                   ;; single exit, on the single trailing step, with nothing
                   ;; after it.
                   (.then (fn [_] (finish))))
@@ -1096,7 +1091,7 @@
 (deftest harness-sanity-provider-element-shape
   "Sanity — `[rf/frame-provider {:frame :x} child]` composes to a
   React Context Provider element with the expected `:value`. Sister
-  to the existing `frame-provider-emits-provider-hiccup` in
+  to `frame-provider-emits-provider-hiccup` in
   runtime_cljs_test; pinned here so a regression in the provider
   shape surfaces alongside this suite's failures, not three suites
   away."
@@ -1115,7 +1110,7 @@
     (is (= [child] rest-args)
         "children follow the frame keyword unchanged")))
 
-;; ---- Regression: namespaced frame-ids survive the React-context round trip ---
+;; ---- Namespaced frame-ids survive the React-context round trip -------------
 ;;
 ;; Stock Reagent's `convert-prop-value` (reagent.impl.template) calls
 ;; `(name kw)` on named prop values, dropping the namespace. A naive
@@ -1133,7 +1128,7 @@
 ;; from inside the probe returns the FULL namespaced keyword.
 
 (deftest namespaced-frame-id-survives-react-context-round-trip
-  "Regression — `rf/frame-provider` with a namespaced frame-id
+  "`rf/frame-provider` with a namespaced frame-id
    (`:tenant/admin`) preserves the namespace across the React-context
    round trip. Without the `:r>` bypass the classic Reagent adapter
    would strip the namespace via `(name kw)` in `convert-prop-value`
@@ -1142,7 +1137,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (async done
       (let [target :rf-22ds-ns/tenant-admin]
-        (rf/make-frame {:id target :doc "namespaced frame-id regression"})
+        (rf/make-frame {:id target :doc "namespaced frame-id probe frame"})
         (rf/reg-event :rf-22ds-ns/seed (fn [{:keys [db]} [_ v]] {:db {:tag v}}))
         (rf/dispatch-sync [:rf-22ds-ns/seed :wrapped-value] {:frame target})
         (rf/reg-sub :rf-22ds-ns/tag (fn [db _] (:tag db)))
@@ -1172,7 +1167,7 @@
                   "sanity: the namespace survived (would be nil if prop-conversion stripped it)")
               (is (= :wrapped-value @observed-value)
                   "subscribe routes against the namespaced frame's app-db, not :rf/default's")
-              ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
+              ;; Await the deferred teardown.
               (finish)
               (catch :default e
                 (is false (str "namespaced-frame-id test threw: " (pr-str e)))
