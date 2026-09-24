@@ -1,5 +1,5 @@
 (ns re-frame.join-exact-attempt-cljs-test
-  "rf2-nvxehu — join folds are FENCED to the EXACT child attempt and resolved
+  "Join folds are FENCED to the EXACT child attempt and resolved
   join (a fail-closed correlation record, not authentication).
 
   Per Spec 005 §Child completion protocol a join child completes by reaching a
@@ -17,7 +17,7 @@
   most sharply for a `:fixed-actor-id` child, whose address is identical across
   attempts.
 
-  The fence is ONE gate (rf2-cpbjfp: a fail-closed correlation record, NOT
+  The fence is ONE gate (a fail-closed correlation record, NOT
   authentication — single-trust-domain, gate accidents). A carrier folds only
   when its coordinate EQUALS the current join's parent/invoke identity, logical
   child id, exact current actor id, and exact per-attempt token (minted by
@@ -29,12 +29,12 @@
   CARRIER and nowhere else: no coeffect, metadata or other side channel can
   supply it.
 
-  Teardown is no longer part of the fence. Completion IS finality, so a child
+  Teardown is not part of the fence. Completion IS finality, so a child
   that folds into a join destroys ITSELF at its own completion (`:reason
   :rf.machine/finished`) and is already gone by the time the join resolves;
   only SURVIVORS are destroyed at resolution, as genuine cancellations. The
-  verified-reap destroy form, its `:resolved?` latch and its
-  `:rf.machine/join-reaped` reason are all retired with the old carrier.
+  join never reaps a folded child, so there is no reap destroy form and no
+  `:rf.machine/join-reaped` reason.
 
   The file is named `*-cljs-test.cljc` so it's discovered by both
   cognitect-style JVM runs and shadow-cljs (`cljs-test$` ns-regexp)."
@@ -151,10 +151,9 @@
   {:result child-id :error? false :child-id child-id})
 
 ;; ---------------------------------------------------------------------------
-;; rf2-nsbwft / rf2-cpbjfp — the fence is fail-closed-on-mismatch + accept-on-
-;; exact, NOT a "protected channel". The coordinate is read from ONE place, the
-;; carrier the runtime minted; an event-metadata side channel is not read (a
-;; pure narrowing). An EXACT-CURRENT coordinate is accepted regardless of
+;; The fence is fail-closed-on-mismatch + accept-on-exact, NOT a "protected
+;; channel". The coordinate is read from ONE place, the carrier the runtime
+;; minted; an event-metadata side channel is not read. An EXACT-CURRENT coordinate is accepted regardless of
 ;; source — including one the app author deliberately hand-crafts onto the
 ;; carrier (unsupported, not prohibited). The honesty: an exact-current tuple
 ;; is not "forged" — it is what the fence is defined to accept; a MISMATCHED
@@ -162,15 +161,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest exact-current-coordinate-accepted-from-any-source-metadata-slot-not-read
-  (testing "rf2-nsbwft / rf2-cpbjfp — accept-on-exact + fail-closed-on-mismatch.
+  (testing "accept-on-exact + fail-closed-on-mismatch.
             (1) The EXACT-CURRENT coordinate ON THE CARRIER is ACCEPTED and
             folds — even though the app author hand-crafted every field here
             (an exact-current coordinate is accepted regardless of source;
             deliberate authoring is unsupported, not prohibited).
             (2) The IDENTICAL tuple on event-vector METADATA, over a carrier
             bearing no coordinate of its own, folds nothing
-            (`:attempt-unverified`): the metadata slot is not read — a pure
-            narrowing, not a secrecy boundary. The fold reads the coordinate
+            (`:attempt-unverified`): the metadata slot is simply not read,
+            which is not a secrecy boundary. The fold reads the coordinate
             ONLY off the carrier's own completion map."
     (reg-join-parent! :jea/meta1 :jea/meta1a :jea/meta1b)
     ;; (1) exact-current coordinate on the carrier — ACCEPTED + folds, from
@@ -195,15 +194,14 @@
           "the metadata slot is not read — coordinate-less carrier"))))
 
 ;; ---------------------------------------------------------------------------
-;; the P1 counterexample — stale prior-attempt completion after re-entry
+;; stale prior-attempt completion after re-entry
 ;; ---------------------------------------------------------------------------
 
 (deftest stale-prior-attempt-completion-cannot-fold-into-successor-join
-  (testing "rf2-nvxehu — after parent re-entry (attempt 2), a carrier bound
+  (testing "after parent re-entry (attempt 2), a carrier bound
             to attempt 1 (old actor id + old attempt token) is classified
             stale (:attempt-superseded) and folds NOTHING: no :done fold, no
-            resolution, no terminal, and the current child is NEVER reaped.
-            Pre-fix this folded :a into the successor join's :done."
+            resolution, no terminal, and the current child is NEVER reaped."
     (let [j1     (reg-join-parent! :jea/p1 :jea/p1a :jea/p1b)
           token1 (:rf/attempt j1)
           a1     (get-in j1 [:children :a])
@@ -232,7 +230,7 @@
         (is (empty? (destroyed-for a2)) "A2 was never reaped or destroyed")))))
 
 (deftest old-token-with-current-actor-id-is-superseded
-  (testing "rf2-nvxehu — the attempt token discriminates INDEPENDENTLY of
+  (testing "the attempt token discriminates INDEPENDENTLY of
             actor identity (the :fixed-actor-id-respawn pin, where actor ids
             are equal across attempts): a carrier naming the CURRENT actor
             but a PRIOR attempt token is stale (:attempt-superseded)"
@@ -255,7 +253,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest unstamped-carrier-is-suppressed-unverified
-  (testing "rf2-nvxehu — a bare hand-authored completion (never minted by a
+  (testing "a bare hand-authored completion (never minted by a
             member child's finality, so it bears no exact-attempt coordinate)
             is classified :attempt-unverified and folds nothing"
     (reg-join-parent! :jea/p3 :jea/p3a :jea/p3b)
@@ -267,7 +265,7 @@
         "stable typed evidence: :attempt-unverified")))
 
 (deftest wrong-actor-for-correct-child-is-superseded
-  (testing "rf2-nvxehu — a carrier naming the correct child but the WRONG
+  (testing "a carrier naming the correct child but the WRONG
             actor (sibling :b's id, current token) fails the exact
             actor-identity clause"
     (let [j (reg-join-parent! :jea/p4 :jea/p4a :jea/p4b)]
@@ -279,7 +277,7 @@
       (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))))))
 
 (deftest wrong-child-for-correct-actor-is-superseded
-  (testing "rf2-nvxehu — the MIRROR of the wrong-actor arc: a carrier claiming
+  (testing "the MIRROR of the wrong-actor arc: a carrier claiming
             child :b while bearing child :a's spawned actor (correct parent,
             invoke and token) fails the exact actor-identity clause the other
             way round. The child id and the actor address must agree with the
@@ -293,7 +291,7 @@
       (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))))))
 
 (deftest wrong-invoke-identity-is-superseded
-  (testing "rf2-nvxehu — a carrier whose COORDINATE names a different invoke
+  (testing "a carrier whose COORDINATE names a different invoke
             path than the one it was routed to fails the parent/invoke identity
             clause. The outer invoke-id is what looks the join up; the
             coordinate's own `:invoke-id` is checked against it, so the two
@@ -307,7 +305,7 @@
     (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons)))))
 
 (deftest wrong-parent-identity-is-superseded
-  (testing "rf2-nvxehu — the parent half of the same clause: a coordinate
+  (testing "the parent half of the same clause: a coordinate
             naming a DIFFERENT parent, delivered to this one, folds nothing"
     (reg-join-parent! :jea/p6b1 :jea/p6b1a :jea/p6b1b)
     (rf.machines.test-support/reset-captured!)
@@ -321,7 +319,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest duplicate-exact-completion-is-suppressed
-  (testing "rf2-nvxehu / rf2-ir4t5v — an exact re-completion of an
+  (testing "an exact re-completion of an
             already-folded child (correct actor, correct token) is suppressed
             (:duplicate-completion): the fold stays as-is and no second
             terminal can publish; the join still resolves normally afterwards"
@@ -354,10 +352,10 @@
             non-cancellation reason :rf.machine/finished, BEFORE the parent
             ever sees the carrier. At resolution the join therefore emits NO
             destroy for it — only SURVIVORS are destroyed, as genuine
-            :explicit cancellations. This is what retired the verified-reap
-            destroy form, its :resolved? latch (:cause :unresolved-join) and
-            the cancellation-suppressing :rf.machine/join-reaped reason: there
-            is no second, contradictory terminal left to suppress."
+            :explicit cancellations. So there is no reap destroy form for a
+            folded child and no cancellation-suppressing
+            :rf.machine/join-reaped reason: there is no second, contradictory
+            terminal to suppress."
     (let [j (reg-join-parent! :jea/p8 :jea/p8a :jea/p8b)
           a (get-in j [:children :a])
           b (get-in j [:children :b])]
@@ -385,9 +383,7 @@
   (testing "Spec 005 §Spawn-and-join — an :any join resolves on the first
             completion: the decisive child is already gone (it finished), and
             the SURVIVOR is destroyed as a genuine :explicit cancellation
-            carrying :rf.machine.spawn/cancelled-on-join-resolution. A test
-            that counted a destroy per completed child now counts survivors
-            only."
+            carrying :rf.machine.spawn/cancelled-on-join-resolution."
     (rf/reg-machine :jea/p10a (mk-child))
     (rf/reg-machine :jea/p10b (mk-child))
     (rf/reg-machine :jea/p10
@@ -415,12 +411,12 @@
           "exactly one cancelled-on-join-resolution trace, for the survivor"))))
 
 ;; ---------------------------------------------------------------------------
-;; the genuine flow stays green through the runtime-minted carrier
+;; the genuine flow folds through the runtime-minted carrier
 ;; ---------------------------------------------------------------------------
 
 (deftest genuine-child-completions-still-fold-and-resolve
-  (testing "rf2-nvxehu — real member children reaching their `:final?` leaves
-            still fold and resolve the join (the runtime-minted carrier
+  (testing "real member children reaching their `:final?` leaves
+            fold and resolve the join (the runtime-minted carrier
             end-to-end), across BOTH attempts of a re-entered parent"
     (let [j1 (reg-join-parent! :jea/p9 :jea/p9a :jea/p9b)]
       ;; Attempt 1 resolves normally.
@@ -437,14 +433,14 @@
         (is (true? (:resolved? (join-state :jea/p9))) "attempt 2 resolved")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ixjd48 — validate ownership + exact-attempt coordinate BEFORE the
-;; resolved-vs-unresolved classification. Pre-fix the `:resolved?` branch ran
-;; FIRST, so ANY matching event shape against a resolved join was attributed
-;; to the CURRENT attempt: an old-attempt straggler, an unstamped carrier, or
-;; even an unknown child forged a `:late-completion` record built from the
+;; Ownership + exact-attempt coordinate are validated BEFORE the
+;; resolved-vs-unresolved classification. Running the `:resolved?` branch
+;; FIRST would attribute ANY matching event shape against a resolved join to
+;; the CURRENT attempt: an old-attempt straggler, an unstamped carrier, or
+;; even an unknown child would forge a `:late-completion` record built from the
 ;; CURRENT join's `[:children child-id]`, borrowing the current attempt's
-;; spawned/work identity. The fix gates the post-resolution late-completion
-;; path on an EXACT-CURRENT carrier; every stale/forged carrier is classified
+;; spawned/work identity. So the post-resolution late-completion path is
+;; gated on an EXACT-CURRENT carrier; every stale/forged carrier is classified
 ;; the same way it is on the pre-resolution path, with ZERO db mutation.
 ;; ---------------------------------------------------------------------------
 
@@ -467,11 +463,11 @@
     (join-state parent-kw)))
 
 (deftest old-attempt-straggler-against-resolved-successor-is-superseded
-  (testing "rf2-ixjd48 — THE COUNTEREXAMPLE. Attempt A's completion is queued;
+  (testing "THE COUNTEREXAMPLE. Attempt A's completion is queued;
             the parent re-enters, installs attempt B, and B RESOLVES; then A
-            drains. Pre-fix the `:resolved?` branch ran first and forged a
+            drains. Classifying `:resolved?` first would forge a
             join-resolved `:late-completion` carrying B's CURRENT spawned/work
-            identity for A's straggler. The fix validates the exact-attempt coordinate first: A is
+            identity for A's straggler. The exact-attempt coordinate is validated first: A is
             classified `:attempt-superseded` carrying ITS OWN (attempt-A)
             identity, NO late-completion fires, and B's resolved join is
             untouched (zero db mutation)."
@@ -508,18 +504,18 @@
           (is (= (:children j2) (:children j2')) "B's children mapping unchanged"))))))
 
 (deftest exact-current-carrier-after-resolution-is-late-completion
-  (testing "rf2-ixjd48 — THE PRESERVED PATH. An EXACT-CURRENT
+  (testing "THE LATE-COMPLETION PATH. An EXACT-CURRENT
             carrier arriving after its OWN join resolved (a genuine current
-            survivor draining post-latch) still takes the join-resolved
-            `:late-completion` path — the fix gates late-completion on the
-            exact-attempt fence, it does not remove it."
+            survivor draining post-latch) takes the join-resolved
+            `:late-completion` path — the exact-attempt fence gates
+            late-completion, it does not remove it."
     (reg-join-parent! :jea/pr2 :jea/pr2a :jea/pr2b)
     (let [j (resolve-all-join! :jea/pr2)]
       (is (true? (:resolved? j)))
       (rf.machines.test-support/reset-captured!)
       (dispatch-forged! :jea/pr2 (exact-completion :jea/pr2 :a))
       (is (= 1 (count (late-completions)))
-          "the exact-current carrier still fires the late-completion op")
+          "the exact-current carrier fires the late-completion op")
       (is (empty? (stale-completions))
           "no pre-resolution stale-completion class fired")
       (let [tags (:tags (first (late-completions)))]
@@ -529,9 +525,10 @@
       (is (= #{:a :b} (:done (join-state :jea/pr2))) "record frozen — no re-fold"))))
 
 (deftest unstamped-carrier-against-resolved-join-is-unverified
-  (testing "rf2-ixjd48 — acceptance: an UNSTAMPED carrier against a RESOLVED
-            join is `:attempt-unverified`, NOT late-completion. Pre-fix the
-            `:resolved?` branch attributed it before checking the exact-attempt coordinate."
+  (testing "an UNSTAMPED carrier against a RESOLVED
+            join is `:attempt-unverified`, NOT late-completion: the
+            exact-attempt coordinate is checked before the `:resolved?` branch
+            can attribute it."
     (reg-join-parent! :jea/pr3 :jea/pr3a :jea/pr3b)
     (resolve-all-join! :jea/pr3)
     (rf.machines.test-support/reset-captured!)
@@ -543,9 +540,9 @@
     (is (= #{:a :b} (:done (join-state :jea/pr3))) "record frozen")))
 
 (deftest unknown-child-against-resolved-join-is-bad-child
-  (testing "rf2-ixjd48 — acceptance: an UNKNOWN child-id against a RESOLVED
+  (testing "an UNKNOWN child-id against a RESOLVED
             join takes the canonical bad-child-id error path, NOT the resolved
-            late-completion path (pre-fix it forged a late-completion built
+            late-completion path (which would forge a late-completion built
             from a nil `[:children child-id]`)."
     (reg-join-parent! :jea/pr4 :jea/pr4a :jea/pr4b)
     (resolve-all-join! :jea/pr4)
