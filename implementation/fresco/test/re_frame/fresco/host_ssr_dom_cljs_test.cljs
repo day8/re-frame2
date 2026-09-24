@@ -62,7 +62,7 @@
   identity; no adoption event, so nothing to wait for; and no type swap,
   so NO REMOUNT.
 
-  That last one is the law that priced every rejected candidate. React
+  That last one is the law that prices every other shape. React
   reconciles a position by element type, and under a gate the gate is
   the type — so any policy whose unadopted branch returns something
   other than the component pays a full subtree destroy-and-rebuild the
@@ -177,9 +177,8 @@
 
 ;; --- the `:render` fixtures: a provider, and something that reads it -------
 ;;
-;; A context PROVIDER is the shape the defect was filed against, and it
-;; is the shape that makes the policy legible: it contributes no markup of its
-;; own, so under a gate its unadopted arm returns something that is not
+;; A context PROVIDER is the shape that makes the policy legible: it
+;; contributes no markup of its own, so under a gate its unadopted arm returns something that is not
 ;; the component and the ENTIRE subtree leaves the server response with
 ;; it. It is also the case where the author's assertion is trivially
 ;; true — a Provider is React's own component and React's server
@@ -196,7 +195,7 @@
 
 (defn- theme-reader
   "A consumer BELOW the provider. The whole discriminator between
-  `:server :render` and the rejected `:server :children`: with the provider
+  `:server :render` and rendering the children alone: with the provider
   above it this reads `dark`, and with only the children rendered it
   reads the context DEFAULT."
   [_props]
@@ -208,8 +207,7 @@
   (theme-reader props))
 
 (rf.fresco/defhost themed
-  "The guide's own provider example, declared the way the ruling says to
-  declare it."
+  "The guide's own provider example, declared `:server :render`."
   (.-Provider theme-context)
   {:server :render})
 
@@ -263,16 +261,15 @@
    [fallback-chart {:label (rf.fresco.impl.collector/sub [:fresco.ssr/title])}]])
 
 (rf.fresco/defview slotted-page
-  "Children and props still cross the door — the gate forwards its own
-  props object, so this is the regression guard for the crossing that
-  the gate now sits in front of."
+  "Children and props cross the door — the gate forwards its own props
+  object, so this guards the crossing that the gate sits in front of."
   [_]
   [:div.page
    [fallback-chart {:label (rf.fresco.impl.collector/sub [:fresco.ssr/title])}
     [:span.kid "slotted"]]])
 
 (rf.fresco/defview provider-page
-  "THE PAGE THE DEFECT WAS FILED FROM, under the policy that answers it. A
+  "THE PROVIDER PAGE, under the policy that serves it. A
   native sibling above the crossing so \"the subtree is absent\" stays
   distinguishable from \"nothing rendered\", markup inside it so the
   subtree is visible, and a consumer inside it so the context VALUE is
@@ -285,7 +282,7 @@
     [reader-host {}]]])
 
 (rf.fresco/defview provider-page-client-only
-  "The same page under the default policy — the defect, kept live."
+  "The same page under the default policy — the lost subtree, kept live."
   [_]
   [:div.page
    [:h1.title (rf.fresco.impl.collector/sub [:fresco.ssr/title])]
@@ -384,14 +381,13 @@
             for `window`, and the door does not guess"
     (is (= :client-only (rf.fresco.impl.codec/host-server bare-chart)))
     (is (= :client-only (rf.fresco.impl.codec/host-server client-only-chart))))
-  (testing "and a declared :fallback is MARKUP rather than a policy value
-            (rf2-mo4o): the host is Client-only either way, which is what
-            the two-policy matrix says and what the sibling native door
-            already recorded"
+  (testing "and a declared :fallback is MARKUP rather than a policy value:
+            the host is Client-only either way, which is what the
+            two-policy matrix says"
     (is (= :client-only (rf.fresco.impl.codec/host-server fallback-chart)))))
 
 (deftest the-other-policy-is-render-and-it-is-an-assertion
-  (testing "rf2-l0wfx. `:render` is the second of the two — the author
+  (testing "`:render` is the second of the two — the author
             asserting that this component is safe to run on the server"
     (is (= :render (rf.fresco.impl.codec/host-server themed)))
     (is (= :render (rf.fresco.impl.codec/host-server reader-host))))
@@ -409,7 +405,7 @@
     (is (= :rf.error/fresco-host-bad-ssr-policy
            (error-id #(rf.fresco.impl.codec/mint-host! "server/true" chart {:server true})))))
   (testing "and the three spellings an author reaches for INSTEAD of
-            `:render` stay refused, every one of them (rf2-l0wfx). They
+            `:render` stay refused, every one of them. They
             assert a structural property nobody can check — that the
             component is transparent — and they deliver the subtree under
             the WRONG context value, which turns a silent absence into a
@@ -429,7 +425,7 @@
             a typo becomes a policy"
     (is (= :rf.error/fresco-host-bad-ssr-policy
            (error-id #(rf.fresco.impl.codec/mint-host! "server/nil" chart {:server nil})))))
-  (testing "a :fallback belongs to Client-only ALONE (rf2-mo4o). Under
+  (testing "a :fallback belongs to Client-only ALONE. Under
             `:render` the component itself renders on the server, so there
             is nothing for a placeholder to stand in for, and a declaration
             carrying both says two incompatible things"
@@ -447,29 +443,27 @@
     (is (= :rf.error/fresco-empty-vector
            (error-id #(rf.fresco.impl.codec/mint-host! "server/bad-fb" chart {:fallback []})))))
   (testing "as does a `defview` head written into a fallback — a fallback
-            is inert markup and that is enforced (rf2-nv07k). The full
+            is inert markup and that is enforced. The full
             contract, both directions, is
             [[re-frame.fresco.fallback-contents-cljs-test]]; this row is here because
-            the two halves were ruled together and the refusal is one of
-            this declaration's own"
+            the refusal is one of this declaration's own"
     (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(rf.fresco.impl.codec/mint-host! "server/live-fb" chart
                                         {:fallback [client-only-page {}]}))))))
 
 (deftest the-declaration-refuses-an-option-it-does-not-know
-  (testing "`mint-host!` read :callbacks and IGNORED the rest, so a
-            misspelled policy was a setting that never applied — the same
-            defect class as an intent crossing as inert data, and it gets
-            the same refusal"
+  (testing "a `mint-host!` that read :callbacks and IGNORED the rest would
+            make a misspelled policy a setting that never applies — the
+            same defect class as an intent crossing as inert data, and it
+            gets the same refusal"
     (is (= :rf.error/fresco-bad-host-declaration
            (error-id #(rf.fresco.impl.codec/mint-host! "server/typo" chart {:sserver :client-only}))))
     (is (= :rf.error/fresco-bad-host-declaration
            (error-id #(rf.fresco.impl.codec/mint-host! "server/legacy" chart
                                         {:callbacks {} :hydrate? true})))))
-  (testing "AND THAT IS WHERE THE RETIRED `:ssr` SPELLING LANDS (rf2-mo4o).
-            There is no alias and no deprecation path — this is pre-alpha,
-            so a rename is a rename — and the option roster is what says
-            so, in both of the shapes `:ssr` used to take"
+  (testing "AND THAT IS WHERE AN `:ssr` SPELLING LANDS. There is no `:ssr`
+            option, no alias and no deprecation path, and the option roster
+            is what says so, whether `:ssr` carries a keyword or a map"
     (is (= :rf.error/fresco-bad-host-declaration
            (error-id #(rf.fresco.impl.codec/mint-host! "server/retired-render" chart
                                         {:ssr :render}))))
@@ -517,20 +511,20 @@
 ;; ---------------------------------------------------------------------------
 ;; 3 — `:server :render`: the component runs, and so do its CHILDREN
 ;;
-;; The defect and the ruling that answers it, in one place. Every row here is
+;; The lost subtree and the policy that answers it, in one place. Every row here is
 ;; a `renderToString`, so they run under `:node-test` as well.
 ;; ---------------------------------------------------------------------------
 
 (deftest a-client-only-provider-deletes-its-subtree-from-the-server-render
   (fresh!)
-  (testing "THE DEFECT, kept live (rf2-l0wfx). A provider contributes no
+  (testing "THE LOST SUBTREE, kept live. A provider contributes no
             markup of its own, so under a gate its unadopted arm returns
             something that is not the component and the whole subtree
             leaves the server response with it — silently, because the
             server snapshot and hydration's first client pass agree by
             construction. This row is what `:server :render` exists to make
-            unnecessary, and it stays green because the DEFAULT is
-            unchanged: the door still does not guess"
+            unnecessary, and it is green because the DEFAULT does not
+            change: the door does not guess"
     (let [html (server-html [provider-page-client-only {}])]
       (is (re-find #"quarterly" html)
           (str "the page DID render — the sibling above the crossing is
@@ -548,11 +542,11 @@
       (is (re-find #"quarterly" html) (str "sanity — the page rendered: " html))
       (is (re-find #"THE ENTIRE APPLICATION" html)
           (str "THE SUBTREE IS IN THE SERVER RESPONSE. This is the whole of
-                rf2-l0wfx: " html))
+                the `:render` policy: " html))
       (is (re-find #"class=\"body\"" html)
           (str "as markup, not as stray text: " html))))
   (testing "AND THE CONTEXT VALUE IS THE DECLARED ONE, which is what
-            separates this policy from `:server :children`. A consumer under
+            separates this policy from rendering the children alone. A consumer under
             the provider reads `dark`; the same consumer with no provider
             above it reads the context DEFAULT, and a policy that rendered
             only the children would have emitted exactly that"
@@ -575,7 +569,7 @@
 
 (deftest a-false-render-assertion-fails-loudly-at-the-crossing
   (fresh!)
-  (testing "**THE CLOSING ROW OF THE CANONICAL MATRIX** (rf2-hic-028): a
+  (testing "**THE CLOSING ROW OF THE CANONICAL MATRIX**: a
             host that renders server-side unsafely fails LOUDLY, at the
             crossing. `:render` is the author asserting that a component is
             safe on the server, and an assertion nothing checks is only
@@ -660,12 +654,9 @@
   THE ROW OWNS `done`, and `after` is assertion-only. `cljs.test/run-block`
   continues the remainder of the run SYNCHRONOUSLY from the `done` call, so
   an `after` that called `done` itself would leave the `finally` below to
-  run only once that whole continuation returned: this suite's
-  `console.error` interception and its React root
-  stayed live under every namespace that followed. Measured rather than
-  reasoned — `native-ssr-dom-cljs-test`'s `the-next-row-sees-no-residue`
-  read a wrapped `console.error` still standing four namespaces later,
-  and that control is what found this. Assert, then restore/unmount/
+  run only once that whole continuation returned, so this suite's
+  `console.error` interception and its React root would stay live under
+  every namespace that followed. Assert, then restore/unmount/
   remove/reset, then `done` as the last act with nothing after it."
   [hiccup done after]
   (fresh!)
@@ -767,8 +758,8 @@
             (is (some? (query-node container ".body"))
                 "and the subtree around it is the SERVER'S markup, adopted")
             (is (= 1 @!child-mounts)
-                (str "**ONE MOUNT.** This is the closing measurement
-                      (rf2-l0wfx): the child's effect ran exactly once, so
+                (str "**ONE MOUNT.** This is the closing measurement:
+                      the child's effect ran exactly once, so
                       the adopted subtree was never destroyed and rebuilt.
                       Any policy whose unadopted branch returns something
                       other than the component swaps the position's element
