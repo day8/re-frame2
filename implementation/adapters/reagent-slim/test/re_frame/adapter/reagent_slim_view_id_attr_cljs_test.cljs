@@ -1,6 +1,6 @@
 (ns re-frame.adapter.reagent-slim-view-id-attr-cljs-test
-  "reagent-slim parity for the view-id tagging contract (rf2-yrb8r;
-  mirrors `re-frame.view-id-attr-cljs-test` for the Reagent bridge).
+  "reagent-slim parity for the view-id tagging contract (mirrors
+  `re-frame.view-id-attr-cljs-test` for the Reagent bridge).
 
   Per Spec 006 §View tagging contract: when `interop/debug-enabled?` is
   true, a registered view's rendered root DOM element MUST carry
