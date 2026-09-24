@@ -111,6 +111,44 @@
       (is (= "\"ann\"" (value-for graph :user))
           "control: the undeclared sibling still renders its value"))))
 
+(defn- recipe-graph
+  "The API.md recipe end to end: derive the classification from `machine`,
+  feed `live-data` as the live band, project."
+  [machine live-data]
+  (let [{:keys [sensitive large]} (ctx/derive-classification machine)]
+    (projection/xyflow-graph
+      (layout/project-definition machine) {}
+      {:context-band           live-data
+       :context-band-inferred? false
+       :context-band-sensitive sensitive
+       :context-band-large     large})))
+
+(deftest documented-recipe-whole-data-covers-keys-first-written-at-runtime
+  (testing "rf2-k7i6y — a machine declaring its WHOLE :data sensitive, whose
+            initial :data is empty, later writes a token. The recipe redacts
+            it: the token appears in NO display row, so in no export"
+    (let [secret  "secret-at-runtime"
+          machine {:initial :idle :sensitive [[:data]] :data {} :states {:idle {}}}
+          graph   (recipe-graph machine (array-map :token secret))]
+      (is (some? (context-rows graph)) "the band produced context rows")
+      (is (not (some #(str/includes? % secret) (all-row-strings graph)))
+          "the runtime-only token appears in NO display row")
+      (is (str/includes? (value-for graph :token) ":rf/redacted"))))
+  (testing "control: the SAME band under an UNclassified machine renders the
+            token, so the instrument sees it when it is there"
+    (let [secret  "secret-at-runtime"
+          machine {:initial :idle :data {} :states {:idle {}}}
+          graph   (recipe-graph machine (array-map :token secret))]
+      (is (str/includes? (value-for graph :token) secret))))
+  (testing "rf2-k7i6y — a whole-data :large elides a runtime-only value to the
+            content-free marker"
+    (let [payload "LARGE-RUNTIME-PAYLOAD-xyzzy"
+          machine {:initial :idle :large [[:data]] :data {} :states {:idle {}}}
+          graph   (recipe-graph machine (array-map :blob payload))]
+      (is (not (some #(str/includes? % payload) (all-row-strings graph)))
+          "the runtime-only large value's content never reaches a display row")
+      (is (str/includes? (value-for graph :blob) ":rf.size/large-elided")))))
+
 ;; ---------------------------------------------------------------------------
 ;; (b) the sensitive / large sets are actually THREADED into the projection
 

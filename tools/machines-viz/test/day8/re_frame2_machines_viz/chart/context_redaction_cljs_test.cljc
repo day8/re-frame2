@@ -35,11 +35,42 @@
            (:sensitive (r/derive-classification
                          {:sensitive [[:data :payment :token]]}))))))
 
-(deftest derive-classification-whole-data-path-covers-every-data-key
-  (testing "a bare `[:data]` path classifies every key of the definition's :data"
-    (is (= #{:token :user}
-           (:sensitive (r/derive-classification
-                         {:sensitive [[:data]] :data {:token nil :user nil}}))))))
+(defn- large-elided? [v]
+  (and (map? v) (contains? v :rf.size/large-elided)))
+
+(deftest derive-classification-whole-data-path-keeps-whole-data-scope
+  (testing "rf2-k7i6y — a bare `[:data]` path classifies EVERY band key, including
+            one the live :data first gains at runtime (the definition's initial
+            :data is empty here, so an expansion over it would name nothing)"
+    (let [cls  (r/derive-classification {:sensitive [[:data]] :data {}})
+          band (array-map :token "secret-at-runtime" :user "ann")
+          out  (r/redact-context band cls)]
+      (is (= :rf/redacted (:token out)) "a runtime-only key is redacted")
+      (is (= :rf/redacted (:user out)) "…and so is every other key")))
+  (testing "rf2-k7i6y — the whole-snapshot path `[]` covers the whole :data too"
+    (is (= :rf/redacted
+           (:token (r/redact-context {:token "secret-at-runtime"}
+                                     (r/derive-classification {:sensitive [[]]}))))))
+  (testing "rf2-k7i6y — a whole-data `:large` elides every band key, runtime-only
+            ones included, with no content head"
+    (let [payload "LARGE-RUNTIME-PAYLOAD-xyzzy"
+          out     (r/redact-context {:blob payload}
+                                    (r/derive-classification {:large [[:data]] :data {}}))]
+      (is (large-elided? (:blob out)))
+      (is (not (str/includes? (r/display-string (:blob out)) payload)))))
+  (testing "sensitive still wins over a whole-data large"
+    (let [out (r/redact-context (array-map :token "tok" :note "n")
+                                (r/derive-classification
+                                  {:sensitive [[:data :token]] :large [[:data]]}))]
+      (is (= :rf/redacted (:token out)))
+      (is (large-elided? (:note out)))))
+  (testing "control: a NAMED path still classifies only its own key, so a
+            runtime-only sibling passes through"
+    (let [out (r/redact-context (array-map :card "c" :note "runtime-note")
+                                (r/derive-classification
+                                  {:sensitive [[:data :card]] :data {:card nil}}))]
+      (is (= :rf/redacted (:card out)))
+      (is (= "runtime-note" (:note out))))))
 
 (deftest derive-classification-schema-props-do-not-classify
   (testing "EP-0025 — `[:schemas :data]` `:sensitive?` props drive validation-
