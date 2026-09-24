@@ -1,6 +1,6 @@
 (ns re-frame.readiness-projector-conformance-cljs-test
-  "The drift guard between the TWO route-readiness projectors (rf2-6k8tj,
-  part 3 of rf2-wzqtu). Spec 012 §Route readiness is a resource projection.
+  "The drift guard between the TWO route-readiness projectors. Spec 012
+  §Route readiness is a resource projection.
 
   Route readiness has ONE table and TWO implementations:
 
@@ -12,14 +12,14 @@
       fresh-skip / hydration / restore, in SPEC 016 vocabulary (requirements
       reading `:failed` / `:pending` / `:ready` / `:inert`).
 
-  THE DUPLICATION IS DELIBERATE AND STAYS. `implementation/resources/deps.edn`
+  THE DUPLICATION IS DELIBERATE. `implementation/resources/deps.edn`
   holds routing as a TEST-ONLY dep and the routing integration is late-bound,
   so resources cannot `:require` routing; publishing a late-bind hook for a
-  three-line `cond` would cost more than the duplication removes. rf2-wzqtu
-  retracted the 'ONE projector' claim on both sides for exactly this reason.
+  three-line `cond` would cost more than the duplication removes, so neither
+  side claims to be the 'ONE projector'.
   This namespace does NOT unify them and must not be read as a step toward
   unifying them — it pins that they AGREE, so a divergence fails a test rather
-  than surfacing in a later slice.
+  than surfacing later.
 
   WHY IT LIVES HERE. The assertion has to require BOTH namespaces. Routing's
   own test tree cannot reach resources; `implementation/resources/test/` can
@@ -57,8 +57,7 @@
   (rf.resources.state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "b"}))
 
 (defn- blocking-map
-  "The byte-keyed blocking carrier `{<key-id> <scoped-key>}` both slots hold
-  (rf2-btdl1)."
+  "The byte-keyed blocking carrier `{<key-id> <scoped-key>}` both slots hold."
   [& ks]
   (into {} (map (juxt rf.resources.state/key-id identity)) ks))
 
