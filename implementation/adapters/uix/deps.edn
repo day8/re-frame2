@@ -14,9 +14,10 @@
 ;;
 ;; UIx itself is a CLJS-only library, so the adapter and its behavioural
 ;; suite are CLJS-only (the `*_dom_cljs_test.cljs` files run in the
-;; `:browser-test` lane). The :test alias's JVM side carries one test: the
-;; docs pin that holds `docs/core/testing/views.md` §4 to the component-test
-;; recipe file byte for byte (rf2-9hcyf).
+;; `:browser-test` lane). The :test alias's JVM side carries two static
+;; guards: the docs pin that holds `docs/core/testing/views.md` §4 to the
+;; component-test recipe file byte for byte, and the clean-consumer guard for
+;; the UIx dependency recipe.
 ;; Shipping source requires only uix.core; the shared spine mounts through
 ;; react-dom/client. uix.dom therefore stays test-only and out of the published
 ;; pom.
@@ -30,10 +31,9 @@
          :extra-deps  {com.pitch/uix.dom {:mvn/version "1.4.4"}
                        ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../test-quiet"}}
-         ;; No `--probe`: this lane claims coverage (the docs pin above), so
-         ;; it takes the runner's test-count floor (rf2-qqzmf) like every
-         ;; other suite lane. It was a declared classpath probe until that
-         ;; JVM test landed.
+         ;; No `--probe`: this lane claims coverage (the JVM guards above), so
+         ;; it takes the runner's test-count floor like every other suite
+         ;; lane.
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Clojars deploy, modeled on the Reagent adapter's flow.
