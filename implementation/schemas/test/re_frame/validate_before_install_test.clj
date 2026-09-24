@@ -1,15 +1,14 @@
 (ns re-frame.validate-before-install-test
-  "Adversarial contract pins for rf2-uhk9ko (Mike-ruled Option B,
-  2026-07-11): the router validates the COMPLETE candidate frame
-  transition BEFORE installing it. A schema rejection means the
+  "Adversarial contract pins for validate-before-install: the router
+  validates the COMPLETE candidate frame transition BEFORE installing it. A schema rejection means the
   candidate was NEVER installed — not installed-then-rolled-back.
 
   The observable contract these tests hold the line on:
 
     1. A synchronous trace listener that reads the frame's app-db
        DURING the `:rf.error/schema-validation-failure` emit sees the
-       OLD (pre-handler) value. Under the retired commit-then-rollback
-       pair the container held the INVALID candidate at that moment.
+       OLD (pre-handler) value. Under a commit-then-rollback pair the
+       container would hold the INVALID candidate at that moment.
     2. ZERO container watch callbacks fire for a rejected dispatch —
        the one physical frame-state container is never written.
     3. A rejection emits NO `:rf.event/db-changed`, NO
@@ -22,7 +21,7 @@
        slots redact per the schema's `:sensitive?` marks as usual.
     5. A wholesale validator-machinery throw REJECTS the candidate
        (trace `:rf.error/malformed-schema` with `:rollback? true`, then
-       fail CLOSED) — the retired treat-as-pass fail-OPEN arm is gone.
+       fail CLOSED) — there is no treat-as-pass fail-OPEN arm.
     6. A successful commit validates the candidate EXACTLY ONCE (no
        post-commit second pass) and emits exactly one forward
        `:rf.event/db-changed`.
@@ -65,7 +64,7 @@
   (testing "a sync :trace listener reading app-db at the
             schema-validation-failure emit observes the PRE-HANDLER value —
             the invalid candidate is never installed, so no listener can
-            observe it through the container (rf2-uhk9ko Option B)"
+            observe it through the container"
     (seed-int-schema!)
     (let [seen (atom ::never-fired)]
       (rf/register-listener! :trace ::old-value-probe
@@ -88,7 +87,7 @@
 (deftest rejected-candidate-never-writes-the-container
   (testing "a rejected dispatch performs ZERO writes on the one physical
             frame-state container — no forward write, no restore write
-            (the retired pair performed two)"
+            (a commit-then-rollback pair would perform two)"
     (seed-int-schema!)
     (let [container (rf.frame/frame-state-container :rf/default)
           writes    (atom [])]
@@ -193,7 +192,7 @@
   (testing "a wholesale validator-machinery throw REJECTS the candidate:
             :rf.error/malformed-schema with :rollback? true, container
             unchanged, no change traces, outcome :rolled-back — the
-            retired treat-as-pass fail-OPEN arm is gone"
+            treat-as-pass fail-OPEN arm does not exist"
     (seed-int-schema!)
     (let [original (rf.late-bind/get-fn :schemas/validate-app-schema!)
           records  (atom [])]
