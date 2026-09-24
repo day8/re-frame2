@@ -515,19 +515,30 @@
      :path             path
      :snapshot         snapshot
      ;; `:existing-snap?` records whether the handler found a snapshot
-     ;; ALREADY in runtime-db at entry. It distinguishes the two FRESH
-     ;; flavours for the `:rf.machine/started` `:cause`:
+     ;; ALREADY in runtime-db at entry, and `:reset?` whether
+     ;; `reconcile-snapshot` replaced it with a fresh initial. Together they
+     ;; distinguish the FRESH flavours for the `:rf.machine/started` `:cause`:
      ;;   - nil snapshot  → singleton (`:explicit` / `:lazy`, by trigger);
+     ;;   - replaced by the reconciler → reset (`:reset`), singleton or spawned;
      ;;   - present + `:rf/bootstrap-pending?` → spawn-pre-seeded (`:spawned`).
      :existing-snap?   (some? existing-snap)
+     :reset?           (and (some? existing-snap)
+                            (not (identical? snapshot existing-snap)))
      :needs-bootstrap? (or (nil? existing-snap)
                            (true? (:rf/bootstrap-pending? snapshot)))
      :inner-event      (route-inner-event event)}))
 
 (defn- start-cause
   "Compute the `:cause` enum (on the `:rf.machine/started` trace) for a `maybe-boot` that ran
-  the initial-entry cascade. Three-way:
+  the initial-entry cascade. Four-way:
 
+    - `:reset`    — the handler found a snapshot the definition cannot run (its
+                    `:state` is not in the definition, or its
+                    `:rf/snapshot-version` disagrees), and `reconcile-snapshot`
+                    replaced it with a fresh initial. The
+                    `:rf.error/machine-state-not-in-definition` /
+                    `:rf.error/machine-snapshot-version-mismatch` trace beside
+                    it names which.
     - `:spawned`  — the handler found a snapshot ALREADY in runtime-db (the
                     spawn fx pre-seeded it + stamped `:rf/bootstrap-pending?`);
                     init ran on the actor's first dispatch.
@@ -541,6 +552,7 @@
                     smell the Xray `[START]` badge surfaces)."
   [ctx]
   (cond
+    (:reset? ctx)                                          :reset
     (:existing-snap? ctx)                                  :spawned
     (= rf.machines.transition/start-marker (first (:inner-event ctx))) :explicit
     :else                                                  :lazy))
@@ -857,8 +869,9 @@
       ;; explained, and a raised transition's rows are NESTED rather than
       ;; laid alongside the external event's, so a consumer reading the
       ;; top-level steps reads the dispatched event's geometry and nothing
-      ;; else. `:microsteps` above stays the `:always`-iteration count — it
-      ;; is not a step count and does not include raised dequeues.
+      ;; else. `:microsteps` above is the `:always`-iteration count, the
+      ;; iterations inside a raised event's nested settle included — it is
+      ;; not a step count, and a dequeue itself adds nothing to it.
       ;;
       ;; This is the contract Xray's epoch panel renders. It rides under
       ;; the same handler-scope `:sensitive?` stamp as `:before` / `:after`

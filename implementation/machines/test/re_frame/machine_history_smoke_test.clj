@@ -408,3 +408,73 @@
           "the surviving-LCCA owner recorded NOTHING — :rf/history slot left untouched")
       (is (empty? (history-events :rf.machine.history/recorded))
           "no :rf.machine.history/recorded event for a pure within-compound sibling move"))))
+
+;; ---- a history target declared inside its owning compound -----------------
+;;
+;; The exit set is computed against the incoming recording; the entered leaf
+;; restores the recording that same exit set writes (the SCXML
+;; exitStates-then-enterStates order). A restore follows the geometry of the
+;; leaf it resolves to, exactly as a literal `:target` would, except when the
+;; restored configuration contains the declaring state — then the declaring
+;; state exits and re-enters.
+;;
+;; `:p` owns the history and declares `:restore` (no `:reenter?`) and
+;; `:restart` (`:reenter? true`) to it; `:b` declares `:back` to it.
+
+(defn- log-action [tag]
+  (fn [{:keys [data]}] {:data (update data :log conj tag)}))
+
+(defn- history-owner-chart [deep?]
+  {:initial :p
+   :actions {:enter-p  (log-action :enter/p)  :exit-p (log-action :exit/p)
+             :enter-a  (log-action :enter/a)
+             :enter-b  (log-action :enter/b)  :exit-b (log-action :exit/b)
+             :enter-b1 (log-action :enter/b1) :enter-b2 (log-action :enter/b2)}
+   :states  {:p {:entry :enter-p :exit :exit-p :initial :a
+                 :on {:restore {:target [:p :hist]}
+                      :restart {:target [:p :hist] :reenter? true}}
+                 :states {:a    {:entry :enter-a}
+                          :b    {:entry :enter-b :exit :exit-b :initial :b1
+                                 :on {:back {:target [:p :hist]}}
+                                 :states {:b1 {:entry :enter-b1}
+                                          :b2 {:entry :enter-b2}}}
+                          :hist {:type :history :deep? deep? :default-target :a}}}}})
+
+(defn- logged-at
+  "A fresh pure-call snapshot at `state` with an empty action log."
+  [state]
+  (assoc (seed state) :data {:log []}))
+
+(deftest restore-declared-on-the-owning-compound-keeps-it-standing
+  (testing "a transition declared on :p to its own history, without :reenter?, leaves :p standing"
+    (let [after (step (history-owner-chart false) (logged-at [:p :b :b2]) [:restore])]
+      (is (= [:p :a] (:state after))
+          "nothing recorded yet, so the default target :a is entered")
+      (is (= [:exit/b :enter/a] (get-in after [:data :log]))
+          ":p's :exit / :entry do not run — only the states below :p move")
+      (is (nil? (:rf/history after))
+          ":p was not exited, so it recorded nothing")
+      (is (= :default (:source (first (history-events :rf.machine.history/restored))))))))
+
+(deftest reenter-to-own-history-restores-what-its-exit-recorded
+  (testing "shallow — :reenter? true exits :p, recording :b, and restores :b"
+    (let [after (step (history-owner-chart false) (logged-at [:p :b :b2]) [:restart])
+          restored (first (history-events :rf.machine.history/restored))]
+      (is (= [:p :b :b1] (:state after))
+          "the recorded child :b, then its :initial — not the default :a")
+      (is (= [:exit/b :exit/p :enter/p :enter/b :enter/b1] (get-in after [:data :log])))
+      (is (= {[:p] :b} (:rf/history after)))
+      (is (= :recorded (:source restored)))
+      (is (= :b (get-in restored [:tags :restored-config])))))
+  (testing "deep — the restore reads the leaf the same exit recorded"
+    (let [after (step (history-owner-chart true) (logged-at [:p :b :b2]) [:restart])]
+      (is (= [:p :b :b2] (:state after)))
+      (is (= {[:p] [:p :b :b2]} (:rf/history after))))))
+
+(deftest history-restoring-its-declaring-state-re-enters-it
+  (testing "a history target whose restored configuration contains the declaring state exits and re-enters it"
+    (let [before (assoc (logged-at [:p :b :b1]) :rf/history {[:p] :b})
+          after  (step (history-owner-chart false) before [:back])]
+      (is (= [:p :b :b1] (:state after)))
+      (is (= [:exit/b :enter/b :enter/b1] (get-in after [:data :log]))
+          ":b exits and re-enters, so its children are torn down and rebuilt"))))
