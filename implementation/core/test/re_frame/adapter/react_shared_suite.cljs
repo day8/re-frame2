@@ -1930,22 +1930,22 @@
         (rf/unsubscribe fid [rt-sub])))))
 
 ;; ===========================================================================
-;; schema-rejected candidate — zero sub notifications (rf2-uhk9ko Option B)
+;; schema-rejected candidate — zero sub notifications
 ;; ===========================================================================
 
 (defn assert-schema-rejection-zero-sub-notifications
-  "rf2-uhk9ko (Mike-ruled Option B): the router validates the COMPLETE
+  "The router validates the COMPLETE
   candidate frame transition BEFORE installing it, so a schema-rejected
   dispatch NEVER touches the container — the substrate epoch never
   opens, no sub recomputes, no watcher notifies, and a synchronous
   deref during the rejection (the spine derived value is PULL-based —
   it recomputes from the CURRENT container) reads the OLD value.
 
-  Under the retired commit-then-rollback pair the spine drained a
-  substrate epoch around EACH `replace-container!`, so the forward
-  write recomputed subs and notified `useSyncExternalStore`
-  subscribers with the INVALID candidate before validation ran. This
-  assertion is the cross-adapter tooth that keeps that window closed."
+  A commit-then-rollback pair would drain a substrate epoch around EACH
+  `replace-container!`, so the forward write would recompute subs and
+  notify `useSyncExternalStore` subscribers with the INVALID candidate
+  before validation ran. This assertion is the cross-adapter tooth that
+  keeps that window closed."
   [{:keys [substrate-kw name]}]
   (testing (str name " — a schema-rejected dispatch notifies NO subs and never exposes the candidate")
     (let [fid      (mint-kw substrate-kw "schema-reject")
@@ -1970,8 +1970,8 @@
         (let [after-prime @runs]
           ;; Listener-triggered sync read DURING the rejection: the spine
           ;; derived value recomputes from the live container on deref, so
-          ;; if the invalid candidate were installed (the retired forward
-          ;; commit) this deref would expose it.
+          ;; if the invalid candidate were installed (a forward commit)
+          ;; this deref would expose it.
           (rf/register-listener! :trace ::reject-probe
             (fn [ev]
               (when (= :rf.error/schema-validation-failure (:operation ev))
@@ -1996,7 +1996,7 @@
         (rf/unsubscribe fid [sub-id])))))
 
 ;; ===========================================================================
-;; derived-value duplicate-source disposal regression (rf2-he7se finding 2)
+;; derived-value duplicate-source disposal regression
 ;; ===========================================================================
 
 (defn- source-watch-count
@@ -2008,16 +2008,16 @@
   (count (.-watches ^cljs.core/Atom src)))
 
 (defn assert-derived-dispose-releases-duplicate-source-watches
-  "rf2-he7se finding 2: `make-derived-value` tracks ONE dependent entry per
-  source OCCURRENCE, but the disposal bookkeeping used to be a `source→key`
-  map — so when the SAME source object appeared more than once in
+  "`make-derived-value` tracks ONE dependent entry per source OCCURRENCE,
+  and its disposal bookkeeping is an `own-keys` VECTOR of every
+  `[source key]` pair. The SAME source object may appear more than once in
   `source-containers` (spec/006-ReactiveSubstrate.md:154-170 types it as a
-  vector with NO uniqueness precondition), each occurrence's gensym key
-  overwrote the prior, and dispose (spec/006:600-613 — release ALL held
-  inputs) released only the LAST, leaking the earlier one(s) forever. The
-  `own-keys` VECTOR fix tracks every `[source key]` pair.
+  vector with NO uniqueness precondition); a `source→key` map would let each
+  occurrence's gensym key overwrite the prior, so dispose (spec/006:600-613 —
+  release ALL held inputs) would release only the LAST, leaking the earlier
+  one(s) forever.
 
-  Coordinator model (rf2-7ryt0). A raw atom source now fans out through ONE
+  Coordinator model. A raw atom source fans out through ONE
   per-source coordinator watch that brackets its whole dependent fan-out in a
   scheduler epoch; each `[src …]` occurrence registers a distinct DEPENDENT
   ENTRY in that coordinator (not a distinct atom watch). So `[src src]`
@@ -2033,23 +2033,23 @@
        derived value does NOT recompute when `src` later mutates; a leaked
        dependent entry would still `mark-dirty!` → flush → recompute."
   [{:keys [adapter name]}]
-  (testing (str name " — make-derived-value dispose releases ALL duplicate-source deps (rf2-he7se + rf2-7ryt0)")
+  (testing (str name " — make-derived-value dispose releases ALL duplicate-source deps")
     (let [src        (mk-source adapter 1)
           recomputes (atom 0)
-          ;; SAME source object twice — the duplicate the bead names.
+          ;; SAME source object twice — the duplicate-source case.
           derived    (mk-derive adapter [src src]
                                 (fn [a b] (swap! recomputes inc) (+ a b)))]
       (is (zero? @recomputes)
-          "derived is lazy: compute-fn not yet run at construction (rf2-ee38b.1)")
+          "derived is lazy: compute-fn not yet run at construction")
       ;; Establish the baseline (first deref recomputes once) and confirm the
       ;; source is watched while the derived is live — ONE coordinator watch
-      ;; fronts the duplicate [src src] dependent entries (rf2-7ryt0).
+      ;; fronts the duplicate [src src] dependent entries.
       (is (= 2 @derived) "baseline derived = src + src")
       (is (= 1 @recomputes) "first deref recomputed exactly once")
       (is (= 1 (source-watch-count src))
-          "the [src src] duplicate is fronted by ONE coordinator watch (rf2-7ryt0)")
-      ;; Dispose. Pre-fix, only the LAST dependent entry was tracked → one
-      ;; entry leaks → the coordinator's watch survives here.
+          "the [src src] duplicate is fronted by ONE coordinator watch")
+      ;; Dispose. Were only the LAST dependent entry tracked, one entry would
+      ;; leak → the coordinator's watch would survive here.
       (rf.disposable/-dispose derived)
       (is (zero? (source-watch-count src))
           "dispose released EVERY dependent entry the duplicate source held, so
@@ -2062,11 +2062,11 @@
            no leaked watch survived to mark it dirty"))))
 
 ;; ===========================================================================
-;; managed HTTP (Spec 014) — port of `*_http_managed`
+;; managed HTTP (Spec 014)
 ;;
 ;; The http-managed suite requires the entry-file fixture to call
 ;; `rf.http.managed/clear-all-in-flight!` before AND after each test (see the
-;; per-substrate twin's fixture). The shared-suite fns assume a freshly
+;; entry file's fixture). The shared-suite fns assume a freshly
 ;; reset runtime with the adapter installed.
 ;; ===========================================================================
 
@@ -2147,8 +2147,8 @@
       (fn []
         ;; Documented wrapper form — NO manual :fx-overrides. The wrapper
         ;; installs the :rf.http/managed override for the body's dynamic
-        ;; extent (rf2-rzqan); rf2-vn8qjv made that override a per-scope id,
-        ;; so hardcoding the stub id here would route to an unregistered fx.
+        ;; extent; that override is a per-scope id, so hardcoding the stub
+        ;; id here would route to an unregistered fx.
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :ok (get-in db [:result :status])))
@@ -2169,7 +2169,7 @@
       {[:get "/articles"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}}
       (fn []
         ;; Documented wrapper form — NO manual :fx-overrides (see
-        ;; assert-http-with-request-stubs; rf2-rzqan / rf2-vn8qjv).
+        ;; assert-http-with-request-stubs).
         (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :error (get-in db [:result :status])))
@@ -2197,8 +2197,8 @@
       (is (nil? (:article (rf/app-db-value :rf/default)))))))
 
 ;; ===========================================================================
-;; Cross-Spec interactions (spec/Cross-Spec-Interactions.md) — port of
-;; `*_cross_spec` (headless subset)
+;; Cross-Spec interactions (spec/Cross-Spec-Interactions.md) — headless
+;; subset
 ;; ===========================================================================
 
 (defn- collect-traces [k]
@@ -2213,7 +2213,7 @@
   [{:keys [name]}]
   (testing (str name " — #1 frame disposal with active machine instances")
     (rf/make-frame {:id :tenant-x :doc "tenant frame with two machines"})
-    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    ;; Machine snapshots are durable runtime-db state (EP-0001).
     (rf/reg-event :seed
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
@@ -2236,7 +2236,7 @@
   `{:rf/sub … :as …}` recordable source, evaluated once against the
   committed pre-cascade frame-state), NOT via an in-callback
   `subscribe-once` — an in-callback ambient read is unrecorded and breaks
-  005's replay contract (Cross-Spec-Interactions §2, rf2-h6ggnt)."
+  005's replay contract (Cross-Spec-Interactions §2)."
   [{:keys [name]}]
   (testing (str name " — #2 sub-cache hit inside a machine microstep")
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user/role :admin}}))
@@ -2265,7 +2265,7 @@
     ;; EP-0027: `:initial-events` runs the setup steps synchronously at TOP-LEVEL
     ;; construction (an ambient `*current-frame*` scope does not make it
     ;; async-queue; only an in-flight handler cascade — `*handler-scope*` — would,
-    ;; and that is now a fail-loud error). This test models a TOP-LEVEL boot, so
+    ;; and that is a fail-loud error). This test models a TOP-LEVEL boot, so
     ;; the setup drains synchronously and its seed is observable.
     (rf/make-frame {:id :booted :initial-events [[:init-shape]]})
     (is (= :armed (get-in (:rf.db/runtime (rf/frame-state-value :booted)) [:rf.runtime/machines :snapshots :flow/boot :state]))
@@ -2331,7 +2331,7 @@
         (stop-traces ::xspec-11)
         (let [errs (filter #(= :rf.error/machine-action-exception (:operation %)) @traces)]
           (is (seq errs) "an action throw surfaces as :rf.error/machine-action-exception")
-          (is (some #(= :test/m (get-in % [:tags :actor-id])) errs) "the trace identifies the live actor that threw (rf2-yyvtk5 — :actor-id)")
+          (is (some #(= :test/m (get-in % [:tags :actor-id])) errs) "the trace identifies the live actor that threw (:actor-id)")
           (is (some #(= :boom (get-in % [:tags :action-id])) errs) "the trace identifies the action that threw"))
         (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
             "the generic :rf.error/handler-exception does NOT also fire")
@@ -2400,8 +2400,8 @@
       (rf/dispatch-sync [:test/m [:go]])
       (let [post-go-db (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (= :working (get-in post-go-db [:rf.runtime/machines :snapshots :test/m :state])) "machine reached :working")
-        ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db
-        ;; state — revert via the runtime-db PARTITION write (swap-runtime-db!).
+        ;; Machine snapshots are durable runtime-db state (EP-0001) —
+        ;; revert via the runtime-db PARTITION write (swap-runtime-db!).
         (rf.frame/swap-runtime-db! :rf/default
           (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :test/m :state] :idle)))
         (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :state]))
@@ -2464,8 +2464,8 @@
                     (rf.substrate.adapter/install-adapter! adapter)
                     false
                     (catch :default e
-                      ;; rf2-vvixub — branch on the canonical :rf.error/id
-                      ;; discriminator, never on the (now human-sentence) message.
+                      ;; Branch on the canonical :rf.error/id
+                      ;; discriminator, never on the (human-sentence) message.
                       (= :rf.error/adapter-already-installed
                          (:rf.error/id (ex-data e)))))]
       (is thrown? "second install-adapter! raises :rf.error/adapter-already-installed"))
@@ -2475,9 +2475,7 @@
         "after destroy, install succeeds again — clean swap path")))
 
 ;; ===========================================================================
-;; public surface + adapter-map shape (rf2-6c2sr / rf2-ynjts.4) — folded
-;; from the byte-identical uix_public_surface / helix_public_surface twins
-;; (rf2-6j09b).
+;; public surface + adapter-map shape
 ;;
 ;; WHAT THESE PIN. Every BEHAVIOUR is asserted elsewhere in this suite +
 ;; the DOM twins, but some published surfaces — `flush-views!`, and on a
@@ -2504,8 +2502,8 @@
 ;; its roster is the six spine surfaces it publishes. Neither roster
 ;; carries the spine's internal warn-once clear thunk: that seam is
 ;; reached through the chained `:adapter/clear-warn-once-caches!` hook,
-;; never a namespace export (rf2-6r9j.36). The `:kind` discriminator is
-;; read off the existing `:adapter` cfg key (the adapter map carries its
+;; never a namespace export. The `:kind` discriminator is
+;; read off the `:adapter` cfg key (the adapter map carries its
 ;; own :kind), so no extra cfg key is needed for the adapter-map shape
 ;; assertion.
 ;;
@@ -2592,8 +2590,8 @@
           (str "adapter contract fn " k " is present and fn-shaped")))))
 
 ;; ===========================================================================
-;; *current-frame* propagation across dispatch (rf2-l5q3) — port of
-;; `*_dispatch_frame_capture`. Async + sync. Driven from a dedicated
+;; *current-frame* propagation across dispatch. Async + sync. Driven from a
+;; dedicated
 ;; entry-file pair carrying a {:before :after} map fixture (async tests
 ;; require a map-form fixture so :after lands after the async `done`).
 ;; ===========================================================================
@@ -2603,8 +2601,8 @@
   (let [tenant-a (mint-kw substrate-kw "dfc-tenant-a")
         tenant-b (mint-kw substrate-kw "dfc-tenant-b")
         seed     (mint-kw substrate-kw "dfc-seed")]
-    ;; EP-0002 (rf2-9wa0lf): `:rf/default` is an ordinary frame — `init!`
-    ;; no longer creates it. Register it explicitly so the `:rf/default`
+    ;; `:rf/default` is an ordinary frame (EP-0002) — `init!` does not
+    ;; create it. Register it explicitly so the `:rf/default`
     ;; seed below lands and the "neither frame leaked" assertions across
     ;; the dfc family compare against a real (empty) frame rather than a
     ;; never-registered one.
@@ -2621,7 +2619,7 @@
 
 (defn assert-dfc-sync-dispatch-routes-to-handlers-frame
   "Synchronous direct rf/dispatch from inside a handler routes to that
-  handler's frame (rf2-l5q3)."
+  handler's frame."
   [{:keys [substrate-kw name]}]
   (testing (str name " — sync rf/dispatch from a handler routes to the handler's frame")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
@@ -2636,7 +2634,7 @@
           ":rf/default must NOT have received :landed — the dispatch was scoped to tenant-a"))))
 
 (defn assert-dfc-fx-dispatch-routes-to-handlers-frame
-  ":fx [[:dispatch ...]] routes to the handler's frame (rf2-l5q3)."
+  ":fx [[:dispatch ...]] routes to the handler's frame."
   [{:keys [substrate-kw name]}]
   (testing (str name " — :fx [[:dispatch ...]] routes to the handler's frame")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
@@ -2651,7 +2649,7 @@
 
 (defn assert-dfc-sync-dispatch-isolation
   "Synchronous dispatch from tenant-a stays in tenant-a; tenant-b
-  untouched (rf2-l5q3)."
+  untouched."
   [{:keys [substrate-kw name]}]
   (testing (str name " — sync dispatch isolation between frames")
     (let [{:keys [tenant-a tenant-b]} (dfc-seed-frames! substrate-kw)
@@ -2667,13 +2665,11 @@
 
 (defn assert-dfc-raw-dispatch-from-set-timeout-falls-through
   "Raw rf/dispatch from a setTimeout callback escapes *current-frame* —
-  the documented gotcha (rf2-l5q3). EP-0002 (rf2-9wa0lf) REFRAMES the
-  outcome: the binding is dead in the async callback, so the raw dispatch
-  no longer SILENTLY falls through to `:rf/default` — there is no
-  `:rf/default` floor. It now FAILS LOUDLY with
-  `:rf.error/no-frame-context`, replacing the retired
-  `:rf.warning/dispatch-from-async-callback-fell-through-to-default`. The
-  fix is to capture a `capture-frame` handle at render time
+  the documented gotcha. The binding is dead in the async callback and
+  there is no `:rf/default` floor (EP-0002), so the raw dispatch FAILS
+  LOUDLY with `:rf.error/no-frame-context` rather than silently landing on
+  `:rf/default`. The remedy is to capture a `capture-frame` handle at
+  render time
   (covered by `assert-dfc-dispatch-later-survives-the-timer` et al.).
   ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
