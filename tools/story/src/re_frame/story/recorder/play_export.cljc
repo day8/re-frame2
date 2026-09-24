@@ -39,7 +39,7 @@
   | `{:kind :dom/click  :selector s :t ms}`     | `[:click s]`                 |
   | `{:kind :dom/type   :selector s :text t :t ms}` | `[:type s t]`            |
   | `{:kind :dom/submit :selector s :t ms}`     | `[:click s]` (best-effort)   |
-  | `{:kind :event/timer-child :t ms}`          | `[:wait Δt]` only, whatever the threshold (rf2-tbik1) |
+  | `{:kind :event/timer-child :t ms}`          | `[:wait Δt]` only, whatever the threshold, up to `ms` from where the replay has reached (rf2-tbik1, rf2-mcjdg) |
   | time gap between entries > `wait-threshold-ms` | `[:wait Δt]` inserted before the next step |
   | `(app-db snapshot at end)` (if provided)    | trailing `[:assert-db path expected]` steps (top-N changed paths) |
 
@@ -278,6 +278,10 @@
   and insert `[:wait Δt]` steps between consecutive entries whose
   `:t` gap meets `wait-threshold-ms`. Pure data → data.
 
+  An `:event/timer-child` marker emits only a wait, whatever the
+  threshold, and that wait runs to the marker's `:t` from the time the
+  REPLAY has reached rather than from the previous entry (rf2-mcjdg).
+
   Options:
     :wait-threshold-ms  default `default-wait-threshold-ms` (50ms).
                         Pass 0 to emit a wait between every pair of
@@ -286,8 +290,13 @@
   ([entries] (entries->steps entries {}))
   ([entries {:keys [wait-threshold-ms]
              :or   {wait-threshold-ms default-wait-threshold-ms}}]
+   ;; `covered-t` is the recorded time the replay has reached: the first
+   ;; translated entry's `:t` plus every wait emitted since, a replayed step
+   ;; taking no time. It falls behind `last-t` by each sub-threshold gap that
+   ;; folds out, and only a timer child's wait reads it.
    (loop [remaining (seq entries)
           last-t    nil
+          covered-t nil
           out       (transient [])]
      (if (empty? remaining)
        (persistent! out)
@@ -298,13 +307,20 @@
            ;; A fired `:dispatch-later` child (rf2-tbik1): no step, because
            ;; replaying its root re-arms the timer, but ALWAYS its wait,
            ;; whatever the threshold, so the next step (an auto-assert,
-           ;; typically) runs after the re-armed timer has fired.
+           ;; typically) runs after the re-armed timer has fired. The wait
+           ;; runs from `covered-t`, not `last-t`: the root that re-arms the
+           ;; timer can sit before gaps that folded out, and the replay has
+           ;; waited none of them, so an intervening short-gap step would
+           ;; otherwise shorten the wait by its gap (rf2-mcjdg). Catching up
+           ;; to the child's `:t` covers a timer armed by any earlier step.
            (= :event/timer-child (:kind entry))
-           (let [gap (when (and (some? last-t) (some? this-t))
-                       (- this-t last-t))]
+           (let [gap   (when (and (some? covered-t) (some? this-t))
+                         (- this-t covered-t))
+                 wait? (and (number? gap) (pos? gap))]
              (recur (rest remaining)
                     (or this-t last-t)
-                    (if (and (number? gap) (pos? gap))
+                    (if wait? this-t (or covered-t this-t))
+                    (if wait?
                       (conj! out [:wait (long gap)])
                       out)))
 
@@ -314,7 +330,7 @@
            ;; measures the gap to the last visible step rather than
            ;; the dropped intermediate.
            (nil? step)
-           (recur (rest remaining) last-t out)
+           (recur (rest remaining) last-t covered-t out)
 
            :else
            (let [gap (when (and (some? last-t) (some? this-t))
@@ -324,6 +340,7 @@
                  out (conj! out step)]
              (recur (rest remaining)
                     (or this-t last-t)
+                    (if w (+ covered-t gap) (or covered-t this-t))
                     out))))))))
 
 ;; ---------------------------------------------------------------------------

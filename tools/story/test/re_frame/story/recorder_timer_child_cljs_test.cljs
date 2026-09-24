@@ -17,6 +17,12 @@
   recording's seed db), replays it as a registered variant, and counts the
   child handler's runs.
 
+  rf2-mcjdg adds an unrelated dispatch between the root and the child,
+  under the export's 50ms wait threshold. Its gap folds out of the script,
+  but on replay it runs straight after the root that re-armed the timer, so
+  the child's wait must still cover the whole delay from there, not only
+  the time since that dispatch.
+
   Named `-cljs-test` (not `-dom-cljs-test`), so the `:node-test` build
   selects it; nothing here needs a DOM."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -45,6 +51,12 @@
   `later-ms`, so a re-armed timer that is going to fire has fired."
   (* 4 later-ms))
 
+(def ^:private other-gap-ms
+  "rf2-mcjdg: when the unrelated dispatch lands after the root. Under the
+  50ms threshold, so the export folds its gap out, and far enough before
+  the child that a wait measured from it falls short of `later-ms`."
+  30)
+
 (def ^:private child-runs (atom 0))
 
 (defn- reset-all! []
@@ -71,7 +83,10 @@
   (rf/reg-event :tbik1/child
     (fn [{:keys [db]} _]
       (swap! child-runs inc)
-      {:db (update db :children (fnil inc 0))})))
+      {:db (update db :children (fnil inc 0))}))
+  (rf/reg-event :tbik1/other
+    (fn [{:keys [db]} _]
+      {:db (update db :others (fnil inc 0))})))
 
 (use-fixtures :each
   {:before reset-all!
@@ -127,6 +142,73 @@
                                 (is (= :pass (:status result))
                                     (str "the replay's auto-assert passes; script "
                                          (pr-str (:script body))))
+                                (rf.story/destroy-variant! replay-id)
+                                (rf.story/destroy-variant! source-id)
+                                (done)))))))))))))))
+
+(defn- recorded-t
+  "The recorded `:t` of the dispatch entry for `event-id`, or nil."
+  [entries event-id]
+  (some #(when (= event-id (first (:event %))) (:t %)) entries))
+
+(deftest a-short-gap-event-does-not-shorten-the-timer-wait
+  (testing "rf2-mcjdg: an unrelated dispatch between the root and its
+            :dispatch-later child, under the wait threshold, folds out of the
+            script — and replayed it runs straight after the re-armed root, so
+            a wait measured from it reaches the auto-assert before the timer"
+    (async done
+      (rf.story/reg-variant source-id {})
+      (-> (rf.story/run-variant source-id)
+          (rf.story.async/then
+            (fn [_]
+              (rf.story.recorder/install-trace-listener!)
+              (rf.story.recorder/start-recording! source-id)
+              (rf/dispatch-sync [:tbik1/root] {:frame source-id})
+              (after-ms other-gap-ms
+                #(rf/dispatch-sync [:tbik1/other] {:frame source-id}))
+              (after-ms settle-ms
+                (fn []
+                  (rf.story.recorder/stop-recording!)
+                  (let [entries  (rf.story.recorder/recorded-entries)
+                        final-db (rf/app-db-value source-id)
+                        seed-db  (:seed-db (rf.story.recorder/current-state))
+                        body     (rf.story.recorder.play-export/recording->script-body
+                                   entries
+                                   {:auto-assert? true
+                                    :seed-db      seed-db
+                                    :final-db     final-db})
+                        script   (:script body)
+                        gap      (- (recorded-t entries :tbik1/other)
+                                    (recorded-t entries :tbik1/root))]
+                    (is (< gap rf.story.recorder.play-export/default-wait-threshold-ms)
+                        (str "control: the intervening dispatch's " gap
+                             "ms gap is under the threshold, so it folds out"))
+                    ;; A recorded dispatch step carries its `{:rf.cofx …}` as a
+                    ;; third element, so compare each step's head.
+                    (is (= [[:dispatch [:tbik1/root]] [:dispatch [:tbik1/other]]]
+                           (mapv #(subvec % 0 2) (take 2 script)))
+                        "control: no wait between the root and the short-gap event")
+                    (is (= {:roots 1 :others 1 :children 1}
+                           (select-keys final-db [:roots :others :children]))
+                        "control: the recorded session ran the timer child once")
+                    (is (some #(and (= :wait (first %)) (>= (second %) later-ms)) script)
+                        (str "the script waits the timer's whole delay; script "
+                             (pr-str script)))
+                    (reset! child-runs 0)
+                    (rf.story/reg-variant replay-id {:extends source-id
+                                                     :script  body})
+                    (-> (rf.story/run replay-id)
+                        (rf.story.async/then
+                          (fn [result]
+                            (after-ms settle-ms
+                              (fn []
+                                (is (= 1 @child-runs)
+                                    (str "the replay ran the :dispatch-later child "
+                                         @child-runs " time(s); script "
+                                         (pr-str script)))
+                                (is (= :pass (:status result))
+                                    (str "the replay's auto-assert passes; script "
+                                         (pr-str script)))
                                 (rf.story/destroy-variant! replay-id)
                                 (rf.story/destroy-variant! source-id)
                                 (done)))))))))))))))
