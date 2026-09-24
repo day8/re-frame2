@@ -1,31 +1,30 @@
 (ns re-frame.teardown-always-on-elision-prod-test
-  "EP-0008 prod-elision coverage gap — rf2-9pxj70.
+  "EP-0008 prod-elision coverage for the teardown / write-race categories.
 
-  EP-0008 promoted THREE teardown / write-race categories onto the
-  ALWAYS-ON error-emit axis:
+  EP-0008 puts THREE teardown / write-race categories on the ALWAYS-ON
+  error-emit axis:
 
-    :rf.error/frame-teardown-failed        (rf2-ini4wr — the bounded
+    :rf.error/frame-teardown-failed        (the bounded
                                             teardown report)
-    :rf.error/write-after-destroy          (rf2-500ech — the dropped
+    :rf.error/write-after-destroy          (the dropped
                                             nil-container write)
-    :rf.error/on-destroy-handler-exception (rf2-7b9r4l — the discriminable
+    :rf.error/on-destroy-handler-exception (the discriminable
                                             :on-destroy throw signal)
 
-  Each was previously exercised ONLY by the DEV `:node-test` runner
-  (`*_always_on_cljs_test.cljc` / `frame_teardown_report_cljs_test.cljc`,
-  all matching `:ns-regexp \"cljs-test$\"`). The dev-mode tests assert the
-  always-on listener FIRES, but they run with the trace surface LIVE — they
-  cannot prove the central EP-0008 claim: that the always-on emission
-  SURVIVES `:advanced` + `goog.DEBUG=false` where the dev trace is DCE'd.
+  The DEV `:node-test` runner (`*_always_on_cljs_test.cljc` /
+  `frame_teardown_report_cljs_test.cljc`, all matching `:ns-regexp
+  \"cljs-test$\"`) asserts the always-on listener FIRES, but runs with the
+  trace surface LIVE — it cannot prove the central EP-0008 claim: that the
+  always-on emission SURVIVES `:advanced` + `goog.DEBUG=false` where the dev
+  trace is DCE'd.
 
-  The sibling `re-frame.on-error-elision-prod-test` (rf2-2hvga / rf2-goum9x)
-  pins exactly that production-survival contract for the OLDER always-on
-  rows (handler-exception / frame-destroyed / no-such-* / fx). This file
-  closes the gap for the NEW EP-0008-promoted rows under the prod build.
+  The sibling `re-frame.on-error-elision-prod-test` pins that
+  production-survival contract for the other always-on rows
+  (handler-exception / frame-destroyed / no-such-* / fx). This file pins it
+  for the EP-0008 rows under the prod build.
 
-  CONTRACT for `:rf.error/on-destroy-handler-exception` (rf2-7b9r4l +
-  rf2-87f7fb): the dedicated category has TWO producers, and BOTH now
-  survive prod (rf2-87f7fb closed the common-path gap):
+  CONTRACT for `:rf.error/on-destroy-handler-exception`: the dedicated
+  category has TWO producers, and BOTH survive prod:
 
     - COMMON path (the user `:on-destroy` handler throws): the router
       converts the throw to an always-on `:rf.error/handler-exception`
@@ -36,7 +35,7 @@
       duration of the dispatch, captures the record, and re-emits the
       dedicated `:rf.error/on-destroy-handler-exception` category. Because
       the capture rides the always-on axis (NOT the dev-only
-      `trace.tooling` listener registry it used pre-rf2-87f7fb), the
+      `trace.tooling` listener registry), the
       dedicated discriminable record SURVIVES `:advanced` +
       `goog.DEBUG=false` — exactly what the Spec 009 catalogue promises.
       The router's generic `:rf.error/handler-exception` ALSO fires (the
@@ -44,11 +43,10 @@
       dedicated category is the discriminator (it happened during
       destroy).
 
-    - DEFENCE-IN-DEPTH branch (the private teardown cascade faults,
-      rf2-bxud9v):
+    - DEFENCE-IN-DEPTH branch (the private teardown cascade faults):
       `fire-on-destroy-event!` calls `emit-on-destroy-handler-exception!`
       DIRECTLY (no capture), so the dedicated record DOES survive prod —
-      and this branch never produced a router handler-exception, so the
+      and this branch never produces a router handler-exception, so the
       always-on emission is its ONLY production observability.
 
   This file pins BOTH legs explicitly so the contract is unambiguous.
@@ -99,11 +97,11 @@
 
 ;; ===========================================================================
 ;; (a) :rf.error/frame-teardown-failed — the bounded teardown report survives
-;; prod elision (rf2-ini4wr promotion).
+;; prod elision.
 ;; ===========================================================================
 
 (deftest frame-teardown-failed-report-survives-prod
-  (testing "Per rf2-ini4wr / EP-0008: under `:advanced` + `goog.DEBUG=false`,
+  (testing "Per EP-0008: under `:advanced` + `goog.DEBUG=false`,
             N cleanup hooks throwing during `destroy-frame!` fan EXACTLY ONE
             always-on `:rf.error/frame-teardown-failed` record (carrying N
             `:hook-failures` entries) out through the corpus-wide
@@ -142,7 +140,7 @@
           (is (number? (:time r)) ":time is a wall-clock millis number"))))))
 
 (deftest clean-destroy-emits-no-report-under-prod
-  (testing "Per rf2-ini4wr: a clean destroy (no failing hook) emits NO
+  (testing "A clean destroy (no failing hook) emits NO
             `:rf.error/frame-teardown-failed` report under prod — the
             always-on fan-out short-circuits on an empty :hook-failures
             vector (no per-destroy flood in a `goog.DEBUG=false` SSR host)."
@@ -155,7 +153,7 @@
           "no report when teardown completes cleanly under prod"))))
 
 (deftest partial-teardown-abort-still-flushes-under-prod
-  (testing "Per rf2-ini4wr EP-0008 R1: the finally-shaped flush survives prod
+  (testing "Per EP-0008 R1: the finally-shaped flush survives prod
             elision too. Two cleanup hooks throw (accumulating two entries),
             then a downstream NON-hook teardown step throws unrecoverably —
             the throw propagates out of `destroy-frame!`, yet the always-on
@@ -182,17 +180,16 @@
 
 ;; ===========================================================================
 ;; (b) :rf.error/write-after-destroy — the dropped nil-container write rides
-;; the always-on axis under prod (rf2-500ech promotion).
+;; the always-on axis under prod.
 ;; ===========================================================================
 
 (deftest write-after-destroy-survives-prod
-  (testing "Per rf2-500ech / EP-0008: under `:advanced` + `goog.DEBUG=false`,
+  (testing "Per EP-0008: under `:advanced` + `goog.DEBUG=false`,
             a `replace-container!` against a nil container (the scheduled-
             drain-vs-frame-destruction race) fans ONE
             `:rf.error/write-after-destroy` record out through the always-on
-            `register-error-listener!` substrate — the promoted error
-            category survives where the retired `:rf.warning/write-after-
-            destroy` dev trace is DCE'd. This is the production-build
+            `register-error-listener!` substrate — the error category
+            survives where a dev-only trace would be DCE'd. This is the production-build
             counterpart of the dev-mode `write-after-destroy-always-on-cljs-
             test` (a)/(b) leg."
     (let [seen (atom [])]
@@ -217,11 +214,11 @@
 
 ;; ===========================================================================
 ;; (c) :rf.error/on-destroy-handler-exception — the discriminable :on-destroy
-;; throw signal survives prod (rf2-7b9r4l promotion).
+;; throw signal survives prod.
 ;; ===========================================================================
 
 (deftest on-destroy-common-path-dedicated-record-survives-prod
-  (testing "Per rf2-87f7fb / Spec 009 §Error event catalogue: for the COMMON
+  (testing "Per Spec 009 §Error event catalogue: for the COMMON
             path (the user `:on-destroy` handler itself throws), the
             DEDICATED `:rf.error/on-destroy-handler-exception` category
             SURVIVES `:advanced` + `goog.DEBUG=false`. `fire-on-destroy-
@@ -232,11 +229,10 @@
             axis (the `:error-emit/register-error-listener!` late-bind
             hook), then re-emits the dedicated category — so the
             discriminable teardown signal rides a production-survivable
-            surface. Before rf2-87f7fb the capture observed the dev-only
-            `trace.tooling` listener registry, which DCE'd under prod, so
-            the dedicated record did NOT fire for the common path despite
-            the catalogue promising it does — this test is the regression
-            that would have caught that gap. BOTH the dedicated discriminator
+            surface. A capture on the dev-only `trace.tooling` listener
+            registry would DCE under prod, so the dedicated record would NOT
+            fire for the common path despite the catalogue promising it
+            does; this test catches that. BOTH the dedicated discriminator
             AND the router's generic `:rf.error/handler-exception` (the
             production source of record for the handler throw itself) must
             survive."
@@ -253,7 +249,7 @@
       (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
         (is (= 1 (count reports))
             "the DEDICATED discriminable teardown category SURVIVES prod for
-             the common path (rf2-87f7fb) — EXACTLY ONE record")
+             the common path — EXACTLY ONE record")
         (let [r (first reports)]
           (is (= :rf.error/on-destroy-handler-exception (:error r)))
           (is (= :prod.ondestroy/worker (:frame r))
@@ -282,12 +278,12 @@
         "the frame is fully torn down (teardown continued past the throw)")))
 
 (deftest teardown-cascade-infra-fault-survives-prod
-  (testing "Per rf2-7b9r4l / rf2-bxud9v: under `:advanced` + `goog.DEBUG=
+  (testing "Under `:advanced` + `goog.DEBUG=
             false`, if the internal teardown cascade ITSELF faults (a fault inside the
             dispatch infrastructure, NOT the user handler),
             `fire-on-destroy-event!`'s defence-in-depth catch arm still fans
             a `:rf.error/on-destroy-handler-exception` record out on the
-            always-on axis. This branch NEVER produced a router
+            always-on axis. This branch NEVER produces a router
             `:rf.error/handler-exception`, so the always-on emission here is
             its ONLY production observability — and this is the only test
             that proves it survives elision."
