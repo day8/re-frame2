@@ -490,7 +490,9 @@
   the trace, the handler registration, the snapshot/spawn-slot
   install, the spawn-order record, AND the `:start` dispatch — the
   rejected actor leaves NO half-installed bookkeeping (no registered
-  handler, no actor state, no phantom `:rf/machine?` registry entry).
+  handler, no actor state, no phantom `:rf/machine?` registry entry) —
+  and clears the parent's `:rf/spawned` mirror entry
+  (`clear-rejected-mirror!`).
 
   `continue?` is A's exact-frame-incarnation continuation predicate.
   The schema validator is application code that can destroy
@@ -1326,10 +1328,11 @@
         ;; `:rf.machine.spawn/spawned` (only the
         ;; `:rf.error/schema-validation-failure :phase :spawn` that
         ;; `validate-spawn-data!` already emitted). There is no per-instance
-        ;; handler registration to gate — a rejected spawn simply writes
-        ;; nothing to runtime-db, so no liveness exists for the rejected actor
-        ;; (the strongest form of atomicity: an actor's liveness IS its
-        ;; snapshot, and the snapshot was never installed).
+        ;; handler registration to gate — a rejected spawn installs nothing in
+        ;; runtime-db and only clears the parent's mirror entry, so no liveness
+        ;; exists for the rejected actor (the strongest form of atomicity: an
+        ;; actor's liveness IS its snapshot, and the snapshot was never
+        ;; installed).
         ;;
         ;; A `:spawn-all` child that reached here was ADMITTED by the
         ;; authoritative preflight (a rejected invoke is suppressed upstream by
@@ -1338,6 +1341,13 @@
         rejected?  (if prepared
                      false
                      (spawn-rejected? spec'' spawned-id initial-snap continue?))]
+    ;; A schema-rejected spawn clears the parent's `:rf/spawned` mirror entry
+    ;; the reducer bound, as the unregistered-TYPE and generated-collision
+    ;; rejects do. `rejected?` is true only while A still owned the event when
+    ;; the validator returned; the `(continue?)` recheck and the exact write
+    ;; inside `clear-rejected-mirror!` keep the cleanup off a same-id successor.
+    (when (and rejected? (continue?))
+      (clear-rejected-mirror! frame-id args))
     ;; Gate the ENTIRE accepted-spawn cascade — the
     ;; `:rf.machine.spawn/spawned` trace, the snapshot/spawn-slot
     ;; install, AND the `:start` (or synthetic) dispatch — on THREE conditions:
