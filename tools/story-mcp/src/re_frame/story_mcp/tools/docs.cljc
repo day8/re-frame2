@@ -530,11 +530,10 @@
 
    {:name           "get-variant"
     :category       :docs
-    :description    (str "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time). "
+    :description    (str "Return one variant's registered body as authored (the raw side-table value; `:extends` / `:compose` are NOT resolved here — call `explain-variant` for the resolved plan, `:effective-args` included). "
                          "Examples: "
                          "1. Hit: {:variant-id \":story.cart/full\"} -> {:id :story.cart/full :body {:doc \"...\" :args {:item-count 3} :script [...] :tags #{:dev}}}. "
-                         "2. With extends already applied: {:variant-id \":story.cart/full-with-discount\"} -> {:body {... merged from :story.cart/full ...}}. "
-                         "3. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
+                         "2. Miss: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  1000
     :inputSchema {:type "object"
                   :properties (rf.story-mcp.tools.schemas/with-max-tokens {:variant-id rf.story-mcp.tools.schemas/kw-or-string})
