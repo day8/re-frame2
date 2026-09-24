@@ -109,9 +109,9 @@
     (testing "malformed / extra padding ⇒ ::malformed"
       (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor (str canonical "==") pair?))))
     (testing "noncanonical pad-bit spelling (a lexical grammar admits it) ⇒ ::malformed"
-      ;; This is the alias family a regex-only check would MISS and the one
-      ;; the OLD JVM decoder accepted (java.util.Base64 ignores pad bits):
-      ;; the alias decodes to the same valid map, so old code returned it.
+      ;; This is the alias family a regex-only check would MISS and a bare
+      ;; JVM decode would accept (java.util.Base64 ignores pad bits): the
+      ;; alias decodes to the same valid map.
       (let [alias (pad-bit-alias canonical)]
         (is (some? alias) "the canonical token has pad slack to alias")
         (is (not= alias canonical))
@@ -124,10 +124,9 @@
     (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor oversize offset-cursor?)))))
 
 (deftest decode-cursor-cap-is-characters-and-the-unit-is-unobservable
-  ;; rf2-2rtt6.132 - the cap was named `max-cursor-bytes` while the guard
-  ;; was `(> (count s) ...)`, i.e. UTF-16 CODE UNITS on both hosts. It was
-  ;; RELABELLED rather than converted, and this pins the reasoning so a
-  ;; later author does not "fix" it into UTF-8 bytes.
+  ;; The cap's guard is `(> (count s) ...)`, i.e. UTF-16 CODE UNITS on both
+  ;; hosts, as its name says. This pins the reasoning so a later author
+  ;; does not "fix" it into UTF-8 bytes.
   ;;
   ;; The two rulers agree exactly on ASCII, so they can only diverge on a
   ;; NON-ASCII token - and a non-ASCII token is `::malformed` regardless,
@@ -154,7 +153,7 @@
       ;; Both sit under 1,024 code units and over 1,024 UTF-8 bytes, so a
       ;; byte cap would refuse them AT THE GUARD while the character cap
       ;; lets them through to the decoder. Same verdict either way, which
-      ;; is exactly why the relabel is a complete fix.
+      ;; is exactly why a character cap is enough.
       (is (<= (count dashes) rf.mcp-base.cursor/max-cursor-chars))
       (is (> (utf8-len dashes) rf.mcp-base.cursor/max-cursor-chars))
       (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor dashes offset-cursor?))
@@ -234,7 +233,7 @@
   (let [payload {:v 1 :offset 25 :total 137 :sig "abc123"}
         token   (rf.mcp-base.cursor/encode-cursor payload)]
     (is (< (count token) rf.mcp-base.cursor/max-cursor-chars)
-        "a realistic cursor is well under the byte cap")
+        "a realistic cursor is well under the character cap")
     (is (= payload (rf.mcp-base.cursor/decode-cursor token offset-cursor?)))))
 
 (deftest decode-cursor-rejects-tagged-literals
