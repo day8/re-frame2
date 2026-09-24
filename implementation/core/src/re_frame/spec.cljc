@@ -1,10 +1,9 @@
 (ns re-frame.spec
   "Boundary schema validation — the ALWAYS-ON half of Spec 010 step-1 event
-  validation. Per Spec 010 §Production builds (rf2-r2uh, rf2-kuky.40).
+  validation. Per Spec 010 §Production builds.
 
-  > The ns name is preserved from v2's early phase (`re-frame.spec`), but the
-  > canonical vocabulary is `:schema` everywhere else after rf2-ieu0i — the
-  > registration keys are `:schema` and `:boundary?`, and the hot-reload trace
+  > The ns is named `re-frame.spec`, but the canonical vocabulary is
+  > `:schema` everywhere else — the registration keys are `:schema` and `:boundary?`, and the hot-reload trace
   > category is `:rf.schema/violation`.
 
   A handler opts into production-side enforcement of its OWN `:schema` by
@@ -38,8 +37,8 @@
     step-1 validation is elided — except for `:boundary? true` handlers, which
     take this arm.
   - **`:boundary? true` without `:schema`** is rejected at registration time
-    with `:rf.error/at-boundary-missing-schema` (Spec 010 §Production builds,
-    rf2-iftj4). The flag is structurally meaningless without a schema, so
+    with `:rf.error/at-boundary-missing-schema` (Spec 010 §Production
+    builds). The flag is structurally meaningless without a schema, so
     `re-frame.events` raises from `reg-event` rather than waiting for the first
     dispatch to surface the misconfiguration. There is no warn-and-accept
     fallback.
@@ -83,7 +82,7 @@
 ;; `dev-mode?` constant-folds with it (the fn body is a single var read;
 ;; Closure inlines and folds). The router's dev arm — the late-bind lookup,
 ;; the try/catch frame and the `:schemas/validate-event!` interned slot —
-;; therefore DCEs exactly as it did when that gate was written inline.
+;; therefore DCEs exactly as an inline gate would.
 
 (defn dev-mode?
   "Returns true in dev / JVM (where step-1 validation already covers every
@@ -98,7 +97,7 @@
 
 ;; ---- `:boundary? true` — always-on step-1 validation ----------------------
 ;;
-;; rf2-mwv4e — a refusal here does NOT emit the always-on structural record
+;; A refusal here does NOT emit the always-on structural record
 ;; itself. It returns `false`, and `re-frame.router/run-chain` stamps
 ;; `:rf/skip-handler?` plus `:rf/boundary-rejected?` on the context; the
 ;; router's tail reads that marker to fan ONE always-on structural record and
@@ -110,7 +109,7 @@
 ;;
 ;; An ordinary dev-only `:schema` refusal on an UNFLAGGED handler is
 ;; deliberately NOT marked: that surface has no production counterpart
-;; (Spec 010 §Production builds, rf2-bkvu5), so marking it would invent a
+;; (Spec 010 §Production builds), so marking it would invent a
 ;; production signal that cannot exist.
 
 (defn validate-at-boundary!
@@ -127,7 +126,7 @@
   absent), and — defensively — when the registry metadata carries no `:schema`
   KEY at all.
 
-  Declaration is KEY-presence, not value truthiness (rf2-6eh5h). Registration
+  Declaration is KEY-presence, not value truthiness. Registration
   rejects `:boundary? true` whose metadata lacks the `:schema` KEY, but
   `{:schema nil :boundary? true}` registers (the registrar checks `contains?`),
   so a present falsey value is delegated to the backend VERBATIM as an opaque
@@ -135,8 +134,7 @@
   would run the handler UNGUARDED on exactly the payloads the flag exists to
   gate — a release-resident fail-open.
 
-  FAILS CLOSED on a validator that throws (per rf2-a5kzs finding 2 and
-  rf2-gro94): the flag exists precisely to gate untrusted system-boundary
+  FAILS CLOSED on a validator that throws: the flag exists precisely to gate untrusted system-boundary
   payloads, so a throw — through the seam OR from a non-schemas validator that
   escapes its isolation — SKIPS the handler rather than running it on an
   unvalidated payload. A throwing EXPLAINER cannot reverse that verdict; it
@@ -165,7 +163,7 @@
                   explanation (when explain-fn
                                 (try (explain-fn schema event)
                                      (catch #?(:clj Throwable :cljs :default) _ nil)))
-                  ;; Per rf2-a5kzs / rf2-o69h5 — route the failure tags through
+                  ;; Route the failure tags through
                   ;; the SHARED schema-aware redaction seam so a sensitive
                   ;; payload (a `:cat` payload map carrying `{:sensitive? true}`)
                   ;; is scrubbed here exactly as the dev-time step-1 path scrubs
@@ -192,7 +190,7 @@
               ;; `emit-error!` itself elides under `:advanced` +
               ;; `goog.DEBUG=false`, so this body only fires under JVM /
               ;; dev-CLJS with `dev-mode?` flipped off — exactly the surface the
-              ;; rf2-r2uh tests exercise. The payload-bearing slots
+              ;; boundary-validation tests exercise. The payload-bearing slots
               ;; (`:received` / `:value` / `:explain` / the interpolated
               ;; `:reason`) ride HERE and ONLY here — see the always-on record's
               ;; structural-only contract in
