@@ -1,48 +1,48 @@
 (ns re-frame.routing-uncaptured-param-test
-  "rf2-0iuh3 — a `:params` key the route PATTERN does not capture.
+  "A `:params` key the route PATTERN does not capture.
 
   Route `/probe/:id`, address `{:to :route/probe :params {:id \"7\" :extra \"x\"}}`.
   `:extra` names no `:name` / `*name` segment, so `route-url` cannot put it in
-  the URL and `match-url` cannot read it back. Before this namespace the two
-  ACTIVATION doors disagreed about what that address MEANS:
+  the URL and `match-url` cannot read it back. Accepted, that address would
+  MEAN different things at the two ACTIVATION doors:
 
       [:rf.route/navigate {:to :route/probe :params {:id \"7\" :extra \"x\"}}]
-        committed  :params {:id \"7\" :extra \"x\"}
+        would commit  :params {:id \"7\" :extra \"x\"}
       a route-link CLICK -> [:rf.route/url-requested {:url \"/probe/7\" …}]
-        committed  :params {:id \"7\"}        (it resolves through the URL)
-      [:rf.route/prefetch …] warmed {:id \"7\" :extra \"x\"}
+        would commit  :params {:id \"7\"}        (it resolves through the URL)
+      [:rf.route/prefetch …] would warm {:id \"7\" :extra \"x\"}
 
-  So hovering a link warmed one resource identity and clicking that SAME link
-  activated another. The root cause is the door disagreement, not prefetch:
+  So hovering a link would warm one resource identity and clicking that SAME
+  link would activate another. The hazard is the door disagreement, not prefetch:
   Spec 012 §The one planning pipeline says doors differ in cause and history /
   scroll policy, NOT in target.
 
-  THE ANSWER: neither committed value. An uncaptured path param is REJECTED
+  THE RULE: neither value. An uncaptured path param is REJECTED
   LOUD at `route-url`, the one registry-aware emission boundary all three
-  named-address doors already share. Spec 012 §Validity rules rule 2 already
+  named-address doors share. Spec 012 §Validity rules rule 2
   states the principle in as many words — letting address keys \"ride beside it
   and be silently ignored is the exact failure class this grammar exists to
-  kill\" — and `route-url` already fails CLOSED on emission for every other
+  kill\" — and `route-url` fails CLOSED on emission for every other
   input that breaks the `route-url` / `match-url` prism: the empty-string
   segment (`\"\"` cannot round-trip through trailing-slash normalisation) and
   the sequential-optional-group prefix rule (a later group emitted after an
   earlier one elided lands in the wrong capture slot). An uncaptured param is
-  the same class and was the one remaining hole.
+  the same class.
 
-  Truncating instead (committing `{:id \"7\"}` from every door) would have been
-  silent but total, and it loses the typo an optional group can hide:
+  Truncating instead (committing `{:id \"7\"}` from every door) would be
+  silent but total, and would lose the typo an optional group can hide:
   `/docs{/:section}?` with `{:sction \"x\"}` elides the group, builds `/docs`,
   and throws nothing — so `route-url`'s own `:rf.error/missing-route-param` can
   never catch that misspelling. Rejecting does.
 
   Covers the emission boundary, both activation doors, prefetch, and the
-  adversarial trio the fix has to keep apart: a param that IS captured, a param
+  adversarial trio the rule has to keep apart: a param that IS captured, a param
   that is NOT, and a route with no params at all.
 
-  ## Posture split (rf2-o5dbf)
+  ## Posture split
 
   The REJECTION is production-real and carries no posture guard. `route-url`
-  THROWS (so the emission-boundary and link-door cases were already
+  THROWS (so the emission-boundary and link-door cases are
   posture-independent), the programmatic door leaves the slice untouched and
   pushes no history entry, and prefetch never consults the warm hook. Those
   run in the ordinary `clojure -M:test` suite AND in
@@ -54,8 +54,8 @@
   `rf.interop/debug-enabled?` and read once at load time. (The comment `the
   always-on channel` beside one of them means always-on with respect to the
   SCHEMAS ARTEFACT — the diagnostic does not require it to be loaded — not
-  with respect to the production gate.) Those assertions are kept VERBATIM
-  inside `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  with respect to the production gate.) Those assertions sit
+  inside `(when rf.interop/debug-enabled? …)` arms marked \"Dev-instrumentation arm\".
 
   Two of them are NEGATIVE over the recorder — `(is (empty? rejected))` on the
   positive control and `(is (empty? prefetched))` on the rejection case — and
@@ -181,7 +181,7 @@
     (is (= {:url "/nope"} (:params (current-slice)))
         "the miss record is the fallback's :params — never path captures")
     (rf/dispatch-sync [:rf.route/navigate {:query {:x "1"}}])
-    ;; rf2-3x7nj.12.1: the fallback declares no query vocabulary, so `:x` is
+    ;; The fallback declares no query vocabulary, so `:x` is
     ;; committed the way the URL spells it.
     (is (= {"x" "1"} (:query (current-slice)))
         "the in-place edit committed rather than rejecting")
@@ -208,9 +208,9 @@
       (is (= :route/probe (:route-id (current-slice))))
       (is (= {:id "7"} (:params (current-slice))) "link door"))
 
-    (testing "the PROGRAMMATIC door rejects an uncaptured param — it used to
-              commit :params {:id \"7\" :extra \"x\"}, a slice the address bar
-              could not spell and a reload could not reproduce"
+    (testing "the PROGRAMMATIC door rejects an uncaptured param — committing
+              :params {:id \"7\" :extra \"x\"} would leave a slice the address
+              bar cannot spell and a reload cannot reproduce"
       (rf/dispatch-sync [:rf.route/navigate {:to :route/elsewhere}])
       (reset! pushed [])
       (let [before (current-slice)]
@@ -218,7 +218,7 @@
           [traces {:pred #(= :rf.error/schema-validation-failure (:operation %))}]
           (rf/dispatch-sync [:rf.route/navigate {:to     :route/probe
                                                  :params {:id "7" :extra "x"}}])
-          ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
+          ;; Dev-instrumentation arm (see ns docstring). The
           ;; REJECTION itself is asserted immediately below, on the slice and
           ;; on the push log, posture-independently.
           (when rf.interop/debug-enabled?
@@ -228,9 +228,9 @@
         (is (= :route/elsewhere (:route-id (current-slice))))
         (is (empty? @pushed) "and no history entry was pushed")))
 
-    (testing "the LINK door rejects the same address at href synthesis, so the
-              click payload that used to commit :params {:id \"7\"} can never be
-              built — the two doors no longer disagree, they agree to refuse"
+    (testing "the LINK door rejects the same address at href synthesis, so no
+              click payload committing :params {:id \"7\"} can ever be
+              built — the two doors agree to refuse"
       (let [data (thrown-data #(rf.routing.link/link-model {:to     :route/probe
                                                  :params {:id "7" :extra "x"}}
                                                 :rf/default))]
@@ -260,25 +260,25 @@
                          :rejected   (:rf.error/prefetch-bad-address @traces)}))]
         (testing "POSITIVE CONTROL — the captured-param address still warms"
           (let [{:keys [prefetched rejected]} (collect {:to :route/probe :params {:id "7"}})]
-            ;; SEMANTIC, posture-independent (rf2-o5dbf): the warm hook really
+            ;; SEMANTIC, posture-independent: the warm hook really
             ;; ran, exactly once, on the captured-param plan. Without this the
             ;; `(empty? rejected)` leg is vacuous under the gate.
             (is (= [{:route-id :route/probe :params {:id "7"}}] @calls))
-            ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+            ;; Dev-instrumentation arm (see ns docstring).
             (when rf.interop/debug-enabled?
               (is (empty? rejected))
               (is (= 1 (count prefetched))))))
 
         (testing "an uncaptured param rejects BEFORE planning, on the SAME
-                  boundary the activation doors refuse it at — prefetch warmed
-                  {:id \"7\" :extra \"x\"} while a click activated {:id \"7\"}"
+                  boundary the activation doors refuse it at — otherwise prefetch
+                  would warm {:id \"7\" :extra \"x\"} while a click activates {:id \"7\"}"
           (reset! calls [])
           (let [{:keys [prefetched rejected]}
                 (collect {:to :route/probe :params {:id "7" :extra "x"}})]
-            ;; SEMANTIC, posture-independent (rf2-o5dbf): the address was
+            ;; SEMANTIC, posture-independent: the address was
             ;; refused BEFORE planning, so nothing was warmed.
             (is (empty? @calls) "the warm hook was never consulted — no ensures")
-            ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
+            ;; Dev-instrumentation arm (see ns docstring).
             (when rf.interop/debug-enabled?
               (is (empty? prefetched) "no success summary trace")
               (is (= 1 (count rejected)))
