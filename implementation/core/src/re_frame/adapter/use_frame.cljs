@@ -65,8 +65,8 @@
   ADDRESS, not an identity: destroy `:watchlist` and create another under
   the same id and the two are `=`, while `capture-frame` PINS the exact
   incarnation live when it ran (every op on the bundle refuses a
-  superseded target rather than leaking into its successor). A memo keyed on the keyword alone therefore passes every
-  stability test and fails exactly this one: it keeps handing out the DEAD
+  superseded target rather than leaking into its successor). A memo keyed
+  on the keyword alone therefore passes every stability test and fails exactly this one: it keeps handing out the DEAD
   incarnation's bundle for the rest of the mount, and every dispatch and
   subscribe through it recover-but-emits `:rf.error/frame-destroyed`
   against a frame the caller can plainly see is alive. Keying on
