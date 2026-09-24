@@ -64,7 +64,7 @@
   term is load-bearing across a same-id reincarnation, where the frame
   term restarts and can tie: any other cell the frame holds is rewired by
   microtask and that flush bumps the generation
-  (`staged_reincarnation_basis_cljs_test`, rf2-6c12m.19); a frame holding
+  (`staged_reincarnation_basis_cljs_test`); a frame holding
   no other cell ties either way, which is Spec 006 invariant 5's
   `:node-key` axis, not this number's. Full argument:
   docs/design/fresco/architecture.md, section The collector."
