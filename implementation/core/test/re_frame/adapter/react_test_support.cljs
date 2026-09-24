@@ -1,6 +1,6 @@
 (ns re-frame.adapter.react-test-support
   "Lightweight, dependency-free test helpers shared across the React-shaped
-  adapter test surfaces (UIx) — rf2-5g21s.
+  adapter test surfaces.
 
   WHY A SEPARATE NS. The parameterised `re-frame.adapter.react-shared-suite`
   is the home for shared *assertions*, but it `:require`s the full
@@ -22,11 +22,9 @@
   "The installed adapter's source-coord wrapper, reached through the
   `:adapter/wrap-view` late-bind hook.
 
-  That hook is the ONLY door since rf2-kuky.57 retired the public
-  `re-frame.adapter.uix` var of the same name: it was a second entrance onto
-  this identical fn, and `views/reg-view*` — which is how an application
-  reaches it — has always consulted the hook. Every assertion the public var
-  used to carry runs unchanged through here.
+  That hook is the ONLY door: there is no public `re-frame.adapter.uix` var of
+  the same name, and `views/reg-view*` — which is how an application reaches
+  the wrapper — consults the hook.
 
   Resolves PER CALL rather than at load, because an entry file binds this into
   a top-level `cfg` map while the adapter is installed by a per-test fixture.
@@ -50,7 +48,7 @@
   (when (and el (.-props el))
     (aget (.-props el) attr)))
 
-;; ---- the DevTools-visible component name (rf2-976bw) -----------------------
+;; ---- the DevTools-visible component name -----------------------------------
 ;;
 ;; Spec 006 §React DevTools support item 1 is a claim about what a developer
 ;; READS in the component tree, and a `.-displayName` read off the pre-mount fn
