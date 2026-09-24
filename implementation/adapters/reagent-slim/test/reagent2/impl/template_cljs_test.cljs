@@ -1,5 +1,5 @@
 (ns reagent2.impl.template-cljs-test
-  "Unit tests for reagent2.impl.template (Stage 4-D, rf2-6hyy).
+  "Unit tests for reagent2.impl.template.
 
   Per IMPL-SPEC §7 + §12.1 + §12.5 R-001. Covers:
 
@@ -22,7 +22,7 @@
             [reagent2.impl.component :as component]
             [goog.object :as gobj]
             ["react" :as react]
-            ;; rf2-bf4uw2: render an [:f> f] through the server renderer to
+            ;; Render an [:f> f] through the server renderer to
             ;; prove f's React hooks run in a valid function-component
             ;; context (a class-lowered f would throw 'Invalid hook call').
             ["react-dom/server" :as rds]))
@@ -80,7 +80,7 @@
       (is (= "a b" (.-className parsed))))))
 
 (deftest parse-tag-class-before-id-not-supported
-  ;; rf2-ee38b.15: the regex requires `#id` before `.class` (matches stock
+  ;; The regex requires `#id` before `.class` (matches stock
   ;; Reagent). The class-before-id form (`:div.a#id`) does NOT match —
   ;; `re-matches` returns nil and the result carries a nil tag. Pin the
   ;; constraint so the docstring and the code can never silently disagree.
@@ -118,7 +118,7 @@
     (is (= "alreadyString" (template/cached-prop-name "alreadyString")))))
 
 ;; ---------------------------------------------------------------------------
-;; Narrowed convert-prop-value — DECISION-2 (R-001)
+;; Narrowed convert-prop-value — D2 (R-001)
 ;;
 ;; Per IMPL-SPEC §7.2: keyword values stringify only for HTML attribute
 ;; names (:class, :id, :role, :data-*, :aria-*). Other names pass
@@ -152,7 +152,7 @@
 
 (deftest convert-prop-value-non-html-keyword-passes-through
   (testing ":value with keyword value → keyword unchanged (non-HTML name; D2 narrowing)"
-    ;; The bridge would have stringified this; the rewrite preserves
+    ;; The stock-Reagent bridge stringifies this; reagent-slim preserves
     ;; the keyword so React-context Provider :value works as intended.
     (is (= :some-frame
            (template/convert-prop-value :value :some-frame)))))
@@ -163,7 +163,7 @@
            (template/convert-prop-value :type :primary)))))
 
 (deftest convert-prop-value-3-arg-native-stringifies-any-name
-  (testing "rf2-ygknv finding 1: 3-arg form with native?=true stringifies
+  (testing "3-arg form with native?=true stringifies
             keyword values for ANY prop name (every DOM attr is a string)"
     (is (= "button" (template/convert-prop-value :type :button true)))
     (is (= "_blank" (template/convert-prop-value :target :_blank true)))
@@ -172,7 +172,7 @@
     (is (= "x" (template/convert-prop-value :name 'x true)))))
 
 (deftest convert-prop-value-3-arg-non-native-narrowed
-  (testing "rf2-ygknv finding 1: 3-arg form with native?=false defers to
+  (testing "3-arg form with native?=false defers to
             the interop (narrowed) rule — non-HTML keyword preserved"
     (is (= :button (template/convert-prop-value :type :button false)))
     (is (= :rf/foo (template/convert-prop-value :value :rf/foo false)))
@@ -194,7 +194,7 @@
           out (template/convert-prop-value :on-click f)]
       (is (fn? out)))))
 
-;; rf2-6r9j.30 — a fixture that actually REACHES `convert-prop-value`'s
+;; A fixture that actually REACHES `convert-prop-value`'s
 ;; `ifn?` arm: object-backed, satisfies IFn, and satisfies none of the
 ;; arms that come first (`js-val?`, `named?`, `map?`, `coll?`).
 ;; A deftype implementing IFn does NOT satisfy the `Fn` marker protocol,
@@ -208,28 +208,27 @@
   (-invoke [_ a b] (swap! calls conj [a b])    [:called-2 a b]))
 
 (deftest convert-prop-value-fn-yields-stable-callable-js-fn-rf2-fzbj-30
-  (testing "rf2-fzbj.30 / rf2-gwye.52: an object-backed Fn prop — a fn
+  (testing "an object-backed Fn prop — a fn
             carrying metadata, i.e. cljs.core/MetaFn — converts to a REAL
             JavaScript function, and converting the same handler again
             returns that SAME function, so the host can invoke it AND
             React.memo / shouldComponentUpdate / callback-ref identity
             still hold.
 
-            History: rf2-wyocr passed the MetaFn through unchanged and
-            rf2-6r9j.30 pinned that input identity here. But `goog/typeOf`
+            Passing the MetaFn through unchanged would not do: `goog/typeOf`
             a MetaFn is \"object\": JavaScript's `f(...)` syntax cannot
             invoke it, React DOM refuses it as a listener, and a foreign
             component calling the prop throws. So the witness below is a
             NATIVE call (`Reflect.apply`), never CLJS invocation or
-            `.call` — MetaFn implements both, which is how the pinned
-            identity looked healthy."
+            `.call` — MetaFn implements both, so either would make an
+            unchanged pass-through look healthy."
     (let [calls   (atom [])
           handler (with-meta (fn [& args]
                                (swap! calls conj (vec args))
                                [:handled (vec args)])
                     {:rf/probe true})]
       ;; Preconditions, asserted rather than assumed — these are what
-      ;; route the value past `js-val?` and make the defect real.
+      ;; route the value past `js-val?` and make the hazard real.
       (is (= "object" (goog/typeOf handler))
           "precondition: a metadata-bearing fn is object-backed, so js-val? declines it")
       (is (fn? handler)
@@ -264,14 +263,13 @@
           "1-arg form: plain JS fn unchanged too"))))
 
 (deftest convert-prop-value-non-fn-ifn-still-wrapped
-  (testing "rf2-wyocr: an object-backed callable that satisfies IFn but
+  (testing "an object-backed callable that satisfies IFn but
             not Fn reaches the `ifn?` arm and comes back as a genuinely
             JavaScript-invokable function.
 
-            rf2-6r9j.30: this test used to offer a keyword and a map, and
-            said so in its own comments — the keyword is taken by the
-            `named?` arm and the map by `map?`, so neither could reach
-            the wrapper and the test would have stayed green with both
+            A keyword or a map would not exercise this arm: the keyword is
+            taken by the `named?` arm and the map by `map?`, so neither
+            reaches the wrapper and the test would stay green with both
             `ifn?` arms deleted."
     (let [calls (atom [])
           probe (->CallableProbe calls)]
@@ -292,7 +290,7 @@
         (is (not (identical? probe out))
             "the wrapper is a distinct value — this arm allocates, by design")
         (is (identical? out (template/convert-prop-value :on-select probe))
-            "…once per input: repeated conversion returns the SAME function (rf2-fzbj.30)")
+            "…once per input: repeated conversion returns the SAME function")
         ;; Invoke it the way React would: as a plain JS function.
         (is (= [:called-1 :a] (.call out nil :a))
             "1-arg JS call forwards to the fixture and returns its value")
@@ -314,10 +312,10 @@
   (react/createElement "span" nil (.onSelect props "picked")))
 
 (deftest metafn-callback-prop-is-callable-by-a-foreign-react-component-rf2-fzbj-30
-  (testing "rf2-fzbj.30 / rf2-gwye.52: a real React render of a foreign
-            component that invokes its callback prop natively. Pre-fix the
-            MetaFn object reached `props.onSelect` unchanged and the render
-            threw `props.onSelect is not a function`."
+  (testing "a real React render of a foreign
+            component that invokes its callback prop natively. A MetaFn
+            object reaching `props.onSelect` unchanged would make the render
+            throw `props.onSelect is not a function`."
     (let [meta-handler  (with-meta (fn [v] (str "meta-" v)) {:rf/probe true})
           plain-handler (fn [v] (str "plain-" v))]
       (is (= "<span>plain-picked</span>"
@@ -330,11 +328,11 @@
           "a metadata-bearing fn prop is called by the foreign component too"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-fzbj.30 / rf2-gwye.51 — a component whose render returns a SEQUENCE
+;; A component whose render returns a SEQUENCE
 ;; renders it as sibling children, whatever its Form classification. Driven
 ;; through the real generated class (`as-element` → `fn-to-class` → render
 ;; → `wrap-render` → `as-element`), because a `wrap-render`-only `=`
-;; assertion cannot see this bug: a list and the vector it was coerced to
+;; assertion cannot see this failure: a list and a vector coerced from it
 ;; compare equal, yet `as-element` reads the vector as ONE hiccup form.
 ;; ---------------------------------------------------------------------------
 
@@ -391,15 +389,13 @@
           "an untagged component returning a hiccup vector still renders one element"))))
 
 (deftest nested-style-keyword-value-stringifies-on-live-path-rf2-fdm4rm
-  (testing "rf2-fdm4rm: a nested style-map keyword value reaches React as
+  (testing "a nested style-map keyword value reaches React as
             a STRING on the LIVE path (props.style.cursor === \"pointer\"),
             matching stock Reagent + the SSR serializer — not a raw CLJS
             keyword. This exercises the real nested-map path through
-            as-element, the path production renders actually take. (The
-            old 1-arg-direct test was VACUOUS: no nested-map render reaches
-            the 1-arg form directly — add-converted-nested-prop! did, but
-            routed values through the 2-arg interop form, leaving the keyword
-            un-stringified.)"
+            as-element, the path production renders actually take. (A
+            1-arg-direct test would be VACUOUS: no nested-map render
+            reaches the 1-arg form directly.)"
     (let [^js el (template/as-element [:div {:style {:cursor :pointer}}])
           style  (-> el .-props .-style)]
       (is (= "div" (.-type el)))
@@ -446,7 +442,7 @@
 
 (deftest warn-once-keyword-prop-fires-on-non-html-attr
   (testing "non-HTML prop name + keyword value triggers a console.warn
-            (the rf2-6hyy §7.2 D2 informational notice)"
+            (the IMPL-SPEC §7.2 D2 informational notice)"
     (let [calls (atom [])]
       (with-warn-spy calls
         #(template/convert-prop-value :rf2-warn-test-k1 :rf2-v1))
@@ -564,12 +560,12 @@
     (let [^js el (template/as-element [:div#a {:id "b"}])]
       (is (= "b" (-> el .-props .-id))))))
 
-;; rf2-5t8mr.3 (correctness review): :class and :className both map to
-;; React's `className` prop. Before the fix, leaving both keys in the
-;; prop map sent two writes to the same JS slot and the survivor was
-;; iteration-order dependent (array-map vs hash-map differ) — silently
-;; dropping one class string (and, with shorthand, the shorthand class
-;; too). collapse-class-keys folds :className into :class deterministically,
+;; :class and :className both map to React's `className` prop. Leaving
+;; both keys in the prop map would send two writes to the same JS slot,
+;; and the survivor would be iteration-order dependent (array-map vs
+;; hash-map differ) — silently dropping one class string (and, with
+;; shorthand, the shorthand class too). collapse-class-keys folds
+;; :className into :class deterministically,
 ;; matching the server path's merge-tag-shorthand :className handling.
 (deftest as-element-classname-prop-only
   (testing "[:div {:className \"bar\"}] → React-style :className passes through"
@@ -672,7 +668,7 @@
       (is (= "shaped" (-> el .-props .-already))))))
 
 (deftest as-element-raw-key-does-not-mutate-caller-props-rf2-mdgt8t
-  (testing "rf2-mdgt8t (d): stamping :key on an :r> element COPIES the
+  (testing "stamping :key on an :r> element COPIES the
             caller-supplied js-props object instead of mutating it. The
             caller's object must be unchanged after render."
     (let [Comp     (fn FakeRaw [_props] nil)
@@ -680,19 +676,19 @@
           ^js el   (template/as-element ^{:key "k"} [:r> Comp js-props])]
       (is (= "k" (.-key el)) "the React key is stamped on the element")
       (is (= "shaped" (-> el .-props .-already)) "props still flow through")
-      ;; The caller's object must NOT have gained a :key (the pre-fix bug
-      ;; set! (.-key js-props) key directly on this input object).
+      ;; The caller's object must NOT have gained a :key (as it would if
+      ;; the key were set! directly on this input object).
       (is (undefined? (.-key js-props))
           "caller's js-props object was NOT mutated with :key")
       (is (= 1 (.-length (js/Object.keys js-props)))
           "caller's js-props gained no extra own keys"))))
 
 (deftest as-element-interop-heads-are-keyword-sentinels-rf2-e7zxb
-  (testing "rf2-e7zxb: the four interop heads are dispatched by a `case`,
+  (testing "the four interop heads are dispatched by a `case`,
             which lowers to a switch on the head's `.-fqn`. A head
             RECONSTRUCTED at runtime is not `identical?` to the literal, so
-            this is the pin that the dispatch is by VALUE — exactly what the
-            `(= tag :>)` ladder it replaced answered."
+            this is the pin that the dispatch is by VALUE, as a
+            `(= tag :>)` ladder would be."
     (let [Comp (fn FakeComp [_props] nil)]
       (is (= Comp (.-type ^js (template/as-element [(keyword ">") Comp {:foo "bar"}])))
           "a reconstructed :> still reaches interop-element")
@@ -704,9 +700,9 @@
       (is (fn? (.-type ^js (template/as-element [(keyword "f>") (fn [] [:div])])))
           "a reconstructed :f> still reaches function-element")))
 
-  (testing "rf2-e7zxb: the STRING and SYMBOL look-alikes are DOM-tag heads,
-            not sentinels — the `case` must refuse a non-keyword, and the
-            `(= tag :>)` ladder did too."
+  (testing "the STRING and SYMBOL look-alikes are DOM-tag heads,
+            not sentinels — the `case` must refuse a non-keyword, as a
+            `(= tag :>)` ladder would."
     (is (= ">" (.-type ^js (template/as-element [">" "x"])))
         "the string \">\" is a custom-element tag, not the :> head")
     (is (= "<>" (.-type ^js (template/as-element ["<>" "x"])))
@@ -715,7 +711,7 @@
         "the symbol '> is a tag, not the :> head")))
 
 (deftest props-slot-rule-rf2-e7zxb
-  (testing "rf2-e7zxb: `props-slot?` is the one named rule four call sites
+  (testing "`props-slot?` is the one named rule four call sites
             share — nil or a map occupies the props slot, anything else is
             the first child."
     (is (true? (template/props-slot? nil)))
@@ -736,15 +732,15 @@
           "a non-map slot is the first CHILD, not props"))))
 
 (deftest as-element-function-component-is-real-fn-component-rf2-bf4uw2
-  (testing "rf2-bf4uw2: [:f> f] renders f as a REAL React FUNCTION
-            component — NOT a class. The prior fn-to-class lowering
-            produced a React class, defeating the head's defining
+  (testing "[:f> f] renders f as a REAL React FUNCTION
+            component — NOT a class. A fn-to-class lowering would
+            produce a React class, defeating the head's defining
             purpose (hosting React hooks)."
     (let [some-fn (fn [_n] [:div])
           ^js el (template/as-element [:f> some-fn 42])]
       (is (fn? (.-type el)) ":f> head is a function component")
       (is (not (component/reagent-class? (.-type el)))
-          ":f> is NOT lowered to a reagent-slim class (the rf2-bf4uw2 bug)")
+          ":f> is NOT lowered to a reagent-slim class")
       (is (not (component/react-class? (.-type el)))
           ":f> head is not a React class either — a plain function component")
       ;; Stable identity: the same fn re-wraps to the SAME component type
@@ -755,7 +751,7 @@
             "wrapper cached per fn for stable reconciliation")))))
 
 (deftest as-element-function-component-passes-args-rf2-bf4uw2
-  (testing "rf2-bf4uw2: [:f> f a b] calls f with the user args (a b),
+  (testing "[:f> f a b] calls f with the user args (a b),
             converting its hiccup return to a React element"
     (let [greet  (fn [who] [:div.greet "hi " who])
           ^js el (rds/renderToStaticMarkup
@@ -764,11 +760,11 @@
           "f received its positional arg and its hiccup was rendered"))))
 
 (deftest as-element-function-component-hooks-render-rf2-bf4uw2
-  (testing "rf2-bf4uw2: an [:f> f] whose f calls a React hook renders
+  (testing "an [:f> f] whose f calls a React hook renders
             WITHOUT throwing 'Invalid hook call'. Rendered through
             react-dom/server, which installs the hooks dispatcher for
-            function components (and an error dispatcher for classes) — the
-            pre-fix class lowering would THROW here; the real function
+            function components (and an error dispatcher for classes) — a
+            class lowering would THROW here; the real function
             component renders the hook-seeded value."
     (let [hooked (fn hooked-view [start]
                    (let [state (react/useState start)
@@ -787,7 +783,7 @@
       (is (component/reagent-class? (.-type el))))))
 
 ;; ---------------------------------------------------------------------------
-;; Source-coord stamping is gated on a native DOM-tag head (rf2-33lo7r)
+;; Source-coord stamping is gated on a native DOM-tag head
 ;;
 ;; converted-props-element is the emit path for BOTH real DOM tags AND :>
 ;; interop elements. The *source-coord* merge must fire ONLY for a string DOM
@@ -834,7 +830,7 @@
               "the first DOM element downstream carries data-rf2-source-coord"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ygknv finding 1: target-aware keyword/symbol DOM-attr stringification
+;; Target-aware keyword/symbol DOM-attr stringification
 ;;
 ;; convert-props is shared by native DOM tags and :> custom React
 ;; components. For native DOM tags every prop is an HTML attribute, so
@@ -878,12 +874,12 @@
           ":kind is a custom prop → keyword preserved on interop"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ygknv finding 2: CSS custom properties (--foo) not camelCased
+;; CSS custom properties (--foo) not camelCased
 ;;
-;; The live React-element path's style-map conversion ran every key
-;; through cached-prop-name, camelCasing `--gap` → `Gap` and silently
-;; dropping the variable (while the pure server serializer preserved
-;; it → parity break). dash-to-prop-name now short-circuits `--` names.
+;; The live React-element path's style-map conversion runs every key
+;; through cached-prop-name. CamelCasing `--gap` → `Gap` would silently
+;; drop the variable (while the pure server serializer preserves it →
+;; parity break), so dash-to-prop-name short-circuits `--` names.
 ;; ---------------------------------------------------------------------------
 
 (deftest as-element-style-css-var-preserved
@@ -906,7 +902,7 @@
           "regular kebab style key still camelCased to fontSize"))))
 
 (deftest cached-prop-name-css-var-not-camelcased
-  (testing "rf2-ygknv finding 2: cached-prop-name preserves --foo verbatim"
+  (testing "cached-prop-name preserves --foo verbatim"
     (is (= "--gap" (template/cached-prop-name :--gap)))
     (is (= "--my-custom-prop" (template/cached-prop-name :--my-custom-prop)))))
 
@@ -924,7 +920,7 @@
       (is (= 3 (alength arr))))))
 
 (deftest as-element-seq-children-interior-nil-false
-  ;; rf2-8u8tx.1 — expand-seq must NOT truncate at the first nil/false
+  ;; expand-seq must NOT truncate at the first nil/false
   ;; element. The idiomatic conditional-list shape
   ;;   (for [x xs] (when (pred? x) [:li ...]))
   ;; yields interior nils for filtered-out rows; a truthiness-gated loop
@@ -980,7 +976,7 @@
       (is (= "x.png" (-> el .-props .-src))))))
 
 (deftest as-element-void-tag-children-warns-and-drops-rf2-mdgt8t
-  (testing "rf2-mdgt8t (c): a void tag given children still DROPS them
+  (testing "a void tag given children still DROPS them
             (documented leniency — no render crash) but emits a DEBUG dev
             warning so the app bug is NON-silent, not masked."
     (let [captured (atom nil)
@@ -999,7 +995,7 @@
       (is (re-find #"<br>" (first @calls)) "warning names the void tag"))))
 
 (deftest as-element-void-tag-no-children-does-not-warn-rf2-mdgt8t
-  (testing "rf2-mdgt8t (c): a void tag WITHOUT children does not warn"
+  (testing "a void tag WITHOUT children does not warn"
     (let [calls (atom [])]
       (with-warn-spy calls
         #(do (template/as-element [:br])
@@ -1046,7 +1042,7 @@
       (is (nil? (aget (.-props el) "data-rf2-source-coord"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-dwds9 MEDIUM: prototype-pollution defence
+;; Prototype-pollution defence
 ;;
 ;; User-controlled hiccup keys like `:__proto__`, `:constructor`, and
 ;; `:prototype` MUST NOT mutate the prototype chain of the per-element
@@ -1062,12 +1058,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest prototype-key-dropped-from-props-rf2-dwds9
-  (testing "rf2-dwds9: {:__proto__ {:polluted true}} prop does NOT
+  (testing "{:__proto__ {:polluted true}} prop does NOT
             mutate the props object's prototype chain. Without the
             add-converted-nested-prop! filter, `aset obj '__proto__' {...}`
             would invoke the prototype-setter and change Object.prototype
             lookups
-            on every subsequent prop object — exactly the leak we close."
+            on every subsequent prop object — exactly the leak the filter
+            closes."
     (let [;; A sentinel "evil" prototype carrying a slot we can detect.
           evil      #js {:polluted "yes"}
           ^js el    (template/as-element [:div {:__proto__ evil
@@ -1086,7 +1083,7 @@
           "no own '__proto__' slot on the props object"))))
 
 (deftest constructor-key-dropped-from-props-rf2-dwds9
-  (testing "rf2-dwds9: {:constructor \"x\"} prop is dropped (does not
+  (testing "{:constructor \"x\"} prop is dropped (does not
             override the prototype's constructor or leak as own property)"
     (let [^js el (template/as-element [:div {:constructor "leaked"}])
           props  (.-props el)]
@@ -1095,7 +1092,7 @@
           "no own 'constructor' slot on the props object"))))
 
 (deftest prototype-string-key-dropped-rf2-dwds9
-  (testing "rf2-dwds9: {:prototype \"x\"} prop is dropped"
+  (testing "{:prototype \"x\"} prop is dropped"
     (let [^js el (template/as-element [:div {:prototype "leaked"}])
           props  (.-props el)]
       (is (not (.call (.. js/Object -prototype -hasOwnProperty)
@@ -1103,7 +1100,7 @@
           "no own 'prototype' slot on the props object"))))
 
 (deftest nested-prototype-key-dropped-rf2-dwds9
-  (testing "rf2-dwds9: nested {:style {:__proto__ {...} :color \"red\"}}
+  (testing "nested {:style {:__proto__ {...} :color \"red\"}}
             does NOT leak the evil prototype's slots into the style object"
     (let [evil   #js {:polluted "yes"}
           ^js el (template/as-element [:div {:style {:__proto__ evil
@@ -1116,7 +1113,7 @@
           "legitimate sibling props in the same map survive"))))
 
 (deftest convert-prop-value-reserved-keys-dropped-rf2-dwds9
-  (testing "rf2-dwds9: convert-prop-value at the map? branch drops
+  (testing "convert-prop-value at the map? branch drops
             reserved keys before `aset` — no prototype mutation, no
             own-property pollution; legitimate sibling keys survive"
     (let [evil #js {:polluted "yes"}
@@ -1134,53 +1131,55 @@
             (str "reserved key '" k "' is not an own property"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-tsuk6: an ACCEPTED tag/prop name must not poison the shared caches
+;; An ACCEPTED tag/prop name must not poison the shared caches
 ;;
-;; `tag-name-cache` and `prop-name-cache` are plain `#js {}` objects keyed on
-;; user-controlled names. String Hiccup heads are accepted, so "hasOwnProperty"
-;; is a valid head; prop-key names are accepted, so `{:hasOwnProperty x}` is a
-;; valid prop. Testing a cache hit with `(.hasOwnProperty cache n)` reads the
+;; `tag-name-cache` and `prop-name-cache` are keyed on user-controlled names.
+;; String Hiccup heads are accepted, so "hasOwnProperty" is a valid head;
+;; prop-key names are accepted, so `{:hasOwnProperty x}` is a valid prop. A
+;; cache that tested a hit with `(.hasOwnProperty cache n)` would read the
 ;; method OFF the cache object, so caching an entry NAMED "hasOwnProperty"
-;; `aset`s a value under that own-property name and shadows the method — and
-;; the NEXT lookup then invokes that value as a function and throws a raw host
-;; TypeError, taking down every later render until reload. The fix tests
-;; membership with `Object.prototype.hasOwnProperty.call(cache, n)`, which no
-;; cache entry can shadow.
+;; would shadow the method — and the NEXT lookup would invoke that value as a
+;; function and throw a raw host TypeError, taking down every later render
+;; until reload. The caches are prototype-less (see the next section), so
+;; there is no inherited method for an entry to shadow.
 ;;
 ;; The lever is ORDER: seed the "hasOwnProperty"-named entry FIRST (that render
-;; succeeds and shadows the method), THEN render an ordinary tag/prop — before
-;; the fix that second render throws; after it, it parses normally. The tests
+;; succeeds), THEN render an ordinary tag/prop — a shadowable cache would
+;; throw on that second render; these caches parse it normally. The tests
 ;; assert the OBSERVABLE parse result (`.-type` / `props`) of BOTH renders, so
 ;; a spurious-crash is distinguished from a correct-parse (not vacuous: a stub
 ;; returning nil would fail the type assertions).
 ;; ---------------------------------------------------------------------------
 
 (deftest tag-name-cache-accepts-hasownproperty-head-rf2-tsuk6
-  (testing "rf2-tsuk6: caching the accepted string head \"hasOwnProperty\"
+  (testing "caching the accepted string head \"hasOwnProperty\"
             does not break the NEXT tag lookup"
-    ;; Seed FIRST: this render succeeds and, pre-fix, `aset`s a HiccupTag
-    ;; under the own-property name "hasOwnProperty", shadowing the method.
+    ;; Seed FIRST: this render succeeds and caches a HiccupTag under the
+    ;; name "hasOwnProperty" — which would shadow the method on a cache
+    ;; that carried one.
     (let [^js seeded (template/as-element ["hasOwnProperty" "first"])]
       (is (= "hasOwnProperty" (.-type seeded))
           "the accepted string head renders as its own custom element"))
-    ;; The very next ordinary lookup must parse normally. Pre-fix,
-    ;; `(.hasOwnProperty tag-name-cache \"div\")` invokes the shadowing
-    ;; HiccupTag as a function → raw TypeError; the render never returns.
+    ;; The very next ordinary lookup must parse normally. A
+    ;; `(.hasOwnProperty tag-name-cache \"div\")` hit test would invoke the
+    ;; shadowing HiccupTag as a function → raw TypeError; the render would
+    ;; never return.
     (let [^js el (template/as-element ["div" "second"])]
       (is (= "div" (.-type el))
           "the subsequent ordinary tag renders correctly, not a TypeError"))))
 
 (deftest prop-name-cache-accepts-hasownproperty-key-rf2-tsuk6
-  (testing "rf2-tsuk6: caching the accepted prop key :hasOwnProperty does
+  (testing "caching the accepted prop key :hasOwnProperty does
             not break the NEXT prop-name lookup"
-    ;; Seed FIRST: `cached-prop-name :hasOwnProperty` `aset`s "hasOwnProperty"
-    ;; under that own-property name in prop-name-cache, shadowing the method.
+    ;; Seed FIRST: `cached-prop-name :hasOwnProperty` caches "hasOwnProperty"
+    ;; under that name in prop-name-cache — which would shadow the method on
+    ;; a cache that carried one.
     (let [^js seeded (template/as-element [:div {:hasOwnProperty "x"}])]
       (is (= "div" (.-type seeded))
           "an element carrying a :hasOwnProperty prop renders"))
-    ;; The next element with ANY prop must convert normally. Pre-fix,
-    ;; `(.hasOwnProperty prop-name-cache \"class\")` invokes the shadowing
-    ;; string as a function → raw TypeError.
+    ;; The next element with ANY prop must convert normally. A
+    ;; `(.hasOwnProperty prop-name-cache \"class\")` hit test would invoke
+    ;; the shadowing string as a function → raw TypeError.
     (let [^js el (template/as-element [:span {:class "c"}])]
       (is (= "span" (.-type el))
           "the subsequent element parses, not a TypeError")
@@ -1188,7 +1187,7 @@
           "and its prop still camelCases through prop-name-cache"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-lhdp0: the caches have NO PROTOTYPE, and that is load-bearing
+;; The caches have NO PROTOTYPE, and that is load-bearing
 ;;
 ;; `tag-name-cache` and `prop-name-cache` are `Object.create(null)`. Nothing in
 ;; them is ever handed to React (the props objects that ARE handed to React
@@ -1203,7 +1202,7 @@
 ;; and converted AS ITSELF, and must still answer itself the second time
 ;; (proving the entry it then owns is its own and not the inherited one).
 ;;
-;; THE MUTATION THEY EXIST FOR: put either cache back to `#js {}` and these go
+;; THE MUTATION THEY EXIST FOR: make either cache a plain `#js {}` and these go
 ;; red — the lookup is served `Object.prototype`'s member for a name nobody
 ;; cached. They are not vacuous: each asserts the parsed VALUE, so a stub
 ;; answering nil fails them too.
@@ -1214,7 +1213,7 @@
    "propertyIsEnumerable" "toLocaleString"])
 
 (deftest tag-cache-inherited-name-cannot-falsely-hit-rf2-lhdp0
-  (testing "rf2-lhdp0: a string head named after an Object.prototype member
+  (testing "a string head named after an Object.prototype member
             parses as ITSELF, twice — a prototype-less cache cannot serve
             the inherited member"
     (doseq [n prototype-member-names]
@@ -1231,7 +1230,7 @@
             (str "head \"" n "\" answers a parsed tag, never a host function"))))))
 
 (deftest prop-cache-inherited-name-cannot-falsely-hit-rf2-lhdp0
-  (testing "rf2-lhdp0: a prop key named after an Object.prototype member
+  (testing "a prop key named after an Object.prototype member
             converts to its own name, twice"
     (doseq [n prototype-member-names]
       (let [k (keyword n)]
@@ -1248,17 +1247,17 @@
               (str ":" n " reaches the props object under its own name")))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-lhdp0: `void-tag?` indexes `void-tags` — one roster, not two
+;; `void-tag?` indexes `void-tags` — one roster, not two
 ;;
 ;; The probe is a null-prototype index BUILT FROM the `void-tags` set, so the
 ;; set stays the single source of truth. This witness walks the WHOLE roster
-;; (the pre-existing cases cover br/input/img — 3 of 14) so the derivation is
+;; (the cases above cover br/input/img — 3 of 14) so the derivation is
 ;; pinned end to end rather than sampled, and checks a non-void tag still
 ;; keeps its children.
 ;; ---------------------------------------------------------------------------
 
 (deftest every-void-tag-drops-children-rf2-lhdp0
-  (testing "rf2-lhdp0: every member of void-tags is recognised by the probe"
+  (testing "every member of void-tags is recognised by the probe"
     (is (= 14 (count template/void-tags))
         "the HTML5 void roster is the fixed 14")
     (doseq [t template/void-tags]
@@ -1268,7 +1267,7 @@
             (str "<" t "> drops the child React would reject"))))))
 
 (deftest non-void-tag-keeps-children-rf2-lhdp0
-  (testing "rf2-lhdp0: the index answers false for ordinary tags, which
+  (testing "the index answers false for ordinary tags, which
             therefore keep their children (the probe is not stuck true)"
     (doseq [t ["div" "span" "p" "section" "a"]]
       (let [^js el (template/as-element [(keyword t) "kept"])]
@@ -1277,24 +1276,23 @@
             (str "<" t "> keeps its child"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-lhdp0: the per-element `:key` read, straight off the props slot
+;; The per-element `:key` read, straight off the props slot
 ;;
 ;; `react-key-from-meta-or-props` is the RULE (meta wins, then the props map's
 ;; `:key`) and the constructors that have already shaped their argv call it
 ;; with the slot in hand; `react-key-from-argv` is that same rule plus the
 ;; `nth`/`case` search for the slot, for callers holding a bare vector.
 ;;
-;; So every constructor that took the short road is witnessed here, on both
+;; So every constructor that reads the slot directly is witnessed here, on both
 ;; key spellings, with the precedence between them and the absence case:
 ;; a DOM tag (props at index 1), `:>` interop (index 2 — both are
-;; `converted-props-element`), and `:<>` fragments. The heads still on the
+;; `converted-props-element`), and `:<>` fragments. The heads that use the
 ;; finder (`:f>`, `:r>`, component heads) are witnessed by the sibling suites
-;; above,
-;; and `expand-seq`'s missing-key warning is the finder's other caller.
+;; above, and `expand-seq`'s missing-key warning is the finder's other caller.
 ;; ---------------------------------------------------------------------------
 
 (deftest key-read-covers-both-converted-props-routes-rf2-lhdp0
-  (testing "rf2-lhdp0: DOM tag — meta key, prop key, neither"
+  (testing "DOM tag — meta key, prop key, neither"
     (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:div "x"])))
         "meta key on a DOM tag")
     (is (= "p" (.-key ^js (template/as-element [:div {:key "p"} "x"])))
@@ -1304,11 +1302,11 @@
     (is (nil? (.-key ^js (template/as-element [:div {:class "c"} "x"])))
         "props without :key leave the key unset"))
 
-  (testing "rf2-lhdp0: meta key WINS over the prop key, both routes"
+  (testing "meta key WINS over the prop key, both routes"
     (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:div {:key "p"} "x"])))
         "DOM tag: meta beats props"))
 
-  (testing "rf2-lhdp0: :> interop — props live at index 2, not 1"
+  (testing ":> interop — props live at index 2, not 1"
     (let [C (fn [_] nil)]
       (is (= "p" (.-key ^js (template/as-element [:> C {:key "p"} "x"])))
           "prop key on an interop head")
@@ -1317,7 +1315,7 @@
       (is (nil? (.-key ^js (template/as-element [:> C "x"])))
           "interop head with no props slot has no key")))
 
-  (testing "rf2-lhdp0: :<> fragments read the same rule off the same slot"
+  (testing ":<> fragments read the same rule off the same slot"
     (is (= "p" (.-key ^js (template/as-element [:<> {:key "p"} "x"])))
         "prop key on a fragment")
     (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:<> "x"])))
