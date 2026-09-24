@@ -7,7 +7,7 @@
 
   ## The claim, and the row that would catch it being false
 
-  `identifier_prefix_ssr_dom_cljs_test` established the obstruction on
+  `identifier_prefix_ssr_dom_cljs_test` establishes the obstruction on
   the server side alone, with no DOM in sight: one prefix, two tree
   SHAPES, two ids. Its `server-html!` is *the tree a consumer can spell
   today* — the frame provider over the root element — and its
@@ -16,7 +16,7 @@
   path*. The ids disagree, and that disagreement is the whole of
   obstruction 2.
 
-  So the repair has exactly one thing to prove, and §1 proves it:
+  So the entry has exactly one thing to prove, and §1 proves it:
   **`server/render`'s bytes carry the SHAPED id, not the plain one.**
   Both directions are asserted, because either alone is a green that
   means nothing — agreeing with the shaped id while also agreeing with
@@ -26,8 +26,7 @@
   A witness that only hydrated and looked for silence would not do this
   job. **The closer renders no DOM**, so the markup the two shapes
   produce is byte-identical everywhere except inside a `useId`, which is
-  precisely why the package shipped this bug with every markup-reading
-  row green.
+  precisely why every markup-reading row stays green through this bug.
 
   ## Why the entry does not reproduce the shape, and why that is testable
 
@@ -48,16 +47,17 @@
 
   §4 proves the bytes ADOPT. It says nothing about the state those bytes
   were rendered from ever reaching the client, because it seeds the frame
-  by hand — and chapter 18 shipped a recipe that seeded nothing at all.
-  §5 drives the documented sequence end to end instead: the render's own
-  `__rf_payload` script goes into the document, `re-frame.ssr/hydrate!`
-  reads it, and only then does the public DOM door adopt.
+  by hand — and a recipe that makes no client frame first seeds nothing
+  at all. §5 drives the documented sequence end to end instead: the
+  render's own `__rf_payload` script goes into the document,
+  `re-frame.ssr/hydrate!` reads it, and only then does the public DOM
+  door adopt.
 
-  Its control is the recipe as shipped. An absent client frame makes the
+  Its control is that frameless recipe. An absent client frame makes the
   seed a NO-OP rather than an error — the router drops a dispatch into a
   frame that is not there and reports it on its own axis — so
   `ssr/hydrate!` still answers a payload while installing nothing, which
-  is precisely why the defect shipped green. The control asserts that
+  is precisely why such a recipe looks green. The control asserts that
   shape directly, so §5's own green is a claim about the frame existing
   and not about `hydrate!` being called.
 
@@ -99,12 +99,12 @@
 (rf/reg-sub ::label (fn [db _] (:label db)))
 (rf/reg-sub ::secret (fn [db _] (:secret db)))
 (rf/reg-event ::relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
-;; rf2-hjz4r — the permit row's classification, run by the request frame's
-;; setup vector after the snapshot seeds `:session`.
+;; The permit row's classification, run by the request frame's setup vector
+;; after the snapshot seeds `:session`.
 (rf/reg-event ::classify-session
   (fn [_ _] {:sensitive [[:session :csrf] [:session :upstream-key]]}))
 
-;; rf2-323z — the platform PAIR. Two effects that differ in exactly one
+;; The platform PAIR. Two effects that differ in exactly one
 ;; thing, their `:platforms` metadata, dispatched together from one event,
 ;; so which of them runs READS OFF the active platform of whatever frame
 ;; drained the event. Nothing else in the pair can decide the answer, which
@@ -260,11 +260,11 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; 1 — THE REPAIR: the entry emits the tree the door adopts
+;; 1 — THE CLAIM: the entry emits the tree the door adopts
 ;; ---------------------------------------------------------------------------
 
 (deftest the-entry-emits-the-hydrating-shape-and-not-the-plain-one
-  (testing "the premise first: the two shapes still disagree. Every row
+  (testing "the premise first: the two shapes disagree. Every row
             below is about which one the entry picked, and all of them
             would go vacuously green if the shapes had merely stopped
             differing"
@@ -369,9 +369,8 @@
           "and its value must not reach the document by any other route")))
 
   (testing "the wire frame id is the CALLER's stable one and never the
-            per-request gensym (rf2-lm2yzy: stamping the gensym
-            guarantees :rf.error/hydration-frame-id-mismatch on every
-            real page)"
+            per-request gensym (stamping the gensym guarantees
+            :rf.error/hydration-frame-id-mismatch on every real page)"
     (let [{:keys [payload frame-id]} (rf.fresco.server/render (request))]
       (is (= wire-frame (:rf/frame-id payload)))
       (is (not= frame-id (:rf/frame-id payload)))))
@@ -382,7 +381,7 @@
       (is (not (contains? payload :rf/frame-id))))))
 
 (deftest a-permitted-sensitive-value-rides-the-payload-raw
-  ;; rf2-hjz4r. This door renders the LIVE frame into the HTML and projects
+  ;; This door renders the LIVE frame into the HTML and projects
   ;; the payload separately, so the host's `:payload-include-sensitive` must
   ;; reach the payload for the two halves to agree.
   (let [session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}
@@ -420,9 +419,9 @@
 (deftest a-hostile-value-cannot-break-out-of-the-envelope
   (testing "a `</script` inside an ALLOWLISTED app-db value is escaped in
             the payload script body — the EDN-aware escaper's whole job,
-            and until this row nothing in the shipped tree exercised it:
-            deleting the `escape-edn-script-body` call would have redded
-            only the fenced bench donor's pin"
+            and this row is what exercises it in the shipped tree: without
+            it, deleting the `escape-edn-script-body` call would red only
+            the fenced bench donor's pin"
     (let [evil "</script><script>window.pwned=1</script>"
           {:keys [document payload]}
           (rf.fresco.server/render (request :snapshot {:label evil :secret "x"}))]
@@ -445,8 +444,8 @@
   (testing "`or`, not `:or` — a caller with one options map threads nil
             through for every option it did not set, so the KEY is
             supplied and destructuring defaults never fire; the module's
-            own comment records the page silently getting id=\"\" when
-            this regressed"
+            own comment names the page silently getting id=\"\" as the
+            failure"
     (let [{:keys [document]}
           (rf.fresco.server/render (request :title nil :app-element-id nil))]
       (is (str/includes? document "<div id=\"app\">")
@@ -458,9 +457,9 @@
   (count (re-seq #"<title" document)))
 
 (deftest a-document-carries-a-title-only-when-the-caller-names-one
-  ;; rf2-veuyo, the class rf2-3x7nj.14.4 ruled for ssr-ring: the module does
-  ;; not know the application's title, so a page whose caller named none
-  ;; ships none rather than the framework's own name in the tab.
+  ;; As in ssr-ring, the module does not know the application's title, so a
+  ;; page whose caller named none ships none rather than the framework's own
+  ;; name in the tab.
   (testing "no `:title` — the key absent, and the key supplied as nil, which
             is what a caller with one options map threads through — gives a
             document with NO `<title>` at all"
@@ -472,8 +471,8 @@
         (is (str/includes? document "<head><meta charset=\"utf-8\"></head>")
             (str "title " label ": the head is otherwise the one it was")))))
   (testing "a named `:title` gives exactly ONE `<title>`, escaped — the
-            positive control, so the zero above is the fix and not a counter
-            that cannot see a title"
+            positive control, so the zero above is the rule and not a
+            counter that cannot see a title"
     (let [{:keys [document]} (rf.fresco.server/render (request :title "X & Y"))]
       (is (= 1 (title-count document)) (str "got: " document))
       (is (str/includes? document "<title>X &amp; Y</title>")))))
@@ -484,7 +483,7 @@
             :fx-overrides declares them the way any frame does, and a
             copy-pasted :id or :initial-events in them cannot hijack the
             per-request frame or replace the seed. The invariant is one
-            `assoc`, and nothing pinned it"
+            `assoc`, and this row is what pins it"
     (let [{:keys [document payload frame-id]}
           (rf.fresco.server/render (request :frame-opts {:id             ::hijack
                                                :initial-events [[::relabel "hijacked"]]}))]
@@ -506,8 +505,7 @@
       (is (= "digest-abc" (:rf/schema-digest payload))))
     (testing "an omitted `:version` still ships the slot — the SSR
               artefact's own protocol constant, so both wire ends agree
-              with no host wiring; an `(or version …)` here once silently
-              defeated the version-mismatch check"
+              with no host wiring"
       (let [{:keys [payload]} (rf.fresco.server/render (request))]
         (is (pos-int? (:rf/version payload)))))
     (testing "while an omitted `:schema-digest` omits the KEY — the
@@ -516,19 +514,19 @@
         (is (not (contains? payload :rf/schema-digest)))))))
 
 (deftest the-request-frame-is-server-platform-and-no-caller-can-invert-it
-  ;; rf2-323z. `render` is the whole-page NODE renderer, and its private
-  ;; request frame was born UNTAGGED. Platform resolution is
+  ;; `render` is the whole-page NODE renderer, and its private request frame
+  ;; is tagged `:platform :server`. Platform resolution is
   ;; `(or (-> frame-record :config :platform) (rf.interop/active-platform))`
   ;; (`fx/platform-for-frame-record`), and the CLJS host default is `:client`
-  ;; by default (`interop.cljs`) — so an untagged request frame ran a render
-  ;; with no client on the CLIENT contract: a correctly declared
-  ;; `:platforms #{:client}` effect reached from `:initial-events` EXECUTED
-  ;; in Node, and the `#{:server}` one was skipped. Frames are isolated
-  ;; contexts, and a request frame answering to the wrong platform contract
-  ;; is that isolation broken rather than untidiness.
+  ;; by default (`interop.cljs`) — so an untagged request frame would run a
+  ;; render with no client on the CLIENT contract: a correctly declared
+  ;; `:platforms #{:client}` effect reached from `:initial-events` would
+  ;; EXECUTE in Node, and the `#{:server}` one would be skipped. Frames are
+  ;; isolated contexts, and a request frame answering to the wrong platform
+  ;; contract is that isolation broken rather than untidiness.
   ;;
-  ;; The sibling `render-body` has carried `:platform :server` since it
-  ;; landed; this row is what stops the two doors drifting apart again.
+  ;; The sibling `render-body` carries `:platform :server` too; this row is
+  ;; what stops the two doors drifting apart.
   (testing "with CLJS's own `:client` HOST DEFAULT in force, a
             render's initial event runs the SERVER arm of a platform pair
             and not the client arm"
@@ -554,9 +552,9 @@
           "the hostile `:platform :client` did not reach the frame"))
 
     (testing "NON-VACUITY — the same event in an UNTAGGED frame of this
-              same runtime selects the CLIENT arm. This is the shape
-              `render` used to build, so it is the defect itself, kept as
-              the control: were the pair not really platform-gated (both
+              same runtime selects the CLIENT arm. This is the shape an
+              untagged request frame would take, so it is the defect itself,
+              kept as the control: were the pair not really platform-gated (both
               effects inert, one unregistered, the metadata ignored) this
               row would not read `[:client]`, and the two `[:server]`
               assertions above would be green about nothing"
@@ -578,27 +576,26 @@
 ;; trace listener, and it does not give `console.error` back to the page.
 ;; Whatever a row fails to release itself, the NEXT row inherits.
 ;;
-;; These rows used to end with a shape that released none of it when
-;; things went wrong, and did it in two different ways:
+;; A row ending in the obvious shape releases none of it when things go
+;; wrong, and does it in two different ways:
 ;;
 ;;   (-> (sup/adopted! handle)
 ;;       (.then (fn [_] (try …assertions…
 ;;                           (finally (h/unmount! handle) (done)))))
 ;;       (.catch (fn [e] (is false …) (done))))
 ;;
-;;   * A rejection BEFORE `.then` ran ended the row through the `.catch`,
-;;     which unmounted no handle and stopped no watcher.
-;;   * A throw INSIDE `.then` ran the `finally` — unmount, `done` — and
-;;     then rejected the promise `.then` answers, so the `.catch` fired
-;;     too and called `done` a SECOND time. `cljs.test`'s async runner
+;;   * A rejection BEFORE `.then` runs ends the row through the `.catch`,
+;;     which unmounts no handle and stops no watcher.
+;;   * A throw INSIDE `.then` runs the `finally` — unmount, `done` — and
+;;     then rejects the promise `.then` answers, so the `.catch` fires
+;;     too and calls `done` a SECOND time. `cljs.test`'s async runner
 ;;     reads that as the next row starting, so a single failure advances
 ;;     the runner twice and lands its report on whichever row is running
 ;;     by then.
 ;;
-;; `sup/settle-row!` is the one path all of them now end with, and the two
-;; rows under it are what say it works — because neither branch is on any
-;; green path, and a repair to a branch nothing takes is untested by
-;; construction.
+;; `sup/settle-row!` is the one path all of them end with, and the two rows
+;; under it are what say it works — because neither branch is on any green
+;; path, and a branch nothing takes is untested by construction.
 
 (deftest a-throwing-body-finishes-the-row-once-and-not-twice
   ;; THE DOUBLE-FINISH CONTROL. No DOM in it — this is the promise
@@ -616,11 +613,11 @@
                             :report!  (fn [e] (swap! reports conj e))})
           (.then
             (fn [_]
-              (testing "a body that throws finishes the row ONCE. The shape
-                        this file used to carry ran its `finally` — unmount,
-                        `done` — and then let the `.catch` call `done` again,
-                        which advances `cljs.test`'s async runner past a row
-                        that never ran"
+              (testing "a body that throws finishes the row ONCE. The
+                        `.then`/`.catch` shape above runs its `finally` —
+                        unmount, `done` — and then lets the `.catch` call
+                        `done` again, which advances `cljs.test`'s async
+                        runner past a row that never ran"
                 (is (= 1 @finishes) (str "done ran " @finishes " times"))
                 (is (= 1 @releases) (str "release ran " @releases " times")))
               (testing "and the throw is REPORTED rather than swallowed — a
@@ -780,9 +777,9 @@
 ;; premise rather than three independent claims:
 ;;
 ;;   §4b-1  the two shapes' bytes differ in EXACTLY the id — which is why
-;;          every markup-reading row in the package stayed green while
-;;          obstruction 2 stood, and what makes the id the only thing the
-;;          two rows below can be measuring.
+;;          every markup-reading row stays green through obstruction 2,
+;;          and what makes the id the only thing the two rows below can be
+;;          measuring.
 ;;   §4b-2  the door's bytes keep their id across a real client render.
 ;;   §4b-3  the hand-rolled bytes lose theirs, through the SAME public
 ;;          door, with the same helpers, in the same file.
@@ -803,7 +800,7 @@
       (is (some? d-id) "premise: the door's bytes carry an id")
       (is (some? p-id) "premise: so do the hand-rolled ones")
       (is (not= d-id p-id)
-          (str "premise: the fork must still move the id — if these agree, "
+          (str "premise: the fork must move the id — if these agree, "
                "the rows below are measuring nothing; got " (pr-str d-id)
                " both times"))
       (is (str/includes? door "alpha")
@@ -812,7 +809,7 @@
       (is (str/includes? plain "alpha"))
       (is (= (without-the-id door) (without-the-id plain))
           (str "with the id taken out, the two shapes' bytes must be "
-               "IDENTICAL — that is why obstruction 2 shipped invisible to "
+               "IDENTICAL — that is why obstruction 2 is invisible to "
                "every row that reads markup. Door " (count door)
                " chars, hand-rolled " (count plain))))))
 
@@ -968,7 +965,7 @@
     (fn [] (.remove host))))
 
 (deftest an-absent-client-frame-swallows-the-seed
-  ;; THE CONTROL, and it is the recipe chapter 18 shipped.
+  ;; THE CONTROL, and it is the recipe that makes no client frame first.
   ;; Every assertion in the round-trip row below is about the frame having
   ;; been CREATED; without this row a green there would be equally
   ;; consistent with `ssr/hydrate!` seeding a frame it made itself.
