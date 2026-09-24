@@ -3,16 +3,16 @@
 
   Three layers:
 
-  A. Demonstration scenarios — the original skeleton coverage (rf2-gqyqv):
+  A. Demonstration scenarios:
      happy-path lifecycle ordering, render-tree tracking, adapter-disposal
      drain, mount! record identity, render-to-string dispose/reinstall.
 
-  B. Ported lifecycle regressions (rf2-n2cuo) — each guards a REAL bug class
+  B. Lifecycle regressions — each guards a REAL bug class
      the adapter claims to catch, and asserts that bug's *symptom* so a
      future regression in the class fails this unit test:
 
-       1. Organic sync-unmount-during-render (the rf2-4l7t2 class). Modelled
-          on the real Story senbl panel-host shape: a panel-host parent holds
+       1. Organic sync-unmount-during-render. Modelled
+          on the real Story panel-host shape: a panel-host parent holds
           the current panel's child root; on a chip-row 'switch panel'
           re-render, the parent's render body synchronously unmounts the
           PREVIOUS panel's root. The guard fires ORGANICALLY — no
@@ -27,10 +27,10 @@
           expected; the symptom is an extra :render (and :did-update) entry in
           the lifecycle log — the render counter is higher than the contract.
 
-  C. Harness-contract guards (rf2-ynjts.6) — self-tests of this local
+  C. Harness-contract guards — self-tests of this local
      harness's OWN documented public surface. Each pins a guard /
      error / two-entry-point behaviour the harness PROMISES in its docstrings
-     but the A/B layers above never exercised: trigger-update! / unmount!
+     that the A/B layers above do not exercise: trigger-update! / unmount!
      after teardown, mount-child! outside a render body, mount! under the
      wrong installed adapter, the no-emitter render-to-string throw, unmount!
      idempotency, the substrate :render entry point returning a working
@@ -73,9 +73,9 @@
   "The monotonic `:seq` order-key of the first `phase` entry in the mount's
   lifecycle log, or nil if the phase never fired. `:seq` increments once per
   logged phase across the whole adapter, so a strict `<` over two phases' seqs
-  reflects their REAL firing order — unlike the wall-clock `:at` this replaced,
-  which collapsed to equal integers for a sub-millisecond teardown cascade and
-  made the ORDER check vacuous (it could not fail on a reversed teardown)."
+  reflects their REAL firing order — a wall-clock timestamp would collapse to
+  equal integers for a sub-millisecond teardown cascade and make the ORDER
+  check vacuous (it could not fail on a reversed teardown)."
   [mount phase]
   (->> (rf.adapter.test-react/lifecycle-log mount)
        (filter (comp #{phase} :phase))
@@ -100,9 +100,9 @@
 (deftest lifecycle-log-entries-carry-exactly-phase-and-seq
   (testing "every lifecycle entry is EXACTLY #{:phase :seq} — the shape
             `lifecycle-log`'s docstring publishes as its contract. `log-phase!`
-            is fixed-arity precisely so nothing can smuggle an extra key in
-            (rf2-6r9j.83); this pins that, and would fail if a stray field —
-            or a merge that clobbered :phase / :seq — ever reappeared."
+            is fixed-arity precisely so nothing can smuggle an extra key in;
+            this pins that, and would fail if a stray field — or a merge that
+            clobbered :phase / :seq — appeared."
     (let [mount (rf.adapter.test-react/mount! [:div "v1"])]
       (rf.adapter.test-react/trigger-update! mount [:div "v2"])
       (rf.adapter.test-react/unmount! mount)
@@ -135,10 +135,10 @@
   (testing "unmount! removes the mount from the RAW active-mounts set, not just
             flips its :mounted? flag. mounted-components filters by :mounted?, so it
             reports zero even if the dead record were left in the backing set —
-            this pins the eviction directly. Regression for the
-            base/mount record-identity disj mismatch: the unmount thunk must
-            disj the exact record conj'd, or the dead record leaks for the
-            adapter's lifetime (defrecord equality includes :unmount-fn, so the
+            this pins the eviction directly. Guards the base/mount
+            record-identity disj hazard: the unmount thunk must disj the exact
+            record conj'd, or the dead record would leak for the adapter's
+            lifetime (defrecord equality includes :unmount-fn, so the
             pre-assoc skeleton would not match)."
     (let [active @#'rf.adapter.test-react/active-mounts]
       (is (zero? (count @active))
@@ -150,7 +150,7 @@
         (is (zero? (count @active))
             "unmount! EVICTED the record from the raw set — no leaked dead record"))
       ;; Many mount/unmount cycles must not grow the raw set (the leak symptom
-      ;; was monotonic growth masked by the :mounted? filter).
+      ;; would be monotonic growth masked by the :mounted? filter).
       (dotimes [_ 25]
         (rf.adapter.test-react/unmount! (rf.adapter.test-react/mount! [:div "churn"])))
       (is (zero? (count @active))
@@ -206,16 +206,17 @@
             Two independent forces keep it armed: test-react's dispose
             deliberately does NOT clear its emitter atom (re-derivable
             infrastructure, not a host resource), AND install-adapter! replays
-            the durable authoritative SSR emitter (:ssr/current-hiccup-emitter,
-            rf2-vxgfnd.204) whenever re-frame.ssr is loaded. Either way the
+            the durable authoritative SSR emitter (:ssr/current-hiccup-emitter)
+            whenever re-frame.ssr is loaded. Either way the
             re-installed generation renders rather than throwing
             :rf.error/no-hiccup-emitter-bound.
 
             The emitter that WINS after reinstall is classpath-dependent, so
             the assertion pins armed-ness (the tree still renders) rather than a
             specific emitter's output: on the all-artefact :node-test classpath
-            re-frame.ssr is loaded, so the .204 replay overrides the transient
-            stub with the real SSR emitter (real HTML); on the standalone
+            re-frame.ssr is loaded, so the install-time replay overrides the
+            transient stub with the real SSR emitter (real HTML); on the
+            standalone
             test-react JVM run (core + test-quiet only, no re-frame.ssr) the
             durable slot is unset, the replay no-ops, and test-react's own
             un-cleared stub survives."
@@ -271,7 +272,7 @@
       (let [child-unmount-seq  (phase-first-seq @child-ref :will-unmount)
             parent-unmount-seq (phase-first-seq parent :will-unmount)]
         (is (< parent-unmount-seq child-unmount-seq)
-            "parent logs :will-unmount STRICTLY before its child (rf2-ytyq) —
+            "parent logs :will-unmount STRICTLY before its child —
              React's commitDeletionEffectsOnFiber calls
              safelyCallComponentWillUnmount on a ClassComponent BEFORE
              recursivelyTraverseDeletionEffects reaches its children
@@ -279,32 +280,32 @@
              (child-first) teardown FAILS here")))))
 
 ;; ----------------------------------------------------------------------------
-;; B.1 — Organic sync-unmount-during-render (the rf2-4l7t2 class)
+;; B.1 — Organic sync-unmount-during-render
 ;; ----------------------------------------------------------------------------
 ;;
-;; Real shape (Story senbl panel-host, PR #1577): a single persistent
-;; panel-host owns the CURRENT panel's child root. When the chip-row picker
-;; switches panels, the host re-renders and — inside that render body —
-;; synchronously calls (.unmount) on the PREVIOUS panel's root. React 18+
-;; raises "Attempted to synchronously unmount a root while React was already
-;; rendering." The original fix deferred the unmount to a microtask.
+;; Real shape (a Story panel-host): a single persistent panel-host owns the
+;; CURRENT panel's child root. When the chip-row picker switches panels, the
+;; host re-renders; were it to synchronously call (.unmount) on the PREVIOUS
+;; panel's root inside that render body, React 18+ would raise "Attempted to
+;; synchronously unmount a root while React was already rendering."
+;; Deferring the unmount to a microtask avoids it.
 ;;
 ;; Here the bug is reproduced ORGANICALLY: the host's render body issues the
 ;; unmount while the global render depth is non-zero — no test fabricates
-;; in-flight render state by hand. That converts the headline capability from
-;; "guard logic verified" to "bug condition reproduced."
+;; in-flight render state by hand. So the test reproduces the bug condition
+;; rather than merely verifying guard logic.
 
 (deftest organic-sync-unmount-during-render-rf2-4l7t2
   (testing "a panel-host that synchronously unmounts the previous panel's root
             from inside its switch-panel re-render trips
             :rf.error/sync-unmount-during-render ORGANICALLY (no fabricated
-            in-flight state) — the rf2-4l7t2 bug condition, reproduced"
+            in-flight state) — the bug condition, reproduced"
     ;; Mount panel A as a standalone root (the host's current child).
     (let [panel-a (rf.adapter.test-react/mount! [:div.panel "A"])]
       (is (= 1 (count (rf.adapter.test-react/mounted-components))))
       ;; The host re-renders to switch to panel B. The BUGGY render body
-      ;; synchronously unmounts panel A's root mid-render (the senbl pattern
-      ;; before the microtask-defer fix).
+      ;; synchronously unmounts panel A's root mid-render (the panel-host
+      ;; pattern without the microtask defer).
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
             #":rf.error/sync-unmount-during-render"
@@ -319,10 +320,10 @@
       ;; the global render-depth back to zero on unwind. Assert that invariant
       ;; DIRECTLY: without the finally-restore a leaked non-zero depth would
       ;; poison every LATER test — the next unmount! anywhere would spuriously
-      ;; trip :rf.error/sync-unmount-during-render. Previously this was only
-      ;; covered indirectly (the trailing unmount! below would throw a
-      ;; confusing uncaught ExceptionInfo if depth leaked, and that coverage
-      ;; vanished if the trailing unmount was ever refactored away).
+      ;; trip :rf.error/sync-unmount-during-render. The trailing unmount! below
+      ;; covers it only indirectly (it would throw a confusing uncaught
+      ;; ExceptionInfo if depth leaked, and that coverage would vanish were the
+      ;; trailing unmount refactored away).
       (is (false? (rf.adapter.test-react/rendering?))
           "run-render!'s finally restored render-depth to zero even though the
            render body threw — no leaked in-flight state poisons later tests")
@@ -339,7 +340,7 @@
       (rf.adapter.test-react/unmount! panel-a))))
 
 (deftest deferred-unmount-after-render-is-safe-rf2-4l7t2-fix
-  (testing "the rf2-4l7t2 FIX shape: unmounting the previous panel's root AFTER
+  (testing "the FIX shape: unmounting the previous panel's root AFTER
             the host's render has completed (the microtask-defer) does not trip
             the guard — proves the guard discriminates in-render from
             after-render, so it is not a blunt always-throw"
@@ -348,7 +349,7 @@
           host    (rf.adapter.test-react/mount! {:rf/component (fn [_host] :switched-to-B)})]
       (is (= 2 (count (rf.adapter.test-react/mounted-components))))
       ;; Now that no render is in flight, unmounting panel A is safe (this is
-      ;; what queueMicrotask buys you in the production fix).
+      ;; what queueMicrotask buys you in production).
       (is (false? (rf.adapter.test-react/rendering?))
           "no render in flight after the host's render completed")
       (rf.adapter.test-react/unmount! panel-a)        ; must NOT throw
@@ -372,7 +373,7 @@
             the parent's teardown cascade never disposes it. The symptom is a
             non-zero live-mount count after the parent unmounts — the
             subscribe-without-matching-dispose imbalance, and the orphaned-root
-            root cause behind the rf2-4l7t2 family."
+            root cause behind the sync-unmount-during-render family."
     (let [orphan-ref (atom nil)
           ;; The host mounts a tracked child AND — the bug — a second root via
           ;; the standalone `mount!` seam (think: an effect that creates a
@@ -461,7 +462,7 @@
       (rf.adapter.test-react/unmount! mount))))
 
 ;; ----------------------------------------------------------------------------
-;; B.4 — Transactional failed initial mount (rf2-3fc89f.2)
+;; B.4 — Transactional failed initial mount
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Bug class: a parent's render body mounts a child (registered in the live
@@ -472,12 +473,13 @@
 ;; phantom live mount is exactly the lifecycle imbalance Test-React exists to
 ;; catch, so it corrupts the harness's core purpose.
 ;;
-;; The fix makes initial mount TRANSACTIONAL: a failed render rolls back every
+;; Initial mount is TRANSACTIONAL: a failed render rolls back every
 ;; child it speculatively mounted (nested descendants too), removing them from
 ;; the live forest before the ORIGINAL render exception is rethrown — without
 ;; masking that exception and without weakening the sync-unmount-during-render
-;; guard (B.1). Each of the following pins one property the fix guarantees; on
-;; the pre-fix code every leak assertion FAILS (the child / subtree survives).
+;; guard (B.1). Each of the following pins one property that guarantees;
+;; against a naive mount every leak assertion FAILS (the child / subtree
+;; survives).
 
 (deftest failed-initial-render-rolls-back-mounted-child-rf2-3fc89f2
   (testing "a parent render that mounts a child and then throws is
@@ -500,7 +502,7 @@
           "run-render!'s finally restored render-depth to zero on unwind")
       (is (zero? (count (rf.adapter.test-react/mounted-components)))
           "the live forest is empty — the child mounted before the throw was
-           rolled back, not leaked as a phantom live mount (this FAILS pre-fix)")
+           rolled back, not leaked as a phantom live mount (a naive mount FAILS this)")
       (is (false? @(:mounted? @child-ref))
           "the child record itself was torn down (mounted? flipped false)")
       (is (= 1 (phase-count @child-ref :forced-teardown))
@@ -532,7 +534,7 @@
           "the original render exception escapes")
       (is (zero? (count (rf.adapter.test-react/mounted-components)))
           "no descendant leaks — child AND grandchild both left the forest
-           (pre-fix this is 2)")
+           (a naive mount leaves 2)")
       (is (and (false? @(:mounted? @child-ref))
                (false? @(:mounted? @grandchild-ref)))
           "both the direct child and the nested grandchild were torn down")
@@ -577,13 +579,13 @@
            orphaned descendant survives the nested failure")
       (is (false? @(:mounted? @grandchild-ref))
           "the grandchild record was torn down by the child's own rollback")
-      ;; rf2-fzbj.26 — the NESTED failed record is invalidated too, not just its
+      ;; The NESTED failed record is invalidated too, not just its
       ;; descendants: the child's own mount-tree! attempt aborted, so the handle
       ;; its render body was handed must be terminal exactly like a failed root's.
       (is (false? @(:mounted? @child-ref))
           "the failed CHILD's own record is terminal — a nested initial-mount
            failure invalidates the record it exposed to its render body, not
-           only the grandchildren beneath it (this FAILS pre-fix)")
+           only the grandchildren beneath it (a descendants-only rollback FAILS this)")
       (is (nil? (rf.adapter.test-react/current-render-tree @child-ref))
           "the failed child's throwing candidate tree was cleared")
       (is (zero? (phase-count @child-ref :did-mount))
@@ -622,30 +624,32 @@
            failed parent's own speculative children")
       (is (false? @(:mounted? @child-ref))
           "the speculative child is torn down, not a manually-cleanable phantom")
-      ;; rf2-fzbj.26 — the FAILED PARENT's own exposed handle is terminal too.
-      ;; Rolling back only the descendants left this record saying mounted?=true
+      ;; The FAILED PARENT's own exposed handle is terminal too. Rolling back
+      ;; only the descendants would leave this record saying mounted?=true
       ;; while holding the throwing candidate tree, invisible to both
       ;; `mounted-components` and `dispose-adapter!` (it never registered), so a
-      ;; retained handle could still be updated after a mount that never
+      ;; retained handle could be updated after a mount that never
       ;; committed.
       (is (false? @(:mounted? @parent-ref))
           "the failed parent's record is terminal — a mount that never committed
-           does not leave a live-looking handle behind (this FAILS pre-fix)")
+           does not leave a live-looking handle behind (a descendants-only
+           rollback FAILS this)")
       (is (nil? (rf.adapter.test-react/current-render-tree @parent-ref))
           "the throwing candidate tree was cleared, not left exposed as though
-           it had been committed (this FAILS pre-fix)")
+           it had been committed (a descendants-only rollback FAILS this)")
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
             #":rf.error/update-after-unmount"
             (rf.adapter.test-react/trigger-update! @parent-ref [:div :impossible-update]))
-          "a later update on the failed handle is REJECTED through the existing
-           update-after-unmount path (this FAILS pre-fix — the update succeeded)")
+          "a later update on the failed handle is REJECTED through the
+           update-after-unmount path (a descendants-only rollback FAILS this —
+           the update would succeed)")
       (is (= 1 (phase-count @parent-ref :render))
           "the rejected update added no second :render — the failed attempt's
            single render is still the only one")
       (is (zero? (phase-count @parent-ref :did-update))
           "and no :did-update was logged for a mount that never reached
-           :did-mount (this FAILS pre-fix)")
+           :did-mount (a descendants-only rollback FAILS this)")
       ;; Clean up the survivor so the fixture's drain has nothing to force.
       (rf.adapter.test-react/unmount! survivor))))
 
@@ -682,20 +686,20 @@
       (rf.adapter.test-react/unmount! target))))
 
 ;; ----------------------------------------------------------------------------
-;; B.5 — Failed update unmounts the whole root (rf2-j538f7.1)
+;; B.5 — Failed update unmounts the whole root
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Bug class (the update-path analogue of B.4): a LIVE root re-renders, the
 ;; update body mounts a child and then THROWS. `run-render!` stores the
-;; candidate tree BEFORE invoking the body, so a naive `trigger-update!` left
-;; the throwing candidate exposed as the committed `current-render-tree` and
-;; left the speculatively-mounted child live and attached — a phantom committed
+;; candidate tree BEFORE invoking the body, so a naive `trigger-update!` would
+;; leave the throwing candidate exposed as the committed `current-render-tree`
+;; and the speculatively-mounted child live and attached — a phantom committed
 ;; tree plus an extra live mount, exactly the lifecycle imbalance Test-React
 ;; exists to catch. Unlike the failed INITIAL mount (B.4), the parent here is
 ;; ALREADY committed, so the initial-mount rollback cannot cover it.
 ;;
-;; The fix honors React 18+'s uncaught-render-error semantics — the same
-;; contract `run-render!`'s docstring already documents ("React 18+ unmounts the
+;; `trigger-update!` honors React 18+'s uncaught-render-error semantics — the
+;; same contract `run-render!`'s docstring documents ("React 18+ unmounts the
 ;; root"). A failed update UNMOUNTS THE WHOLE LIVE ROOT: the root and its entire
 ;; child subtree (pre-existing children AND this attempt's speculative ones) are
 ;; force-torn-down grandchildren-first, evicted from the live forest with their
@@ -704,8 +708,9 @@
 ;; React tears the root down rather than silently keeping the prior tree. The
 ;; teardown reuses the SAME `force-teardown-record!` primitive as B.4 and the
 ;; adapter drain, and preserves the B.1 sync-unmount-during-render guard. Each
-;; test pins one property; on the pre-fix code the unmount / no-leak assertions
-;; FAIL (candidate committed as the live tree, root + child both survive).
+;; test pins one property; against a naive `trigger-update!` the unmount /
+;; no-leak assertions FAIL (candidate committed as the live tree, root + child
+;; both survive).
 
 (deftest failed-update-unmounts-the-whole-root-rf2-j538f71
   (testing "a live root whose update body mounts a child then throws is
@@ -730,13 +735,15 @@
           "run-render!'s finally restored render-depth to zero on unwind")
       (is (false? @(:mounted? mount))
           "the root was UNMOUNTED — a throwing update tears the root down, it is
-           NOT left live on a preserved tree (this FAILS pre-fix: root stays live)")
+           NOT left live on a preserved tree (a naive update FAILS this: root
+           stays live)")
       (is (nil? (rf.adapter.test-react/current-render-tree mount))
           "the root's render tree was CLEARED — the throwing candidate is not
-           exposed as committed (pre-fix the candidate leaked as current tree)")
+           exposed as committed (a naive update leaks the candidate as the
+           current tree)")
       (is (zero? (count (rf.adapter.test-react/mounted-components)))
           "the live forest is empty — root AND its speculative child both left
-           (pre-fix this is 2: candidate root + leaked child)")
+           (a naive update leaves 2: candidate root + leaked child)")
       (is (false? @(:mounted? @child-ref))
           "the speculative child record was torn down (mounted? flipped false)")
       (is (= 1 (phase-count @child-ref :forced-teardown))
@@ -786,8 +793,8 @@
       (is (and (false? @(:mounted? @child-a-ref))
                (false? @(:mounted? @child-b-ref)))
           "BOTH the pre-existing child A AND the speculative child B were torn
-           down — the update unmounts the whole subtree (pre-fix A survives with
-           the parent, and B leaks)")
+           down — the update unmounts the whole subtree (a naive update leaves A
+           alive with the parent, and leaks B)")
       (is (and (= 1 (phase-count @child-a-ref :forced-teardown))
                (= 1 (phase-count @child-b-ref :forced-teardown)))
           "each child recorded exactly one :forced-teardown")
@@ -828,7 +835,7 @@
           "the root's render tree was cleared")
       (is (zero? (count (rf.adapter.test-react/mounted-components)))
           "no node leaks — root, child AND grandchild all left the forest
-           (pre-fix this is 3)")
+           (a naive update leaves 3)")
       (is (and (false? @(:mounted? @child-ref))
                (false? @(:mounted? @grandchild-ref)))
           "both the direct child and the nested grandchild were torn down")
@@ -901,8 +908,8 @@
             #":rf.error/update-after-unmount"
             (rf.adapter.test-react/trigger-update! mount [:div "v2"]))
           "trigger-update! refuses the unmounted root — the failed update fully
-           evicted it, so the update-after-unmount guard fires (pre-fix the root
-           stayed live and this update would have silently re-rendered it)"))))
+           evicted it, so the update-after-unmount guard fires (were the root
+           left live, this update would silently re-render it)"))))
 
 (deftest failed-update-composes-with-sync-unmount-guard-rf2-j538f71
   (testing "the failed-update teardown COMPOSES with the B.1 guard: an update
@@ -939,7 +946,7 @@
       (rf.adapter.test-react/unmount! target))))
 
 ;; ----------------------------------------------------------------------------
-;; C. Harness-contract guards (rf2-ynjts.6)
+;; C. Harness-contract guards
 ;; ----------------------------------------------------------------------------
 ;;
 ;; These pin the harness's OWN documented PUBLIC surface — `mount!` /
@@ -950,8 +957,8 @@
 ;; react` (the only non-test mention anywhere is the quoted producer roster in
 ;; `re-frame.late-bind.directory`), so these guards are self-tests, not a
 ;; proxy for some other suite's coverage. Each pins a guard or two-entry-point
-;; behaviour the harness docstrings PROMISE but the A/B layers above never
-;; exercised. A silent regression in any of them would weaken every test
+;; behaviour the harness docstrings PROMISE that the A/B layers above do not
+;; exercise. A silent regression in any of them would weaken every test
 ;; WRITTEN AGAINST this harness without tripping that test's own assertions —
 ;; e.g. a `trigger-update!` that no longer throws after teardown would let a
 ;; test re-render a dead mount and read a stale tree; a `mount!` that dropped
@@ -1038,7 +1045,7 @@
           (rf.substrate.adapter/dispose-adapter!)
           (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter))))))
 
-;; ---- mount! under a COPIED test-react adapter map succeeds (rf2-dkl5z1) ----
+;; ---- mount! under a COPIED test-react adapter map succeeds ----------------
 
 (deftest mount-under-copied-test-react-map-succeeds
   (testing "mount! ACCEPTS a copied / wrapped Test-React adapter map — the
@@ -1046,8 +1053,8 @@
             object identity, so an `assoc`'d instrumentation copy (distinct
             object, same canonical :rf.adapter/test-react :kind) mounts
             normally. Mirrors the wrong-adapter test's swap-and-restore, but
-            asserts the POSITIVE case the identity guard wrongly rejected
-            pre-fix (rf2-dkl5z1)."
+            asserts the POSITIVE case an identity guard would wrongly
+            reject."
     (let [copied (assoc rf.adapter.test-react/adapter :rf.test/instrumentation-wrapper true)]
       ;; Tear down the fixture-installed canonical map and seat the copy.
       (rf.substrate.adapter/dispose-adapter!)
@@ -1111,10 +1118,10 @@
 (deftest deep-cascade-tears-down-root-downward
   (testing "a parent → child → grandchild tree unmounts root-downward when the
             root unmounts: the parent's :will-unmount fires before the child's,
-            which fires before the grandchild's. The A' layer proved one level
+            which fires before the grandchild's. The A' layer pins one level
             of parent-first teardown; this pins the 'deep tree unwinds
             root-downward' invariant across two levels — the recursive cascade
-            real component trees rely on, in React's own order (rf2-ytyq)."
+            real component trees rely on, in React's own order."
     (let [grandchild-ref (atom nil)
           child-ref      (atom nil)
           parent (rf.adapter.test-react/mount!
@@ -1128,13 +1135,13 @@
                                            (rf.adapter.test-react/mount-child! [:span "leaf"])))})))})]
       ;; The parent's render nested two levels deep (parent → child →
       ;; grandchild), so the global render-depth climbed to 3 then unwound.
-      ;; Because it is a COUNTER, not a boolean (src note ~lines 128-129), each
+      ;; Because it is a COUNTER, not a boolean (see the `render-depth` note
+      ;; in the adapter source), each
       ;; nested render's run-render! `finally` decremented exactly its own
       ;; level, leaving depth at zero once the outermost mount! returned. A
-      ;; boolean would have been clobbered to false by the innermost unwind
-      ;; while an outer render was still notionally in flight. This pins the
-      ;; counter-not-boolean nested-unwind restore, which no test checked
-      ;; directly before.
+      ;; boolean would be clobbered to false by the innermost unwind while an
+      ;; outer render was still notionally in flight. This pins the
+      ;; counter-not-boolean nested-unwind restore directly.
       (is (false? (rf.adapter.test-react/rendering?))
           "render-depth restored to zero after a two-level nested render
            unwound — the counter decrements each nested level independently")
@@ -1156,4 +1163,4 @@
             "teardown order is parent < child < grandchild — root-downward
              unwind, matching React's ClassComponent deletion effect
              (componentWillUnmount before the descendant traversal). Strict
-             monotonic seq: a leaf-upward regression FAILS this (rf2-ytyq)")))))
+             monotonic seq: a leaf-upward regression FAILS this")))))
