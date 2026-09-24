@@ -12,7 +12,7 @@
   compound container, and `highlight-id`/`highlight-ids` map snapshot state
   configurations back to projected ids."
   (:require [clojure.string :as str]
-            ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
+            ;; The SHARED grammar walker + injective id codec
             ;; the three emitters (chart / mermaid / scxml) route through, so
             ;; they address every node identically (one escape codec, one
             ;; source of truth — no desync landmine).
@@ -20,13 +20,12 @@
 
 ;; ---- definition walker --------------------------------------------------
 
-;; rf2-b2ygd2 — grammar primitives now live in the shared `grammar` ns. The
-;; public-API names this ns has always exported (`name-of`, `history-node?`)
-;; are kept as thin re-exports so existing requirers (`chart.projection`,
-;; `scxml`, tests) are unchanged.
-(def ^{:doc "rf2-b2ygd2 — re-export of `grammar/history-node?`.
+;; The grammar primitives live in the shared `grammar` ns. This ns
+;; re-exports `name-of`, `history-node?` and `reenter?` as thin aliases, so
+;; a requirer (`chart.projection`, tests) can read them off `chart.layout`.
+(def ^{:doc "Re-export of `grammar/history-node?`.
 
-  rf2-m285a — true when a node under a compound's `:states` is a
+  True when a node under a compound's `:states` is a
   `:type :history` PSEUDO-STATE (Spec 005 §History states), not an
   ordinary occupiable substate. A history pseudo-state is NEVER active:
   a transition *to* it resolves to the compound's recorded / default
@@ -38,7 +37,7 @@
   history-node? g/history-node?)
 
 (def ^{:arglists '([v])
-       :doc "rf2-b2ygd2 — re-export of `grammar/name-of`.
+       :doc "Re-export of `grammar/name-of`.
 
   Render a guard / action / entry / exit symbol-like value as a short
   string WITHOUT throwing on fn values. Keywords use `ns/name` when
@@ -47,12 +46,10 @@
   `(fn name [...] ...)` / `(defn ...)`) or `\"fn\"` when anonymous — so
   the xstate label reads cleanly instead of `#object[Function]`.
 
-  Public + namespace-preserving — `chart.projection` reuses this (it
-  previously carried a near-duplicate `safe-name` that dropped the
-  namespace; rf2-ee38b.21 collapses the two)."}
+  Public + namespace-preserving — `chart.projection` reuses this."}
   name-of g/name-of)
 
-;; ---- consumer-attachment requirements (rf2-skhlw2.1) --------------------
+;; ---- consumer-attachment requirements -----------------------------------
 ;;
 ;; EP-0017 / Spec 005 §Consumer attachment: a fact-consuming machine
 ;; guard / action declares `:rf.cofx/requires` on its NAMED `:guards` /
@@ -79,8 +76,8 @@
 
 (defn raw-node-at
   "Return the RAW (pre-projection) state-node map for the projected `node`
-  within machine `definition`, or nil. Resolution is REGION-AWARE
-  (rf2-6l01c8): a projected node carrying an explicit `:region` resolves
+  within machine `definition`, or nil. Resolution is REGION-AWARE: a
+  projected node carrying an explicit `:region` resolves
   STRICTLY within that region's `[:regions <region> :states]` body using its
   IN-REGION `:path` (region-relative — the region-id is NOT part of the path,
   per `project-parallel`'s in-region `:path` preservation). Two parallel
@@ -88,16 +85,16 @@
   would return the WRONG region's raw node and mis-attribute its `:entry` /
   `:exit` refs — and thus the surfaced `:rf.cofx/requires` — onto another
   region's node. A NON-region node (flat / compound machine, or a parallel
-  root) resolves STRICTLY within `(:states definition)` — rf2-6r9j.122
-  retired the cross-region fallback that used to run for that shape: every
-  node `project-parallel` mints carries `:region`, so the fallback was
-  reachable only from a hand-built node that had lost its region identity,
-  and silently borrowing the FIRST region that happens to share the path is
-  precisely the wrong-region lifecycle bug rf2-6l01c8 fixed. nil is the right
-  answer there. A synthetic node (the machine-root / region-container — empty
-  path, or an in-region path with no raw match) resolves to nil. Used to
-  recover a node's ORIGINAL `:entry` / `:exit` keyword refs (the projection
-  rewrote them to `name-of` strings)."
+  root) resolves STRICTLY within `(:states definition)`; there is no
+  cross-region fallback. Every node `project-parallel` mints carries
+  `:region`, so a region-less node whose path exists only inside a region is
+  a hand-built node that has lost its region identity, and silently
+  borrowing the FIRST region that happens to share the path would
+  mis-attribute that region's lifecycle refs. nil is the right answer there.
+  A synthetic node (the machine-root / region-container — empty path, or an
+  in-region path with no raw match) resolves to nil. Used to recover a
+  node's ORIGINAL `:entry` / `:exit` keyword refs (the projection rewrites
+  them to `name-of` strings)."
   [definition {:keys [path region]}]
   (when (seq path)
     (if region
@@ -176,7 +173,7 @@
   edge's guard / action ref and every node's entry / exit ref against the
   machine `definition`'s named-entry registries (`:guards` / `:actions`)
   and surface their declared `:rf.cofx/requires` as compact display
-  vectors (rf2-skhlw2.1). Pure: a machine declaring no requires anywhere
+  vectors. Pure: a machine declaring no requires anywhere
   returns the graph UNCHANGED (every `cond->` assoc is skipped).
 
   Resolution is machine-scoped: `:guards` / `:actions` live at the
@@ -185,9 +182,9 @@
   top-level registry pair covers flat, compound, AND parallel machines.
 
   Nodes need the ORIGINAL `:entry` / `:exit` keyword ref, which `collect-
-  nodes` already rewrote to a `name-of` STRING; we re-resolve it against
+  nodes` rewrites to a `name-of` STRING; we re-resolve it against
   the raw definition via `raw-node-at`, passing the whole node so the lookup
-  is region-aware (its `:region` + in-region `:path`, rf2-6l01c8)."
+  is region-aware (its `:region` + in-region `:path`)."
   [definition graph]
   (let [guards  (:guards definition)
         actions (:actions definition)]
@@ -207,26 +204,24 @@
 (defn- resolve-target-path
   "Resolve a transition target relative to source-path.
 
-  Per Spec 005 §Self-transitions (`spec/005-StateMachines.md:206,263,
-  289-294`):
+  Per Spec 005 §Self-transitions:
 
   - `:target :same-state` — the **external** self-transition sentinel.
     Resolve to `source-path` so the edge is a true self-transition
     (source == target); it dissolves through an event-node under the
-    events-as-nodes paradigm (`state → event-node → state`). rf2-v5wzjo
-    — at an EMPTY `source-path` (the machine root, or a parallel
-    region's own root — both project via `collect-machine-edges`'
-    `resolve-target-path []` call) there is NO concrete state to
-    self-target: `(vec [])` is `[]`, which is FALSY in most Lisps but
-    TRUTHY in Clojure, so pre-fix this minted a phantom edge to
-    `(node-id [])` = the empty string (a machine-root `:same-state`) or
+    events-as-nodes paradigm (`state → event-node → state`). At an EMPTY
+    `source-path` (the machine root, or a parallel region's own root —
+    both project via `collect-machine-edges`' `resolve-target-path []`
+    call) there is NO concrete state to self-target, so this returns nil.
+    `(vec [])` is `[]`, which is FALSY in most Lisps but TRUTHY in
+    Clojure, so returning it would mint a phantom edge to `(node-id [])`
+    = the empty string (a machine-root `:same-state`) or
     `(region-scoped-id region-id [])` (a region-root `:same-state`) — an
-    id no real node carries. `collect-machine-edges`' own docstring
-    already declared this shape DROPPED (\"there is no concrete root
-    state to self-transition against at the top level\"); returning nil
-    here (instead of the empty vector) makes the code honour it —
-    `transition-edge`'s `(when (or internal? tp) ...)` then drops the
-    candidate for a targeted (non-internal) `:same-state` at a root.
+    id no real node carries. `collect-machine-edges`' docstring declares
+    this shape DROPPED (\"there is no concrete root state to
+    self-transition against at the top level\"), and `transition-edge`'s
+    `(when (or internal? tp) ...)` drops the candidate for a targeted
+    (non-internal) `:same-state` at a root.
   - a plain keyword target — resolve relative to the parent path.
   - a vector-path target — take it verbatim.
   - nil (no `:target`) — returns nil. The **internal** self-transition
@@ -264,7 +259,7 @@
   `collect-state-edges`'s `:on` / `:after` / `:always`, and
   `collect-machine-edges`) otherwise repeat verbatim.
 
-  `internal?` (rf2-mnp93.4 / rf2-5uhdaz) is a map candidate that OMITS
+  `internal?` is a map candidate that OMITS
   `:target` — it self-anchors on `self-path` and is flagged `:internal? true`
   (a hanging action chip that runs only its `:action`). A targeted candidate
   resolves via `resolve` (a fn of the candidate's `:target`); a `nil` resolve
@@ -289,11 +284,11 @@
                      :guard  (:guard candidate)
                      :action (:action candidate))
         internal?            (assoc :internal? true)
-        ;; rf2-9dj21r — the external-restart opt-in.
+        ;; The external-restart opt-in.
         (reenter? candidate) (assoc :reenter? true)))))
 
 (defn on-done-edges
-  "rf2-41goo — emit the completion edge(s) for a node's `:on-done`
+  "Emit the completion edge(s) for a node's `:on-done`
   (Spec 005 §The done-state signal — XState v5 `onDone`).
 
   When a **compound** node reaches its `:final?` child the engine raises
@@ -320,7 +315,7 @@
   compound's own path / the parallel-root sentinel); it rides the edge as
   `:done-path` so the SCXML emitter can mint `done.state.<id>` faithfully."
   [done-path state-path on-done-spec]
-  ;; rf2-9dj21r — a target-bearing `:on-done` may opt in to `:reenter?`;
+  ;; A target-bearing `:on-done` may opt in to `:reenter?`;
   ;; `transition-edge` carries it. The internal (action-only) `:on-done`
   ;; self-anchors on the compound's own path as a terminal done chip.
   (keep (fn [candidate]
@@ -352,11 +347,11 @@
   transition without it, which would otherwise produce identical topology
   / Mermaid / SCXML.
 
-  rf2-41goo — a compound node's `:on-done` (XState `onDone`) emits the
+  A compound node's `:on-done` (XState `onDone`) emits the
   completion edge (sibling target, or a terminal affordance for the
   action-only form) via `on-done-edges`.
 
-  rf2-3x7nj.33.1 — a `:spawn` map's `:on-error` (the parent transition taken
+  A `:spawn` map's `:on-error` (the parent transition taken
   when the spawned child fails) emits an `:on-error? true` edge on the
   reserved `:rf.machine.spawn/error` event, resolved like `:on-done` at the
   spawning state's own level."
@@ -372,13 +367,12 @@
                                             self-anchor resolve-tgt))
                          (g/transition-candidates spec)))
                  (:on state-node))
-         ;; rf2-mnp93.4 — an internal (action-only, no-`:target`) `:after`
+         ;; An internal (action-only, no-`:target`) `:after`
          ;; candidate is a documented Spec 005 shape (the timer just runs an
          ;; `:action`; the config is unchanged). `transition-edge` self-anchors
-         ;; + flags `:internal?` exactly as the `:on` branch — pre-fix
-         ;; `resolve-target-path` returned nil for a target-less candidate, so
-         ;; `keep` SILENTLY DROPPED it (inconsistent even WITHIN the chart:
-         ;; internal `:on` rendered, internal `:after` did not).
+         ;; + flags `:internal?` exactly as the `:on` branch —
+         ;; `resolve-target-path` returns nil for a target-less candidate, so
+         ;; resolving it directly would let `keep` SILENTLY DROP it.
          (mapcat (fn [[delay spec]]
                    (keep (fn [candidate]
                            (transition-edge candidate
@@ -388,37 +382,37 @@
                                             self-anchor resolve-tgt))
                          (g/transition-candidates spec)))
                  (:after state-node))
-         ;; rf2-mnp93.4 — an internal (action-only) `:always` candidate (the
+         ;; An internal (action-only) `:always` candidate (the
          ;; canonical re-evaluate-while-condition loop is a TARGETLESS guarded
          ;; `:always`, Spec 005 §:reenter? vs a self-`:target` on `:always`)
-         ;; self-anchors + flags `:internal?` like the `:on`/`:after` branches —
-         ;; pre-fix it was silently dropped. `:reenter?` is carried faithfully
+         ;; self-anchors + flags `:internal?` like the `:on`/`:after`
+         ;; branches. `:reenter?` is carried faithfully
          ;; even though a self-target on `:always` is rejected at registration
          ;; (no-op there); a cross/ancestor `:always` target may legitimately
          ;; carry it, and the viz never silently drops author-declared keys.
          ;;
-         ;; rf2-oy49f1 — GATED on `(:always state-node)` being present. Unlike
+         ;; GATED on `(:always state-node)` being present. Unlike
          ;; a per-event `:on`/`:after` MAP entry (where `mapcat` only ever
          ;; visits a key that EXISTS, so a nil VALUE unambiguously means the
          ;; Spec 005 forbidden-transition shape), `:always` is a SINGULAR
          ;; top-level slot: an absent `:always` key and an explicit `nil`
          ;; value are indistinguishable once read via `(:always state-node)`.
-         ;; `grammar/transition-candidates`'s `(nil? spec) [{}]` arm (added for
-         ;; the forbidden-transition fix) would otherwise turn EVERY state
+         ;; `grammar/transition-candidates`'s `(nil? spec) [{}]`
+         ;; forbidden-transition arm would otherwise turn EVERY state
          ;; with NO `:always` declared into a phantom internal `∞` chip — this
-         ;; gate keeps that fix scoped to the per-event grammar it targets.
+         ;; gate keeps that arm scoped to the per-event grammar it serves.
          (when (:always state-node)
            (keep (fn [candidate]
                    (transition-edge candidate
                                     {:from state-path :event :always :always? true}
                                     self-anchor resolve-tgt))
                  (g/transition-candidates (:always state-node))))
-         ;; rf2-41goo — the compound / region-compound `:on-done`
+         ;; The compound / region-compound `:on-done`
          ;; completion edge (XState `onDone`). The done node is THIS node
          ;; (its path is the `done.state.<id>` the engine raises).
          (when-let [od (:on-done state-node)]
            (on-done-edges state-path state-path od))
-         ;; rf2-3x7nj.33.1 — the `:spawn` `:on-error` parent transition
+         ;; The `:spawn` `:on-error` parent transition
          ;; (Spec 005 §Spawn-spec keys; XState v5 `invoke onError`). The
          ;; engine (`pick-spawn-error-transition`) takes it on the reserved
          ;; `:rf.machine.spawn/error` event when the spawned child fails,
@@ -451,7 +445,7 @@
   (mapcat (fn [[state-id state-node]]
             (let [path (conj parent-path state-id)]
              (if (history-node? state-node)
-              ;; rf2-m285a — a `:type :history` PSEUDO-STATE (Spec 005
+              ;; A `:type :history` PSEUDO-STATE (Spec 005
               ;; §History states). NEVER occupiable: not initial / final /
               ;; compound, declares no transitions. Emit a single
               ;; `:history?`-flagged marker node carrying `:deep?` +
@@ -474,7 +468,7 @@
                                 :depth    (count parent-path)
                                 :initial? (boolean (:initial? state-node))
                                 :final?   (boolean (:final? state-node))
-                                ;; rf2-b4loj — an `:error?` final (Spec 005
+                                ;; An `:error?` final (Spec 005
                                 ;; §:final?) is a re-frame2 EXTENSION: a child
                                 ;; finishing via it routes the spawning parent's
                                 ;; `:spawn` `:on-error` (vs `:on-done`). Surface
@@ -486,8 +480,8 @@
                                                         (:error? state-node)))
                                 :compound? (boolean (:states state-node))
                                 :tags     (set (:tags state-node))}
-                         ;; rf2-ee38b.21 — :entry / :exit state actions
-                         ;; (Spec 005 §State nodes L218-219) surface as
+                         ;; :entry / :exit state actions
+                         ;; (Spec 005 §State nodes) surface as
                          ;; short name strings so the renderer can paint
                          ;; `entry / <name>` / `exit / <name>` rows. nil
                          ;; when absent (cond-> skips the assoc).
@@ -508,11 +502,10 @@
 
 ;; ---- public ids ---------------------------------------------------------
 
-;; rf2-b2ygd2 — the xyflow-id-safe injective escape is the SHARED
+;; The xyflow-id-safe injective escape is the SHARED
 ;; `grammar/escape-id-segment` (the correctness-critical codec the mermaid +
 ;; scxml id emitters mint the SAME way, so all three address every node
-;; identically). Aliased locally so `node-id` / `region-node-id` below read
-;; unchanged.
+;; identically). Aliased locally for `node-id` / `region-node-id` below.
 (def ^:private escape-id-segment g/escape-id-segment)
 
 (defn node-id
@@ -520,9 +513,9 @@
   / Mermaid emitter ids. Exported so every consumer addresses nodes
   the same way.
 
-  rf2-ee38b.21 — the id is INJECTIVE: distinct paths always mint
-  distinct ids (the old `[^a-zA-Z0-9_]`-collapse merged `:a/b` /
-  `:a-b` / `:a_b`). Segments are `_<hex>`-escaped (see
+  The id is INJECTIVE: distinct paths always mint distinct ids (a
+  `[^a-zA-Z0-9_]`-collapse would merge `:a/b` / `:a-b` / `:a_b`).
+  Segments are `_<hex>`-escaped (see
   `escape-id-segment`) and joined with `__`."
   [path]
   (->> path
@@ -535,20 +528,20 @@
        (str/join "__")))
 
 (def machine-root-id
-  "rf2-vcnvj — the stable string id for the synthetic MACHINE-ROOT node.
+  "The stable string id for the synthetic MACHINE-ROOT node.
 
   A machine-level (top-level) `:on` transition (Spec 005 — `:on` is
   valid per-state AND top-level) is a machine-wide fallback every state
-  inherits. The PRE-vcnvj projection expanded it into one visible event
-  chip PER leaf state (a back-edge from every leaf to the target), which
-  (a) repeated the same `door/audit` chip around every state and (b)
-  injected N spurious back-edges into ELK's layered ranking, scrambling
-  the natural top-to-bottom state order.
+  inherits. Expanding it into one visible event chip PER leaf state (a
+  back-edge from every leaf to the target) would (a) repeat the same
+  `door/audit` chip around every state and (b) inject N spurious
+  back-edges into ELK's layered ranking, scrambling the natural
+  top-to-bottom state order.
 
-  rf2-vcnvj projects each machine-level transition ONCE, sourced from
-  this synthetic root node into the transition's target — so the chip
-  appears exactly once and ELK's main-column ranking is no longer
-  distorted by the fallback back-edges. The id carries a leading +
+  So each machine-level transition projects ONCE, sourced from this
+  synthetic root node into the transition's target — the chip appears
+  exactly once and no fallback back-edge distorts ELK's main-column
+  ranking. The id carries a leading +
   trailing `__` that no real `node-id` can mint: `node-id` hex-escapes
   every non-alphanumeric segment char (a literal `_` → `_5f`), so a
   state path can never produce a bare double-underscore boundary at the
@@ -556,16 +549,14 @@
   "__rf2_machine_root__")
 
 (def root-container-id
-  "rf2-q129z8 — the stable string id for the synthetic ROOT-CONTAINER node:
+  "The stable string id for the synthetic ROOT-CONTAINER node:
   the Stately-Studio-style NAMED FRAME that wraps the WHOLE machine. Every
   top-level node (flat states, the synthetic `machine-root` chip, parallel
   regions) nests UNDER this container via `:parent-id`, so ELK sizes the
   frame to HUG its children and reflows it on resize — exactly as a
-  compound-state container already hugs its substates. This ABSORBS the
-  pre-q129z8 corner-pinned overlay chrome (the floating root title strip +
-  Context panel, `chart.cljs`) into a proper frame HEADER: the machine name
-  + inferred Context shape now ride the container's own header band, drawn
-  by `chart.nodes/root-container-node`.
+  compound-state container hugs its substates. The machine name + inferred
+  Context shape ride the frame's own HEADER band, drawn by
+  `chart.nodes/root-container-node`.
 
   Carries leading + trailing `__` no real `node-id` can mint (every
   non-alphanumeric segment char hex-escapes, so a state path never produces
@@ -577,10 +568,10 @@
 
 (defn region-node-id
   "Stable string id for a parallel region's synthetic compound node.
-  Prefixed `region__` so it never collides with a state `node-id`
-  (rf2-lkwev). `region-id` is the region's key in the `:regions` map.
+  Prefixed `region__` so it never collides with a state `node-id`.
+  `region-id` is the region's key in the `:regions` map.
 
-  rf2-ee38b.21 — segments are `escape-id-segment`-escaped (the same
+  Segments are `escape-id-segment`-escaped (the same
   injective scheme `node-id` uses) so a region named `:auth/main` and
   a state `:auth-main` can never collapse to the same id."
   [region-id]
@@ -592,7 +583,7 @@
          (escape-id-segment (str region-id)))))
 
 (def ^:private parallel-root-segment
-  "rf2-41goo — the reserved path segment for the synthetic PARALLEL-ROOT
+  "The reserved path segment for the synthetic PARALLEL-ROOT
   completion node a parallel machine's `:on-done` (XState `onDone`) hangs
   off. Namespaced under `rf.machines-viz.layout` so it can never collide
   with a real region-id. The node-id mints a stable, escape-injective
@@ -601,7 +592,7 @@
   :rf.machines-viz.layout/parallel-root)
 
 (def parallel-root-done-state-id
-  "rf2-bs3us — the canonical id string for the whole-parallel completion
+  "The canonical id string for the whole-parallel completion
   signal (`done.state.<this>`). The engine raises `done.state` for the
   parallel root with the root sentinel path `[]`, whose `node-id` is the
   EMPTY string — so a naive `(str \"done.state.\" (node-id done-path))` for
@@ -609,13 +600,11 @@
   no id). This stable, non-empty sentinel id is the SINGLE SOURCE OF TRUTH
   shared by the chart projector's `:doneState` renderer label AND the SCXML
   emitter's `<parallel id=...>` / `done.state.<id>` event, so the two
-  emitters agree on the parallel-root done-state label (pre-fix the chart
-  said `\"done.state.\"` while SCXML said `\"done.state.rf2_parallel_root\"`).
-  Matches SCXML's `<parallel>` element id convention."
+  emitters agree on the parallel-root done-state label. Matches SCXML's `<parallel>` element id convention."
   "rf2_parallel_root")
 
 (defn region-scoped-id
-  "rf2-wnzha — the region-SCOPED node-id for a state at `in-region-path`
+  "The region-SCOPED node-id for a state at `in-region-path`
   inside the parallel region `region-id`. INJECTIVE ACROSS REGIONS: two
   regions that share a state NAME (the canonical Spec 005 `:ingest`
   shape, where every region carries its own `:done {:final? true}` leaf)
@@ -645,24 +634,22 @@
                               unhandled event; NOT a real fireable
                               event, so it reads as an 'otherwise' arm)
     - regular event keyword → `\"event-id\"` (with namespace when present)
-    - `:after` transition   → `\"⌚ <delay>ms\"` (rf2-a2b55 — Stately
-                              graph view convention: clock glyph
-                              prefix + `ms` suffix replaces the prior
-                              `after(<delay>)` xstate-textual form so
-                              an `:after` edge's role reads at a glance
-                              against ordinary event arrows)
-    - `:always` transition  → `\"∞\"` (rf2-a2b55 — Stately graph view
-                              convention: infinity glyph replaces the
-                              prior `\"always\"` word so an eventless
+    - `:after` transition   → `\"⌚ <delay>ms\"` (Stately graph view
+                              convention: a clock glyph prefix + `ms`
+                              suffix, so an `:after` edge's role reads
+                              at a glance against ordinary event
+                              arrows)
+    - `:always` transition  → `\"∞\"` (Stately graph view convention:
+                              an infinity glyph, so an eventless
                               transition reads as a continuation glyph
                               against ordinary event-labelled arrows)
-    - `:on-done` completion  → `\"✓ done\"` (rf2-41goo — XState `onDone`:
+    - `:on-done` completion  → `\"✓ done\"` (XState `onDone`:
                               a compound / parallel-root completion
                               transition. A checkmark-done chip reads as
                               the 'sub-flow finished, advance the outer
                               flow' arrow Stately Studio renders, distinct
                               from an ordinary event arrow)
-    - `:spawn :on-error`     → `\"✗ error\"` (rf2-3x7nj.33.1 — the parent
+    - `:spawn :on-error`     → `\"✗ error\"` (the parent
                               transition the engine takes when a spawned
                               child fails; the failure counterpart of the
                               `✓ done` chip)"
@@ -688,10 +675,9 @@
   Shape: `\"event [guard]\"`. The bracket appears only when a guard is
   declared. `:after` and `:always` substitute for the event segment
   using the same bracket rule (`event-segment` paints the ⌚ / ∞
-  glyphs per rf2-a2b55).
+  glyphs).
 
-  rf2-a2b55 — the action no longer joins the visible event line. Pure
-  data → string."
+  The action does not join the visible event line. Pure data → string."
   [{:keys [guard] :as edge}]
   (let [evt   (event-segment edge)
         g-str (name-of guard)]
@@ -715,10 +701,10 @@
   `:after` and `:always` substitute for the event segment using the
   same bracket/slash rules.
 
-  rf2-a2b55 — the visible edge label PAINTS `event-line` (event +
+  The visible edge label PAINTS `event-line` (event +
   guard only) on the canvas with the action as a `+ <action>` pill
   below it (Stately graph view convention). This text-composed form
-  remains the canonical `data-event` value + edge-id-collision tie-
+  is the canonical `data-event` value + edge-id-collision tie-
   break; consumers that want the visible-line variant call `event-line`
   directly.
 
@@ -730,7 +716,7 @@
       a-str (str " / " a-str))))
 
 (defn- edge-source-id
-  "rf2-vcnvj — the canonical xyflow source-node id for an edge. A
+  "The canonical xyflow source-node id for an edge. A
   machine-level (top-level `:on`) fallback is sourced from the synthetic
   MACHINE-ROOT node (`machine-root-id`); every other edge from its
   `:from` state path via `node-id`. Centralised so the `edge-id`
@@ -745,13 +731,13 @@
   "Stable string id for an edge — composite of source-id, target-id,
   event segment, AND the guard/action segment so multiple candidate
   edges between the same pair of states do not collide. The vector-of-
-  candidates grammar (`spec/005-StateMachines.md:253-256`) routinely
+  candidates grammar (Spec 005 §Transition table top-level keys) routinely
   produces same-event/same-target edges differing only by guard, so
   folding the guard/action in keeps them distinct (xyflow drops a
   duplicate-id edge). The `project-flat` caller appends a per-key ordinal
   as a final tiebreak for the rare byte-identical-candidate case.
 
-  rf2-vcnvj — the source segment is `edge-source-id` (the MACHINE-ROOT
+  The source segment is `edge-source-id` (the MACHINE-ROOT
   id for a machine-level fallback, the source-state node-id otherwise)
   so a top-level fallback's id reads `<machine-root>__<target>__<event>`
   rather than re-deriving an empty source from `[]`."
@@ -763,7 +749,7 @@
        (event-segment edge)
        (when (:guard edge)  (str "__g_" (name-of (:guard edge))))
        (when (:action edge) (str "__a_" (name-of (:action edge))))
-       ;; rf2-9dj21r — fold the external-restart axis into the id so the
+       ;; Fold the external-restart axis into the id so the
        ;; SAME event + target with vs without `:reenter?` mint DISTINCT
        ;; edge ids (otherwise xyflow drops the second as a duplicate id,
        ;; and the with/without pair could never coexist on one chart).
@@ -771,17 +757,17 @@
 
 (defn- collect-machine-edges
   "Emit edges for the machine-level (top-level) `:on` fallback
-  transitions (Spec 005 `spec/005-StateMachines.md:181,199` — `:on`
-  is valid `per-state AND top-level`; a top-level entry is a machine-
+  transitions (Spec 005 §Transition table top-level keys — `:on`
+  is valid `per-state and top-level`; a top-level entry is a machine-
   wide fallback every state inherits).
 
-  rf2-vcnvj — projects each machine-level transition ONCE, sourced from
+  Projects each machine-level transition ONCE, sourced from
   the synthetic MACHINE-ROOT node (`machine-root-id`) into the
   transition's target, rather than expanding it into one back-edge per
-  LEAF state. The pre-vcnvj per-leaf expansion repeated the same chip
-  around every state AND injected N spurious back-edges that scrambled
-  ELK's top-to-bottom layered ranking (the door `:door/audit → :locked`
-  fallback forced every state to rank as a predecessor of `:locked`).
+  LEAF state. A per-leaf expansion would repeat the same chip around
+  every state AND inject N spurious back-edges that scramble ELK's
+  top-to-bottom layered ranking (the door `:door/audit → :locked`
+  fallback would force every state to rank as a predecessor of `:locked`).
   One route from root → target reads as the machine-wide fallback it is
   and leaves the main-column ordering to the real state transitions.
 
@@ -791,17 +777,17 @@
   canonical `node-id` source is `machine-root-id`. The target resolves
   at the TOP level (`resolve-target-path` with a root-level `[]` source).
 
-  rf2-5uhdaz — a TARGETLESS / action-only machine-level fallback (a
+  A TARGETLESS / action-only machine-level fallback (a
   candidate that OMITS `:target`) self-anchors on the synthetic
   machine-root node (`:to []`, `:internal? true`), EXACTLY as the
   state-local `:on` (`collect-state-edges`) and the parallel-root `:on`
-  (`collect-parallel-root-edges`) already do. The runtime walks the
+  (`collect-parallel-root-edges`) do. The runtime walks the
   root's own `:on` last (`re-frame.machines.transition/pick-transition`
   steps 6-7) and fires such an action-only fallback while leaving the
   state unchanged (XState v5 targetless-transition semantics — see
   `machine_root_on_fallback_test`), so an inherited fallback ACTION must
   be visible as a hanging chip on the machine root rather than silently
-  dropped. A `:same-state` machine-level fallback is STILL dropped: there
+  dropped. A `:same-state` machine-level fallback IS dropped: there
   is no concrete root state to self-transition against at the top level.
   The `:*` wildcard fallback is supported (rendered as a non-fireable
   affordance downstream)."
@@ -809,7 +795,7 @@
   (when (seq machine-on)
     (mapcat
       (fn [[event-id spec]]
-        ;; rf2-5uhdaz — an internal (omit-`:target`) candidate is a documented
+        ;; An internal (omit-`:target`) candidate is a documented
         ;; Spec 005 shape; `transition-edge` self-anchors it on the root node
         ;; (`:to []`), mirroring `collect-state-edges` / `collect-parallel-
         ;; root-edges`. `:same-state` (a sentinel value, not an omitted key) has
@@ -822,12 +808,11 @@
               (g/transition-candidates spec)))
       machine-on)))
 
-;; rf2-b2ygd2 — the parallel-root `:target` normaliser is the SHARED
+;; The parallel-root `:target` normaliser is the SHARED
 ;; `grammar/normalise-root-targets` (also used by the SCXML emitter as
 ;; `root-region-qualified-targets`), mirroring the runtime resolver
-;; (`re-frame.machines.parallel/normalise-root-targets`). Aliased locally so
-;; `collect-parallel-root-edges` / `collect-parallel-root-after-edges` below
-;; read unchanged.
+;; (`re-frame.machines.parallel/normalise-root-targets`). Aliased locally for
+;; the parallel-root collectors below.
 (def ^:private normalise-root-targets g/normalise-root-targets)
 
 (defn- collect-parallel-root-edges*
@@ -881,15 +866,14 @@
       root-map)))
 
 (defn- collect-parallel-root-edges
-  "rf2-3v3gv1 — emit edges for a `:type :parallel` machine's OWN top-level
+  "Emit edges for a `:type :parallel` machine's OWN top-level
   `:on` (the ROOT parallel transition — the ancestor fallback for its regions,
-  Spec 005 §Root parallel `:on`). Shipped runtime semantics: when no region
+  Spec 005 §Root parallel `:on`). Runtime semantics: when no region
   handles the event the root `:on` fires, moving one or more REGION-QUALIFIED
-  targets atomically (untargeted regions stay put). Pre-fix the chart
-  projection modelled the per-region `:on` fallbacks (via `project-flat` →
-  `collect-machine-edges`) but DROPPED the parallel root's own `:on`, so Xray
-  could neither render the transition in topology nor highlight it on a focused
-  event.
+  targets atomically (untargeted regions stay put). The per-region `:on`
+  fallbacks project via `project-flat` → `collect-machine-edges`; this
+  collector projects the parallel root's own `:on`, so Xray can render the
+  transition in topology and highlight it on a focused event.
 
   The `:event` is the event-id verbatim and there are no trigger-specific extra
   base keys; all scaffolding lives in `collect-parallel-root-edges*`."
@@ -897,15 +881,14 @@
   (collect-parallel-root-edges* root-on identity (constantly nil)))
 
 (defn- collect-parallel-root-after-edges
-  "rf2-m3otj2 — emit edges for a `:type :parallel` machine's OWN top-level
+  "Emit edges for a `:type :parallel` machine's OWN top-level
   `:after` (the ROOT parallel `:after` — the TIMER-DRIVEN analog of the root
-  `:on` ancestor fallback, Spec 005 §Root-level `:after`). Shipped runtime
-  semantics (rf2-wox0vd): scheduled at machine birth, alive for the whole
+  `:on` ancestor fallback, Spec 005 §Root-level `:after`). Runtime
+  semantics: scheduled at machine birth, alive for the whole
   machine, root-owned; when it fires it runs its `:action` once and atomically
   moves one or more REGION-QUALIFIED targets (untargeted regions stay put) —
-  identical apply grammar to the root `:on`. Pre-fix the chart projection
-  collected ONLY the root `:on` and DROPPED the root `:after`, so a valid
-  machine-lifetime timeout was invisible in topology.
+  identical apply grammar to the root `:on`. Without it a valid
+  machine-lifetime timeout would be invisible in topology.
 
   Reuses `collect-parallel-root-edges*` — the only per-trigger differences are
   the `:event` derivation (`:after-<delay>`) and the extra base keys `:after
@@ -937,7 +920,7 @@
                                    ;; A node nested inside a compound parent
                                    ;; carries `:parent-id` (the parent's
                                    ;; node-id) so the projector wires xyflow's
-                                   ;; `parentId` sub-flow (rf2-xh1lm — v12
+                                   ;; `parentId` sub-flow (xyflow v12
                                    ;; reads `parentId`, not `parentNode`) —
                                    ;; the SAME mechanic that nests parallel-
                                    ;; region states. Top-level states (path
@@ -946,14 +929,12 @@
                                    (assoc :parent-id (node-id (pop path))))]
                         (assoc n' :id (node-id path))))
                     base-nodes)
-        ;; rf2-vcnvj — machine-level (top-level) :on fallbacks now
-        ;; project ONCE from the synthetic MACHINE-ROOT node (no longer
-        ;; one back-edge per leaf), so `leaf-paths` is no longer threaded
-        ;; into `collect-machine-edges`.
+        ;; Machine-level (top-level) :on fallbacks project ONCE from the
+        ;; synthetic MACHINE-ROOT node (not one back-edge per leaf).
         machine-edges (collect-machine-edges on)
-        ;; rf2-vcnvj — surface the synthetic root node ONLY when a
+        ;; Surface the synthetic root node ONLY when a
         ;; machine-level fallback exists, so a machine with no top-level
-        ;; `:on` keeps the pre-vcnvj node set unchanged. The root node is
+        ;; `:on` carries no root node. The root node is
         ;; a top-level (no `:parent-id`) pseudo-state the projector paints
         ;; as the root-context chip; its `:label` is filled in by
         ;; `project-definition` (which knows the machine-id), defaulting to
@@ -970,7 +951,7 @@
                                    (collect-state-edges [state-id] state-node))
                                  states)
                          machine-edges))
-        ;; rf2-ee38b.21 — disambiguate edges that share source/target/
+        ;; Disambiguate edges that share source/target/
         ;; event but differ by guard/action/machine-level (the vector-of-
         ;; candidates grammar routinely produces same-event/same-target
         ;; forks that differ only by guard). `edge-id` folds guard/action
@@ -982,7 +963,7 @@
                        (let [base (edge-id (:to e) e)
                              n    (get seen base 0)
                              id   (if (zero? n) base (str base "__" n))
-                             ;; rf2-5uhdaz — a targetless machine-level `:on`
+                             ;; A targetless machine-level `:on`
                              ;; (`:internal? true`, `:to []`) self-anchors on
                              ;; the synthetic MACHINE-ROOT node: `(node-id [])`
                              ;; is the empty string, so resolve the target to
@@ -1006,7 +987,7 @@
                      {:seen {} :out []})
                    :out
                    vec)]
-    {;; rf2-vcnvj — the synthetic MACHINE-ROOT node (when present) leads
+    {;; The synthetic MACHINE-ROOT node (when present) leads
      ;; the node vector so it precedes the event-node + `__out` edge that
      ;; reference it (xyflow's parent-before-child / source-before-edge
      ;; ordering invariant — the same reason region/compound parents lead).
@@ -1015,22 +996,20 @@
      :initial-path initial-path}))
 
 (defn- collect-region-on-done-edges
-  "rf2-2ydc87 — a REGION's OWN top-level `:on-done` (Spec 005 §Parallel
+  "A REGION's OWN top-level `:on-done` (Spec 005 §Parallel
   `:on-done`: 'A **compound region** reaching its own `:final?` child
   raises a region-local `done.state.<region-compound>` that the region's
   `:on-done` takes … exactly the compound case, scoped to one region').
 
   `project-flat` (called once per region by `project-parallel`, treating
   the region-def as a self-contained flat/compound machine rooted at `[]`)
-  never read a definition's OWN top-level `:on-done` — only a NESTED
+  never reads a definition's OWN top-level `:on-done` — only a NESTED
   compound's (`collect-state-edges`' `(on-done-edges state-path state-path
-  od)` call, at a non-empty `state-path`). So a region's own `:on-done`
-  was silently dropped from the chart entirely (confirmed empirically: a
-  2-region parallel with region `:a`'s `:on-done` targeting sibling
-  region `:b` projected zero `:on-done?` edges), while mermaid
-  (`region-root-on-done-edges`, rf2-f8fgz5) and SCXML (`emit-state`'s
-  generic `:on-done` read, which sees a region like any other state node)
-  both already rendered it — a G9 cross-emitter-parity gap.
+  od)` call, at a non-empty `state-path`). So without this collector a
+  region's own `:on-done` would be silently dropped from the chart, while
+  mermaid (`region-root-on-done-edges`) and SCXML (`emit-state`'s generic
+  `:on-done` read, which sees a region like any other state node) both
+  render it — a G9 cross-emitter-parity gap.
 
   Threading this through `project-flat` + `project-parallel`'s generic
   region-scoping pass (`region-scoped-id`) would be WRONG: a region's own
@@ -1045,7 +1024,7 @@
   its own path for both. A keyword target then resolves (via
   `resolve-target-path`'s parent-path rule, parent of `[region-id]` is
   `[]`) to `[target]` — a bare sibling-region id, verbatim — matching
-  SCXML's empirically-verified `done.state.a -> b` shape.
+  SCXML's `done.state.a -> b` shape.
 
   - **Target-bearing, single-segment** (`:on-done :b`) — a SIBLING
     region: sourced from THIS region's container (`region-node-id`),
@@ -1062,8 +1041,8 @@
   `:done-path` carries `[region-id]` (NOT region-scoped) so the chart's
   `:doneState` label (`chart.projection`, `(node-id done-path)`) reads
   `done.state.<region-id>` — matching SCXML's `done.state.a` bare form,
-  the same reasoning `parallel-root-done-state-id` already applies one
-  level up for the whole-parallel completion."
+  the same reasoning `parallel-root-done-state-id` applies one level up
+  for the whole-parallel completion."
   [regions]
   (mapcat
     (fn [[region-id {:keys [on-done]}]]
@@ -1091,25 +1070,24 @@
 
 (defn- project-parallel
   "Project a `{:type :parallel :regions {...}}` definition into the
-  flat graph, projecting EVERY region (rf2-lkwev — Phase 1 deferred
-  all but the first). Each region becomes a synthetic `:region?`
-  compound node whose `node-id` is `region-node-id`; each region's
-  states carry `:region <region-id>` + `:parent-id <region-node-id>`
-  so the chart projector can hand xyflow a `parentId`/sub-flow
-  grouping (rf2-xh1lm — v12 reads `parentId`). Region order is
+  flat graph, projecting EVERY region. Each region becomes a synthetic
+  `:region?` compound node whose `node-id` is `region-node-id`; each
+  region's states carry `:region <region-id>` + `:parent-id
+  <region-node-id>` so the chart projector can hand xyflow a
+  `parentId`/sub-flow grouping (xyflow v12 reads `parentId`). Region order is
   preserved (regions are an ordered map in practice; we keep
   insertion order via `:regions`).
 
-  rf2-wnzha — every region-state node-id is REGION-SCOPED
+  Every region-state node-id is REGION-SCOPED
   (`region-scoped-id`): the in-region path is prefixed with the region
   container's id, so two regions that share a state NAME mint DISTINCT
-  node-ids. Pre-fix, `project-flat` kept each region's in-region node-id
-  verbatim (e.g. path `[:done]` → `\"done\"` in EVERY region), so the
-  canonical Spec 005 `:ingest` shape — three regions each carrying a
-  `:done {:final? true}` leaf — collided all three `:done` nodes into
-  ONE: xyflow's `:id` keying dropped two, and `highlight-ids`
-  mis-attributed the multi-active (G1) highlight across regions (lighting
-  region A's `:done` also lit B's + C's). Re-keying every node id, its
+  node-ids. Keeping each region's in-region node-id from `project-flat`
+  verbatim (e.g. path `[:done]` → `\"done\"` in EVERY region) would
+  collide the canonical Spec 005 `:ingest` shape — three regions each
+  carrying a `:done {:final? true}` leaf — into ONE `:done` node: xyflow's
+  `:id` keying would drop two, and `highlight-ids` would mis-attribute the
+  multi-active (G1) highlight across regions (lighting region A's `:done`
+  would also light B's + C's). Re-keying every node id, its
   `:parent-id`, AND every edge `:id`/`:source`/`:target` under the region
   prefix makes the parse injective across regions. The in-region `:path`
   is preserved verbatim — it is the state's path WITHIN its region's
@@ -1123,27 +1101,27 @@
           (fn [idx [region-id region-def]]
             (let [rid       (region-node-id region-id)
                   parsed    (project-flat region-def)
-                  ;; rf2-7i7t3 — a region def is a compound state map and MAY
+                  ;; A region def is a compound state map and MAY
                   ;; carry a top-level `:on` (a legal Spec 005 region-level
                   ;; fallback). `project-flat` mints a synthetic MACHINE-ROOT
                   ;; node (`{:path [] :machine-root? true}`) + machine-level
-                  ;; edges (rf2-vcnvj) WHENEVER its definition has a top-level
+                  ;; edges WHENEVER its definition has a top-level
                   ;; `:on`. But the machine-root concept is a FLAT/top-level-
                   ;; machine artifact — a region is NOT a machine; it has no
                   ;; root context (XState v5: a region is just an orthogonal
                   ;; compound state, its `:on` is an ordinary region-scoped
-                  ;; transition). Pre-fix, that synthetic root node got region-
-                  ;; scoped to a DEGENERATE id (`region-scoped-id :fetch []` =
-                  ;; `"region__fetch__"`, trailing `__` + empty path segment)
-                  ;; and kept `:machine-root? true`, so the projector painted a
-                  ;; stray `root` chip nested INSIDE the region container. We
-                  ;; DROP the synthetic machine-root node here and re-point its
-                  ;; fallback edges' source to the REGION CONTAINER (`rid`)
-                  ;; below, so a region-level `:on` reads as a fallback hanging
-                  ;; off the region — no phantom root.
+                  ;; transition). Kept, that synthetic root node would be
+                  ;; region-scoped to a DEGENERATE id (`region-scoped-id :fetch
+                  ;; []` = `"region__fetch__"`, trailing `__` + empty path
+                  ;; segment) and keep `:machine-root? true`, so the projector
+                  ;; would paint a stray `root` chip nested INSIDE the region
+                  ;; container. We DROP the synthetic machine-root node here
+                  ;; and re-point its fallback edges' source to the REGION
+                  ;; CONTAINER (`rid`) below, so a region-level `:on` reads as
+                  ;; a fallback hanging off the region — no phantom root.
                   region-nodes
                   (remove :machine-root? (:nodes parsed))
-                  ;; rf2-wnzha — region-scope every state node-id (so two
+                  ;; Region-scope every state node-id (so two
                   ;; same-named region states never collide) and re-point
                   ;; a nested-compound child's `:parent-id` to its
                   ;; region-scoped parent id. A top-level region state's
@@ -1159,28 +1137,26 @@
                                            (region-scoped-id region-id (pop path))
                                            rid))))
                         region-nodes)
-                  ;; rf2-wnzha — re-key every edge's id/source/target under
+                  ;; Re-key every edge's id/source/target under
                   ;; the region prefix too (an edge to/from a shared-name
                   ;; state would otherwise resolve to the colliding id
                   ;; across regions). `:from-path`/`:to-path` stay the
                   ;; in-region paths the ids derive from.
                   ;;
-                  ;; rf2-7i7t3 — a region-level machine fallback edge
+                  ;; A region-level machine fallback edge
                   ;; (`:machine-level? true`, `:from-path []`) would otherwise
                   ;; region-scope its source to the DEGENERATE `region__<id>__`
                   ;; (node-id of `[]` is empty) — the dropped phantom root.
                   ;; Source it from the REGION CONTAINER (`rid`) instead, so the
                   ;; fallback chip hangs off the region the way the machine-
                   ;; level fallback hangs off the top-level machine root.
-                  ;; rf2-pdvtxt — a region-level machine fallback (`:machine-level?
-                  ;; true`) sources from the REGION CONTAINER (`rid`), not the
-                  ;; dropped phantom root. For a TARGETED fallback the target is
+                  ;; For a TARGETED fallback the target is
                   ;; the region-scoped destination state. But for a TARGETLESS /
                   ;; action-only fallback (`:internal? true`, `:to-path []`) the
                   ;; target must ALSO be the region container: `(region-scoped-id
-                  ;; region-id [])` is the degenerate `region__<id>__` — the node
-                  ;; `project-flat` deliberately removed (the synthetic machine
-                  ;; root), so the pre-fix rewrite minted a phantom edge endpoint.
+                  ;; region-id [])` is the degenerate `region__<id>__` — the
+                  ;; synthetic machine-root node dropped above — so scoping the
+                  ;; target would mint a phantom edge endpoint.
                   ;; This mirrors `project-flat`'s internal machine-level edge,
                   ;; which self-anchors target = source = `machine-root-id`; here
                   ;; the region container `rid` is the analogue. `:internal? true`
@@ -1211,7 +1187,7 @@
               {:nodes (into [region-node] tagged-nodes)
                :edges scoped-edges}))
           regions)
-        ;; rf2-41goo — the PARALLEL-ROOT `:on-done` (XState `onDone` on the
+        ;; The PARALLEL-ROOT `:on-done` (XState `onDone` on the
         ;; parallel state). When EVERY region reaches its `:final?` leaf the
         ;; parallel root's `:on-done` fires. A `:type :parallel` machine is
         ;; root-only (no sibling flat state to land a `:target` on), so the
@@ -1245,17 +1221,16 @@
                      :depth     0
                      :parallel-root? true
                      :compound? false})
-        ;; rf2-3v3gv1 — the PARALLEL ROOT's own `:on` (the ancestor fallback,
+        ;; The PARALLEL ROOT's own `:on` (the ancestor fallback,
         ;; Spec 005 §Root parallel `:on`). A root `:on` with region-qualified
         ;; target(s) moves one or more regions when no region-local transition
-        ;; handles the event; pre-fix the projection dropped it entirely. Each
-        ;; edge is sourced from the synthetic MACHINE-ROOT chip (the same
+        ;; handles the event. Each edge is sourced from the synthetic MACHINE-ROOT chip (the same
         ;; anchor a flat machine's `collect-machine-edges` fallback uses) into
         ;; the REGION-SCOPED target node — so the chip reads as the machine-
         ;; wide fallback hanging into the region it moves. A targetless action-
         ;; only root `:on` (`:to []`, `:internal? true`) self-anchors on the
         ;; machine-root chip (a hanging action affordance, moves no region).
-        ;; rf2-m3otj2 — the parallel-ROOT's own `:after` (the TIMER-DRIVEN
+        ;; The parallel-ROOT's own `:after` (the TIMER-DRIVEN
         ;; ancestor fallback, Spec 005 §Root-level `:after`) shares the exact
         ;; same MACHINE-ROOT-sourced, region-scoped-target re-pointing as the
         ;; root `:on` (it carries `:parallel-root-on? true` too, plus `:after
@@ -1294,11 +1269,11 @@
                {:seen {} :out []})
              :out
              vec)
-        ;; rf2-3v3gv1 — surface the synthetic MACHINE-ROOT chip ONLY when the
-        ;; parallel root declares an `:on` (mirrors `project-flat`'s
-        ;; rf2-vcnvj root-node-when-fallback-exists rule). Distinct from the
-        ;; parallel-ROOT `:on-done` node (`parallel-root-segment`); a machine
-        ;; with no root `:on` keeps the pre-fix node set unchanged.
+        ;; Surface the synthetic MACHINE-ROOT chip ONLY when the
+        ;; parallel root declares an `:on` or `:after` (mirrors
+        ;; `project-flat`'s root-node-when-fallback-exists rule). Distinct
+        ;; from the parallel-ROOT `:on-done` node (`parallel-root-segment`);
+        ;; a machine with neither carries no machine-root chip.
         machine-root-node (when (seq root-on-edges)
                             {:id            machine-root-id
                              :path          []
@@ -1306,7 +1281,7 @@
                              :depth         0
                              :machine-root? true
                              :compound?     false})]
-    {;; rf2-3v3gv1 — the synthetic MACHINE-ROOT chip (when present) LEADS the
+    {;; The synthetic MACHINE-ROOT chip (when present) LEADS the
      ;; node vector, ahead of the regions whose scoped target nodes its root
      ;; `:on` edges address (xyflow's parent-before-child / source-before-edge
      ;; ordering invariant — the same reason region/compound parents lead).
@@ -1316,7 +1291,7 @@
      :edges        (vec (concat (mapcat :edges per-region)
                                 root-od-edges
                                 root-on-edges
-                                ;; rf2-2ydc87 — each region's OWN top-level
+                                ;; Each region's OWN top-level
                                 ;; :on-done (distinct from `root-od-edges`,
                                 ;; the WHOLE-parallel completion). No new
                                 ;; node needed: it anchors on the existing
@@ -1327,7 +1302,7 @@
      :parallel?    true}))
 
 (defn wrap-in-root-container
-  "rf2-q129z8 — wrap a projected `{:nodes :edges}` graph in the synthetic
+  "Wrap a projected `{:nodes :edges}` graph in the synthetic
   ROOT-CONTAINER frame (the Stately-Studio-style NAMED box around the whole
   machine). Re-points every CURRENT top-level node (a node with no
   `:parent-id`) to nest UNDER `root-container-id`, and PREPENDS the root
@@ -1337,15 +1312,14 @@
   Edges are untouched: they address nodes by id, and nesting a node changes
   only its `:parent-id`, never its id. ELK then sizes the frame to HUG its
   children (the compound-container `INCLUDE_CHILDREN` + `elk.padding` path
-  already wired in `chart.cljs` / `chart.projection`, triggered now that the
-  graph carries a `:parent-id`), and xyflow renders the children inside the
-  frame via `parentId` (rf2-xh1lm).
+  wired in `chart.cljs` / `chart.projection`, which a `:parent-id`
+  triggers), and xyflow renders the children inside the frame via
+  `parentId`.
 
   The container's `:label` is a neutral placeholder here (the pure layer has
   no machine-id); `chart.projection/xyflow-graph` overrides it with the
   machine name + threads the inferred Context shape into the container's
-  `:data` so `chart.nodes/root-container-node` paints the frame HEADER —
-  absorbing the pre-q129z8 corner-pinned title strip + Context overlay.
+  `:data` so `chart.nodes/root-container-node` paints the frame HEADER.
 
   A graph with no nodes (nil / empty definition) is returned unchanged — an
   empty frame would be vacuous chrome."
@@ -1370,18 +1344,16 @@
   :initial-path}` graph. Pure fn — JVM-runnable.
 
   Parallel definitions (`{:type :parallel :regions {...}}`) project
-  EVERY region as an orthogonal zone (rf2-lkwev — xyflow Phase 2 full
-  parallel-region rendering; supersedes the Phase 1 first-region-only
-  projection). Each region surfaces a synthetic `:region?` compound
-  node and its states carry `:region` + `:parent-id` for xyflow
-  `parentId` grouping (rf2-xh1lm — v12 reads `parentId`); the result
+  EVERY region as an orthogonal zone. Each region surfaces a synthetic
+  `:region?` compound node and its states carry `:region` + `:parent-id`
+  for xyflow `parentId` grouping (xyflow v12 reads `parentId`); the result
   also carries `:parallel? true`.
 
-  rf2-q129z8 — the whole graph is then wrapped in a synthetic
+  The whole graph is then wrapped in a synthetic
   ROOT-CONTAINER frame (`wrap-in-root-container`): a Stately-Studio-style
   NAMED box that hugs the entire topology and carries the machine name +
-  Context shape in its header (replacing the old corner-pinned overlay
-  chrome). Every prior top-level node nests under it; ELK sizes + reflows
+  Context shape in its header. Every otherwise top-level node nests under
+  it; ELK sizes + reflows
   the frame around its children. An empty graph (nil definition) is left
   unwrapped."
   [definition]
@@ -1392,7 +1364,7 @@
   ;; + nil-safe.
   (let [definition (g/desugar-grammar definition)]
     (cond
-      ;; rf2-j538f7.18 — REJECT a structurally-invalid definition BEFORE graph
+      ;; REJECT a structurally-invalid definition BEFORE graph
       ;; construction, so a malformed direct host prop (a nested compound missing
       ;; `:initial`, a dangling transition target, an unknown bare node key, …)
       ;; never reaches ELK or creates edges to absent nodes. The result carries a
@@ -1415,7 +1387,7 @@
 
                     :else
                     (project-flat definition))]
-        ;; rf2-skhlw2.1 — surface each guard / action / entry / exit ref's
+        ;; Surface each guard / action / entry / exit ref's
         ;; declared `:rf.cofx/requires` (EP-0017 consumer attachment) onto the
         ;; edges + nodes BEFORE the synthetic root-container wraps the graph (so
         ;; the wrapper's `:path []` node is never resolved). A no-op for a
@@ -1485,8 +1457,8 @@
 
 (defn highlight-ids
   "Resolve a WHOLE snapshot `:state` value to the SET of active-leaf
-  node-ids — the multi-active highlight contract (rf2-yoe6e / rf2-g2svr;
-  closes parity gap G1 in `001-Topology-Parity.md`).
+  node-ids — the multi-active highlight contract (parity gap G1 in
+  `001-Topology-Parity.md`).
 
   Spec 005 §Snapshot shape gives `:state` three arms; this fn handles
   all three, always returning a set so a parallel machine's N
@@ -1500,8 +1472,8 @@
     simultaneously-active leaves. Each region's value is itself a
     keyword-or-path **relative to that region's own state-tree**, so it
     resolves the SAME way the parse mints region-state ids — via
-    `region-scoped-id` of the REGION + the in-region path (rf2-wnzha:
-    project-parallel region-scopes a state's node-id so two regions sharing
+    `region-scoped-id` of the REGION + the in-region path
+    (`project-parallel` region-scopes a state's node-id so two regions sharing
     a state NAME mint DISTINCT ids; the resolver MUST mint the SAME scoped
     id or the highlight would target a phantom). A nested region value (a
     region whose value is itself a vector path) resolves to its DEEPEST
@@ -1519,7 +1491,7 @@
     (keyword? state) #{(node-id [state])}
     (vector? state)  #{(node-id state)}
     (map? state)     (into #{}
-                           ;; rf2-wnzha — region-scope each region's
+                           ;; Region-scope each region's
                            ;; active-leaf id (the region-map KEY is the
                            ;; region-id) so it agrees with the node ids
                            ;; `project-parallel` minted; otherwise a
