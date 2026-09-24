@@ -10,12 +10,12 @@
   internal reply against the LIVE durable slot (frame + work-id + generation)
   and, on a superseded / vanished / cross-frame reply, lower the SAME stale-
   suppression outcome (`:status :stale` / `:rf.reply/work-status :suppressed`) and emit
-  the SAME additively-shaped stale-suppressed trace. That trio of behaviours —
+  the SAME stale-suppressed trace shape. That trio of behaviours —
   the live-slot verifier, the stale-suppress reply builder, and the
-  stale-suppressed trace emitter — was copy-pasted between `events.cljc` and
-  `mutation_events.cljc`, differing ONLY in the durable slot they look up and a
-  handful of vocabulary knobs. This ns hoists them ONCE, parameterized by those
-  knobs (rf2-nnke18).
+  stale-suppressed trace emitter — differs between `events.cljc` and
+  `mutation_events.cljc` ONLY in the durable slot it looks up and a
+  handful of vocabulary knobs, so this ns owns it ONCE, parameterized by those
+  knobs.
 
   ## The three knobs each family passes
 
@@ -36,11 +36,7 @@
   mutation; both add `:scope`) and, at emit time, the `trace-id`
   (`:rf.resource/stale-suppressed` | `:rf.mutation/stale-suppressed`) plus the
   family's `bespoke-facts` (`:resource/key …` | `:instance …`). These ride the
-  SAME mechanism — they are still per-family vocabulary, not behaviour.
-
-  Pure extraction (rf2-nnke18): the verification logic, the emitted stale
-  reply, the trace ids, and the carried-vs-current generation comparison are
-  byte-identical to the pre-extraction copies in both families.
+  SAME mechanism — they are per-family vocabulary, not behaviour.
 
   ## Stale suppression is the correctness boundary
 
@@ -69,7 +65,7 @@
   match, nil on a cross-frame / stale / superseded / vanished reply (which MUST
   be suppressed).
 
-  FRAME VERIFICATION (rf2-eu2ifi / rf2-jzh5gq): the runtime stamps the
+  FRAME VERIFICATION: the runtime stamps the
   qualified `:rf.frame/id` into every reply payload at lowering; the reply
   handler runs in the RECEIVING frame's cofx. A reply whose payload frame does
   not match the receiving frame is REJECTED without touching this frame's slot
@@ -80,7 +76,7 @@
   slot at the same generation. A reply with no stamped frame (a direct-dispatch
   test payload that omits `:rf.frame/id`) skips the frame check (nil never
   collides with a concrete frame id) and is verified by work-id + generation
-  alone — the runtime-slice tests stay deterministic.
+  alone — so such direct-dispatch tests are deterministic.
 
   The verification work identity is `:work/id` (EP-0007 — the qualified
   spelling the ledger row, the slot's `:current-work`, and the uniform reply
@@ -126,8 +122,9 @@
   current correlation is the live slot's `:generation` (nil when the slot is
   gone — no live counterpart). The result rides `:rf.reply/status :stale` /
   `:rf.reply/work-status :suppressed` / `:rf.reply/stale-reason` / the
-  carried-vs-current generation pair ADDITIVELY onto the family's
-  `…/stale-suppressed` trace via `emit-stale-suppressed!`.
+  carried-vs-current generation pair onto the family's
+  `…/stale-suppressed` trace, alongside its bespoke facts, via
+  `emit-stale-suppressed!`.
 
   Returns the `re-frame.reply/suppress` outcome map (`:deliver?` is false — the
   app reply target MUST NOT run; `:reply` is the data-only `:status :stale`
@@ -158,7 +155,7 @@
                        extra)})))
 
 ;; ---------------------------------------------------------------------------
-;; (4) Stale-suppressed trace emitter (additive reply-envelope vocabulary).
+;; (4) Stale-suppressed trace emitter (reply-envelope vocabulary).
 ;; ---------------------------------------------------------------------------
 
 (defn emit-stale-suppressed!
@@ -166,33 +163,33 @@
   late reply, carrying its bespoke facts (`bespoke-facts` — `:resource/key` /
   `:generation` / `:outcome` for a resource; `:instance` / `:generation` /
   `:outcome` for a mutation) PLUS the canonical reply-envelope vocabulary
-  ADDITIVELY (the work identity rides as `:rf.reply/work-id` — rf2-o6c2jr, one
+  alongside them (the work identity rides as `:rf.reply/work-id` — one
   name per fact): `:rf.reply/status :stale`, `:rf.reply/work-status
   :suppressed`, `:rf.reply/stale-reason`, `:rf.reply/work-id`, and
   `:rf.reply/correlation` (the carried-vs-current generation gate) — the SAME
-  additive shape the machine `:rf.machine/done` and HTTP / probe stale paths
+  shape the machine `:rf.machine/done` and HTTP / probe stale paths
   ride (Managed-Effects §Tracing / EP-0011). `stale` is the
   `stale-suppress-reply` outcome; its trace summary routes wire slots through
   the shared elider via `rf.resources.reply/trace-reply`.
 
   `bespoke-facts` is the family's leading per-trace map (its caller-side
   spelling of `:rf.frame/id` + the durable key + `:generation` / `:outcome`);
-  the additive `:rf.reply/*` facts are MERGED on top."
+  the `:rf.reply/*` facts are MERGED on top."
   [trace-id bespoke-facts stale]
   (let [trace-summary (rf.resources.reply/trace-reply (:reply stale))]
     (rf.trace/emit! :rf.event trace-id
                  (merge bespoke-facts
                         {;; reply-envelope vocabulary (Managed-Effects §9) — the
                          ;; canonical :status :stale reply produced via the
-                         ;; shared substrate, recorded ADDITIVELY (the bespoke
-                         ;; facts above are preserved).
+                         ;; shared substrate, recorded alongside the bespoke
+                         ;; facts above.
                          :rf.reply/status      (:status trace-summary)
                          :rf.reply/work-status (:rf.reply/work-status trace-summary)
                          :rf.reply/work-id     (:rf.reply/work-id trace-summary)
                          :rf.reply/stale-reason (:rf.reply/stale-reason trace-summary)
                          :rf.reply/correlation (:correlation trace-summary)
-                         ;; rf2-waawic — the SHARED carried/current stale-gate
-                         ;; facts `re-frame.reply/suppress` already computed on
+                         ;; The SHARED carried/current stale-gate
+                         ;; facts `re-frame.reply/suppress` computes on
                          ;; `(:trace stale)`. Projecting them here lets the
                          ;; uniform reply-envelope view read the stale gate
                          ;; without family-specific parsing (the
