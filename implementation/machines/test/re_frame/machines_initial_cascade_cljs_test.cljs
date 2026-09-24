@@ -18,7 +18,7 @@
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest machine-initial-cascade-on-first-dispatch
-  (testing "compound :initial chain descends to a leaf on first-dispatch snapshot synthesis (rf2-m1tv)"
+  (testing "compound :initial chain descends to a leaf on first-dispatch snapshot synthesis"
     (let [machine
           {:initial :foo
            :data    {}
