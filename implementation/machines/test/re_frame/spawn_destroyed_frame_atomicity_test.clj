@@ -30,7 +30,7 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest destroyed-frame-spawn-fires-no-trace-no-dispatch
-  (testing "C3: spawning into a never-created / destroyed frame installs nothing,
+  (testing "spawning into a never-created / destroyed frame installs nothing,
             emits no :rf.machine.spawn/spawned trace, and dispatches nothing"
     (rf/reg-machine :rf2-g13nm2/ghost-child
       {:initial :running
@@ -70,8 +70,8 @@
             (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))))
 
 (deftest live-frame-spawn-still-fires-trace-and-dispatch
-  (testing "C3 control: a LIVE-frame spawn still emits the spawned trace,
-            installs the snapshot, and dispatches :start (the fix is scoped to
+  (testing "control: a LIVE-frame spawn still emits the spawned trace,
+            installs the snapshot, and dispatches :start (the gate is scoped to
             the dead-frame case only)"
     (rf/reg-machine :rf2-g13nm2/live-child
       {:initial :running
@@ -96,7 +96,7 @@
                                  [:rf.runtime/machines :spawned
                                   :rf2-g13nm2/live-parent [:spawning]])]
           (is (some? spawned-id)
-              "the child was installed (live-frame spawn is unaffected by the fix)")
+              "the child was installed (live-frame spawn is unaffected by the dead-frame gate)")
           (is (seq @spawned-traces)
               "the :rf.machine.spawn/spawned trace fired for the live-frame spawn"))
         (finally
