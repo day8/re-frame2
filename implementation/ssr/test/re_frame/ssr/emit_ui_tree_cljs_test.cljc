@@ -277,6 +277,34 @@
            (rf.ssr.ui-tree/emit-ui-tree
              (v1 {:tag :div :attrs {:data-ok "v" :title "t"}}))))))
 
+(deftest reserved-attr-keys-are-refused-where-the-hiccup-tier-drops-them
+  ;; React takes `key`, `ref`, `children` and `dangerouslySetInnerHTML` off
+  ;; the props object and writes none of them as an attribute, and the tree
+  ;; holds each somewhere other than `:attrs`. Every spelling whose name is
+  ;; one of them lands in that slot, so each is refused. The hiccup tier
+  ;; drops the same keys instead (spec/011 §XSS names both dispositions),
+  ;; and that is the control: it must go on dropping, not start throwing.
+  (doseq [attribute-key [:key :x/key "key" 'key
+                         :ref :x/ref "ref" 'ref
+                         :children :x/children "children" 'children
+                         :dangerouslySetInnerHTML :x/dangerouslySetInnerHTML
+                         "dangerouslySetInnerHTML" 'dangerouslySetInnerHTML]]
+    (testing (str "emit-ui-tree refuses " (pr-str attribute-key) " in :attrs")
+      (let [d (caught-ex-data
+                #(rf.ssr.ui-tree/emit-ui-tree
+                   (v1 {:tag :div
+                        :children [{:tag :span :attrs {:id "a" attribute-key "v"}}]})))]
+        (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
+            (str "must be refused, not written as an attribute; got " (pr-str d)))
+        (is (= [:children 0] (:path d)) "locates the element carrying it")
+        (is (= attribute-key (:value d)) "carries the key as written")))
+    (testing (str "control: the hiccup tier drops " (pr-str attribute-key))
+      (is (= "" (rf.ssr.html-helpers/attr-string {attribute-key "v"})))))
+  (testing "control: a different name, or one qualified onto an ordinary slot, still emits"
+    (is (= "<div Key=\"k\" data-ref=\"r\" title=\"t\"></div>"
+           (rf.ssr.ui-tree/emit-ui-tree
+             (v1 {:tag :div :attrs {:Key "k" :data-ref "r" :x/title "t"}}))))))
+
 (deftest emits-boolean-classes
   (testing "boolean attr: true -> presence, false -> omitted"
     (is (= "<input disabled=\"\">"

@@ -615,23 +615,38 @@
 (defn- tree-html [attrs]
   (rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version 1 :tag :div :attrs attrs}))
 
+(defn- tree-error-id
+  "The `:rf.error/id` the structural-tree serialiser throws for `attrs`, or
+  the markup it returns when it does not throw."
+  [attrs]
+  (try
+    (tree-html attrs)
+    (catch Throwable e
+      (:rf.error/id (ex-data e)))))
+
 (deftest structural-tree-serialiser-follows-react-for-every-evidenced-attribute
   (testing "The structural-tree serialiser is the parity
             REFERENCE, and it has to agree with react-dom too rather than
             merely with the hiccup emitter. Compared as classes, not bytes:
             the two pipelines stay separate (004B) and differ in presence
-            spelling and attribute naming; what must not differ is the class"
+            spelling and attribute naming; what must not differ is the class.
+            A reserved prop has no class to compare: react-dom renders it as
+            CONTENT (see `reserved-props`), and the tree holds content in
+            `:children`, so the tree refuses it in `:attrs` outright"
     (let [baseline (tree-html {})]
       (doseq [row (rows)]
         (let [attribute (:attribute row)
               klass     (expected-class attribute (react-class row))
               key       (keyword attribute)]
-          (is (= klass
-                 (observed-class baseline
-                                 (tree-html {key true})
-                                 (tree-html {key false})
-                                 (tree-html {key "yes"})))
-              (str attribute " (" klass ") — structural-tree serialiser")))))))
+          (if (contains? reserved-props attribute)
+            (is (= :rf.error/ui-tree-malformed (tree-error-id {key "yes"}))
+                (str attribute " — a reserved prop in :attrs is refused, not classed"))
+            (is (= klass
+                   (observed-class baseline
+                                   (tree-html {key true})
+                                   (tree-html {key false})
+                                   (tree-html {key "yes"})))
+                (str attribute " (" klass ") — structural-tree serialiser"))))))))
 
 (deftest structural-tree-serialiser-collapses-on-react-s-truthiness
   (testing "The structural-tree serialiser's presence collapse uses the one

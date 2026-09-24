@@ -42,10 +42,16 @@ const { Isolate } = require('./isolate.cjs');
  * would say nothing. That silence is more dangerous than a leak, because a
  * leak is at least visible to somebody.
  *
- * The `Refusal` arriving here carries the real trace in its `detail`
- * (`isolate.cjs`'s boot receiver puts `err.stack` there), so `detail` is
- * printed as well as the message — otherwise the operator's copy would be
- * the one thing this function exists to avoid, a message with no stack.
+ * `detail` is printed as well as the message because for one boot failure
+ * it is where the trace is: a fault the worker does not catch kills the
+ * thread, and `isolate.cjs`'s `error` handler puts `err.stack` in the
+ * refusal's `detail`. A CAUGHT boot exception — thrown while the module
+ * loads, or from its `boot` hook — does not travel that way. `worker.cjs`
+ * writes its stack to stderr under the same `[rf.ssr-node]` prefix
+ * (`reportBootException`) before it posts `boot-error`, and the refusal the
+ * boot receiver builds from that post carries only `modulePath` in its
+ * `detail`. For that failure the application's trace is the worker's line,
+ * and this one says that the boot which failed was a replacement's.
  */
 function reportReplacementFault(modulePath, err) {
   const trace = err && err.stack ? err.stack : String(err);
