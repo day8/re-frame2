@@ -21,11 +21,15 @@
       :where :flow-output` emitted with `:rf.flow/id` / `:path` /
       `:value` / `:explain` / `:recovery :no-recovery`; the value is
       STILL written (observational, not a rollback).
+    - an output the frame's elision registry classifies sensitive:
+      `:explain` redacted whole and `:sensitive? true` stamped, while
+      `:value` stays path-precise (rf2-3x7nj.18.1).
     - no `:schema`: validator never consulted.
     - no validator registered: soft-pass (no error trace).
     - production gate: with `debug-enabled?` false the validation is
       silent (the whole surface DCEs in prod CLJS)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
@@ -257,3 +261,112 @@
           ":where :flow-output — the flow surface's own discriminator")
       (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
           "the value is still written — flow validation stays observational"))))
+
+;; ---------------------------------------------------------------------------
+;; 8. rf2-3x7nj.18.1 — the frame's elision registry reaches `:explain`.
+;;    A Malli explanation re-ships the checked value whole (`:value`, and
+;;    every `:errors[*].:value`), and it is not path-anchored, so it cannot
+;;    be walked against `:output-path` the way `:value` is. Before this fix
+;;    only the schema-aware seam could redact it, and that seam reads
+;;    `:sensitive?` props in the SCHEMA — never the registry. So an output
+;;    the flow itself classified `:sensitive [[]]` shipped `:value
+;;    :rf/redacted` beside an `:explain` carrying the same secret raw, with
+;;    no top-level `:sensitive?` for the egress gate to drop it on.
+;;    The schemas are VECTOR Malli forms (walkable, with no `:sensitive?`
+;;    prop), so the seam's opaque-schema fail-closed arm — which case 2
+;;    above rides — cannot be what redacts them.
+;; ---------------------------------------------------------------------------
+
+(defn- violation-for
+  "The single recorded violation for `flow-id`, or nil."
+  [flow-id]
+  (let [vs (filter #(= flow-id (get-in % [:tags :rf.flow/id])) (violations))]
+    (is (= 1 (count vs)) (str "exactly one violation for " flow-id))
+    (first vs)))
+
+(deftest registry-sensitive-output-redacts-explain
+  (testing "a flow output classified :sensitive by the flow itself fails a
+            walkable :schema: no secret anywhere in the trace, and a
+            top-level :sensitive? stamp"
+    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
+    ;; The whole output, and (a second flow) only a sub-path of it.
+    (rf/reg-flow :p2/token
+                 {:inputs [[:secret]] :output-path [:auth :token]
+                  :sensitive [[]] :schema [:map [:token :int]]}
+                 (fn [s] {:token s}))
+    (rf/reg-flow :p2/token-leaf
+                 {:inputs [[:secret]] :output-path [:auth :token-leaf]
+                  :sensitive [[:token]] :schema [:map [:token :int]]}
+                 (fn [s] {:token s}))
+    (rf/dispatch-sync [:seed])
+    (is (= "hunter2-SECRET" (get-in (rf/app-db-value :rf/default) [:auth :token :token]))
+        "the output is still written — validation stays observational")
+    (doseq [[flow-id value] [[:p2/token      :rf/redacted]
+                             [:p2/token-leaf {:token :rf/redacted}]]]
+      (let [ev (violation-for flow-id)]
+        (is (not (str/includes? (pr-str ev) "hunter2-SECRET"))
+            (str flow-id ": the secret appears nowhere in the failure trace"))
+        (is (= true (:sensitive? ev))
+            (str flow-id ": top-level :sensitive? so the egress gate drops it"))
+        (is (= value (get-in ev [:tags :value]))
+            (str flow-id ": :value stays path-precise"))
+        (is (= :rf/redacted (get-in ev [:tags :explain]))
+            (str flow-id ": :explain is redacted whole"))))))
+
+(deftest registry-sensitive-index-free-declaration-redacts-explain
+  (testing "a declaration that reaches the output only through the walker's
+            :map-of coordinate skip redacts :explain too — the decision is
+            the walker's, not a path-prefix test"
+    ;; `[:users :password]` matches `[:users <key> :password]` for any map
+    ;; key, so it governs `[:users :current :password]` — yet it is neither
+    ;; a prefix nor an extension of the output path `[:users :current]`.
+    (rf/reg-event :classify (fn [_ _] {:sensitive [[:users :password]]}))
+    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
+    (rf/reg-flow :p2/current-user
+                 {:inputs [[:secret]] :output-path [:users :current]
+                  :schema [:map [:password :int]]}
+                 (fn [s] {:password s}))
+    (rf/dispatch-sync [:classify])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed])
+    (let [ev (violation-for :p2/current-user)]
+      (is (= {:password :rf/redacted} (get-in ev [:tags :value]))
+          "the walker redacts the password inside :value")
+      (is (not (str/includes? (pr-str ev) "hunter2-SECRET"))
+          "so :explain may not carry it either")
+      (is (= true (:sensitive? ev)))
+      (is (= :rf/redacted (get-in ev [:tags :explain]))))))
+
+(deftest schema-sensitive-slot-still-redacts-everything
+  (testing "CONTROL: the schema-side :sensitive? prop redacts every
+            value-bearing slot through the schemas seam, as before"
+    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
+    (rf/reg-flow :p2/token
+                 {:inputs [[:secret]] :output-path [:auth :token]
+                  :schema [:map [:token {:sensitive? true} :int]]}
+                 (fn [s] {:token s}))
+    (rf/dispatch-sync [:seed])
+    (let [ev (violation-for :p2/token)]
+      (is (not (str/includes? (pr-str ev) "hunter2-SECRET")))
+      (is (= true (:sensitive? ev)))
+      (is (= :rf/redacted (get-in ev [:tags :value])))
+      (is (= :rf/redacted (get-in ev [:tags :explain]))))))
+
+(deftest unclassified-output-keeps-its-explanation
+  (testing "CONTROL: an output nothing classifies keeps its raw :value and
+            :explain and carries no :sensitive? — the redaction is not blanket"
+    (rf/reg-event :seed (fn [_ _] {:db {:plain "not-an-int"}}))
+    (rf/reg-event :classify-elsewhere (fn [_ _] {:sensitive [[:elsewhere]]}))
+    (rf/reg-flow :p2/plain
+                 {:inputs [[:plain]] :output-path [:out]
+                  :schema [:map [:token :int]]}
+                 (fn [s] {:token s}))
+    ;; A sensitive declaration on an unrelated path does not reach this one.
+    (rf/dispatch-sync [:classify-elsewhere])
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed])
+    (let [ev (violation-for :p2/plain)]
+      (is (nil? (:sensitive? ev)))
+      (is (= {:token "not-an-int"} (get-in ev [:tags :value])))
+      (is (= {:token "not-an-int"} (get-in ev [:tags :explain :value]))
+          ":explain is the registered explainer's output, unredacted"))))
