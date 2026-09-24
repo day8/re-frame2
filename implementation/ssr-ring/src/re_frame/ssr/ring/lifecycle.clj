@@ -75,14 +75,14 @@
 
   `frame-target` is the DESTROY target: the frame VALUE `make-frame` returned
   (carrying the EXACT incarnation token, so teardown is incarnation-EXACT and
-  never reaps a same-id successor a request drain reseated — rf2-moftbs), or a
+  never reaps a same-id successor a request drain reseated), or a
   frame-id keyword (address-directed — it destroys whichever incarnation
   currently holds the id). The per-request handlers always pass the VALUE so
   teardown is exact. The bare-id form is for callers that genuinely own the id's
   current incarnation (SSR test teardown, streaming edge paths). It is NOT for
   the setup-FAILURE path: core construction is the exact-token owner of a failed
   incarnation's rollback, so an address-directed reap there could destroy a
-  same-id successor (rf2-c6lp3). The optional
+  same-id successor. The optional
   `diag-frame-id` names the frame on the failure trace so the `:frame` slot stays
   a clean keyword even when a value is the destroy target; it defaults to
   `frame-target` for the keyword call shape.
@@ -112,14 +112,14 @@
 
   The hiccup vector's HEAD must be a callable — the Var `reg-view` defs,
   or `(rf/view :id)`. A keyword head is an HTML element on every host,
-  never a view (rf2-j81hs / Conventions §Render-tree shape vs runtime
+  never a view (Conventions §Render-tree shape vs runtime
   lookup), so `:root-view [:app/root]` renders an empty `<root>` element
   rather than the application. Prefer the 0-arity fn form when the opts
   map is built before the view is registered, since `(rf/view :id)`
   resolves where it is written.
 
   **The shape you pick decides whether this request gets a render hash at
-  all** (rf2-q1b96), and that consequence is sharper than the
+  all**, and that consequence is sharper than the
   registration-order one above. `render-document-hash` is a PURE
   structural walk that never expands a callable head, so a root-view that
   RESOLVES to the callable-headed form — `[(rf/view :id)]`, `[#'app/root]`,
@@ -138,7 +138,7 @@
   with the documented client `:render-tree-fn #((rf/view :app/root))`
   (Spec 011 §Default flow step 3 — note ITS outer call too), which is the
   pairing `ring_streaming_test/streaming-final-hash-matches-client-
-  resolved-tree` already pins."
+  resolved-tree` pins."
   [root-view]
   (cond
     (vector? root-view) root-view
@@ -204,11 +204,10 @@
 
   Head grammar mirrors the emitter's own dispatch
   (`re-frame.ssr.emit/emit-element`): a keyword head is a DOM / custom
-  element on every host (rf2-j81hs), so keywords are excluded FIRST; what
+  element on every host, so keywords are excluded FIRST; what
   is left under `ifn?` is exactly fns and Var references, which is how
   views are referenced. A Var is `ifn?` but NOT `fn?` on the JVM, so the
-  test has to be `ifn?` (rf2-wtd8z finding 2 made the same correction in
-  the emitter)."
+  test has to be `ifn?`, as it is in the emitter."
   [root]
   (boolean
     (and (vector? root)
@@ -225,12 +224,11 @@
   `:rf/head-hash` channel.
 
   **Returns nil — the channel is OMITTED — for the unresolved root form**
-  (rf2-q1b96), the same way `render-head-hash` below omits a head the
+  the same way `render-head-hash` below omits a head the
   client cannot reconstruct. `rf.ssr/render-tree-hash` is a PURE structural
   FNV-1a over canonical EDN: it never expands a callable head, and every
-  raw fn serialises to the identity-free token `#fn[]` (a ruled
-  requirement — no fn `.toString` is stable across JVM and CLJS,
-  rf2-jsa2ml). So the hash of a callable-headed root describes the
+  raw fn serialises to the identity-free token `#fn[]` (a
+  requirement — no fn `.toString` is stable across JVM and CLJS). So the hash of a callable-headed root describes the
   REFERENCE, not the page, and measurably so:
 
   | resolved root                | canonical EDN     | hash       |
@@ -242,8 +240,8 @@
   Emitting it is worse than emitting nothing, because an absent key cannot
   be mistaken for evidence while a constant one is a fail-open gate wearing
   the shape of a check (Spec 011 §Hydration-mismatch detection, \"The
-  server end of the tier rule\"). This is the SERVER half of rf2-2rtt6.91,
-  which omitted the same key on the client.
+  server end of the tier rule\"). The client applies the same rule to the
+  same key.
 
   **This is the tier discriminator, and it is structural rather than
   brand-based** — which is what Spec 011 asks for (\"two tiers, keyed by
@@ -253,7 +251,7 @@
   only ever hand the server the unresolved form, because the tree is walked
   inside React and no data tree describing the page ever exists on this
   side. Asking instead whether a hashable data tree is PRESENT answers the
-  tier question wherever the tier question has an answer, and needs no new
+  tier question wherever the tier question has an answer, and needs no
   opt for the host to declare.
 
   The hiccup tier is bound by the same rule and is the reason it must be a
@@ -351,7 +349,7 @@
   caller omits a required handler opt. `:initial-events` is always
   required; `:root-view` is required iff no `:renderer` is supplied —
   only the default JVM-local renderer reads it, so with a custom renderer
-  it is optional and ignored (rf2-8arzr.1).
+  it is optional and ignored.
 
   Both handlers fail at construction rather than on the first request or,
   worse, inside an already-committed writer. Returns `opts` unchanged."
@@ -434,7 +432,7 @@
   streaming envelope DOES honour). A nil `:html-shell` passes (no
   override requested).
 
-  `:renderer`: the render-body seam (rf2-8arzr.1) hands a non-local
+  `:renderer`: the render-body seam hands a non-local
   renderer the settled frame ONCE and takes back one body. The streaming
   handler renders its shell and then re-enters the tree per continuation
   chunk from the same JVM-resolved `:root-view`, so a body that arrives
