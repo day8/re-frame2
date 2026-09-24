@@ -324,14 +324,14 @@ function formsInClause(text, i) {
  * CLAUSE, where `(:require [a :as a] [b :as b])` takes as many libspecs as it
  * likes and they are SIBLINGS rather than nested.
  *
- * READING ONLY THE FIRST FORM WAS A FAIL-OPEN, AND ITS CONTROL WAS BUILT SO
- * IT COULD NOT SEE THAT — rf2-6ovv, from the merged-PR audit of #8049.
- * `valuesAfterKeys` on `(:require [app.first :as first] [rf.ssr-node/service
- * :as svc])` yields `[app.first :as first]` and stops, so an ordinary
- * two-line ns form hid the reference completely. The planted fault put the
- * forbidden namespace FIRST AND ONLY — the single position that worked — so
- * the row stayed green over a shape it never reached. The sweep below plants
- * at every position of every clause key instead.
+ * READING ONLY THE FIRST FORM IS A FAIL-OPEN, AND A CONTROL CAN BE BUILT SO
+ * IT CANNOT SEE THAT. `valuesAfterKeys` on `(:require [app.first :as first]
+ * [rf.ssr-node/service :as svc])` yields `[app.first :as first]` and stops,
+ * so an ordinary two-line ns form would hide the reference completely — and
+ * a planted fault putting the forbidden namespace FIRST AND ONLY, the single
+ * position that works, would keep the row green over a shape it never
+ * reaches. The sweep below plants at every position of every clause key
+ * instead.
  */
 function clauseFormsAfterKeys(text, keys) {
   return keyPositions(text, keys).flatMap(({ from }) => formsInClause(text, from));
