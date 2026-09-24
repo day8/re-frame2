@@ -17,37 +17,35 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
-            ;; Per rf2-t0hq the CLJS default validator routes through the
+            ;; The CLJS default validator routes through the
             ;; late-bind hook `:schemas/malli-validate`, published at load
             ;; time by the `re-frame.schemas.malli` adapter ns — which the
-            ;; facade below `:require`s in its own ns-form (rf2-v96fh,
-            ;; Ruling A). Requiring `re-frame.schemas` is therefore the
+            ;; facade below `:require`s in its own ns-form. Requiring
+            ;; `re-frame.schemas` is therefore the
             ;; whole opt-in: there is no second require for an app to make,
             ;; and no "schemas loaded, adapter absent" posture to model.
             [re-frame.schemas :as rf.schemas]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support])
-  ;; rf2-bhh8my: the shared trace recorder supersedes the per-test
-  ;; register-listener!/unregister-listener! capture brackets. The macro
+  ;; The shared trace recorder captures each test's traces. The macro
   ;; ships from the `#?(:clj ...)` arm of re-frame.test-support, so CLJS
   ;; reaches it via :require-macros (mirrors re-frame.core's call-site macros).
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
-;; Snapshot/restore the registrar around each test (rf2-am9d). The earlier
-;; (registrar/clear-all!) wiped framework registrations (routing,
-;; machines) — fine while these tests ran in isolation, but hostile to
-;; cross-ns CLJS test runs because CLJS cannot reload them. Snapshot/
-;; restore preserves them and still rolls back per-test app-schema /
-;; reg-event / reg-sub on the way out.
+;; Snapshot/restore the registrar around each test. A
+;; (registrar/clear-all!) would wipe framework registrations (routing,
+;; machines), which is hostile to cross-ns CLJS test runs because CLJS
+;; cannot reload them. Snapshot/restore preserves them and rolls back
+;; per-test app-schema / reg-event / reg-sub on the way out.
 ;;
 ;; `:clear-app-schemas? true` gives the test a clean app-schema slate
-;; per-test (per rf2-cq1ak app-db schemas live OUTSIDE the registrar in
+;; per-test (app-db schemas live OUTSIDE the registrar in
 ;; the schemas artefact's per-frame side-table). Without this,
-;; nine-states.core's ns-load app-schemas (registered for :todos and
-;; :new-todo) survive in the snapshot and produce extra schema-
+;; nine-states.core's ns-load app-schema (registered for
+;; :new-todo) survives in the snapshot and produces extra schema-
 ;; validation-failure traces that this smoke doesn't expect. The
-;; snapshot still holds those entries, so the restore on the way out
-;; leaves nine-states.core's schemas intact for downstream tests.
+;; snapshot holds that entry, so the restore on the way out
+;; leaves nine-states.core's schema intact for downstream tests.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter            rf.adapter.reagent/adapter
@@ -92,18 +90,17 @@
                           @traces))
           "no validation-failure traces — every commit conforms"))))
 
-;; ---- rf2-t0hq — Malli adapter late-bind seam ------------------------------
+;; ---- Malli adapter late-bind seam ----------------------------------------
 ;;
-;; Two contract tests pin the rf2-t0hq fix. The first asserts that once
+;; Two contract tests pin the seam. The first asserts that once
 ;; `re-frame.schemas` is loaded — and it `:require`s the Malli adapter in
 ;; its own ns-form — the default validator DOES consult Malli on
 ;; CLJS, so a malformed commit fires :rf.error/schema-validation-failure.
-;; This is the contract the historical bug silently violated — the
-;; `:cljs (resolve 'malli.core/validate)` runtime resolve returned nil
-;; and every value was treated as conforming.
+;; A `:cljs (resolve 'malli.core/validate)` runtime resolve would return
+;; nil and silently treat every value as conforming.
 ;;
 ;; The second test pins the soft-pass arm. That arm is NOT an app that
-;; forgot a require: since rf2-v96fh (Ruling A) the facade loads the
+;; forgot a require: the facade loads the
 ;; adapter, so "schemas loaded, hook unbound" cannot arise from an
 ;; application's require list at all. It is the defensive fallback
 ;; Spec 010 §Recommended soft-pass reserves for a substitute validator
@@ -112,13 +109,13 @@
 ;; hook on the way out so downstream tests see the wired default again.
 
 (deftest cljs-malli-adapter-enables-validation
-  (testing "Per rf2-t0hq: with the `re-frame.schemas` facade loaded — and
+  (testing "with the `re-frame.schemas` facade loaded — and
             it `:require`s the Malli adapter itself — the default
             validator consults Malli on CLJS and a malformed commit
             fires :rf.error/schema-validation-failure.
-            The fix's load-bearing contract — historically the CLJS
-            runtime `resolve` returned nil and Malli was never consulted,
-            so this trace silently never fired."
+            This is the load-bearing contract — through a CLJS runtime
+            `resolve` Malli would never be consulted, and this trace
+            would silently never fire."
     (rf/reg-app-schema [:user :age] :int)
     (rf/reg-event :user/set-age-bad
       (fn [{:keys [db]} _] {:db (assoc-in db [:user :age] "twenty-three")}))
@@ -129,7 +126,7 @@
                                @traces)]
         (is (= 1 (count violations))
             "the default Malli validator fired on CLJS via the late-bind
-             hook — this is the contract rf2-t0hq restored")
+             hook")
         (let [v (first violations)]
           (is (= :app-db (-> v :tags :where)))
           (is (= [:user :age] (-> v :tags :path)))
@@ -141,7 +138,7 @@
             port that never published it, or a harness that cleared it —
             the default validator returns true for every value and no
             failure trace fires. This is not an app that skipped a
-            require: the facade loads the Malli adapter (rf2-v96fh), so
+            require: the facade loads the Malli adapter, so
             the hook is bound by the time any app code runs. We unbind it
             deliberately here and restore it in the `finally`."
     (let [prior-v (rf.late-bind/get-fn :schemas/malli-validate)
@@ -163,12 +160,12 @@
           (rf.late-bind/set-fn! :schemas/malli-validate prior-v)
           (rf.late-bind/set-fn! :schemas/malli-explain  prior-e))))))
 
-;; ---- rf2-jwm4 — event-payload validation under Reagent -------------------
+;; ---- event-payload validation under Reagent -----------------------------
 ;;
-;; Smokes the validate-event! pre-handler wiring (rf2-jwm4) under the
+;; Smokes the validate-event! pre-handler wiring under the
 ;; Reagent reactive substrate. The JVM smoke covers the broader pre-
 ;; handler / sub-return / cofx contract; this CLJS path locks the
-;; cross-substrate behaviour for at least one of the three new wirings.
+;; cross-substrate behaviour for at least one of the three wirings.
 
 (deftest live-dispatch-validates-event-payload-under-reagent
   (testing "a malformed event payload skips the handler and emits :where :event"
@@ -196,9 +193,9 @@
                 ":where :event locates the failure at pre-handler validation")
             (is (= :user/register (-> v :tags :failing-id)))))))))
 
-;; ---- rf2-lo28u — `:cat` + bare-predicate event-args schema --------------
+;; ---- `:cat` + bare-predicate event-args schema --------------------------
 ;;
-;; Regression for the standard_epochs button-18 symptom (rf2-lo28u): an
+;; Pins the schema_violation testbed's `violate-event` shape: an
 ;; event declared with `:schema [:cat [:= :id] pos-int?]` dispatched
 ;; with a string where a `pos-int?` is required MUST fire
 ;; `:rf.error/schema-validation-failure :where :event` and SKIP the
@@ -207,10 +204,10 @@
 ;; a registered Malli predicate keyed by its function value) — so a
 ;; regression that makes the bare-predicate `:cat` form silently
 ;; soft-pass (or throw + be swallowed by the router's catch) is caught
-;; in CLJS, not just at the JVM. The earlier
-;; `live-dispatch-validates-event-payload-under-reagent` test uses a
+;; in CLJS, not just at the JVM. The
+;; `live-dispatch-validates-event-payload-under-reagent` test above uses a
 ;; `[:map ...]` tail; this one uses the bare-predicate tail the
-;; testbed's button 18 carries verbatim.
+;; testbed's `violate-event` button carries.
 
 (deftest cat-with-bare-predicate-event-args-fires-where-event
   (testing "a `:cat` schema with a bare `pos-int?` tail rejects a bad
@@ -237,7 +234,7 @@
                 ":where :event locates the failure at pre-handler validation")
             (is (= :rf2-lo28u/bad-event-args (-> v :tags :failing-id)))))))))
 
-;; ---- rf2-lo28u — DIAGNOSTIC: app-schema present + dispatch-sync ----------
+;; ---- DIAGNOSTIC: app-schema present + dispatch-sync -----------------------
 ;; Isolates the app-schema-registered variable (the live-wiring difference
 ;; from the passing synthetic test) WITHOUT the async confound.
 (deftest diag-app-schema-present-sync-bad-event-args
@@ -256,20 +253,20 @@
           (is (= 0 @calls) "DIAG: handler skipped?")
           (is (= 1 (count event-violations)) "DIAG: :where :event fired?"))))))
 
-;; ---- rf2-lo28u — FAITHFUL LIVE-WIRING repro (async dispatch) -------------
+;; ---- FAITHFUL LIVE-WIRING repro (async dispatch) --------------------------
 ;;
-;; The two tests above use `dispatch-sync`. The standard_epochs testbed's
-;; button 18 uses the ASYNC `(rf/dispatch event)` form, AND the testbed has
-;; an app-db schema registered for the frame (button 19's `[:auth]`). Mike's
-;; live check: pressing button 18 fires NO `:where :event` violation in any
-;; epoch — the handler runs and the bad string passes straight through.
+;; The two tests above use `dispatch-sync`. The schema_violation testbed's
+;; `violate-event` button uses the ASYNC `dispatch` form, AND the testbed has
+;; an app-db schema registered for the frame (`[:auth]`). A regression on
+;; this path shows as NO `:where :event` violation — the handler runs and
+;; the bad string passes straight through.
 ;;
 ;; The faithful difference is the ASYNC enqueue path. To exercise an
 ;; async-enqueued event through a REAL router drain (not dispatch-sync's
 ;; front-seed bypass) WITHOUT the cljs.test/async + `:each`-fixture teardown
 ;; race (the fixture's `finally` wipes `frame/frames` before a `nextTick`
-;; drain fires, so a pure `poll-until` repro is a fixture artefact, not the
-;; bug), we (a) `rf/dispatch` the bad event so it lands at the BACK of the
+;; drain fires, so a pure `poll-until` repro is a fixture artefact, not a
+;; schema defect), we (a) `rf/dispatch` the bad event so it lands at the BACK of the
 ;; queue exactly as a live button-click would, then (b) drive the drain to
 ;; fixed point synchronously by seeding a no-op via `dispatch-sync`. The
 ;; sync drain dequeues the already-queued bad event through the identical
@@ -277,8 +274,8 @@
 ;; uses — so this faithfully reproduces "a queued (async-dispatched) event
 ;; drains" while staying deterministic in the node fixture.
 ;;
-;; RED (pre-fix): no `:where :event` violation, handler ran (matches Mike).
-;; GREEN (post-fix): the violation fires and the handler is skipped.
+;; RED: no `:where :event` violation, the handler runs.
+;; GREEN: the violation fires and the handler is skipped.
 
 (deftest async-dispatch-bad-event-args-fires-where-event-live-wiring
   (testing "an ASYNC-dispatched (back-of-queue) bad event arg under a frame
@@ -304,17 +301,17 @@
               event-violations (filter #(= :event (-> % :tags :where)) violations)]
           (is (= 0 @calls)
               "handler must be SKIPPED — the bad arg was rejected pre-handler
-               (RED here: handler ran)")
+               (red here means the handler ran)")
           (is (= 1 (count event-violations))
               "exactly one :where :event schema-validation-failure fired for
-               the async-queued event (RED here: zero)")
+               the async-queued event (red here means none fired)")
           (when-let [v (first event-violations)]
             (is (= :rf2-lo28u/async-bad-event-args (-> v :tags :failing-id)))))))))
 
-;; ---- rf2-0z1z — app-schemas-digest under CLJS ----------------------------
+;; ---- app-schemas-digest under CLJS ---------------------------------------
 
 (deftest app-schemas-digest-cljs-smoke
-  (testing "Per Spec 010 §Digest algorithm (rf2-0z1z): the digest fn
+  (testing "Per Spec 010 §Digest algorithm: the digest fn
             is wired under CLJS (goog.crypt.Sha256) and produces the
             canonical wire form."
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
@@ -331,10 +328,10 @@
              (rf.schemas/app-schemas-digest {:frame :test/empty-cljs}))
           "empty-set digest is byte-identical with the JVM path"))))
 
-;; ---- rf2-froe — the validator-install seam under CLJS ---------------------
+;; ---- the validator-install seam under CLJS ------------------------------
 
 (deftest custom-validator-runs-under-reagent
-  (testing "Per Spec 010 §Non-Malli validators (rf2-froe): a custom
+  (testing "Per Spec 010 §Non-Malli validators: a custom
             validator installed via `set-schema-fns!` is invoked
             on the Reagent reactive substrate just as it is on the JVM.
             Locks the cross-substrate seam contract."
@@ -360,7 +357,7 @@
           (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))))
 
 (deftest nil-validator-disables-reagent-validation
-  (testing "Per Spec 010 §Non-Malli validators (rf2-froe): nil validator
+  (testing "Per Spec 010 §Non-Malli validators: nil validator
             disables every validation site under Reagent — including
             the live :db commit that would otherwise fire."
     (rf.schemas/set-schema-fns! {:validate nil})
@@ -376,11 +373,11 @@
       (finally
         (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
-;; ---- rf2-r2uh — `:boundary? true` dev-mode no-op (rf2-84e9) --------------
+;; ---- `:boundary? true` dev-mode no-op -------------------------------------
 ;;
 ;; The :node-test build compiles with `goog.DEBUG=true` (cljs default,
 ;; no closure-define override) — the runtime-equivalent of a dev build.
-;; Per Spec 010 §Production builds (L145), in dev the boundary arm is
+;; Per Spec 010 §Production builds, in dev the boundary arm is
 ;; never reached: the router's step-1 site takes its dev arm, which
 ;; checks every handler's `:schema` anyway.
 ;;
@@ -393,7 +390,7 @@
 ;; the genuine `:advanced` constant-fold).
 
 (deftest boundary-arm-noop-in-dev-cljs
-  (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:node-test`
+  (testing "Per Spec 010 §Production builds: under `:node-test`
             (goog.DEBUG=true) the boundary arm is not reached even on a
             malformed event — it emits no boundary-tagged trace. Step-1's
             DEV arm is what enforces the schema here; the production arm's
@@ -412,7 +409,7 @@
             "no boundary-tagged trace fired — the production arm is unreachable in dev")))))
 
 (deftest boundary-flag-dev-dispatch-skips-via-step-1
-  (testing "Per Spec 010 §Production builds (rf2-r2uh): under `:node-test`
+  (testing "Per Spec 010 §Production builds: under `:node-test`
             (goog.DEBUG=true) a full dispatch of a malformed payload
             still skips the handler — but via step-1's DEV arm, not the
             boundary arm, which is silent in dev. We observe the
@@ -433,7 +430,7 @@
           (is (empty? boundary-violations)
               "no :source :boundary trace fired — only the dev-mode step-1 trace ran"))))))
 
-;; ---- rf2-tiymn — the humanizer is published in development builds --------
+;; ---- the humanizer is published in development builds --------------------
 ;;
 ;; The Malli adapter publishes `malli.error/humanize` under
 ;; `:schemas/humanize-explain!` only when `interop/debug-enabled?` is true.
@@ -445,7 +442,7 @@
 ;; `scripts/check-schemas-bundle.cjs`.
 
 (deftest humanizer-published-in-dev-cljs
-  (testing "rf2-tiymn — under goog.DEBUG=true the adapter has published the
+  (testing "under goog.DEBUG=true the adapter has published the
             humanizer, and an app-db failure carries :explain-humanized"
     (is (fn? (rf.late-bind/get-fn :schemas/humanize-explain!))
         "the humanize hook is bound in a development build")
