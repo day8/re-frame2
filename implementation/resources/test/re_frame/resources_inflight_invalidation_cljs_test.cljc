@@ -1,6 +1,6 @@
 (ns re-frame.resources-inflight-invalidation-cljs-test
   "An invalidation that lands while a read is in flight is NOT satisfied by
-  that read's reply (rf2-3x7nj.10.1; Spec 016 §Race and in-flight semantics).
+  that read's reply (Spec 016 §Race and in-flight semantics).
 
   The request in flight was served before the invalidation, and no coverage
   policy exists, so its success must leave the entry stale:
