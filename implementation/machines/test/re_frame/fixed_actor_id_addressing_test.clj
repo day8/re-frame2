@@ -24,8 +24,10 @@
        has no occupied-address rejection and takes the supplied address
        verbatim — but it runs a LIVE occupant through the ORDINARY destroy
        path (`:reason :explicit`, join preparation included) before installing
-       the replacement from the post-teardown `runtime-db`. Independent CHILD
-       lifetimes are NOT reaped. The tests below are the CONTRACT."
+       the replacement from the post-teardown `runtime-db`. That destroy ends
+       the children the occupant's `:spawn` / `:spawn-all` slots track, so a
+       child the replacement spawns at the same fixed address is a NEW
+       incarnation. The tests below are the CONTRACT."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -369,35 +371,72 @@
          INSTALL DID NOT BRING IT BACK — the install base was rebuilt from the
          post-teardown runtime-db")))
 
-(deftest replacing-an-occupant-does-not-reap-its-children
-  (testing "rf2-dokz — the CHILD-LIFETIME CONTROL. Ordinary destroy tears down
-            the PARENT ONLY (Spec 005 'Teardown is explicit in v1'), and this
-            change must not have introduced a descendant cascade under cover of
-            fixing the occupant leak. The occupant's declaratively-spawned child
-            survives its replacement, exactly as it survives an explicit destroy"
-    (rf/reg-machine :fai/kid
-      {:initial :running :data {} :states {:running {}}})
-    (rf/reg-machine :fai/breeder
-      {:initial :running
-       :data    {}
-       :states  {:running {:spawn {:machine-id     :fai/kid
-                                   :fixed-actor-id :fai/kid-addr}}}})
-    (rf/reg-event :fai/install-breeder
-      (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :fai/breeder
-                                          :fixed-actor-id :fai/breeder-slot}]]}))
+(deftest replacing-an-occupant-reaps-its-tracked-child-and-respawns-a-new-incarnation
+  (testing "the replacement's ordinary destroy ends the child the occupant's
+            :spawn slot tracks, inside the occupant's own teardown. The child
+            the replacement spawns at the same fixed address is a NEW
+            incarnation: destroyed-then-spawned at that address, with fresh
+            :data"
+    (let [kid-exits (atom 0)
+          traces    (capture-traces ::occupied-children)]
+      (try
+        (rf/reg-machine :fai/kid
+          {:initial :running
+           :data    {}
+           :actions {:mark (fn [{d :data ev :event}] {:data (assoc d :tag (second ev))})}
+           :states  {:running {:exit (fn [_] (swap! kid-exits inc) {})
+                               :on   {:mark {:action :mark}}}}})
+        (rf/reg-machine :fai/breeder
+          {:initial :running
+           :data    {}
+           :states  {:running {:spawn {:machine-id     :fai/kid
+                                       :fixed-actor-id :fai/kid-addr}}}})
+        (rf/reg-event :fai/install-breeder
+          (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :fai/breeder
+                                              :fixed-actor-id :fai/breeder-slot}]]}))
 
-    (rf/dispatch-sync [:fai/install-breeder])
-    (is (some? (snapshot :fai/breeder-slot)) "precondition: the occupant is live")
-    (is (some? (snapshot :fai/kid-addr))
-        "precondition: the occupant spawned a child at its own fixed address")
+        (rf/dispatch-sync [:fai/install-breeder])
+        (rf/dispatch-sync [:fai/kid-addr [:mark :old]])
+        (is (some? (snapshot :fai/breeder-slot)) "precondition: the occupant is live")
+        (is (= :old (:tag (:data (snapshot :fai/kid-addr))))
+            "precondition: the occupant's child is live at its fixed address, with
+             state of its own to lose")
+        (reset! traces [])
 
-    (rf/dispatch-sync [:fai/install-breeder])
+        (rf/dispatch-sync [:fai/install-breeder])
 
-    (is (some? (snapshot :fai/breeder-slot))
-        "the occupant was replaced")
-    (is (some? (snapshot :fai/kid-addr))
-        "the occupant's CHILD SURVIVES — no implicit ownership cascade was
-         introduced; the author's :exit is still where children are torn down")))
+        (let [destroyed     (filterv #(= :rf.machine/destroyed (:operation %)) @traces)
+              kid-destroyed (filterv #(= :fai/kid-addr (-> % :tags :actor-id)) destroyed)
+              kid-ops       (into []
+                                  (comp (filter #(= :fai/kid-addr (or (-> % :tags :actor-id)
+                                                                      (-> % :tags :spawned-id))))
+                                        (map :operation)
+                                        (filter #{:rf.machine/destroyed :rf.machine.spawn/spawned}))
+                                  @traces)]
+          (is (= 1 @kid-exits)
+              "the old child's authored :exit ran exactly once")
+          (is (= 1 (count kid-destroyed))
+              "the old child was destroyed exactly once")
+          (is (= {:parent-id :fai/breeder-slot :invoke-id [:running] :reason :explicit}
+                 (select-keys (:tags (first kid-destroyed)) [:parent-id :invoke-id :reason]))
+              "the occupant's teardown reaped it through the :spawn slot that tracks it,
+               not the replacement's later spawn onto an occupied address")
+          (is (= [:fai/kid-addr :fai/breeder-slot]
+                 (mapv #(-> % :tags :actor-id) destroyed))
+              "the child ends inside its parent's teardown, ahead of the parent's own
+               :rf.machine/destroyed")
+          (is (= [:rf.machine/destroyed :rf.machine.spawn/spawned] kid-ops)
+              "the address is destroyed, then spawned again: a new incarnation"))
+        (is (some? (snapshot :fai/breeder-slot))
+            "the replacement is installed")
+        (is (nil? (:tag (:data (snapshot :fai/kid-addr))))
+            "the child at the address carries FRESH :data — it is not the old actor")
+        (rf/dispatch-sync [:fai/kid-addr [:mark :new]])
+        (is (= :new (:tag (:data (snapshot :fai/kid-addr))))
+            "an ordinary dispatch to the address reaches the new incarnation")
+        (is (= 1 @kid-exits)
+            "and nothing re-ran the old child's :exit")
+        (finally (rf.trace.tooling/unregister-listener! ::occupied-children))))))
 
 (deftest replacing-a-join-child-retains-its-cancellation-facts
   (testing "a replaced :spawn-all join child goes through

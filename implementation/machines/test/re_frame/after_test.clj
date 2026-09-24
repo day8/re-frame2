@@ -20,9 +20,10 @@
   [:rf.machine.timer/after-elapsed delay-key epoch decl-path] event
   manually so the verification is deterministic without depending on
   setTimeout firing. The decl-path is contractual — the runtime always
-  emits the 4-element shape (Spec 005 §Hierarchy interaction). The CLJS
-  runtime path for actual wall-clock scheduling is exercised by
-  machines_cljs_test.cljs."
+  emits the 4-element shape (Spec 005 §Hierarchy interaction).
+  machines_after_cljs_test.cljs covers the same semantics on the CLJS
+  runtime, and after_fire_reap_cljs_test.cljc drives the host-clock
+  callback the timer installs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
