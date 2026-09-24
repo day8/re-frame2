@@ -114,7 +114,7 @@
       (rf.error-emit/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; ENGINE seat — this prod-elision suite must not root the image path
-      ;; (see elision_probe.cljs; rf2-h1vqa4).
+      ;; (see elision_probe.cljs).
       (rf.frame/upsert-frame! :prod.teardown/n-failures {:doc "three hooks will throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed           (throwing-hook :ssr)
@@ -203,7 +203,7 @@
             "exactly ONE always-on record for the dropped write under prod")
         (let [r (first reports)]
           (is (= :rf.error/write-after-destroy (:error r))
-              "the promoted error category — not the retired warning")
+              "the error category — not a warning")
           (is (nil? (:event r))
               "no event vector — a dropped write, not a throw on a dispatch")
           (is (nil? (:frame r))
