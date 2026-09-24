@@ -1,24 +1,24 @@
 (ns re-frame.sub-memo-layer-n-1-test
-  "Regression tests for the layer-2 single-input sub memoisation contract
-  — Spec 006 §No-op via value equality (rf2-719e), with the layer-2-1
-  specialisation per rf2-0y2bp.
+  "Tests for the layer-2 single-input sub memoisation contract
+  — Spec 006 §No-op via value equality, with the layer-2-1
+  specialisation.
 
   The layer-2-1 path is specialised to a fixed-arity-1 wrapper that
   compares the upstream value directly (no varargs-seq alloc, no
-  seq-vs-seq `=` walk). Parity with the layer-1 specialisation
-  (rf2-sxacg). These tests pin the result-equivalence contract: the
+  seq-vs-seq `=` walk). Parity with the layer-1 specialisation.
+  These tests pin the result-equivalence contract: the
   specialised wrapper must short-circuit on `=` inputs exactly like the
   generic varargs wrapper, must recompute on `not=` inputs, and must
-  hand the body fn the same `(upstream-value, query-v)` shape it always
-  received.
+  hand the body fn the same `(upstream-value, query-v)` shape as the
+  generic wrapper.
 
   Microbench note: the alloc-per-recompute saving is one ArraySeq/Cons
   per layer-2-single-input recompute (the varargs collection seq the
-  `(fn [& in-vals])` form would force). The adapter's
-  `make-derived-value` (rf2-v1nu0) already specialises its recompute
-  closure to `(compute-fn @s0)` for the 1-source case, so the only
-  remaining seq alloc on the hot path was at the memo wrapper — this
-  removes it."
+  `(fn [& in-vals])` form would force). The substrate's
+  `make-derived-value` specialises its recompute closure to
+  `(compute-fn @s0)` for the 1-source case, so the memo wrapper is the
+  only place on the hot path a seq alloc could arise, and the
+  fixed-arity wrapper avoids it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -33,8 +33,8 @@
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
-  ;; and ambient subscribe / dispatch now require a carried frame stamp.
+  ;; EP-0002: `init!` does not synthesise `:rf/default`,
+  ;; and ambient subscribe / dispatch require a carried frame stamp.
   ;; These memoization tests run against a single conventional app frame,
   ;; so register `:rf/default` explicitly and pin it as the established
   ;; scope for the whole body via `with-frame`.
@@ -105,8 +105,8 @@
             "upstream sub yields = value → layer-2 body must not re-run")))))
 
 (deftest layer-n-1-body-receives-upstream-value-and-query-v
-  (testing "the body fn still receives the canonical (upstream, query-v)
-            shape under the specialised wrapper — no shape regression"
+  (testing "the body fn receives the canonical (upstream, query-v)
+            shape under the specialised wrapper"
     (let [captured (atom nil)]
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 99}}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
@@ -119,7 +119,7 @@
         (is (= 198 @r))
         (let [[n query-v] @captured]
           (is (= 99 n)
-              "body receives the upstream's value as a scalar (not wrapped)")
+              "body receives the upstream's value as the first element of its input vector")
           (is (= [:n*2 :arg1 :arg2] query-v) "body receives the full query-v"))))))
 
 (deftest layer-n-1-memo-handles-nil-and-false
@@ -207,18 +207,16 @@
       (is (= [3 2 2] [@a-runs @b-runs @c-runs])
           "real change propagates through the chain once"))))
 
-;; ---- the same specialisation under a DECLARED `:inputs` (rf2-kuky.46) -----
+;; ---- the same specialisation under a DECLARED `:inputs` -------------------
 ;;
-;; A single DECLARED input routes through this same fixed-arity-1 wrapper; the
-;; only thing that differs is the body's argument — `[v0]` rather than the bare
-;; `v0` the transitional declared-input chain still delivers. The wrapper compares the
-;; upstream value either way, so the memo-hit structure these tests pin must be
-;; identical across the two spellings. That is what makes the vector delivery
-;; free: it is a change to the CALL, not to the memo cells.
+;; A single DECLARED input routes through this same fixed-arity-1 wrapper and
+;; delivers `[v0]`. The wrapper compares the upstream value, so the memo-hit
+;; structure these tests pin is independent of the delivery shape. That is
+;; what makes the vector delivery free: it touches the CALL, not the memo cells.
 
 (deftest layer-n-1-memo-holds-for-a-declared-single-input
   (testing "a single declared `:inputs` short-circuits on an `=`-equal upstream
-            value exactly the single-input specialisation always has, while delivering `[v0]`"
+            value exactly as the single-input specialisation does, while delivering `[v0]`"
     (let [runs (atom 0)
           seen (atom nil)]
       (rf/reg-event :seed   (fn [_ _]              {:db {:n 7 :unrelated 0}}))
