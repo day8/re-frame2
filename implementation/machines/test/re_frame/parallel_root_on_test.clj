@@ -59,7 +59,7 @@
 ;; executed — it FIRES.
 
 (deftest root-on-no-longer-silently-dropped
-  (testing "a root :on on :type :parallel is registered AND executed (was silently dropped)"
+  (testing "a root :on on :type :parallel is registered AND executed"
     (let [m {:type    :parallel
              :data    {}
              ;; root :on — NO region handles :reset-all.
@@ -118,7 +118,7 @@
 
 ;; ---- 5. COMPETING-MULTI-REGION SUPPRESSION — the non-decomposable case -----
 ;;
-;; The definitive parity fixture from the bead. Broadcast decomposition would
+;; The definitive parity fixture. Broadcast decomposition would
 ;; give {a:special, b:initial}; v5 / the atomic ancestor fallback gives
 ;; {a:special, b:UNCHANGED} because :a competing suppresses the WHOLE root.
 
@@ -256,7 +256,7 @@
             {:type    :parallel
              :on      {:fire {:target [:a :two] :guard :nope}}  ; :nope not in :guards
              :regions {:a {:initial :one :states {:one {} :two {}}}}}))
-        "root-parallel transition guard refs are now validated"))
+        "root-parallel transition guard refs are validated"))
 
   (testing "a dangling action ref on a root parallel :on is rejected at registration"
     (is (thrown-with-msg?
@@ -266,7 +266,7 @@
             {:type    :parallel
              :on      {:fire {:target [:a :two] :action :nope}}
              :regions {:a {:initial :one :states {:one {} :two {}}}}}))
-        "root-parallel transition action refs are now validated"))
+        "root-parallel transition action refs are validated"))
 
   (testing "a bare-keyword (non-region-qualified) root :on target is rejected"
     (is (thrown-with-msg?
@@ -320,7 +320,7 @@
 ;; qualified target grammar.
 
 (deftest root-after-registers-and-validates
-  (testing "a :type :parallel root declaring :after now REGISTERS (was rejected loudly)"
+  (testing "a :type :parallel root declaring :after REGISTERS"
     (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :after   {1000 {:target [:a :two]}}
