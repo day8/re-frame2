@@ -1,30 +1,30 @@
 (ns re-frame.prod-gate-dispatch-jvm-test
-  "rf2-9c2jf — dispatch under the REAL documented production gate.
+  "Dispatch under the REAL documented production gate.
 
   SECURITY.md documents `-Dre-frame.debug=false` (and `RE_FRAME_DEBUG=false`) as
   the JVM/SSR production setting. Under it, a plain
-  `make-frame` → `reg-event` → `dispatch-sync` sequence silently ran NOTHING:
-  handler-runs 0, app-db untouched, `:rf.error/no-such-handler` emitted — while
-  `registrar/lookup` returned the handler at that same moment.
+  `make-frame` → `reg-event` → `dispatch-sync` sequence must run its handler and
+  commit its `:db`, emitting no `:rf.error/no-such-handler` — agreeing with
+  `registrar/lookup`, which returns the handler at that same moment.
 
-  ## What was actually broken, and why nothing caught it
+  ## What could break, and why only a real gate catches it
 
   `make-frame` assembles an image generation UNCONDITIONALLY (EP-0026 §Default
   Image), and `registrar/lookup` resolves through that sealed generation for
   every `(kind, id)` inside `live-frame/call-with-frame-resolution`. The
   machinery that keeps the generation in step with the registration pool — the
   reprojection hook install, the read-time flush consults, the registrar's
-  removal dirty-marks — was gated on `interop/debug-enabled?`. The PRODUCER of
-  the sealed generation was unconditional; only its MAINTAINER was gated, so
-  under the production gate the generation froze at construction time and every
-  later `reg-*` became invisible to dispatch.
+  removal dirty-marks — is unconditional, like the PRODUCER of the sealed
+  generation. Were the MAINTAINER gated on `interop/debug-enabled?` while the
+  producer was not, the generation would freeze at construction time under the
+  production gate and every later `reg-*` would be invisible to dispatch.
 
-  Nothing caught it because `interop/debug-enabled?` is read ONCE at
-  namespace-load time and every existing prod-gate suite rebinds that Var with
-  `with-redefs` AFTER the framework has loaded. A load-time `defonce` whose body
-  was skipped is invisible to `with-redefs`, so the whole family of \"production
-  gate\" tests could stay green while the documented production configuration
-  did not dispatch.
+  Only a real gate catches that, because `interop/debug-enabled?` is read ONCE
+  at namespace-load time and a suite that rebinds that Var with `with-redefs`
+  does so AFTER the framework has loaded. A load-time `defonce` whose body is
+  skipped is invisible to `with-redefs`, so a `with-redefs` \"production
+  gate\" test can stay green while the documented production configuration
+  does not dispatch.
 
   ## Therefore: a real gate, in a real JVM
 
@@ -105,24 +105,23 @@
           (str "the probe threw: " (:probe-threw result))))))
 
 (deftest gate-was-really-off
-  (testing "rf2-9c2jf — the child really loaded under `-Dre-frame.debug=false`.
+  (testing "the child really loaded under `-Dre-frame.debug=false`.
             Without this pin the rest of the suite would pass vacuously the
-            moment the property stopped reaching the child, which is precisely
-            how the defect survived: every other prod-gate suite asserts against
-            a `with-redefs` stand-in that cannot reproduce a load-time gate."
+            moment the property stopped reaching the child — and a
+            `with-redefs` stand-in cannot reproduce a load-time gate."
     (let [{:keys [result]} @observed]
       (is (false? (:debug-enabled? result))
           "interop/debug-enabled? must read false in the probe JVM"))))
 
 ;; ---------------------------------------------------------------------------
-;; the defect itself
+;; the contract itself
 ;; ---------------------------------------------------------------------------
 
 (deftest dispatch-sync-runs-its-handler-under-the-production-gate
-  (testing "rf2-9c2jf — under `-Dre-frame.debug=false`, a handler registered
-            AFTER `make-frame` still runs and still commits `:db`. This is the
-            documented production configuration; before the fix the dispatch was
-            a silent no-op."
+  (testing "under `-Dre-frame.debug=false`, a handler registered
+            AFTER `make-frame` runs and commits `:db`. This is the
+            documented production configuration; a gated generation maintainer
+            would make the dispatch a silent no-op."
     (let [{:keys [result]} @observed]
       (is (= 1 (:handler-runs result))
           "dispatch-sync must run the handler exactly once under the prod gate")
@@ -133,7 +132,7 @@
                (pr-str (:errors result)))))))
 
 (deftest resolution-and-registration-agree-under-the-production-gate
-  (testing "rf2-9c2jf — the whole finding in one assertion: a registry lookup
+  (testing "the whole contract in one assertion: a registry lookup
             that SUCCEEDS while the dispatch reports `:rf.error/no-such-handler`
             is a contradiction. The bare lookup reads the registrar atom; the
             cascade's lookup reads the frame's sealed generation. They must
@@ -145,10 +144,10 @@
           "the frame's generation must resolve what the registrar atom holds"))))
 
 (deftest cleared-registration-disappears-under-the-production-gate
-  (testing "rf2-9c2jf — the removal twin. `unregister!`'s dirty-mark was gated
-            on the same flag, so under the production gate a cleared handler
-            kept resolving out of a sealed generation the source store no longer
-            backs. After the clear the event must genuinely have no handler."
+  (testing "the removal twin. Were `unregister!`'s dirty-mark gated
+            on the same flag, a cleared handler would keep resolving under the
+            production gate out of a sealed generation the source store does
+            not back. After the clear the event must genuinely have no handler."
     (let [{:keys [result]} @observed]
       (is (= 1 (:runs-after-unregister result))
           "the cleared handler must NOT run a second time")
