@@ -3,7 +3,7 @@
 
   This namespace single-sources ephemeral Jetty lifecycle, JDK HTTP requests,
   streaming-thread leak detection, and per-test runtime reset. Timeouts and
-  polling cadence remain explicit at call sites.
+  polling cadence are explicit at call sites.
 
   Independence note: requiring this ns does NOT co-load any test
   namespace (it depends only on production `re-frame.*` source +
@@ -18,11 +18,11 @@
   JVM suite. The substrate-agnostic
   `re-frame.test-support/make-reset-runtime-fixture` does the
   registrar / frames / flows / schemas / machines / routing reset and
-  installs the SSR adapter; the four SSR per-request side-channel atoms
+  installs the SSR adapter; the three SSR per-request side-channel atoms
   (Spec 011 §Per-request frame teardown) live in `re-frame.ssr.*`
-  production namespaces (ssr/src), reachable through the existing
-  `day8/re-frame2-ssr` dependency. The common reset remains in core; only
-  the four SSR-specific atom resets are local, fired through the fixture's
+  production namespaces (ssr/src), reachable through the
+  `day8/re-frame2-ssr` dependency. The common reset lives in core; only
+  the three SSR-specific atom resets are local, fired through the fixture's
   `:init-fn` seam (runs after adapter install, under the ambient
   `:rf/default` scope, before each test body)."
   (:require [ring.adapter.jetty :as jetty]
@@ -46,7 +46,7 @@
   fixture's registrar/listener clears, under the ambient `:rf/default`
   scope, before each test body). Two parts:
 
-  1. Clear the four per-request SSR side-channel atoms (Spec 011
+  1. Clear the three per-request SSR side-channel atoms (Spec 011
      §Per-request frame teardown). All four are keyed by frame-id; a stale
      entry from a prior test would otherwise bleed process-wide. Mirrors
      what the runtime's per-request frame teardown hook
@@ -226,7 +226,7 @@
   elapses. RETURNS the final seq of live threads — empty on success,
   non-empty (the leaked threads) on timeout — so a caller's assertion
   can name the offenders in its failure message. Does NOT throw on
-  timeout rather than throwing.
+  timeout.
 
   `poll-ms` is explicit so each caller states its own cadence."
   [timeout-ms poll-ms]
