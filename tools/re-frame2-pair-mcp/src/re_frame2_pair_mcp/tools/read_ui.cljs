@@ -51,10 +51,10 @@
 
   ## Naming — the `ui/read` op, the `read-` verb
 
-  The bead's conceptual op is `ui/read` (a.k.a. `view/rendered`). The MCP
+  The conceptual op is `ui/read` (a.k.a. `view/rendered`). The MCP
   wire name is `read-ui`: it rides the catalogued `read-<thing>` verb
   prefix (NAMING.md §The verb table; the verb-vocab conformance linter
-  classifies tool names by prefix), so it lands with zero catalogue churn
+  classifies tool names by prefix), so it needs no new catalogue verb
   — same posture as its `read-dom` sibling. A no-recompute read of state
   the substrate ALREADY rendered.
 
@@ -74,15 +74,15 @@
   The runtime PATH-projects the rendered `:content` (text AND attrs) through
   `re-frame.core/project-egress` (the `:rf.observe/derived-tree` boundary)
   against the frame's classification, under the off-box egress posture (the
-  published-build default). EP-0025 removed value-match (taint-by-equality),
-  so a secret copied out of a declared-sensitive app-db slot INTO a non-app-db
+  published-build default). There is no value-match (taint-by-equality; see
+  EP-0025), so a secret copied out of a declared-sensitive app-db slot INTO a non-app-db
   DOM position SHIPS RAW (FAIL-OPEN) — the path walker reaches only values at
   a classified path. To keep a value out of rendered content, classify its
   app-db PATH so it is redacted at the source before a view renders it. A hard
   per-node `max-text` cap trims the common large case first; raw content is
   the trusted-local read (launched with `--allow-sensitive-reads`); an
   unresolvable frame still fails closed with `:ambiguous-frame`. The
-  wire-boundary cap step (`tools.cljs` §`:apply-cap`) remains the backstop.
+  wire-boundary cap step (`tools.cljs` §`:apply-cap`) is the backstop.
 
   ## Read-only by construction
 
@@ -176,7 +176,7 @@
         ;; `base-args/fresh-keyword`) accepts a string or keyword and
         ;; falls back to nil for anything else (number/boolean/array/
         ;; object) instead of throwing a raw TypeError on a malformed
-        ;; client's non-string :frame (rf2-pvh95w).
+        ;; client's non-string :frame.
         frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         build-id (wire/arg-build conn raw-args)]
     (if-not (or (some? view-id) (some? point) (some? selector))
@@ -190,7 +190,7 @@
             ;; CLJS map. Only present keys are included so the runtime's
             ;; precedence (view-id > point > selector) is unambiguous.
             ;;
-            ;; rf2-3x7nj.32.2 — the keyword is PRINTED into the eval form,
+            ;; The keyword is PRINTED into the eval form,
             ;; so it is minted only with keyword grammar
             ;; (`args/->id-keyword`); a colon-prefixed string without it
             ;; is refused below instead of printing as code.
