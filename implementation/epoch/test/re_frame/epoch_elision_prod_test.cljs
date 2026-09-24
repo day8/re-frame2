@@ -1,5 +1,5 @@
 (ns re-frame.epoch-elision-prod-test
-  "Per Spec 009 §Production builds (bead rf2-l7hlm) — `:advanced` +
+  "Per Spec 009 §Production builds — `:advanced` +
   `goog.DEBUG=false` runtime contract for `re-frame.epoch` (Tool-Pair
   §Time-travel). Companion to the string-grep sentinel sweep in
   `scripts/check-elision.cjs` (which already covers every `:rf.epoch/*`
@@ -56,7 +56,7 @@
 ;; ---- settle! commits no record under prod --------------------------------
 
 (deftest dispatch-produces-no-epoch-record-under-prod
-  (testing "Per Spec 009 §Production builds (rf2-l7hlm): under
+  (testing "Per Spec 009 §Production builds: under
             `:advanced` + `goog.DEBUG=false`, dispatching events
             mutates app-db as expected but `settle!` does NOT commit
             an `:rf/epoch-record`. The whole settle! body sits inside
@@ -111,7 +111,7 @@
 ;; ---- replay-epoch! is a no-op returning false under prod ------------------
 
 (deftest replay-epoch-returns-false-under-prod
-  (testing "rf2-ov144: `replay-epoch!` shares `restore-epoch!`'s `(if-not
+  (testing "`replay-epoch!` shares `restore-epoch!`'s `(if-not
             interop/debug-enabled? false …)` early-return. Under prod it
             returns `false` for every (frame-id, epoch-id) pair — the
             precondition checks and the strict re-dispatch DCE entirely,
@@ -168,7 +168,7 @@
 ;; ---- on-frame-destroyed! is silent under prod ----------------------------
 
 (deftest on-frame-destroyed-emits-no-trace-under-prod
-  (testing "Per Spec 009 §Production builds (rf2-d656):
+  (testing "Per Spec 009 §Production builds:
             `on-frame-destroyed!` is gated on `interop/debug-enabled?`.
             Under prod it does NOT emit
             `:rf.epoch.cb/silenced-on-frame-destroy`; the
