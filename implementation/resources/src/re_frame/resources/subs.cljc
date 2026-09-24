@@ -30,7 +30,7 @@
   fail-closed (NEVER a silent global read or `:idle`).
 
   ## Frame-state signal + `{:from-db …}` reactive re-keying (EP-0016 D3
-  ## slice 3 / rf2-616xa6)
+  ## slice 3)
 
   The resource subs are registered with `reg-frame-state-sub` (NOT
   `reg-runtime-sub`): their single signal source is the WHOLE frame-state
@@ -44,7 +44,7 @@
   until a route/event ensures it under the new scope — the view observes the
   new key's loading/idle state, NOT the stale entry), and output `=`
   memoisation keeps the sub quiet when neither the resolved key nor the read
-  entry changed. Owner handoff is the existing causal machinery: the
+  entry changed. Owner handoff rides the causal machinery: the
   route/event that ensures under the new scope attaches the new owner, and
   route leave / `clear-scope` releases the old — the sub is a passive
   reader throughout (Spec 016 §Views stay passive)."
@@ -97,23 +97,23 @@
   `db` is the frame APP-DB value the sub layer reads from the frame-state
   signal (EP-0016 D3 slice 3): a `{:from-db <id>}` payload-scope or spec
   policy resolves against it at use time, so the sub re-keys reactively
-  when the resolver's declared app-db inputs change mid-session
-  (rf2-616xa6). A reference that resolves nil raises
+  when the resolver's declared app-db inputs change mid-session.
+  A reference that resolves nil raises
   `:rf.error/resource-sub-unresolved-scope` (the \"scope unresolved\"
   diagnostic) — never a silent global / wrong-entry read. Every caller
-  supplies the frame `db` explicitly (rf2-bwwk6l): a caller that resolves no
+  supplies the frame `db` explicitly: a caller that resolves no
   `{:from-db …}` scope passes `{}`."
   [{:keys [resource] :as payload} db]
   (let [spec    (rf.resources.registry/require-resource-spec! resource 'rf.resource/subscribe)
         scope   (rf.resources.registry/resolve-scope-for-sub
                   resource spec (:scope payload) 'rf.resource/subscribe db)
-        ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) so
+        ;; Thread `:params` presence (absent vs explicit nil) so
         ;; the sub re-keys to the SAME identity the ensure produced (an absent
         ;; slot defaults to `{}` at the boundary; explicit nil reaches the
         ;; schema unchanged).
         cparams (rf.resources.registry/validate+canonicalize-params
                   resource spec (rf.resources.state/params-present? payload) 'rf.resource/subscribe)]
-    ;; rf2-rplgkw: scope + cparams are ALREADY canonical (resolve-scope-for-sub
+    ;; scope + cparams are ALREADY canonical (resolve-scope-for-sub
     ;; → canonicalize-scope; validate+canonicalize-params), so use the trusted
     ;; constructor — a resource sub re-runs this on every frame-state change.
     (rf.resources.state/scoped-resource-key* scope resource cparams)))
@@ -132,8 +132,8 @@
 ;; ---- derived freshness (Spec 016 §Status semantics) -----------------------
 ;;
 ;; The live clock the `:stale?` derivation compares `:stale-at` against is the
-;; core WALL-clock `re-frame.interop/epoch-now-ms` (rf2-366u0g —
-;; `System/currentTimeMillis` on the JVM, `js/Date.now` on CLJS), the
+;; core WALL-clock `re-frame.interop/epoch-now-ms`
+;; (`System/currentTimeMillis` on the JVM, `js/Date.now` on CLJS), the
 ;; canonical EP-0010 §Time wall-clock surface. NOT the perf clock
 ;; `rf.interop/now-ms` (`performance.now()`
 ;; on CLJS, origin-relative), which is incomparable with the `js/Date`-based
@@ -195,15 +195,15 @@
          :refresh-error (:refresh-error e)
          ;; Derived (Spec 016 §Status semantics): :loading? = first load
          ;; with no usable data; :fetching? = refresh in flight; :has-data? =
-         ;; usable data present; :stale? = freshness vs :stale-at (runtime
-         ;; slice computes the live clock comparison — pinned shape here).
+         ;; usable data present; :stale? = freshness vs :stale-at against the
+         ;; live wall clock (`stale?`).
          :loading?      (= :loading (:status e))
          :fetching?     (= :fetching (:status e))
          :stale?        (stale? e)
          ;; `:has-data?` via the shared `rf.resources.state/has-data?` derivation, NOT the
          ;; scalar `(some? :data)`: an infinite feed's `:data` is the page
          ;; VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as
-         ;; usable data (rf2-3fynns). `rf.resources.state/has-data?` branches on the
+         ;; usable data. `rf.resources.state/has-data?` branches on the
          ;; feed shape (`(seq data)`), so the scalar `:state` sub and
          ;; `:infinite-state` never disagree.
          :has-data?     (rf.resources.state/has-data? e)}
@@ -259,7 +259,7 @@
   §Status semantics. Routed through the shared `rf.resources.state/has-data?` derivation
   (NOT the scalar `(some? :data)`): an infinite feed's `:data` is the page
   VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as usable data
-  (rf2-3fynns). `rf.resources.state/has-data?` branches on the feed shape (`(seq data)`),
+  `rf.resources.state/has-data?` branches on the feed shape (`(seq data)`),
   so this scalar sub and `:rf.resource/infinite-state` never disagree."
   [frame-state [_id payload]]
   (rf.resources.state/has-data? (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
@@ -317,12 +317,12 @@
   `:rf.error/infinite-missing-page-accessor`). Returns `[]` for a nil / empty
   feed.
 
-  There is no computation cache here (rf2-3x7nj.10.2): the subs that call this
+  There is no computation cache here: the subs that call this
   are memoised the way every sub is — by output `=` — so a re-run over
   unchanged pages re-flattens but stays quiet downstream. The merged vector is
   therefore `=` across unrelated commits, not `identical?`. A process-global
-  memo keyed on the feed key was never evicted (it outlived GC, `remove`,
-  `clear-scope` and the frame itself) and has been deleted; if a profile ever
+  memo keyed on the feed key would never be evicted (it would outlive GC,
+  `remove`, `clear-scope` and the frame itself); if a profile ever
   shows the flatten, memoise through the signal graph, never a host table."
   [entry where]
   (let [pages (:data entry)]
@@ -390,7 +390,7 @@
   index (the tail), a page-0 fetch / refetch fetches index 0. The sub joins
   the entry's `:current-work` pointer to its live work-ledger row and reads the
   recorded page index. Liveness is `rf.resources.work-ledger/live-work?`, the ONE definition
-  of that question (rf2-kqxe6.6); the row is re-read here only for its
+  of that question; the row is re-read here only for its
   `:page-index`. false when the feed is not fetching, has no live work, or the
   live work is a page-0 fetch / whole-feed refresh. Per Spec 016 §Causal event
   — load-more (R2) / §Subscription contract."
@@ -466,7 +466,7 @@
   registrar re-wires them. Per Spec 016 §Subscriptions.
 
   Registered with `reg-frame-state-sub` (NOT `reg-runtime-sub`, EP-0016 D3
-  slice 3 / rf2-616xa6): the single signal is the WHOLE frame-state value,
+  slice 3): the single signal is the WHOLE frame-state value,
   so a resource sub whose scope is a `{:from-db <id>}` resolver re-keys
   reactively when the resolver's declared app-db inputs change mid-session
   (account switch / impersonation / login), while still reacting to
