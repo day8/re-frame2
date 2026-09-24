@@ -5,14 +5,12 @@
   Rebinding `on-hash-change!` simulates CLJS hot reload and verifies that the
   previous listener is removed rather than stacked.
 
-  The host used to carry a second job — resolving an open-in-editor source
-  root from a build-seeded checkout path and writing it into Story's config.
-  That path is retired: the dev server's `POST /__rf-open-in-editor` endpoint
+  The host does not resolve an open-in-editor source root or write one into
+  Story's config: the dev server's `POST /__rf-open-in-editor` endpoint
   resolves classpath-relative coordinates at request time, so the host owns
-  only the React-root handoff and hash routing. The surviving Story-config
-  assertion below is the KEPT carve-out — the public
-  `:rf.story/project-root` option remains the consumer's to set, and the host
-  must not disturb it."
+  only the React-root handoff and hash routing. The Story-config assertions
+  below pin the carve-out — the public `:rf.story/project-root` option is
+  the consumer's to set, and the host must not disturb it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story.config :as rf.story.config]
             [re-frame.testbed.story-host :as rf.testbed.story-host]))
@@ -112,8 +110,8 @@
             `on-hash-change!` identity, the active hashchange listener count
             stays pinned at one — and dispatching a single hash change to the
             installed registry fires the mount switch exactly ONCE (not once
-            per accumulated listener), which is the user-visible symptom the
-            leak caused."
+            per accumulated listener), which is the user-visible symptom a
+            leak would cause."
     (let [{:keys [window registry hashchange-count]} (make-fake-window "#/")
           switches (atom 0)]
       (install-window! window)
@@ -134,17 +132,16 @@
           "one hash change runs the mount switch exactly once — proving a
            single active listener, not an N-deep stack"))))
 
-;; ---- the KEPT carve-out ---------------------------------------------------
+;; ---- the carve-out --------------------------------------------------------
 ;;
-;; `:rf.story/project-root` survives the checkout-root retirement as a public
-;; option external and non-shadow hosts still need for the client's
-;; `editor://` URI fallback. What went away is the HOST writing it on the
-;; consumer's behalf, so the property to pin is the negative one: mounting
+;; `:rf.story/project-root` is a public option external and non-shadow hosts
+;; need for the client's `editor://` URI fallback. The HOST never writes it on
+;; the consumer's behalf, so the property to pin is the negative one: mounting
 ;; neither sets a root nor clears one the consumer set.
 
 (deftest mount-does-not-write-story-project-root
   (testing "mounting with no Story config leaves the project-root slot unset —
-            the retired `:source-subdir` path was the only thing that wrote it"
+            the host has no path that writes it"
     (let [{:keys [window]} (make-fake-window "#/")]
       (install-window! window)
       (is (nil? (rf.story.config/get-project-root))
@@ -159,7 +156,7 @@
 (deftest mount-leaves-a-consumer-set-project-root-untouched
   (testing "a consumer that DOES set `:rf.story/project-root` (an external or
             non-shadow host leaning on the URI fallback) keeps it across a
-            mount — the carve-out is genuinely reachable, not just undeleted"
+            mount — the carve-out is genuinely reachable"
     (let [{:keys [window]} (make-fake-window "#/")]
       (install-window! window)
       (rf.story.config/set-project-root! "/preset/by/consumer")
