@@ -1,7 +1,7 @@
 (ns day8.re-frame2-machines-viz.chart.overlays.overlay-anchor-cljs-test
   "Pure-data tests for the overlay anchoring + join/cascade helpers
   shared by the `:spawn-all` join inspector + the cancellation-cascade
-  visualiser overlays (rf2-3ow55 · xyflow Phase 2).
+  visualiser overlays.
 
   The overlays walk the rendered DOM to find a bearing node's bounding
   rect; these helpers turn that rect + the overlay container's rect
@@ -15,7 +15,7 @@
             [day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
              :as anchor]))
 
-;; ---- node->testid (rf2-ee38b.21 — the single canonical helper) -----------
+;; ---- node->testid (the single canonical helper) --------------------------
 
 (deftest node-testid-matches-state-node-contract
   (is (= "rf-mv-chart-node-idle" (anchor/node->testid "idle")))
@@ -86,8 +86,8 @@
                   {:join :any :resolved? false :children [{:done? true}]})))))
 
 (deftest join-resolved-unknown-join-is-not-resolved
-  (testing "rf2-w8gxxz: an out-of-enum join (e.g. a removed {:n N} / {:fn}
-            form) is NOT resolved by the overlay — the grammar is a closed
+  (testing "an out-of-enum join (e.g. {:n N} / {:fn}) is NOT resolved by
+            the overlay — the grammar is a closed
             :all / :any enum, so anything else defaults to false"
     (is (false? (anchor/join-resolved?
                   {:join {:n 2} :children [{:done? true} {:done? true}]})))
