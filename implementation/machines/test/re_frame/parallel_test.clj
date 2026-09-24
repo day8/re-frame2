@@ -1,5 +1,5 @@
 (ns re-frame.parallel-test
-  "Per Spec 005 §Parallel regions (Nine States Stage 2).
+  "Per Spec 005 §Parallel regions (the Nine States pattern).
 
   Parallel-region semantics covered:
     - A `:type :parallel` machine's initial snapshot has `:state` as a
