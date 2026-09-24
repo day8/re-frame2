@@ -13,8 +13,7 @@
 ;;;; `tools/re-frame2-pair-mcp/test/.../record_test.cljs`; the LIVE rAF /
 ;;;; dedup / teardown semantics are exercised by the form running in a
 ;;;; real tab. What we pin HERE is the source-level contract that solves
-;;;; the three footguns the bead named, so a refactor can't silently drop
-;;;; one:
+;;;; three footguns, so a refactor can't silently drop one:
 ;;;;
 ;;;;   1. change-dedup — the sampler tick appends only on a structural
 ;;;;      change against the per-signal last value (`not=` against
