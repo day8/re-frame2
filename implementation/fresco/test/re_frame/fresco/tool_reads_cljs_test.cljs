@@ -274,10 +274,10 @@
           "no coordinate was declared, and the row says so rather than guessing")
       (release))))
 
-;; Who a named row names. A row's `:views`
-;; is the roster `entry-rows` claims — the views HOLDING the edge set now —
-;; so the name has to ride on the reference: counted where React commits
-;; it, uncounted where React releases it, and never written by a render.
+;; Who a named row names. A row's `:views` is the roster `entry-rows` claims
+;; — the views HOLDING the edge set now — so the name has to ride on the
+;; reference: counted where React commits it, uncounted where React
+;; releases it, and never written by a render.
 
 (deftest an-unmounted-view-leaves-the-row-its-twin-still-holds
   (seeded!)
