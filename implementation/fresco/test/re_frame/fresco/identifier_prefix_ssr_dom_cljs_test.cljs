@@ -4,28 +4,27 @@
 
   `dispositions.md` §2.4 requires, of every surface it promotes, *two
   simultaneous hydrating roots with a stable `identifierPrefix`*. That
-  clause was unreachable from every per-surface witness in the package,
-  for a source reason rather than an oversight: `hydrate-root!` passed
-  `onRecoverableError` and nothing else, so **the prefix was
-  unspellable**. The native-tier SSR witness measured that and stopped
-  (`native-ssr-dom-cljs-test`); the operator ruled a thin pass-through;
-  the pass-through landed, and this file is what measures it.
+  clause needs the prefix to be spellable at the client door:
+  `hydrate-root!` passes `:identifier-prefix` through to React as
+  `identifierPrefix`, a thin pass-through, and this file is what
+  measures it.
 
-  **It works, and the clause still does not close.** Both halves are
-  facts and the rows below are laid out to keep them apart:
+  **It works, and the clause does not close for hand-rolled bytes.**
+  Both halves are facts and the rows below are laid out to keep them
+  apart:
 
     - the option reaches React on both doors — the server's bytes and
       the client's root each carry the prefix they were given, and the
       distinctness the option exists for is real (§1, §2); but
-    - a root the product door hydrates carries an element the server
-      render has no counterpart for, and `useId` is derived from tree
+    - a root the product door hydrates carries an element a hand-rolled
+      server render has no counterpart for, and `useId` is derived from tree
       POSITION as well as from the prefix. So the two sides disagree on
       the id's tail while agreeing perfectly on its head (§2), and a page
       whose bytes were baked by a hand-rolled `renderToString` rather
       than by a product door hydrates into a text mismatch.
 
   §3 pins that cause to a single structural difference and §4 and §5 run
-  the whole clause on the far side of it, so what is missing is named
+  the whole clause on the far side of it, so the difference is named
   exactly rather than left as *hydration is broken*.
 
   ## The cause, stated once
@@ -38,16 +37,15 @@
   than one child — so that sibling pair is a fork the server render never
   sees, and every id below it shifts. `renderToString` over the tree the
   arm actually hydrates produces ids that agree (§3); over the tree a
-  consumer can spell today, it does not (§2).
+  consumer spells by hand, it does not (§2).
 
-  Two repairs are visible from here and this file rules on neither, which
-  is the operator's. A **matching server-render entry** — the ruling's own
-  words — would emit the root's own shape. Making the closer a WRAPPER
-  rather than a sibling would remove the fork instead, and then the
-  hand-rolled `renderToString` a consumer already writes would agree with
-  no new door at all; it also moves a component into the app's parent
-  chain, which is a change to `impl.mount/tree`'s design rather than to
-  this one.
+  The package's server door, `re-frame.fresco.server/render`, renders
+  through that same `impl.mount/tree` with its adoption window, so its
+  bytes carry the same fork. Making the closer a WRAPPER rather than a
+  sibling would remove the fork instead, and then a hand-rolled
+  `renderToString` would agree with no door at all; it would also move a
+  component into the app's parent chain, which is a change to
+  `impl.mount/tree`'s design rather than to this one.
 
   ## The claim is AGREEMENT, and presence is not agreement
 
@@ -293,31 +291,31 @@
 ;; here, because a row that leans on the fixture to stop its own watcher is
 ;; measuring the fixture.
 ;;
-;; These rows used to end INSIDE the fulfilment handler:
+;; A row that ended INSIDE the fulfilment handler would leak all of it:
 ;;
 ;;   (-> (sup/adopted! handle)
 ;;       (.then (fn [ok] … (try …assertions…
 ;;                              (finally (stop!) (mount/release! handle) (done))))))
 ;;
-;; There was no rejection arm anywhere in this file, so on a rejection the
-;; handler was skipped, the `try` was never entered and the `finally` never
-;; fired. Nothing ran: no `stop!`, no `release!`, no `done`. The row did not
-;; fail on its own account — it never settled, so `cljs.test`'s async runner
-;; had nothing to advance it with, and the next row was handed a live root
-;; and a swallowing listener to take its census against.
+;; With no rejection arm, a rejection skips the handler, the `try` is never
+;; entered and the `finally` never fires. Nothing runs: no `stop!`, no
+;; `release!`, no `done`. The row does not fail on its own account — it
+;; never settles, so `cljs.test`'s async runner has nothing to advance it
+;; with, and the next row is handed a live root and a swallowing listener to
+;; take its census against.
 ;;
 ;; On THIS lane it is worse than a hang, which is worth knowing before
 ;; reading §6's sabotage as merely slow. An unsettled rejection is an
 ;; unhandled one, so it reaches the page as an uncaught error, and the
-;; browser runner treats that as terminal (rf2-u0j8). Measured: the run
-;; stopped at this namespace with 85 announced, no summary line at all, and
-;; every namespace scheduled after it silently unrun — `shadow.test` runs
-;; the whole lane, and the closing summary, inside one `cljs.test/run-block`
-;; with no try/catch. So the cost of a rejection here was never one row.
+;; browser runner treats that as terminal: the run stops at this namespace
+;; with no summary line at all, and every namespace scheduled after it goes
+;; silently unrun — `shadow.test` runs the whole lane, and the closing
+;; summary, inside one `cljs.test/run-block` with no try/catch. So the cost
+;; of a rejection here is never one row.
 ;;
-;; `sup/settle-row!` is the one path all four now end with, and §6 is what
-;; says it works — because its rejection arm is on no green path, and a
-;; repair to a branch nothing takes is untested by construction.
+;; `sup/settle-row!` is the one path all four end with, and §6 is what says
+;; it works — because its rejection arm is on no green path, and a branch
+;; nothing takes is untested by construction.
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the SERVER side alone (no DOM; runs under :node-test)
@@ -372,7 +370,7 @@
                "would have some other cause; got " (pr-str plain) " both times")))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — THE OBSTRUCTION, measured: the bytes a consumer can bake today do
+;; 2 — THE OBSTRUCTION, measured: the bytes a consumer bakes by hand do
 ;;     not hydrate, and the prefix is not why
 ;; ---------------------------------------------------------------------------
 
@@ -514,8 +512,9 @@
 ;; Everything §2.4 asks of the root and provider element, on the far side
 ;; of §3's structural difference: two roots adopting at once, each with
 ;; its own stable prefix, neither complaining, ids distinct, and an exact
-;; census once both are down. What it does NOT witness is a product door
-;; that emits these bytes — §2 and §3 together are the record of that gap.
+;; census once both are down. What it does NOT witness is the package's
+;; server door emitting these bytes — `root-shaped-server-html!` stands in
+;; for it, reproducing `impl.mount/tree`'s shape by hand.
 
 (deftest two-simultaneous-hydrating-roots-keep-stable-and-distinct-prefixes
   (async done
@@ -598,13 +597,12 @@
                 (rf.fresco.roots-frames-support/settle-row!
                   {:row      "§4 — two simultaneous hydrating roots"
                    :done     done
-                   ;; The FULL handles, where the `finally` this replaced
-                   ;; passed `(assoc h :root nil)`. That spelling was right
-                   ;; for the one path it could be reached on: the body above
-                   ;; unmounts both roots to take its census, so by the time
-                   ;; the old `finally` ran there was no root left to unmount
-                   ;; and `:root nil` said so. On a rejection the body may
-                   ;; never reach those unmounts, and `:root nil` would then
+                   ;; The FULL handles, never `(assoc h :root nil)`. That
+                   ;; spelling would suit the success path alone: the body
+                   ;; above unmounts both roots to take its census, so by the
+                   ;; time the row settles there is no root left to unmount.
+                   ;; On a rejection the body may never reach those
+                   ;; unmounts, and `:root nil` would then
                    ;; skip the React unmount entirely and leak a live root
                    ;; into the next row. The full handle is correct on BOTH
                    ;; paths: `mount/unmount!` is idempotent by its own
@@ -689,22 +687,21 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; §2 through §5 all FULFIL on a green run, so `sup/settle-row!`'s rejection
-;; arm is on no green path — and a repair to a branch nothing takes is
-;; untested by construction. This row takes it.
+;; arm is on no green path — and a branch nothing takes is untested by
+;; construction. This row takes it.
 ;;
 ;; The rejection is injected AFTER the adoption completes, which is the
 ;; harder case and not the weaker one: every resource the row owns is live
 ;; and committed at that moment, so there is strictly MORE to release than
 ;; there would be had `sup/adopted!` rejected before the root ever adopted.
 ;;
-;; Under the shape this file carried before, nothing below the injection
-;; runs at all. The rejection skips the fulfilment handler, so the `try` is
-;; never entered and its `finally` never fires: no `stop!`, no `release!`,
-;; no `done`. Measured by removing `sup/settle-row!`'s rejection arm and
-;; running the lane: the run stopped HERE, 85 namespaces in, with no summary
-;; line and every later namespace unrun — see the note above `sup/settle-row!`
-;; for why an unsettled rejection is terminal on this runner rather than
-;; merely slow.
+;; Were the row to end inside the fulfilment handler, nothing below the
+;; injection would run at all. The rejection skips the handler, so the `try`
+;; is never entered and its `finally` never fires: no `stop!`, no
+;; `release!`, no `done`. Without `sup/settle-row!`'s rejection arm the run
+;; stops HERE, with no summary line and every later namespace unrun — see
+;; the Settlement note above for why an unsettled rejection is terminal on
+;; this runner rather than merely slow.
 
 (deftest a-rejected-adoption-still-releases-the-root-console-and-watcher
   (if-not (rf.fresco.impl.mount/browser?)
