@@ -1,18 +1,18 @@
 # AI-First Audit
 
 > **Type:** Audit
-> Applies the nine AI-first properties as a checklist against the re-frame2 corpus — the numbered Specs (000–016) plus the companion documents that participate in the AI-implementable goal (Spec-Schemas, Construction-Prompts, conformance/README). Surfaces gaps for the next round of design work. Per §Coverage policy the audit lags the live numbered set by design: a Spec earns a stand-alone Per-Spec table once its surface has stabilised enough to grade against all nine properties without thrash, and is graded indirectly through the cross-cutting sections until then. Specs 013–016 graduated to stand-alone tables in the 2026-07-04 pass (their surfaces stabilised — 016 declares first-public-beta complete, 013/014 pinned in conformance, 015 landed corpus-wide); Specs 001, 006, 007 remain graded indirectly.
+> Applies the nine AI-first properties as a checklist against the re-frame2 corpus — the numbered Specs (000–016) plus the companion documents that participate in the AI-implementable goal (Spec-Schemas, Construction-Prompts, conformance/README). Surfaces gaps for the next round of design work. Per §Coverage policy the audit lags the live numbered set by design: a Spec earns a stand-alone Per-Spec table once its surface has stabilised enough to grade against all nine properties without thrash, and is graded indirectly through the cross-cutting sections until then. Specs 001, 006 and 007 are graded indirectly.
 
 ## Scope
 
 This audit grades every artefact in `spec/` that contributes to the **pattern's contract** or to its **AI-implementability**. Specifically:
 
-- **Numbered Specs** (000, 002, 004, 005, 008, 009, 010, 011, 012, 013, 014, 015, 016) — the per-area normative specifications with stand-alone Per-Spec scoring tables below. Specs 001 (Registration), 006 (ReactiveSubstrate), and 007 (Stories) are graded indirectly through the cross-cutting goal sections below; they do not yet have stand-alone Per-Spec scoring tables. (Specs 013–016 graduated to stand-alone tables in the 2026-07-04 pass per [§Coverage policy](#scope) — their surfaces stabilised enough to grade against all nine properties without thrash.)
+- **Numbered Specs** (000, 002, 005, 008, 009, 010, 011, 012, 013, 014, 015, 016) — the per-area normative specifications with stand-alone Per-Spec scoring tables below. Specs 001 (Registration), 006 (ReactiveSubstrate), and 007 (Stories) are graded indirectly through the cross-cutting goal sections below; they have no stand-alone Per-Spec scoring tables (per [§Coverage policy](#scope)).
 - **Spec-Schemas** — the spec's own runtime-shape catalogue.
 - **Construction-Prompts** — the AI-scaffolding catalogue.
 - **conformance/README** — the fixture format and capability-tagging convention.
 
-**Coverage policy.** Per-Spec scoring is intentionally selective: a Spec earns a stand-alone table once its surface has stabilised enough to grade against all nine properties without thrash. New Specs land in the cross-cutting sections first and graduate to a Per-Spec table when the next audit pass adds them — the 2026-07-04 pass graduated Specs 013–016 once that condition fired (016 declares its first-public-beta surface complete; 013/014 are pinned in conformance; 015 landed corpus-wide). The audit therefore lags the live numbered set by design; absence from the Per-Spec list does not mean the Spec is out of scope, only that it is being graded indirectly until the next pass.
+**Coverage policy.** Per-Spec scoring is intentionally selective: a Spec earns a stand-alone table once its surface has stabilised enough to grade against all nine properties without thrash. New Specs land in the cross-cutting sections first and graduate to a Per-Spec table when an audit pass adds them. The audit therefore lags the live numbered set by design; absence from the Per-Spec list does not mean the Spec is out of scope, only that it is graded indirectly until an audit pass graduates it.
 
 Other companion documents (Principles, Conventions, Patterns, MIGRATION, Tool-Pair, Implementor-Checklist, README) are out of scope: they are rationale, conventions, or migration artefacts, not contracts an implementation conforms to.
 
@@ -81,7 +81,7 @@ _As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | One frame constructor (`make-frame` — rf2-h1vqa4 deleted the second spelling) is right. View invocation has two forms (`view` / Var) — the `h` macro was dropped. |
+| P1 Regularity | ✓ | One frame constructor (`make-frame` — there is no second spelling) is right. View invocation has two forms (`view` / Var) — there is no `h` macro. |
 | P2 Named things | ✓ | Frames, handlers, views, fx all stably-id'd. Anonymous lambdas survive only inside view bodies (`:on-click #(dispatch ...)`) which is borderline acceptable. |
 | P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. `:fx-overrides` and `:interceptor-overrides` accept function values at the CLJS reference level. Pattern-level contract is id-based; CLJS reference also accepts fn values. |
 | P4 Public query surfaces | ✓ | `registrations`, `frame-meta`, `frame-ids`, `app-db-value`, `frame-state-value`, `sub-topology` all in. |
@@ -94,10 +94,8 @@ _As-of 2026-07-04._
 
 **Gaps:**
 
-1. ~~Override seam still presents function-valued as default.~~ **Resolved** — the override seam is id-based and canonical-reference-matched, id-valued leading (see **G-C** below, RESOLVED).
-2. ~~Error contract is gestured at but not specified.~~ **Resolved** — [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) is the single normative catalogue (see **G-A** below, RESOLVED).
-3. View ergonomics section's narrative still reads CLJS-context-primary; needs a top-down rewrite to lead with explicit-frame.
-4. View invocation has two forms — Var canonical, `(view :id)` for late-binding. (Tracked as **G-E**; the `h` macro draft was dropped, so two forms is the v1 surface.)
+1. View ergonomics section's narrative reads CLJS-context-primary; needs a top-down rewrite to lead with explicit-frame.
+2. View invocation has two forms — Var canonical, `(view :id)` for late-binding. (Tracked as **G-E**; two forms is the v1 surface.)
 
 **`:preset` audit row.** Frames declare a `:preset` (`:default`, `:test`, `:story`); the runtime expands and `(frame-meta <id>)` records the applied preset. AI-amenable scaffolding should:
 
@@ -107,28 +105,7 @@ _As-of 2026-07-04._
 
 ### Spec 004 — Views
 
-_As-of 2026-07-04._
-
-> **The audited document no longer exists.** `spec/004-Views.md` was deleted on 2026-08-18 together with the substrates it described, and nothing has replaced it — this corpus asserts no view contract today (see [README](README.md)). The table below is retained as the dated record of the 2026-07-04 pass, not as a grade of anything live; the watermark contract above cannot express deletion, only drift. `004B` and `004C` are separate surviving Specs and are not what this table graded.
-
-| Property | Score | Notes |
-|---|---|---|
-| P1 Regularity | ◐ | Three hiccup-invocation forms (see 002 above). Form-1/2/3 component handling adds three more shape variants for the registration. |
-| P2 Named things | ✓ | All views id'd. |
-| P3 Data before magic | ✓ | View output is hiccup (data); render-tree contract is serialisable. |
-| P4 Public query surfaces | ✓ | View registry queryable via `(registrations :view)`. |
-| P5 Schemas | ◐ | `:schema` for the view's *props vector* is documented but most examples don't use it. Construction Prompts CP-4 enforces. |
-| P6 Deterministic execution | ✓ | Pure render-tree per pattern contract. |
-| P7 Machine-readable errors | n/a | (Errors during render are mostly substrate concerns.) |
-| P8 Low hidden context | ✓ | **Closed by EP-0002.** A plain Reagent fn that can't read its `frame-provider`'s frame no longer silently routes to `:rf/default` — there is no ambient default; its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context` (loud at runtime). Frame identity is *carried, not found*. |
-| Constrained model | ✓ | Pure `(state, props) → render-tree`. |
-| Data is code | ✓ | Hiccup is the canonical example of data-is-code. |
-
-**Gaps:**
-
-1. Pick a canonical hiccup-invocation form and document the others as alternatives — three forms is a P1 hit. (Tracked as **G-E**.)
-2. ~~Make the plain-Reagent-fn-routes-to-default footgun loud.~~ **Resolved by EP-0002** (see **G-D** below): there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — a structured runtime error, not a warning.
-3. ~~Consider whether Form-2's outer-fn-side-effects should be discouraged.~~ **Resolved** — Form-1 is canonical, Form-2 stays supported but Form-1 + an explicit setup event is preferred (see **G-F** below, RESOLVED).
+There is no Spec 004 to grade: this corpus asserts no view contract (see [README](README.md)). `004B` and `004C` are separate Specs and are not graded here. The view-invocation and component-shape findings are **G-E** and **G-F** below.
 
 ### Spec 005 — State Machines
 
@@ -185,10 +162,7 @@ _As-of 2026-07-04._
 | P7 Machine-readable errors | ✓ | The error event shape is formally defined — [009 §The error event shape](009-Instrumentation.md#the-error-event-shape) + [§Error event catalogue](009-Instrumentation.md#error-event-catalogue) enumerate every category with its `:tags`; `:rf/error-event` + per-category `:tags` schemas registered (per **G-A**, RESOLVED). |
 | P8 Low hidden context | ✓ | All emit sites are visible in source. |
 
-**Gaps:**
-
-1. ~~Register a Malli schema for the trace event shape.~~ **Resolved** — [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md) registers it (one of the five load-bearing schemas per §SA-3).
-2. ~~Define error trace events as a first-class subset.~~ **Resolved** — [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) defines them as the single normative subset (per **G-A**, RESOLVED).
+**Gaps:** none outstanding.
 
 **Source-as-data audit row.** A dev build hands out the handler *body*, not only its address: `reg-event` stamps the `pr-str` of the whole registered form onto registry metadata under [`:rf.handler/source`](009-Instrumentation.md#rfhandlersource--debug-gated-handler-form-source-capture), and a machine guard or action derives the same key from its enclosing machine spec. This is the introspection affordance that lets an agent reason about a runtime it has no checkout of. AI-amenable introspection should:
 
@@ -214,7 +188,7 @@ _As-of 2026-07-04._
 | P7 Machine-readable errors | ✓ | The validation-error envelope is a structured shape alongside the other errors — `:rf.error/schema-validation-failure` carries the failing path, value, and explainer output per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (per **G-A**, RESOLVED). |
 | P8 Low hidden context | ✓ | Every validation point is explicit. |
 
-**Gaps:** none outstanding. The validation-error envelope is now a structured shape alongside the other errors (per **G-A**, RESOLVED).
+**Gaps:** none outstanding. The validation-error envelope is a structured shape alongside the other errors (per **G-A**, RESOLVED).
 
 ### Spec 011 — SSR
 
@@ -262,7 +236,7 @@ _As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | One fx-id (`:rf.http/managed`), one args map, **one** canonical reply envelope (the framework-wide uniform reply envelope; no second `{:kind :success/:failure}` dialect — the compat reshape is retired). Two reply-addressing forms (two explicit handlers / co-located `:rf/reply` branch) are the documented pair; there is no second way to issue a request — the fx vector is the whole surface. |
+| P1 Regularity | ✓ | One fx-id (`:rf.http/managed`), one args map, **one** canonical reply envelope (the framework-wide uniform reply envelope; no second `{:kind :success/:failure}` dialect and no compat reshape). Two reply-addressing forms (two explicit handlers / co-located `:rf/reply` branch) are the documented pair; there is no second way to issue a request — the fx vector is the whole surface. |
 | P2 Named things | ✓ | The fx, the failure categories (closed `:rf.http/*` set), the `:work/id` `[:rf.work/http …]` head, `:request-id`, and the reply-target spelling `:rf/reply-to` are all stable ids. |
 | P3 Data before magic | ✓ | Request envelope, `:retry` policy, `:decode` (schema / keyword / fn), reply envelope, and failure maps are all data; `:accept` / custom `:decode` are the fn slots. |
 | P4 Public query surfaces | ✓ | The in-flight request registry and `:rf.http.interceptor/*` traces are enumerable; every completion rides the trace stream (`:rf.http/replied`). |
@@ -327,19 +301,19 @@ _As-of 2026-07-04._
 
 | Spec | Score | Notes |
 |---|---|---|
-| 000-Vision | ✓ | Names the goal; explains rationale, what-this-implies, connection-to-other-goals, and failure mode. Capability matrix entries (FSM-richness + actor-model rows) added to the host-profile matrix. |
+| 000-Vision | ✓ | Names the goal; explains rationale, what-this-implies, connection-to-other-goals, and failure mode. The host-profile matrix carries capability-list entries (FSM-richness + actor-model rows). |
 | 001-Registration | ◐ | Metadata-map shape is well-specced; the *exact* set of metadata keys per `reg-*` kind needs a single canonical table. |
-| 002-Frames | ✓ | Drain semantics, envelope shape, view ergonomics all specced; the error contract is now enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (G-A RESOLVED). |
+| 002-Frames | ✓ | Drain semantics, envelope shape, view ergonomics all specced; the error contract is enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (G-A RESOLVED). |
 | 005-StateMachines | ◐ | Foundation specced in detail; capability matrix in place; hierarchical / eventless / delayed / declarative-`:spawn` capabilities are claimed but drain-rule extensions for compound entry/exit are still being elaborated. |
 | 008-Testing | ✓ | Three test levels, fixture lifecycle, framework adapters all specced. |
 | 009-Instrumentation | ✓ | Trace event shape stable; error event shape formally enumerated in [§Error event catalogue](009-Instrumentation.md#error-event-catalogue) (G-A RESOLVED). |
 | 010-Schemas | ✓ | Self-referential — schemas are specced via examples in re-frame2's own conventions. |
 | 011-SSR | ◐ | Hydration payload schema missing (existing gap). |
 | 012-Routing | ✓ | URL ↔ params grammar, route metadata shape, fx ids all specced. |
-| Spec-Schemas | ◐ | Most shapes covered; declarative-`:spawn` schema additions remain to be written. The trace-event, error-event (G-A RESOLVED), and hydration payload schemas are now registered; the remaining gap is the residual declarative-`:spawn` additions. |
+| Spec-Schemas | ◐ | Most shapes covered; declarative-`:spawn` schema additions remain to be written. The trace-event, error-event (G-A RESOLVED), and hydration payload schemas are registered; the remaining gap is the residual declarative-`:spawn` additions. |
 | conformance/README | ✓ | Cross-references the goal; capability-tagging convention added to fixture metadata. |
 
-**Gaps:** ~~G-A (error envelope)~~ RESOLVED; ~~G-B (CP depth)~~ RESOLVED. Remaining: schema-on-the-spec's-own-shapes coverage (the declarative-`:spawn` additions).
+**Gaps:** schema-on-the-spec's-own-shapes coverage (the declarative-`:spawn` additions).
 
 ## Cross-cutting goal: Capability-conformance clarity
 
@@ -350,13 +324,13 @@ _As-of 2026-07-04._
 | Spec | Score | Notes |
 |---|---|---|
 | 000-Vision | ✓ | Goal text + the FSM-richness / actor-model breakdown name each capability and its v1-claim status. Host-profile matrix has capability-list rows. |
-| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions, tags, and history states are now first-class capabilities (the earlier snapshot-as-value history substitute is withdrawn). |
-| Spec-Schemas | ✓ | `:rf/transition-table` schema covers flat / hierarchical / eventless / delayed / declarative-`:spawn` / `:tags` / `:type :parallel` + `:regions`; `:rf/machine-snapshot` widened to the third `:state` arm for parallel regions. |
+| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions, tags, and history states are first-class capabilities (there is no snapshot-as-value history substitute). |
+| Spec-Schemas | ✓ | `:rf/transition-table` schema covers flat / hierarchical / eventless / delayed / declarative-`:spawn` / `:tags` / `:type :parallel` + `:regions`; `:rf/machine-snapshot` carries the third `:state` arm for parallel regions. |
 | Construction-Prompts | ✓ | CP-5 forward-points at the parallel-regions first-class capability and the N-machines substitute for conceptually-independent features, plus the first-class history-states grammar (`:type :history`). |
 | conformance/README | ✓ | Capability-tagging convention specifies how fixtures self-declare; harness runs only the matching subset. |
 | Other Specs (002, 008, 009, 011, 012) | n/a | Capability-list scoping is FSM-and-actor-specific; other Specs aren't capability-graded in the same way (they are pattern-required as a whole). |
 
-**Gaps:** none currently outstanding for the FSM-richness / actor-model schema surface.
+**Gaps:** none outstanding for the FSM-richness / actor-model schema surface.
 
 ## Cross-cutting goal: Frame state revertibility
 
@@ -376,37 +350,37 @@ _As-of 2026-07-04._
 | 010-Schemas | n/a | Schemas are static registry data; not in scope for frame revert. |
 | 012-Routing | ✓ | The route slice lives in the frame's **runtime-db** partition at `[:rf.runtime/routing :current]` (per [012 §`runtime-db` slices](012-Routing.md#runtime-db-slices) and [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)); runtime-db is part of the frame value, so route state reverts with the rest of the frame on epoch restore. |
 
-**Gaps:** none. Spec 006's §Revertibility constraints on adapters closes the previously-noted gap; every Spec scores ✓ on Goal 3 alignment.
+**Gaps:** none. Spec 006's §Revertibility constraints on adapters covers the adapter side; every Spec scores ✓ on Goal 3 alignment.
 
 ## Cross-cutting gaps (across multiple Specs)
 
 ### G-A. Error envelope standardised — RESOLVED
 
-Errors used to be gestured at in 002, 009, 010 with no single doc defining the canonical structured-error shape. **[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) closes this**: it is the single normative catalogue of every error / warning / advisory event, enumerating each category (validation failure `:rf.error/schema-validation-failure`, handler exception `:rf.error/handler-exception`, hydration mismatch, drain depth exceeded `:rf.error/drain-depth-exceeded`, override fallthrough, …) with its `:op-type`, channel, default `:recovery`, and `:tags` payload. The canonical structured shapes are defined at [009 §The error event shape](009-Instrumentation.md#the-error-event-shape) (the trace shape) and [009 §The thrown-error shape — the `:rf.error/id` ex-data contract](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract) (the thrown contract; `:rf.error/id` is the single normative discriminator). Registered Malli schemas: `:rf/error-event` plus per-category `:tags` schemas in [Spec-Schemas](Spec-Schemas.md#rferror-event). P7 closed in three Specs simultaneously, as the proposal intended.
+**[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) is the one doc defining the canonical structured-error shape** for 002, 009 and 010: it is the single normative catalogue of every error / warning / advisory event, enumerating each category (validation failure `:rf.error/schema-validation-failure`, handler exception `:rf.error/handler-exception`, hydration mismatch, drain depth exceeded `:rf.error/drain-depth-exceeded`, override fallthrough, …) with its `:op-type`, channel, default `:recovery`, and `:tags` payload. The canonical structured shapes are defined at [009 §The error event shape](009-Instrumentation.md#the-error-event-shape) (the trace shape) and [009 §The thrown-error shape — the `:rf.error/id` ex-data contract](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract) (the thrown contract; `:rf.error/id` is the single normative discriminator). Registered Malli schemas: `:rf/error-event` plus per-category `:tags` schemas in [Spec-Schemas](Spec-Schemas.md#rferror-event). One catalogue closes P7 in all three Specs.
 
 ### G-B. Construction prompts wired into pre-flight tooling — RESOLVED
 
-Construction-Prompts.md used to describe how an AI uses the prompts without specifying the API calls that satisfy the "verify the id is unused" / "consult registered schemas" pre-flight checks. **[Construction-Prompts §Shared pre-flight (applies to every CP)](Construction-Prompts.md) closes this**: a single shared pre-flight preamble gives *every* CP the exact registry-query API — `(rf/registrations {:source :store :kind :event})` / `:sub` / `:fx` / `:view` / `:route` for the id-uniqueness check, and `(re-frame.schemas/app-schemas {:frame f})` / `(re-frame.schemas/app-schema-meta {:frame f :path <path>})` for the schema-consult check. Each CP now carries only a "Pre-flight delta" over the shared preamble, so the earlier per-CP gap (CP-2/3/5/7/8/9 missing the API) is closed structurally by hoisting it into the shared block.
+**[Construction-Prompts §Shared pre-flight (applies to every CP)](Construction-Prompts.md) names the API calls** that satisfy the "verify the id is unused" / "consult registered schemas" pre-flight checks: a single shared pre-flight preamble gives *every* CP the exact registry-query API — `(rf/registrations {:source :store :kind :event})` / `:sub` / `:fx` / `:view` / `:route` for the id-uniqueness check, and `(re-frame.schemas/app-schemas {:frame f})` / `(re-frame.schemas/app-schema-meta {:frame f :path <path>})` for the schema-consult check. Each CP carries only a "Pre-flight delta" over the shared preamble, so no CP can lack the API: it lives in the shared block.
 
 ### G-C. The override seam is id-based and canonical-reference-matched — RESOLVED
 
-The pattern contract was id-based while the CLJS reference also accepted function values, with no clear separation. **[008-Testing §Disabling a logging interceptor in tests](008-Testing.md#disabling-a-logging-interceptor-in-tests) closes this**: `:interceptor-overrides` is **reference-based** (a bare keyword matches the registered interceptor; a parameterized `[id arg]` 2-vector matches the full reference), matched by the canonical (CEDN-1) reference — the id-valued (portable) form leads the primary examples, and function values appear only as the one-off `:fx-overrides` HTTP-stub lambdas. [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering) adds the complementary tiering (reserved fx tiered OVERRIDABLE vs REJECT by the state-installation criterion, with a dedicated `Override tier` column in the reserved-fx table).
+The pattern contract is id-based, and the CLJS reference also accepts function values. **[008-Testing §Disabling a logging interceptor in tests](008-Testing.md#disabling-a-logging-interceptor-in-tests) keeps the two separate**: `:interceptor-overrides` is **reference-based** (a bare keyword matches the registered interceptor; a parameterized `[id arg]` 2-vector matches the full reference), matched by the canonical (CEDN-1) reference — the id-valued (portable) form leads the primary examples, and function values appear only as the one-off `:fx-overrides` HTTP-stub lambdas. [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering) adds the complementary tiering (reserved fx tiered OVERRIDABLE vs REJECT by the state-installation criterion, with a dedicated `Override tier` column in the reserved-fx table).
 
 ### G-D. The plain-Reagent-fn footgun — RESOLVED (EP-0002)
 
-Plain Reagent fns rendered inside a `frame-provider` used to silently route to `:rf/default` (a P8 hidden-context violation). **EP-0002 closes this**: there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — the footgun is now loud at runtime (the "make it loud" resolution, taken to its strongest form: a structured error, not a warning). The **canonical fix** is `reg-view` registration — it installs the `^{:contextType frame-context}` wiring so `dispatch` / `subscribe` read the provider's frame from React context. Code left deliberately unregistered must carry the target **explicitly**: `(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame-locked ops bundle captured in a frame-aware ancestor and threaded down. A no-arg `(rf/capture-frame)` and a `with-frame` that wraps the *returned subtree* both **re-raise** the same error — the former repeats the ambient lookup that already returned nil (it captures only when a real scope exists at render), the latter a render-time binding that unwinds before React invokes the descendant. The distinction is liveness, not the affordance: a `with-frame` — or that same no-arg capture — around the *actual synchronous operation* (the `dispatch` / `subscribe`, or the capture, run before the scope unwinds), or a `reg-view*`-registered inner, is a **live inner lexical binding** and succeeds; only the already-unwound subtree wrapper fails.
+A plain Reagent fn rendered inside a `frame-provider` cannot read the provider's frame, and silently routing it to `:rf/default` would be a P8 hidden-context violation. **EP-0002 closes this**: there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — the footgun is loud at runtime (a structured error, not a warning). The **canonical fix** is `reg-view` registration — it installs the `^{:contextType frame-context}` wiring so `dispatch` / `subscribe` read the provider's frame from React context. Code left deliberately unregistered must carry the target **explicitly**: `(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame-locked ops bundle captured in a frame-aware ancestor and threaded down. A no-arg `(rf/capture-frame)` and a `with-frame` that wraps the *returned subtree* both **re-raise** the same error — the former repeats the ambient lookup that already returned nil (it captures only when a real scope exists at render), the latter a render-time binding that unwinds before React invokes the descendant. The distinction is liveness, not the affordance: a `with-frame` — or that same no-arg capture — around the *actual synchronous operation* (the `dispatch` / `subscribe`, or the capture, run before the scope unwinds), or a `reg-view*`-registered inner, is a **live inner lexical binding** and succeeds; only the already-unwound subtree wrapper fails.
 
 ### G-E. View invocation has two forms — Var canonical, `(view :id)` for late-binding
 
-The Var reference (`[counter "Hello"]`) is the canonical call-site form: `reg-view` defs the symbol, hiccup picks it up directly. `(view :id)` is the documented escape hatch for late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites). The earlier `h` macro draft has been dropped; two forms is the v1 surface. **Classification:** this grades the **stock-Reagent compatibility/interop** `reg-view` view surface; (see [006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for adapter lifecycle roles).
+The Var reference (`[counter "Hello"]`) is the canonical call-site form: `reg-view` defs the symbol, hiccup picks it up directly. `(view :id)` is the documented escape hatch for late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites). There is no `h` macro; two forms is the v1 surface. **Classification:** this grades the **stock-Reagent compatibility/interop** `reg-view` view surface; (see [006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for adapter lifecycle roles).
 
 ### G-F. Form-1 / Form-2 / Form-3 component shapes — RESOLVED
 
-Three component shapes inherit from Reagent, and Form-2's outer-fn-side-effects pattern violates P8 (the mount-time side-effect is invisible from the call site). **This is closed** with a "supported, prefer Form-1" resolution rather than deprecation: Form-1 is canonical; Form-2 stays **supported** for Reagent compatibility but is used only when the setup work genuinely depends on per-mount props, with stable setup steered to Form-1 + an explicit setup event / the frame's `:initial-events`. The P8 concern is addressed by preferring the visible form, keeping Form-2 available where it earns its keep. **Classification:** this "Form-1 canonical" grade is scoped to the **stock-Reagent compatibility/interop** tier. The Form family lives on in the stock-Reagent tier, which remains a first-class, actively-supported adapter alongside UIx and reagent-slim; its live contract stays in its committed homes (no `spec/004A` appendix lands) and only Helix was removed, at S7/W13 — rf2-d6epb, 2026-07-22.
+Three component shapes inherit from Reagent, and Form-2's outer-fn-side-effects pattern violates P8 (the mount-time side-effect is invisible from the call site). **This is closed** with a "supported, prefer Form-1" resolution rather than deprecation: Form-1 is canonical; Form-2 stays **supported** for Reagent compatibility but is used only when the setup work genuinely depends on per-mount props, with stable setup steered to Form-1 + an explicit setup event / the frame's `:initial-events`. The P8 concern is addressed by preferring the visible form, keeping Form-2 available where it earns its keep. **Classification:** this "Form-1 canonical" grade is scoped to the **stock-Reagent compatibility/interop** tier. The Form family lives in the stock-Reagent tier, a first-class, actively-supported adapter alongside UIx and reagent-slim; its contract lives in its committed homes (there is no `spec/004A` appendix), and there is no Helix adapter.
 
 ## Headline finding
 
-The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation) and P6 (determinism). The historically-weak P7 (machine-readable errors) and P8 (low hidden context) closed materially in the 2026-07-04 pass: **G-A** (the [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) standardises the structured-error shape across 002/009/010), **G-D** (the plain-Reagent-fn footgun is now a loud `:rf.error/no-frame-context`), and **G-F** (Form-1 preferred over Form-2's hidden mount-time side-effect) all landed. All six cross-cutting gaps (G-A through G-F) are now RESOLVED. The remaining weak point is P5 (schemas applied to the spec's own shapes) — the residual declarative-`:spawn` schema additions and the SA-3 sweep tracked below. The cross-cutting gaps section above enumerates the specific findings.
+The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation) and P6 (determinism). P7 (machine-readable errors) and P8 (low hidden context) are addressed by **G-A** (the [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) standardises the structured-error shape across 002/009/010), **G-D** (the plain-Reagent-fn footgun is a loud `:rf.error/no-frame-context`), and **G-F** (Form-1 preferred over Form-2's hidden mount-time side-effect). All six cross-cutting gaps (G-A through G-F) are RESOLVED. The remaining weak point is P5 (schemas applied to the spec's own shapes) — the residual declarative-`:spawn` schema additions and the SA-3 sweep tracked below. The cross-cutting gaps section above enumerates the specific findings.
 
 ## SA-3 schema-coverage report
 
@@ -414,18 +388,18 @@ The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation)
 
 _As-of 2026-07-04._
 
-**Current state.** The shape catalogue carries **52 schema sections** (`###` headings), of which **50 are schema-bearing** (the other two are prose sub-headings). The per-section Owner / Status projection metadata that makes the projection auditable — required per [Spec-Schemas §Traceability metadata](Spec-Schemas.md#traceability-metadata) — is now present on **all 50 schema-bearing sections** (the full sweep has landed, superseding the earlier five-schema demonstration on `:rf/dispatch-envelope`, `:rf/effect-map`, `:rf/trace-event`, `:rf/epoch-record`, `:rf/hydration-payload`). Of those, **9 also carry the optional Conformance pointer** (present when a fixture / per-artefact test asserts the schema directly; the SA-3 header spec marks Conformance "when fixture/test exists", not universally required).
+**Current state.** The shape catalogue carries **52 schema sections** (`###` headings), of which **50 are schema-bearing** (the other two are prose sub-headings). The per-section Owner / Status projection metadata that makes the projection auditable — required per [Spec-Schemas §Traceability metadata](Spec-Schemas.md#traceability-metadata) — is present on **all 50 schema-bearing sections**. Of those, **9 also carry the optional Conformance pointer** (present when a fixture / per-artefact test asserts the schema directly; the SA-3 header spec marks Conformance "when fixture/test exists", not universally required).
 
 **Audit cadence.** This report is regenerated per AI-Audit run. Per-section completeness gates on SA-3:
 
 | Section count | SA-3 status |
 |---|---|
-| 50 / 50 | Owner + Status present (the required projection metadata — full sweep landed) |
+| 50 / 50 | Owner + Status present (the required projection metadata) |
 | 9 / 50 | Conformance pointer also present (optional — where a fixture/test asserts the schema directly) |
 
-The Owner + Status sweep obligation from the prior pass is **discharged**: every schema-bearing section now names its canonical owning spec and its API-status tier, so a reader maps any schema row to its owner and status without consulting the source docs. The residual work is additive Conformance pointers as fixture coverage grows, not a pending Owner/Status sweep.
+Every schema-bearing section names its canonical owning spec and its API-status tier, so a reader maps any schema row to its owner and status without consulting the source docs. The residual work is additive Conformance pointers as fixture coverage grows.
 
-**SA-3 violation rule.** A spec example or wire payload that does NOT map to either a schema entry or an explicit host-type exemption is an SA-3 violation. The fix is to add the missing entry to Spec-Schemas.md (not to add an exemption). Per-cycle the audit names any newly-surfaced violations under this section. **No new violations surfaced in the 2026-07-04 pass** — the 013/014/015/016 shapes referenced by the newly-graduated Per-Spec tables (`:rf/flow-meta`, `:rf/http-managed-meta`, `:rf/reply-map`, `:rf/scoped-resource-key` / `:rf/resource-entry` / `:rf/resource-work-record` / `:rf/scope-policy` / `:rf/infinite-resource-args`, `:rf/elision-marker` / `:rf/project-egress-opts`) all already carry catalogue entries.
+**SA-3 violation rule.** A spec example or wire payload that does NOT map to either a schema entry or an explicit host-type exemption is an SA-3 violation. The fix is to add the missing entry to Spec-Schemas.md (not to add an exemption). Per-cycle the audit names any newly-surfaced violations under this section. **No violations are open as of the watermark** — the 013/014/015/016 shapes referenced by their Per-Spec tables (`:rf/flow-meta`, `:rf/http-managed-meta`, `:rf/reply-map`, `:rf/scoped-resource-key` / `:rf/resource-entry` / `:rf/resource-work-record` / `:rf/scope-policy` / `:rf/infinite-resource-args`, `:rf/elision-marker` / `:rf/project-egress-opts`) all carry catalogue entries.
 
 **Scope clarification.** This report covers shapes that flow *between* implementation surfaces (wire payloads, returned shapes, registration metadata). It does NOT cover host-primitive shapes (a CLJS map, a TypeScript object type) — those are local to the host's type system and need no cross-host schema. Per [§Scope](#scope), per-Spec scoring is selective; the SA-3 report is corpus-wide and is the SA-3 enforcement surface.
 
@@ -435,6 +409,6 @@ The Owner + Status sweep obligation from the prior pass is **discharged**: every
 
 _As-of 2026-07-04._
 
-**Current state.** Sixteen numbered/companion docs carry a `## Open questions` heading (000, 001, 002, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 016, and Design-TransducerRouter). The per-item SA-4 classification enumeration — the table of every open-question item with its `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking` verdict and cross-link — has **not yet been generated**; it is the next AI-Audit sweep's deliverable and is the open SA-8 obligation. Until that sweep lands, SA-4 compliance is verified per-Spec by narrative review (the prior pass moved the three overdue `(RESOLVED)`-labelled specs — 002, 005, 013 — out of `## Open questions`), not mechanically through this table.
+**Current state.** Fifteen numbered/companion docs carry a `## Open questions` heading (000, 001, 002, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 016, and Design-TransducerRouter). The per-item SA-4 classification enumeration — the table of every open-question item with its `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking` verdict and cross-link — does **not exist**; generating it is the open SA-8 obligation. SA-4 compliance is verified per-Spec by narrative review, not mechanically through this table.
 
 **Audit cadence.** This report is regenerated per AI-Audit run. A `:resolved` item still sitting under `## Open questions`, or a `:post-v1 tracked` item lacking a tracker reference, is an SA-4 violation surfaced here once the per-item enumeration is in place.
