@@ -107,6 +107,17 @@
 
             :else nil))))))
 
+(defonce ^{:private true
+            :doc "The Escape handlers of the mounted traps, oldest first.
+                  Every trap listens on the window, and `stopPropagation`
+                  does not stop the other listeners on that same target, so
+                  each handler acts only while it is the LAST entry — the
+                  topmost dialog. The recorder stacks its export dialog on
+                  its save dialog, and one Escape used to close both
+                  (rf2-3x7nj.29.6)."}
+  open-traps
+  (atom []))
+
 (defn focus-trap
   "Reagent class-3 component that wraps a modal dialog's render output
   with focus management:
@@ -117,7 +128,8 @@
       `:initial-focus-ref` if the caller populated it).
     - Cycles Tab / Shift-Tab on the focusable descendants so focus
       never leaves the dialog.
-    - Listens for Escape on window and invokes `:on-close`.
+    - Listens for Escape on window and invokes `:on-close` — only while
+      it is the topmost mounted trap, so one Escape closes one dialog.
 
   `opts`:
     :on-close          — required zero-arg fn invoked on Escape.
@@ -148,12 +160,14 @@
              (reset! prev-active (.-activeElement js/document)))
            ;; Window-level Escape handler. Use capture so we win over
            ;; any in-dialog handler that might preventDefault first.
-           (let [f (fn [^js evt]
-                     (when (= "Escape" (.-key evt))
+           (let [f (fn f [^js evt]
+                     (when (and (= "Escape" (.-key evt))
+                                (identical? f (peek @open-traps)))
                        (.preventDefault evt)
                        (.stopPropagation evt)
                        (on-close)))]
              (reset! key-handler f)
+             (swap! open-traps conj f)
              (when (exists? js/window)
                (.addEventListener js/window "keydown" f true)))
            ;; Capture-phase Tab handler on the wrapper root. Capture so
@@ -177,6 +191,7 @@
        :component-will-unmount
        (fn [_this]
          (when-let [f @key-handler]
+           (swap! open-traps (fn [traps] (filterv #(not (identical? f %)) traps)))
            (when (exists? js/window)
              (.removeEventListener js/window "keydown" f true)))
          (when-let [f @tab-handler]
